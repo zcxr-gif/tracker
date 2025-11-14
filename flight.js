@@ -2404,18 +2404,6 @@ async function fetchAndDisplayGeocode(lat, lon) {
     }
 }
 
-    // --- NEW: Fetch Airport Coordinate Data ---
-    async function fetchAirportsData() {
-        try {
-            const response = await fetch(`${API_BASE_URL}/api/airports`);
-            if (!response.ok) throw new Error('Could not load airport coordinate data.');
-            airportsData = await response.json();
-            console.log(`Successfully loaded data for ${Object.keys(airportsData).length} airports.`);
-        } catch (error) {
-            console.error('Failed to fetch airport data:', error);
-            showNotification('Could not load airport location data; map features will be limited.', 'error');
-        }
-    }
 
     // --- NEW: Fetch Runway Data ---
 async function fetchRunwaysData() {
@@ -4115,12 +4103,6 @@ async function initializeSectorOpsView() {
         aircraftInfoWindowRecallBtn = document.getElementById('aircraft-recall-btn');
         weatherSettingsWindow = document.getElementById('weather-settings-window');
         filterSettingsWindow = document.getElementById('filter-settings-window');
-
-        // 1. Get pilot's available hubs
-        const rosterRes = await fetch(`${API_BASE_URL}/api/rosters/my-rosters`, { headers: { 'Authorization': `Bearer ${token}` } });
-        if (!rosterRes.ok) throw new Error('Could not determine your current location.');
-        const rosterData = await rosterRes.json();
-        const departureHubs = rosterData.searchCriteria?.searched || ['VIDP'];
 
         // 2. Populate hub selector
         selector.innerHTML = departureHubs.map(h => `<option value="${h}">${airportsData[h]?.name || h}</option>`).join('');
@@ -6660,25 +6642,6 @@ async function updateSectorOpsSecondaryData() {
     // END: NEW LIVE FLIGHTS & ATC/NOTAM LOGIC FOR SECTOR OPS MAP
     // ====================================================================
 
-
-    
-
-    // --- New function to fetch fleet data ---
-    async function fetchFleetData() {
-        try {
-            const response = await fetch(`${API_BASE_URL}/api/aircrafts`, {
-                headers: { 'Authorization': `Bearer ${token}` }
-            });
-            if (!response.ok) {
-                throw new Error('Could not load fleet data from the server.');
-            }
-            DYNAMIC_FLEET = await response.json();
-        } catch (error) {
-            console.error('Error fetching dynamic fleet:', error);
-            showNotification('Could not load the aircraft library. Some features may not work.', 'error');
-            DYNAMIC_FLEET = [];
-        }
-    }
 
 
     // --- Initial Load ---
