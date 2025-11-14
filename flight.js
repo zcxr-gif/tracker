@@ -4633,8 +4633,14 @@ function updateFlightPlanLayer(flightId, plan, currentPosition) {
         titleEl.innerHTML = `${icao} <small>- ${airport.name || 'Airport'}</small>`;
         contentEl.innerHTML = `<div class="spinner-small" style="margin: 2rem auto;"></div>`; // Loading state
         
-        MobileUIHandler.openWindow(airportInfoWindow);
-        airportInfoWindow.classList.add('visible');
+        // --- [FIX] Use the same mobile-aware logic as handleAircraftClick ---
+        if (window.MobileUIHandler && window.MobileUIHandler.isMobile()) {
+            window.MobileUIHandler.openWindow(airportInfoWindow);
+        } else {
+            airportInfoWindow.classList.add('visible');
+        }
+        // --- [END FIX] ---
+
         airportInfoWindowRecallBtn.classList.remove('visible');
         currentAirportInWindow = icao;
 

@@ -499,7 +499,7 @@ const MobileUIHandler = {
             this.closeActiveWindow(true); // 'true' = force close
         }
 
-        if (windowElement.id === 'aircraft-info-window') {
+        if (windowElement.id === 'aircraft-info-window' || windowElement.id === 'airport-info-window') {
             // --- Hide map controls ---
             const burgerMenu = document.getElementById('mobile-sidebar-toggle');
             const mapToolbar = document.getElementById('toolbar-toggle-panel-btn')?.parentElement;
