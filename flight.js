@@ -3551,13 +3551,6 @@ function updatePfdDisplay(pfdData) {
     const promotionModal = document.getElementById('promotion-modal');
     const arriveFlightModal = document.getElementById('arrive-flight-modal');
 
-    // --- Auth Check ---
-    const token = localStorage.getItem('authToken') || sessionStorage.getItem('authToken'); // <-- FIX
-    if (!token) {
-        window.location.href = 'login.html';
-        return;
-    }
-
     // --- Mapbox Plotting Functions ---
 
  
