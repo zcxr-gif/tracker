@@ -6133,126 +6133,6 @@ function updateAircraftInfoWindow(baseProps, plan, sortedRoutePoints) {
         });
     }
 
-    /**
-     * Fetches and renders the curated rosters for the selected hub.
-     */
-    async function fetchAndRenderRosters(departureICAO) {
-        const container = document.getElementById('roster-list-container');
-        container.innerHTML = '<div class="spinner-small"></div><p>Loading recommended rosters...</p>';
-        try {
-            const res = await fetch(`${API_BASE_URL}/api/rosters/my-rosters`, { headers: { 'Authorization': `Bearer ${token}` } });
-            if (!res.ok) throw new Error('Could not fetch recommended rosters.');
-            const data = await res.json();
-
-            const relevantRosters = data.rosters.filter(r => r.hub === departureICAO || r.legs?.[0]?.departure === departureICAO);
-
-            if (relevantRosters.length === 0) {
-                container.innerHTML = `<p class="muted">No recommended multi-leg rosters found departing from ${departureICAO}.</p>`;
-                return [];
-            }
-
-            container.innerHTML = relevantRosters.map(roster => {
-                const dutyDisabled = CURRENT_PILOT?.promotionStatus === 'PENDING_TEST' ? 'disabled' : '';
-                const uniqueAirlines = [...new Set(roster.legs.map(leg => extractAirlineCode(leg.flightNumber)))];
-                const airlineLogosHTML = uniqueAirlines.map(code => {
-                    if (!code || code === 'UNKNOWN') return '';
-                    const logoPath = `Images/vas/${code}.png`;
-                    return `<img src="${logoPath}" alt="${code}" class="roster-airline-logo" onerror="this.style.display='none'">`;
-                }).join('');
-
-                const firstLeg = roster.legs[0];
-                const lastLeg = roster.legs[roster.legs.length - 1];
-                const pathString = [roster.legs[0].departure, ...roster.legs.map(leg => leg.arrival)].join(' → ');
-
-                return `
-                <div class="roster-item" data-roster-id="${roster.rosterId}">
-                    <div class="roster-card-header">
-                        <div class="roster-airlines">${airlineLogosHTML}</div>
-                        <div class="roster-title-info">
-                            <span class="roster-name">${roster.name}</span>
-                            <span class="roster-meta">Total: ${Number(roster.totalFlightTime || 0).toFixed(1)} hrs</span>
-                        </div>
-                    </div>
-                    <div class="roster-flight-info">
-                        <div class="flight-segment departure">
-                            <span class="segment-label">Departs</span>
-                            <span class="segment-icao">${firstLeg.departure}</span>
-                        </div>
-                        <div class="flight-divider"><i class="fa-solid fa-plane"></i></div>
-                        <div class="flight-segment arrival">
-                            <span class="segment-label">Arrives</span>
-                            <span class="segment-icao">${lastLeg.arrival}</span>
-                        </div>
-                    </div>
-                    <div class="roster-card-footer">
-                        <div class="roster-path-display">${pathString}</div>
-                        <div class="roster-actions">
-                            <button class="details-button" data-roster-id="${roster.rosterId}" aria-expanded="false">Details</button>
-                            <button class="cta-button go-on-duty-btn" data-roster-id="${roster.rosterId}" ${dutyDisabled}>Go On Duty</button>
-                        </div>
-                    </div>
-                    <div class="roster-leg-details" id="details-${roster.rosterId}"></div>
-                </div>`;
-            }).join('');
-            return relevantRosters;
-
-        } catch (error) {
-            container.innerHTML = `<p class="error-text">${error.message}</p>`;
-            return [];
-        }
-    }
-
-    /**
-     * Fetches ALL available routes from the backend.
-     */
-    async function fetchAndRenderRoutes() {
-        const container = document.getElementById('route-list-container');
-        container.innerHTML = '<div class="spinner-small"></div><p>Exploring all available routes...</p>';
-        try {
-            const res = await fetch(`${API_BASE_URL}/api/routes/all`, {
-                headers: { 'Authorization': `Bearer ${token}` }
-            });
-            if (!res.ok) throw new Error('Could not fetch routes from the server.');
-            const allRoutes = await res.json();
-
-            if (allRoutes.length === 0) {
-                container.innerHTML = `<p class="muted">No routes found in the database.</p>`;
-                return [];
-            }
-
-            container.innerHTML = allRoutes.map(route => {
-                const airlineCode = extractAirlineCode(route.flightNumber);
-                const logoPath = airlineCode ? `Images/vas/${airlineCode}.png` : '';
-                const requiredRank = route.rankUnlock || deduceRankFromAircraftFE(route.aircraft);
-                // Safely stringify the route data for the data attribute
-                const routeDataString = JSON.stringify(route).replace(/'/g, "&apos;");
-
-                return `
-                <div class="route-card" 
-                     data-departure="${route.departure}" 
-                     data-arrival="${route.arrival}" 
-                     data-aircraft="${route.aircraft}"
-                     data-operator="${route.operator || ''}">
-                    <div class="route-card-main">
-                        <img src="${logoPath}" class="leg-airline-logo" alt="${airlineCode}" onerror="this.style.display='none'">
-                        <div class="route-card-details">
-                            <strong>${route.flightNumber}</strong>
-                            <span>${route.departure} <i class="fa-solid fa-arrow-right-long"></i> ${route.arrival}</span>
-                        </div>
-                    </div>
-                    <div class="route-card-actions">
-                        ${getRankBadgeHTML(requiredRank, { showImage: true, imageClass: 'roster-req-rank-badge' })}
-                        <button class="cta-button plan-flight-from-explorer-btn" data-route='${routeDataString}'>Plan</button>
-                    </div>
-                </div>
-                `;
-            }).join('');
-            return allRoutes;
-        } catch (error) {
-            container.innerHTML = `<p class="error-text">${error.message}</p>`;
-            return [];
-        }
-    }
 
    
 function setupSectorOpsEventListeners() {
@@ -6802,83 +6682,25 @@ async function updateSectorOpsSecondaryData() {
 
 
     // --- Initial Load ---
-async function initializeApp() {
-    mainContentLoader.classList.add('active');
+// --- Start the application ---
+    async function initializeApp() {
+        mainContentLoader.classList.add('active');
 
-    // NEW: Inject all custom CSS needed for new features
-    injectCustomStyles();
+        // Inject all custom CSS
+        injectCustomStyles();
 
-    // --- [NEW] Inject Mobile Toggle Button & Overlay ---
-    const dashboardContainer = document.querySelector('.dashboard-container');
-    if (dashboardContainer) {
-        dashboardContainer.insertAdjacentHTML('afterbegin', `
-            <button id="mobile-sidebar-toggle" class="mobile-sidebar-toggle-btn" aria-label="Open sidebar">
-                <i class="fa-solid fa-bars"></i>
-            </button>
-            <div id="mobile-nav-overlay" class="mobile-nav-overlay"></div>
-        `);
-    }
-    // --- End of New Injection ---
-
-    // Fetch essential data in parallel
-    await Promise.all([
-        fetchApiKeys(),
-        fetchAirportsData(),
-        fetchRunwaysData()
-    ]);
-
-    // Initial view setup
-    const urlParams = new URLSearchParams(window.location.search);
-    const initialView = urlParams.get('view') || 'view-duty-status';
-    switchView(initialView);
-
-
-    if (window.innerWidth > 992 && localStorage.getItem('sidebarState') === 'collapsed') {
-        dashboardContainer.classList.add('sidebar-collapsed');
-    }
-
-    sidebarToggleBtn.addEventListener('click', () => {
-        dashboardContainer.classList.toggle('sidebar-collapsed');
-        localStorage.setItem('sidebarState', dashboardContainer.classList.contains('sidebar-collapsed') ? 'collapsed' : 'expanded');
+        // Fetch essential data in parallel
+        await Promise.all([
+            fetchApiKeys(),
+            fetchAirportsData(),
+            fetchRunwaysData()
+        ]);
         
-        if (sectorOpsMap) {
-            setTimeout(() => sectorOpsMap.resize(), 400); 
-        }
-    });
-
-    // --- [NEW] Mobile Sidebar Event Listeners ---
-    const mobileToggleBtn = document.getElementById('mobile-sidebar-toggle');
-    const mobileOverlay = document.getElementById('mobile-nav-overlay');
-    const sidebar = document.querySelector('.sidebar');
-
-    if (mobileToggleBtn && mobileOverlay && dashboardContainer && sidebar) {
-        // Open/close with the button
-        mobileToggleBtn.addEventListener('click', () => {
-            dashboardContainer.classList.toggle('sidebar-mobile-open');
-        });
-
-        // Close by clicking the overlay
-        mobileOverlay.addEventListener('click', () => {
-            dashboardContainer.classList.remove('sidebar-mobile-open');
-        });
-
-        // Close sidebar when a nav link is clicked
-        sidebar.addEventListener('click', (e) => {
-            if (e.target.closest('.nav-link')) {
-                dashboardContainer.classList.remove('sidebar-mobile-open');
-            }
-        });
+        // Initialize the Sector Ops view
+        await initializeSectorOpsView(); 
+        
+        mainContentLoader.classList.remove('active');
     }
-    // --- End of New Mobile Listeners ---
 
-    logoutButton.addEventListener('click', (e) => {
-        e.preventDefault();
-        localStorage.removeItem('authToken');
-        showNotification('You have been logged out.', 'success');
-        setTimeout(() => { window.location.href = 'login.html'; }, 1000);
-    });
-}
-
-    // Start the application
     initializeApp();
 });
