@@ -2429,7 +2429,46 @@ async function fetchRunwaysData() {
     }
 }
 
+/**
+ * --- [NEW FIX] Fetches the airport database from airports.json
+ * This function was missing, causing a 'ReferenceError'.
+ */
+async function fetchAirportsData() {
+    try {
+        const response = await fetch('airports.json'); // Assumes airports.json is in the same directory
+        if (!response.ok) {
+            throw new Error('Could not load airports.json database.');
+        }
+        
+        const rawAirports = await response.json();
 
+        // Check if the file is an array (which needs to be indexed)
+        // or an object (which is already indexed)
+        if (Array.isArray(rawAirports)) {
+            // It's an array, so we must index it by ICAO
+            airportsData = rawAirports.reduce((acc, airport) => {
+                // Use 'icao' or 'ident' as the key, ensure it's uppercase
+                const ikey = airport.icao || airport.ident; 
+                if (ikey) {
+                    acc[ikey.toUpperCase()] = airport;
+                }
+                return acc;
+            }, {});
+        } else {
+            // It's already an object, just use it
+            airportsData = rawAirports;
+        }
+
+        console.log(`Successfully loaded data for ${Object.keys(airportsData).length} airports.`);
+
+    } catch (error) {
+        console.error('Failed to fetch airport data:', error);
+        // Use the showNotification function if it's available
+        if (typeof showNotification === 'function') {
+            showNotification('Airport database could not be loaded. Map may be incomplete.', 'error');
+        }
+    }
+}
     /// --- Helper Functions ---
 
 /**
