@@ -56,8 +56,8 @@
             100% { transform: rotate(360deg); }
         }
 
-        /* --- [FIX] Sector Ops View Layout --- */
-        #view-rosters.active {
+        /* --- [FIX] Standalone Map View Layout --- */
+        #standalone-map-view.active {
             position: absolute;
             inset: 0; /* Sets top, right, bottom, left to 0 */
             width: 100%;
@@ -1877,9 +1877,9 @@
 <body>
 
     <div class="main-content">
-        <div id="view-rosters" class="content-view active">
+        <div id="standalone-map-view" class="content-view active">
             <div id="sector-ops-map-fullscreen"></div>
-            </div>
+        </div>
     </div>
 
     <div id="sector-ops-floating-panel" class="sector-ops-floating-panel panel-collapsed">
@@ -1907,7 +1907,7 @@
                 <i class="fa-solid fa-bars-staggered"></i>
             </button>
         </div>
-        </div>
+    </div>
 
     <div id="main-content-loader" class="main-loader-overlay active">
         <div class="spinner-large"></div>
