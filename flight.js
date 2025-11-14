@@ -73,6 +73,26 @@ document.addEventListener('DOMContentLoaded', async () => {
         planDisplayMode: 'none'
     };
 
+    const departureHubs = []; // Empty array
+    let ALL_AVAILABLE_ROUTES = []; // Empty array
+    const DYNAMIC_FLEET = []; // Empty array
+    const AIRCRAFT_SELECTION_LIST = []; // Empty array
+
+    async function fetchAndRenderRosters(hubIcao) {
+        // This feature is disabled
+        console.log("Roster feature is disabled.");
+        return []; // Return empty array
+    }
+    
+    async function fetchAndRenderRoutes() {
+        // This feature is disabled
+        console.log("Route feature is disabled.");
+        const routeContainer = document.getElementById('route-list-container');
+        if (routeContainer) {
+             routeContainer.innerHTML = '<p class="muted-text" style="padding: 2rem;">Route loading is disabled.</p>';
+        }
+        return []; // Return empty array
+    }
 
 
     // --- Helper: Fetch API Keys from Netlify Function ---
@@ -3910,11 +3930,14 @@ function setupAircraftWindowEvents() {
 
 
 async function initializeSectorOpsView() {
-    const selector = document.getElementById('departure-hub-selector');
+    // const selector = document.getElementById('departure-hub-selector'); // <-- REMOVED
     const mapContainer = document.getElementById('sector-ops-map-fullscreen');
-    const viewContainer = document.getElementById('view-rosters'); // The main view container
-    if (!selector || !mapContainer) return;
-
+    // const viewContainer = document.getElementById('view-rosters'); // <-- REMOVED
+    
+    // --- [FIX] Changed viewContainer to mapContainer and removed !selector check ---
+    const viewContainer = document.getElementById('standalone-map-view'); // Use the correct ID from your HTML
+    if (!viewContainer || !mapContainer) return; // Modified check
+    
     mainContentLoader.classList.add('active');
 
     try {
@@ -3935,7 +3958,8 @@ async function initializeSectorOpsView() {
                     <div id="search-results-dropdown" class="search-results-dropdown"></div>
                 </div>
             `;
-            viewContainer.insertAdjacentHTML('beforeend', searchHtml);
+            // --- [FIX] Changed viewContainer to mapContainer ---
+            mapContainer.insertAdjacentHTML('beforeend', searchHtml);
         }
 
         // ... (Airport & Aircraft window HTML unchanged) ...
@@ -3952,7 +3976,8 @@ async function initializeSectorOpsView() {
                     <div id="airport-window-content" class="info-window-content"></div>
                 </div>
             `;
-            viewContainer.insertAdjacentHTML('beforeend', windowHtml);
+            // --- [FIX] Changed viewContainer to mapContainer ---
+            mapContainer.insertAdjacentHTML('beforeend', windowHtml);
         }
         if (!document.getElementById('aircraft-info-window')) {
              const windowHtml = `
@@ -3960,7 +3985,8 @@ async function initializeSectorOpsView() {
                     
                 </div>
             `;
-            viewContainer.insertAdjacentHTML('beforeend', windowHtml);
+            // --- [FIX] Changed viewContainer to mapContainer ---
+            mapContainer.insertAdjacentHTML('beforeend', windowHtml);
         }
         if (!document.getElementById('weather-settings-window')) {
             // ... (Weather window HTML unchanged) ...
@@ -4004,7 +4030,8 @@ async function initializeSectorOpsView() {
                     </div>
                 </div>
             `;
-            viewContainer.insertAdjacentHTML('beforeend', windowHtml);
+            // --- [FIX] Changed viewContainer to mapContainer ---
+            mapContainer.insertAdjacentHTML('beforeend', windowHtml);
         }
 
         // --- [MODIFIED FILTER WINDOW INJECTION] ---
@@ -4092,7 +4119,8 @@ async function initializeSectorOpsView() {
                         </div>
                 </div>
             `;
-            viewContainer.insertAdjacentHTML('beforeend', windowHtml);
+            // --- [FIX] Changed viewContainer to mapContainer ---
+            mapContainer.insertAdjacentHTML('beforeend', windowHtml);
         }
         // --- [END MODIFIED FILTER WINDOW INJECTION] ---
         
@@ -4136,19 +4164,23 @@ async function initializeSectorOpsView() {
         weatherSettingsWindow = document.getElementById('weather-settings-window');
         filterSettingsWindow = document.getElementById('filter-settings-window');
 
-        // 2. Populate hub selector
-        selector.innerHTML = departureHubs.map(h => `<option value="${h}">${airportsData[h]?.name || h}</option>`).join('');
-        const selectedHub = selector.value;
+        // 2. [FIX] Removed hub selector population ---
+        // selector.innerHTML = departureHubs.map(h => `<option value="${h}">${airportsData[h]?.name || h}</option>`).join('');
+        // const selectedHub = selector.value;
+        const selectedHub = "VIDP"; // <-- Hard-coded a default hub for the map
 
         // 3. Initialize the Mapbox map
         await initializeSectorOpsMap(selectedHub);
 
-        // 4. Fetch data
-        const [rosters, routes] = await Promise.all([
-            fetchAndRenderRosters(selectedHub),
-            fetchAndRenderRoutes()
-        ]);
-        ALL_AVAILABLE_ROUTES = routes;
+        // 4. [FIX] Fetch data ---
+        // const [rosters, routes] = await Promise.all([
+        //     fetchAndRenderRosters(selectedHub),
+        //     fetchAndRenderRoutes()
+        // ]);
+        // ALL_AVAILABLE_ROUTES = routes;
+        const routes = await fetchAndRenderRoutes(); // <-- Just call the routes function
+        ALL_AVAILABLE_ROUTES = routes; // This will be an empty array, which is fine
+
         renderAirportMarkers();
 
         // 5. Set up all event listeners
@@ -4156,7 +4188,7 @@ async function initializeSectorOpsView() {
         setupAirportWindowEvents();
         setupAircraftWindowEvents();
         setupWeatherSettingsWindowEvents();
-        setupFilterSettingsWindowEvents(); // <-- This will be modified next
+        setupFilterSettingsWindowEvents(); 
         setupSearchEventListeners();
 
         // 6. Start the live data loop.
@@ -4165,7 +4197,7 @@ async function initializeSectorOpsView() {
     } catch (error) {
         console.error("Error initializing Sector Ops view:", error);
         showNotification(error.message, 'error');
-        document.getElementById('roster-list-container').innerHTML = `<p class="error-text">${error.message}</p>`;
+        // document.getElementById('roster-list-container').innerHTML = `<p class="error-text">${error.message}</p>`; // <-- This element doesn't exist
         document.getElementById('route-list-container').innerHTML = `<p class="error-text">${error.message}</p>`;
     } finally {
         mainContentLoader.classList.remove('active');
