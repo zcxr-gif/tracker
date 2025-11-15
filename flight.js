@@ -160,12 +160,18 @@ function injectCustomStyles() {
         /* --- [OVERHAUL] Base Info Window Styles (Refined Glassmorphism) --- */
         .info-window {
             position: absolute;
-            top: 20px;
+            /* ##### FIX START ##### */
+            /* Moved down to sit below the search bar */
+            top: 80px; 
+            /* ##### FIX END ##### */
             right: 20px;
             /* --- REDESIGN: Wider for new layout --- */
             width: 540px; 
             max-width: 90vw;
-            max-height: calc(100vh - 40px);
+            /* ##### FIX START ##### */
+            /* Adjusted max-height to account for new 'top' value */
+            max-height: calc(100vh - 100px); /* 80px top + 20px bottom margin */
+            /* ##### FIX END ##### */
             background: rgba(18, 20, 38, 0.75);
             backdrop-filter: blur(20px) saturate(180%);
             -webkit-backdrop-filter: blur(20px) saturate(180%);
