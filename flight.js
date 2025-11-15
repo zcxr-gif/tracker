@@ -4790,6 +4790,10 @@ function getFlatWaypointObjects(items) {
 /**
  * --- [NEW HELPER] Generates an altitude-segmented GeoJSON FeatureCollection for the flown route.
  * Breaks the route into segments, each with an 'avgAltitude' property for color-coding.
+ *
+ * --- [FIXED] This version now includes longitude "unwrapping" logic to prevent
+ * the flight path from lapping around the globe when it crosses the antimeridian.
+ *
  * @param {Array} sortedPoints - Array of historical route point objects.
  * @param {object} currentPosition - The aircraft's current position object.
  * @returns {object} A GeoJSON FeatureCollection.
@@ -4797,7 +4801,7 @@ function getFlatWaypointObjects(items) {
 function generateAltitudeColoredRoute(sortedPoints, currentPosition) {
     const features = [];
     
-    // Create a single array of all points
+    // 1. Create a single array of all points (as before)
     const allPoints = [
         ...sortedPoints.map(p => ({
             longitude: p.longitude,
@@ -4811,18 +4815,84 @@ function generateAltitudeColoredRoute(sortedPoints, currentPosition) {
         }
     ];
 
-    for (let i = 0; i < allPoints.length - 1; i++) {
-        const p1 = allPoints[i];
-        const p2 = allPoints[i + 1];
+    if (allPoints.length < 2) {
+        return { type: 'FeatureCollection', features: [] };
+    }
 
-        // Skip segments with invalid data
-        if (!p1 || !p2 || p1.longitude == null || p1.latitude == null || p2.longitude == null || p2.latitude == null) {
+    // 2. Create a new array of "unwrapped" points
+    const unwrappedPoints = [];
+    
+    // Get the first valid longitude as the starting point
+    let firstValidIndex = allPoints.findIndex(p => p.longitude != null);
+    if (firstValidIndex === -1) {
+        // No valid points at all
+        return { type: 'FeatureCollection', features: [] };
+    }
+    
+    let prevLon = allPoints[firstValidIndex].longitude;
+
+    // Add all points up to the first valid one as-is
+    for (let i = 0; i <= firstValidIndex; i++) {
+        unwrappedPoints.push({
+            ...allPoints[i],
+            unwrappedLongitude: allPoints[i].longitude
+        });
+    }
+
+    // Start unwrapping from the point *after* the first valid one
+    for (let i = firstValidIndex + 1; i < allPoints.length; i++) {
+        const currentPoint = allPoints[i];
+        let currentLon = currentPoint.longitude;
+
+        // --- START OF LONGITUDE WRAP FIX ---
+        if (currentLon == null || prevLon == null) {
+            // Can't unwrap if data is missing, just add the point
+            unwrappedPoints.push({
+                ...currentPoint,
+                unwrappedLongitude: currentLon
+            });
+            prevLon = currentLon; // Update prevLon even if it's null
             continue;
         }
 
+        const dLon = currentLon - prevLon;
+
+        if (dLon > 180) {
+            // Aircraft moved West across the antimeridian (e.g., -179.9 -> 179.9)
+            // But calculation is (179.9 - (-179.9)) = 359.8
+            // We subtract 360 from the current longitude.
+            currentLon -= 360; 
+        } else if (dLon < -180) {
+            // Aircraft moved East across the antimeridian (e.g., 179.9 -> -179.9)
+            // Calculation is (-179.9 - 179.9) = -359.8
+            // We add 360 to the current longitude.
+            currentLon += 360;
+        }
+        // --- END OF LONGITUDE WRAP FIX ---
+        
+        unwrappedPoints.push({
+            ...currentPoint,
+            unwrappedLongitude: currentLon // Store the new unwrapped value
+        });
+        
+        // The *unwrapped* longitude becomes the new "previous"
+        prevLon = currentLon; 
+    }
+
+    // 3. Generate features using the "unwrapped" points
+    for (let i = 0; i < unwrappedPoints.length - 1; i++) {
+        const p1 = unwrappedPoints[i];
+        const p2 = unwrappedPoints[i+1];
+
+        // Skip segments with invalid data
+        if (!p1 || !p2 || p1.unwrappedLongitude == null || p1.latitude == null || p2.unwrappedLongitude == null || p2.latitude == null) {
+            continue;
+        }
+
+        // Use the unwrappedLongitude for drawing
         const coords = [
-            [p1.longitude, p1.latitude],
-            [p2.longitude, p2.latitude]
+            [p1.unwrappedLongitude, p1.latitude],
+            [p2.unwrappedLongitude, p2.latitude]
         ];
         
         const alt1 = p1.altitude || 0;
