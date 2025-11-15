@@ -99,7 +99,6 @@ const MobileUIHandler = {
                 /* --- [NEW] Legacy Sheet Config --- */
                 --legacy-peek-height: ${this.CONFIG.legacyPeekHeight}px;
                 --legacy-top-offset: env(safe-area-inset-top, 15px);
-                --legacy-header-height: 100px; /* [NEW] The height of the header area we want to clear */
             }
             
             /* --- [FIX] Target the map container instead of 'view-rosters' --- */
@@ -427,15 +426,8 @@ const MobileUIHandler = {
 
             /* "Expanded" State */
             .mobile-legacy-sheet.visible:not(.peek) {
-                transform: translateY(0); /* [MODIFIED] JS controls top, CSS snaps transform to 0 */
+                transform: translateY(0); /* [FIX] Set transform to 0 to align top edge with max-height constraint */
             }
-            
-            /* --- [NEW FIX] Push Content Down When Expanded --- */
-            .mobile-legacy-sheet.visible:not(.peek) .legacy-sheet-handle {
-                /* Moves all content wrapped by the handle down past the safe area/status bar */
-                padding-top: calc(var(--legacy-top-offset) + 15px);
-            }
-            /* --- [END NEW FIX] --- */
             
             /* --- [NEW] Drag Handle for Legacy Sheet --- */
             .legacy-sheet-handle {
@@ -897,56 +889,33 @@ const MobileUIHandler = {
     },
 
     /**
-     * [MODIFIED] Sets the "Legacy Sheet" to a specific state.
+     * [NEW] Sets the "Legacy Sheet" to a specific state.
      */
     setLegacySheetState(targetState) { // 'peek', 'expanded', or 'closed'
         if (!this.activeWindow) return;
         
         this.legacySheetState.currentState = targetState;
-        
-        // Ensure transition is used only when state changes, not during drag
         this.activeWindow.style.transition = 'transform 0.45s cubic-bezier(0.16, 1, 0.3, 1)';
-        this.activeWindow.style.transform = ''; // Clear inline transform from dragging
+        this.activeWindow.style.transform = ''; // Remove inline style from dragging
 
-        // Get the computed top offset value from CSS
-        const rootStyles = getComputedStyle(document.documentElement);
-        // Ensure we retrieve the calculated pixel value for the safe area/top offset
-        const topOffset = parseInt(rootStyles.getPropertyValue('--legacy-top-offset').replace('px', '').trim() || "15", 10);
-        
         if (targetState === 'expanded') {
             this.activeWindow.classList.add('visible');
             this.activeWindow.classList.remove('peek');
             if (this.overlayEl) this.overlayEl.classList.add('visible');
             
-            // --- [FIX] Force the top edge to stop at the exact offset pixel value ---
-            this.activeWindow.style.top = `${topOffset}px`;
-            this.activeWindow.style.bottom = '0';
-            this.activeWindow.style.transform = 'translateY(0)'; // Snap it to the top/bottom constraints
-            // --- [END FIX] ---
-
-            // Update state variable for dragging reference
-            this.legacySheetState.currentSheetY = topOffset;
+            const expandedY = document.documentElement.clientHeight - this.activeWindow.offsetHeight;
+            this.legacySheetState.currentSheetY = expandedY;
 
         } else if (targetState === 'peek') {
             this.activeWindow.classList.add('visible', 'peek');
             if (this.overlayEl) this.overlayEl.classList.remove('visible');
             
-            // Revert to CSS defined positioning for peek state
-            this.activeWindow.style.top = ''; 
-            this.activeWindow.style.bottom = '0';
-
-            // Calculate current Y position for dragging reference
             const peekY = window.innerHeight - this.CONFIG.legacyPeekHeight;
             this.legacySheetState.currentSheetY = peekY;
 
         } else if (targetState === 'closed') {
-            // Revert to CSS defined positioning for closed state (off-screen)
             this.activeWindow.classList.remove('visible', 'peek');
             if (this.overlayEl) this.overlayEl.classList.remove('visible');
-            
-            this.activeWindow.style.top = '';
-            this.activeWindow.style.bottom = ''; // Let the transform: translateY(100%) move it out
-
             this.legacySheetState.currentSheetY = window.innerHeight + 100;
         }
     },
@@ -989,6 +958,7 @@ const MobileUIHandler = {
         this.setDrawerState(newState);
     },
 
+    // --- [NEW] Legacy Sheet Swipe Handlers ---
     handleLegacyTouchStart(e) {
         if (this.activeMode !== 'legacy' || !this.activeWindow) return;
         
@@ -1003,20 +973,33 @@ const MobileUIHandler = {
         this.legacySheetState.isDragging = true;
         this.legacySheetState.touchStartY = e.touches[0].clientY;
         
-        // Get the current computed Y position (top edge). 
-        // We MUST use getBoundingClientRect().top as the starting position.
+        // Get the current computed Y position
         const rect = this.activeWindow.getBoundingClientRect();
         this.legacySheetState.currentSheetY = rect.top;
         this.legacySheetState.startSheetY = rect.top;
         
         this.activeWindow.style.transition = 'none'; // Allow live dragging
+    },
+
+    handleLegacyTouchMove(e) {
+        if (this.activeMode !== 'legacy' || !this.legacySheetState.isDragging) return;
         
-        // [NEW FIX] Clear the CSS transform property when dragging begins, 
-        // as we will control position via 'top'.
-        this.activeWindow.style.transform = 'none';
+        e.preventDefault();
+        const touchCurrentY = e.touches[0].clientY;
+        let deltaY = touchCurrentY - this.legacySheetState.touchStartY;
+
+        // Calculate new Y, but don't let it be dragged higher than the top offset
+        const topStop = parseInt(getComputedStyle(document.documentElement).getPropertyValue('--legacy-top-offset') || "15", 10);
+        let newY = this.legacySheetState.startSheetY + deltaY;
         
-        // Also ensure the sheet is not classed as 'peek' during the drag
-        this.activeWindow.classList.remove('peek');
+        // Add resistance when dragging *above* the top stop
+        if (newY < topStop) {
+            const overdrag = topStop - newY;
+            newY = topStop - (overdrag * 0.3); // Resistance
+        }
+        
+        this.activeWindow.style.transform = `translateY(${newY}px)`;
+        this.legacySheetState.currentSheetY = newY; // Store last position
     },
 
     handleLegacyTouchEnd(e) {
@@ -1027,72 +1010,28 @@ const MobileUIHandler = {
         const deltaY = this.legacySheetState.currentSheetY - this.legacySheetState.startSheetY;
 
         const peekY = window.innerHeight - this.CONFIG.legacyPeekHeight;
-        const topStop = parseInt(getComputedStyle(document.documentElement).getPropertyValue('--legacy-top-offset').replace('px', '').trim() || "15", 10);
+        const topStop = parseInt(getComputedStyle(document.documentElement).getPropertyValue('--legacy-top-offset') || "15", 10);
         
         // Snap logic
-        // Current position: this.legacySheetState.currentSheetY
-        
-        let targetState = 'peek';
-        
-        // 1. Check if we are above the halfway point between topStop and peekY
-        const expandedThreshold = topStop + (peekY - topStop) * 0.4; // Snap to expanded if we are above 40% down
-
         if (this.legacySheetState.currentState === 'peek') {
-             if (this.legacySheetState.currentSheetY < expandedThreshold || deltaY < -50) { // Swiped up or reached threshold
-                targetState = 'expanded';
-            } else if (deltaY > 150) { // Swiped down heavily to close
+            if (deltaY < -100) { // Swiped up
+                this.setLegacySheetState('expanded');
+            } else if (deltaY > 100) { // [MODIFIED] Swiped down to close
                 this.closeActiveWindow();
-                return; // Stop processing here
-            } else { 
-                targetState = 'peek'; // Snap back to peek
+            } else { // Snap back
+                this.setLegacySheetState('peek');
             }
         } else { // Was 'expanded'
-             if (this.legacySheetState.currentSheetY > expandedThreshold) { // Swiped down or reached threshold
-                targetState = 'peek';
-            } else { 
-                targetState = 'expanded'; // Snap back to expanded
+            if (deltaY > 100) { // Swiped down
+                this.setLegacySheetState('peek');
+            } else { // Snap back
+                this.setLegacySheetState('expanded');
             }
         }
         
-        this.setLegacySheetState(targetState);
-        
-        // [FIX] Do NOT clear transition or transform/top here. 
-        // setLegacySheetState() handles the final styling and re-enables transition.
-    },
-
-    handleLegacyTouchEnd(e) {
-        if (this.activeMode !== 'legacy' || !this.legacySheetState.isDragging) return;
-        
-        this.legacySheetState.isDragging = false;
-        
-        const deltaY = this.legacySheetState.currentSheetY - this.legacySheetState.startSheetY;
-
-        const peekY = window.innerHeight - this.CONFIG.legacyPeekHeight;
-        const topStop = parseInt(getComputedStyle(document.documentElement).getPropertyValue('--legacy-top-offset').replace('px', '').trim() || "15", 10);
-        
-        let targetState = 'peek';
-        
-        // Check if we are above the halfway point between topStop and peekY
-        const expandedThreshold = topStop + (peekY - topStop) * 0.4; // Snap to expanded if we are above 40% down
-
-        if (this.legacySheetState.currentState === 'peek') {
-             if (this.legacySheetState.currentSheetY < expandedThreshold || deltaY < -50) { // Swiped up or reached threshold
-                targetState = 'expanded';
-            } else if (deltaY > 150) { // Swiped down heavily to close
-                this.closeActiveWindow();
-                return; 
-            } else { 
-                targetState = 'peek'; // Snap back to peek
-            }
-        } else { // Was 'expanded'
-             if (this.legacySheetState.currentSheetY > expandedThreshold) { // Swiped down or reached threshold
-                targetState = 'peek';
-            } else { 
-                targetState = 'expanded'; // Snap back to expanded
-            }
-        }
-        
-        this.setLegacySheetState(targetState);
+        // Clear inline styles
+        this.activeWindow.style.transition = '';
+        this.activeWindow.style.transform = '';
     },
 
 
