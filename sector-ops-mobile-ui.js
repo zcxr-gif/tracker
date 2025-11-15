@@ -88,6 +88,7 @@ const MobileUIHandler = {
             :root {
                 --hud-bg: rgba(10, 15, 28, 0.85);
                 --hud-blur: 15px;
+                --hud-top-window-height: 280px;
                 --hud-border: rgba(0, 168, 255, 0.3);
                 --hud-accent: #00a8ff;
                 --hud-glow: 0 0 15px rgba(0, 168, 255, 0.5);
@@ -426,7 +427,7 @@ const MobileUIHandler = {
 
             /* "Expanded" State */
             .mobile-legacy-sheet.visible:not(.peek) {
-                transform: translateY(0); /* [FIX] Set transform to 0 to align top edge with max-height constraint */
+                transform: translateY(var(--hud-top-window-height));
             }
             
             /* --- [NEW] Drag Handle for Legacy Sheet --- */
@@ -903,7 +904,10 @@ const MobileUIHandler = {
             this.activeWindow.classList.remove('peek');
             if (this.overlayEl) this.overlayEl.classList.add('visible');
             
-            const expandedY = document.documentElement.clientHeight - this.activeWindow.offsetHeight;
+            const topOffset = parseInt(getComputedStyle(document.documentElement)
+            .getPropertyValue('--hud-top-window-height')) || 280;
+            const expandedY = topOffset;
+
             this.legacySheetState.currentSheetY = expandedY;
 
         } else if (targetState === 'peek') {
@@ -989,7 +993,9 @@ const MobileUIHandler = {
         let deltaY = touchCurrentY - this.legacySheetState.touchStartY;
 
         // Calculate new Y, but don't let it be dragged higher than the top offset
-        const topStop = parseInt(getComputedStyle(document.documentElement).getPropertyValue('--legacy-top-offset') || "15", 10);
+        const topStop = parseInt(getComputedStyle(document.documentElement)
+        .getPropertyValue('--hud-top-window-height')) || 280;
+
         let newY = this.legacySheetState.startSheetY + deltaY;
         
         // Add resistance when dragging *above* the top stop
