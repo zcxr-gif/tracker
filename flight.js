@@ -2357,29 +2357,14 @@ function injectCustomStyles() {
     }
 
 /**
- * --- [FIXED] Fetches reverse geocoded location and updates the UI.
- * Includes a distance check to avoid redundant API calls.
- *
- * [FIX v2 - Mobile UI]
- * This function is vulnerable to a race condition where:
- * 1. It's called and gets a reference to the original '#ac-location' (locationEl).
- * 2. It sets the spinner on locationEl.
- * 3. It awaits the fetch.
- * 4. While awaiting, MobileUIHandler clones locationEl (with spinner) into the "Peek" view
- * and moves the original locationEl to the "Expanded" view.
- * 5. The fetch returns, and updates textContent on locationEl (the original, now in Expanded).
- * 6. The "Peek" view is left with a "dead" spinner.
- *
- * THE FIX:
- * 1. Query for all elements *before* the await to set loading state.
- * 2. Query for all elements *AGAIN* after the await to update ALL instances (original + clone).
- * 3. Modify the distance check to always allow the first run (when lastGeocodeCoords.lat is 0).
+ * [FIXED] Fetches reverse geocoded location and updates the UI.
+ * Solves the "stuck spinner" race condition by querying for ALL
+ * instances of the element *after* the async fetch completes.
  */
 async function fetchAndDisplayGeocode(lat, lon) {
     if (!lat || !lon) return;
 
     // 1. Check if we've moved significantly (e.g., > 20km)
-    // [FIX] Allow the first run by checking if lat is 0.
     const distanceMovedKm = getDistanceKm(lat, lon, lastGeocodeCoords.lat, lastGeocodeCoords.lon);
     if (distanceMovedKm < 20 && lastGeocodeCoords.lat !== 0) {
         return; // Not far enough, don't waste API call
@@ -2388,7 +2373,7 @@ async function fetchAndDisplayGeocode(lat, lon) {
     // 2. Store new coordinates and find ALL UI elements
     lastGeocodeCoords = { lat, lon };
     
-    // [FIX] Query all *before* the await
+    // [FIX] Query all *before* the await to set loading state
     const initialElements = document.querySelectorAll('#ac-location');
     if (initialElements.length === 0) return;
 
@@ -2400,7 +2385,7 @@ async function fetchAndDisplayGeocode(lat, lon) {
         // 3. Call your new Netlify Function
         const response = await fetch(`https://indgo-va.netlify.app/.netlify/functions/reverse-geocode?lat=${lat}&lon=${lon}`);
 
-        // [FIX] Query all *after* the await to get the (potentially) new DOM structure
+        // [CRITICAL FIX] Query all *after* the await to get the (potentially) new DOM structure
         const currentElements = document.querySelectorAll('#ac-location');
 
         if (response.ok) {
@@ -2416,7 +2401,7 @@ async function fetchAndDisplayGeocode(lat, lon) {
         }
     } catch (error) {
         console.error("Geocode fetch error:", error);
-        // [FIX] Query all *after* the await, even in the catch block
+        // [CRITICAL FIX] Query all *after* the await, even in the catch block
         const currentElements = document.querySelectorAll('#ac-location');
         currentElements.forEach(el => {
             el.textContent = 'N/A'; // Fetch failed
@@ -3133,11 +3118,10 @@ function getNearestRunway(aircraftPos, airportIcao, maxDistanceNM = 2.0) {
     
 
 /**
- * Stable PFD update:
- * - Sample-and-hold last turn-rate between API packets (no snap-back).
- * - Linear regression w/ fallback dH/dt, heading unwrap, and EMA smoothing.
- * - Sign stickiness (won’t flip L/R for brief jitters).
- * - Hysteresis + stale logic so roll only decays when data is truly old.
+ * [FIXED] Updates the PFD display(s).
+ * This function is now safe for mobile cloning because it uses
+ * querySelectorAll to find and update *all* PFD instances,
+ * rather than just the first one found by getElementById.
  */
 function updatePfdDisplay(pfdData) {
   if (!pfdData) return;
@@ -3151,7 +3135,6 @@ function updatePfdDisplay(pfdData) {
     (pfdData.speed && (pfdData.speed.kt || pfdData.speed.kts)) ??
     0;
 
-  // ⬇️ MODIFIED: Prioritize heading_deg, but keep track_deg as a fallback
   const track_deg =
     pfdData.heading_deg ??
     pfdData.track_deg ??
@@ -3162,16 +3145,19 @@ function updatePfdDisplay(pfdData) {
   const alt_ft = pfdData.alt_ft ?? pfdData.altitude_ft ?? pfdData.altitude ?? 0;
   const vs_fpm = pfdData.vs_fpm ?? pfdData.vertical_speed_fpm ?? pfdData.vs ?? 0;
 
-  // ---- DOM ----
-  const attitudeGroup     = document.getElementById('attitude_group');
-  const speedTapeGroup    = document.getElementById('speed_tape_group');
-  const altitudeTapeGroup = document.getElementById('altitude_tape_group');
-  const tensReelGroup     = document.getElementById('altitude_tens_reel_group');
-  const headingTapeGroup  = document.getElementById('heading_tape_group');
-  const speedReadout      = document.getElementById('speed_readout');
-  const altReadoutHund    = document.getElementById('altitude_readout_hundreds');
-  const headingReadout    = document.getElementById('heading_readout');
-  if (!attitudeGroup || !speedTapeGroup || !altitudeTapeGroup || !headingTapeGroup || !tensReelGroup) return;
+  // ---- [FIX] DOM elements are now selected via querySelectorAll ----
+  const attitudeGroups     = document.querySelectorAll('#attitude_group');
+  const speedTapeGroups    = document.querySelectorAll('#speed_tape_group');
+  const altitudeTapeGroups = document.querySelectorAll('#altitude_tape_group');
+  const tensReelGroups     = document.querySelectorAll('#altitude_tens_reel_group');
+  const headingTapeGroups  = document.querySelectorAll('#heading_tape_group');
+  const speedReadouts      = document.querySelectorAll('#speed_readout');
+  const altReadoutHunds    = document.querySelectorAll('#altitude_readout_hundreds');
+  const headingReadouts    = document.querySelectorAll('#heading_readout');
+  
+  if (attitudeGroups.length === 0) return; // No PFDs found, exit
+  
+  // (All calculation logic below is unchanged)
 
   // ---- tunables ----
   const WINDOW_SEC          = 2.4;   // regression window
@@ -3347,37 +3333,34 @@ function updatePfdDisplay(pfdData) {
   const PFD_PITCH_SCALE       = window.PFD_PITCH_SCALE ?? 2.0;
   const PFD_SPEED_REF_VALUE   = window.PFD_SPEED_REF_VALUE ?? 0;
   const PFD_SPEED_SCALE       = window.PFD_SPEED_SCALE ?? -0.6;
-  // ✅ FIX: Changed fallback value from -0.09 to 0.7 to ensure correct (positive) tape translation.
   const PFD_ALTITUDE_SCALE    = window.PFD_ALTITUDE_SCALE ?? 0.7;
   const PFD_REEL_SPACING      = window.PFD_REEL_SPACING ?? 40;
   const PFD_HEADING_REF_VALUE = window.PFD_HEADING_REF_VALUE ?? 0;
   const PFD_HEADING_SCALE     = window.PFD_HEADING_SCALE ?? 4;
 
-  // ---- apply attitude transform (pitch translate, roll rotate) ----
+  // ---- [FIX] Apply transforms to ALL found elements ----
   const rollForSvg = -S.rollDisp; // SVG rotation sense
-  attitudeGroup.setAttribute(
-    'transform',
-    `translate(0, ${pitch_deg * PFD_PITCH_SCALE}) rotate(${rollForSvg}, 401.5, 312.5)`
-  );
+  const attitudeTransform = `translate(0, ${pitch_deg * PFD_PITCH_SCALE}) rotate(${rollForSvg}, 401.5, 312.5)`;
+  attitudeGroups.forEach(el => el.setAttribute('transform', attitudeTransform));
 
-  // ---- tapes/readouts ----
-  speedReadout.textContent = Math.round(gs_kt);
+  // ---- [FIX] Apply tape/readout updates to ALL found elements ----
   const speedYOffset = (gs_kt - PFD_SPEED_REF_VALUE) * PFD_SPEED_SCALE;
-  speedTapeGroup.setAttribute('transform', `translate(0, ${speedYOffset})`);
+  speedReadouts.forEach(el => el.textContent = Math.round(gs_kt));
+  speedTapeGroups.forEach(el => el.setAttribute('transform', `translate(0, ${speedYOffset})`));
 
   const altitude = Math.max(0, alt_ft);
-  altReadoutHund.textContent = Math.floor(altitude / 100);
   const tapeYOffset = altitude * PFD_ALTITUDE_SCALE;
-  altitudeTapeGroup.setAttribute('transform', `translate(0, ${tapeYOffset})`);
+  altReadoutHunds.forEach(el => el.textContent = Math.floor(altitude / 100));
+  altitudeTapeGroups.forEach(el => el.setAttribute('transform', `translate(0, ${tapeYOffset})`));
 
   const tensValue = altitude % 100;
   const reelYOffset = -(tensValue / 20) * PFD_REEL_SPACING;
-  tensReelGroup.setAttribute('transform', `translate(0, ${reelYOffset})`);
+  tensReelGroups.forEach(el => el.setAttribute('transform', `translate(0, ${reelYOffset})`));
 
   const hdg = ((Math.round(track_deg) % 360) + 360) % 360;
-  headingReadout.textContent = String(hdg).padStart(3, '0');
   const xOffset = -(track_deg - PFD_HEADING_REF_VALUE) * PFD_HEADING_SCALE;
-  headingTapeGroup.setAttribute('transform', `translate(${xOffset}, 0)`);
+  headingReadouts.forEach(el => el.textContent = String(hdg).padStart(3, '0'));
+  headingTapeGroups.forEach(el => el.setAttribute('transform', `translate(${xOffset}, 0)`));
 }
 
     /**
@@ -3795,110 +3778,84 @@ async function updateLiveFlights() {
 
 
 
+/**
+ * [FIXED] Attaches event listeners to the aircraft info window.
+ * Now correctly clears *both* intervals on close/hide to prevent memory leaks.
+ */
 function setupAircraftWindowEvents() {
     if (!aircraftInfoWindow || aircraftInfoWindow.dataset.eventsAttached === 'true') return;
 
     aircraftInfoWindow.addEventListener('click', async (e) => {
         const closeBtn = e.target.closest('.aircraft-window-close-btn');
         const hideBtn = e.target.closest('.aircraft-window-hide-btn');
-        const tabBtn = e.target.closest('.ac-info-tab-btn'); // <-- NEW: Listen for tab clicks
+        const tabBtn = e.target.closest('.ac-info-tab-btn');
 
-        // --- [NEW] Tab Switching Logic ---
+        // --- Tab Switching Logic (Unchanged) ---
         if (tabBtn) {
             e.preventDefault();
             const tabId = tabBtn.dataset.tab;
             if (!tabId || tabBtn.classList.contains('active')) {
-                return; // Already on this tab or invalid button
+                return;
             }
-
-            // Find the main content container relative to the button
-            // --- [FIX] The tab bar is no longer inside .unified-display-main-content
-            // We need to go up to the main .info-window-content
             const windowContent = tabBtn.closest('.info-window-content');
             if (!windowContent) return;
-
-            // De-activate old tab and pane
-            // --- [FIX] Find tabs in the *new* location
             tabBtn.closest('.ac-info-window-tabs').querySelector('.ac-info-tab-btn.active')?.classList.remove('active');
             windowContent.querySelector('.ac-tab-pane.active')?.classList.remove('active');
-
-            // Activate new tab and pane
             tabBtn.classList.add('active');
             const newPane = windowContent.querySelector(`#${tabId}`);
             
             if (newPane) {
                 newPane.classList.add('active');
             }
-
-            // Check if we need to lazy-load the Pilot Report data
             if (tabId === 'ac-tab-pilot-report') {
                 const statsDisplay = newPane.querySelector('#pilot-stats-display');
-
-                // ======================================================
-                // --- [BUG FIX] ---
-                // Changed check from !statsDisplay.hasChildNodes() to
-                // statsDisplay.innerHTML.trim() === ''
-                // This prevents whitespace in the template from breaking
-                // the lazy-load.
-                // ======================================================
                 if (statsDisplay && statsDisplay.innerHTML.trim() === '') { 
                     const userId = tabBtn.dataset.userId;
                     const username = tabBtn.dataset.username;
                     if (userId) {
-                        // This function will fetch data and populate #pilot-stats-display
                         await displayPilotStats(userId, username); 
                     }
                 }
             }
         }
 
-        // --- Original Close/Hide Logic (Unchanged) ---
+        // --- [FIXED] Close/Hide Logic ---
         if (closeBtn) {
             aircraftInfoWindow.classList.remove('visible');
             MobileUIHandler.closeActiveWindow();
             aircraftInfoWindowRecallBtn.classList.remove('visible');
             
-            // --- [VERIFIED] This call is correct ---
             clearLiveFlightPath(currentFlightInWindow); 
             
-            // --- [MODIFIED] Clear BOTH intervals ---
+            // --- [CRITICAL FIX] Clear BOTH intervals ---
             if (activePfdUpdateInterval) clearInterval(activePfdUpdateInterval);
             if (activeGeocodeUpdateInterval) clearInterval(activeGeocodeUpdateInterval);
             activePfdUpdateInterval = null;
             activeGeocodeUpdateInterval = null;
             currentAircraftPositionForGeocode = null;
-            // --- [END MODIFIED] ---
+            // --- [END FIX] ---
             
-            // ⬇️ === NEW: Clean up the trail cache === ⬇️
             liveTrailCache.delete(currentFlightInWindow);
-            // ⬆️ === END NEW === ⬆️
-
             currentFlightInWindow = null;
             cachedFlightDataForStatsView = { flightProps: null, plan: null };
         }
 
         if (hideBtn) {
             aircraftInfoWindow.classList.remove('visible');
-            
-            // --- [START MODIFICATION] ---
-            // We must also clear the map layers when hiding the window
             clearLiveFlightPath(currentFlightInWindow);
-            // --- [END MODIFICATION] ---
 
-            // --- [MODIFIED] Clear BOTH intervals ---
+            // --- [CRITICAL FIX] Clear BOTH intervals ---
             if (activePfdUpdateInterval) clearInterval(activePfdUpdateInterval);
             if (activeGeocodeUpdateInterval) clearInterval(activeGeocodeUpdateInterval);
             activePfdUpdateInterval = null;
             activeGeocodeUpdateInterval = null;
-            // --- [END MODIFIED] ---
+            // --- [END FIX] ---
             
             if (currentFlightInWindow) {
                 aircraftInfoWindowRecallBtn.classList.add('visible', 'palpitate');
                 setTimeout(() => aircraftInfoWindowRecallBtn.classList.remove('palpitate'), 1000);
             }
         }
-
-        // --- [REMOVED] Old button logic for statsBtn and backBtn ---
     });
 
     // The recall button logic remains the same.
@@ -3911,9 +3868,10 @@ function setupAircraftWindowEvents() {
                 const feature = features.find(f => f.properties.flightId === currentFlightInWindow);
                 if (feature) {
                     const props = feature.properties;
-                    const flightProps = { ...props, position: JSON.parse(props.position) };
+                    // --- [FIX] Re-parse position from stringified properties ---
+                    const flightProps = { ...props, position: JSON.parse(props.position), aircraft: JSON.parse(props.aircraft) };
                     
-                    fetch('https://site--acars-backend--6dmjph8v.code.run/if-sessions').then(res => res.json()).then(data => {
+                    fetch('https://site--acars-backend--6dmjph8ltlhv.code.run/if-sessions').then(res => res.json()).then(data => {
                         const expertSession = data.sessions.find(s => s.name.toLowerCase().includes('expert'));
                         if(expertSession) {
                             handleAircraftClick(flightProps, expertSession.id);

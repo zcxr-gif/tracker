@@ -53,6 +53,11 @@ const MobileUIHandler = {
         // Revert to stylesheet defaults
         if (burgerMenu) burgerMenu.style.display = ''; 
         if (mapToolbar) mapToolbar.style.display = '';
+        
+        // --- [FIX] Remove 'mobile-ui-active' class from the map container ---
+        const mapContainer = document.getElementById('sector-ops-map-fullscreen');
+        if (mapContainer) mapContainer.classList.remove('mobile-ui-active');
+        // --- [END FIX] ---
     },
 
     /**
@@ -70,7 +75,7 @@ const MobileUIHandler = {
     },
 
     /**
-     * Injects all the CSS for the new HUD-themed floating islands.
+     * [MODIFIED] Injects all the CSS for the new HUD-themed floating islands.
      */
     injectMobileStyles() {
         // ... (CSS is unchanged, keeping it collapsed for clarity) ...
@@ -93,8 +98,9 @@ const MobileUIHandler = {
                 --legacy-peek-height: ${this.CONFIG.legacyPeekHeight}px;
                 --legacy-top-offset: env(safe-area-inset-top, 15px);
             }
-
-            #view-rosters.active {
+            
+            /* --- [FIX] Target the map container instead of 'view-rosters' --- */
+            #sector-ops-map-fullscreen.mobile-ui-active {
                 position: relative;
                 overflow: hidden;
             }
@@ -499,6 +505,11 @@ const MobileUIHandler = {
             this.closeActiveWindow(true); // 'true' = force close
         }
 
+        // --- [FIX] Add 'mobile-ui-active' class to the correct map container ---
+        const mapContainer = document.getElementById('sector-ops-map-fullscreen');
+        if (mapContainer) mapContainer.classList.add('mobile-ui-active');
+        // --- [END FIX] ---
+
         if (windowElement.id === 'aircraft-info-window') {
             // --- Hide map controls ---
             const burgerMenu = document.getElementById('mobile-sidebar-toggle');
@@ -526,11 +537,12 @@ const MobileUIHandler = {
     },
 
     /**
-     * [NEW] Creates the DOM for the "Legacy Sheet" mode.
+     * [MODIFIED] Creates the DOM for the "Legacy Sheet" mode.
      * This is much simpler: just an overlay.
      */
     createLegacySheetUI() {
-        const viewContainer = document.getElementById('view-rosters');
+        // --- [FIX] Target the new map container instead of 'view-rosters' ---
+        const viewContainer = document.getElementById('sector-ops-map-fullscreen');
         if (!viewContainer) return;
 
         // 1. Overlay
@@ -547,11 +559,12 @@ const MobileUIHandler = {
     },
 
     /**
-     * [EXISTING] Creates the new DOM structure for the HUD.
+     * [MODIFIED] Creates the new DOM structure for the HUD.
      * (Unchanged, but now only called by `openWindow` for 'hud' mode)
      */
     createSplitViewUI() {
-        const viewContainer = document.getElementById('view-rosters');
+        // --- [FIX] Target the new map container instead of 'view-rosters' ---
+        const viewContainer = document.getElementById('sector-ops-map-fullscreen');
         if (!viewContainer) return;
 
         // 1. Overlay
@@ -598,28 +611,20 @@ const MobileUIHandler = {
 
     /**
      * [MODIFIED] Observes the original window for content.
-     * This now uses a robust 'setInterval' poller instead of a
-     * MutationObserver to bypass race conditions.
+     * Now calls the correct "populate" function based on the active mode
+     * AND triggers the animation *after* population is complete.
      */
     observeOriginalWindow(windowElement) {
-        if (this.contentObserver) {
-            clearInterval(this.contentObserver);
-            this.contentObserver = null;
-        }
-
-        // We use the 'contentObserver' property to store the interval ID
-        this.contentObserver = setInterval(() => {
+        if (this.contentObserver) this.contentObserver.disconnect();
+        
+        this.contentObserver = new MutationObserver((mutationsList, obs) => {
+            const mainContent = windowElement.querySelector('.unified-display-main-content');
+            const attitudeGroup = mainContent?.querySelector('#attitude_group');
             
-            // Poll for the "ready" signal from flight.js
-            const attitudeGroup = windowElement.querySelector('#attitude_group[data-initialized="true"]');
-
-            // Check if PFD is built AND has the 'true' signal
-            if (attitudeGroup) {
-                // --- Signal Found! Stop Polling. ---
-                clearInterval(this.contentObserver);
-                this.contentObserver = null;
-
-                // --- Run the Hijack Logic ---
+            // Check if PFD is built (a good sign content is ready)
+            if (mainContent && attitudeGroup && attitudeGroup.dataset.initialized === 'true') {
+                
+                // --- [NEW] Router ---
                 if (this.activeMode === 'legacy') {
                     // 1. Populate first (while off-screen)
                     this.populateLegacySheet(windowElement);
@@ -645,18 +650,17 @@ const MobileUIHandler = {
                         this.drawerState = 0; // Set initial state
                     }, 10);
                 }
-            }
-        }, 100); // Check every 100ms
-
-        // Add a safety timeout to prevent an infinite loop, just in case
-        setTimeout(() => {
-            if (this.contentObserver) {
-                clearInterval(this.contentObserver);
+                
+                obs.disconnect();
                 this.contentObserver = null;
-                console.error("MobileUIHandler: Timed out waiting for PFD. Closing window.");
-                this.closeActiveWindow(); // Close itself if it fails after 5 seconds
             }
-        }, 5000);
+        });
+        
+        this.contentObserver.observe(windowElement, { 
+            childList: true, 
+            subtree: true,
+            attributes: true
+        });
     },
 
     /**
