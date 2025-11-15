@@ -99,6 +99,7 @@ const MobileUIHandler = {
                 /* --- [NEW] Legacy Sheet Config --- */
                 --legacy-peek-height: ${this.CONFIG.legacyPeekHeight}px;
                 --legacy-top-offset: env(safe-area-inset-top, 15px);
+                --legacy-header-height: 100px; /* [NEW] The height of the header area we want to clear */
             }
             
             /* --- [FIX] Target the map container instead of 'view-rosters' --- */
@@ -428,6 +429,13 @@ const MobileUIHandler = {
             .mobile-legacy-sheet.visible:not(.peek) {
                 transform: translateY(0); /* [MODIFIED] JS controls top, CSS snaps transform to 0 */
             }
+            
+            /* --- [NEW FIX] Push Content Down When Expanded --- */
+            .mobile-legacy-sheet.visible:not(.peek) .legacy-sheet-handle {
+                /* Moves all content wrapped by the handle down past the safe area/status bar */
+                padding-top: calc(var(--legacy-top-offset) + 15px);
+            }
+            /* --- [END NEW FIX] --- */
             
             /* --- [NEW] Drag Handle for Legacy Sheet --- */
             .legacy-sheet-handle {
