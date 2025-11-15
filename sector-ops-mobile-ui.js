@@ -696,79 +696,63 @@ const MobileUIHandler = {
         this.wireUpLegacySheetInteractions(sourceWindow, handleWrapper);
     },
 
+    /**
+     * [MODIFIED] Moves content from the original window into the new island components.
+     * Now clones the tab container into the expanded island.
+     */
     populateSplitView(sourceWindow) {
-    if (!this.topWindowEl || !this.miniIslandEl || !this.peekIslandEl || !this.expandedIslandEl) return;
+        if (!this.topWindowEl || !this.miniIslandEl || !this.peekIslandEl || !this.expandedIslandEl) return;
 
-    // --- Find HUD Containers ---
-    const miniRouteContainer = this.miniIslandEl.querySelector('.route-summary-wrapper-mobile');
-    const peekRouteContainer = this.peekIslandEl.querySelector('.route-summary-wrapper-mobile');
-    const expandedRouteContainer = this.expandedIslandEl.querySelector('.route-summary-wrapper-mobile');
+        // Find content containers
+        const miniRouteContainer = this.miniIslandEl.querySelector('.route-summary-wrapper-mobile');
+        const peekRouteContainer = this.peekIslandEl.querySelector('.route-summary-wrapper-mobile');
+        const expandedRouteContainer = this.expandedIslandEl.querySelector('.route-summary-wrapper-mobile');
+        
+        const peekContentContainer = this.peekIslandEl.querySelector('.drawer-content');
+        const expandedContentContainer = this.expandedIslandEl.querySelector('.drawer-content');
+        // [NEW] Find the tab slot element
+        const expandedTabsSlot = this.expandedIslandEl.querySelector('#expanded-tabs-slot'); // <-- NEW
 
-    const peekContentContainer = this.peekIslandEl.querySelector('.drawer-content');
-    const expandedContentContainer = this.expandedIslandEl.querySelector('.drawer-content');
+        if (!peekContentContainer || !expandedContentContainer || !miniRouteContainer || !peekRouteContainer || !expandedRouteContainer || !expandedTabsSlot) return; // <-- MODIFIED
 
-    const expandedTabsSlot = this.expandedIslandEl.querySelector('#expanded-tabs-slot');
+        // Find original content pieces
+        const topOverviewPanel = sourceWindow.querySelector('.aircraft-overview-panel');
+        const routeSummaryBar = sourceWindow.querySelector('.route-summary-overlay');
+        
+        // [NEW] Find the tab container
+        const tabContainer = sourceWindow.querySelector('.ac-info-window-tabs'); // <-- NEW
 
-    if (!peekContentContainer || !expandedContentContainer || !miniRouteContainer || !peekRouteContainer || !expandedRouteContainer || !expandedTabsSlot) {
-        console.error("HUD: Missing required containers in Split View");
-        return;
-    }
-
-    // --- Extract original content from aircraft-info-window ---
-    const topOverviewPanel = sourceWindow.querySelector('.aircraft-overview-panel');
-    const routeSummaryBar = sourceWindow.querySelector('.route-summary-overlay');
-
-    const originalTabsWrapper = sourceWindow.querySelector('.ac-info-tabs') ||
-                                sourceWindow.querySelector('.ac-tabs-wrapper') ||
-                                sourceWindow.querySelector('.ac-info-window-tabs');
-
-    const originalFlightPane = sourceWindow.querySelector('#ac-tab-flight-data');
-    const originalPilotPane = sourceWindow.querySelector('#ac-tab-pilot-report');
-
-    // ---- Clone tab buttons into the expanded tabs slot (HUD header) ----
-    if (originalTabsWrapper) {
-        expandedTabsSlot.innerHTML = "";
-        const clonedTabs = originalTabsWrapper.cloneNode(true);
-        expandedTabsSlot.appendChild(clonedTabs);
-    } else {
-        console.warn("HUD: No original tab wrapper found");
-    }
-
-    // ---- Clone Route Summary into all three island states ----
-    if (routeSummaryBar) {
-        miniRouteContainer.innerHTML = "";
-        peekRouteContainer.innerHTML = "";
-        expandedRouteContainer.innerHTML = "";
-
-        miniRouteContainer.appendChild(routeSummaryBar.cloneNode(true));
-        peekRouteContainer.appendChild(routeSummaryBar.cloneNode(true));
-        expandedRouteContainer.appendChild(routeSummaryBar.cloneNode(true));
-    }
-
-    // ---- Peek Mode gets only flight-data (stacked) ----
-    if (originalFlightPane) {
-        const clone = originalFlightPane.cloneNode(true);
-        peekContentContainer.innerHTML = "";
-        peekContentContainer.appendChild(clone);
-    } else {
-        console.warn("HUD: Missing #ac-tab-flight-data");
-    }
-
-    // ---- Expanded Mode gets BOTH panes ----
-    expandedContentContainer.innerHTML = "";
-
-    // 1️⃣ Add FLIGHT DATA pane into expanded drawer
-    if (originalFlightPane) {
-        expandedContentContainer.appendChild(originalFlightPane.cloneNode(true));
-    }
-
-    if (originalPilotPane) {
-        expandedContentContainer.appendChild(originalPilotPane.cloneNode(true));
-    } else {
-        console.warn("HUD: Missing #ac-tab-pilot-report (pilot stats won't load)");
-    }
-},
-
+        const mainFlightContent = sourceWindow.querySelector('.unified-display-main-content');
+        
+        // 1. Move Top Panel
+        if (topOverviewPanel) {
+            this.topWindowEl.appendChild(topOverviewPanel);
+        }
+        
+        // 2. Clone and Move Route Summary Bar to ALL three islands
+        if (routeSummaryBar) {
+            const clonedRouteBar1 = routeSummaryBar.cloneNode(true);
+            const clonedRouteBar2 = routeSummaryBar.cloneNode(true);
+            const clonedRouteBar3 = routeSummaryBar.cloneNode(true);
+            
+            miniRouteContainer.appendChild(clonedRouteBar1);
+            peekRouteContainer.appendChild(clonedRouteBar2);
+            expandedRouteContainer.appendChild(clonedRouteBar3);
+        }
+        
+        // 3. Clone and Move Main Content & Tabs
+        if (mainFlightContent && tabContainer) { // <-- MODIFIED: Check for tabContainer
+            
+            // [NEW] Clone and move the tabs to the dedicated slot
+            expandedTabsSlot.appendChild(tabContainer.cloneNode(true)); // <-- NEW
+            
+            const clonedFlightContent = mainFlightContent.cloneNode(true);
+            peekContentContainer.appendChild(clonedFlightContent);
+            expandedContentContainer.appendChild(mainFlightContent);
+        }
+        
+        this.wireUpHudInteractions();
+    },
 
     /**
      * [NEW] Wires up all interactions for the "Legacy Sheet".
