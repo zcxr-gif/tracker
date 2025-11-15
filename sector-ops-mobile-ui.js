@@ -598,24 +598,28 @@ const MobileUIHandler = {
 
     /**
      * [MODIFIED] Observes the original window for content.
-     * Now calls the correct "populate" function based on the active mode
-     * AND triggers the animation *after* population is complete.
+     * This now uses a robust 'setInterval' poller instead of a
+     * MutationObserver to bypass race conditions.
      */
     observeOriginalWindow(windowElement) {
-        if (this.contentObserver) this.contentObserver.disconnect();
-        
-        this.contentObserver = new MutationObserver((mutationsList, obs) => {
+        if (this.contentObserver) {
+            clearInterval(this.contentObserver);
+            this.contentObserver = null;
+        }
+
+        // We use the 'contentObserver' property to store the interval ID
+        this.contentObserver = setInterval(() => {
             
-            // --- [THIS IS THE FIX] ---
-            // We now query directly for the PFD element *after* it has been
-            // marked as 'initialized' by flight.js. This prevents the
-            // race condition where the mobile UI hijacks the content too early.
+            // Poll for the "ready" signal from flight.js
             const attitudeGroup = windowElement.querySelector('#attitude_group[data-initialized="true"]');
-            
+
             // Check if PFD is built AND has the 'true' signal
             if (attitudeGroup) {
-                
-                // --- [NEW] Router ---
+                // --- Signal Found! Stop Polling. ---
+                clearInterval(this.contentObserver);
+                this.contentObserver = null;
+
+                // --- Run the Hijack Logic ---
                 if (this.activeMode === 'legacy') {
                     // 1. Populate first (while off-screen)
                     this.populateLegacySheet(windowElement);
@@ -641,17 +645,18 @@ const MobileUIHandler = {
                         this.drawerState = 0; // Set initial state
                     }, 10);
                 }
-                
-                obs.disconnect();
-                this.contentObserver = null;
             }
-        });
-        
-        this.contentObserver.observe(windowElement, { 
-            childList: true, 
-            subtree: true,
-            attributes: true // This is critical for watching 'data-initialized'
-        });
+        }, 100); // Check every 100ms
+
+        // Add a safety timeout to prevent an infinite loop, just in case
+        setTimeout(() => {
+            if (this.contentObserver) {
+                clearInterval(this.contentObserver);
+                this.contentObserver = null;
+                console.error("MobileUIHandler: Timed out waiting for PFD. Closing window.");
+                this.closeActiveWindow(); // Close itself if it fails after 5 seconds
+            }
+        }, 5000);
     },
 
     /**
