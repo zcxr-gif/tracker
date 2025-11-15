@@ -3924,7 +3924,7 @@ function setupAircraftWindowEvents() {
                     const userId = tabBtn.dataset.userId;
                     const username = tabBtn.dataset.username;
                     if (userId) {
-                        await displayPilotStats(userId, username); 
+                        await displayPilotStats(userId, username, statsDisplay);
                     }
                 }
             }
@@ -5747,8 +5747,7 @@ function renderPilotStatsHTML(stats, username) {
 async function displayPilotStats(userId, username) {
     if (!userId) return;
 
-    // Get the containers
-    const statsDisplay = document.getElementById('pilot-stats-display');
+    const statsDisplay = statsDisplayElement || document.getElementById('pilot-stats-display'); // <-- MODIFIED
     
     if (!statsDisplay) return;
 

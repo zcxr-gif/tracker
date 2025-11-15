@@ -921,9 +921,7 @@ const MobileUIHandler = {
                         const username = tabBtn.dataset.username;
                         
                         if (userId && window.displayPilotStats) { 
-                            // The displayPilotStats function handles setting the loading spinner 
-                            // and replacing the content, so it's safe to call repeatedly.
-                            await window.displayPilotStats(userId, username); 
+                            await window.displayPilotStats(userId, username, statsDisplay);
                             
                             // After loading, re-calculate the maxHeight for the accordion content
                             const accordionHeaders = statsDisplay.querySelectorAll('.accordion-header');
