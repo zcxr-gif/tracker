@@ -1975,25 +1975,51 @@ function injectCustomStyles() {
 }
 
 /**
-     * --- [NEW] Fetches and injects the external HTML content for the info panel.
+     * --- [NEW - REVISED v3] Fetches and injects the external HTML content for the info panel.
+     * This function now REPLACES the old tab structure with the new single-page content,
+     * reusing and RE-STYLING the existing .panel-content wrapper to make it scrollable.
      */
     async function loadExternalPanelContent() {
-        const panelContentWrapper = document.querySelector('#sector-ops-floating-panel .panel-content-wrapper');
-        if (!panelContentWrapper) {
-            console.warn('Could not find .panel-content-wrapper to inject content.');
+        const panel = document.getElementById('sector-ops-floating-panel');
+        if (!panel) {
+            console.error('Could not find #sector-ops-floating-panel to inject content.');
             return;
         }
 
+        // 1. Find and remove the old UI tabs
+        const oldTabs = panel.querySelector('.panel-tabs');
+        if (oldTabs) {
+            oldTabs.remove();
+        }
+
+        // 2. Find the main content container (which we will REUSE)
+        const mainContentContainer = panel.querySelector('.panel-content');
+        if (!mainContentContainer) {
+            console.error('Could not find .panel-content to inject content into.');
+            return;
+        }
+        
+        // 3. Clear this container and show a loading spinner
+        mainContentContainer.innerHTML = '<div class="spinner-small" style="margin: 2rem auto;"></div>';
+
+        // 4. [CRITICAL FIX] Modify the container to be scrollable
+        // The original CSS in index.html has 'overflow: hidden', which we must override.
+        mainContentContainer.style.overflow = 'auto'; 
+        
+        // 5. Fetch and inject the new content
         try {
             const response = await fetch('panel-content.html');
             if (!response.ok) {
                 throw new Error(`Failed to fetch panel-content.html (Status: ${response.status})`);
             }
             const htmlContent = await response.text();
-            panelContentWrapper.innerHTML = htmlContent;
+            
+            // Inject the new content directly into the existing .panel-content div
+            mainContentContainer.innerHTML = htmlContent;
+            
         } catch (error) {
             console.error('Error loading external panel content:', error);
-            panelContentWrapper.innerHTML = `
+            mainContentContainer.innerHTML = `
                 <div class="info-panel-content">
                     <p class="error-text">Could not load panel content.</p>
                 </div>
