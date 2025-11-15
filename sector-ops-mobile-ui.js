@@ -699,6 +699,8 @@ const MobileUIHandler = {
     /**
      * [MODIFIED] Moves content from the original window into the new island components.
      * Now clones the tab container into the expanded island.
+     * * [FIXED] Ensures Pilot Report pane is only in the Expanded clone, 
+     * and uses the original content for the Expanded view.
      */
     populateSplitView(sourceWindow) {
         if (!this.topWindowEl || !this.miniIslandEl || !this.peekIslandEl || !this.expandedIslandEl) return;
@@ -710,18 +712,14 @@ const MobileUIHandler = {
         
         const peekContentContainer = this.peekIslandEl.querySelector('.drawer-content');
         const expandedContentContainer = this.expandedIslandEl.querySelector('.drawer-content');
-        // [NEW] Find the tab slot element
-        const expandedTabsSlot = this.expandedIslandEl.querySelector('#expanded-tabs-slot'); // <-- NEW
+        const expandedTabsSlot = this.expandedIslandEl.querySelector('#expanded-tabs-slot');
 
-        if (!peekContentContainer || !expandedContentContainer || !miniRouteContainer || !peekRouteContainer || !expandedRouteContainer || !expandedTabsSlot) return; // <-- MODIFIED
+        if (!peekContentContainer || !expandedContentContainer || !miniRouteContainer || !peekRouteContainer || !expandedRouteContainer || !expandedTabsSlot) return; 
 
         // Find original content pieces
         const topOverviewPanel = sourceWindow.querySelector('.aircraft-overview-panel');
         const routeSummaryBar = sourceWindow.querySelector('.route-summary-overlay');
-        
-        // [NEW] Find the tab container
-        const tabContainer = sourceWindow.querySelector('.ac-info-window-tabs'); // <-- NEW
-
+        const tabContainer = sourceWindow.querySelector('.ac-info-window-tabs');
         const mainFlightContent = sourceWindow.querySelector('.unified-display-main-content');
         
         // 1. Move Top Panel
@@ -741,14 +739,31 @@ const MobileUIHandler = {
         }
         
         // 3. Clone and Move Main Content & Tabs
-        if (mainFlightContent && tabContainer) { // <-- MODIFIED: Check for tabContainer
-            
-            // [NEW] Clone and move the tabs to the dedicated slot
-            expandedTabsSlot.appendChild(tabContainer.cloneNode(true)); // <-- NEW
-            
-            const clonedFlightContent = mainFlightContent.cloneNode(true);
-            peekContentContainer.appendChild(clonedFlightContent);
+        if (mainFlightContent && tabContainer) {
+            // A. Move the original, full content to the Expanded Island (PFD + VSD + BOTH Tabs)
             expandedContentContainer.appendChild(mainFlightContent);
+            
+            // B. Clone and move the original tab bar to the dedicated slot
+            expandedTabsSlot.appendChild(tabContainer);
+            
+            // C. Create a streamlined copy for the Peek Island (Data Bar + Location Panel ONLY)
+            const peekContentClone = document.createElement('div');
+            peekContentClone.className = 'unified-display-main-content'; // Match container class
+
+            // Clone and append PFD/Location Grid
+            const pfdLocationGrid = mainFlightContent.querySelector('.pfd-and-location-grid')?.cloneNode(true);
+            if (pfdLocationGrid) {
+                 peekContentClone.appendChild(pfdLocationGrid);
+            }
+
+            // Clone and append Data Bar
+            const dataBar = mainFlightContent.querySelector('.flight-data-bar')?.cloneNode(true);
+            if (dataBar) {
+                 peekContentClone.appendChild(dataBar);
+            }
+            
+            // Append the streamlined clone to the Peek drawer
+            peekContentContainer.appendChild(peekContentClone);
         }
         
         this.wireUpHudInteractions();
@@ -883,6 +898,13 @@ const MobileUIHandler = {
         
         this.peekIslandEl.addEventListener('click', bottomIslandButtonHandler);
         this.expandedIslandEl.addEventListener('click', bottomIslandButtonHandler);
+
+        const tabsInSlot = this.expandedIslandEl.querySelector('.ac-info-window-tabs');
+        if (tabsInSlot) {
+            tabsInSlot.addEventListener('click', (e) => {
+                e.stopPropagation(); // Stop propagation to prevent accidental drawer state changes
+            });
+        }
 
         // --- [NEW] Tab Switching Logic for HUD Expanded Island ---
         this.expandedIslandEl.addEventListener('click', async (e) => {
