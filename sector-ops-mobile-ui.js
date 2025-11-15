@@ -4,6 +4,8 @@ const MobileUIHandler = {
         breakpoint: 992, // The max-width in pixels to trigger mobile view
         defaultMode: 'hud', // 'hud' or 'legacy'
         legacyPeekHeight: 280, // Height of the "peek" state for legacy sheet
+        // [NEW] The target top offset for full expansion, matching HUD's layout
+        legacyExpandedTop: 280, 
     },
 
     // --- STATE ---
@@ -98,7 +100,8 @@ const MobileUIHandler = {
 
                 /* --- [NEW] Legacy Sheet Config --- */
                 --legacy-peek-height: ${this.CONFIG.legacyPeekHeight}px;
-                --legacy-top-offset: env(safe-area-inset-top, 15px);
+                /* --- [MODIFIED] Use HUD's expanded top value for consistency --- */
+                --legacy-top-offset: ${this.CONFIG.legacyExpandedTop}px; 
             }
             
             /* --- [FIX] Target the map container instead of 'view-rosters' --- */
@@ -426,6 +429,7 @@ const MobileUIHandler = {
 
             /* "Expanded" State */
             .mobile-legacy-sheet.visible:not(.peek) {
+                /* --- [MODIFIED] Set the top position based on the new variable --- */
                 transform: translateY(var(--legacy-top-offset));
             }
             
@@ -889,7 +893,7 @@ const MobileUIHandler = {
     },
 
     /**
-     * [NEW] Sets the "Legacy Sheet" to a specific state.
+     * [MODIFIED] Sets the "Legacy Sheet" to a specific state.
      */
     setLegacySheetState(targetState) { // 'peek', 'expanded', or 'closed'
         if (!this.activeWindow) return;
@@ -903,8 +907,15 @@ const MobileUIHandler = {
             this.activeWindow.classList.remove('peek');
             if (this.overlayEl) this.overlayEl.classList.add('visible');
             
-            const expandedY = document.documentElement.clientHeight - this.activeWindow.offsetHeight;
-            this.legacySheetState.currentSheetY = expandedY;
+            // --- [MODIFIED] Use the configured top stop value for consistency ---
+            const expandedTopOffset = this.CONFIG.legacyExpandedTop; 
+            
+            // Set inline transform to calculate currentSheetY accurately
+            this.activeWindow.style.transform = `translateY(${expandedTopOffset}px)`;
+            
+            // Set currentSheetY to match the final position
+            this.legacySheetState.currentSheetY = expandedTopOffset; 
+            this.activeWindow.style.transform = ''; // Clear inline transform, let CSS handle the final state
 
         } else if (targetState === 'peek') {
             this.activeWindow.classList.add('visible', 'peek');
@@ -989,7 +1000,8 @@ const MobileUIHandler = {
         let deltaY = touchCurrentY - this.legacySheetState.touchStartY;
 
         // Calculate new Y, but don't let it be dragged higher than the top offset
-        const topStop = parseInt(getComputedStyle(document.documentElement).getPropertyValue('--legacy-top-offset') || "15", 10);
+        // --- [MODIFIED] Use the configured top stop value ---
+        const topStop = this.CONFIG.legacyExpandedTop;
         let newY = this.legacySheetState.startSheetY + deltaY;
         
         // Add resistance when dragging *above* the top stop
@@ -1010,7 +1022,8 @@ const MobileUIHandler = {
         const deltaY = this.legacySheetState.currentSheetY - this.legacySheetState.startSheetY;
 
         const peekY = window.innerHeight - this.CONFIG.legacyPeekHeight;
-        const topStop = parseInt(getComputedStyle(document.documentElement).getPropertyValue('--legacy-top-offset') || "15", 10);
+        // --- [MODIFIED] Use the configured top stop value ---
+        const topStop = this.CONFIG.legacyExpandedTop;
         
         // Snap logic
         if (this.legacySheetState.currentState === 'peek') {
