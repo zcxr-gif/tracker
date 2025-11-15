@@ -161,16 +161,16 @@ function injectCustomStyles() {
         .info-window {
             position: absolute;
             /* ##### FIX START ##### */
-            /* Moved down to sit below the search bar */
-            top: 80px; 
+            /* Reverted to original top position */
+            top: 20px; 
             /* ##### FIX END ##### */
             right: 20px;
             /* --- REDESIGN: Wider for new layout --- */
             width: 540px; 
             max-width: 90vw;
             /* ##### FIX START ##### */
-            /* Adjusted max-height to account for new 'top' value */
-            max-height: calc(100vh - 100px); /* 80px top + 20px bottom margin */
+            /* Reverted to original max-height */
+            max-height: calc(100vh - 40px);
             /* ##### FIX END ##### */
             background: rgba(18, 20, 38, 0.75);
             backdrop-filter: blur(20px) saturate(180%);
@@ -178,7 +178,10 @@ function injectCustomStyles() {
             border-radius: 16px;
             border: 1px solid rgba(255, 255, 255, 0.1);
             box-shadow: 0 12px 40px rgba(0,0,0,0.6);
-            z-index: 1050;
+            /* ##### FIX START ##### */
+            /* Set z-index to be ON TOP of search */
+            z-index: 1060; 
+            /* ##### FIX END ##### */
             /* --- [FIX] Changed 'display: none' to 'display: flex' for fade-out --- */
             display: flex;
             flex-direction: column;
@@ -1748,8 +1751,10 @@ function injectCustomStyles() {
             right: 20px; 
             /* ##### FIX END ##### */
             
-            /* [NEW] Set z-index to be above info window */
-            z-index: 1060; 
+            /* ##### FIX START ##### */
+            /* Set z-index to be BENEATH info window */
+            z-index: 1050; 
+            /* ##### FIX END ##### */
             display: flex;
             flex-direction: column; 
             align-items: center;
