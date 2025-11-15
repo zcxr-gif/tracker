@@ -426,7 +426,7 @@ const MobileUIHandler = {
 
             /* "Expanded" State */
             .mobile-legacy-sheet.visible:not(.peek) {
-                transform: translateY(var(--legacy-top-offset));
+                transform: translateY(0); /* [FIX] Set transform to 0 to align top edge with max-height constraint */
             }
             
             /* --- [NEW] Drag Handle for Legacy Sheet --- */
