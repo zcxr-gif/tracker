@@ -1437,9 +1437,15 @@ function injectCustomStyles() {
         ====================================================================
         */
 
+        /* ##### MODIFICATION START ##### */
         /* --- [NEW] Aircraft Window Tab Styles --- */
         .ac-info-window-tabs {
             display: flex;
+            /* [MODIFIED] Use space-between to push logo to the right */
+            justify-content: space-between; 
+            /* [NEW] Vertically center the buttons and logo */
+            align-items: center; 
+            
             background: rgba(10, 12, 26, 0.4);
             padding: 5px 15px 0 15px;
             /* --- [FIX] Removed margins that incorrectly placed it inside the content area --- */
@@ -1447,6 +1453,21 @@ function injectCustomStyles() {
             /* margin-top: 16px; */
             border-radius: 0; /* --- [FIX] Removed border-radius --- */
         }
+
+        /* [NEW] Wrapper for the tab buttons */
+        .ac-tabs-wrapper {
+            display: flex;
+        }
+
+        /* [NEW] Style for your logo */
+        .ac-info-tab-logo {
+            height: 28px; /* Adjust height as needed */
+            width: auto;
+            object-fit: contain;
+            opacity: 0.7; /* Optional: makes it blend nicely */
+        }
+        /* ##### MODIFICATION END ##### */
+
         .ac-info-tab-btn {
             padding: 14px 18px;
             border: none;
@@ -5152,12 +5173,16 @@ function populateAircraftInfoWindow(baseProps, plan, sortedRoutePoints) { // <--
         </div>
 
         <div class="ac-info-window-tabs">
-            <button class="ac-info-tab-btn active" data-tab="ac-tab-flight-data">
-                <i class="fa-solid fa-gauge-high"></i> Flight Display
-            </button>
-            <button class="ac-info-tab-btn" data-tab="ac-tab-pilot-report" data-user-id="${baseProps.userId}" data-username="${baseProps.username || 'N/A'}">
-                <i class="fa-solid fa-chart-simple"></i> Pilot Report
-            </button>
+            <div class="ac-tabs-wrapper">
+                <button class="ac-info-tab-btn active" data-tab="ac-tab-flight-data">
+                    <i class="fa-solid fa-gauge-high"></i> Flight Display
+                </button>
+                <button class="ac-info-tab-btn" data-tab="ac-tab-pilot-report" data-user-id="${baseProps.userId}" data-username="${baseProps.username || 'N/A'}">
+                    <i class="fa-solid fa-chart-simple"></i> Pilot Report
+                </button>
+            </div>
+            
+            <img src="Images/inflight.png" alt="Inflight Logo" class="ac-info-tab-logo">
         </div>
         <div class="unified-display-main-content">
             
