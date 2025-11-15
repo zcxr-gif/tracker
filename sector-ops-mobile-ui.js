@@ -4,7 +4,6 @@ const MobileUIHandler = {
         breakpoint: 992, // The max-width in pixels to trigger mobile view
         defaultMode: 'hud', // 'hud' or 'legacy'
         legacyPeekHeight: 280, // Height of the "peek" state for legacy sheet
-        hudTopWindowHeight: 250, // [NEW] The max-height of the HUD top window
     },
 
     // --- STATE ---
@@ -100,7 +99,6 @@ const MobileUIHandler = {
                 /* --- [NEW] Legacy Sheet Config --- */
                 --legacy-peek-height: ${this.CONFIG.legacyPeekHeight}px;
                 --legacy-top-offset: env(safe-area-inset-top, 15px);
-                --hud-top-height: ${this.CONFIG.hudTopWindowHeight}px; /* --- [NEW] --- */
             }
             
             /* --- [FIX] Target the map container instead of 'view-rosters' --- */
@@ -148,7 +146,7 @@ const MobileUIHandler = {
                 top: env(safe-area-inset-top, 15px);
                 left: var(--island-side-margin);
                 right: var(--island-side-margin);
-                max-height: var(--hud-top-height); /* --- [MODIFIED] Use variable --- */
+                max-height: 250px;
                 transform: translateY(-250%);
                 opacity: 0;
             }
@@ -209,7 +207,7 @@ const MobileUIHandler = {
             
             /* --- State 2: Expanded Island --- */
             #mobile-island-expanded {
-                top: calc(var(--legacy-top-offset) + var(--hud-top-height) + 10px); /* Sits below the top window + a gap */
+                top: 280px; /* Sits below the top window */
                 bottom: var(--island-bottom-margin);
                 height: auto; /* Fills the space */
             }
@@ -409,8 +407,7 @@ const MobileUIHandler = {
                 right: 0 !important;
                 width: 100% !important;
                 max-width: 100% !important;
-                /* Max height is calculated to stop at the bottom of the HUD top window */
-                max-height: calc(100vh - (var(--legacy-top-offset) + var(--hud-top-height) + 10px)) !important; /* --- [MODIFIED] --- */
+                max-height: calc(100vh - var(--legacy-top-offset)) !important;
                 z-index: 1045 !important;
                 border-radius: 16px 16px 0 0 !important;
                 box-shadow: 0 -5px 30px rgba(0,0,0,0.4) !important;
@@ -429,8 +426,7 @@ const MobileUIHandler = {
 
             /* "Expanded" State */
             .mobile-legacy-sheet.visible:not(.peek) {
-                /* --- [MODIFIED] Expanded state is now set to the bottom of the HUD top window area --- */
-                transform: translateY(calc(var(--legacy-top-offset) + var(--hud-top-height) + 10px));
+                transform: translateY(var(--legacy-top-offset));
             }
             
             /* --- [NEW] Drag Handle for Legacy Sheet --- */
@@ -907,10 +903,8 @@ const MobileUIHandler = {
             this.activeWindow.classList.remove('peek');
             if (this.overlayEl) this.overlayEl.classList.add('visible');
             
-            // The position is now controlled by CSS, but we update Y for drag logic
-            const legacyTopOffset = parseInt(getComputedStyle(document.documentElement).getPropertyValue('--legacy-top-offset') || "15", 10);
-            const hudTopHeight = this.CONFIG.hudTopWindowHeight;
-            this.legacySheetState.currentSheetY = legacyTopOffset + hudTopHeight + 10; 
+            const expandedY = document.documentElement.clientHeight - this.activeWindow.offsetHeight;
+            this.legacySheetState.currentSheetY = expandedY;
 
         } else if (targetState === 'peek') {
             this.activeWindow.classList.add('visible', 'peek');
@@ -995,11 +989,7 @@ const MobileUIHandler = {
         let deltaY = touchCurrentY - this.legacySheetState.touchStartY;
 
         // Calculate new Y, but don't let it be dragged higher than the top offset
-        // [MODIFIED] Use the new desired top stop position
-        const legacyTopOffset = parseInt(getComputedStyle(document.documentElement).getPropertyValue('--legacy-top-offset') || "15", 10);
-        const hudTopHeight = this.CONFIG.hudTopWindowHeight;
-        const topStop = legacyTopOffset + hudTopHeight + 10; // New top stop position
-        
+        const topStop = parseInt(getComputedStyle(document.documentElement).getPropertyValue('--legacy-top-offset') || "15", 10);
         let newY = this.legacySheetState.startSheetY + deltaY;
         
         // Add resistance when dragging *above* the top stop
@@ -1019,30 +1009,27 @@ const MobileUIHandler = {
         
         const deltaY = this.legacySheetState.currentSheetY - this.legacySheetState.startSheetY;
 
-        // [MODIFIED] Use the new desired top stop position
-        const legacyTopOffset = parseInt(getComputedStyle(document.documentElement).getPropertyValue('--legacy-top-offset') || "15", 10);
-        const hudTopHeight = this.CONFIG.hudTopWindowHeight;
-        const topStop = legacyTopOffset + hudTopHeight + 10; // New top stop position
-        const peekY = window.innerHeight - this.CONFIG.legacyPeekHeight; // Peek state Y position
+        const peekY = window.innerHeight - this.CONFIG.legacyPeekHeight;
+        const topStop = parseInt(getComputedStyle(document.documentElement).getPropertyValue('--legacy-top-offset') || "15", 10);
         
-        // Logic to determine if snap should be peek, expanded, or closed
+        // Snap logic
         if (this.legacySheetState.currentState === 'peek') {
-            if (deltaY < -100) { // Swiped up significantly
+            if (deltaY < -100) { // Swiped up
                 this.setLegacySheetState('expanded');
-            } else if (deltaY > 100) { // Swiped down significantly
+            } else if (deltaY > 100) { // [MODIFIED] Swiped down to close
                 this.closeActiveWindow();
-            } else { // Snap back to peek
+            } else { // Snap back
                 this.setLegacySheetState('peek');
             }
         } else { // Was 'expanded'
-            if (deltaY > 100) { // Swiped down significantly
+            if (deltaY > 100) { // Swiped down
                 this.setLegacySheetState('peek');
-            } else { // Snap back to expanded
+            } else { // Snap back
                 this.setLegacySheetState('expanded');
             }
         }
         
-        // Clear inline styles (setLegacySheetState handles re-applying transform for snap)
+        // Clear inline styles
         this.activeWindow.style.transition = '';
         this.activeWindow.style.transform = '';
     },
