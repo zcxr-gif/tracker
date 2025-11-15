@@ -98,7 +98,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     // --- Helper: Fetch API Keys from Netlify Function ---
     async function fetchApiKeys() {
         try {
-            const response = await fetch('https://indgo-va.netlify.app/.netlify/functions/config');
+            const response = await fetch('https://inflight.info/.netlify/functions/config');
             if (!response.ok) throw new Error('Could not fetch server configuration.');
             
             const config = await response.json();
@@ -2492,7 +2492,7 @@ async function fetchAndDisplayGeocode(lat, lon) {
 
     try {
         // 3. Call your new Netlify Function
-        const response = await fetch(`https://indgo-va.netlify.app/.netlify/functions/reverse-geocode?lat=${lat}&lon=${lon}`);
+        const response = await fetch(`https://inflight.info/.netlify/functions/reverse-geocode?lat=${lat}&lon=${lon}`);
 
         // [CRITICAL FIX] Query all *after* the await to get the (potentially) new DOM structure
         const currentElements = document.querySelectorAll('#ac-location');
@@ -3519,7 +3519,7 @@ function updatePfdDisplay(pfdData) {
         // Fetch weather
         let weatherHtml = '';
         try {
-            const weatherRes = await fetch(`https://indgo-va.netlify.app/.netlify/functions/weather?icao=${icao}`);
+            const weatherRes = await fetch(`https://inflight.info/.netlify/functions/weather?icao=${icao}`);
             if (weatherRes.ok) {
                 const weatherData = await weatherRes.json();
                 if (weatherData.data && weatherData.data.length > 0) {
