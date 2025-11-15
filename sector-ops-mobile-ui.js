@@ -629,15 +629,14 @@ const MobileUIHandler = {
                 }
             }
 
+
             // --- Check for content "ready" signals ---
             if (windowId === 'aircraft-info-window') {
-                // [NEW SIGNAL] Wait for the location text to be populated.
-                // This proves the initial geocode has returned and content is ready.
-                const locationEl = windowElement.querySelector('#ac-location');
-                
-                // It's ready if the element exists and its text is no longer
-                // the placeholder ('---') or a loading spinner (empty textContent).
-                if (locationEl && locationEl.textContent && locationEl.textContent !== '---') {
+                // [FIX] Wait for the PFD to be initialized.
+                // This signal is set synchronously by flight.js's createPfdDisplay()
+                // and does not depend on the asynchronous geocode API call.
+                const pfdAttitudeGroup = windowElement.querySelector('#attitude_group');
+                if (pfdAttitudeGroup && pfdAttitudeGroup.dataset.initialized === 'true') {
                     isReady = true;
                 }
 
