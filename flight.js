@@ -1950,9 +1950,11 @@ function injectCustomStyles() {
         @media (max-width: 992px) {
             .sector-ops-search {
                 /* --- [START MODIFICATION] --- */
-                top: 70px; /* Sits below the hamburger menu */
+                top: 50px; /* Sits below the hamburger menu */
                 left: 50%; /* Center horizontally */
                 transform: translateX(-50%); /* Center horizontally */
+
+                z-index: 990 !important;
                 
                 /* --- REMOVED --- */
                 /* right: 15px; */ 
