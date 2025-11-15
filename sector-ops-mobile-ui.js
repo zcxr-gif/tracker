@@ -565,7 +565,7 @@ const MobileUIHandler = {
 
     /**
      * [MODIFIED] Creates the new DOM structure for the HUD.
-     * (Unchanged, but now only called by `openWindow` for 'hud' mode)
+     * Includes a dedicated slot for the tab buttons in the Expanded Island.
      */
     createSplitViewUI() {
         // --- [FIX] Target the new map container instead of 'view-rosters' ---
@@ -606,8 +606,9 @@ const MobileUIHandler = {
         this.expandedIslandEl.className = 'mobile-island-bottom';
         this.expandedIslandEl.innerHTML = `
             <div class="route-summary-wrapper-mobile"></div>
+            <div id="expanded-tabs-slot"></div>
             <div class="drawer-content"></div>
-        `;
+        `; // <-- MODIFIED: Added expanded-tabs-slot
         viewContainer.appendChild(this.expandedIslandEl);
 
         // Animate in [REMOVED]
@@ -696,8 +697,8 @@ const MobileUIHandler = {
     },
 
     /**
-     * [EXISTING] Moves content from the original window into the new island components.
-     * (Unchanged, but now only called for 'hud' mode)
+     * [MODIFIED] Moves content from the original window into the new island components.
+     * Now clones the tab container into the expanded island.
      */
     populateSplitView(sourceWindow) {
         if (!this.topWindowEl || !this.miniIslandEl || !this.peekIslandEl || !this.expandedIslandEl) return;
@@ -709,11 +710,18 @@ const MobileUIHandler = {
         
         const peekContentContainer = this.peekIslandEl.querySelector('.drawer-content');
         const expandedContentContainer = this.expandedIslandEl.querySelector('.drawer-content');
-        if (!peekContentContainer || !expandedContentContainer || !miniRouteContainer || !peekRouteContainer || !expandedRouteContainer) return;
+        // [NEW] Find the tab slot element
+        const expandedTabsSlot = this.expandedIslandEl.querySelector('#expanded-tabs-slot'); // <-- NEW
+
+        if (!peekContentContainer || !expandedContentContainer || !miniRouteContainer || !peekRouteContainer || !expandedRouteContainer || !expandedTabsSlot) return; // <-- MODIFIED
 
         // Find original content pieces
         const topOverviewPanel = sourceWindow.querySelector('.aircraft-overview-panel');
         const routeSummaryBar = sourceWindow.querySelector('.route-summary-overlay');
+        
+        // [NEW] Find the tab container
+        const tabContainer = sourceWindow.querySelector('.ac-info-window-tabs'); // <-- NEW
+
         const mainFlightContent = sourceWindow.querySelector('.unified-display-main-content');
         
         // 1. Move Top Panel
@@ -732,8 +740,12 @@ const MobileUIHandler = {
             expandedRouteContainer.appendChild(clonedRouteBar3);
         }
         
-        // 3. Clone and Move Main Content
-        if (mainFlightContent) {
+        // 3. Clone and Move Main Content & Tabs
+        if (mainFlightContent && tabContainer) { // <-- MODIFIED: Check for tabContainer
+            
+            // [NEW] Clone and move the tabs to the dedicated slot
+            expandedTabsSlot.appendChild(tabContainer.cloneNode(true)); // <-- NEW
+            
             const clonedFlightContent = mainFlightContent.cloneNode(true);
             peekContentContainer.appendChild(clonedFlightContent);
             expandedContentContainer.appendChild(mainFlightContent);
@@ -804,8 +816,8 @@ const MobileUIHandler = {
     },
 
     /**
-     * [RENAMED] Wires up all interactions to the new unified handle
-     * for the "HUD" mode.
+     * [MODIFIED] Wires up all interactions to the new unified handle
+     * for the "HUD" mode. Adds tab switching logic.
      */
     wireUpHudInteractions() {
         if (!this.miniIslandEl || !this.peekIslandEl || !this.expandedIslandEl) return;
@@ -817,7 +829,7 @@ const MobileUIHandler = {
 
         if (!miniHandle || !peekHandle || !expandedHandle) return;
 
-        // --- Click Interactions ---
+        // --- Click Interactions (unchanged) ---
         miniHandle.addEventListener('click', (e) => {
             if (this.swipeState.isDragging) return;
             this.setDrawerState(1);
@@ -835,7 +847,7 @@ const MobileUIHandler = {
             this.overlayEl.addEventListener('click', () => this.setDrawerState(0));
         }
 
-        // --- Swipe Interactions ---
+        // --- Swipe Interactions (unchanged) ---
         miniHandle.addEventListener('touchstart', this.handleHudTouchStart.bind(this), { passive: false });
         peekHandle.addEventListener('touchstart', this.handleHudTouchStart.bind(this), { passive: false });
         expandedHandle.addEventListener('touchstart', this.handleHudTouchStart.bind(this), { passive: false });
@@ -843,7 +855,7 @@ const MobileUIHandler = {
         // [MODIFIED] Remove the 'if' check and use pre-bound handler
         document.addEventListener('touchend', this.boundHudTouchEnd);
 
-        // --- Re-wire desktop buttons using event delegation ---
+        // --- Re-wire desktop buttons using event delegation (unchanged) ---
         this.topWindowEl.addEventListener('click', (e) => {
             const closeBtn = e.target.closest('.aircraft-window-close-btn');
             const hideBtn = e.target.closest('.aircraft-window-hide-btn');
@@ -871,6 +883,61 @@ const MobileUIHandler = {
         
         this.peekIslandEl.addEventListener('click', bottomIslandButtonHandler);
         this.expandedIslandEl.addEventListener('click', bottomIslandButtonHandler);
+
+        // --- [NEW] Tab Switching Logic for HUD Expanded Island ---
+        this.expandedIslandEl.addEventListener('click', async (e) => {
+            const tabBtn = e.target.closest('.ac-info-tab-btn');
+
+            if (tabBtn) {
+                e.preventDefault();
+                const tabId = tabBtn.dataset.tab;
+                if (!tabId || tabBtn.classList.contains('active')) {
+                    return;
+                }
+                
+                const islandContent = this.expandedIslandEl;
+                if (!islandContent) return;
+
+                // Deactivate old tab/pane
+                islandContent.querySelector('.ac-info-tab-btn.active')?.classList.remove('active');
+                islandContent.querySelector('.ac-tab-pane.active')?.classList.remove('active');
+
+                // Activate new tab/pane
+                tabBtn.classList.add('active');
+                
+                // The content panes are inside the .drawer-content element
+                const newPane = islandContent.querySelector(`#${tabId}`);
+                if (newPane) {
+                    newPane.classList.add('active');
+                }
+                
+                // If switching to pilot report, trigger the data fetch/render
+                if (tabId === 'ac-tab-pilot-report') {
+                    const statsDisplay = newPane?.querySelector('#pilot-stats-display');
+                    if (statsDisplay && statsDisplay.innerHTML.trim() === '') { 
+                        const userId = tabBtn.dataset.userId;
+                        const username = tabBtn.dataset.username;
+                        
+                        // Assumes the asynchronous displayPilotStats function is globally available (needs to be from flight.js)
+                        if (userId && window.displayPilotStats) { 
+                            await window.displayPilotStats(userId, username); 
+                            
+                            // After loading, re-calculate the maxHeight for the accordion content
+                            const accordionHeaders = statsDisplay.querySelectorAll('.accordion-header');
+                            accordionHeaders.forEach(header => {
+                                const item = header.closest('.accordion-item');
+                                if (item.classList.contains('active')) {
+                                    const content = header.nextElementSibling;
+                                    // Set maxHeight to scrollHeight to fully expand the accordion content
+                                    content.style.maxHeight = content.scrollHeight + 'px';
+                                }
+                            });
+                        }
+                    }
+                }
+            }
+        });
+        // --- [END NEW] Tab Switching Logic ---
     },
     
     /**
