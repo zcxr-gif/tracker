@@ -770,7 +770,7 @@ const MobileUIHandler = {
     },
 
     /**
-     * [NEW] Wires up all interactions for the "Legacy Sheet".
+     * [NEW] Wires up all interactions for the "Legacy Sheet" mode.
      */
     wireUpLegacySheetInteractions(sheetElement, handleElement) {
         
@@ -937,6 +937,7 @@ const MobileUIHandler = {
                         const userId = tabBtn.dataset.userId;
                         const username = tabBtn.dataset.username;
                         
+                        // Check if the global function exists on the window object
                         if (userId && window.displayPilotStats) { 
                             // The displayPilotStats function handles setting the loading spinner 
                             // and replacing the content, so it's safe to call repeatedly.
@@ -946,12 +947,16 @@ const MobileUIHandler = {
                             const accordionHeaders = statsDisplay.querySelectorAll('.accordion-header');
                             accordionHeaders.forEach(header => {
                                 const item = header.closest('.accordion-item');
+                                // Only expand if the item should be active (initial state of accordion)
                                 if (item.classList.contains('active')) {
                                     const content = header.nextElementSibling;
                                     // Set maxHeight to scrollHeight to fully expand the accordion content
                                     content.style.maxHeight = content.scrollHeight + 'px';
                                 }
                             });
+                        } else {
+                            // Display a fallback message if displayPilotStats is not found or userId is missing
+                            statsDisplay.innerHTML = `<p class="error-text" style="padding: 1rem;">Could not load pilot data. Missing userId or helper function.</p>`;
                         }
                     }
                 }
@@ -1228,10 +1233,12 @@ const MobileUIHandler = {
         if (this.activeWindow && this.topWindowEl && this.miniIslandEl && this.peekIslandEl && this.expandedIslandEl) {
             const topOverviewPanel = this.topWindowEl.querySelector('.aircraft-overview-panel');
             const mainFlightContent = this.expandedIslandEl.querySelector('.unified-display-main-content');
+            const tabContainer = this.expandedIslandEl.querySelector('.ac-info-window-tabs');
             const clonedFlightContent = this.peekIslandEl.querySelector('.unified-display-main-content');
             
             if (topOverviewPanel) this.activeWindow.appendChild(topOverviewPanel);
             if (mainFlightContent) this.activeWindow.appendChild(mainFlightContent);
+            if (tabContainer) this.activeWindow.querySelector('.info-window-content').prepend(tabContainer);
             clonedFlightContent?.remove();
         }
 
