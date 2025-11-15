@@ -1935,17 +1935,18 @@ function injectCustomStyles() {
         /* --- Mobile adjustments for search bar --- */
         @media (max-width: 992px) {
             .sector-ops-search {
-                /* On mobile, put it below the hamburger menu */
-                top: 70px;
+                /* --- [START MODIFICATION] --- */
+                top: 70px; /* Sits below the hamburger menu */
+                left: 50%; /* Center horizontally */
+                transform: translateX(-50%); /* Center horizontally */
                 
-                /* ##### FIX START ##### */
-                /* Position top-right */
-                left: auto;
-                right: 15px; 
-                /* Set a max-width, not a full width */
+                /* --- REMOVED --- */
+                /* right: 15px; */ 
+                
+                /* --- MODIFIED --- */
                 width: 300px;
-                max-width: calc(100vw - 30px);
-                /* ##### FIX END ##### */
+                max-width: calc(100vw - 30px); /* 15px padding on each side */
+                /* --- [END MODIFICATION] --- */
             }
             
             /* Keep it expanded on mobile */
@@ -1980,12 +1981,14 @@ function injectCustomStyles() {
                 display: none;
             }
 
+            /* --- [START MODIFICATION] --- */
             /* Adjust info window to not clash */
             .info-window {
-                /* Move it down to avoid search bar */
-                top: 125px;
-                max-height: calc(100vh - 135px);
+                /* Move it down to avoid centered search bar */
+                top: 130px;
+                max-height: calc(100vh - 140px);
             }
+            /* --- [END MODIFICATION] --- */
         }
     `;
 
