@@ -762,13 +762,12 @@ const MobileUIHandler = {
         expandedContentContainer.appendChild(originalFlightPane.cloneNode(true));
     }
 
-    // 2️⃣ Add PILOT REPORT pane (THIS WAS MISSING — FIXED)
     if (originalPilotPane) {
         expandedContentContainer.appendChild(originalPilotPane.cloneNode(true));
     } else {
         console.warn("HUD: Missing #ac-tab-pilot-report (pilot stats won't load)");
     }
-}
+},
 
 
     /**
