@@ -1250,10 +1250,12 @@ const MobileUIHandler = {
     }
 };
 
+window.MobileUIHandler = MobileUIHandler;
+
 /**
  * Initialize the Mobile UI Handler when the DOM is ready.
  */
 document.addEventListener('DOMContentLoaded', () => {
+    // The init() function still runs on DOMContentLoaded as intended.
     MobileUIHandler.init();
-    window.MobileUIHandler = MobileUIHandler; // Make it globally accessible
 });
