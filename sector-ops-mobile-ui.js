@@ -619,12 +619,18 @@ const MobileUIHandler = {
             // --- Check for attribute mutations (for airport window close) ---
             for (const mutation of mutationsList) {
                 if (mutation.type === 'attributes' && mutation.attributeName === 'class') {
-                    if (!windowElement.classList.contains('visible')) {
-                        console.log("MobileUI: Observed logical close, aborting open.");
-                        obs.disconnect();
-                        this.contentObserver = null;
-                        this.closeActiveWindow(true); 
-                        return; 
+                    
+                    // [NEW FIX] This "logical close" check is invalid for the aircraft window 
+                    // on mobile, because flight.js *never* adds '.visible' to the original 
+                    // window in its mobile logic path. We must skip this check.
+                    if (windowElement.id !== 'aircraft-info-window') { 
+                        if (!windowElement.classList.contains('visible')) {
+                            console.log("MobileUI: Observed logical close, aborting open.");
+                            obs.disconnect();
+                            this.contentObserver = null;
+                            this.closeActiveWindow(true); 
+                            return; 
+                        }
                     }
                 }
             }
