@@ -832,7 +832,7 @@ const MobileUIHandler = {
 
     /**
      * [MODIFIED] Wires up all interactions to the new unified handle
-     * for the "HUD" mode. Adds tab switching logic.
+     * for the "HUD" mode. Adds dedicated tab switching logic.
      */
     wireUpHudInteractions() {
         if (!this.miniIslandEl || !this.peekIslandEl || !this.expandedIslandEl) return;
@@ -841,10 +841,11 @@ const MobileUIHandler = {
         const miniHandle = this.miniIslandEl.querySelector('.route-summary-wrapper-mobile');
         const peekHandle = this.peekIslandEl.querySelector('.route-summary-wrapper-mobile');
         const expandedHandle = this.expandedIslandEl.querySelector('.route-summary-wrapper-mobile');
+        const tabsInSlot = this.expandedIslandEl.querySelector('.ac-info-window-tabs'); // Get the tab container
 
-        if (!miniHandle || !peekHandle || !expandedHandle) return;
+        if (!miniHandle || !peekHandle || !expandedHandle || !tabsInSlot) return;
 
-        // --- Click Interactions (unchanged) ---
+        // --- Click Interactions (Drawer State) ---
         miniHandle.addEventListener('click', (e) => {
             if (this.swipeState.isDragging) return;
             this.setDrawerState(1);
@@ -867,7 +868,6 @@ const MobileUIHandler = {
         peekHandle.addEventListener('touchstart', this.handleHudTouchStart.bind(this), { passive: false });
         expandedHandle.addEventListener('touchstart', this.handleHudTouchStart.bind(this), { passive: false });
         
-        // [MODIFIED] Remove the 'if' check and use pre-bound handler
         document.addEventListener('touchend', this.boundHudTouchEnd);
 
         // --- Re-wire desktop buttons using event delegation (unchanged) ---
@@ -899,19 +899,14 @@ const MobileUIHandler = {
         this.peekIslandEl.addEventListener('click', bottomIslandButtonHandler);
         this.expandedIslandEl.addEventListener('click', bottomIslandButtonHandler);
 
-        const tabsInSlot = this.expandedIslandEl.querySelector('.ac-info-window-tabs');
-        if (tabsInSlot) {
-            tabsInSlot.addEventListener('click', (e) => {
-                e.stopPropagation(); // Stop propagation to prevent accidental drawer state changes
-            });
-        }
-
-        // --- [NEW] Tab Switching Logic for HUD Expanded Island ---
-        this.expandedIslandEl.addEventListener('click', async (e) => {
+        // --- [CRITICAL FIX: Dedicated Tab Switching Logic for HUD Expanded Island] ---
+        tabsInSlot.addEventListener('click', async (e) => {
             const tabBtn = e.target.closest('.ac-info-tab-btn');
 
             if (tabBtn) {
                 e.preventDefault();
+                e.stopPropagation(); // Stop here so drawer logic doesn't interfere
+                
                 const tabId = tabBtn.dataset.tab;
                 if (!tabId || tabBtn.classList.contains('active')) {
                     return;
@@ -962,7 +957,7 @@ const MobileUIHandler = {
                 }
             }
         });
-        // --- [END NEW] Tab Switching Logic ---
+        // --- [END CRITICAL FIX] ---
     },
     
     /**
