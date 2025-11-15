@@ -4107,34 +4107,13 @@ async function initializeSectorOpsView() {
                     <div id="filter-window-content" class="info-window-content">
                         <ul class="filter-toggle-list">
                             <li class="filter-toggle-item">
-                                <span class="filter-toggle-label"><i class="fa-solid fa-plane-circle-check"></i> Show VA Members Only</span>
-                                <label class="toggle-switch">
-                                    <input type="checkbox" id="filter-toggle-members-only">
-                                    <span class="toggle-slider"></span>
-                                </label>
-                            </li>
-                            <li class="filter-toggle-item">
                                 <span class="filter-toggle-label"><i class="fa-solid fa-tower-broadcast"></i> Hide Staffed Airports</span>
                                 <label class="toggle-switch">
                                     <input type="checkbox" id="filter-toggle-atc">
                                     <span class="toggle-slider"></span>
                                 </label>
                             </li>
-                            <li class="filter-toggle-item">
-                                <span class="filter-toggle-label"><i class="fa-solid fa-location-dot"></i> Hide Unstaffed Airports</span>
-                                <label class="toggle-switch">
-                                    <input type="checkbox" id="filter-toggle-no-atc">
-                                    <span class="toggle-slider"></span>
-                                </label>
-                            </li>
 
-                            <li class="filter-toggle-item">
-                                <span class="filter-toggle-label"><i class="fa-solid fa-sun"></i> Light Mode</span>
-                                <label class="toggle-switch">
-                                    <input type="checkbox" id="filter-toggle-light-mode">
-                                    <span class="toggle-slider"></span>
-                                </label>
-                            </li>
                             <li class="filter-toggle-item">
                                 <span class="filter-toggle-label"><i class="fa-solid fa-satellite"></i> Satellite Mode</span>
                                 <label class="toggle-switch">

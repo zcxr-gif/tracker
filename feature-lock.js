@@ -28,10 +28,10 @@ document.addEventListener('DOMContentLoaded', () => {
                 
                 // Call the globally-exposed notification function from flight.js
                 if (typeof window.showGlobalNotification === 'function') {
-                    window.showGlobalNotification('Working in progress.', 'info');
+                    window.showGlobalNotification('Weather feature is locked.', 'info');
                 } else {
                     // Fallback in case the global function isn't found
-                    alert('Working in progress.');
+                    alert('Weather is locked.');
                 }
             });
 
