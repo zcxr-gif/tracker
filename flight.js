@@ -2466,20 +2466,16 @@ function injectCustomStyles() {
     }
 
 /**
- * [FIXED] Fetches reverse geocoded location and updates the UI.
- * Solves the "stuck spinner" race condition by querying for ALL
- * instances of the element *after* the async fetch completes.
+ * [FIXED & MODIFIED BY USER] Fetches reverse geocoded location and updates the UI.
+ * The 20km distance-based check has been removed per user request
+ * to rely solely on a time-based interval.
  */
 async function fetchAndDisplayGeocode(lat, lon) {
     if (!lat || !lon) return;
 
-    // 1. Check if we've moved significantly (e.g., > 20km)
-    const distanceMovedKm = getDistanceKm(lat, lon, lastGeocodeCoords.lat, lastGeocodeCoords.lon);
-    if (distanceMovedKm < 20 && lastGeocodeCoords.lat !== 0) {
-        return; // Not far enough, don't waste API call
-    }
-
-    // 2. Store new coordinates and find ALL UI elements
+    // [USER REQ] Distance check removed to force time-based updates.
+    
+    // 1. Store new coordinates (still useful, though not for distance check)
     lastGeocodeCoords = { lat, lon };
     
     // [FIX] Query all *before* the await to set loading state
@@ -5057,16 +5053,18 @@ async function handleAircraftClick(flightProps, sessionId) {
         }
         // --- [END OF FIX 1] ---
         
-        // --- [NEW] Start the slow geocode update interval (e.g., 60 seconds) ---
+        // --- [MODIFIED BY USER REQUEST] Start the geocode update interval (5 minutes) ---
+        const FIVE_MINUTES_MS = 300000; 
         activeGeocodeUpdateInterval = setInterval(() => {
             if (currentAircraftPositionForGeocode) {
+                // This call will use the *latest* position stored by the fast 3-second PFD loop
                 fetchAndDisplayGeocode(
                     currentAircraftPositionForGeocode.lat,
                     currentAircraftPositionForGeocode.lon
                 );
             }
-        }, 60000); // Once per minute
-        // --- [END NEW] ---
+        }, FIVE_MINUTES_MS); // Call again every 5 minutes
+        // --- [END MODIFICATION] ---
 
         // --- [MODIFIED] ---
         // The interval will NOW re-fetch the route data on every tick.
