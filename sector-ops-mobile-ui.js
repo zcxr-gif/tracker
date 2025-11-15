@@ -889,33 +889,61 @@ const MobileUIHandler = {
     },
 
     /**
-     * [NEW] Sets the "Legacy Sheet" to a specific state.
+     * [MODIFIED] Sets the "Legacy Sheet" to a specific state.
      */
     setLegacySheetState(targetState) { // 'peek', 'expanded', or 'closed'
         if (!this.activeWindow) return;
         
         this.legacySheetState.currentState = targetState;
+        
+        // Ensure transition is used only when state changes, not during drag
         this.activeWindow.style.transition = 'transform 0.45s cubic-bezier(0.16, 1, 0.3, 1)';
-        this.activeWindow.style.transform = ''; // Remove inline style from dragging
+        this.activeWindow.style.transform = ''; // Clear inline transform from dragging
 
+        // Get the computed top offset value from CSS
+        const rootStyles = getComputedStyle(document.documentElement);
+        const topOffset = parseInt(rootStyles.getPropertyValue('--legacy-top-offset') || "15", 10);
+        
         if (targetState === 'expanded') {
             this.activeWindow.classList.add('visible');
             this.activeWindow.classList.remove('peek');
             if (this.overlayEl) this.overlayEl.classList.add('visible');
             
-            const expandedY = document.documentElement.clientHeight - this.activeWindow.offsetHeight;
-            this.legacySheetState.currentSheetY = expandedY;
+            // --- [FIX] Calculate and apply the precise negative transform needed ---
+            // The sheet's total height is 100vh. To land the top edge at 'topOffset' (e.g., 15px),
+            // it must move up by (100vh - topOffset) from its bottom anchor.
+            // Since the CSS has a base transform of translateY(100%) for 'closed', 
+            // the transition logic must be complex. The safest way is to force the top property.
+            
+            // 1. Force the position using the 'top' property for the expanded state.
+            this.activeWindow.style.top = `${topOffset}px`;
+            this.activeWindow.style.bottom = '0';
+            this.activeWindow.style.transform = 'translateY(0)'; // Snap it to the top/bottom constraints
+            // --- [END FIX] ---
+
+            // Update state variable for dragging reference
+            this.legacySheetState.currentSheetY = topOffset;
 
         } else if (targetState === 'peek') {
             this.activeWindow.classList.add('visible', 'peek');
             if (this.overlayEl) this.overlayEl.classList.remove('visible');
             
+            // Revert to CSS defined positioning for peek state
+            this.activeWindow.style.top = ''; 
+            this.activeWindow.style.bottom = '0';
+
+            // Calculate current Y position for dragging reference
             const peekY = window.innerHeight - this.CONFIG.legacyPeekHeight;
             this.legacySheetState.currentSheetY = peekY;
 
         } else if (targetState === 'closed') {
+            // Revert to CSS defined positioning for closed state (off-screen)
             this.activeWindow.classList.remove('visible', 'peek');
             if (this.overlayEl) this.overlayEl.classList.remove('visible');
+            
+            this.activeWindow.style.top = '';
+            this.activeWindow.style.bottom = ''; // Let the transform: translateY(100%) move it out
+
             this.legacySheetState.currentSheetY = window.innerHeight + 100;
         }
     },
