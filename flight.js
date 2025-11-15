@@ -3675,6 +3675,8 @@ function updatePfdDisplay(pfdData) {
         }).showToast();
     }
 
+    window.showGlobalNotification = showNotification;
+
     // --- DOM elements ---
     const pilotNameElem = document.getElementById('pilot-name');
     const pilotCallsignElem = document.getElementById('pilot-callsign');
