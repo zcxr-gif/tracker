@@ -1174,6 +1174,12 @@ function injectCustomStyles() {
             z-index: 998; /* ✅ Below sidebar, above content */
         }
 
+        /* --- [NEW] Hide Mobile-Only Settings on Desktop --- */
+        .mobile-only-filter {
+            display: none;
+        }
+
+
         /* --- [NEW] Responsive Media Query for Mobile --- */
         @media (max-width: 992px) {
             .mobile-sidebar-toggle-btn {
@@ -1251,6 +1257,14 @@ function injectCustomStyles() {
             /* --- [NEW] On mobile, stack PFD and Location --- */
             .pfd-and-location-grid {
                 grid-template-columns: 1fr; /* 1 column */
+            }
+            
+            /* --- [NEW] Show Mobile-Only Settings on Mobile --- */
+            .mobile-only-filter {
+                display: block; /* Show the divider */
+            }
+            ul.mobile-only-filter {
+                display: flex; /* Show the <ul> list */
             }
         }
         
@@ -4141,10 +4155,10 @@ async function initializeSectorOpsView() {
                             </li>
                         </ul>
 
-                        <div class="filter-section-divider">
+                        <div class="filter-section-divider mobile-only-filter">
                             <span class="filter-section-title">Mobile Display Mode</span>
                         </div>
-                        <ul class="filter-toggle-list" id="mobile-mode-filter-group" style="padding-top: 8px;">
+                        <ul class="filter-toggle-list mobile-only-filter" id="mobile-mode-filter-group" style="padding-top: 8px;">
                             <li class="filter-radio-item">
                                 <input type="radio" id="mobile-mode-hud" name="mobile-display-mode" value="hud" checked>
                                 <label for="mobile-mode-hud"><i class="fa-solid fa-rocket"></i> HUD View</label>
