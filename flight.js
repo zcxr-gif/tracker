@@ -1253,12 +1253,12 @@ function injectCustomStyles() {
                 grid-template-columns: 1fr; /* 1 column */
             }
 
-            /* ##### MODIFICATION START ##### */
-            /* Show the mobile-only filter section on mobile */
-            .mobile-only-filter-section {
+            /* ##### MODIFICATION START (Specificity Fix) ##### */
+            /* Show the mobile-only filter section on mobile, using a stronger selector */
+            #filter-settings-window .mobile-only-filter-section {
                 display: block;
             }
-            /* ##### MODIFICATION END ##### */
+            /* ##### MODIFICATION END (Specificity Fix) ##### */
         }
         
         /* ====================================================================
@@ -1745,12 +1745,12 @@ function injectCustomStyles() {
         }
         /* --- [END NEW] --- */
 
-        /* ##### MODIFICATION START ##### */
+        /* ##### MODIFICATION START (Specificity Fix) ##### */
         /* By default, hide the mobile-only setting on desktop */
         .mobile-only-filter-section {
             display: none;
         }
-        /* ##### MODIFICATION END ##### */
+        /* ##### MODIFICATION END (Specificity Fix) ##### */
 
         /* ====================================================================
         --- [NEW STYLES FOR MAP SEARCH BAR] --- 
