@@ -1736,11 +1736,16 @@ function injectCustomStyles() {
         .sector-ops-search {
             position: absolute;
             top: 20px;
-            /* Position top-right, left of the info window */
-            right: 580px; 
-            z-index: 1040; /* Below info window (1050) */
+            
+            /* ##### FIX START ##### */
+            /* Position top-right */
+            right: 20px; 
+            /* ##### FIX END ##### */
+            
+            /* [NEW] Set z-index to be above info window */
+            z-index: 1060; 
             display: flex;
-            flex-direction: column; /* --- [NEW] Stack search and results --- */
+            flex-direction: column; 
             align-items: center;
             transition: all 0.3s ease;
         }
@@ -1921,9 +1926,15 @@ function injectCustomStyles() {
             .sector-ops-search {
                 /* On mobile, put it below the hamburger menu */
                 top: 70px;
-                left: 15px;
-                right: auto; /* Remove right positioning */
-                width: calc(100vw - 30px); /* Full width minus padding */
+                
+                /* ##### FIX START ##### */
+                /* Position top-right */
+                left: auto;
+                right: 15px; 
+                /* Set a max-width, not a full width */
+                width: 300px;
+                max-width: calc(100vw - 30px);
+                /* ##### FIX END ##### */
             }
             
             /* Keep it expanded on mobile */
