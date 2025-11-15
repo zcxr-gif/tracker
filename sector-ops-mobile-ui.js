@@ -49,10 +49,12 @@ const MobileUIHandler = {
         const burgerMenu = document.getElementById('mobile-sidebar-toggle');
         // Find the map toolbar by finding the parent of one of its buttons
         const mapToolbar = document.getElementById('toolbar-toggle-panel-btn')?.parentElement;
+        const searchBar = document.getElementById('sector-ops-search-container'); // --- [NEW] ---
         
         // Revert to stylesheet defaults
         if (burgerMenu) burgerMenu.style.display = ''; 
         if (mapToolbar) mapToolbar.style.display = '';
+        if (searchBar) searchBar.style.display = ''; // --- [NEW] ---
         
         // --- [FIX] Remove 'mobile-ui-active' class from the map container ---
         const mapContainer = document.getElementById('sector-ops-map-fullscreen');
@@ -514,9 +516,11 @@ const MobileUIHandler = {
             // --- Hide map controls ---
             const burgerMenu = document.getElementById('mobile-sidebar-toggle');
             const mapToolbar = document.getElementById('toolbar-toggle-panel-btn')?.parentElement;
+            const searchBar = document.getElementById('sector-ops-search-container'); // --- [NEW] ---
             
             if (burgerMenu) burgerMenu.style.display = 'none';
             if (mapToolbar) mapToolbar.style.display = 'none';
+            if (searchBar) searchBar.style.display = 'none'; // --- [NEW] ---
 
             // --- [NEW] The Router Logic ---
             const userMode = localStorage.getItem('mobileDisplayMode') || this.CONFIG.defaultMode;

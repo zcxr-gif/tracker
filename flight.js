@@ -1807,7 +1807,7 @@ function injectCustomStyles() {
             border: none;
             background: transparent;
             color: #e8eaf6;
-            font-size: 0.95rem;
+            font-size: 1rem; /* --- [FIX] Changed from 0.95rem to prevent mobile zoom --- */
             outline: none;
             padding: 12px 0 12px 0;
             transition: width 0.3s ease-in-out;
