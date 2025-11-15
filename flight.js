@@ -4544,7 +4544,11 @@ async function initializeSectorOpsMap(centerICAO) {
                             38000, '#9400D3'
                         ],
                         'line-width': 4,
-                        'line-opacity': 0.9
+                        'line-opacity': 0.9,
+                        // --- [START FIX] ---
+                        'line-emissive-strength': 1.0, // Make the line "glow" to avoid Z-fighting
+                        'line-emissive-strength-transition': { 'duration': 0 }
+                        // --- [END FIX] ---
                     }
                 }, 'sector-ops-live-flights-layer'); // Draw below aircraft
                 
@@ -4954,7 +4958,11 @@ async function handleAircraftClick(flightProps, sessionId) {
                         38000, '#9400D3'  // Purple (High Cruise)
                     ],
                     'line-width': 4,
-                    'line-opacity': 0.9
+                    'line-opacity': 0.9,
+                    // --- [START FIX] ---
+                    'line-emissive-strength': 1.0, // Make the line "glow" to avoid Z-fighting
+                    'line-emissive-strength-transition': { 'duration': 0 }
+                    // --- [END FIX] ---
                 }
             }, 'sector-ops-live-flights-layer'); // Ensure it's drawn below aircraft
         } else {
