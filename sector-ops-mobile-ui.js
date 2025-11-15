@@ -426,7 +426,7 @@ const MobileUIHandler = {
 
             /* "Expanded" State */
             .mobile-legacy-sheet.visible:not(.peek) {
-                transform: translateY(0); /* [FIX] Set transform to 0 to align top edge with max-height constraint */
+                transform: translateY(0); /* [MODIFIED] JS controls top, CSS snaps transform to 0 */
             }
             
             /* --- [NEW] Drag Handle for Legacy Sheet --- */
@@ -902,20 +902,15 @@ const MobileUIHandler = {
 
         // Get the computed top offset value from CSS
         const rootStyles = getComputedStyle(document.documentElement);
-        const topOffset = parseInt(rootStyles.getPropertyValue('--legacy-top-offset') || "15", 10);
+        // Ensure we retrieve the calculated pixel value for the safe area/top offset
+        const topOffset = parseInt(rootStyles.getPropertyValue('--legacy-top-offset').replace('px', '').trim() || "15", 10);
         
         if (targetState === 'expanded') {
             this.activeWindow.classList.add('visible');
             this.activeWindow.classList.remove('peek');
             if (this.overlayEl) this.overlayEl.classList.add('visible');
             
-            // --- [FIX] Calculate and apply the precise negative transform needed ---
-            // The sheet's total height is 100vh. To land the top edge at 'topOffset' (e.g., 15px),
-            // it must move up by (100vh - topOffset) from its bottom anchor.
-            // Since the CSS has a base transform of translateY(100%) for 'closed', 
-            // the transition logic must be complex. The safest way is to force the top property.
-            
-            // 1. Force the position using the 'top' property for the expanded state.
+            // --- [FIX] Force the top edge to stop at the exact offset pixel value ---
             this.activeWindow.style.top = `${topOffset}px`;
             this.activeWindow.style.bottom = '0';
             this.activeWindow.style.transform = 'translateY(0)'; // Snap it to the top/bottom constraints
