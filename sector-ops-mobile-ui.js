@@ -499,7 +499,7 @@ const MobileUIHandler = {
             this.closeActiveWindow(true); // 'true' = force close
         }
 
-        if (windowElement.id === 'aircraft-info-window' || windowElement.id === 'airport-info-window') {
+        if (windowElement.id === 'aircraft-info-window') {
             // --- Hide map controls ---
             const burgerMenu = document.getElementById('mobile-sidebar-toggle');
             const mapToolbar = document.getElementById('toolbar-toggle-panel-btn')?.parentElement;
@@ -598,102 +598,44 @@ const MobileUIHandler = {
 
     /**
      * [MODIFIED] Observes the original window for content.
-     *
-     * [FIX 3.0] The original "ready" signal (PFD initialized) fires too
-     * early in flight.js v14, causing a race condition where the mobile
-     * UI is built before all content is ready.
-     *
-     * This fix changes the "ready" signal to be the population of the
-     * #ac-location text, which happens *after* the initial geocode fetch,
-     * ensuring all content is present before the mobile UI steals it.
+     * Now calls the correct "populate" function based on the active mode
+     * AND triggers the animation *after* population is complete.
      */
     observeOriginalWindow(windowElement) {
         if (this.contentObserver) this.contentObserver.disconnect();
         
-        const windowId = windowElement.id;
-
         this.contentObserver = new MutationObserver((mutationsList, obs) => {
+            const mainContent = windowElement.querySelector('.unified-display-main-content');
+            const attitudeGroup = mainContent?.querySelector('#attitude_group');
             
-            let isReady = false;
-
-            // --- Check for attribute mutations (for airport window close) ---
-            for (const mutation of mutationsList) {
-                if (mutation.type === 'attributes' && mutation.attributeName === 'class') {
-                    
-                    // [NEW FIX] This "logical close" check is invalid for the aircraft window 
-                    // on mobile, because flight.js *never* adds '.visible' to the original 
-                    // window in its mobile logic path. We must skip this check.
-                    if (windowElement.id !== 'aircraft-info-window') { 
-                        if (!windowElement.classList.contains('visible')) {
-                            console.log("MobileUI: Observed logical close, aborting open.");
-                            obs.disconnect();
-                            this.contentObserver = null;
-                            this.closeActiveWindow(true); 
-                            return; 
-                        }
-                    }
-                }
-            }
-
-
-            // --- Check for content "ready" signals ---
-            if (windowId === 'aircraft-info-window') {
-                // [FIX] This is the fix.
-                // We no longer wait for the PFD (which fires too early).
-                // We now wait for the #ac-location text to be populated,
-                // which only happens *after* flight.js has fetched data,
-                // built the VSD, and called the first geocode.
-                const locationEl = windowElement.querySelector('#ac-location');
+            // Check if PFD is built (a good sign content is ready)
+            if (mainContent && attitudeGroup && attitudeGroup.dataset.initialized === 'true') {
                 
-                // Check if the element exists and has real text (not the spinner/placeholder)
-                if (locationEl && 
-                    locationEl.textContent !== '---' && 
-                    locationEl.textContent.trim() !== '' && 
-                    !locationEl.querySelector('i.fa-spinner')) 
-                {
-                    isReady = true;
-                }
-
-            } else if (windowId === 'airport-info-window') {
-                // [AS BEFORE] Wait for tabs to be injected for the airport window
-                const tabContainer = windowElement.querySelector('.info-window-tabs');
-                if (tabContainer) {
-                    isReady = true;
-                }
-            }
-            
-            // If ready, proceed with populating the mobile UI
-            if (isReady) {
-                
+                // --- [NEW] Router ---
                 if (this.activeMode === 'legacy') {
+                    // 1. Populate first (while off-screen)
                     this.populateLegacySheet(windowElement);
-                    setTimeout(() => {
-                        if (this.activeWindow) {
+                    
+                    // 2. NOW, animate it in
+                    if (this.activeWindow) {
+                        // Use a minimal timeout to ensure styles are applied, then animate
+                        setTimeout(() => {
                             this.activeWindow.classList.add('visible', 'peek');
                             this.legacySheetState.currentState = 'peek';
-                        }
-                    }, 10);
-
-                } else { // 'hud' mode
-                    
-                    if (windowId === 'airport-info-window') {
-                        // Force 'legacy' sheet for airports
-                        this.populateLegacySheet(windowElement);
-                        setTimeout(() => {
-                            if (this.activeWindow) {
-                                this.activeWindow.classList.add('visible', 'peek');
-                                this.legacySheetState.currentState = 'peek';
-                            }
-                        }, 10);
-                    } else {
-                        // Use 'hud' islands for aircraft
-                        this.populateSplitView(windowElement);
-                        setTimeout(() => {
-                            if (this.topWindowEl) this.topWindowEl.classList.add('visible');
-                            if (this.miniIslandEl) this.miniIslandEl.classList.add('island-active');
-                            this.drawerState = 0; // Set initial state
                         }, 10);
                     }
+
+                } else { // 'hud' mode
+                    // 1. Populate first (while off-screen)
+                    this.populateSplitView(windowElement);
+                    
+                    // 2. NOW, animate them in
+                    // Use a minimal timeout to ensure styles are applied, then animate
+                    setTimeout(() => {
+                        if (this.topWindowEl) this.topWindowEl.classList.add('visible');
+                        if (this.miniIslandEl) this.miniIslandEl.classList.add('island-active');
+                        this.drawerState = 0; // Set initial state
+                    }, 10);
                 }
                 
                 obs.disconnect();
@@ -701,7 +643,6 @@ const MobileUIHandler = {
             }
         });
         
-        // Observe everything: child nodes, attribute changes, and subtree
         this.contentObserver.observe(windowElement, { 
             childList: true, 
             subtree: true,
@@ -709,39 +650,28 @@ const MobileUIHandler = {
         });
     },
 
+    /**
+     * [NEW] Wires up interactions for the "Legacy Sheet" mode.
+     */
     populateLegacySheet(sourceWindow) {
         // The content is already *in* the window.
         // We just need to add the drag handle.
-        
-        // [FIX] Make the handle generic.
-        // Search for aircraft-specific elements *first*.
-        let handleContent1 = sourceWindow.querySelector('.aircraft-overview-panel');
-        let handleContent2 = sourceWindow.querySelector('.route-summary-overlay');
+        const overviewPanel = sourceWindow.querySelector('.aircraft-overview-panel');
+        const routeSummaryBar = sourceWindow.querySelector('.route-summary-overlay');
 
-        // If not found, fall back to airport-specific elements.
-        if (!handleContent1) {
-            handleContent1 = sourceWindow.querySelector('.info-window-header');
-            handleContent2 = sourceWindow.querySelector('.airport-info-weather'); // This is the blue weather bar
-        }
-
-        if (!handleContent1) {
-            // This will fail if the window is empty (which is fine)
-            console.warn("Legacy Sheet UI: Could not find handle elements.");
-            // We can still wire up the rest of the interactions
+        if (!overviewPanel || !routeSummaryBar) {
+            console.error("Legacy Sheet UI: Could not find handle elements.");
+            return;
         }
 
         // Create a wrapper to act as the handle
         const handleWrapper = document.createElement('div');
         handleWrapper.className = 'legacy-sheet-handle';
         
-        // Wrap the elements with the handle
+        // Wrap the overview panel and route bar with the handle
         sourceWindow.prepend(handleWrapper);
-        if (handleContent1) {
-            handleWrapper.appendChild(handleContent1);
-        }
-        if (handleContent2) { // The second element is optional
-            handleWrapper.appendChild(handleContent2);
-        }
+        handleWrapper.appendChild(overviewPanel);
+        handleWrapper.appendChild(routeSummaryBar);
         
         // Wire up interactions
         this.wireUpLegacySheetInteractions(sourceWindow, handleWrapper);
@@ -1250,12 +1180,10 @@ const MobileUIHandler = {
     }
 };
 
-window.MobileUIHandler = MobileUIHandler;
-
 /**
  * Initialize the Mobile UI Handler when the DOM is ready.
  */
 document.addEventListener('DOMContentLoaded', () => {
-    // The init() function still runs on DOMContentLoaded as intended.
     MobileUIHandler.init();
+    window.MobileUIHandler = MobileUIHandler; // Make it globally accessible
 });

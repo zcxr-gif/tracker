@@ -3855,13 +3855,7 @@ function setupAircraftWindowEvents() {
         // --- Original Close/Hide Logic (Unchanged) ---
         if (closeBtn) {
             aircraftInfoWindow.classList.remove('visible');
-
-            // --- [FIX] Must use window.MobileUIHandler ---
-            if (window.MobileUIHandler) {
-                window.MobileUIHandler.closeActiveWindow();
-            }
-            // --- [END FIX] ---
-
+            MobileUIHandler.closeActiveWindow();
             aircraftInfoWindowRecallBtn.classList.remove('visible');
             
             // --- [VERIFIED] This call is correct ---
@@ -6272,16 +6266,11 @@ function setupSectorOpsEventListeners() {
                 // Toggle visibility of the new window
                 if (weatherSettingsWindow) {
                     const isVisible = weatherSettingsWindow.classList.toggle('visible');
-                    
-                    // --- [FIX] Must use window.MobileUIHandler ---
-                    if (window.MobileUIHandler) {
-                        if (isVisible) {
-                            window.MobileUIHandler.openWindow(weatherSettingsWindow);
-                        } else {
-                            window.MobileUIHandler.closeActiveWindow();
-                        }
+                    if (isVisible) {
+                        MobileUIHandler.openWindow(weatherSettingsWindow);
+                    } else {
+                        MobileUIHandler.closeActiveWindow();
                     }
-                    // --- [END FIX] ---
                 }
             });
         }
@@ -6293,16 +6282,11 @@ function setupSectorOpsEventListeners() {
                 // Toggle visibility of the new window
                 if (filterSettingsWindow) {
                     const isVisible = filterSettingsWindow.classList.toggle('visible');
-
-                    // --- [FIX] Must use window.MobileUIHandler ---
-                    if (window.MobileUIHandler) {
-                        if (isVisible) {
-                            window.MobileUIHandler.openWindow(filterSettingsWindow);
-                        } else {
-                            window.MobileUIHandler.closeActiveWindow();
-                        }
+                    if (isVisible) {
+                        MobileUIHandler.openWindow(filterSettingsWindow);
+                    } else {
+                        MobileUIHandler.closeActiveWindow();
                     }
-                    // --- [END FIX] ---
                 }
             });
         }
@@ -6342,12 +6326,7 @@ function setupSectorOpsEventListeners() {
             // Handle Close or Hide buttons
             if (target.closest('.weather-window-close-btn') || target.closest('.weather-window-hide-btn')) {
                 weatherSettingsWindow.classList.remove('visible');
-                
-                // --- [FIX] Must use window.MobileUIHandler ---
-                if (window.MobileUIHandler) {
-                    window.MobileUIHandler.closeActiveWindow();
-                }
-                // --- [END FIX] ---
+                MobileUIHandler.closeActiveWindow();
             }
         });
 
@@ -6404,12 +6383,7 @@ function setupFilterSettingsWindowEvents() {
         const target = e.target;
         if (target.closest('.filter-window-close-btn') || target.closest('.filter-window-hide-btn')) {
             filterSettingsWindow.classList.remove('visible');
-            
-            // --- [FIX] Must use window.MobileUIHandler ---
-            if (window.MobileUIHandler) {
-                window.MobileUIHandler.closeActiveWindow();
-            }
-            // --- [END FIX] ---
+            MobileUIHandler.closeActiveWindow();
         }
     });
 
