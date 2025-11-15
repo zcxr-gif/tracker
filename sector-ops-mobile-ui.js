@@ -88,7 +88,7 @@ const MobileUIHandler = {
             :root {
                 --hud-bg: rgba(10, 15, 28, 0.85);
                 --hud-blur: 15px;
-                --hud-top-window-height: 100px;
+                --hud-top-window-height: 70px;
                 --hud-border: rgba(0, 168, 255, 0.3);
                 --hud-accent: #00a8ff;
                 --hud-glow: 0 0 15px rgba(0, 168, 255, 0.5);
@@ -994,7 +994,7 @@ const MobileUIHandler = {
 
         // Calculate new Y, but don't let it be dragged higher than the top offset
         const topStop = parseInt(getComputedStyle(document.documentElement)
-        .getPropertyValue('--hud-top-window-height')) || 100;
+        .getPropertyValue('--hud-top-window-height')) || 70;
 
         let newY = this.legacySheetState.startSheetY + deltaY;
         
