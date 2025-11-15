@@ -605,11 +605,15 @@ const MobileUIHandler = {
         if (this.contentObserver) this.contentObserver.disconnect();
         
         this.contentObserver = new MutationObserver((mutationsList, obs) => {
-            const mainContent = windowElement.querySelector('.unified-display-main-content');
-            const attitudeGroup = mainContent?.querySelector('#attitude_group');
             
-            // Check if PFD is built (a good sign content is ready)
-            if (mainContent && attitudeGroup && attitudeGroup.dataset.initialized === 'true') {
+            // --- [THIS IS THE FIX] ---
+            // We now query directly for the PFD element *after* it has been
+            // marked as 'initialized' by flight.js. This prevents the
+            // race condition where the mobile UI hijacks the content too early.
+            const attitudeGroup = windowElement.querySelector('#attitude_group[data-initialized="true"]');
+            
+            // Check if PFD is built AND has the 'true' signal
+            if (attitudeGroup) {
                 
                 // --- [NEW] Router ---
                 if (this.activeMode === 'legacy') {
@@ -646,7 +650,7 @@ const MobileUIHandler = {
         this.contentObserver.observe(windowElement, { 
             childList: true, 
             subtree: true,
-            attributes: true
+            attributes: true // This is critical for watching 'data-initialized'
         });
     },
 
