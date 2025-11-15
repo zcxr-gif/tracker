@@ -1974,6 +1974,33 @@ function injectCustomStyles() {
     document.head.appendChild(style);
 }
 
+/**
+     * --- [NEW] Fetches and injects the external HTML content for the info panel.
+     */
+    async function loadExternalPanelContent() {
+        const panelContentWrapper = document.querySelector('#sector-ops-floating-panel .panel-content-wrapper');
+        if (!panelContentWrapper) {
+            console.warn('Could not find .panel-content-wrapper to inject content.');
+            return;
+        }
+
+        try {
+            const response = await fetch('panel-content.html');
+            if (!response.ok) {
+                throw new Error(`Failed to fetch panel-content.html (Status: ${response.status})`);
+            }
+            const htmlContent = await response.text();
+            panelContentWrapper.innerHTML = htmlContent;
+        } catch (error) {
+            console.error('Error loading external panel content:', error);
+            panelContentWrapper.innerHTML = `
+                <div class="info-panel-content">
+                    <p class="error-text">Could not load panel content.</p>
+                </div>
+            `;
+        }
+    }
+
     /**
      * --- [FIXED] Handles the search input event.
      * Finds matching flights from the live data and calls the render function.
@@ -4143,24 +4170,14 @@ async function initializeSectorOpsView() {
         weatherSettingsWindow = document.getElementById('weather-settings-window');
         filterSettingsWindow = document.getElementById('filter-settings-window');
 
-        // 2. [FIX] Removed hub selector population ---
-        // selector.innerHTML = departureHubs.map(h => `<option value="${h}">${airportsData[h]?.name || h}</option>`).join('');
-        // const selectedHub = selector.value;
+        // 2. [REMOVED] Hub selector population ---
         const selectedHub = "VIDP"; // <-- Hard-coded a default hub for the map
 
         // 3. Initialize the Mapbox map
         await initializeSectorOpsMap(selectedHub);
 
-        // 4. [FIX] Fetch data ---
-        // const [rosters, routes] = await Promise.all([
-        //     fetchAndRenderRosters(selectedHub),
-        //     fetchAndRenderRoutes()
-        // ]);
-        // ALL_AVAILABLE_ROUTES = routes;
-        const routes = await fetchAndRenderRoutes(); // <-- Just call the routes function
-        ALL_AVAILABLE_ROUTES = routes; // This will be an empty array, which is fine
-
-        renderAirportMarkers();
+        // 4. [MODIFIED] Fetch panel content instead of routes/rosters ---
+        await loadExternalPanelContent();
 
         // 5. Set up all event listeners
         setupSectorOpsEventListeners();
@@ -4176,8 +4193,11 @@ async function initializeSectorOpsView() {
     } catch (error) {
         console.error("Error initializing Sector Ops view:", error);
         showNotification(error.message, 'error');
-        // document.getElementById('roster-list-container').innerHTML = `<p class="error-text">${error.message}</p>`; // <-- This element doesn't exist
-        document.getElementById('route-list-container').innerHTML = `<p class="error-text">${error.message}</p>`;
+        // Handle error display in the new panel if needed
+        const panelContentWrapper = document.querySelector('#sector-ops-floating-panel .panel-content-wrapper');
+        if (panelContentWrapper) {
+            panelContentWrapper.innerHTML = `<p class="error-text" style="padding: 20px;">${error.message}</p>`;
+        }
     } finally {
         mainContentLoader.classList.remove('active');
     }
@@ -6206,41 +6226,9 @@ function setupSectorOpsEventListeners() {
         }
         // --- END: REFACTORED for Toolbar and Panel Toggle ---
 
-        // Tab switching now ONLY changes the panel content
-        panel.querySelector('.panel-tabs')?.addEventListener('click', (e) => {
-            const tabLink = e.target.closest('.tab-link');
-            if (!tabLink) return;
-            
-            panel.querySelectorAll('.tab-link, .tab-content').forEach(el => el.classList.remove('active'));
-            const tabId = tabLink.dataset.tab;
-            tabLink.classList.add('active');
-            panel.querySelector(`#${tabId}`).classList.add('active');
-        });
-
-        // Hub selector only updates the roster list. Map is independent.
-        panel.querySelector('#departure-hub-selector')?.addEventListener('change', async (e) => {
-            const selectedHub = e.target.value;
-            await fetchAndRenderRosters(selectedHub);
-        });
-
-        // Route search/filter (for the global list)
-        panel.querySelector('#route-search-input')?.addEventListener('input', (e) => {
-            const searchTerm = e.target.value.toUpperCase().trim();
-            document.querySelectorAll('#route-list-container .route-card').forEach(card => {
-                const departure = card.dataset.departure;
-                const arrival = card.dataset.arrival;
-                const aircraft = card.dataset.aircraft;
-                const operator = card.dataset.operator.toUpperCase();
-                
-                const isMatch = (
-                    departure.includes(searchTerm) ||
-                    arrival.includes(searchTerm) ||
-                    aircraft.includes(searchTerm) ||
-                    operator.includes(searchTerm)
-                );
-                card.style.display = isMatch ? 'flex' : 'none';
-            });
-        });
+        // --- [REMOVED] Tab switching logic ---
+        // --- [REMOVED] Hub selector logic ---
+        // --- [REMOVED] Route search/filter logic ---
 
         // --- [MODIFIED] Add listener for the NEW single weather button ---
         const openWeatherBtn = document.getElementById('open-weather-settings-btn');

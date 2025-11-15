@@ -1,0 +1,112 @@
+/* Add this file to your main HTML file's <head> section:
+  <link rel="stylesheet" href="panel-styles.css">
+*/
+
+/* --- [NEW] Info Panel Content Styles --- */
+
+/* This replaces the old tab-content wrapper */
+.info-panel-content {
+    padding: 20px;
+    color: #e8eaf6;
+    font-size: 0.95rem;
+    line-height: 1.6;
+}
+
+.info-panel-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 16px;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+    padding-bottom: 12px;
+}
+
+.info-panel-header h3 {
+    margin: 0;
+    font-size: 1.3rem;
+    font-weight: 600;
+    color: #fff;
+}
+
+.beta-badge {
+    background-color: #f39c12;
+    color: #1a1a1a;
+    font-size: 0.75rem;
+    font-weight: 700;
+    padding: 4px 10px;
+    border-radius: 20px;
+    text-transform: uppercase;
+    animation: pulse-beta 2s infinite;
+}
+
+@keyframes pulse-beta {
+    0% { box-shadow: 0 0 0 0 rgba(243, 156, 18, 0.7); }
+    70% { box-shadow: 0 0 0 10px rgba(243, 156, 18, 0); }
+    100% { box-shadow: 0 0 0 0 rgba(243, 156, 18, 0); }
+}
+
+.welcome-text {
+    color: #c5cae9;
+    font-size: 0.9rem;
+    margin-bottom: 20px;
+}
+
+.info-panel-content h4 {
+    font-size: 1rem;
+    font-weight: 600;
+    color: #00a8ff;
+    text-transform: uppercase;
+    margin-top: 24px;
+    margin-bottom: 12px;
+}
+
+.features-list {
+    list-style: none;
+    padding: 0;
+    margin: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+}
+
+.features-list li {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    font-size: 0.9rem;
+}
+
+.features-list li .fa-solid {
+    width: 20px;
+    text-align: center;
+    color: #9fa8da;
+}
+
+.beta-note {
+    margin-top: 24px;
+    padding: 12px;
+    background: rgba(243, 156, 18, 0.1);
+    border: 1px solid rgba(243, 156, 18, 0.3);
+    border-radius: 8px;
+    font-size: 0.85rem;
+    color: #f39c12;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+}
+
+.beta-note .fa-solid {
+    font-size: 1.1rem;
+}
+
+/* --- [FIX] Hide old tab UI elements --- */
+/* This will hide the "Rosters" and "Routes" tabs */
+.panel-tabs {
+    display: none;
+}
+
+/* This will remove the padding from the wrapper */
+.panel-content-wrapper {
+    padding: 0;
+    height: 100%; /* Ensure it fills the panel */
+}
