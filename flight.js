@@ -1949,20 +1949,14 @@ function injectCustomStyles() {
         /* --- Mobile adjustments for search bar --- */
         @media (max-width: 992px) {
             .sector-ops-search {
-                /* --- [START MODIFICATION] --- */
-                top: 50px; /* Sits below the hamburger menu */
-                left: 50%; /* Center horizontally */
-                transform: translateX(-50%); /* Center horizontally */
-
+                /* --- [START MODIFICATION - TOP FIX] --- */
+                top: 15px; /* Change from 50px to 15px to move it to the very top */
+                left: 50%;
+                transform: translateX(-50%);
                 z-index: 990 !important;
-                
-                /* --- REMOVED --- */
-                /* right: 15px; */ 
-                
-                /* --- MODIFIED --- */
                 width: 300px;
-                max-width: calc(100vw - 30px); /* 15px padding on each side */
-                /* --- [END MODIFICATION] --- */
+                max-width: calc(100vw - 30px);
+                /* --- [END MODIFICATION - TOP FIX] --- */
             }
             
             /* Keep it expanded on mobile */
@@ -1970,7 +1964,7 @@ function injectCustomStyles() {
             .sector-ops-search:not(:focus-within) .search-bar-container,
             .sector-ops-search:focus-within .search-bar-container {
                  width: 100%;
-                 border-radius: 25px; /* --- [FIX] Always rounded on mobile --- */
+                 border-radius: 25px; 
             }
 
             /* --- [NEW] --- */
@@ -1997,14 +1991,14 @@ function injectCustomStyles() {
                 display: none;
             }
 
-            /* --- [START MODIFICATION] --- */
+            /* --- [START MODIFICATION - INFO WINDOW FIX] --- */
             /* Adjust info window to not clash */
             .info-window {
-                /* Move it down to avoid centered search bar */
-                top: 130px;
-                max-height: calc(100vh - 140px);
+                /* Sits below the search bar */
+                top: 75px; 
+                max-height: calc(100vh - 90px); /* Adjust max-height accordingly */
             }
-            /* --- [END MODIFICATION] --- */
+            /* --- [END MODIFICATION - INFO WINDOW FIX] --- */
         }
     `;
 
