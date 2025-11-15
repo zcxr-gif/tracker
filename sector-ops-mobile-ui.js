@@ -914,12 +914,15 @@ const MobileUIHandler = {
                 // If switching to pilot report, trigger the data fetch/render
                 if (tabId === 'ac-tab-pilot-report') {
                     const statsDisplay = newPane?.querySelector('#pilot-stats-display');
-                    if (statsDisplay && statsDisplay.innerHTML.trim() === '') { 
+                    
+                    // ✅ FIXED: Only check if the element exists, removing the restrictive innerHTML.trim() check.
+                    if (statsDisplay) { 
                         const userId = tabBtn.dataset.userId;
                         const username = tabBtn.dataset.username;
                         
-                        // Assumes the asynchronous displayPilotStats function is globally available (needs to be from flight.js)
                         if (userId && window.displayPilotStats) { 
+                            // The displayPilotStats function handles setting the loading spinner 
+                            // and replacing the content, so it's safe to call repeatedly.
                             await window.displayPilotStats(userId, username); 
                             
                             // After loading, re-calculate the maxHeight for the accordion content
