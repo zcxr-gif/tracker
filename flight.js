@@ -6934,5 +6934,7 @@ async function updateSectorOpsSecondaryData() {
         mainContentLoader.classList.remove('active');
     }
 
+    window.displayPilotStats = displayPilotStats;
+
     initializeApp();
 });
