@@ -638,11 +638,19 @@ const MobileUIHandler = {
 
             // --- Check for content "ready" signals ---
             if (windowId === 'aircraft-info-window') {
-                // [FIX] Wait for the PFD to be initialized.
-                // This signal is set synchronously by flight.js's createPfdDisplay()
-                // and does not depend on the asynchronous geocode API call.
-                const pfdAttitudeGroup = windowElement.querySelector('#attitude_group');
-                if (pfdAttitudeGroup && pfdAttitudeGroup.dataset.initialized === 'true') {
+                // [FIX] This is the fix.
+                // We no longer wait for the PFD (which fires too early).
+                // We now wait for the #ac-location text to be populated,
+                // which only happens *after* flight.js has fetched data,
+                // built the VSD, and called the first geocode.
+                const locationEl = windowElement.querySelector('#ac-location');
+                
+                // Check if the element exists and has real text (not the spinner/placeholder)
+                if (locationEl && 
+                    locationEl.textContent !== '---' && 
+                    locationEl.textContent.trim() !== '' && 
+                    !locationEl.querySelector('i.fa-spinner')) 
+                {
                     isReady = true;
                 }
 
@@ -701,28 +709,39 @@ const MobileUIHandler = {
         });
     },
 
-    /**
-     * [NEW] Wires up interactions for the "Legacy Sheet" mode.
-     */
     populateLegacySheet(sourceWindow) {
         // The content is already *in* the window.
         // We just need to add the drag handle.
-        const overviewPanel = sourceWindow.querySelector('.aircraft-overview-panel');
-        const routeSummaryBar = sourceWindow.querySelector('.route-summary-overlay');
+        
+        // [FIX] Make the handle generic.
+        // Search for aircraft-specific elements *first*.
+        let handleContent1 = sourceWindow.querySelector('.aircraft-overview-panel');
+        let handleContent2 = sourceWindow.querySelector('.route-summary-overlay');
 
-        if (!overviewPanel || !routeSummaryBar) {
-            console.error("Legacy Sheet UI: Could not find handle elements.");
-            return;
+        // If not found, fall back to airport-specific elements.
+        if (!handleContent1) {
+            handleContent1 = sourceWindow.querySelector('.info-window-header');
+            handleContent2 = sourceWindow.querySelector('.airport-info-weather'); // This is the blue weather bar
+        }
+
+        if (!handleContent1) {
+            // This will fail if the window is empty (which is fine)
+            console.warn("Legacy Sheet UI: Could not find handle elements.");
+            // We can still wire up the rest of the interactions
         }
 
         // Create a wrapper to act as the handle
         const handleWrapper = document.createElement('div');
         handleWrapper.className = 'legacy-sheet-handle';
         
-        // Wrap the overview panel and route bar with the handle
+        // Wrap the elements with the handle
         sourceWindow.prepend(handleWrapper);
-        handleWrapper.appendChild(overviewPanel);
-        handleWrapper.appendChild(routeSummaryBar);
+        if (handleContent1) {
+            handleWrapper.appendChild(handleContent1);
+        }
+        if (handleContent2) { // The second element is optional
+            handleWrapper.appendChild(handleContent2);
+        }
         
         // Wire up interactions
         this.wireUpLegacySheetInteractions(sourceWindow, handleWrapper);
