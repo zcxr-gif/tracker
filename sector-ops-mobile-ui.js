@@ -598,68 +598,73 @@ const MobileUIHandler = {
 
     /**
      * [MODIFIED] Observes the original window for content.
-     * Now calls the correct "populate" function based on the active mode
-     * AND triggers the animation *after* population is complete.
      *
-     * [FIX] This function now checks the window ID to determine *which*
-     * content to wait for (PFD for aircraft, tabs for airport).
+     * [FIX 3.0] The original "ready" signal (PFD initialized) fires too
+     * early in flight.js v14, causing a race condition where the mobile
+     * UI is built before all content is ready.
+     *
+     * This fix changes the "ready" signal to be the population of the
+     * #ac-location text, which happens *after* the initial geocode fetch,
+     * ensuring all content is present before the mobile UI steals it.
      */
     observeOriginalWindow(windowElement) {
         if (this.contentObserver) this.contentObserver.disconnect();
         
-        // [NEW] Get the window ID to decide what to look for
         const windowId = windowElement.id;
 
         this.contentObserver = new MutationObserver((mutationsList, obs) => {
             
             let isReady = false;
 
-            // [NEW] Branching logic to find the correct "ready" signal
+            // --- Check for attribute mutations (for airport window close) ---
+            for (const mutation of mutationsList) {
+                if (mutation.type === 'attributes' && mutation.attributeName === 'class') {
+                    if (!windowElement.classList.contains('visible')) {
+                        console.log("MobileUI: Observed logical close, aborting open.");
+                        obs.disconnect();
+                        this.contentObserver = null;
+                        this.closeActiveWindow(true); 
+                        return; 
+                    }
+                }
+            }
+
+            // --- Check for content "ready" signals ---
             if (windowId === 'aircraft-info-window') {
-                // --- Logic for Aircraft Window (as before) ---
-                const mainContent = windowElement.querySelector('.unified-display-main-content');
-                const attitudeGroup = mainContent?.querySelector('#attitude_group');
+                // [NEW SIGNAL] Wait for the location text to be populated.
+                // This proves the initial geocode has returned and content is ready.
+                const locationEl = windowElement.querySelector('#ac-location');
                 
-                // Check if PFD is built
-                if (mainContent && attitudeGroup && attitudeGroup.dataset.initialized === 'true') {
+                // It's ready if the element exists and its text is no longer
+                // the placeholder ('---') or a loading spinner (empty textContent).
+                if (locationEl && locationEl.textContent && locationEl.textContent !== '---') {
                     isReady = true;
                 }
 
             } else if (windowId === 'airport-info-window') {
-                // --- [NEW] Logic for Airport Window ---
-                // It's ready when the tab container is injected.
+                // [AS BEFORE] Wait for tabs to be injected for the airport window
                 const tabContainer = windowElement.querySelector('.info-window-tabs');
                 if (tabContainer) {
                     isReady = true;
                 }
             }
-
             
-            // [NEW] Unified "isReady" check
+            // If ready, proceed with populating the mobile UI
             if (isReady) {
                 
-                // --- [MODIFIED] Router ---
                 if (this.activeMode === 'legacy') {
-                    // 1. Populate first (while off-screen)
                     this.populateLegacySheet(windowElement);
-                    
-                    // 2. NOW, animate it in
-                    if (this.activeWindow) {
-                        // Use a minimal timeout to ensure styles are applied, then animate
-                        setTimeout(() => {
+                    setTimeout(() => {
+                        if (this.activeWindow) {
                             this.activeWindow.classList.add('visible', 'peek');
                             this.legacySheetState.currentState = 'peek';
-                        }, 10);
-                    }
+                        }
+                    }, 10);
 
                 } else { // 'hud' mode
                     
-                    // --- [CRITICAL FIX] ---
-                    // The HUD (island) view is ONLY for aircraft.
-                    // If we are in 'hud' mode but opened the *airport* window,
-                    // we must force it to use the 'legacy' sheet display.
                     if (windowId === 'airport-info-window') {
-                        
+                        // Force 'legacy' sheet for airports
                         this.populateLegacySheet(windowElement);
                         setTimeout(() => {
                             if (this.activeWindow) {
@@ -667,14 +672,9 @@ const MobileUIHandler = {
                                 this.legacySheetState.currentState = 'peek';
                             }
                         }, 10);
-
                     } else {
-                        // This is the aircraft window in HUD mode (original logic)
-                        // 1. Populate first (while off-screen)
+                        // Use 'hud' islands for aircraft
                         this.populateSplitView(windowElement);
-                        
-                        // 2. NOW, animate them in
-                        // Use a minimal timeout to ensure styles are applied, then animate
                         setTimeout(() => {
                             if (this.topWindowEl) this.topWindowEl.classList.add('visible');
                             if (this.miniIslandEl) this.miniIslandEl.classList.add('island-active');
@@ -688,13 +688,14 @@ const MobileUIHandler = {
             }
         });
         
+        // Observe everything: child nodes, attribute changes, and subtree
         this.contentObserver.observe(windowElement, { 
             childList: true, 
             subtree: true,
             attributes: true
         });
     },
-    
+
     /**
      * [NEW] Wires up interactions for the "Legacy Sheet" mode.
      */
