@@ -5740,63 +5740,58 @@ function renderPilotStatsHTML(stats, username) {
     `;
 }
 
-// --- [NEW & FIXED] Fetches and displays the pilot stats, and attaches its own event listeners ---
-    async function displayPilotStats(userId, username) {
-        if (!userId) return;
+/**
+ * [FIXED SCOPE] Fetches and displays the pilot stats, and attaches its own event listeners.
+ * Now globally accessible via `window.displayPilotStats`.
+ */
+async function displayPilotStats(userId, username) {
+    if (!userId) return;
 
-        // Get the containers
-        // const statsPane = document.getElementById('ac-tab-pilot-report'); // No longer needed
-        // const flightPane = document.getElementById('ac-tab-flight-data'); // No longer needed
-        const statsDisplay = document.getElementById('pilot-stats-display');
+    // Get the containers
+    const statsDisplay = document.getElementById('pilot-stats-display');
+    
+    if (!statsDisplay) return;
+
+    // Show loading spinner in stats panel
+    statsDisplay.innerHTML = `<div class="spinner-small" style="margin: 2rem auto;"></div><p style="text-align: center;">Loading pilot report for ${username}...</p>`;
+    
+    try {
+        const res = await fetch(`${ACARS_USER_API_URL}/${userId}/grade`);
+        if (!res.ok) throw new Error('Could not fetch pilot data.');
         
-        if (!statsDisplay) return;
-
-        // Show loading spinner in stats panel
-        statsDisplay.innerHTML = `<div class="spinner-small" style="margin: 2rem auto;"></div><p style="text-align: center;">Loading pilot report for ${username}...</p>`;
-        
-        // --- [REMOVED] Toggle visibility ---
-        // flightPane.classList.remove('active');
-        // statsPane.classList.add('active');
-
-        try {
-            const res = await fetch(`${ACARS_USER_API_URL}/${userId}/grade`);
-            if (!res.ok) throw new Error('Could not fetch pilot data.');
+        const data = await res.json();
+        if (data.ok && data.gradeInfo) {
+            statsDisplay.innerHTML = renderPilotStatsHTML(data.gradeInfo, username);
             
-            const data = await res.json();
-            if (data.ok && data.gradeInfo) {
-                statsDisplay.innerHTML = renderPilotStatsHTML(data.gradeInfo, username);
-                
-                // --- Accordion event listeners ---
-                const accordionHeaders = statsDisplay.querySelectorAll('.accordion-header');
-                accordionHeaders.forEach(header => {
-                    header.addEventListener('click', () => {
-                        const item = header.closest('.accordion-item');
-                        const content = header.nextElementSibling;
-                        const isExpanded = item.classList.contains('active');
-                        
-                        item.classList.toggle('active');
+            // --- Accordion event listeners ---
+            const accordionHeaders = statsDisplay.querySelectorAll('.accordion-header');
+            accordionHeaders.forEach(header => {
+                header.addEventListener('click', () => {
+                    const item = header.closest('.accordion-item');
+                    const content = header.nextElementSibling;
+                    const isExpanded = item.classList.contains('active');
+                    
+                    item.classList.toggle('active');
 
-                        if (isExpanded) {
-                            content.style.maxHeight = null;
-                        } else {
-                            content.style.maxHeight = content.scrollHeight + 'px';
-                        }
-                    });
+                    if (isExpanded) {
+                        content.style.maxHeight = null;
+                    } else {
+                        content.style.maxHeight = content.scrollHeight + 'px';
+                    }
                 });
+            });
 
-                // The main delegate in setupAircraftWindowEvents will catch the back button click
-                
-            } else {
-                throw new Error('Pilot data not found or invalid.');
-            }
-        } catch (error) {
-            console.error('Error fetching pilot stats:', error);
-            // [MODIFIED] Removed back button from error message
-            statsDisplay.innerHTML = `<div class="stats-rehaul-container">
-                <p class="error-text">${error.message}</p>
-            </div>`;
+            
+        } else {
+            throw new Error('Pilot data not found or invalid.');
         }
+    } catch (error) {
+        console.error('Error fetching pilot stats:', error);
+        statsDisplay.innerHTML = `<div class="stats-rehaul-container">
+            <p class="error-text">${error.message}</p>
+        </div>`;
     }
+}
 
 /**
  * --- [REHAULED v2.1] Renders the Pilot Report with collapsible sections and a case-sensitive profile link.
@@ -6933,6 +6928,8 @@ async function updateSectorOpsSecondaryData() {
         
         mainContentLoader.classList.remove('active');
     }
+
+    window.displayPilotStats = displayPilotStats;
 
     initializeApp();
 });
