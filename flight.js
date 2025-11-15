@@ -1174,12 +1174,6 @@ function injectCustomStyles() {
             z-index: 998; /* ✅ Below sidebar, above content */
         }
 
-        /* --- [NEW] Hide Mobile-Only Settings on Desktop --- */
-        .mobile-only-filter {
-            display: none;
-        }
-
-
         /* --- [NEW] Responsive Media Query for Mobile --- */
         @media (max-width: 992px) {
             .mobile-sidebar-toggle-btn {
@@ -1258,14 +1252,13 @@ function injectCustomStyles() {
             .pfd-and-location-grid {
                 grid-template-columns: 1fr; /* 1 column */
             }
-            
-            /* --- [NEW] Show Mobile-Only Settings on Mobile --- */
-            .mobile-only-filter {
-                display: block; /* Show the divider */
+
+            /* ##### MODIFICATION START ##### */
+            /* Show the mobile-only filter section on mobile */
+            .mobile-only-filter-section {
+                display: block;
             }
-            ul.mobile-only-filter {
-                display: flex; /* Show the <ul> list */
-            }
+            /* ##### MODIFICATION END ##### */
         }
         
         /* ====================================================================
@@ -1751,6 +1744,13 @@ function injectCustomStyles() {
             color: #00a8ff;
         }
         /* --- [END NEW] --- */
+
+        /* ##### MODIFICATION START ##### */
+        /* By default, hide the mobile-only setting on desktop */
+        .mobile-only-filter-section {
+            display: none;
+        }
+        /* ##### MODIFICATION END ##### */
 
         /* ====================================================================
         --- [NEW STYLES FOR MAP SEARCH BAR] --- 
@@ -4155,19 +4155,21 @@ async function initializeSectorOpsView() {
                             </li>
                         </ul>
 
-                        <div class="filter-section-divider mobile-only-filter">
-                            <span class="filter-section-title">Mobile Display Mode</span>
+                        <div class="mobile-only-filter-section">
+                            <div class="filter-section-divider">
+                                <span class="filter-section-title">Mobile Display Mode</span>
+                            </div>
+                            <ul class="filter-toggle-list" id="mobile-mode-filter-group" style="padding-top: 8px;">
+                                <li class="filter-radio-item">
+                                    <input type="radio" id="mobile-mode-hud" name="mobile-display-mode" value="hud" checked>
+                                    <label for="mobile-mode-hud"><i class="fa-solid fa-rocket"></i> HUD View</label>
+                                </li>
+                                <li class="filter-radio-item">
+                                    <input type="radio" id="mobile-mode-legacy" name="mobile-display-mode" value="legacy">
+                                    <label for="mobile-mode-legacy"><i class="fa-solid fa-layer-group"></i> Legacy Sheet</label>
+                                </li>
+                            </ul>
                         </div>
-                        <ul class="filter-toggle-list mobile-only-filter" id="mobile-mode-filter-group" style="padding-top: 8px;">
-                            <li class="filter-radio-item">
-                                <input type="radio" id="mobile-mode-hud" name="mobile-display-mode" value="hud" checked>
-                                <label for="mobile-mode-hud"><i class="fa-solid fa-rocket"></i> HUD View</label>
-                            </li>
-                            <li class="filter-radio-item">
-                                <input type="radio" id="mobile-mode-legacy" name="mobile-display-mode" value="legacy">
-                                <label for="mobile-mode-legacy"><i class="fa-solid fa-layer-group"></i> Legacy Sheet</label>
-                            </li>
-                        </ul>
                         </div>
                 </div>
             `;
