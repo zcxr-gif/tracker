@@ -830,7 +830,7 @@ const MobileUIHandler = {
             });
         }
     },
-
+    
     /**
      * [RENAMED] Wires up all interactions to the new unified handle
      * for the "HUD" mode.
@@ -901,12 +901,12 @@ const MobileUIHandler = {
             if (pilotReportBtn) {
                 e.preventDefault();
                 e.stopPropagation();
-                // A common pattern is to trigger a global function to open the report modal/view
-                // As the exact function is unknown, this is the placeholder for the *actual* call.
-                if (typeof window.openPilotReportForAircraft === 'function' && this.activeWindow.dataset.aircraftId) {
-                    window.openPilotReportForAircraft(this.activeWindow.dataset.aircraftId);
+                // ** CRITICAL FIX: Call the global function exposed in flight.js **
+                if (typeof window.openPilotReportTab === 'function') {
+                    window.openPilotReportTab();
+                    this.setDrawerState(2); // Keep the drawer expanded for the report
                 } else {
-                    console.warn("Pilot Report requested. Implementation for 'openPilotReportForAircraft' is needed in the main application.");
+                    console.warn("Pilot Report requested but global handler 'window.openPilotReportTab' not found.");
                 }
             }
             // --- [END NEW] ---
