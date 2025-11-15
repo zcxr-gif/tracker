@@ -6911,40 +6911,6 @@ async function updateSectorOpsSecondaryData() {
     // END: NEW LIVE FLIGHTS & ATC/NOTAM LOGIC FOR SECTOR OPS MAP
     // ====================================================================
 
-/**
-     * --- [NEW] Global entry point for the Mobile UI Handler to open the Pilot Report tab. ---
-     * This function is exposed to the global window object.
-     */
-    window.openPilotReportTab = async () => {
-        const tabBtn = document.querySelector('.ac-info-tab-btn[data-tab="ac-tab-pilot-report"]');
-        const statsPane = document.getElementById('ac-tab-pilot-report');
-        const flightPane = document.getElementById('ac-tab-flight-data');
-        const activeTab = document.querySelector('.ac-info-tab-btn.active');
-        const activePane = document.querySelector('.ac-tab-pane.active');
-
-        if (!tabBtn || !statsPane || !flightPane || tabBtn.classList.contains('active')) {
-             console.warn("Pilot Report tab button not found or already active.");
-             return;
-        }
-
-        // 1. Switch Active Tab State
-        if (activeTab) activeTab.classList.remove('active');
-        if (activePane) activePane.classList.remove('active');
-
-        tabBtn.classList.add('active');
-        statsPane.classList.add('active');
-
-        // 2. Load the content if it's empty
-        const statsDisplay = statsPane.querySelector('#pilot-stats-display');
-        if (statsDisplay && statsDisplay.innerHTML.trim() === '') {
-            const userId = tabBtn.dataset.userId;
-            const username = tabBtn.dataset.username;
-            if (userId) {
-                await displayPilotStats(userId, username);
-            }
-        }
-    };
-
 
 
     // --- Initial Load ---
