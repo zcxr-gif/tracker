@@ -4544,11 +4544,7 @@ async function initializeSectorOpsMap(centerICAO) {
                             38000, '#9400D3'
                         ],
                         'line-width': 4,
-                        'line-opacity': 0.9,
-                        // --- [START FIX] ---
-                        'line-emissive-strength': 1.0, // Make the line "glow" to avoid Z-fighting
-                        'line-emissive-strength-transition': { 'duration': 0 }
-                        // --- [END FIX] ---
+                        'line-opacity': 0.9
                     }
                 }, 'sector-ops-live-flights-layer'); // Draw below aircraft
                 
@@ -4959,10 +4955,15 @@ async function handleAircraftClick(flightProps, sessionId) {
                     ],
                     'line-width': 4,
                     'line-opacity': 0.9,
-                    // --- [START FIX] ---
-                    'line-emissive-strength': 1.0, // Make the line "glow" to avoid Z-fighting
-                    'line-emissive-strength-transition': { 'duration': 0 }
-                    // --- [END FIX] ---
+                    
+                    // ##### FIX START #####
+                    // This is the fix for the "termites" / Z-fighting glitch.
+                    // It offsets the line 2 pixels "up" (toward the camera)
+                    // relative to the viewport, ensuring it always wins
+                    // the 3D rendering fight against the map's surface.
+                    'line-translate': [0, -2],
+                    'line-translate-anchor': 'viewport'
+                    // ##### FIX END #####
                 }
             }, 'sector-ops-live-flights-layer'); // Ensure it's drawn below aircraft
         } else {
@@ -5116,6 +5117,103 @@ async function handleAircraftClick(flightProps, sessionId) {
         // --- [NEW] Clean up the cache ---
         liveTrailCache.delete(flightProps.flightId);
     }
+}
+
+/**
+ * --- [NEW] Rebuilds all dynamic layers after a map style change.
+ * This includes weather, airport routes, and the active aircraft trail.
+ */
+function rebuildDynamicLayers() {
+    console.log("Rebuilding dynamic layers...");
+
+    // 1. Re-apply weather layers
+    if (document.getElementById('weather-toggle-precip')?.checked) {
+        isWeatherLayerAdded = false; // Force re-creation
+        toggleWeatherLayer(true);
+    }
+    if (document.getElementById('weather-toggle-clouds')?.checked) {
+        isCloudLayerAdded = false; // Force re-creation
+        toggleCloudLayer(true);
+    }
+    if (document.getElementById('weather-toggle-wind')?.checked) {
+        isWindLayerAdded = false; // Force re-creation
+        toggleWindLayer(true);
+    }
+
+    // 2. Re-apply airport routes
+    if (currentAirportInWindow) {
+        // This function already clears old layers and re-adds new ones
+        plotRoutesFromAirport(currentAirportInWindow);
+    }
+
+    // 3. Re-apply active flight trail
+    if (currentFlightInWindow) {
+        const flightId = currentFlightInWindow;
+        
+        // Clear any stray map state
+        clearLiveFlightPath(flightId); 
+        delete sectorOpsLiveFlightPathLayers[flightId]; 
+
+        // Get cached data from when the window was opened
+        const { flightProps, plan } = cachedFlightDataForStatsView; // <-- Add 'plan'
+        if (flightProps) {
+            const localTrail = liveTrailCache.get(flightId) || [];
+            const currentPosition = currentAircraftPositionForGeocode || flightProps.position;
+            const routeFeatureCollection = generateAltitudeColoredRoute(localTrail, currentPosition);
+
+            // Re-add source
+            sectorOpsMap.addSource(`flown-path-${flightId}`, { // Use base ID
+                type: 'geojson',
+                data: routeFeatureCollection
+            });
+            
+            // Re-add layer (copying paint properties from handleAircraftClick)
+            sectorOpsMap.addLayer({
+                id: `flown-path-${flightId}`, // Use base ID
+                type: 'line',
+                source: `flown-path-${flightId}`, // Use base ID
+                paint: {
+                    'line-color': [
+                        'interpolate',
+                        ['linear'],
+                        ['get', 'avgAltitude'],
+                        0,     '#e6e600',
+                        10000, '#ff9900',
+                        20000, '#ff3300',
+                        29000, '#00BFFF',
+                        38000, '#9400D3'
+                    ],
+                    'line-width': 4,
+                    'line-opacity': 0.9,
+                    
+                    // ##### FIX START #####
+                    // This is the fix for the "termites" / Z-fighting glitch.
+                    // It ensures the line is also rendered correctly after
+                    // a map style change (e.g., to Light/Satellite).
+                    'line-translate': [0, -2],
+                    'line-translate-anchor': 'viewport'
+                    // ##### FIX END #####
+                }
+            }, 'sector-ops-live-flights-layer'); // Draw below aircraft
+            
+            sectorOpsLiveFlightPathLayers[flightId] = { flown: `flown-path-${flightId}` };
+            console.log(`Rebuilt active trail for ${flightId}`);
+
+            // --- [START NEW] ---
+            // Re-draw the planned route line based on filter state
+            if (plan) {
+                const position = currentAircraftPositionForGeocode || flightProps.position;
+                updateFlightPlanLayer(flightId, plan, position);
+            }
+            // --- [END NEW] ---
+        }
+    }
+    
+    // 4. Re-apply aircraft filters
+    updateAircraftLayerFilter();
+
+    // 5. Re-render airport markers
+    renderAirportMarkers();
 }
 
 
