@@ -373,6 +373,25 @@ const MobileUIHandler = {
             #mobile-island-expanded .live-data-item .data-value .unit { font-size: 0.8rem; }
             #mobile-island-expanded .live-data-item .data-value-ete { font-size: 1.7rem; }
             
+            /* [NEW] Style for Pilot Report Button */
+            #mobile-island-expanded .pilot-report-toggle-btn {
+                display: flex;
+                background: rgba(10, 12, 26, 0.5);
+                border-radius: 12px;
+                padding: 16px;
+                box-sizing: border-box;
+                justify-content: center;
+                align-items: center;
+                text-decoration: none;
+                color: var(--hud-accent);
+                font-weight: 600;
+                font-size: 1rem;
+                margin-top: 16px;
+            }
+            #mobile-island-expanded .pilot-report-toggle-btn i {
+                margin-right: 8px;
+            }
+            
             #mobile-island-expanded .pilot-stats-toggle-btn {
                 display: flex;
                 background: rgba(10, 12, 26, 0.5);
@@ -737,6 +756,15 @@ const MobileUIHandler = {
             const clonedFlightContent = mainFlightContent.cloneNode(true);
             peekContentContainer.appendChild(clonedFlightContent);
             expandedContentContainer.appendChild(mainFlightContent);
+            
+            // --- [NEW] Add Pilot Report Button to Expanded View ---
+            const pilotReportBtnHtml = `
+                <a href="#" class="pilot-report-toggle-btn" id="mobile-pilot-report-btn">
+                    <i class="fas fa-file-alt"></i> View Pilot's Report
+                </a>
+            `;
+            expandedContentContainer.insertAdjacentHTML('beforeend', pilotReportBtnHtml);
+            // --- [END NEW] ---
         }
         
         this.wireUpHudInteractions();
@@ -867,6 +895,21 @@ const MobileUIHandler = {
         
         const bottomIslandButtonHandler = async (e) => {
             // (This logic is unchanged)
+            
+            // --- [NEW] Pilot Report Button Handler ---
+            const pilotReportBtn = e.target.closest('.pilot-report-toggle-btn');
+            if (pilotReportBtn) {
+                e.preventDefault();
+                e.stopPropagation();
+                // A common pattern is to trigger a global function to open the report modal/view
+                // As the exact function is unknown, this is the placeholder for the *actual* call.
+                if (typeof window.openPilotReportForAircraft === 'function' && this.activeWindow.dataset.aircraftId) {
+                    window.openPilotReportForAircraft(this.activeWindow.dataset.aircraftId);
+                } else {
+                    console.warn("Pilot Report requested. Implementation for 'openPilotReportForAircraft' is needed in the main application.");
+                }
+            }
+            // --- [END NEW] ---
         };
         
         this.peekIslandEl.addEventListener('click', bottomIslandButtonHandler);
