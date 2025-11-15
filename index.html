@@ -855,18 +855,26 @@
             padding-top: 8px;
         }
         
-        /* --- Toolbar and Recall Buttons --- */
+        /* --- [MODIFIED] Toolbar and Recall Buttons --- */
         .dashboard-toolbar {
             position: fixed;
-            bottom: 20px;
-            left: 50%;
-            transform: translateX(-50%);
+            /* [NEW] Position middle-right */
+            top: 50%;
+            right: 20px;
+            transform: translateY(-50%);
+            /* [REMOVED] Old positioning */
+            /* bottom: 20px; */
+            /* left: 50%; */
+            /* transform: translateX(-50%); */
+
             z-index: 1000;
             background: rgba(18, 20, 38, 0.8);
             border: 1px solid rgba(255, 255, 255, 0.1);
             border-radius: 25px;
             padding: 8px;
             display: flex;
+            /* [NEW] Stack buttons vertically */
+            flex-direction: column; 
             gap: 8px;
             backdrop-filter: blur(10px);
         }
@@ -1424,14 +1432,19 @@
         }
 
         /* ====================================================================
-        --- [NEW STYLES FOR MAP SEARCH BAR] --- 
+        --- [MODIFIED STYLES FOR MAP SEARCH BAR] --- 
         ====================================================================
         */
         .sector-ops-search {
             position: absolute;
             top: 20px;
-            right: 580px; 
-            z-index: 1040; 
+            /* [NEW] Position top-right */
+            right: 20px; 
+            /* [REMOVED] Old relative positioning */
+            /* right: 580px; */ 
+
+            /* [NEW] Set z-index to be above info window */
+            z-index: 1060; 
             display: flex;
             flex-direction: column; 
             align-items: center;
@@ -1593,18 +1606,22 @@
             color: #e8eaf6;
         }
 
-        /* --- Mobile adjustments for search bar --- */
+        /* --- [MODIFIED] Mobile adjustments for search bar --- */
         @media (max-width: 992px) {
             .sector-ops-search {
                 top: 70px;
-                left: 15px;
-                right: auto; 
-                width: calc(100vw - 30px); 
+                /* [NEW] Position top-right */
+                right: 15px; 
+                left: auto; 
+                /* [NEW] Set a max-width, not a fixed width */
+                width: 300px;
+                max-width: calc(100vw - 30px);
             }
             
             .search-bar-container,
             .sector-ops-search:not(:focus-within) .search-bar-container,
             .sector-ops-search:focus-within .search-bar-container {
+                 /* [MODIFIED] Width is 100% of its parent (which is now 300px max) */
                  width: 100%;
                  border-radius: 25px; 
             }
@@ -1619,6 +1636,7 @@
             
             .sector-ops-search #sector-ops-search-input,
             .sector-ops-search:focus-within #sector-ops-search-input {
+                 /* [MODIFIED] Width is calculated based on parent */
                  width: calc(100% - 88px);
             }
 
@@ -1630,6 +1648,7 @@
             }
 
             .info-window {
+                /* [MODIFIED] Move it down to avoid the hamburger and new search */
                 top: 125px;
                 max-height: calc(100vh - 135px);
             }
