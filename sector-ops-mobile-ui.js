@@ -600,18 +600,45 @@ const MobileUIHandler = {
      * [MODIFIED] Observes the original window for content.
      * Now calls the correct "populate" function based on the active mode
      * AND triggers the animation *after* population is complete.
+     *
+     * [FIX] This function now checks the window ID to determine *which*
+     * content to wait for (PFD for aircraft, tabs for airport).
      */
     observeOriginalWindow(windowElement) {
         if (this.contentObserver) this.contentObserver.disconnect();
         
+        // [NEW] Get the window ID to decide what to look for
+        const windowId = windowElement.id;
+
         this.contentObserver = new MutationObserver((mutationsList, obs) => {
-            const mainContent = windowElement.querySelector('.unified-display-main-content');
-            const attitudeGroup = mainContent?.querySelector('#attitude_group');
             
-            // Check if PFD is built (a good sign content is ready)
-            if (mainContent && attitudeGroup && attitudeGroup.dataset.initialized === 'true') {
+            let isReady = false;
+
+            // [NEW] Branching logic to find the correct "ready" signal
+            if (windowId === 'aircraft-info-window') {
+                // --- Logic for Aircraft Window (as before) ---
+                const mainContent = windowElement.querySelector('.unified-display-main-content');
+                const attitudeGroup = mainContent?.querySelector('#attitude_group');
                 
-                // --- [NEW] Router ---
+                // Check if PFD is built
+                if (mainContent && attitudeGroup && attitudeGroup.dataset.initialized === 'true') {
+                    isReady = true;
+                }
+
+            } else if (windowId === 'airport-info-window') {
+                // --- [NEW] Logic for Airport Window ---
+                // It's ready when the tab container is injected.
+                const tabContainer = windowElement.querySelector('.info-window-tabs');
+                if (tabContainer) {
+                    isReady = true;
+                }
+            }
+
+            
+            // [NEW] Unified "isReady" check
+            if (isReady) {
+                
+                // --- [MODIFIED] Router ---
                 if (this.activeMode === 'legacy') {
                     // 1. Populate first (while off-screen)
                     this.populateLegacySheet(windowElement);
@@ -626,16 +653,34 @@ const MobileUIHandler = {
                     }
 
                 } else { // 'hud' mode
-                    // 1. Populate first (while off-screen)
-                    this.populateSplitView(windowElement);
                     
-                    // 2. NOW, animate them in
-                    // Use a minimal timeout to ensure styles are applied, then animate
-                    setTimeout(() => {
-                        if (this.topWindowEl) this.topWindowEl.classList.add('visible');
-                        if (this.miniIslandEl) this.miniIslandEl.classList.add('island-active');
-                        this.drawerState = 0; // Set initial state
-                    }, 10);
+                    // --- [CRITICAL FIX] ---
+                    // The HUD (island) view is ONLY for aircraft.
+                    // If we are in 'hud' mode but opened the *airport* window,
+                    // we must force it to use the 'legacy' sheet display.
+                    if (windowId === 'airport-info-window') {
+                        
+                        this.populateLegacySheet(windowElement);
+                        setTimeout(() => {
+                            if (this.activeWindow) {
+                                this.activeWindow.classList.add('visible', 'peek');
+                                this.legacySheetState.currentState = 'peek';
+                            }
+                        }, 10);
+
+                    } else {
+                        // This is the aircraft window in HUD mode (original logic)
+                        // 1. Populate first (while off-screen)
+                        this.populateSplitView(windowElement);
+                        
+                        // 2. NOW, animate them in
+                        // Use a minimal timeout to ensure styles are applied, then animate
+                        setTimeout(() => {
+                            if (this.topWindowEl) this.topWindowEl.classList.add('visible');
+                            if (this.miniIslandEl) this.miniIslandEl.classList.add('island-active');
+                            this.drawerState = 0; // Set initial state
+                        }, 10);
+                    }
                 }
                 
                 obs.disconnect();
@@ -649,7 +694,7 @@ const MobileUIHandler = {
             attributes: true
         });
     },
-
+    
     /**
      * [NEW] Wires up interactions for the "Legacy Sheet" mode.
      */
