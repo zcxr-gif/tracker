@@ -18,7 +18,7 @@ const MobileUIHandler = {
     miniIslandEl: null,
     peekIslandEl: null,
     expandedIslandEl: null,
-    islandHasTabs: false, // [NEW] Flag to track if the expanded island has the tab bar
+    islandHasTabs: false, // Flag to track if the expanded island has the tab bar
     
     contentObserver: null,
     drawerState: 0, // HUD Mode: 0 = Mini, 1 = Peek, 2 = Expanded
@@ -50,17 +50,16 @@ const MobileUIHandler = {
         const burgerMenu = document.getElementById('mobile-sidebar-toggle');
         // Find the map toolbar by finding the parent of one of its buttons
         const mapToolbar = document.getElementById('toolbar-toggle-panel-btn')?.parentElement;
-        const searchBar = document.getElementById('sector-ops-search-container'); // --- [NEW] ---
+        const searchBar = document.getElementById('sector-ops-search-container');
         
         // Revert to stylesheet defaults
         if (burgerMenu) burgerMenu.style.display = ''; 
         if (mapToolbar) mapToolbar.style.display = '';
-        if (searchBar) searchBar.style.display = ''; // --- [NEW] ---
+        if (searchBar) searchBar.style.display = '';
         
-        // --- [FIX] Remove 'mobile-ui-active' class from the map container ---
+        // Remove 'mobile-ui-active' class from the map container
         const mapContainer = document.getElementById('sector-ops-map-fullscreen');
         if (mapContainer) mapContainer.classList.remove('mobile-ui-active');
-        // --- [END FIX] ---
     },
 
     /**
@@ -69,7 +68,7 @@ const MobileUIHandler = {
     init() {
         this.injectMobileStyles();
 
-        // [NEW] Pre-bind document-level handlers
+        // Pre-bind document-level handlers
         this.boundHudTouchEnd = this.handleHudTouchEnd.bind(this);
         this.boundLegacyTouchMove = this.handleLegacyTouchMove.bind(this);
         this.boundLegacyTouchEnd = this.handleLegacyTouchEnd.bind(this);
@@ -81,7 +80,6 @@ const MobileUIHandler = {
      * [MODIFIED] Injects all the CSS for the new HUD-themed floating islands.
      */
     injectMobileStyles() {
-        // ... (CSS is unchanged, keeping it collapsed for clarity) ...
         const styleId = 'mobile-sector-ops-styles';
         if (document.getElementById(styleId)) document.getElementById(styleId).remove();
 
@@ -98,18 +96,17 @@ const MobileUIHandler = {
                 --island-bottom-margin: env(safe-area-inset-bottom, 15px);
                 --island-side-margin: 10px;
 
-                /* --- [NEW] Legacy Sheet Config --- */
+                /* --- Legacy Sheet Config --- */
                 --legacy-peek-height: ${this.CONFIG.legacyPeekHeight}px;
                 --legacy-top-offset: env(safe-area-inset-top, 15px);
             }
             
-            /* --- [FIX] Target the map container instead of 'view-rosters' --- */
             #sector-ops-map-fullscreen.mobile-ui-active {
                 position: relative;
                 overflow: hidden;
             }
 
-            /* --- [MODIFIED] Overlay (now shared) --- */
+            /* --- Overlay (now shared) --- */
             #mobile-window-overlay {
                 position: absolute;
                 inset: 0;
@@ -157,7 +154,7 @@ const MobileUIHandler = {
                 opacity: 1;
             }
 
-            /* --- [NEW] Base Class for Bottom Islands --- */
+            /* --- Base Class for Bottom Islands --- */
             .mobile-island-bottom {
                 position: absolute;
                 left: var(--island-side-margin);
@@ -214,15 +211,39 @@ const MobileUIHandler = {
                 height: auto; /* Fills the space */
             }
             
-            /* [NEW] Style the content area to not have its own padding/gap
-             * since the internal .unified-display-main-content already provides it. 
-             * This also makes space for the tab bar.
-            */
+            /* [FIX] Expanded Island Content Setup */
             #mobile-island-expanded .drawer-content {
                 padding: 0;
                 gap: 0;
             }
 
+            /* [NEW FIX] Apply scrolling to the deepest active tab pane, and ensure it fills height */
+            #mobile-island-expanded .drawer-content-scroll-wrapper {
+                 flex-grow: 1; 
+                 padding-bottom: env(safe-area-inset-bottom, 0);
+                 overflow: hidden; 
+            }
+            
+            #mobile-island-expanded .unified-display-main-content {
+                padding: 0; 
+                height: 100%; /* Force this container to use the full height of its parent */
+            }
+
+            #mobile-island-expanded .ac-tab-pane {
+                 height: 100%; /* Ensure it attempts to fill the height */
+                 padding: 0; /* Override flight.js padding to apply it only to the interior */
+            }
+            #mobile-island-expanded .ac-tab-pane.active {
+                 overflow-y: auto; /* <-- SCROLLING HERE */
+                 flex-grow: 1;
+            }
+            /* Ensure the padding for the flight/pilot data pane is re-applied correctly */
+            #mobile-island-expanded #ac-tab-flight-data,
+            #mobile-island-expanded #ac-tab-pilot-report {
+                padding: 16px;
+                box-sizing: border-box;
+            }
+            
             /* [NEW] Tab Bar Styling for HUD */
             #mobile-island-expanded .ac-info-window-tabs {
                 /* Override desktop styles to ensure correct layout in a HUD environment */
@@ -244,29 +265,14 @@ const MobileUIHandler = {
                 font-size: 0.85rem;
             }
 
-            /* [NEW] Fix content container scrolling when tabs are visible */
-            #mobile-island-expanded .drawer-content-scroll-wrapper {
+            
+            /* [NEW] Re-apply content height/overflow for Peek */
+            #mobile-island-peek .drawer-content-scroll-wrapper {
                  overflow-y: auto;
-                 flex-grow: 1;
+                 height: var(--drawer-peek-content-height); /* 200px */
                  padding-bottom: env(safe-area-inset-bottom, 0);
             }
-            
-            /* [NEW] The actual content pane must fill the available space */
-            #mobile-island-expanded .ac-tab-pane {
-                 height: 100%;
-                 overflow-y: auto;
-            }
-            
-            /* [NEW] The tab content itself needs inner padding */
-            #mobile-island-expanded #ac-tab-flight-data,
-            #mobile-island-expanded #ac-tab-pilot-report {
-                padding: 16px;
-                box-sizing: border-box;
-            }
-            
-            /* [NEW] Fix for the content scrollbar inside a tab */
-            #mobile-island-expanded #ac-tab-flight-data::-webkit-scrollbar,
-            #mobile-island-expanded #ac-tab-pilot-report::-webkit-scrollbar { width: 6px; }
+            /* ... (Other peek styles remain unchanged) ... */
 
 
             /* --- Route Summary Bar Styling (Mobile HUD) --- */
@@ -335,28 +341,7 @@ const MobileUIHandler = {
             #mobile-island-peek .route-summary-wrapper-mobile .route-progress-bar-container {
                  background: rgba(10, 12, 26, 0.4);
             }
-
-            /* --- Drawer Content (Used in Peek & Expanded) --- */
-            .drawer-content {
-                /* [MODIFIED] Removed overflow-y and flex-grow here */
-                flex-grow: 1;
-                /* [REMOVED] Padding moved to inner wrapper/tab pane */
-                /* [REMOVED] height: var(--drawer-peek-content-height) for Peek */
-            }
             
-            /* [NEW] Scroll wrapper only for peek/expanded */
-            #mobile-island-peek .drawer-content {
-                overflow: hidden;
-            }
-            
-            /* [NEW] Re-apply content height/overflow for Peek */
-            #mobile-island-peek .drawer-content-scroll-wrapper {
-                 overflow-y: auto;
-                 height: var(--drawer-peek-content-height); /* 200px */
-                 padding-bottom: env(safe-area-inset-bottom, 0);
-            }
-
-
             /* --- State 1: "Peek" Stacked Data Layout (Replaces PFD) --- */
             #mobile-island-peek .drawer-content-scroll-wrapper {
                 padding: 10px;
@@ -401,11 +386,14 @@ const MobileUIHandler = {
 
 
             /* --- State 2: "Expanded" Stacked Layout --- */
-            /* The tab pane will handle the padding and flex-direction */
             #mobile-island-expanded .unified-display-main-content {
-                padding: 0; /* Important: The tab content itself adds padding */
+                display: flex !important;
+                flex-direction: column;
+                gap: 16px;
+                height: auto;
+                overflow: hidden;
+                /* padding: 16px; <-- Removed, now in tab pane */
             }
-
             #mobile-island-expanded .pfd-main-panel {
                 display: flex !important;
                 margin: 0 auto !important;
@@ -429,9 +417,8 @@ const MobileUIHandler = {
             #mobile-island-expanded .live-data-item .data-value-ete { font-size: 1.7rem; }
             
             #mobile-island-expanded .pilot-stats-toggle-btn {
-                display: none !important; /* Hide the old button in favor of tabs */
+                display: none !important;
             }
-
 
             /* ====================================================================
             --- [END] CSS for "HUD" (Island) Mode ---
@@ -505,14 +492,6 @@ const MobileUIHandler = {
                 /* Add padding for the bottom safe area */
                 padding-bottom: env(safe-area-inset-bottom, 20px);
             }
-
-            /* --- Header / Image / Route Bar Overrides --- */
-            .mobile-legacy-sheet .aircraft-overview-panel {
-                /* The handle will wrap this */
-            }
-            .mobile-legacy-sheet .route-summary-overlay {
-                /* The handle will wrap this */
-            }
             
             /* --- [MODIFIED] Hide desktop close/hide buttons --- */
             /*
@@ -562,13 +541,13 @@ const MobileUIHandler = {
             // --- Hide map controls ---
             const burgerMenu = document.getElementById('mobile-sidebar-toggle');
             const mapToolbar = document.getElementById('toolbar-toggle-panel-btn')?.parentElement;
-            const searchBar = document.getElementById('sector-ops-search-container'); // --- [NEW] ---
+            const searchBar = document.getElementById('sector-ops-search-container');
             
             if (burgerMenu) burgerMenu.style.display = 'none';
             if (mapToolbar) mapToolbar.style.display = 'none';
-            if (searchBar) searchBar.style.display = 'none'; // --- [NEW] ---
+            if (searchBar) searchBar.style.display = 'none';
 
-            // --- [NEW] The Router Logic ---
+            // --- The Router Logic ---
             const userMode = localStorage.getItem('mobileDisplayMode') || this.CONFIG.defaultMode;
             this.activeMode = userMode;
             this.activeWindow = windowElement;
@@ -588,7 +567,6 @@ const MobileUIHandler = {
 
     /**
      * [MODIFIED] Creates the DOM for the "Legacy Sheet" mode.
-     * This is much simpler: just an overlay.
      */
     createLegacySheetUI() {
         // --- [FIX] Target the new map container instead of 'view-rosters' ---
@@ -603,9 +581,6 @@ const MobileUIHandler = {
         // 2. Add class to the *original* window
         this.activeWindow.classList.add('mobile-legacy-sheet');
         this.activeWindow.style.display = 'flex';
-        
-        // 3. Animate it in [REMOVED]
-        // We now wait for the observer to populate content *before* animating.
     },
 
     /**
@@ -660,15 +635,10 @@ const MobileUIHandler = {
             </div>
         `;
         viewContainer.appendChild(this.expandedIslandEl);
-
-        // Animate in [REMOVED]
-        // We now wait for the observer to populate content *before* animating.
     },
 
     /**
      * [MODIFIED] Observes the original window for content.
-     * Now calls the correct "populate" function based on the active mode
-     * AND triggers the animation *after* population is complete.
      */
     observeOriginalWindow(windowElement) {
         if (this.contentObserver) this.contentObserver.disconnect();
@@ -768,7 +738,7 @@ const MobileUIHandler = {
         const topOverviewPanel = sourceWindow.querySelector('.aircraft-overview-panel');
         const routeSummaryBar = sourceWindow.querySelector('.route-summary-overlay');
         const mainFlightContent = sourceWindow.querySelector('.unified-display-main-content');
-        const acTabsBar = sourceWindow.querySelector('.ac-info-window-tabs'); // [NEW] Find the tabs
+        const acTabsBar = sourceWindow.querySelector('.ac-info-window-tabs'); // Find the tabs
 
         // 1. Move Top Panel
         if (topOverviewPanel) {
@@ -807,7 +777,67 @@ const MobileUIHandler = {
     },
 
     /**
-     * [NEW] Wires up all interactions to the new unified handle
+     * [NEW] Wires up all interactions for the "Legacy Sheet".
+     */
+    wireUpLegacySheetInteractions(sheetElement, handleElement) {
+        
+        handleElement.addEventListener('touchstart', this.handleLegacyTouchStart.bind(this), { passive: false });
+        
+        // Use document-level listeners for move and end
+        document.addEventListener('touchmove', this.boundLegacyTouchMove, { passive: false });
+        document.addEventListener('touchend', this.boundLegacyTouchEnd);
+        document.addEventListener('touchcancel', this.boundLegacyTouchEnd);
+        
+        // --- Close Handlers ---
+        if (this.overlayEl) {
+            this.overlayEl.addEventListener('click', () => {
+                if (this.legacySheetState.currentState === 'expanded') {
+                    this.setLegacySheetState('peek');
+                } else {
+                    this.closeActiveWindow();
+                }
+            });
+        }
+        
+        // --- Stop drag from starting on button tap ---
+        const buttonContainer = sheetElement.querySelector('.overview-actions');
+        if (buttonContainer) {
+            buttonContainer.addEventListener('touchstart', (e) => {
+                e.stopPropagation();
+            }, { passive: true });
+        }
+        // --- End [NEW] ---
+        
+        // Find desktop buttons (they are still in this window)
+        const closeBtn = sheetElement.querySelector('.aircraft-window-close-btn');
+        const hideBtn = sheetElement.querySelector('.aircraft-window-hide-btn');
+        
+        // ...but we override their behavior.
+        if(closeBtn) {
+            closeBtn.addEventListener('click', (e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                this.closeActiveWindow();
+            });
+        }
+        if(hideBtn) {
+            hideBtn.addEventListener('click', (e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                this.closeActiveWindow(); // Hiding and closing are the same on mobile
+                
+                // Re-show recall button
+                const recallBtn = document.getElementById('aircraft-recall-btn');
+                if (recallBtn) {
+                    recallBtn.classList.add('visible', 'palpitate');
+                    setTimeout(() => recallBtn.classList.remove('palpitate'), 1000);
+                }
+            });
+        }
+    },
+
+    /**
+     * [MODIFIED] Wires up all interactions to the new unified handle
      * for the "HUD" mode.
      */
     wireUpHudInteractions() {
@@ -843,7 +873,7 @@ const MobileUIHandler = {
         peekHandle.addEventListener('touchstart', this.handleHudTouchStart.bind(this), { passive: false });
         expandedHandle.addEventListener('touchstart', this.handleHudTouchStart.bind(this), { passive: false });
         
-        // [MODIFIED] Remove the 'if' check and use pre-bound handler
+        // Use pre-bound handler
         document.addEventListener('touchend', this.boundHudTouchEnd);
 
         // [NEW] Wire up the tabs (only in expanded state)
@@ -882,8 +912,7 @@ const MobileUIHandler = {
     },
     
     /**
-     * [NEW] Wires up the tab switching logic for the Expanded HUD Island.
-     * This logic is largely adapted from the `setupAircraftWindowEvents` in `flight.js`.
+     * [FIXED] Wires up the tab switching logic for the Expanded HUD Island.
      */
     wireUpHudTabs() {
         if (!this.expandedIslandEl || !window.displayPilotStats) return;
@@ -901,20 +930,17 @@ const MobileUIHandler = {
                     return;
                 }
                 
-                const tabContainer = tabBtn.closest('.ac-info-window-tabs');
-                if (!tabContainer) return;
-                
-                // 1. Deactivate old tab/pane
-                tabContainer.querySelector('.ac-info-tab-btn.active')?.classList.remove('active');
-                
-                // The main flight content is the single child of the scroll wrapper,
-                // and it contains the tab panes.
-                const contentWrapper = expandedDrawer.querySelector('.drawer-content-scroll-wrapper');
-                if (!contentWrapper) return;
+                // [FIXED] Use closest to navigate to the main container
+                const islandEl = tabBtn.closest('#mobile-island-expanded');
+                if (!islandEl) return; 
 
-                const unifiedContent = contentWrapper.querySelector('.unified-display-main-content');
-                if (!unifiedContent) return;
-                
+                const tabsBar = islandEl.querySelector('.ac-info-window-tabs');
+                const unifiedContent = islandEl.querySelector('.unified-display-main-content');
+                if (!tabsBar || !unifiedContent) return;
+
+
+                // 1. Deactivate old tab/pane
+                tabsBar.querySelector('.ac-info-tab-btn.active')?.classList.remove('active');
                 unifiedContent.querySelector('.ac-tab-pane.active')?.classList.remove('active');
 
                 // 2. Activate new tab/pane
@@ -1142,12 +1168,11 @@ const MobileUIHandler = {
             this.closeTimer = null;
         }
         
-        // Assuming this global variable is managed by flight.js and needs clearing
+        // Clear global intervals managed by flight.js
         if (window.activePfdUpdateInterval) {
              clearInterval(window.activePfdUpdateInterval);
              window.activePfdUpdateInterval = null;
         }
-        // Also clear the geocode interval, if it's managed globally
         if (window.activeGeocodeUpdateInterval) {
              clearInterval(window.activeGeocodeUpdateInterval);
              window.activeGeocodeUpdateInterval = null;
@@ -1240,11 +1265,11 @@ const MobileUIHandler = {
             const topOverviewPanel = this.topWindowEl.querySelector('.aircraft-overview-panel');
             const mainFlightContent = this.expandedIslandEl.querySelector('.unified-display-main-content');
             const clonedFlightContent = this.peekIslandEl.querySelector('.drawer-content-scroll-wrapper > .unified-display-main-content');
-            const acTabsBar = this.expandedIslandEl.querySelector('.ac-info-window-tabs'); // [NEW] Find tabs
+            const acTabsBar = this.expandedIslandEl.querySelector('.ac-info-window-tabs'); // Find tabs
 
             if (topOverviewPanel) this.activeWindow.appendChild(topOverviewPanel);
             if (mainFlightContent) this.activeWindow.appendChild(mainFlightContent);
-            if (acTabsBar) this.activeWindow.appendChild(acTabsBar); // [NEW] Move tabs back
+            if (acTabsBar) this.activeWindow.appendChild(acTabsBar); // Move tabs back
             
             clonedFlightContent?.remove(); // Remove clone from Peek island
         }
@@ -1268,7 +1293,7 @@ const MobileUIHandler = {
             this.expandedIslandEl = null;
             this.drawerState = 0;
             this.swipeState.isDragging = false;
-            this.islandHasTabs = false; // [NEW] Reset tab flag
+            this.islandHasTabs = false; // Reset tab flag
         };
 
         if (force) {
