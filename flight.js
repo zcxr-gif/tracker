@@ -1461,7 +1461,7 @@ function injectCustomStyles() {
 
         /* [NEW] Style for your logo */
         .ac-info-tab-logo {
-            height: 28px; /* Adjust height as needed */
+            height: 48px; /* Adjust height as needed */
             width: auto;
             object-fit: contain;
             opacity: 0.7; /* Optional: makes it blend nicely */
