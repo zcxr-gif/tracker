@@ -54,6 +54,10 @@ class FlightAnimationState {
         // [NEW] Internal state for managing smooth landing
         this.isLanding = false;
 
+        // [NEW] State flag to prevent animation until the second packet arrives
+        // This ensures planes just "plot" on first load and don't move.
+        this.hasReceivedUpdate = false;
+
         // --- TUNING PARAMETERS ---
         // How quickly the plane turns (higher = more responsive, "tighter")
         // A good starting value is between 1.0 (heavy) and 5.0 (agile).
@@ -72,11 +76,11 @@ class FlightAnimationState {
         // [NEW] Distance (km) at which the plane begins to decelerate
         // for a smooth stop at its target. This fixes the "orbit" flaw.
         this.slowingDistanceKm = 0.5;
-        
+
         // [NEW] Thresholds to determine when a "landing" flight has
         // officially "arrived" and can be removed from the animation loop.
-        this.arrivalThresholdKm = 0.01;  // 10 meters
-        this.arrivalThresholdKts = 0.5;    // 0.5 knots
+        this.arrivalThresholdKm = 0.01; // 10 meters
+        this.arrivalThresholdKts = 0.5; // 0.5 knots
     }
 
     /**
@@ -89,7 +93,7 @@ class FlightAnimationState {
         newSpeedKt
     }) {
         this.targetPos = newPos;
-        
+
         // [FIX] Only update targetHeading if newHeading is a valid number.
         // (0 is a valid heading, so we check for null/undefined)
         if (newHeading !== undefined && newHeading !== null) {
@@ -100,6 +104,10 @@ class FlightAnimationState {
         if (newSpeedKt !== undefined && newSpeedKt !== null) {
             this.targetSpeedKt = newSpeedKt;
         }
+
+        // [NEW] Now that we have a new target, mark the plane as
+        // "ready to move".
+        this.hasReceivedUpdate = true;
     }
 
     /**
@@ -108,6 +116,17 @@ class FlightAnimationState {
      * @returns {{coordinates: [number, number], heading: number, isFinished: boolean}}
      */
     update(deltaTimeMs) {
+        // [NEW] If the flight just spawned (hasReceivedUpdate is false),
+        // don't run any animation logic. Just return the static,
+        // as-is position and heading.
+        if (!this.hasReceivedUpdate) {
+            return {
+                coordinates: this.renderedPos,
+                heading: this.renderedHeading,
+                isFinished: false
+            };
+        }
+
         if (deltaTimeMs <= 0) {
             return {
                 coordinates: this.renderedPos,
@@ -132,25 +151,25 @@ class FlightAnimationState {
         );
 
         // --- 3. Calculate "Desired" Heading (Seeker/Follower Logic) ---
-        
+
         // [FIX] Check if we have a valid API heading to follow.
         const hasValidTargetHeading = (this.targetHeading !== undefined && this.targetHeading !== null);
 
         // If we don't have a valid heading (e.g., on first load),
         // we MUST seek the target (blend = 1.0), ignoring the blend distance.
         // Otherwise, use the normal distance-based blend factor.
-        const blendFactor = hasValidTargetHeading
-            ? Math.min(1.0, distToTargetKm / this.followBlendDistanceKm)
-            : 1.0; // Always seek if heading is unknown
+        const blendFactor = hasValidTargetHeading ?
+            Math.min(1.0, distToTargetKm / this.followBlendDistanceKm) :
+            1.0; // Always seek if heading is unknown
 
         // If API heading is invalid, use bearingToTarget as the "base"
         // to prevent lerping from a stale or 0 heading.
         const baseHeading = hasValidTargetHeading ? this.targetHeading : bearingToTarget;
 
         const desiredHeading = this._angularLerp(
-            baseHeading,     // Start with API heading (or bearing)
+            baseHeading, // Start with API heading (or bearing)
             bearingToTarget, // Blend towards bearing-to-target
-            blendFactor      // Based on distance (or 1.0 if no valid heading)
+            blendFactor // Based on distance (or 1.0 if no valid heading)
         );
 
         // --- 4. Smoothly blend the rendered heading ---
@@ -161,14 +180,14 @@ class FlightAnimationState {
         );
 
         // --- 5. Smoothly blend the rendered speed ---
-        
+
         // [FIX for ORBIT FLASW]
         // We calculate a "frame target speed". This is normally the
         // API's target speed, but as we get close to the target,
         // we blend this down to 0. This makes the plane *naturally*
         // slow down and stop, preventing any "orbiting".
         const speedAtTargetBlend = Math.min(1.0, distToTargetKm / this.slowingDistanceKm);
-        
+
         // [FIX] Ensure we use a valid number for targetSpeedKt
         const currentTargetSpeed = this.targetSpeedKt || 0;
         const frameTargetSpeed = currentTargetSpeed * speedAtTargetBlend;
@@ -178,13 +197,13 @@ class FlightAnimationState {
             frameTargetSpeed, // [CHANGED] Was this.targetSpeedKt
             speedLerpFactor
         );
-        
+
         // --- 6. Move the plane ---
         const distanceToMoveKm = (this.renderedSpeedKt * KTS_TO_KMS_PER_MS) * deltaTimeMs;
 
         // Don't move if speed is negligible
         if (distanceToMoveKm > 1e-6) {
-           const newPos = this._getDestinationPoint(
+            const newPos = this._getDestinationPoint(
                 this.renderedPos[1],
                 this.renderedPos[0],
                 this.renderedHeading,
@@ -328,7 +347,7 @@ export class MapAnimator {
         const flightId = newProperties.flightId;
         const newApiLon = newPosition.lon;
         const newApiLat = newPosition.lat;
-        
+
         // [FIX] Do NOT default to 0. Let 'undefined' pass through.
         const newApiHeading = newPosition.heading_deg;
         const newApiSpeedKt = newProperties.speed;
@@ -337,7 +356,7 @@ export class MapAnimator {
 
         if (newProperties.phase === 'Ground') {
             // --- 1. GROUND AIRCRAFT ---
-            
+
             if (animState) {
                 // --- 1a. AIR-TO-GROUND (Landing) ---
                 // The flight *was* airborne, now it's ground.
@@ -351,7 +370,7 @@ export class MapAnimator {
                 // Just update the properties. The animation loop
                 // will move the plane to its final spot.
                 this.currentMapFeatures[flightId].properties = newProperties;
-                
+
             } else {
                 // --- 1b. GROUND-TO-GROUND (Taxiing) ---
                 // The flight was already on the ground. Teleport it.
@@ -374,7 +393,7 @@ export class MapAnimator {
                 animState = new FlightAnimationState({
                     initialPos: [newApiLon, newApiLat],
                     initialHeading: newApiHeading, // [FIX] Pass potential undefined
-                    initialSpeedKt: newApiSpeedKt  // [FIX] Pass potential undefined
+                    initialSpeedKt: newApiSpeedKt // [FIX] Pass potential undefined
                 });
                 this.airborneFlightState.set(flightId, animState);
 
@@ -390,11 +409,11 @@ export class MapAnimator {
                 // It might have been landing, but it's airborne again
                 // (e.g., a go-around or a data flap).
                 animState.isLanding = false;
-                
+
                 animState.updateTargets({
                     newPos: [newApiLon, newApiLat],
                     newHeading: newApiHeading, // [FIX] Pass potential undefined
-                    newSpeedKt: newApiSpeedKt  // [FIX] Pass potential undefined
+                    newSpeedKt: newApiSpeedKt // [FIX] Pass potential undefined
                 });
 
                 // Update properties
@@ -412,6 +431,7 @@ export class MapAnimator {
         this.airborneFlightState.delete(flightId);
     }
 
+This 
     /**
      * [REWRITTEN to handle landing cleanup]
      * The core animation loop (runs every frame).
@@ -453,7 +473,7 @@ export class MapAnimator {
                 // animation. Remove it from the animation map
                 // so it no longer updates.
                 this.airborneFlightState.delete(flightId);
-                
+
                 // As a final guarantee, snap it to its final target pos
                 feature.geometry.coordinates = animState.targetPos;
                 feature.properties.heading = animState.targetHeading || feature.properties.heading; // Use last known good
