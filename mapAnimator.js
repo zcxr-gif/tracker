@@ -362,8 +362,21 @@ export class MapAnimator {
         const newApiLon = newPosition.lon;
         const newApiLat = newPosition.lat;
 
-        // [FIX] Do NOT default to 0. Let 'undefined' pass through.
-        const newApiHeading = newPosition.heading_deg;
+        //
+        // ##### THIS IS THE FIX #####
+        //
+        // Previously, 'newApiHeading' was read from 'newPosition.heading_deg'.
+        // This was incorrect, as it ignored the 'heading' property that
+        // 'flight.js' had already prepared in 'newProperties'.
+        //
+        // By reading from 'newProperties.heading', we complete the
+        // data pipeline. Now, the 'undefined' heading from 'flight.js'
+        // is correctly passed to the animation state.
+        //
+        const newApiHeading = newProperties.heading;
+        //
+        // ##### END FIX #####
+        //
         const newApiSpeedKt = newProperties.speed;
 
         let animState = this.airborneFlightState.get(flightId);
@@ -378,7 +391,7 @@ export class MapAnimator {
                 animState.isLanding = true;
                 animState.updateTargets({
                     newPos: [newApiLon, newApiLat],
-                    newHeading: newApiHeading,
+                    newHeading: newApiHeading, // <-- This call is now correct
                     newSpeedKt: 0 // Target speed is 0
                 });
                 // Just update the properties. The animation loop
@@ -406,8 +419,8 @@ export class MapAnimator {
                 // --- 2a. First time seeing this AIRBORNE flight ---
                 animState = new FlightAnimationState({
                     initialPos: [newApiLon, newApiLat],
-                    initialHeading: newApiHeading, // [FIX] Pass potential undefined
-                    initialSpeedKt: newApiSpeedKt // [FIX] Pass potential undefined
+                    initialHeading: newApiHeading, // <-- This call is now correct
+                    initialSpeedKt: newApiSpeedKt
                 });
                 this.airborneFlightState.set(flightId, animState);
 
@@ -426,8 +439,8 @@ export class MapAnimator {
 
                 animState.updateTargets({
                     newPos: [newApiLon, newApiLat],
-                    newHeading: newApiHeading, // [FIX] Pass potential undefined
-                    newSpeedKt: newApiSpeedKt // [FIX] Pass potential undefined
+                    newHeading: newApiHeading, // <-- This call is now correct
+                    newSpeedKt: newApiSpeedKt
                 });
 
                 // Update properties

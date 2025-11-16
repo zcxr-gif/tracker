@@ -3335,7 +3335,18 @@ function handleSocketFlightUpdate(data) {
             aircraft: JSON.stringify(aircraftData),
             userId: flight.userId,
             category: getAircraftCategory(flight.aircraft?.aircraftName),
-            heading: flight.position.heading_deg || 0,
+            //
+            // ##### THIS IS THE FIX #####
+            //
+            // We remove '|| 0'. This allows a 'null' or 'undefined' heading
+            // to be passed to the animator, which is correctly
+            // designed to handle it by holding the last known good heading.
+            // Forcing it to '0' here was causing conflicts.
+            //
+            heading: flight.position.heading_deg, 
+            //
+            // ##### END FIX #####
+            //
             isStaff: flight.isStaff,
             isVAMember: flight.isVAMember,
             phase: litePhase 
