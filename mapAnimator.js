@@ -79,7 +79,14 @@ class FlightAnimationState {
 
         // [NEW] Thresholds to determine when a "landing" flight has
         // officially "arrived" and can be removed from the animation loop.
-        this.arrivalThresholdKm = 0.01; // 10 meters
+        
+        // ##### THIS IS THE FIX #####
+        // Increased threshold from 0.01 (10m) to 0.05 (50m).
+        // This makes the plane stop "seeking" the target *before* the
+        // bearing calculation becomes unstable at very close distances.
+        this.arrivalThresholdKm = 0.05; // 50 meters
+        // ##### END FIX #####
+        
         this.arrivalThresholdKts = 0.5; // 0.5 knots
     }
 
@@ -150,7 +157,8 @@ class FlightAnimationState {
         
         // [FIX FOR SPINNING BUG V2]
         // Check if we are "at" the target (within our arrival threshold).
-        const isAtTarget = distToTargetKm < this.arrivalThresholdKm; // 10 meters
+        // (The threshold itself was the bug, now fixed in the constructor)
+        const isAtTarget = distToTargetKm < this.arrivalThresholdKm;
 
         let desiredHeading;
 
@@ -165,7 +173,9 @@ class FlightAnimationState {
             // --- 3B. IN TRANSIT (Seek/Follow Logic) ---
             // We are still moving towards the target.
             
-            // Calculate the bearing. This is safe because isAtTarget is false.
+            // Calculate the bearing. This is safe because isAtTarget is false
+            // (and our threshold is now larger, so this isn't called
+            // when the points are close enough to be unstable).
             const bearingToTarget = this._getBearing(
                 this.renderedPos[1], this.renderedPos[0],
                 this.targetPos[1], this.targetPos[0]
