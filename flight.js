@@ -4355,7 +4355,8 @@ async function initializeSectorOpsMap(centerICAO) {
      * --- [MODIFIED] Added text labels for callsign and phase.
      * --- [MODIFIED v2] Split icons and labels into two layers
      * to allow icons to always show while labels can hide.
-     * --- [MODIFIED v3] Styled labels with a "pill" background using the text-halo.
+     * --- [USER REQUEST] Merged labels and icons back into a
+     * single layer and added phase-based color-coding for the text.
      */
     async function setupMapLayersAndFog() {
         // 1. Set globe fog (Unchanged)
@@ -4433,27 +4434,59 @@ async function initializeSectorOpsMap(centerICAO) {
             });
         }
 
-        // 4. Add the ICON layer (Unchanged)
+        // 4. --- [START OF MODIFICATION] ---
+        // Add the COMBINED ICON/LABEL layer
         if (!sectorOpsMap.getLayer('sector-ops-live-flights-layer')) {
             sectorOpsMap.addLayer({
-                id: 'sector-ops-live-flights-layer', // Keep original ID for click listeners
+                id: 'sector-ops-live-flights-layer', // Keep original ID
                 type: 'symbol',
                 source: 'sector-ops-live-flights-source',
                 layout: {
-                    // --- Icon Properties ONLY ---
+                    // --- Icon Properties ---
                     'icon-image': getIconImageExpression(mapFilters.iconColorMode),
                     'icon-size': 0.08,
                     'icon-rotate': ['get', 'heading'],
                     'icon-rotation-alignment': 'map',
                     
-                    // --- THIS IS THE KEY ---
-                    // Force icons to always show, even if they overlap
-                    'icon-allow-overlap': true,
-                    'icon-ignore-placement': true,
+                    // --- Text Properties (Merged back in) ---
+                    'text-field': [
+                        'format',
+                        ['get', 'callsign'], // Line 1
+                        '\n',                 // Newline
+                        ['get', 'phase']      // Line 2
+                    ],
+                    'text-font': ['Mapbox Txt Regular', 'Arial Unicode MS Regular'],
+                    'text-size': 10,
+                    'text-offset': [0, 2.5], // Offset text below the icon
+                    'text-anchor': 'top',
+                    
+                    // --- Collision Properties (for the "pill") ---
+                    // Allow icon and text to hide together on collision
+                    'icon-allow-overlap': false,
+                    'text-allow-overlap': false,
+                    'icon-ignore-placement': false,
+                    'text-ignore-placement': false
+                },
+                paint: {
+                    // --- [NEW] Phase-based Color Coding ---
+                    'text-color': [
+                        'match',
+                        ['get', 'phase'],
+                        'Climb',    '#228B22', // (Green)
+                        'Cruise',   '#00BFFF', // (Blue)
+                        'Descent',  '#FF8C00', // (Orange)
+                        'Approach', '#8A2BE2', // (Purple)
+                        'Ground',   '#E0E0E0', // (Light Grey for Ground)
+                        '#FFFFFF'  // Default (White for Enroute, etc.)
+                    ],
+                    // --- Text Paint Properties (Merged back in) ---
+                    'text-halo-color': 'rgba(0, 0, 0, 0.85)',
+                    'text-halo-width': 1.5,
+                    'text-halo-blur': 1
                 }
             });
 
-            // 4a. Add click/hover listeners (These will now only apply to the icon layer)
+            // 4a. Add click/hover listeners (Unchanged)
             sectorOpsMap.on('click', 'sector-ops-live-flights-layer', (e) => {
                 const props = e.features[0].properties;
                 const flightProps = { ...props, position: JSON.parse(props.position), aircraft: JSON.parse(props.aircraft) };
@@ -4468,54 +4501,9 @@ async function initializeSectorOpsMap(centerICAO) {
             sectorOpsMap.on('mouseleave', 'sector-ops-live-flights-layer', () => { sectorOpsMap.getCanvas().style.cursor = ''; });
         }
         
-        // 5. --- [START OF MODIFICATION] ---
-        // Add the STYLED LABEL layer
-        if (!sectorOpsMap.getLayer('sector-ops-live-flights-labels')) {
-            sectorOpsMap.addLayer({
-                id: 'sector-ops-live-flights-labels',
-                type: 'symbol',
-                source: 'sector-ops-live-flights-source', // Use the SAME source
-                layout: {
-                    // --- Text Content & Font Styling ---
-                    'text-field': [
-                        'format',
-                        // Line 1: Callsign (Bold, White)
-                        ['get', 'callsign'], 
-                        {
-                            'text-font': ['Mapbox Txt Bold', 'Arial Unicode MS Bold'],
-                            'text-color': '#FFFFFF' 
-                        },
-                        // Line 2: Phase (Regular, Muted Color)
-                        '\n', 
-                        ['get', 'phase'], 
-                        {
-                            'text-font': ['Mapbox Txt Regular', 'Arial Unicode MS Regular'],
-                            'text-color': '#c5cae9' // Matches your UI's muted text
-                        }
-                    ],
-
-                    // --- Size and Position (Same as before) ---
-                    'text-size': 10,
-                    'text-offset': [0, 2.5], // Offset text below the icon
-                    'text-anchor': 'top',
-                    'text-padding': 2, // Adds a small amount of padding
-                    
-                    // --- Collision (Same as before) ---
-                    'text-allow-overlap': false,
-                    'text-ignore-placement': false,
-                },
-                paint: {
-                    // --- This creates the "pill" background ---
-                    'text-halo-color': 'rgba(18, 20, 38, 0.85)', // Dark UI color
-                    'text-halo-width': 2, // This acts as the padding
-                    'text-halo-blur': 0,  // This makes the edge sharp
-                    
-                    // --- Add a transition so labels don't "fade" ---
-                    'text-color-transition': {'duration': 0},
-                    'text-opacity-transition': {'duration': 0}
-                }
-            });
-        }
+        // 5. --- [DELETED] ---
+        // The `sector-ops-live-flights-labels` layer definition
+        // has been removed.
         // --- [END OF MODIFICATION] ---
     }
     
