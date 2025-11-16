@@ -1,4 +1,5 @@
-// Crew Center – Merged Script with Pilot Stats Card & Upgraded PFD
+import { MapAnimator } from './mapAnimator.js';
+
 document.addEventListener('DOMContentLoaded', async () => {
     // --- Global Configuration ---
     const API_BASE_URL = 'https://site--indgo-backend--6dmjph8ltlhv.code.run';
@@ -36,7 +37,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     let pilotMarkers = {};
     let liveFlightsInterval = null;
     let sectorOpsMap = null;
-    let sectorOpsAnimationInterval = null; // Add this new variable
+    let mapAnimator = null;
     let airportAndAtcMarkers = {}; // Holds all airport markers (blue dots and red ATC dots)
     let sectorOpsMapRouteLayers = [];
     let sectorOpsLiveFlightPathLayers = {}; // NEW: To track multiple flight trails
@@ -2821,42 +2822,28 @@ function getIntermediatePoint(lat1, lon1, lat2, lon2, fraction) {
 
 
 /**
- * --- [REPLACEMENT - TELEPORT VERSION] Handles live flight data received from the WebSocket.
- * This function updates the map source directly, causing aircraft to "teleport"
- * to their new positions with each update.
- *
- * ⬇️ MODIFIED: Now passes `isStaff` and `isVAMember` to the map source properties.
- * ⬇️
- * ⬇️ --- FIX: Added timestamp check to prevent race conditions ("jump back" bug) ---
- * ⬇️ --- FIX (v2): Ensure `flight.aircraft` is not undefined to prevent JSON.parse errors downstream.
- * ⬇️ --- MODIFIED (v3): Added 'phase' property for map labels ---
+ * --- [REPLACEMENT - DELEGATOR VERSION] Handles live flight data received from the WebSocket.
+ * This function now only validates data, creates the properties object,
+ * and delegates all animation/map logic to the MapAnimator.
  */
 function handleSocketFlightUpdate(data) {
     if (!data || !Array.isArray(data.flights) || !data.timestamp) {
         console.warn('Socket: Received invalid or untimestamped flights data packet.');
         return;
     }
-
-    // --- [NEW] Timestamp validation to prevent "jump back" race condition ---
+    
+    // --- Timestamp validation ---
     const newPacketTimestamp = new Date(data.timestamp).getTime();
     if (newPacketTimestamp <= lastSocketUpdateTimestamp) {
-        // This packet is older than (or same as) the one we just rendered. Discard it.
         console.warn(`Socket: Discarding stale flight data packet (Lag: ${lastSocketUpdateTimestamp - newPacketTimestamp}ms)`);
         return;
     }
-    // This packet is new. Update our "last seen" time.
+    const packetDuration = newPacketTimestamp - lastSocketUpdateTimestamp;
     lastSocketUpdateTimestamp = newPacketTimestamp;
-    // --- [END NEW] ---
+    // --- [END] ---
 
-
-    if (!sectorOpsMap || !sectorOpsMap.isStyleLoaded()) {
-        return; // Map not ready
-    }
-
-    const source = sectorOpsMap.getSource('sector-ops-live-flights-source');
-    if (!source) {
-        console.warn('Socket: Map source not found, cannot update flight positions.');
-        return;
+    if (!sectorOpsMap || !sectorOpsMap.isStyleLoaded() || !mapAnimator) {
+        return; // Map or Animator not ready
     }
 
     const flights = data.flights;
@@ -2868,69 +2855,40 @@ function handleSocketFlightUpdate(data) {
         const flightId = flight.flightId;
         updatedFlightIds.add(flightId);
 
-        // Extract new API data
-        const newApiLat = flight.position.lat;
-        const newApiLon = flight.position.lon;
-        // ⬇️ MODIFIED: Read from heading_deg as track_deg is no longer sent
-        const newApiHeading = flight.position.heading_deg || 0;
-        const newApiSpeed = flight.position.gs_kt || 0;
+        // --- This function is still responsible for building the properties ---
+        // --- (because this is application-specific) ---
         
-        // --- [NEW] Get lite phase for the label ---
         const litePhase = getLiteFlightPhase(flight.position);
-
-        // --- [START OF FIX] ---
-        // Ensure `flight.aircraft` is at least `null` if it's undefined
         const aircraftData = flight.aircraft || null;
-        // --- [END OF FIX] ---
         
         const newProperties = {
             flightId: flight.flightId,
             callsign: flight.callsign,
             username: flight.username,
             altitude: flight.position.alt_ft,
-            speed: newApiSpeed,
+            speed: flight.position.gs_kt || 0,
             verticalSpeed: flight.position.vs_fpm || 0,
             position: JSON.stringify(flight.position),
-            
-            // --- [MODIFIED BY FIX] ---
-            aircraft: JSON.stringify(aircraftData), // Use the safe variable
-            // --- [END MODIFIED] ---
-            
+            aircraft: JSON.stringify(aircraftData),
             userId: flight.userId,
             category: getAircraftCategory(flight.aircraft?.aircraftName),
-            heading: newApiHeading, // Pass heading for icon rotation
-            // ⬇️ === NEW: Add VA status for icon logic === ⬇️
+            heading: flight.position.heading_deg || 0,
             isStaff: flight.isStaff,
             isVAMember: flight.isVAMember,
-            // ⬆️ === END OF NEW LINES === ⬆️
-
-            // --- [NEW] Add the new property for the label ---
             phase: litePhase 
         };
 
-        // Create or update the feature in our state
-        currentMapFeatures[flightId] = {
-            type: 'Feature',
-            geometry: {
-                type: 'Point',
-                coordinates: [newApiLon, newApiLat]
-            },
-            properties: newProperties
-        };
+        // --- Delegate to the animator ---
+        mapAnimator.updateFlight(flight.position, newProperties, packetDuration);
     });
 
-    // Clean up old flights that are no longer in the broadcast
+    // Clean up old flights
     for (const flightId in currentMapFeatures) {
-        if (!updatedFlightIds.has(flightId)) {
-            delete currentMapFeatures[flightId];
+        if (!updatedFlightIds.has(String(flightId))) {
+            // --- Delegate removal to the animator ---
+            mapAnimator.removeFlight(flightId);
         }
     }
-
-    // Update the map source with the new feature collection
-    source.setData({
-        type: 'FeatureCollection',
-        features: Object.values(currentMapFeatures)
-    });
 }
 
 /**
@@ -4472,6 +4430,8 @@ async function initializeSectorOpsMap(centerICAO) {
                 data: { type: 'FeatureCollection', features: Object.values(currentMapFeatures) } // Use current state
             });
         }
+
+        mapAnimator = new MapAnimator(sectorOpsMap, 'sector-ops-live-flights-source', currentMapFeatures);
 
         // 4. --- [START OF MODIFICATION] ---
         // Add the ICON layer
@@ -7024,9 +6984,8 @@ function setupFilterSettingsWindowEvents() {
     // ====================================================================
 
 
-// --- [REPLACEMENT for startSectorOpsLiveLoop] ---
-// This function is updated to only connect to the WebSocket and 
-// set up the poller for ATC/NOTAMs.
+// --- [REPLACEMENT] ---
+// Starts the data polling AND the animation loop.
 function startSectorOpsLiveLoop() {
     stopSectorOpsLiveLoop(); // Clear any old loops
 
@@ -7035,17 +6994,15 @@ function startSectorOpsLiveLoop() {
     sectorOpsAtcNotamInterval = setInterval(updateSectorOpsSecondaryData, DATA_REFRESH_INTERVAL_MS); 
 
     // 2. Initialize and connect the WebSocket
-    // This is responsible for receiving flight data
     initializeSectorOpsSocket();
 
-    // 3. Animation loop is no longer started here.
-    // Data updates happen directly in handleSocketFlightUpdate.
+    // 3. Start the MapAnimator loop
+    if (mapAnimator) {
+        mapAnimator.start();
+    }
 }
 
-
-// --- [REPLACEMENT for stopSectorOpsLiveLoop] ---
-// This function is updated to stop the socket
-// and clear the ATC/NOTAM poller.
+// Stops the data polling AND the animation loop.
 function stopSectorOpsLiveLoop() {
     // 1. Clear the data-fetching interval for ATC/NOTAMs
     if (sectorOpsAtcNotamInterval) {
@@ -7053,14 +7010,19 @@ function stopSectorOpsLiveLoop() {
         sectorOpsAtcNotamInterval = null;
     }
     
-    // 2. Disconnect the WebSocket and remove listeners
+    // 2. Disconnect the WebSocket
     if (sectorOpsSocket) {
         console.log('Socket: Disconnecting from Sector Ops...');
         sectorOpsSocket.disconnect();
         sectorOpsSocket = null;
     }
 
-    // 3. NEW: Clear the feature state to prevent stale aircraft
+    // 3. Stop the MapAnimator loop
+    if (mapAnimator) {
+        mapAnimator.stop();
+    }
+
+    // 4. Clear the feature state
     currentMapFeatures = {};
 }
 
@@ -7200,7 +7162,7 @@ async function updateSectorOpsSecondaryData() {
 async function initializeApp() {
         mainContentLoader.classList.add('active');
 
-        loadFiltersFromLocalStorage(); // <-- ADDED THIS LINE
+        loadFiltersFromLocalStorage();
 
         // Inject all custom CSS
         injectCustomStyles();
