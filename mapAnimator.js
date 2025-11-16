@@ -145,24 +145,10 @@ class FlightAnimationState {
             this.renderedPos[1], this.renderedPos[0],
             this.targetPos[1], this.targetPos[0]
         );
-
-        // [--- FIX FOR SPINNING ---]
-        // This is the "dead zone" logic.
-        // If we are extremely close to the target, calculating a bearing
-        // becomes unstable (due to atan2(0,0)).
-        // To prevent spinning, we *stop* calculating a new bearing and
-        // just use the plane's current heading. The plane will then
-        // either stop turning or turn to its final targetHeading.
-        let bearingToTarget;
-        if (distToTargetKm < this.arrivalThresholdKm) {
-            bearingToTarget = this.renderedHeading;
-        } else {
-            bearingToTarget = this._getBearing(
-                this.renderedPos[1], this.renderedPos[0],
-                this.targetPos[1], this.targetPos[0]
-            );
-        }
-        // [--- END FIX ---]
+        const bearingToTarget = this._getBearing(
+            this.renderedPos[1], this.renderedPos[0],
+            this.targetPos[1], this.targetPos[0]
+        );
 
         // --- 3. Calculate "Desired" Heading (Seeker/Follower Logic) ---
 
