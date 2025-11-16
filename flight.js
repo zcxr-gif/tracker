@@ -4356,7 +4356,7 @@ async function initializeSectorOpsMap(centerICAO) {
      * --- [MODIFIED v2] Split icons and labels into two layers
      * to allow icons to always show while labels can hide.
      */
-async function setupMapLayersAndFog() {
+    async function setupMapLayersAndFog() {
         // 1. Set globe fog (Unchanged)
         sectorOpsMap.setFog({
             color: 'rgb(186, 210, 235)', // Lower atmosphere
@@ -4432,51 +4432,31 @@ async function setupMapLayersAndFog() {
             });
         }
 
-        // 4. --- [START OF REVISED LAYER] ---
-        // Add the COMBINED Icon and Label layer
+        // 4. --- [START OF MODIFICATION] ---
+        // Add the ICON layer
         if (!sectorOpsMap.getLayer('sector-ops-live-flights-layer')) {
             sectorOpsMap.addLayer({
                 id: 'sector-ops-live-flights-layer', // Keep original ID for click listeners
                 type: 'symbol',
                 source: 'sector-ops-live-flights-source',
                 layout: {
-                    // --- Icon Properties ---
+                    // --- Icon Properties ONLY ---
                     'icon-image': getIconImageExpression(mapFilters.iconColorMode),
                     'icon-size': 0.08,
                     'icon-rotate': ['get', 'heading'],
                     'icon-rotation-alignment': 'map',
+                    
+                    // --- THIS IS THE KEY ---
+                    // Force icons to always show, even if they overlap
                     'icon-allow-overlap': true,
                     'icon-ignore-placement': true,
 
-                    // --- Text (Pill) Properties ---
-                    'text-field': ['get', 'callsign'],
-                    'text-font': ['Mapbox Txt Regular', 'Arial Unicode MS Regular'],
-                    'text-size': 10,
-                    'text-offset': [0, 2.5], // Offset text below the icon
-                    'text-anchor': 'top',
-                    'text-allow-overlap': false, // Let labels hide to avoid clutter
-                    'text-ignore-placement': false,
-                    
-                    // --- Pill Shape ---
-                    'text-padding': [3, 7], // [vertical, horizontal] padding
-                    'text-border-radius': 10, // Rounded corners
-                },
-                paint: {
-                    'text-color': '#ffffff',
-                    
-                    // --- Pill Background Color (Phase-coded) ---
-                    'text-background-color': [
-                        'match',
-                        ['get', 'phase'],
-                        'Climb', 'rgba(34, 139, 34, 0.9)',    // Green
-                        'Cruise', 'rgba(0, 119, 255, 0.9)',   // Blue
-                        'Descent', 'rgba(255, 140, 0, 0.9)',  // Orange
-                        'Ground', 'rgba(100, 110, 130, 0.9)', // Grey
-                        'Enroute', 'rgba(100, 110, 130, 0.9)',// Grey
-                        'rgba(18, 20, 38, 0.8)' // Default dark background
-                    ],
-                    'text-background-opacity': 1 // We already set opacity in the RGBA
+                    // --- Remove all text properties ---
+                    // 'text-field': ... (REMOVED)
+                    // 'text-font': ... (REMOVED)
+                    // etc.
                 }
+                // --- No 'paint' block needed (it was only for text) ---
             });
 
             // 4a. Add click/hover listeners (These will now only apply to the icon layer)
@@ -4494,9 +4474,43 @@ async function setupMapLayersAndFog() {
             sectorOpsMap.on('mouseleave', 'sector-ops-live-flights-layer', () => { sectorOpsMap.getCanvas().style.cursor = ''; });
         }
         
-        // 5. --- [REMOVED] ---
-        // The separate 'sector-ops-live-flights-labels' layer has been deleted
-        // as its logic is now merged into 'sector-ops-live-flights-layer'.
+        // 5. Add the LABEL layer
+        if (!sectorOpsMap.getLayer('sector-ops-live-flights-labels')) {
+            sectorOpsMap.addLayer({
+                id: 'sector-ops-live-flights-labels',
+                type: 'symbol',
+                source: 'sector-ops-live-flights-source', // Use the SAME source
+                layout: {
+                    // --- Text Properties ONLY ---
+                    'text-field': [
+                        'format',
+                        ['get', 'callsign'], // Line 1
+                        '\n',                 // Newline
+                        ['get', 'phase']      // Line 2
+                    ],
+                    'text-font': ['Mapbox Txt Regular', 'Arial Unicode MS Regular'],
+                    'text-size': 10,
+                    'text-offset': [0, 2.5], // Offset text below the icon
+                    'text-anchor': 'top',
+                    
+                    // --- THIS IS THE KEY ---
+                    // Allow text to hide on collision
+                    'text-allow-overlap': false,
+                    'text-ignore-placement': false,
+
+                    // --- Remove all icon properties ---
+                    // 'icon-image': ... (REMOVED)
+                },
+                paint: {
+                    // --- Text Paint Properties ---
+                    'text-color': '#ffffff',
+                    'text-halo-color': 'rgba(0, 0, 0, 0.85)',
+                    'text-halo-width': 1.5,
+                    'text-halo-blur': 1
+                }
+            });
+        }
+        // --- [END OF MODIFICATION] ---
     }
     
     // --- [NEW] This handles style changes ---
