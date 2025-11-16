@@ -64,7 +64,7 @@ class FlightAnimationState {
         this.headingSmoothFactor = 2.0;
 
         // How quickly the plane changes speed (higher = faster)
-        this.speedSmoothFactor = 5.0;
+        this.speedSmoothFactor = 4.0;
 
         // Distance (km) at which we start blending from "seeking" the
         // target to "following" the API heading.
