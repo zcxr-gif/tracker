@@ -5,6 +5,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     const LIVE_FLIGHTS_API_URL = 'https://site--acars-backend--6dmjph8ltlhv.code.run/flights';
     const ACARS_USER_API_URL = 'https://site--acars-backend--6dmjph8ltlhv.code.run/users'; // NEW: For user stats
     const TARGET_SERVER_NAME = 'Expert Server';
+    const CURRENT_SITE_URL = window.location.origin;
 
 
     // --- State Variables ---
@@ -99,7 +100,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     // --- Helper: Fetch API Keys from Netlify Function ---
     async function fetchApiKeys() {
         try {
-            const response = await fetch('https://inflight.info/.netlify/functions/config');
+            const response = await fetch(`${CURRENT_SITE_URL}/.netlify/functions/config`);
             if (!response.ok) throw new Error('Could not fetch server configuration.');
             
             const config = await response.json();
@@ -2489,7 +2490,7 @@ async function fetchAndDisplayGeocode(lat, lon) {
 
     try {
         // 3. Call your new Netlify Function
-        const response = await fetch(`https://inflight.info/.netlify/functions/reverse-geocode?lat=${lat}&lon=${lon}`);
+        const response = await fetch(`${CURRENT_SITE_URL}/.netlify/functions/reverse-geocode?lat=${lat}&lon=${lon}`);
 
         // [CRITICAL FIX] Query all *after* the await to get the (potentially) new DOM structure
         const currentElements = document.querySelectorAll('#ac-location');
@@ -3516,7 +3517,7 @@ function updatePfdDisplay(pfdData) {
         // Fetch weather
         let weatherHtml = '';
         try {
-            const weatherRes = await fetch(`https://inflight.info/.netlify/functions/weather?icao=${icao}`);
+            const weatherRes = await fetch(`${CURRENT_SITE_URL}/.netlify/functions/weather?icao=${icao}`);
             if (weatherRes.ok) {
                 const weatherData = await weatherRes.json();
                 if (weatherData.data && weatherData.data.length > 0) {
