@@ -116,6 +116,70 @@ document.addEventListener('DOMContentLoaded', async () => {
         console.log("Roster feature is disabled.");
         return []; // Return empty array
     }
+
+    /**
+     * Helper Function: Renders the dispatch preview.
+     * This is the 'populateDispatchPass' function that
+     * SimbriefIntegration.js (sb.js) requires.
+     */
+    function populateDispatchPass(container, plan, options = {}) {
+        // Clear previous content
+        container.innerHTML = '';
+
+        // Format dates
+        const etd = new Date(plan.etd).toUTCString();
+        
+        // Build the HTML for the dispatch preview.
+        // We add some inline styles to make it look decent without extra CSS.
+        container.innerHTML = `
+            <div class="info-panel-header" style="display: flex; justify-content: space-between; align-items: center; padding: 16px 20px; background: rgba(10, 12, 26, 0.6); border-bottom: 1px solid rgba(255, 255, 255, 0.1);">
+                <h3>Dispatch Preview</h3>
+                <button id="dispatch-close-btn" class="sb-close-btn" title="Close Preview" style="background: none; border: none; color: #fff; font-size: 1.2rem; cursor: pointer;">
+                    <i class="fa-solid fa-times"></i>
+                </button>
+            </div>
+            <div class="dispatch-pass-body" style="padding: 20px; color: #e8eaf6;">
+                <div class="dispatch-row" style="display: flex; justify-content: space-between; padding: 5px 0;">
+                    <strong>Flight:</strong>
+                    <span>${plan.flightNumber}</span>
+                </div>
+                <div class="dispatch-row" style="display: flex; justify-content: space-between; padding: 5px 0;">
+                    <strong>Aircraft:</strong>
+                    <span>${plan.aircraft}</span>
+                </div>
+                <div class="dispatch-row" style="display: flex; justify-content: space-between; padding: 5px 0;">
+                    <strong>Route:</strong>
+                    <span>${plan.departure} to ${plan.arrival}</span>
+                </div>
+                <div class="dispatch-row" style="display: flex; justify-content: space-between; padding: 5px 0;">
+                    <strong>Altitude:</strong>
+                    <span>${plan.cruiseAltitude} ft</span>
+                </div>
+                <div class="dispatch-row" style="display: flex; justify-content: space-between; padding: 5px 0;">
+                    <strong>ETD:</strong>
+                    <span>${etd}</span>
+                </div>
+                <div class="dispatch-row full-width-route" style="display: flex; flex-direction: column; padding: 10px 0;">
+                    <strong>Full Route:</strong>
+                    <textarea readonly style="width: 100%; height: 80px; background: #1a1a1a; color: #fff; border: 1px solid #444; border-radius: 4px; margin-top: 5px; font-family: monospace; padding: 8px;">${plan.route}</textarea>
+                </div>
+                
+                ${options.isPreview ? `
+                    <button id="save-from-simbrief-btn" class="sb-generate-btn" style="width: 100%; padding: 12px; background: #00a8ff; color: #fff; border: none; border-radius: 5px; margin-top: 15px; cursor: pointer; font-size: 1rem; font-weight: 600;">
+                        <i class="fa-solid fa-save"></i> Save This Flight Plan
+                    </button>
+                ` : ``}
+            </div>
+        `;
+    }
+
+    /**
+     * Helper Function: Callback for when flights are saved/erased.
+     * This is the 'onFlightSaved' callback for SimbriefIntegration.js.
+     */
+    function refreshSavedFlightList() {
+        console.log("SimbriefIntegration: onFlightSaved callback triggered!");
+    }
     
     async function fetchAndRenderRoutes() {
         // This feature is disabled
@@ -2126,9 +2190,33 @@ function injectCustomStyles() {
                 // The 'active' class is already on the HTML, but this confirms it.
                 activateTab('tab-welcome');
             }
-            // ===================================================================
-            // END: Logic from panel-tabs.js
-            // ===================================================================
+            // Check if SimbriefIntegration object (from sb.js) exists
+            if (typeof SimbriefIntegration !== 'undefined') {
+                
+                // Initialize the module, passing in the helpers it needs
+                SimbriefIntegration.init({
+                    // netlifySimbriefUrl is already set in sb.js
+
+                    // Pass the main showNotification function from flight.js
+                    showNotification: showNotification,
+
+                    // Pass the populateDispatchPass function we just added
+                    populateDispatchPass: populateDispatchPass,
+
+                    // Pass the onFlightSaved callback we just added
+                    onFlightSaved: refreshSavedFlightList,
+
+                    // (Optional) Max number of flights to save.
+                    maxFlights: 2
+                });
+                
+                console.log("SimbriefIntegration module initialized successfully.");
+                
+            } else {
+                console.error("SimbriefIntegration (sb.js) is not loaded. SimBrief features will not work.");
+                // We can use the main notification function to tell the user
+                showNotification("SimBrief integration script (sb.js) failed to load.", "error");
+            }
             
         } catch (error) {
             console.error('Error loading external panel content:', error);
