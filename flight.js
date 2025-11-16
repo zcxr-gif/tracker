@@ -2542,6 +2542,38 @@ async function fetchRunwaysData() {
 }
 
 /**
+ * --- [NEW] Gets a simplified, "lite" flight phase based only on position data.
+ * This is cheap to calculate and suitable for all-flight map labels.
+ * @param {object} position - The flight's position object from the socket.
+ * @returns {string} A simple phase string.
+ */
+function getLiteFlightPhase(position) {
+    if (!position) return '';
+
+    const vs = position.vs_fpm || 0;
+    const altitude = position.alt_ft || 0;
+    const gs = position.gs_kt || 0;
+
+    // On Ground Check (simplified: under 1000ft, low groundspeed, low VS)
+    if (altitude < 1000 && gs < 40 && Math.abs(vs) < 150) {
+        return 'Ground';
+    }
+    
+    // In-Air Checks
+    if (vs > 350) {
+        return 'Climb';
+    }
+    if (vs < -500) {
+        return 'Descent';
+    }
+    if (altitude > 18000 && Math.abs(vs) < 500) {
+        return 'Cruise';
+    }
+    
+    return 'Enroute'; // Default for level flight, etc.
+}
+
+/**
  * --- [NEW FIX] Fetches the airport database from airports.json
  * This function was missing, causing a 'ReferenceError'.
  */
@@ -2764,6 +2796,7 @@ function getIntermediatePoint(lat1, lon1, lat2, lon2, fraction) {
  * ⬇️
  * ⬇️ --- FIX: Added timestamp check to prevent race conditions ("jump back" bug) ---
  * ⬇️ --- FIX (v2): Ensure `flight.aircraft` is not undefined to prevent JSON.parse errors downstream.
+ * ⬇️ --- MODIFIED (v3): Added 'phase' property for map labels ---
  */
 function handleSocketFlightUpdate(data) {
     if (!data || !Array.isArray(data.flights) || !data.timestamp) {
@@ -2809,6 +2842,9 @@ function handleSocketFlightUpdate(data) {
         const newApiHeading = flight.position.heading_deg || 0;
         const newApiSpeed = flight.position.gs_kt || 0;
         
+        // --- [NEW] Get lite phase for the label ---
+        const litePhase = getLiteFlightPhase(flight.position);
+
         // --- [START OF FIX] ---
         // Ensure `flight.aircraft` is at least `null` if it's undefined
         const aircraftData = flight.aircraft || null;
@@ -2832,8 +2868,11 @@ function handleSocketFlightUpdate(data) {
             heading: newApiHeading, // Pass heading for icon rotation
             // ⬇️ === NEW: Add VA status for icon logic === ⬇️
             isStaff: flight.isStaff,
-            isVAMember: flight.isVAMember
+            isVAMember: flight.isVAMember,
             // ⬆️ === END OF NEW LINES === ⬆️
+
+            // --- [NEW] Add the new property for the label ---
+            phase: litePhase 
         };
 
         // Create or update the feature in our state
@@ -4313,6 +4352,7 @@ async function initializeSectorOpsMap(centerICAO) {
     /**
      * --- [NEW] Extracted function to set up base layers.
      * This is called on initial load AND on every style change.
+     * --- [MODIFIED] Added text labels for callsign and phase.
      */
     async function setupMapLayersAndFog() {
         // 1. Set globe fog
@@ -4324,7 +4364,7 @@ async function initializeSectorOpsMap(centerICAO) {
             'star-intensity': 0.6 // Adjust star intensity
         });
 
-        // 2. Load all aircraft icons
+        // 2. Load all aircraft icons (Unchanged)
         const iconsToLoad = [
             // Regular (Default)
             { id: 'icon-jumbo', path: '/Images/map_icons/jumbo.png' },
@@ -4396,19 +4436,51 @@ async function initializeSectorOpsMap(centerICAO) {
                 type: 'symbol',
                 source: 'sector-ops-live-flights-source',
                 layout: {
-                    // --- MODIFICATION: Replaced the entire 'icon-image' 'case' block ---
+                    // --- Icon Properties (Unchanged) ---
                     'icon-image': getIconImageExpression(mapFilters.iconColorMode),
-                    // --- (End of modification) ---
-                    
                     'icon-size': 0.08,
                     'icon-rotate': ['get', 'heading'],
                     'icon-rotation-alignment': 'map',
                     'icon-allow-overlap': true,
-                    'icon-ignore-placement': true
+                    'icon-ignore-placement': true,
+
+                    // --- [START NEW] Text Label Properties ---
+                    
+                    // 1. Define the text content.
+                    //    This creates two lines: "CALLSIGN" and "Phase"
+                    'text-field': [
+                        'format',
+                        ['get', 'callsign'], // Line 1
+                        '\n',                 // Newline
+                        ['get', 'phase']      // Line 2
+                    ],
+                    
+                    // 2. Set the font and size.
+                    'text-font': ['Mapbox Txt Regular', 'Arial Unicode MS Regular'],
+                    'text-size': 10,
+                    
+                    // 3. Offset the text to appear below the icon.
+                    'text-offset': [0, 2.5], // [X-offset, Y-offset] in ems
+                    'text-anchor': 'top',
+                    
+                    // 4. Prevent labels from overlapping each other (good for performance).
+                    'text-allow-overlap': false,
+                    'text-ignore-placement': false
+                    // --- [END NEW] ---
+                },
+                // --- [START NEW] Text Paint Properties ---
+                paint: {
+                    // Make the text white with a dark "halo" (outline)
+                    // so it's readable on any map background.
+                    'text-color': '#ffffff',
+                    'text-halo-color': 'rgba(0, 0, 0, 0.85)',
+                    'text-halo-width': 1.5,
+                    'text-halo-blur': 1
                 }
+                // --- [END NEW] ---
             });
 
-            // 4. Re-attach listeners
+            // 4. Re-attach listeners (Unchanged)
             sectorOpsMap.on('click', 'sector-ops-live-flights-layer', (e) => {
                 const props = e.features[0].properties;
                 const flightProps = { ...props, position: JSON.parse(props.position), aircraft: JSON.parse(props.aircraft) };
@@ -4573,7 +4645,7 @@ function rebuildDynamicLayers() {
 }
 
 /**
- * --- [NEW] Draws or updates the filed flight plan layers (direct or full)
+ * --- [MODIFIED] Draws or updates the filed flight plan layers (direct or full)
  * based on the current filter settings.
  * @param {string} flightId - The flightId of the selected aircraft.
  * @param {object} plan - The parsed flight plan object.
@@ -4718,9 +4790,12 @@ function updateFlightPlanLayer(flightId, plan, currentPosition) {
                     'text-ignore-placement': false
                 },
                 paint: {
-                    'text-color': '#ffffff',
-                    'text-halo-color': '#000000',
-                    'text-halo-width': 1
+                    // --- [START OF FIX] ---
+                    'text-color': '#ffffff', // Keep text white
+                    'text-halo-color': 'rgba(10, 12, 26, 0.9)', // Use a dark, opaque UI color for the halo
+                    'text-halo-width': 2, // Make the halo thicker to act as a background
+                    'text-halo-blur': 1   // Add a slight blur to soften it
+                    // --- [END OF FIX] ---
                 }
             }, 'sector-ops-live-flights-layer'); // Below aircraft
             
@@ -4728,7 +4803,7 @@ function updateFlightPlanLayer(flightId, plan, currentPosition) {
         }
     } else {
         // Remove the layer if the mode is not 'full'
-        if (sectorOpsMap.getLayer(layerIdFull)) sectorOpsMap.removeLayer(layerIdFull);
+        if (sectorOpsMap.getLayer(layerIdFull)) sectorOpsMap.removeLayer(layerDetails);
         // --- [NEW] Also remove the label layer ---
         if (sectorOpsMap.getLayer(layerIdFullLabels)) sectorOpsMap.removeLayer(layerIdFullLabels);
         
