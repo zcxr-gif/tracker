@@ -4,6 +4,8 @@
  * -------------------------------------------------------------------
  * A module to handle the smooth animation of airborne flights
  * while "teleporting" ground-based flights for a Mapbox GL JS map.
+ * * This version includes extrapolation to smoothly continue
+ * flight paths at their last known speed and heading.
  * ===================================================================
  */
 
@@ -78,6 +80,8 @@ export class MapAnimator {
             const currentFeature = this.currentMapFeatures[flightId];
             
             // Get the 'from' state
+            // This is the CRITICAL part: if the feature exists, we use its *current*
+            // on-screen (possibly extrapolated) position as the starting point.
             const fromPos = currentFeature ? currentFeature.geometry.coordinates : [newApiLon, newApiLat];
             const fromHeading = currentFeature ? currentFeature.properties.heading : newApiHeading;
 
@@ -137,8 +141,11 @@ export class MapAnimator {
                 continue;
             }
 
-            // Calculate how far along the animation we are (0.0 to 1.0)
-            const progress = Math.min(1, (now - state.startTime) / state.duration);
+            // Calculate how far along the animation we are.
+            // By NOT clamping this to 1.0, we allow extrapolation.
+            // 'progress' will continue to grow (1.1, 1.2, etc.),
+            // pushing the icon along the same vector.
+            const progress = (now - state.startTime) / state.duration;
 
             // Linear Interpolation (LERP) for position
             const newLon = state.fromPos[0] + (state.toPos[0] - state.fromPos[0]) * progress;
@@ -154,15 +161,14 @@ export class MapAnimator {
             feature.geometry.coordinates = [newLon, newLat];
             feature.properties.heading = newHeading;
 
-            if (progress === 1) {
-                // Animation finished, remove from animation state
-                this.airborneFlightState.delete(flightId);
-            }
+            // We no longer delete the state when progress === 1.
+            // The state will only be updated (in updateFlight) or
+            // deleted (in removeFlight or if the plane lands).
         }
 
         // --- 2. Update the map source with the new state of *all* features ---
         // This single call renders *both* the teleported ground planes
-        // and the smoothly animated airborne planes.
+        // and the smoothly extrapolated/animated airborne planes.
         source.setData({
             type: 'FeatureCollection',
             features: Object.values(this.currentMapFeatures)
