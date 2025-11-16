@@ -4,8 +4,10 @@
  * -------------------------------------------------------------------
  * A module to handle the smooth animation of airborne flights
  * while "teleporting" ground-based flights for a Mapbox GL JS map.
- * * This version includes extrapolation to smoothly continue
- * flight paths at their last known speed and heading.
+ *
+ * VERSION 2: Now includes dead reckoning (extrapolation) to
+ * smoothly project aircraft movement between server updates,
+ * preventing the "freeze" effect.
  * ===================================================================
  */
 
@@ -76,12 +78,12 @@ export class MapAnimator {
             this.airborneFlightState.delete(flightId);
 
         } else {
-            // --- 2. AIRBORNE AIRCRAFT: Animate ---
+            // --- 2. AIRBORNE AIRCRAFT: Animate + Extrapolate ---
             const currentFeature = this.currentMapFeatures[flightId];
+            const now = performance.now();
             
-            // Get the 'from' state
-            // This is the CRITICAL part: if the feature exists, we use its *current*
-            // on-screen (possibly extrapolated) position as the starting point.
+            // Get the 'from' state (current rendered position)
+            // If this is the first packet, 'from' and 'to' are the same.
             const fromPos = currentFeature ? currentFeature.geometry.coordinates : [newApiLon, newApiLat];
             const fromHeading = currentFeature ? currentFeature.properties.heading : newApiHeading;
 
@@ -91,8 +93,11 @@ export class MapAnimator {
                 toPos: [newApiLon, newApiLat],
                 fromHeading: fromHeading,
                 toHeading: newApiHeading,
-                startTime: performance.now(),
-                duration: Math.max(500, packetDuration) // Animate over the packet duration
+                startTime: now,
+                duration: Math.max(500, packetDuration),
+                // --- [NEW] Store data for extrapolation ---
+                apiSpeedKt: newProperties.speed || 0,
+                apiHeadingDeg: newApiHeading
             });
 
             // Update the feature's properties (callsign, etc.)
@@ -141,34 +146,68 @@ export class MapAnimator {
                 continue;
             }
 
-            // Calculate how far along the animation we are.
-            // By NOT clamping this to 1.0, we allow extrapolation.
-            // 'progress' will continue to grow (1.1, 1.2, etc.),
-            // pushing the icon along the same vector.
+            // Calculate progress of the "gentle fix" interpolation
             const progress = (now - state.startTime) / state.duration;
 
-            // Linear Interpolation (LERP) for position
-            const newLon = state.fromPos[0] + (state.toPos[0] - state.fromPos[0]) * progress;
-            const newLat = state.fromPos[1] + (state.toPos[1] - state.fromPos[1]) * progress;
+            if (progress < 1.0) {
+                // --- A. INTERPOLATING ("Gentle Fix") ---
+                // We are in the animation window, correcting from the last
+                // rendered position to the new API position.
+
+                // Linear Interpolation (LERP) for position
+                const newLon = state.fromPos[0] + (state.toPos[0] - state.fromPos[0]) * progress;
+                const newLat = state.fromPos[1] + (state.toPos[1] - state.fromPos[1]) * progress;
+                
+                // LERP for heading (with wrap-around logic)
+                let deltaH = state.toHeading - state.fromHeading;
+                if (deltaH > 180) deltaH -= 360;
+                if (deltaH < -180) deltaH += 360;
+                const newHeading = state.fromHeading + (deltaH * progress);
+
+                // Update the feature in the main state object
+                feature.geometry.coordinates = [newLon, newLat];
+                feature.properties.heading = newHeading;
             
-            // LERP for heading (with wrap-around logic)
-            let deltaH = state.toHeading - state.fromHeading;
-            if (deltaH > 180) deltaH -= 360;
-            if (deltaH < -180) deltaH += 360;
-            const newHeading = state.fromHeading + (deltaH * progress);
+            } else {
+                // --- B. EXTRAPOLATING (Dead Reckoning) ---
+                // The "gentle fix" animation is complete.
+                // Now, we project the plane forward from its last *API position*
+                // using its last known speed and heading.
 
-            // Update the feature in the main state object
-            feature.geometry.coordinates = [newLon, newLat];
-            feature.properties.heading = newHeading;
+                // How long has it been since the animation *ended*?
+                const timeSinceAnimEndMs = now - (state.startTime + state.duration);
+                
+                // Convert speed (knots) to kilometers per millisecond
+                // 1 knot = 1.852 km/h
+                // km/h -> km/ms = / 3,600,000
+                const ktsToKmsPerMs = (state.apiSpeedKt * 1.852) / 3600000;
+                
+                // Calculate distance to move *from the target position*
+                const distanceToMoveKm = ktsToKmsPerMs * timeSinceAnimEndMs;
 
-            // We no longer delete the state when progress === 1.
-            // The state will only be updated (in updateFlight) or
-            // deleted (in removeFlight or if the plane lands).
+                if (distanceToMoveKm > 0 && state.apiSpeedKt > 30) {
+                    // Calculate the new extrapolated position
+                    const extrapolatedPos = this._getDestinationPoint(
+                        state.toPos[1],       // Start from last API lat
+                        state.toPos[0],       // Start from last API lon
+                        state.apiHeadingDeg,  // Use last API heading
+                        distanceToMoveKm
+                    );
+
+                    feature.geometry.coordinates = [extrapolatedPos.lon, extrapolatedPos.lat];
+                } else {
+                    // Not moving (or 0 speed), just stay at the target position
+                    feature.geometry.coordinates = state.toPos;
+                }
+
+                // Heading remains constant during extrapolation
+                feature.properties.heading = state.apiHeadingDeg;
+            }
         }
 
         // --- 2. Update the map source with the new state of *all* features ---
         // This single call renders *both* the teleported ground planes
-        // and the smoothly extrapolated/animated airborne planes.
+        // and the smoothly animated/extrapolated airborne planes.
         source.setData({
             type: 'FeatureCollection',
             features: Object.values(this.currentMapFeatures)
@@ -176,5 +215,42 @@ export class MapAnimator {
 
         // --- 3. Request the next animation frame ---
         this.animationFrameId = requestAnimationFrame(this._animationLoop);
+    }
+
+    /**
+     * Calculates the destination point given a starting point, bearing, and distance.
+     * Uses the Haversine formula.
+     * @param {number} lat - Starting latitude in degrees.
+     * @param {number} lon - Starting longitude in degrees.
+     * @param {number} bearing - Bearing in degrees (0-360).
+     * @param {number} distanceKm - Distance to travel in kilometers.
+     * @returns {{lat: number, lon: number}} The destination point.
+     * @private
+     */
+    _getDestinationPoint(lat, lon, bearing, distanceKm) {
+        const R = 6371; // Earth's radius in km
+        const toRad = (deg) => (deg * Math.PI) / 180;
+        const toDeg = (rad) => (rad * 180) / Math.PI;
+
+        const latRad = toRad(lat);
+        const lonRad = toRad(lon);
+        const bearingRad = toRad(bearing);
+
+        const angularDistance = distanceKm / R;
+
+        const destLatRad = Math.asin(
+            Math.sin(latRad) * Math.cos(angularDistance) +
+            Math.cos(latRad) * Math.sin(angularDistance) * Math.cos(bearingRad)
+        );
+
+        let destLonRad = lonRad + Math.atan2(
+            Math.sin(bearingRad) * Math.sin(angularDistance) * Math.cos(latRad),
+            Math.cos(angularDistance) - Math.sin(latRad) * Math.sin(destLatRad)
+        );
+
+        // Normalize longitude to -180 to +180
+        destLonRad = (destLonRad + 3 * Math.PI) % (2 * Math.PI) - Math.PI;
+
+        return { lat: toDeg(destLatRad), lon: toDeg(destLonRad) };
     }
 }
