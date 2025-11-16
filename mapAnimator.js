@@ -8,6 +8,8 @@
  * VERSION 2: Now includes dead reckoning (extrapolation) to
  * smoothly project aircraft movement between server updates,
  * preventing the "freeze" effect.
+ *
+ * IMPROVEMENT: Enhanced heading interpolation for realistic turns.
  * ===================================================================
  */
 
@@ -143,6 +145,8 @@ export class MapAnimator {
      * with a blended logic. This calculates the pure extrapolated position (P_extrap) 
      * and smoothly transitions the rendered position from the correction path (P_interp) 
      * towards P_extrap over the animation duration.
+     * * * IMPROVEMENT: Enhanced heading interpolation to ensure the shortest 
+     * path around the 360-degree circle is always taken, improving turning realism.
      */
     _animationLoop() {
         const source = this.map.getSource(this.sourceName);
@@ -211,10 +215,20 @@ export class MapAnimator {
                 finalLat = interpLat + (P_extrap.lat - interpLat) * progress;
 
                 // 3. Heading LERP: Transition the displayed heading
+                // Calculate the shortest angular distance (deltaH)
                 let deltaH = state.toHeading - state.fromHeading;
-                if (deltaH > 180) deltaH -= 360;
-                if (deltaH < -180) deltaH += 360;
+                if (deltaH > 180) {
+                    deltaH -= 360;
+                } else if (deltaH < -180) {
+                    deltaH += 360;
+                }
+                
+                // Apply the LERP, and ensure it wraps around 0-360
                 finalHeading = state.fromHeading + (deltaH * progress);
+                finalHeading = finalHeading % 360;
+                if (finalHeading < 0) {
+                    finalHeading += 360;
+                }
             
             } else {
                 // --- II. PURE EXTRAPOLATING ---
