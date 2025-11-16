@@ -4489,24 +4489,14 @@ async function initializeSectorOpsMap(centerICAO) {
                     'text-offset': [0, 2.5], // Offset text below the icon
                     'text-anchor': 'top',
                     
-                    // ##### ⬇️ START OF FIX ⬇️ #####
-                    'text-allow-overlap': true,    // <-- Set to true
-                    'text-ignore-placement': true, // <-- Set to true
-                    // ##### ⬆️ END OF FIX ⬆️ #####
-
-                    // --- [NEW] ---
-                    // 'text-padding' was removed as it's not the correct property
-                    // for this effect. The "padding" is now controlled by
-                    // 'text-halo-width' in the 'paint' section.
+                    'text-allow-overlap': true,
+                    'text-ignore-placement': true,
                 },
                 paint: {
-                    // --- [MODIFICATION] ---
                     // Set text to be white
                     'text-color': '#ffffff',
 
-                    // ##### ⬇️ START OF FIX ⬇️ #####
-                    // Replaced 'text-background-color' (which is invalid)
-                    // with 'text-halo-color' (which is correct).
+                    // Use text-halo-color to create the background
                     'text-halo-color': [
                         'match',
                         ['get', 'phase'],
@@ -4518,11 +4508,12 @@ async function initializeSectorOpsMap(centerICAO) {
                         'rgba(100, 110, 130, 0.9)'             // Default
                     ],
                     
-                    // Added halo-width to create the "padding" for the pill
-                    'text-halo-width': 1.5,
-                    // Added halo-blur: 0 to make the edges sharp
+                    // --- THIS IS THE FIX ---
+                    // Increase width to create a solid "padding"
+                    'text-halo-width': 6,
+                    // Set blur to 0 to make the edges sharp
                     'text-halo-blur': 0
-                    // ##### ⬆️ END OF FIX ⬆️ #####
+                    // --- END OF FIX ---
                 }
             });
         }
