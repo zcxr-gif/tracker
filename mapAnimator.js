@@ -61,7 +61,7 @@ class FlightAnimationState {
         // --- TUNING PARAMETERS ---
         // How quickly the plane turns (higher = more responsive, "tighter")
         // A good starting value is between 1.0 (heavy) and 5.0 (agile).
-        this.headingSmoothFactor = 2.0;
+        this.headingSmoothFactor = 1.0;
 
         // How quickly the plane changes speed (higher = faster)
         this.speedSmoothFactor = 4.0;
@@ -71,7 +71,7 @@ class FlightAnimationState {
         // *NOTE*: This value *must* be tuned relative to headingSmoothFactor.
         // A "heavy" plane (low smooth factor) needs a *larger* blend
         // distance to give it enough time to make the final turn.
-        this.followBlendDistanceKm = 1.0;
+        this.followBlendDistanceKm = 2.0;
 
         // [NEW] Distance (km) at which the plane begins to decelerate
         // for a smooth stop at its target. This fixes the "orbit" flaw.
