@@ -4480,6 +4480,13 @@ async function initializeSectorOpsMap(centerICAO) {
                 id: 'sector-ops-live-flights-labels',
                 type: 'symbol',
                 source: 'sector-ops-live-flights-source', // Use the SAME source
+                
+                // ##### PERFORMANCE FIX START #####
+                // By setting a minzoom, we prevent Mapbox from trying to
+                // calculate label collisions for all aircraft on the map
+                // when zoomed out, which is the cause of the lag.
+                **minzoom: 6.5,** // ##### PERFORMANCE FIX END #####
+
                 layout: {
                     // --- [MODIFICATION START] ---
                     // Use a 'format' expression to set colors per line
