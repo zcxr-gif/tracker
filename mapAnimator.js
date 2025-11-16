@@ -5,11 +5,14 @@
  * A module to handle the smooth animation of airborne flights
  * while "teleporting" ground-based flights for a Mapbox GL JS map.
  *
- * VERSION 3: Great-Circle Arc Precision
+ * VERSION 4: Eased-Blending Precision
  * - Fixes "strafing" during turns by matching extrapolated path
  * to the interpolated heading.
  * - Uses precise Haversine-based (great-circle) interpolation
- * for the correction path instead of an inaccurate LERP.
+ * for the correction path.
+ * - [NEW] Uses a non-linear (ease-in-out) blend to smoothly
+ * transition from the correction path to the extrapolated path,
+ * making sharp turns feel natural.
  * ===================================================================
  */
 
@@ -142,18 +145,18 @@ export class MapAnimator {
     /**
      * The core animation loop (runs every frame).
      * @private
-     * * ★★★ REVISED LOGIC ★★★
+     * * ★★★ REVISED LOGIC (V4 - Eased Blending) ★★★
      * * 1.  Calculate the `finalHeading` by interpolating between `fromHeading` and `toHeading`.
      * 2.  Calculate `P_extrap`: The "pure" extrapolated position. This is calculated
-     * from `toPos` using the *`finalHeading`* (from step 1). This is the key
+     * from `toPos` using the *`finalHeading`*. This is the key
      * to fixing the "strafing" effect, as the extrapolated path now follows
      * the icon's rotation, creating a natural arc.
      * 3.  Calculate `P_interp`: The "correction" position. This is calculated by
      * moving `progress` % along the great-circle arc from `fromPos` to `toPos`
      * (using our pre-calculated `correctionBearing` and `correctionDist`).
-     * 4.  Calculate `finalPos`: We blend `P_interp` and `P_extrap`. As `progress`
-     * goes from 0 to 1, the plane's position is pulled from the correction
-     * path onto the pure extrapolated path.
+     * 4.  Calculate `finalPos`: We blend `P_interp` and `P_extrap` using an
+     * *ease-in-out* function instead of a linear one. This creates a
+     * much smoother transition during sharp turns.
      */
     _animationLoop() {
         const source = this.map.getSource(this.sourceName);
@@ -227,9 +230,17 @@ export class MapAnimator {
                 }
                 
                 // --- 3b. FINAL Position: Blend P_interp with P_extrap ---
-                // This LERP blends the two calculated points.
-                finalLon = P_interp_coords.lon + (P_extrap.lon - P_interp_coords.lon) * progress;
-                finalLat = P_interp_coords.lat + (P_extrap.lat - P_interp_coords.lat) * progress;
+
+                // ★★★ NEW FIX ★★★
+                // We apply an Ease-In-Out function to the progress.
+                // This makes the blend non-linear and much smoother.
+                // It ensures the "fix" is applied *very* little at the beginning
+                // and end of the blend, smoothing out the "jump."
+                const easeProgress = 0.5 * (1 - Math.cos(Math.PI * progress));
+
+                // This LERP now uses the 'easeProgress' instead of the linear 'progress'.
+                finalLon = P_interp_coords.lon + (P_extrap.lon - P_interp_coords.lon) * easeProgress;
+                finalLat = P_interp_coords.lat + (P_extrap.lat - P_interp_coords.lat) * easeProgress;
 
             } else {
                 // --- 4. PURE EXTRAPOLATING ---
