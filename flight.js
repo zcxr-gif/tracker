@@ -4489,8 +4489,10 @@ async function initializeSectorOpsMap(centerICAO) {
                     'text-offset': [0, 2.5], // Offset text below the icon
                     'text-anchor': 'top',
                     
-                    'text-allow-overlap': false,
-                    'text-ignore-placement': false,
+                    // ##### ⬇️ START OF FIX ⬇️ #####
+                    'text-allow-overlap': true,    // <-- Set to true
+                    'text-ignore-placement': true, // <-- Set to true
+                    // ##### ⬆️ END OF FIX ⬆️ #####
 
                     // --- [NEW] ---
                     // Add padding, which the background color will fill
