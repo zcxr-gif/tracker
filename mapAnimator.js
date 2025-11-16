@@ -431,10 +431,12 @@ export class MapAnimator {
         this.airborneFlightState.delete(flightId);
     }
 
-This 
     /**
-     * [REWRITTEN to handle landing cleanup]
+     * [REWRITTEN to handle "fast-forward" simulation]
      * The core animation loop (runs every frame).
+     * This version fixes the "tab-away" problem by running a
+     * high-speed simulation to "catch up" the plane's position
+     * instead of discarding the lost time.
      */
     _animationLoop() {
         this.animationFrameId = requestAnimationFrame(this._animationLoop);
@@ -449,27 +451,59 @@ This
         const deltaTimeMs = now - this.lastFrameTime;
         this.lastFrameTime = now;
 
-        if (deltaTimeMs > 1000) {
-            return; // Skip massive deltas (e.g., tabbed out)
-        }
+        // [!!] REMOVED the `if (deltaTimeMs > 1000)` safeguard.
+        // We will now handle large deltas by simulating
+        // the flight in chunks to "catch up".
 
         // --- 2. Update all animating features ---
+        
+        // [NEW] Define a max simulation step. This is the largest
+        // chunk of time we'll process in a single .update() call.
+        // 100ms (10x/sec) is a good balance of performance and accuracy.
+        // Your `update` logic is designed for small steps; this enforces that.
+        const MAX_SIMULATION_STEP_MS = 100.0;
+
         for (const [flightId, animState] of this.airborneFlightState.entries()) {
             const feature = this.currentMapFeatures[flightId];
             if (!feature) {
                 this.airborneFlightState.delete(flightId);
                 continue;
             }
+            
+            // --- [NEW "FAST-FORWARD" SIMULATION LOGIC] ---
+            // Instead of one big `update(30000)`, which would
+            // cause a massive overshoot, we run many small updates
+            // (e.g., 300 x `update(100)`) to simulate the flight path
+            // accurately in a single frame.
+            
+            let remainingTimeMs = deltaTimeMs;
+            let finalSimState; // Holds the state from the *last* sim step
 
-            // Delegate all calculation
-            const newState = animState.update(deltaTimeMs);
+            while (remainingTimeMs > 0) {
+                const stepTimeMs = Math.min(remainingTimeMs, MAX_SIMULATION_STEP_MS);
+                remainingTimeMs -= stepTimeMs;
+                
+                // Run the core update logic for this small chunk of time
+                finalSimState = animState.update(stepTimeMs);
+                
+                // If the plane landed (isFinished) during one of these
+                // steps, we can stop simulating it for the rest
+                // of the "lost" time.
+                if (finalSimState.isFinished) {
+                    break;
+                }
+            }
+            // --- [END OF NEW LOGIC] ---
+
+            // `finalSimState` now contains the calculated position
+            // after "fast-forwarding" through the entire deltaTime.
 
             // Update the feature's geometry and heading
-            feature.geometry.coordinates = newState.coordinates;
-            feature.properties.heading = newState.heading;
+            feature.geometry.coordinates = finalSimState.coordinates;
+            feature.properties.heading = finalSimState.heading;
 
-            if (newState.isFinished) {
-                // [NEW] This flight has landed and finished its
+            if (finalSimState.isFinished) {
+                // This flight has landed and finished its
                 // animation. Remove it from the animation map
                 // so it no longer updates.
                 this.airborneFlightState.delete(flightId);
@@ -482,7 +516,8 @@ This
 
         // --- 3. Update the map source with the new state of *all* features ---
         // This single call pushes all ground-teleports AND
-        // all airborne-animations to the map at once.
+        // all airborne-animations (now correctly "caught up")
+        // to the map at once.
         source.setData({
             type: 'FeatureCollection',
             features: Object.values(this.currentMapFeatures)
