@@ -1,41 +1,106 @@
-<div class="info-panel-content">
-    <div class="info-panel-header">
-        <h3>Welcome to InFlight</h3>
-        <span class="beta-badge">BETA</span>
+<div class="panel-main-container">
+
+    <div class="panel-tabs">
+        <button class="panel-tab-btn active" data-tab="tab-welcome">
+            <i class="fa-solid fa-circle-info"></i> Welcome
+        </button>
+        <button class="panel-tab-btn" data-tab="tab-flightplan">
+            <i class="fa-solid fa-file-invoice"></i> Flight Plan
+        </button>
     </div>
-    <p class="welcome-text">
-        Thank you for participating in the open beta for InFlight. 
-        We are actively developing new features and appreciate your feedback.
-    </p>
 
-    <h4>Key Features</h4>
-    <ul class="features-list">
-        <li><i class="fa-solid fa-satellite-dish"></i> Live Global Aircraft Tracking</li>
-        <li><i class="fa-solid fa-tower-broadcast"></i> Real-Time ATC & NOTAMs</li>
-        <li><i class="fa-solid fa-gauge-high"></i> In-Depth Aircraft PFD & VSD</li>
-        <li><i class="fa-solid fa-chart-line"></i> Live Pilot Grade & Stat Reporting</li>
-        <li><i class="fa-solid fa-magnifying-glass"></i> Aircraft Search & Map Filtering</li>
-    </ul>
+    <div class="panel-content-wrapper">
 
-    <h4 style="margin-top: 28px;">Coming Soon: 'Pro' Features</h4>
-    <p class="pro-feature-note">
-        We plan to introduce an optional "Pro" subscription (approx. $1.99/mo) to support 
-        development, as mentioned in our Terms.
-    </p>
-    <ul class="features-list">
-        <li><i class="fa-solid fa-cloud-sun-rain pro-icon"></i> Advanced OWM Weather Overlays</li>
-        <li><i class="fa-solid fa-plus-circle pro-icon"></i> Other Premium Functionalities</li>
-    </ul>
-    
-    <p class="beta-note" style="margin-top: 28px;">
-        <i class="fa-solid fa-bug"></i>
-        As this is a beta, you may encounter bugs or incomplete features. Please report any 
-        issues to our development team.
-    </p>
+        <div id="tab-welcome" class="tab-content active">
+            <div class="info-panel-content">
+                <div class="info-panel-header">
+                    <h3>Welcome to InFlight</h3>
+                    <span class="beta-badge">BETA</span>
+                </div>
+                <p class="welcome-text">
+                    Thank you for participating in the open beta for InFlight. 
+                    We are actively developing new features and appreciate your feedback.
+                </p>
 
-    <div class="panel-footer-links">
-        <a href="terms.html" target="_blank" rel="noopener noreferrer">Terms & Conditions</a>
-        <span>&bull;</span>
-        <a href="privacy.html" target="_blank" rel="noopener noreferrer">Privacy Policy</a>
-    </div>
-</div>
+                <h4>Key Features</h4>
+                <ul class="features-list">
+                    <li><i class="fa-solid fa-satellite-dish"></i> Live Global Aircraft Tracking</li>
+                    <li><i class="fa-solid fa-tower-broadcast"></i> Real-Time ATC & NOTAMs</li>
+                    <li><i class="fa-solid fa-gauge-high"></i> In-Depth Aircraft PFD & VSD</li>
+                    <li><i class="fa-solid fa-chart-line"></i> Live Pilot Grade & Stat Reporting</li>
+                    <li><i class="fa-solid fa-magnifying-glass"></i> Aircraft Search & Map Filtering</li>
+                </ul>
+
+                <h4 style="margin-top: 28px;">Coming Soon: 'Pro' Features</h4>
+                <p class="pro-feature-note">
+                    We plan to introduce an optional "Pro" subscription (approx. $1.99/mo) to support 
+                    development, as mentioned in our Terms.
+                </p>
+                <ul class="features-list">
+                    <li><i class="fa-solid fa-cloud-sun-rain pro-icon"></i> Advanced OWM Weather Overlays</li>
+                    <li><i class="fa-solid fa-plus-circle pro-icon"></i> Other Premium Functionalities</li>
+                </ul>
+                
+                <p class="beta-note" style="margin-top: 28px;">
+                    <i class="fa-solid fa-bug"></i>
+                    As this is a beta, you may encounter bugs or incomplete features. Please report any 
+                    issues to our development team.
+                </p>
+
+                <div class="panel-footer-links">
+                    <a href="terms.html" target="_blank" rel="noopener noreferrer">Terms & Conditions</a>
+                    <span>&bull;</span>
+                    <a href="privacy.html" target="_blank" rel="noopener noreferrer">Privacy Policy</a>
+                </div>
+            </div>
+            </div>
+
+        <div id="tab-flightplan" class="tab-content">
+            
+            <div id="manual-dispatch-container" class="flight-plan-content">
+                <div class="info-panel-header">
+                    <h3>Simbrief Flight Plan</h3>
+                </div>
+                
+                <p class="welcome-text">
+                    Use the form below to generate a new flight plan using SimBrief.
+                </p>
+
+                <div class="fp-form">
+                    <div class="form-group">
+                        <label for="fp-flightNumber">Flight Number</label>
+                        <input type="text" id="fp-flightNumber" name="fp-flightNumber" placeholder="e.g., AAL123">
+                    </div>
+                    <div class="form-group-row">
+                        <div class="form-group">
+                            <label for="fp-departure">Departure</label>
+                            <input type="text" id="fp-departure" name="fp-departure" placeholder="EGLL">
+                        </div>
+                        <div class="form-group">
+                            <label for="fp-arrival">Arrival</label>
+                            <input type="text" id="fp-arrival" name="fp-arrival" placeholder="KJFK">
+                        </div>
+                    </div>
+                    <div class="form-group">
+                        <label for="fp-aircraft">Aircraft Type</label>
+                        <input type="text" id="fp-aircraft" name="fp-aircraft" placeholder="e.g., A320, B738">
+                    </div>
+
+                    <button id="generate-with-simbrief-btn" class="sb-generate-btn">
+                        <i class="fa-solid fa-plane-departure"></i> Generate with SimBrief
+                    </button>
+                </div>
+
+                <form id="sbapiform" target="simbrief" method="post" action="https://www.simbrief.com/ofp/ofp.php" style="display: none;">
+                    <input type="text" name="username" value="">
+                    <input type="text" name="orig" value="">
+                    <input type="text" name="dest" value="">
+                    <input type="text" name="type" value="">
+                    <input type="text" name="fltnum" value="">
+                    <input type="text" name="return_url" value="">
+                </form>
+
+            </div> <div id="dispatch-pass-display" style="display: none;">
+                </div>
+
+        </div> </div> </div>
