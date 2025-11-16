@@ -2042,10 +2042,10 @@ function injectCustomStyles() {
     document.head.appendChild(style);
 }
 
-/**
-     * --- [NEW - REVISED v3] Fetches and injects the external HTML content for the info panel.
-     * This function now REPLACES the old tab structure with the new single-page content,
-     * reusing and RE-STYLING the existing .panel-content wrapper to make it scrollable.
+//**
+     * --- [FIXED] Fetches and injects the external HTML content for the info panel.
+     * This function now ALSO contains the tab-switching logic from panel-tabs.js
+     * to ensure the elements exist before event listeners are attached.
      */
     async function loadExternalPanelContent() {
         const panel = document.getElementById('sector-ops-floating-panel');
@@ -2084,6 +2084,55 @@ function injectCustomStyles() {
             
             // Inject the new content directly into the existing .panel-content div
             mainContentContainer.innerHTML = htmlContent;
+
+            // ===================================================================
+            // START: Logic from panel-tabs.js
+            // We run this logic *after* mainContentContainer.innerHTML is set.
+            // ===================================================================
+            
+            // Note: We query *inside* the mainContentContainer to be specific
+            const tabButtons = mainContentContainer.querySelectorAll('.panel-tab-btn');
+            const tabContents = mainContentContainer.querySelectorAll('.tab-content');
+
+            // Function to switch to a specific tab
+            function activateTab(tabId) {
+                tabButtons.forEach(btn => {
+                    if (btn.dataset.tab === tabId) {
+                        btn.classList.add('active');
+                    } else {
+                        btn.classList.remove('active');
+                    }
+                });
+
+                tabContents.forEach(content => {
+                    if (content.id === tabId) {
+                        content.classList.add('active');
+                    } else {
+                        content.classList.remove('active');
+                    }
+                });
+            }
+
+            // Add click event listener to each tab button
+            tabButtons.forEach(button => {
+                button.addEventListener('click', () => {
+                    const tabId = button.dataset.tab;
+                    activateTab(tabId);
+                });
+            });
+
+            // --- SimBrief Integration Logic ---
+            const urlParams = new URLSearchParams(window.location.search);
+            if (urlParams.get('view') === 'view-flight-plan' || urlParams.has('ofp_id')) {
+                activateTab('tab-flightplan');
+            } else {
+                // Show the default active tab (Welcome)
+                // The 'active' class is already on the HTML, but this confirms it.
+                activateTab('tab-welcome');
+            }
+            // ===================================================================
+            // END: Logic from panel-tabs.js
+            // ===================================================================
             
         } catch (error) {
             console.error('Error loading external panel content:', error);
