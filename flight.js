@@ -4481,32 +4481,55 @@ async function initializeSectorOpsMap(centerICAO) {
                 type: 'symbol',
                 source: 'sector-ops-live-flights-source', // Use the SAME source
                 layout: {
-                    // --- Text Properties ONLY ---
+                    // --- [MODIFICATION START] ---
+                    // Use a 'format' expression to set colors per line
                     'text-field': [
                         'format',
-                        ['get', 'callsign'], // Line 1
-                        '\n',                 // Newline
-                        ['get', 'phase']      // Line 2
+                        // Part 1: Callsign (White)
+                        ['get', 'callsign'], 
+                        { 'text-color': '#FFFFFF' }, 
+                        
+                        // Part 2: Newline
+                        '\n',                
+                        {},                  
+                        
+                        // Part 3: Phase (Color-coded)
+                        ['get', 'phase'],    
+                        { 
+                            'text-color': [ 
+                                'match',
+                                ['get', 'phase'],
+                                'Climb', '#28a745',     // Green
+                                'Cruise', '#007bff',    // Blue
+                                'Descent', '#ff9900',   // Orange
+                                'Approach', '#a33ea3',  // Purple
+                                'Ground', '#9fa8da',    // Muted Grey
+                                '#e8eaf6' // Default (for Enroute etc.)
+                            ]
+                        }
                     ],
+                    // --- [MODIFICATION END] ---
+
                     'text-font': ['Mapbox Txt Regular', 'Arial Unicode MS Regular'],
                     'text-size': 10,
                     'text-offset': [0, 2.5], // Offset text below the icon
                     'text-anchor': 'top',
                     
-                    // --- THIS IS THE KEY ---
-                    // Allow text to hide on collision
                     'text-allow-overlap': false,
                     'text-ignore-placement': false,
 
-                    // --- Remove all icon properties ---
-                    // 'icon-image': ... (REMOVED)
+                    // --- [NEW] ---
+                    'text-padding': 3, // Add padding *inside* the background box
                 },
                 paint: {
-                    // --- Text Paint Properties ---
-                    'text-color': '#ffffff',
-                    'text-halo-color': 'rgba(0, 0, 0, 0.85)',
-                    'text-halo-width': 1.5,
-                    'text-halo-blur': 1
+                    // --- [MODIFICATION START] ---
+                    // 'text-color' is REMOVED (now handled by 'format' in layout)
+                    
+                    // Use the halo as a solid background
+                    'text-halo-color': 'rgba(10, 12, 26, 0.85)', // Dark UI color
+                    'text-halo-width': 2, // This creates the box padding effect
+                    'text-halo-blur': 0   // This makes the box sharp
+                    // --- [MODIFICATION END] ---
                 }
             });
         }
