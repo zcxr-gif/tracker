@@ -4485,7 +4485,10 @@ async function initializeSectorOpsMap(centerICAO) {
                 // By setting a minzoom, we prevent Mapbox from trying to
                 // calculate label collisions for all aircraft on the map
                 // when zoomed out, which is the cause of the lag.
-                **minzoom: 6.5,** // ##### PERFORMANCE FIX END #####
+                //
+                // ##### THIS IS THE FIX (Removed the asterisks) #####
+                minzoom: 6.5, 
+                // ##### PERFORMANCE FIX END #####
 
                 layout: {
                     // --- [MODIFICATION START] ---
