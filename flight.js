@@ -70,7 +70,8 @@ document.addEventListener('DOMContentLoaded', async () => {
         hideAtcMarkers: false,
         hideAllAirports: false,
         hideNoAtcMarkers: false,
-        planDisplayMode: 'none'
+        planDisplayMode: 'none',
+        iconColorMode: 'default' // <-- ADD THIS LINE
     };
 
     const departureHubs = []; // Empty array
@@ -3992,6 +3993,35 @@ function setupAircraftWindowEvents() {
     aircraftInfoWindow.dataset.eventsAttached = 'true';
 }
 
+/**
+ * --- [NEW] Helper function to build the icon-image expression based on the filter state
+ * @param {string} colorMode - 'default', 'red', or 'blue'
+ * @returns {Array} A Mapbox 'match' expression
+ */
+function getIconImageExpression(colorMode = 'default') {
+    let suffix = '';
+    if (colorMode === 'red') {
+        suffix = '-red';
+    } else if (colorMode === 'blue') {
+        suffix = '-blue';
+    }
+    // 'default' mode (white) has no suffix
+
+    return [
+        'match',
+        ['get', 'category'],
+        'jumbo', `icon-jumbo${suffix}`,
+        'widebody', `icon-widebody${suffix}`,
+        'narrowbody', `icon-narrowbody${suffix}`,
+        'regional', `icon-regional${suffix}`,
+        'private', `icon-private${suffix}`,
+        'fighter', `icon-fighter${suffix}`,
+        'military', `icon-military${suffix}`,
+        'cessna', `icon-cessna${suffix}`,
+        `icon-default${suffix}` // Fallback
+    ];
+}
+
 
 
 async function initializeSectorOpsView() {
@@ -4129,6 +4159,23 @@ async function initializeSectorOpsView() {
                             </li>
                         </ul>
 
+                        <div class="filter-section-divider">
+                            <span class="filter-section-title">Aircraft Icon Color</span>
+                        </div>
+                        <ul class="filter-toggle-list" id="icon-color-filter-group" style="padding-top: 8px;">
+                            <li class="filter-radio-item">
+                                <input type="radio" id="icon-color-default" name="icon-color-mode" value="default" checked>
+                                <label for="icon-color-default"><i class="fa-solid fa-plane" style="color: #fff;"></i> Default (White)</label>
+                            </li>
+                            <li class="filter-radio-item">
+                                <input type="radio" id="icon-color-blue" name="icon-color-mode" value="blue">
+                                <label for="icon-color-blue"><i class="fa-solid fa-plane" style="color: #00a8ff;"></i> Blue</label>
+                            </li>
+                            <li class="filter-radio-item">
+                                <input type="radio" id="icon-color-red" name="icon-color-mode" value="red">
+                                <label for="icon-color-red"><i class="fa-solid fa-plane" style="color: #dc3545;"></i> Red</label>
+                            </li>
+                        </ul>
                         <div class="filter-section-divider">
                             <span class="filter-section-title">Active Flight Plan Display</span>
                         </div>
@@ -4278,7 +4325,7 @@ async function initializeSectorOpsMap(centerICAO) {
 
         // 2. Load all aircraft icons
         const iconsToLoad = [
-            // Regular
+            // Regular (Default)
             { id: 'icon-jumbo', path: '/Images/map_icons/jumbo.png' },
             { id: 'icon-widebody', path: '/Images/map_icons/widebody.png' },
             { id: 'icon-narrowbody', path: '/Images/map_icons/narrowbody.png' },
@@ -4288,26 +4335,28 @@ async function initializeSectorOpsMap(centerICAO) {
             { id: 'icon-default', path: '/Images/map_icons/default.png' },
             { id: 'icon-military', path: '/Images/map_icons/military.png' },
             { id: 'icon-cessna', path: '/Images/map_icons/cessna.png' },
-            // Members
-            { id: 'icon-jumbo-member', path: '/Images/map_icons/members/jumbo.png' },
-            { id: 'icon-widebody-member', path: '/Images/map_icons/members/widebody.png' },
-            { id: 'icon-narrowbody-member', path: '/Images/map_icons/members/narrowbody.png' },
-            { id: 'icon-regional-member', path: '/Images/map_icons/members/regional.png' },
-            { id: 'icon-private-member', path: '/Images/map_icons/members/private.png' },
-            { id: 'icon-fighter-member', path: '/Images/map_icons/members/fighter.png' },
-            { id: 'icon-default-member', path: '/Images/map_icons/members/default.png' },
-            { id: 'icon-military-member', path: '/Images/map_icons/members/military.png' },
-            { id: 'icon-cessna-member', path: '/Images/map_icons/members/cessna.png' },
-            // Staff
-            { id: 'icon-jumbo-staff', path: '/Images/map_icons/staff/jumbo.png' },
-            { id: 'icon-widebody-staff', path: '/Images/map_icons/staff/widebody.png' },
-            { id: 'icon-narrowbody-staff', path: '/Images/map_icons/staff/narrowbody.png' },
-            { id: 'icon-regional-staff', path: '/Images/map_icons/staff/regional.png' },
-            { id: 'icon-private-staff', path: '/Images/map_icons/staff/private.png' },
-            { id: 'icon-fighter-staff', path: '/Images/map_icons/staff/fighter.png' },
-            { id: 'icon-default-staff', path: '/Images/map_icons/staff/default.png' },
-            { id: 'icon-military-staff', path: '/Images/map_icons/staff/military.png' },
-            { id: 'icon-cessna-staff', path: '/Images/map_icons/staff/cessna.png' }
+            
+            // --- MODIFICATION: Renamed 'members' to 'red' ---
+            { id: 'icon-jumbo-red', path: '/Images/map_icons/red/jumbo.png' },
+            { id: 'icon-widebody-red', path: '/Images/map_icons/red/widebody.png' },
+            { id: 'icon-narrowbody-red', path: '/Images/map_icons/red/narrowbody.png' },
+            { id: 'icon-regional-red', path: '/Images/map_icons/red/regional.png' },
+            { id: 'icon-private-red', path: '/Images/map_icons/red/private.png' },
+            { id: 'icon-fighter-red', path: '/Images/map_icons/red/fighter.png' },
+            { id: 'icon-default-red', path: '/Images/map_icons/red/default.png' },
+            { id: 'icon-military-red', path: '/Images/map_icons/red/military.png' },
+            { id: 'icon-cessna-red', path: '/Images/map_icons/red/cessna.png' },
+
+            // --- MODIFICATION: Renamed 'staff' to 'blue' ---
+            { id: 'icon-jumbo-blue', path: '/Images/map_icons/blue/jumbo.png' },
+            { id: 'icon-widebody-blue', path: '/Images/map_icons/blue/widebody.png' },
+            { id: 'icon-narrowbody-blue', path: '/Images/map_icons/blue/narrowbody.png' },
+            { id: 'icon-regional-blue', path: '/Images/map_icons/blue/regional.png' },
+            { id: 'icon-private-blue', path: '/Images/map_icons/blue/private.png' },
+            { id: 'icon-fighter-blue', path: '/Images/map_icons/blue/fighter.png' },
+            { id: 'icon-default-blue', path: '/Images/map_icons/blue/default.png' },
+            { id: 'icon-military-blue', path: '/Images/map_icons/blue/military.png' },
+            { id: 'icon-cessna-blue', path: '/Images/map_icons/blue/cessna.png' }
         ];
 
         const imagePromises = iconsToLoad.map(icon =>
@@ -4346,53 +4395,10 @@ async function initializeSectorOpsMap(centerICAO) {
                 type: 'symbol',
                 source: 'sector-ops-live-flights-source',
                 layout: {
-                    'icon-image': [
-                        'case',
-                        // Condition 1: Is Staff?
-                        ['==', ['get', 'isStaff'], true],
-                        [ // Result: Use Staff icons
-                            'match',
-                            ['get', 'category'],
-                            'jumbo', 'icon-jumbo-staff',
-                            'widebody', 'icon-widebody-staff',
-                            'narrowbody', 'icon-narrowbody-staff',
-                            'regional', 'icon-regional-staff',
-                            'private', 'icon-private-staff',
-                            'fighter', 'icon-fighter-staff',
-                            'military', 'icon-military-staff', 
-                            'cessna', 'icon-cessna-staff',     
-                            'icon-default-staff' // Staff fallback
-                        ],
-                        // Condition 2: Is Member?
-                        ['==', ['get', 'isVAMember'], true],
-                        [ // Result: Use Member icons
-                            'match',
-                            ['get', 'category'],
-                            'jumbo', 'icon-jumbo-member',
-                            'widebody', 'icon-widebody-member',
-                            'narrowbody', 'icon-narrowbody-member',
-                            'regional', 'icon-regional-member',
-                            'private', 'icon-private-member',
-                            'fighter', 'icon-fighter-member',
-                            'military', 'icon-military-member', 
-                            'cessna', 'icon-cessna-member',     
-                            'icon-default-member' // Member fallback
-                        ],
-                        // Default: Use Regular icons
-                        [
-                            'match',
-                            ['get', 'category'],
-                            'jumbo', 'icon-jumbo',
-                            'widebody', 'icon-widebody',
-                            'narrowbody', 'icon-narrowbody',
-                            'regional', 'icon-regional',
-                            'private', 'icon-private',
-                            'fighter', 'icon-fighter',
-                            'military', 'icon-military', 
-                            'cessna', 'icon-cessna',     
-                            'icon-default' // Regular fallback
-                        ]
-                    ],
+                    // --- MODIFICATION: Replaced the entire 'icon-image' 'case' block ---
+                    'icon-image': getIconImageExpression(mapFilters.iconColorMode),
+                    // --- (End of modification) ---
+                    
                     'icon-size': 0.08,
                     'icon-rotate': ['get', 'heading'],
                     'icon-rotation-alignment': 'map',
@@ -6598,6 +6604,20 @@ function setupFilterSettingsWindowEvents() {
             }
             return;
         }
+        
+        // --- [START OF NEW BLOCK] ---
+        // Handle Icon Color Radio Logic
+        if (target.name === 'icon-color-mode') {
+            mapFilters.iconColorMode = target.value;
+            const newExpression = getIconImageExpression(mapFilters.iconColorMode);
+            
+            // Apply the new layout property to the layer
+            if (sectorOpsMap && sectorOpsMap.getLayer('sector-ops-live-flights-layer')) {
+                sectorOpsMap.setLayoutProperty('sector-ops-live-flights-layer', 'icon-image', newExpression);
+            }
+            return; // Done
+        }
+        // --- [END OF NEW BLOCK] ---
         
         // --- [START NEW] Handle Mobile Display Mode Radio Logic ---
         if (target.name === 'mobile-display-mode') {
