@@ -169,11 +169,37 @@ document.addEventListener('DOMContentLoaded', async () => {
         // Clear previous content
         container.innerHTML = '';
 
-        // Format dates
-        const etd = new Date(plan.etd).toUTCString();
+        // --- Helper functions for formatting ---
+        const formatEtd = (date) => {
+            const d = new Date(date);
+            return {
+                time: d.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit', timeZone: 'UTC' }),
+                date: d.toLocaleDateString('en-US', { year: 'numeric', month: 'short', day: 'numeric', timeZone: 'UTC' })
+            };
+        };
         
-        // Build the HTML for the dispatch preview.
-        // We add some inline styles to make it look decent without extra CSS.
+        const formatEet = (decimalHours) => {
+            const hours = Math.floor(decimalHours);
+            const minutes = Math.round((decimalHours % 1) * 60);
+            return `${String(hours).padStart(2, '0')}:${String(minutes).padStart(2, '0')}`;
+        };
+
+        // --- Format data for display ---
+        const etd = formatEtd(plan.etd);
+        const eetFormatted = formatEet(plan.eet);
+        const cargoFormatted = (plan.cargo > 0) ? plan.cargo.toFixed(0) : '0';
+        const cruiseSpeed = String(plan.cruiseSpeed).startsWith('M') ? plan.cruiseSpeed : `M${plan.cruiseSpeed}`;
+
+        // --- Define reusable inline styles ---
+        const sectionStyle = `padding: 16px 20px; border-bottom: 1px solid rgba(255, 255, 255, 0.1);`;
+        const gridStyle = `display: grid; grid-template-columns: repeat(auto-fit, minmax(120px, 1fr)); gap: 16px;`;
+        const itemStyle = `display: flex; flex-direction: column; gap: 4px;`;
+        const labelStyle = `font-size: 0.8rem; color: #9fa8da; text-transform: uppercase; font-weight: 600;`;
+        const valueStyle = `font-size: 1.1rem; color: #fff; font-weight: 600;`;
+        const headingStyle = `margin: 0 0 15px 0; color: #00a8ff; font-size: 1rem; font-weight: 600; display: flex; align-items: center; gap: 8px;`;
+        const metarStyle = `display: block; width: 100%; box-sizing: border-box; background: rgba(0,0,0,0.2); padding: 8px 10px; border-radius: 4px; font-family: monospace; color: #e0e0e0; font-size: 0.85rem; border: 1px solid rgba(255,255,255,0.1);`;
+
+        // Build the HTML for the dispatch preview
         container.innerHTML = `
             <div class="info-panel-header" style="display: flex; justify-content: space-between; align-items: center; padding: 16px 20px; background: rgba(10, 12, 26, 0.6); border-bottom: 1px solid rgba(255, 255, 255, 0.1);">
                 <h3>Dispatch Preview</h3>
@@ -181,41 +207,114 @@ document.addEventListener('DOMContentLoaded', async () => {
                     <i class="fa-solid fa-times"></i>
                 </button>
             </div>
-            <div class="dispatch-pass-body" style="padding: 20px; color: #e8eaf6;">
-                <div class="dispatch-row" style="display: flex; justify-content: space-between; padding: 5px 0;">
-                    <strong>Flight:</strong>
-                    <span>${plan.flightNumber}</span>
+            <div class="dispatch-pass-body" style="padding: 0; color: #e8eaf6;">
+
+                <div class="dispatch-section" style="${sectionStyle}">
+                    <h4 style="${headingStyle}"><i class="fa-solid fa-plane"></i> Flight Details</h4>
+                    <div class="dispatch-grid" style="${gridStyle} grid-template-columns: 1fr 1fr;">
+                        <div class="dispatch-item" style="${itemStyle}">
+                            <span style="${labelStyle}">Flight</span>
+                            <span style="${valueStyle}">${plan.flightNumber}</span>
+                        </div>
+                        <div class="dispatch-item" style="${itemStyle}">
+                            <span style="${labelStyle}">Aircraft</span>
+                            <span style="${valueStyle}">${plan.aircraft}</span>
+                        </div>
+                        <div class="dispatch-item" style="${itemStyle}">
+                            <span style="${labelStyle}">Departure</span>
+                            <span style="${valueStyle}">${plan.departure}</span>
+                        </div>
+                        <div class="dispatch-item" style="${itemStyle}">
+                            <span style="${labelStyle}">Arrival</span>
+                            <span style="${valueStyle}">${plan.arrival}</span>
+                        </div>
+                        <div class="dispatch-item" style="${itemStyle}">
+                            <span style="${labelStyle}">Alternate</span>
+                            <span style="${valueStyle}">${plan.alternate || 'N/A'}</span>
+                        </div>
+                        <div class="dispatch-item" style="${itemStyle}">
+                            <span style="${labelStyle}">Squawk</span>
+                            <span style="${valueStyle}">${plan.squawkCode || '----'}</span>
+                        </div>
+                    </div>
                 </div>
-                <div class="dispatch-row" style="display: flex; justify-content: space-between; padding: 5px 0;">
-                    <strong>Aircraft:</strong>
-                    <span>${plan.aircraft}</span>
+
+                <div class="dispatch-section" style="${sectionStyle}">
+                    <h4 style="${headingStyle}"><i class="fa-solid fa-clock"></i> Performance & Time</h4>
+                    <div class="dispatch-grid" style="${gridStyle}">
+                        <div class="dispatch-item" style="${itemStyle}">
+                            <span style="${labelStyle}">ETD (UTC)</span>
+                            <span style="${valueStyle}">${etd.time}</span>
+                        </div>
+                        <div class="dispatch-item" style="${itemStyle}">
+                            <span style="${labelStyle}">Date</span>
+                            <span style="${valueStyle}">${etd.date}</span>
+                        </div>
+                        <div class="dispatch-item" style="${itemStyle}">
+                            <span style="${labelStyle}">EET</span>
+                            <span style="${valueStyle}">${eetFormatted}</span>
+                        </div>
+                        <div class="dispatch-item" style="${itemStyle}">
+                            <span style="${labelStyle}">Cruise</span>
+                            <span style="${valueStyle}">${plan.cruiseAltitude} ft / ${cruiseSpeed}</span>
+                        </div>
+                    </div>
                 </div>
-                <div class="dispatch-row" style="display: flex; justify-content: space-between; padding: 5px 0;">
-                    <strong>Route:</strong>
-                    <span>${plan.departure} to ${plan.arrival}</span>
+
+                <div class="dispatch-section" style="${sectionStyle}">
+                    <h4 style="${headingStyle}"><i class="fa-solid fa-weight-hanging"></i> Weight & Fuel</h4>
+                    <div class="dispatch-grid" style="${gridStyle}">
+                        <div class="dispatch-item" style="${itemStyle}">
+                            <span style="${labelStyle}">POB</span>
+                            <span style="${valueStyle}">${plan.pob}</span>
+                        </div>
+                        <div class="dispatch-item" style="${itemStyle}">
+                            <span style="${labelStyle}">Cargo (KG)</span>
+                            <span style="${valueStyle}">${cargoFormatted}</span>
+                        </div>
+                        <div class="dispatch-item" style="${itemStyle}">
+                            <span style="${labelStyle}">ZFW (KG)</span>
+                            <span style="${valueStyle}">${plan.zfw}</span>
+                        </div>
+                        <div class="dispatch-item" style="${itemStyle}">
+                            <span style="${labelStyle}">TOW (KG)</span>
+                            <span style="${valueStyle}">${plan.tow}</span>
+                        </div>
+                        <div class="dispatch-item" style="${itemStyle} grid-column: 1 / -1;">
+                            <span style="${labelStyle}">Block Fuel (KG)</span>
+                            <span style="${valueStyle}">${plan.fuelTotal}</span>
+                        </div>
+                    </div>
                 </div>
-                <div class="dispatch-row" style="display: flex; justify-content: space-between; padding: 5px 0;">
-                    <strong>Altitude:</strong>
-                    <span>${plan.cruiseAltitude} ft</span>
+
+                <div class="dispatch-section" style="${sectionStyle}">
+                    <h4 style="${headingStyle}"><i class="fa-solid fa-cloud-sun"></i> Weather</h4>
+                    <div class="dispatch-item" style="${itemStyle} margin-bottom: 12px;">
+                        <span style="${labelStyle}">Departure (${plan.departure})</span>
+                        <code style="${metarStyle}">${plan.departureWeather.raw}</code>
+                    </div>
+                    <div class="dispatch-item" style="${itemStyle}">
+                        <span style="${labelStyle}">Arrival (${plan.arrival})</span>
+                        <code style="${metarStyle}">${plan.arrivalWeather.raw}</code>
+                    </div>
                 </div>
-                <div class="dispatch-row" style="display: flex; justify-content: space-between; padding: 5px 0;">
-                    <strong>ETD:</strong>
-                    <span>${etd}</span>
-                </div>
-                <div class="dispatch-row full-width-route" style="display: flex; flex-direction: column; padding: 10px 0;">
-                    <strong>Full Route:</strong>
-                    <textarea readonly style="width: 100%; height: 80px; background: #1a1a1a; color: #fff; border: 1px solid #444; border-radius: 4px; margin-top: 5px; font-family: monospace; padding: 8px;">${plan.route}</textarea>
+                
+                <div class="dispatch-section" style="padding: 16px 20px; background: rgba(10, 12, 26, 0.6);">
+                    <h4 style="${headingStyle}"><i class="fa-solid fa-route"></i> Full Route</h4>
+                    <textarea readonly style="width: 100%; height: 100px; background: #1a1a1a; color: #fff; border: 1px solid #444; border-radius: 4px; font-family: monospace; padding: 8px; box-sizing: border-box;">${plan.route}</textarea>
                 </div>
                 
                 ${options.isPreview ? `
-                    <button id="save-from-simbrief-btn" class="sb-generate-btn" style="width: 100%; padding: 12px; background: #00a8ff; color: #fff; border: none; border-radius: 5px; margin-top: 15px; cursor: pointer; font-size: 1rem; font-weight: 600;">
-                        <i class="fa-solid fa-save"></i> Save This Flight Plan
-                    </button>
+                    <div class="dispatch-button-area" style="padding: 16px 20px; background: rgba(10, 12, 26, 0.6);">
+                        <button id="save-from-simbrief-btn" class="sb-generate-btn" style="width: 100%; padding: 12px; background: #00a8ff; color: #fff; border: none; border-radius: 5px; cursor: pointer; font-size: 1rem; font-weight: 600;">
+                            <i class="fa-solid fa-save"></i> Save This Flight Plan
+                        </button>
+                    </div>
                 ` : ``}
             </div>
         `;
     }
-
+    
     /**
      * Helper Function: Callback for when flights are saved/erased.
      * This is the 'onFlightSaved' callback for SimbriefIntegration.js.
