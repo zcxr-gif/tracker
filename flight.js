@@ -4355,6 +4355,7 @@ async function initializeSectorOpsMap(centerICAO) {
      * --- [MODIFIED] Added text labels for callsign and phase.
      * --- [MODIFIED v2] Split icons and labels into two layers
      * to allow icons to always show while labels can hide.
+     * --- [MODIFIED v3] Styled labels with a "pill" background using the text-halo.
      */
     async function setupMapLayersAndFog() {
         // 1. Set globe fog (Unchanged)
@@ -4432,8 +4433,7 @@ async function initializeSectorOpsMap(centerICAO) {
             });
         }
 
-        // 4. --- [START OF MODIFICATION] ---
-        // Add the ICON layer
+        // 4. Add the ICON layer (Unchanged)
         if (!sectorOpsMap.getLayer('sector-ops-live-flights-layer')) {
             sectorOpsMap.addLayer({
                 id: 'sector-ops-live-flights-layer', // Keep original ID for click listeners
@@ -4450,13 +4450,7 @@ async function initializeSectorOpsMap(centerICAO) {
                     // Force icons to always show, even if they overlap
                     'icon-allow-overlap': true,
                     'icon-ignore-placement': true,
-
-                    // --- Remove all text properties ---
-                    // 'text-field': ... (REMOVED)
-                    // 'text-font': ... (REMOVED)
-                    // etc.
                 }
-                // --- No 'paint' block needed (it was only for text) ---
             });
 
             // 4a. Add click/hover listeners (These will now only apply to the icon layer)
@@ -4474,39 +4468,51 @@ async function initializeSectorOpsMap(centerICAO) {
             sectorOpsMap.on('mouseleave', 'sector-ops-live-flights-layer', () => { sectorOpsMap.getCanvas().style.cursor = ''; });
         }
         
-        // 5. Add the LABEL layer
+        // 5. --- [START OF MODIFICATION] ---
+        // Add the STYLED LABEL layer
         if (!sectorOpsMap.getLayer('sector-ops-live-flights-labels')) {
             sectorOpsMap.addLayer({
                 id: 'sector-ops-live-flights-labels',
                 type: 'symbol',
                 source: 'sector-ops-live-flights-source', // Use the SAME source
                 layout: {
-                    // --- Text Properties ONLY ---
+                    // --- Text Content & Font Styling ---
                     'text-field': [
                         'format',
-                        ['get', 'callsign'], // Line 1
-                        '\n',                 // Newline
-                        ['get', 'phase']      // Line 2
+                        // Line 1: Callsign (Bold, White)
+                        ['get', 'callsign'], 
+                        {
+                            'text-font': ['Mapbox Txt Bold', 'Arial Unicode MS Bold'],
+                            'text-color': '#FFFFFF' 
+                        },
+                        // Line 2: Phase (Regular, Muted Color)
+                        '\n', 
+                        ['get', 'phase'], 
+                        {
+                            'text-font': ['Mapbox Txt Regular', 'Arial Unicode MS Regular'],
+                            'text-color': '#c5cae9' // Matches your UI's muted text
+                        }
                     ],
-                    'text-font': ['Mapbox Txt Regular', 'Arial Unicode MS Regular'],
+
+                    // --- Size and Position (Same as before) ---
                     'text-size': 10,
                     'text-offset': [0, 2.5], // Offset text below the icon
                     'text-anchor': 'top',
+                    'text-padding': 2, // Adds a small amount of padding
                     
-                    // --- THIS IS THE KEY ---
-                    // Allow text to hide on collision
+                    // --- Collision (Same as before) ---
                     'text-allow-overlap': false,
                     'text-ignore-placement': false,
-
-                    // --- Remove all icon properties ---
-                    // 'icon-image': ... (REMOVED)
                 },
                 paint: {
-                    // --- Text Paint Properties ---
-                    'text-color': '#ffffff',
-                    'text-halo-color': 'rgba(0, 0, 0, 0.85)',
-                    'text-halo-width': 1.5,
-                    'text-halo-blur': 1
+                    // --- This creates the "pill" background ---
+                    'text-halo-color': 'rgba(18, 20, 38, 0.85)', // Dark UI color
+                    'text-halo-width': 2, // This acts as the padding
+                    'text-halo-blur': 0,  // This makes the edge sharp
+                    
+                    // --- Add a transition so labels don't "fade" ---
+                    'text-color-transition': {'duration': 0},
+                    'text-opacity-transition': {'duration': 0}
                 }
             });
         }
