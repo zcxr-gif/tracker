@@ -72,13 +72,43 @@ document.addEventListener('DOMContentLoaded', async () => {
         hideAllAirports: false,
         hideNoAtcMarkers: false,
         planDisplayMode: 'none',
-        iconColorMode: 'default' // <-- ADD THIS LINE
+        iconColorMode: 'default',
+        showAircraftLabels: false 
     };
 
     const departureHubs = []; // Empty array
     let ALL_AVAILABLE_ROUTES = []; // Empty array
     const DYNAMIC_FLEET = []; // Empty array
     const AIRCRAFT_SELECTION_LIST = []; // Empty array
+
+    /**
+     * --- [NEW] Saves the current mapFilters state to local storage.
+     */
+    function saveFiltersToLocalStorage() {
+        try {
+            localStorage.setItem('mapFilters', JSON.stringify(mapFilters));
+        } catch (e) {
+            console.warn("Could not save filters to local storage.", e);
+        }
+    }
+
+    /**
+     * --- [NEW] Loads mapFilters from local storage and merges with defaults.
+     */
+    function loadFiltersFromLocalStorage() {
+        const savedFilters = localStorage.getItem('mapFilters');
+        if (savedFilters) {
+            try {
+                const parsedFilters = JSON.parse(savedFilters);
+                // Merge saved filters with defaults to ensure new properties are not lost
+                mapFilters = { ...mapFilters, ...parsedFilters };
+                console.log("Loaded map filters from local storage.", mapFilters);
+            } catch (e) {
+                console.warn("Could not parse saved filters from local storage.", e);
+                // On error, just use the defaults
+            }
+        }
+    }
 
     async function fetchAndRenderRosters(hubIcao) {
         // This feature is disabled
@@ -2395,10 +2425,13 @@ function injectCustomStyles() {
         // 1. Update Aircraft Filter (using Mapbox setFilter)
         updateAircraftLayerFilter();
 
-        // 2. Update Airport Filter (by re-rendering markers)
+        // 2. Update Aircraft Label Filter
+        updateAircraftLabelVisibility();
+
+        // 3. Update Airport Filter (by re-rendering markers)
         renderAirportMarkers();
         
-        // 3. Update Toolbar Button States (Weather + Filters)
+        // 4. Update Toolbar Button States (Weather + Filters)
         updateToolbarButtonStates();
     }
 
@@ -4197,7 +4230,15 @@ async function initializeSectorOpsView() {
                                     <span class="toggle-slider"></span>
                                 </label>
                             </li>
-                        </ul>
+                            
+                            <li class="filter-toggle-item">
+                                <span class="filter-toggle-label"><i class="fa-solid fa-tags"></i> Show Aircraft Labels</span>
+                                <label class="toggle-switch">
+                                    <input type="checkbox" id="filter-toggle-aircraft-labels">
+                                    <span class="toggle-slider"></span>
+                                </label>
+                            </li>
+                            </ul>
 
                         <div class="filter-section-divider">
                             <span class="filter-section-title">Aircraft Icon Color</span>
@@ -4491,6 +4532,10 @@ async function initializeSectorOpsMap(centerICAO) {
                 // ##### PERFORMANCE FIX END #####
 
                 layout: {
+                    // ##### MODIFICATION START #####
+                    'visibility': mapFilters.showAircraftLabels ? 'visible' : 'none',
+                    // ##### MODIFICATION END #####
+
                     // --- [MODIFICATION START] ---
                     // Use a 'format' expression to set colors per line
                     'text-field': [
@@ -6765,18 +6810,33 @@ function setupFilterSettingsWindowEvents() {
         return;
     }
 
-    // --- [NEW] Read settings from localStorage on window open ---
-    const currentMobileMode = localStorage.getItem('mobileDisplayMode') || 'hud';
-    const mobileModeHud = document.getElementById('mobile-mode-hud');
-    const mobileModeLegacy = document.getElementById('mobile-mode-legacy');
-    if (mobileModeHud && mobileModeLegacy) {
-        if (currentMobileMode === 'legacy') {
-            mobileModeLegacy.checked = true;
-        } else {
-            mobileModeHud.checked = true;
+    // --- [NEW] Helper to set the UI state from mapFilters ---
+    const setUIFromState = () => {
+        // Toggles
+        document.getElementById('filter-toggle-atc').checked = mapFilters.hideAtcMarkers;
+        document.getElementById('filter-toggle-satellite-mode').checked = (currentMapStyle === MAP_STYLE_SATELLITE);
+        // --- [NEW] Set the new label toggle ---
+        document.getElementById('filter-toggle-aircraft-labels').checked = mapFilters.showAircraftLabels;
+
+        // Radios
+        document.querySelector(`input[name="icon-color-mode"][value="${mapFilters.iconColorMode}"]`).checked = true;
+        document.querySelector(`input[name="plan-display-mode"][value="${mapFilters.planDisplayMode}"]`).checked = true;
+        
+        // Mobile-specific (no change, this was correct)
+        const currentMobileMode = localStorage.getItem('mobileDisplayMode') || 'hud';
+        const mobileModeHud = document.getElementById('mobile-mode-hud');
+        const mobileModeLegacy = document.getElementById('mobile-mode-legacy');
+        if (mobileModeHud && mobileModeLegacy) {
+            if (currentMobileMode === 'legacy') {
+                mobileModeLegacy.checked = true;
+            } else {
+                mobileModeHud.checked = true;
+            }
         }
-    }
-    // --- [END NEW] ---
+    };
+    
+    // --- [NEW] Set the UI when the window is first set up ---
+    setUIFromState();
 
     // Use a single listener on the window for better performance
     filterSettingsWindow.addEventListener('click', (e) => {
@@ -6795,6 +6855,7 @@ function setupFilterSettingsWindowEvents() {
         // --- Handle Flight Plan Radio Logic ---
         if (target.name === 'plan-display-mode') {
             mapFilters.planDisplayMode = target.value;
+            saveFiltersToLocalStorage(); // <-- SAVE
             if (currentFlightInWindow && cachedFlightDataForStatsView.plan) {
                 const { flightProps, plan } = cachedFlightDataForStatsView;
                 const position = currentAircraftPositionForGeocode || flightProps.position;
@@ -6803,57 +6864,59 @@ function setupFilterSettingsWindowEvents() {
             return;
         }
         
-        // --- [START OF NEW BLOCK] ---
         // Handle Icon Color Radio Logic
         if (target.name === 'icon-color-mode') {
             mapFilters.iconColorMode = target.value;
+            saveFiltersToLocalStorage(); // <-- SAVE
             const newExpression = getIconImageExpression(mapFilters.iconColorMode);
             
-            // Apply the new layout property to the layer
             if (sectorOpsMap && sectorOpsMap.getLayer('sector-ops-live-flights-layer')) {
                 sectorOpsMap.setLayoutProperty('sector-ops-live-flights-layer', 'icon-image', newExpression);
             }
-            return; // Done
+            return; 
         }
-        // --- [END OF NEW BLOCK] ---
         
-        // --- [START NEW] Handle Mobile Display Mode Radio Logic ---
+        // Handle Mobile Display Mode Radio Logic
         if (target.name === 'mobile-display-mode') {
+            // (This was already saving to its own local storage item, which is fine)
             const newMode = target.value;
             localStorage.setItem('mobileDisplayMode', newMode);
-            // Show a note that a change requires re-opening the window
             if (!document.getElementById('mobile-mode-note')) {
                 document.getElementById('mobile-mode-filter-group').insertAdjacentHTML(
                     'beforeend',
                     '<p id="mobile-mode-note" class="muted-text" style="padding: 10px 0 0 0; text-align: left; font-size: 0.8rem;">Changes will apply the next time you open an aircraft window.</p>'
                 );
             }
-            return; // Stop processing
+            return; 
         }
-        // --- [END NEW] ---
 
         if (target.type !== 'checkbox') return;
 
+        // --- [NEW] Handle Aircraft Label Toggle ---
+        if (target.id === 'filter-toggle-aircraft-labels') {
+            mapFilters.showAircraftLabels = target.checked;
+            saveFiltersToLocalStorage(); // <-- SAVE
+            updateAircraftLabelVisibility(); // Apply the change
+            // No need to update other filters, so we can return
+            return;
+        }
+
         // --- Handle Map Style Logic ---
-        const lightModeToggle = document.getElementById('filter-toggle-light-mode');
         const satelliteModeToggle = document.getElementById('filter-toggle-satellite-mode');
+        // --- [REMOVED] lightModeToggle ---
         let styleChanged = false;
         let newMapStyle = currentMapStyle;
 
-        if (target.id === 'filter-toggle-light-mode' && target.checked) {
-            if (satelliteModeToggle) satelliteModeToggle.checked = false;
-            newMapStyle = MAP_STYLE_LIGHT;
-            styleChanged = true;
-        } else if (target.id === 'filter-toggle-satellite-mode' && target.checked) {
-            if (lightModeToggle) lightModeToggle.checked = false;
-            newMapStyle = MAP_STYLE_SATELLITE;
-            styleChanged = true;
-        } else if ((target.id === 'filter-toggle-light-mode' || target.id === 'filter-toggle-satellite-mode') && !target.checked) {
-            if (!lightModeToggle.checked && !satelliteModeToggle.checked) {
+        // --- [MODIFIED] Simplified style logic ---
+        if (target.id === 'filter-toggle-satellite-mode') {
+            if (target.checked) {
+                newMapStyle = MAP_STYLE_SATELLITE;
+            } else {
                 newMapStyle = MAP_STYLE_DARK; // Revert to dark
-                styleChanged = true;
             }
+            styleChanged = true;
         }
+        // --- [END MODIFIED] ---
 
         // 1. Update the global mapFilters state object from the DOM
         mapFilters.showVaOnly = document.getElementById('filter-toggle-members-only')?.checked || false;
@@ -6865,12 +6928,16 @@ function setupFilterSettingsWindowEvents() {
             console.log(`Changing map style to: ${newMapStyle}`);
             currentMapStyle = newMapStyle;
             sectorOpsMap.setStyle(currentMapStyle);
+            // Don't save style to local storage, but filters will be re-applied on 'style.load'
         } else if (!styleChanged) {
+            // If just a regular filter (like hideAtc) changed
+            saveFiltersToLocalStorage(); // <-- SAVE
             updateMapFilters();
         }
 
         // 3. Update toolbar button state (always)
-        updateMapFilters();
+        // (This is now called by updateMapFilters, but we call it again for safety)
+        updateToolbarButtonStates(); // <-- MODIFIED: Renamed function
     });
 
     filterSettingsWindow.dataset.eventsAttached = 'true';
@@ -7130,9 +7197,10 @@ async function updateSectorOpsSecondaryData() {
 
 
     // --- Initial Load ---
-// --- Start the application ---
-    async function initializeApp() {
+async function initializeApp() {
         mainContentLoader.classList.add('active');
+
+        loadFiltersFromLocalStorage(); // <-- ADDED THIS LINE
 
         // Inject all custom CSS
         injectCustomStyles();
