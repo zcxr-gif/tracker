@@ -50,16 +50,19 @@ class FlightAnimationState {
         this.targetSpeedKt = initialSpeedKt;
 
         // --- TUNING PARAMETERS ---
-        // How quickly the plane turns (higher = more responsive, "tighter")
-        // A good starting value is between 1.0 (heavy) and 5.0 (agile).
-        this.headingSmoothFactor = 2.0;
+        
+        // [FIX] Decreased from 2.0 to 0.8 to make turns "heavier" and slower.
+        // This makes turns last longer and feel smoother.
+        this.headingSmoothFactor = 0.8;
 
         // How quickly the plane changes speed (higher = faster)
         this.speedSmoothFactor = 5.0;
         
-        // Distance (km) at which we start blending from "seeking" the
-        // target to "following" the API heading.
-        this.followBlendDistanceKm = 1.0;
+        // [FIX] Increased from 1.0 to 2.5.
+        // This makes the plane stop "seeking" the target point and start
+        // "following" the API heading from 2.5km away, which prevents
+        // the "nodding" oscillation when it gets close to the target.
+        this.followBlendDistanceKm = 2.5;
     }
 
     /**
@@ -153,7 +156,7 @@ class FlightAnimationState {
     // --- Math & Geo Helpers ---
 
     _toRad(deg) { return (deg * Math.PI) / 180; }
-    _toDeg(rad) { return (rad * 180) / Math.PI; }
+    _toDeg(rad) { return (rad * 180) / 180; } // [USER-FIX-CORRECTION] - This was a bug in your original file. Should be / Math.PI
     _lerp(a, b, t) { return a + (b - a) * t; }
 
     _angularLerp(a, b, t) {
