@@ -5,14 +5,21 @@
  * A module to handle the smooth animation of airborne flights
  * while "teleporting" ground-based flights for a Mapbox GL JS map.
  *
- * REFACTOR (TEST):
- * - Introduces a 'FlightAnimationState' class.
- * - Each instance manages the animation state and update
- * logic for a *single* aircraft.
- * - The main 'MapAnimator' loop is simplified to iterating
- * and delegating the calculations to each instance.
- * - This "individually" handles each plane's animation logic
- * from an object-oriented perspective.
+ * --- [USER-REQUESTED REWRITE] ---
+ * The previous logic was overly complex and caused position divergence.
+ * This new model is a standard "Interpolate-then-Extrapolate" system.
+ *
+ * 1. INTERPOLATE: When a new packet arrives, the plane animates
+ * from its last rendered position (fromPos) to the new API
+ * position (toPos) over the packet's 'duration'. This
+ * corrects any previous extrapolation error.
+ *
+ * 2. EXTRAPOLATE: After the 'duration' has passed, the plane
+ * continues moving from 'toPos' using the latest
+ * 'apiSpeedKt' and 'apiHeadingDeg'.
+ *
+ * This ensures the map is 100% accurate to the API data at the
+ * end of every interpolation cycle, just like the PFD.
  * ===================================================================
  */
 
@@ -22,6 +29,11 @@ const EARTH_RADIUS_KM = 6371;
 /**
  * Manages the animation state and interpolation/extrapolation
  * logic for a single airborne flight.
+ *
+ * --- [REWRITTEN MODEL] ---
+ * This model interpolates from the last rendered position (fromPos) to the
+ * new API position (toPos) over the 'duration' (the packet interval).
+ * After that, it extrapolates from 'toPos' using the latest API speed/heading.
  */
 class FlightAnimationState {
     constructor({
@@ -32,20 +44,22 @@ class FlightAnimationState {
         startTime,
         duration,
         apiSpeedKt,
-        apiHeadingDeg,
-        correctionDist,
-        correctionBearing
+        apiHeadingDeg
     }) {
-        this.fromPos = fromPos;
-        this.toPos = toPos;
-        this.fromHeading = fromHeading;
-        this.toHeading = toHeading;
-        this.startTime = startTime;
-        this.duration = duration;
-        this.apiSpeedKt = apiSpeedKt;
-        this.apiHeadingDeg = apiHeadingDeg;
-        this.correctionDist = correctionDist;
-        this.correctionBearing = correctionBearing;
+        this.fromPos = fromPos;         // Last rendered position [lon, lat]
+        this.toPos = toPos;             // New API position [lon, lat]
+        this.fromHeading = fromHeading;     // Last rendered heading
+        this.toHeading = toHeading;         // New API heading
+        this.startTime = startTime;         // performance.now()
+        this.duration = duration;           // Time (ms) between server packets
+        this.apiSpeedKt = apiSpeedKt;     // Speed for extrapolation
+        this.apiHeadingDeg = apiHeadingDeg; // Heading for extrapolation
+
+        // Calculate total distance for interpolation
+        this.interpTotalDistanceKm = this._getDistanceKm(
+            fromPos[1], fromPos[0], 
+            toPos[1], toPos[0]
+        );
     }
 
     /**
@@ -55,65 +69,53 @@ class FlightAnimationState {
      */
     update(now) {
         const timeElapsedMs = now - this.startTime;
-        let progress = timeElapsedMs / this.duration;
-        progress = Math.max(0.0, progress); // Clamp progress
+        const progress = Math.max(0.0, timeElapsedMs / this.duration);
 
-        // --- 1. Calculate INTERPOLATED HEADING ---
-        let finalHeading;
+        let finalLon, finalLat, finalHeading;
+
         if (progress < 1.0) {
-            // BLENDING: LERP the heading
+            // --- 1. INTERPOLATION PHASE ---
+            // We are blending from the last rendered pos to the new API pos.
+
+            // Use an easing function for smoother correction
+            // This is an "ease-in-out" curve
+            const easeProgress = 0.5 * (1 - Math.cos(Math.PI * Math.min(1.0, progress)));
+
+            // Position: Interpolate along the great-circle path
+            const interpPos = this._getIntermediatePoint(
+                this.fromPos[1], this.fromPos[0], // from
+                this.toPos[1], this.toPos[0],     // to
+                easeProgress                      // fraction
+            );
+            finalLon = interpPos.lon;
+            finalLat = interpPos.lat;
+            
+            // Heading: LERP the heading, also using easing
             let deltaH = this.toHeading - this.fromHeading;
             if (deltaH > 180) deltaH -= 360;
             if (deltaH < -180) deltaH += 360;
-            finalHeading = this.fromHeading + (deltaH * progress);
-            finalHeading = (finalHeading + 360) % 360; // Normalize
+            finalHeading = this.fromHeading + (deltaH * easeProgress);
+
         } else {
-            // EXTRAPOLATING: Use the final API heading
-            finalHeading = this.apiHeadingDeg;
-        }
+            // --- 2. EXTRAPOLATION PHASE ---
+            // We have reached the API position and are now predicting future movement.
 
-        // --- 2. Calculate PURE EXTRAPOLATED Position (P_extrap) ---
-        const distanceToMoveKm = (this.apiSpeedKt * KTS_TO_KMS_PER_MS) * timeElapsedMs;
-        let P_extrap = { lon: this.toPos[0], lat: this.toPos[1] }; // Default
+            const extrapTimeMs = timeElapsedMs - this.duration;
+            const distanceToMoveKm = (this.apiSpeedKt * KTS_TO_KMS_PER_MS) * extrapTimeMs;
 
-        if (distanceToMoveKm > 0) {
-            P_extrap = this._getDestinationPoint(
+            const extrapPos = this._getDestinationPoint(
                 this.toPos[1],       // Start from last API lat
                 this.toPos[0],       // Start from last API lon
-                finalHeading,        // ⭐️ Use the interpolated heading
+                this.apiHeadingDeg,  // Use last API heading
                 distanceToMoveKm
             );
+
+            finalLon = extrapPos.lon;
+            finalLat = extrapPos.lat;
+            finalHeading = this.apiHeadingDeg;
         }
-
-        let finalLon, finalLat;
-
-        if (progress < 1.0) {
-            // --- 3. BLENDING (Correction towards Extrapolation) ---
-
-            // --- 3a. Calculate 'Correction' Position (P_interp) ---
-            let P_interp_coords;
-            if (this.correctionDist > 0) {
-                P_interp_coords = this._getDestinationPoint(
-                    this.fromPos[1],           // Start from the *last rendered* lat
-                    this.fromPos[0],           // Start from the *last rendered* lon
-                    this.correctionBearing,    // Use the pre-calculated bearing
-                    this.correctionDist * progress // Travel 'progress' % of the way
-                );
-            } else {
-                P_interp_coords = { lon: this.fromPos[0], lat: this.fromPos[1] };
-            }
-            
-            // --- 3b. FINAL Position: Blend P_interp with P_extrap (Eased) ---
-            const easeProgress = 0.5 * (1 - Math.cos(Math.PI * progress));
-
-            finalLon = P_interp_coords.lon + (P_extrap.lon - P_interp_coords.lon) * easeProgress;
-            finalLat = P_interp_coords.lat + (P_extrap.lat - P_interp_coords.lat) * easeProgress;
-
-        } else {
-            // --- 4. PURE EXTRAPOLATING ---
-            finalLon = P_extrap.lon;
-            finalLat = P_extrap.lat;
-        }
+        
+        finalHeading = (finalHeading + 360) % 360; // Normalize
         
         return {
             coordinates: [finalLon, finalLat],
@@ -121,14 +123,58 @@ class FlightAnimationState {
         };
     }
     
-    // --- Geo Helper (encapsulated) ---
+    // --- Geo Helpers (Copied from flight.js to ensure module safety) ---
 
     _toRad(deg) { return (deg * Math.PI) / 180; }
     _toDeg(rad) { return (rad * 180) / Math.PI; }
 
-    /**
-     * Calculates the destination point given a starting point, bearing, and distance.
-     */
+    _getDistanceKm(lat1, lon1, lat2, lon2) {
+        const R = EARTH_RADIUS_KM;
+        const toRad = this._toRad;
+        const dLat = toRad(lat2 - lat1);
+        const dLon = toRad(lon2 - lon1);
+        const a =
+            Math.sin(dLat / 2) ** 2 +
+            Math.cos(toRad(lat1)) * Math.cos(toRad(lat2)) * Math.sin(dLon / 2) ** 2;
+        const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+        return R * c;
+    }
+
+    _getIntermediatePoint(lat1, lon1, lat2, lon2, fraction) {
+        const toRad = this._toRad;
+        const toDeg = this._toDeg;
+
+        const lat1Rad = toRad(lat1);
+        const lon1Rad = toRad(lon1);
+        const lat2Rad = toRad(lat2);
+        const lon2Rad = toRad(lon2);
+
+        // Use the total distance calculated in the constructor
+        const d = this.interpTotalDistanceKm / EARTH_RADIUS_KM; // Angular distance in radians
+
+        if (d === 0 || isNaN(d)) {
+            return { lat: lat1, lon: lon1 };
+        }
+        
+        // Handle potential division by zero if sin(d) is 0
+        const sin_d = Math.sin(d);
+        if (sin_d === 0) {
+             return { lat: lat1, lon: lon1 };
+        }
+
+        const a = Math.sin((1 - fraction) * d) / sin_d;
+        const b = Math.sin(fraction * d) / sin_d;
+
+        const x = a * Math.cos(lat1Rad) * Math.cos(lon1Rad) + b * Math.cos(lat2Rad) * Math.cos(lon2Rad);
+        const y = a * Math.cos(lat1Rad) * Math.sin(lon1Rad) + b * Math.cos(lat2Rad) * Math.sin(lon2Rad);
+        const z = a * Math.sin(lat1Rad) + b * Math.sin(lat2Rad);
+
+        const latI = toDeg(Math.atan2(z, Math.sqrt(x * x + y * y)));
+        const lonI = toDeg(Math.atan2(y, x));
+
+        return { lat: latI, lon: lonI };
+    }
+
     _getDestinationPoint(lat, lon, bearing, distanceKm) {
         const latRad = this._toRad(lat);
         const lonRad = this._toRad(lon);
@@ -210,6 +256,7 @@ export class MapAnimator {
         // --- HYBRID LOGIC ---
         if (newProperties.phase === 'Ground') {
             // --- 1. GROUND AIRCRAFT: Teleport ---
+            // Instantly move the aircraft to the new position
             this.currentMapFeatures[flightId] = {
                 type: 'Feature',
                 geometry: {
@@ -218,6 +265,7 @@ export class MapAnimator {
                 },
                 properties: newProperties
             };
+            // Remove any pending animation
             this.airborneFlightState.delete(flightId);
 
         } else {
@@ -225,23 +273,21 @@ export class MapAnimator {
             const currentFeature = this.currentMapFeatures[flightId];
             const now = performance.now();
             
+            // Use the last rendered position as the starting point
             const fromPos = currentFeature ? currentFeature.geometry.coordinates : [newApiLon, newApiLat];
+            // Use the last rendered heading as the starting heading
             const fromHeading = currentFeature ? currentFeature.properties.heading : newApiHeading;
 
-            const { distanceKm: correctionDist, initialBearing: correctionBearing } = 
-                this._getDistanceAndBearing(
-                    fromPos[1], fromPos[0], // from
-                    newApiLat, newApiLon    // to
-                );
-
             let startTime = now;
+            // Use the server packet duration as the animation duration
             const animationDuration = Math.max(500, packetDuration);
 
             if (!currentFeature) {
+                // If it's a new flight, start it in the past so it's already
+                // in the extrapolation phase (i.e., appears at its API position).
                 startTime = now - (animationDuration + 1);
             }
 
-            // ★★★ REFACTORED ★★★
             // Create and store an instance of the new state class
             this.airborneFlightState.set(flightId, new FlightAnimationState({
                 fromPos: fromPos,
@@ -251,15 +297,15 @@ export class MapAnimator {
                 startTime: startTime,
                 duration: animationDuration,
                 apiSpeedKt: newProperties.speed || 0,
-                apiHeadingDeg: newApiHeading,
-                correctionDist: correctionDist,
-                correctionBearing: correctionBearing
+                apiHeadingDeg: newApiHeading
             }));
 
-            // Update/create the feature
+            // Update/create the feature in the master list
             if (currentFeature) {
+                // Update properties (like phase, speed, etc.)
                 this.currentMapFeatures[flightId].properties = newProperties;
             } else {
+                // Create a new feature (geometry will be updated by the loop)
                 this.currentMapFeatures[flightId] = {
                     type: 'Feature',
                     geometry: { type: 'Point', coordinates: fromPos },
@@ -280,81 +326,53 @@ export class MapAnimator {
 
     /**
      * The core animation loop (runs every frame).
-     * ★★★ REFACTORED ★★★
      * This loop now *delegates* all calculation to the
      * FlightAnimationState instance for each flight.
      */
     _animationLoop() {
+        // Ensure the loop continues
+        this.animationFrameId = requestAnimationFrame(this._animationLoop);
+
         const source = this.map.getSource(this.sourceName);
         if (!source || !this.map.isStyleLoaded()) {
-            this.animationFrameId = requestAnimationFrame(this._animationLoop);
-            return;
+            return; // Map not ready, wait for next frame
         }
 
         const now = performance.now();
+        let didUpdate = false;
 
         // --- 1. Update all airborne features ---
         for (const [flightId, animState] of this.airborneFlightState.entries()) {
             const feature = this.currentMapFeatures[flightId];
             if (!feature) {
+                // This flight was removed, clean up its animation state
                 this.airborneFlightState.delete(flightId);
                 continue;
             }
             
-            // ★★★ NEW LOGIC ★★★
             // Delegate all calculation to the individual flight's state object
             const newState = animState.update(now);
 
-            // Update the feature from the result
+            // Update the feature's geometry and heading in the master list
             feature.geometry.coordinates = newState.coordinates;
             feature.properties.heading = newState.heading;
+            didUpdate = true;
+        }
+
+        if (!didUpdate && this.airborneFlightState.size === 0) {
+            // No airborne flights to animate, no need to update source
+            // Note: Ground flights are "teleported" in updateFlight,
+            // so they still need the source to be set.
         }
 
         // --- 2. Update the map source with the new state of *all* features ---
+        // This single call updates all ground (teleported) and
+        // airborne (animated) planes at once.
         source.setData({
             type: 'FeatureCollection',
             features: Object.values(this.currentMapFeatures)
         });
-
-        // --- 3. Request the next animation frame ---
-        this.animationFrameId = requestAnimationFrame(this._animationLoop);
     }
     
-    _toRad(deg) { return (deg * Math.PI) / 180; }
-    _toDeg(rad) { return (rad * 180) / Math.PI; }
-
-    /**
-     * Calculates the initial bearing and distance between two points.
-     */
-    _getDistanceAndBearing(lat1, lon1, lat2, lon2) {
-        const toRad = this._toRad;
-        const toDeg = this._toDeg;
-
-        const lat1Rad = toRad(lat1);
-        const lon1Rad = toRad(lon1);
-        const lat2Rad = toRad(lat2);
-        const lon2Rad = toRad(lon2);
-
-        const deltaLon = lon2Rad - lon1Rad;
-
-        // Distance (Haversine)
-        const a = Math.sin((lat2Rad - lat1Rad) / 2) ** 2 +
-                  Math.cos(lat1Rad) * Math.cos(lat2Rad) *
-                  Math.sin(deltaLon / 2) ** 2;
-        const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
-        const distanceKm = EARTH_RADIUS_KM * c;
-
-        if (distanceKm === 0) {
-            return { distanceKm: 0, initialBearing: 0 };
-        }
-
-        // Initial Bearing
-        const y = Math.sin(deltaLon) * Math.cos(lat2Rad);
-        const x = Math.cos(lat1Rad) * Math.sin(lat2Rad) -
-                  Math.sin(lat1Rad) * Math.cos(lat2Rad) * Math.cos(deltaLon);
-        let initialBearing = toDeg(Math.atan2(y, x));
-        initialBearing = (initialBearing + 360) % 360; // Normalize
-
-        return { distanceKm, initialBearing };
-    }
+    // (Geo helpers are encapsulated in the FlightAnimationState class)
 }
