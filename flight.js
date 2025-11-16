@@ -3313,7 +3313,21 @@ function handleSocketFlightUpdate(data) {
     const updatedFlightIds = new Set();
 
     flights.forEach(flight => {
-        if (!flight.position || flight.position.lat == null || flight.position.lon == null) return;
+        //
+        // ##### THIS IS THE FIX #####
+        //
+        // The previous check (lat == null) did NOT filter out NaN.
+        // If a plane's lat/lon becomes NaN, it poisons the
+        // animation state.
+        //
+        // isFinite() correctly checks for null, undefined, AND NaN.
+        //
+        if (!flight.position || !isFinite(flight.position.lat) || !isFinite(flight.position.lon)) {
+            return; // Skip this flight
+        }
+        //
+        // ##### END FIX #####
+        //
 
         const flightId = flight.flightId;
         updatedFlightIds.add(flightId);
