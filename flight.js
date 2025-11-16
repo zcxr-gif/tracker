@@ -2042,11 +2042,7 @@ function injectCustomStyles() {
     document.head.appendChild(style);
 }
 
-//**
-     * --- [FIXED] Fetches and injects the external HTML content for the info panel.
-     * This function now ALSO contains the tab-switching logic from panel-tabs.js
-     * to ensure the elements exist before event listeners are attached.
-     */
+
     async function loadExternalPanelContent() {
         const panel = document.getElementById('sector-ops-floating-panel');
         if (!panel) {
