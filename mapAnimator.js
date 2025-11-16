@@ -87,29 +87,34 @@ export class MapAnimator {
             const fromPos = currentFeature ? currentFeature.geometry.coordinates : [newApiLon, newApiLat];
             const fromHeading = currentFeature ? currentFeature.properties.heading : newApiHeading;
 
-            // ⬇️ 1. --- FIX: Jump straight to extrapolation for new flights ---
+            // --- Capture the LAST RENDERED POSITION for smoother transition ---
+            // If the flight state exists, its 'lastRenderedPos' is the *actual* // animated position from the last frame. Use that as the starting point.
+            const lastRenderedPos = this.airborneFlightState.get(flightId)?.lastRenderedPos || fromPos;
+
+            // Force it to skip interpolation for new flights
             let startTime = now;
             const animationDuration = Math.max(500, packetDuration);
 
             if (!currentFeature) {
                 // This is a new flight.
-                // Force it to skip interpolation and go straight to extrapolation.
-                // Set startTime to the past so (now - startTime) / duration is > 1.
                 startTime = now - (animationDuration + 1);
             }
             // ⬆️ --- END OF FIX 1 ---
 
             // Store the animation parameters
             this.airborneFlightState.set(flightId, {
-                fromPos: fromPos,
+                // fromPos is now the position where the blending starts from (last API position if new flight)
+                fromPos: lastRenderedPos, // Start the correction from the last *rendered* position
                 toPos: [newApiLon, newApiLat],
                 fromHeading: fromHeading,
                 toHeading: newApiHeading,
-                startTime: startTime, // Use the (potentially modified) startTime
+                startTime: startTime,
                 duration: animationDuration,
                 // --- [NEW] Store data for extrapolation ---
                 apiSpeedKt: newProperties.speed || 0,
-                apiHeadingDeg: newApiHeading
+                apiHeadingDeg: newApiHeading,
+                // New: This will be updated in the loop to store the position for the next packet
+                lastRenderedPos: lastRenderedPos 
             });
 
             // Update the feature's properties (callsign, etc.)
@@ -139,10 +144,9 @@ export class MapAnimator {
     /**
      * The core animation loop (runs every frame).
      * @private
-     * * FIX: Replaced the two-phase (Interpolation then Extrapolation) logic 
-     * with a blended logic. This calculates the pure extrapolated position (P_extrap) 
-     * and smoothly transitions the rendered position from the correction path (P_interp) 
-     * towards P_extrap over the animation duration.
+     * * FIX: Modified the logic to ensure a smoother, more gradual correction
+     * by using the blend progress to control the speed of the correction
+     * towards the extrapolated position, thus preventing a jump.
      */
     _animationLoop() {
         const source = this.map.getSource(this.sourceName);
@@ -170,59 +174,61 @@ export class MapAnimator {
             const timeElapsedMs = now - state.startTime;
             
             // Calculate progress of the correction blend (0.0 to 1.0)
-            const progress = timeElapsedMs / state.duration;
+            const progress = Math.min(1.0, timeElapsedMs / state.duration); // Clamp to 1.0
 
             // --- A. Calculate the PURE EXTRAPOLATED Position (P_extrap) ---
             // This is the position the plane *should* be if it moved constantly 
             // from the last API point (state.toPos) with the last API vector.
-            const distanceToMoveKm = (state.apiSpeedKt * KTS_TO_KMS_PER_MS) * timeElapsedMs;
+            const totalExtrapDistanceKm = (state.apiSpeedKt * KTS_TO_KMS_PER_MS) * timeElapsedMs;
             
             let P_extrap = { lon: state.toPos[0], lat: state.toPos[1] }; // Default to last API pos
 
             // Only extrapolate if there is movement
-            if (distanceToMoveKm > 0) {
+            if (totalExtrapDistanceKm > 0) {
                 P_extrap = this._getDestinationPoint(
                     state.toPos[1],       // Start from last API lat (P_api,prev)
                     state.toPos[0],       // Start from last API lon (P_api,prev)
                     state.apiHeadingDeg,  // Use last API heading
-                    distanceToMoveKm      // Total distance from P_api,prev
+                    totalExtrapDistanceKm // Total distance from P_api,prev
                 );
             }
 
-
             let finalLon, finalLat, finalHeading;
 
-            if (progress < 1.0) {
-                // --- I. BLENDING (Correction towards Extrapolation) ---
-                // We are in the blending window. The rendered position transitions 
-                // from the last rendered point (state.fromPos) to the PURE EXTRAPOLATED 
-                // position (P_extrap). This ensures continuous forward movement.
-
-                // 1. Position Interpolation (P_interp): The 'Correction' LERP.
-                //    This moves from the last rendered position (state.fromPos) to 
-                //    the new API position (state.toPos).
-                const interpLon = state.fromPos[0] + (state.toPos[0] - state.fromPos[0]) * progress;
-                const interpLat = state.fromPos[1] + (state.toPos[1] - state.fromPos[1]) * progress;
-                
-                // 2. FINAL Position: Blend P_interp with P_extrap.
-                // At progress=0, use P_interp (full correction).
-                // As progress -> 1, the weight shifts to P_extrap (full projection).
-                finalLon = interpLon + (P_extrap.lon - interpLon) * progress;
-                finalLat = interpLat + (P_extrap.lat - interpLat) * progress;
-
-                // 3. Heading LERP: Transition the displayed heading
+            // --- NEW: Correction by Exponential Smoothing ---
+            // We use the 'progress' (which goes from 0 to 1 over the duration) 
+            // as the linear interpolation factor to *slowly* move the 
+            // current rendered position (state.lastRenderedPos) towards 
+            // the purely extrapolated position (P_extrap).
+            
+            // NOTE: state.fromPos is the last *rendered* position from the previous packet.
+            // P_extrap is the position based on the new API packet and extrapolation.
+            
+            // Calculate the total required correction vector: P_extrap - state.fromPos.
+            const correctionLon = P_extrap.lon - state.fromPos[0];
+            const correctionLat = P_extrap.lat - state.fromPos[1];
+            
+            // Apply a fraction of the total correction based on the blend 'progress'.
+            // This ensures the correction is spread evenly over the entire duration.
+            finalLon = state.fromPos[0] + (correctionLon * progress);
+            finalLat = state.fromPos[1] + (correctionLat * progress);
+            
+            // If the blend is complete (progress=1), or if we are past the blend window
+            if (progress >= 1.0) {
+                // If past the blend window, the position is already the extrapolated position (P_extrap)
+                // for this frame (as progress is clamped to 1).
+                finalHeading = state.apiHeadingDeg;
+            } else {
+                // Heading LERP: Transition the displayed heading
                 let deltaH = state.toHeading - state.fromHeading;
                 if (deltaH > 180) deltaH -= 360;
                 if (deltaH < -180) deltaH += 360;
                 finalHeading = state.fromHeading + (deltaH * progress);
-            
-            } else {
-                // --- II. PURE EXTRAPOLATING ---
-                // Blending is complete. Use the pure extrapolated position and heading.
-                finalLon = P_extrap.lon;
-                finalLat = P_extrap.lat;
-                finalHeading = state.apiHeadingDeg;
             }
+            
+            // --- Crucial step: Store the *new* rendered position for the next frame's correction ---
+            state.lastRenderedPos = [finalLon, finalLat];
+
 
             // Update the feature
             feature.geometry.coordinates = [finalLon, finalLat];

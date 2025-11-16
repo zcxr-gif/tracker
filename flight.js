@@ -4793,7 +4793,7 @@ async function initializeSectorOpsView() {
 }
 
 
-async function initializeSectorOpsMap(centerICAO) {
+function initializeSectorOpsMap(centerICAO) {
     if (!MAPBOX_ACCESS_TOKEN) {
         document.getElementById('sector-ops-map-fullscreen').innerHTML = '<p class="map-error-msg">Map service not available.</p>';
         return;
@@ -4949,9 +4949,7 @@ async function initializeSectorOpsMap(centerICAO) {
                 // By setting a minzoom, we prevent Mapbox from trying to
                 // calculate label collisions for all aircraft on the map
                 // when zoomed out, which is the cause of the lag.
-                //
-                // ##### THIS IS THE FIX (Removed the asterisks) #####
-                minzoom: 6.5, 
+                minzoom: 6.5,
                 // ##### PERFORMANCE FIX END #####
 
                 layout: {
