@@ -139,6 +139,10 @@ export class MapAnimator {
     /**
      * The core animation loop (runs every frame).
      * @private
+     * * FIX: Replaced the two-phase (Interpolation then Extrapolation) logic 
+     * with a blended logic. This calculates the pure extrapolated position (P_extrap) 
+     * and smoothly transitions the rendered position from the correction path (P_interp) 
+     * towards P_extrap over the animation duration.
      */
     _animationLoop() {
         const source = this.map.getSource(this.sourceName);
@@ -150,6 +154,10 @@ export class MapAnimator {
 
         const now = performance.now();
         
+        // Constant conversion factor for speed (knots) to distance (km) per millisecond
+        // 1 knot = 1.852 km/h. Factor = (1.852 km/h per knot) / (3,600,000 ms/h)
+        const KTS_TO_KMS_PER_MS = 1.852 / 3600000;
+
         // --- 1. Animate airborne flights ---
         for (const [flightId, state] of this.airborneFlightState.entries()) {
             const feature = this.currentMapFeatures[flightId];
@@ -158,67 +166,67 @@ export class MapAnimator {
                 continue;
             }
 
-            // Calculate progress of the "gentle fix" interpolation
-            const progress = (now - state.startTime) / state.duration;
+            // Time elapsed since the new API packet arrived (and the animation started)
+            const timeElapsedMs = now - state.startTime;
+            
+            // Calculate progress of the correction blend (0.0 to 1.0)
+            const progress = timeElapsedMs / state.duration;
+
+            // --- A. Calculate the PURE EXTRAPOLATED Position (P_extrap) ---
+            // This is the position the plane *should* be if it moved constantly 
+            // from the last API point (state.toPos) with the last API vector.
+            const distanceToMoveKm = (state.apiSpeedKt * KTS_TO_KMS_PER_MS) * timeElapsedMs;
+            
+            let P_extrap = { lon: state.toPos[0], lat: state.toPos[1] }; // Default to last API pos
+
+            // Only extrapolate if there is movement
+            if (distanceToMoveKm > 0) {
+                P_extrap = this._getDestinationPoint(
+                    state.toPos[1],       // Start from last API lat (P_api,prev)
+                    state.toPos[0],       // Start from last API lon (P_api,prev)
+                    state.apiHeadingDeg,  // Use last API heading
+                    distanceToMoveKm      // Total distance from P_api,prev
+                );
+            }
+
+
+            let finalLon, finalLat, finalHeading;
 
             if (progress < 1.0) {
-                // --- A. INTERPOLATING ("Gentle Fix") ---
-                // We are in the animation window, correcting from the last
-                // rendered position to the new API position.
+                // --- I. BLENDING (Correction towards Extrapolation) ---
+                // We are in the blending window. The rendered position transitions 
+                // from the last rendered point (state.fromPos) to the PURE EXTRAPOLATED 
+                // position (P_extrap). This ensures continuous forward movement.
 
-                // Linear Interpolation (LERP) for position
-                const newLon = state.fromPos[0] + (state.toPos[0] - state.fromPos[0]) * progress;
-                const newLat = state.fromPos[1] + (state.toPos[1] - state.fromPos[1]) * progress;
+                // 1. Position Interpolation (P_interp): The 'Correction' LERP.
+                //    This moves from the last rendered position (state.fromPos) to 
+                //    the new API position (state.toPos).
+                const interpLon = state.fromPos[0] + (state.toPos[0] - state.fromPos[0]) * progress;
+                const interpLat = state.fromPos[1] + (state.toPos[1] - state.fromPos[1]) * progress;
                 
-                // LERP for heading (with wrap-around logic)
+                // 2. FINAL Position: Blend P_interp with P_extrap.
+                // At progress=0, use P_interp (full correction).
+                // As progress -> 1, the weight shifts to P_extrap (full projection).
+                finalLon = interpLon + (P_extrap.lon - interpLon) * progress;
+                finalLat = interpLat + (P_extrap.lat - interpLat) * progress;
+
+                // 3. Heading LERP: Transition the displayed heading
                 let deltaH = state.toHeading - state.fromHeading;
                 if (deltaH > 180) deltaH -= 360;
                 if (deltaH < -180) deltaH += 360;
-                const newHeading = state.fromHeading + (deltaH * progress);
-
-                // Update the feature in the main state object
-                feature.geometry.coordinates = [newLon, newLat];
-                feature.properties.heading = newHeading;
+                finalHeading = state.fromHeading + (deltaH * progress);
             
             } else {
-                // --- B. EXTRAPOLATING (Dead Reckoning) ---
-                // The "gentle fix" animation is complete.
-                // Now, we project the plane forward from its last *API position*
-                // using its last known speed and heading.
-
-                // How long has it been since the animation *ended*?
-                const timeSinceAnimEndMs = now - (state.startTime + state.duration);
-                
-                // Convert speed (knots) to kilometers per millisecond
-                // 1 knot = 1.852 km/h
-                // km/h -> km/ms = / 3,600,000
-                const ktsToKmsPerMs = (state.apiSpeedKt * 1.852) / 3600000;
-                
-                // Calculate distance to move *from the target position*
-                const distanceToMoveKm = ktsToKmsPerMs * timeSinceAnimEndMs;
-
-                // ⬇️ 2. --- FIX: Removed "state.apiSpeedKt > 30" ---
-                // This allows planes with low ground speed (e.g., just after takeoff)
-                // to extrapolate immediately instead of freezing.
-                if (distanceToMoveKm > 0) {
-                // ⬆️ --- END OF FIX 2 ---
-                    // Calculate the new extrapolated position
-                    const extrapolatedPos = this._getDestinationPoint(
-                        state.toPos[1],       // Start from last API lat
-                        state.toPos[0],       // Start from last API lon
-                        state.apiHeadingDeg,  // Use last API heading
-                        distanceToMoveKm
-                    );
-
-                    feature.geometry.coordinates = [extrapolatedPos.lon, extrapolatedPos.lat];
-                } else {
-                    // Not moving (or 0 speed), just stay at the target position
-                    feature.geometry.coordinates = state.toPos;
-                }
-
-                // Heading remains constant during extrapolation
-                feature.properties.heading = state.apiHeadingDeg;
+                // --- II. PURE EXTRAPOLATING ---
+                // Blending is complete. Use the pure extrapolated position and heading.
+                finalLon = P_extrap.lon;
+                finalLat = P_extrap.lat;
+                finalHeading = state.apiHeadingDeg;
             }
+
+            // Update the feature
+            feature.geometry.coordinates = [finalLon, finalLat];
+            feature.properties.heading = finalHeading;
         }
 
         // --- 2. Update the map source with the new state of *all* features ---
