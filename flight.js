@@ -80,7 +80,50 @@ document.addEventListener('DOMContentLoaded', async () => {
     const departureHubs = []; // Empty array
     let ALL_AVAILABLE_ROUTES = []; // Empty array
     const DYNAMIC_FLEET = []; // Empty array
-    const AIRCRAFT_SELECTION_LIST = []; // Empty array
+    const AIRCRAFT_SELECTION_LIST = [
+        // Airbus
+        { value: 'A318', name: 'Airbus A318-100' },
+        { value: 'A319', name: 'Airbus A319-100' },
+        { value: 'A320', name: 'Airbus A320-200' },
+        { value: 'A20N', name: 'Airbus A320neo' },
+        { value: 'A321', name: 'Airbus A321-200' },
+        { value: 'A21N', name: 'Airbus A321neo' },
+        { value: 'A333', name: 'Airbus A330-300' },
+        { value: 'A339', name: 'Airbus A330-900neo' },
+        { value: 'A346', name: 'Airbus A340-600' },
+        { value: 'A359', name: 'Airbus A350-900' },
+        { value: 'A388', name: 'Airbus A380-800' },
+        // Boeing
+        { value: 'B712', name: 'Boeing 717-200' },
+        { value: 'B737', name: 'Boeing 737-700' },
+        { value: 'B738', name: 'Boeing 737-800' },
+        { value: 'B739', name: 'Boeing 737-900' },
+        { value: 'B38M', name: 'Boeing 737 MAX 8' },
+        { value: 'B742', name: 'Boeing 747-200B' },
+        { value: 'B744', name: 'Boeing 747-400' },
+        { value: 'B748', name: 'Boeing 747-8' },
+        { value: 'B752', name: 'Boeing 757-200' },
+        { value: 'B763', name: 'Boeing 767-300ER' },
+        { value: 'B772', name: 'Boeing 777-200ER' },
+        { value: 'B77L', name: 'Boeing 777-200LR' },
+        { value: 'B77W', name: 'Boeing 777-300ER' },
+        { value: 'B788', name: 'Boeing 787-8' },
+        { value: 'B789', name: 'Boeing 787-9' },
+        { value: 'B78X', name: 'Boeing 787-10' },
+        // Bombardier (CRJ)
+        { value: 'CRJ2', name: 'Bombardier CRJ-200' },
+        { value: 'CRJ7', name: 'Bombardier CRJ-700' },
+        { value: 'CRJ9', name: 'Bombardier CRJ-900' },
+        { value: 'CRJX', name: 'Bombardier CRJ-1000' },
+        // De Havilland
+        { value: 'DH8D', name: 'De Havilland Dash 8 Q400' },
+        // Embraer
+        { value: 'E175', name: 'Embraer E175' },
+        { value: 'E190', name: 'Embraer E190' },
+        // McDonnell Douglas
+        { value: 'DC10', name: 'McDonnell Douglas DC-10' },
+        { value: 'MD11', name: 'McDonnell Douglas MD-11' },
+    ];
 
     /**
      * --- [NEW] Saves the current mapFilters state to local storage.
@@ -2190,6 +2233,21 @@ function injectCustomStyles() {
                 // The 'active' class is already on the HTML, but this confirms it.
                 activateTab('tab-welcome');
             }
+
+            const aircraftSelect = mainContentContainer.querySelector('#fp-aircraft');
+            
+            if (aircraftSelect && AIRCRAFT_SELECTION_LIST.length > 0) {
+                // Loop through the constant and create <option> elements
+                AIRCRAFT_SELECTION_LIST.forEach(aircraft => {
+                    const option = document.createElement('option');
+                    option.value = aircraft.value; // e.g., "A320"
+                    option.textContent = aircraft.name; // e.g., "Airbus A320-200"
+                    aircraftSelect.appendChild(option);
+                });
+            } else {
+                console.warn("Could not find #fp-aircraft select or AIRCRAFT_SELECTION_LIST is empty.");
+            }
+
             // Check if SimbriefIntegration object (from sb.js) exists
             if (typeof SimbriefIntegration !== 'undefined') {
                 
