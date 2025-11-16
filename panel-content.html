@@ -101,7 +101,26 @@
                     <input type="text" id="sb-return_url" name="return_url" value="" title="Return URL" placeholder="Return URL for form response" aria-label="Return URL">
                 </form>
 
-            </div> <div id="dispatch-pass-display" class="hidden">
+            </div> 
+            
+            <div id="dispatch-pass-display" class="hidden">
                 </div>
 
-        </div> </div> </div>
+            <div id="saved-flights-container" class="flight-plan-content" style="padding-top: 0;">
+                <div class="info-panel-header" style="border-top: 1px solid rgba(255, 255, 255, 0.1); margin: 0; padding-top: 20px;">
+                    <h3>Saved Flight Plans</h3>
+                    <button id="saved-flights-delete-all-btn" class="sb-close-btn" title="Delete All Saved Flights" style="font-size: 0.8rem; color: #dc3545; background: rgba(220, 53, 69, 0.1); width: auto; padding: 4px 10px; border-radius: 5px;">
+                        <i class="fa-solid fa-trash"></i> Delete All
+                    </button>
+                </div>
+
+                <p id="no-saved-flights-msg" class="welcome-text" style="display: none; margin-top: 16px;">
+                    You have no flight plans saved in your browser.
+                </p>
+
+                <ul id="saved-flights-list" class="saved-flights-list">
+                    </ul>
+            </div>
+            </div> 
+    </div> 
+</div>

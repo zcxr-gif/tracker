@@ -314,14 +314,171 @@ document.addEventListener('DOMContentLoaded', async () => {
             </div>
         `;
     }
-    
+
     /**
-     * Helper Function: Callback for when flights are saved/erased.
-     * This is the 'onFlightSaved' callback for SimbriefIntegration.js.
-     */
-    function refreshSavedFlightList() {
-        console.log("SimbriefIntegration: onFlightSaved callback triggered!");
+ * Helper Function: Callback for when flights are saved/erased.
+ * This is the 'onFlightSaved' callback for SimbriefIntegration.js.
+ * --- MODIFIED: This function now re-renders the saved flight list. ---
+ */
+function refreshSavedFlightList() {
+    console.log("SimbriefIntegration: onFlightSaved callback triggered!");
+    // This new function will render the list in the UI
+    renderSavedFlightList();
+}
+
+/**
+ * --- [NEW FUNCTION] ---
+ * Renders the list of saved flights from local storage into the UI.
+ */
+function renderSavedFlightList() {
+    // Ensure SimbriefIntegration is available
+    if (typeof SimbriefIntegration === 'undefined') {
+        return;
     }
+
+    const flights = SimbriefIntegration.getAllSavedFlights();
+    
+    const listContainer = document.getElementById('saved-flights-list');
+    const noFlightsMsg = document.getElementById('no-saved-flights-msg');
+    const deleteAllBtn = document.getElementById('saved-flights-delete-all-btn');
+
+    if (!listContainer || !noFlightsMsg || !deleteAllBtn) {
+        // The HTML for the panel hasn't loaded yet, or is missing.
+        return;
+    }
+
+    // Clear the list first
+    listContainer.innerHTML = '';
+
+    if (flights.length === 0) {
+        // Show "No flights" message
+        noFlightsMsg.style.display = 'block';
+        listContainer.style.display = 'none';
+        deleteAllBtn.style.display = 'none';
+    } else {
+        // Hide "No flights" message and show list
+        noFlightsMsg.style.display = 'none';
+        listContainer.style.display = 'block';
+        deleteAllBtn.style.display = 'block';
+
+        // `getAllSavedFlights` returns flights oldest-to-newest.
+        // We reverse it to show the newest flight on top.
+        flights.reverse().forEach(flight => {
+            const flightHtml = `
+                <li class="saved-flight-item">
+                    <div class="saved-flight-info">
+                        <strong>
+                            <i class="fa-solid fa-plane"></i>
+                            ${flight.flightNumber || 'No Callsign'}
+                        </strong>
+                        <small>${flight.departure || '???'} &rarr; ${flight.arrival || '???'} (${flight.aircraft || 'A/C'})</small>
+                    </div>
+                    <div class="saved-flight-actions">
+                        <button class="saved-flight-btn saved-flight-view-btn" data-flight-id="${flight.id}">
+                            View
+                        </button>
+                        <button class="saved-flight-btn saved-flight-delete-btn" data-flight-id="${flight.id}" title="Delete this plan">
+                            <i class="fa-solid fa-trash"></i>
+                        </button>
+                    </div>
+                </li>
+            `;
+            listContainer.insertAdjacentHTML('beforeend', flightHtml);
+        });
+    }
+}
+
+/**
+ * --- [NEW FUNCTION] ---
+ * Handles all clicks for the saved flights list using event delegation.
+ */
+function handleSavedFlightListClick(e) {
+    const viewBtn = e.target.closest('.saved-flight-view-btn');
+    const deleteBtn = e.target.closest('.saved-flight-delete-btn');
+    const deleteAllBtn = e.target.closest('#saved-flights-delete-all-btn');
+
+    // 1. Handle "View" button click
+    if (viewBtn) {
+        e.preventDefault();
+        const flightId = viewBtn.dataset.flightId;
+        if (!flightId || typeof SimbriefIntegration === 'undefined') return;
+
+        const flights = SimbriefIntegration.getAllSavedFlights();
+        const flightToView = flights.find(f => f.id === flightId);
+
+        if (flightToView) {
+            // The dispatch pass renderer needs 'etd' and 'eta' as Date objects.
+            // The saved payload has 'etd' as a string and only 'eet' (decimal hours).
+            
+            // Re-calculate ETA
+            const etdDate = new Date(flightToView.etd);
+            const eetMs = (flightToView.eet || 0) * 3600 * 1000;
+            const etaDate = new Date(etdDate.getTime() + eetMs);
+
+            // Get containers
+            const dispatchDisplay = document.getElementById('dispatch-pass-display');
+            const manualDispatchContainer = document.getElementById('manual-dispatch-container');
+
+            if (!dispatchDisplay || !manualDispatchContainer) return;
+
+            // Populate the dispatch pass
+            // We create a new object to pass the correct Date objects
+            populateDispatchPass(dispatchDisplay, {
+                ...flightToView,
+                etd: etdDate,
+                eta: etaDate
+            }, { isPreview: false }); // isPreview: false hides the "Save" button
+
+            // Show the dispatch pass and hide the form
+            manualDispatchContainer.style.display = 'none';
+            dispatchDisplay.style.display = 'block';
+
+            // Scroll the tab content to the top
+            const tabContent = dispatchDisplay.closest('.tab-content');
+            if (tabContent) {
+                tabContent.scrollTop = 0;
+            }
+        }
+        return; // End execution
+    }
+
+    // 2. Handle "Delete" (single) button click
+    if (deleteBtn) {
+        e.preventDefault();
+        const flightId = deleteBtn.dataset.flightId;
+        if (!flightId || typeof SimbriefIntegration === 'undefined') return;
+        
+        // Use native browser confirm dialog
+        if (confirm("Are you sure you want to delete this flight plan?")) {
+            const flights = SimbriefIntegration.getAllSavedFlights();
+            const newFlights = flights.filter(f => f.id !== flightId);
+            
+            // Save the new array back to local storage
+            // Note: sb.js doesn't have a "delete one" method, so we do it manually
+            localStorage.setItem('communityTrackerFlights', JSON.stringify(newFlights));
+            
+            // Manually trigger the refresh
+            refreshSavedFlightList();
+            showNotification('Flight plan deleted.', 'success');
+        }
+        return; // End execution
+    }
+
+    // 3. Handle "Delete All" button click
+    if (deleteAllBtn) {
+        e.preventDefault();
+        if (typeof SimbriefIntegration === 'undefined') return;
+
+        // Use native browser confirm dialog
+        if (confirm("Are you sure you want to delete ALL saved flight plans? This cannot be undone.")) {
+            // This function from sb.js will delete the key
+            // and automatically call our 'refreshSavedFlightList'
+            // callback, which re-renders the (now empty) list.
+            SimbriefIntegration.eraseAllSavedFlights();
+        }
+        return; // End execution
+    }
+}
     
     async function fetchAndRenderRoutes() {
         // This feature is disabled
@@ -2249,141 +2406,157 @@ function injectCustomStyles() {
 }
 
 
-    async function loadExternalPanelContent() {
-        const panel = document.getElementById('sector-ops-floating-panel');
-        if (!panel) {
-            console.error('Could not find #sector-ops-floating-panel to inject content.');
-            return;
-        }
+    /**
+ * --- [REPLACE THIS FUNCTION] ---
+ * This is your existing function, modified to add the event listener
+ * and render the flight list on load.
+ */
+async function loadExternalPanelContent() {
+    const panel = document.getElementById('sector-ops-floating-panel');
+    if (!panel) {
+        console.error('Could not find #sector-ops-floating-panel to inject content.');
+        return;
+    }
 
-        // 1. Find and remove the old UI tabs
-        const oldTabs = panel.querySelector('.panel-tabs');
-        if (oldTabs) {
-            oldTabs.remove();
-        }
+    // 1. Find and remove the old UI tabs
+    const oldTabs = panel.querySelector('.panel-tabs');
+    if (oldTabs) {
+        oldTabs.remove();
+    }
 
-        // 2. Find the main content container (which we will REUSE)
-        const mainContentContainer = panel.querySelector('.panel-content');
-        if (!mainContentContainer) {
-            console.error('Could not find .panel-content to inject content into.');
-            return;
+    // 2. Find the main content container (which we will REUSE)
+    const mainContentContainer = panel.querySelector('.panel-content');
+    if (!mainContentContainer) {
+        console.error('Could not find .panel-content to inject content into.');
+        return;
+    }
+    
+    // 3. Clear this container and show a loading spinner
+    mainContentContainer.innerHTML = '<div class="spinner-small" style="margin: 2rem auto;"></div>';
+
+    // 4. [CRITICAL FIX] Modify the container to be scrollable
+    // The original CSS in index.html has 'overflow: hidden', which we must override.
+    mainContentContainer.style.overflow = 'auto'; 
+    
+    // 5. Fetch and inject the new content
+    try {
+        const response = await fetch('panel-content.html');
+        if (!response.ok) {
+            throw new Error(`Failed to fetch panel-content.html (Status: ${response.status})`);
         }
+        const htmlContent = await response.text();
         
-        // 3. Clear this container and show a loading spinner
-        mainContentContainer.innerHTML = '<div class="spinner-small" style="margin: 2rem auto;"></div>';
+        // Inject the new content directly into the existing .panel-content div
+        mainContentContainer.innerHTML = htmlContent;
 
-        // 4. [CRITICAL FIX] Modify the container to be scrollable
-        // The original CSS in index.html has 'overflow: hidden', which we must override.
-        mainContentContainer.style.overflow = 'auto'; 
+        // ===================================================================
+        // START: Logic from panel-tabs.js
+        // We run this logic *after* mainContentContainer.innerHTML is set.
+        // ===================================================================
         
-        // 5. Fetch and inject the new content
-        try {
-            const response = await fetch('panel-content.html');
-            if (!response.ok) {
-                throw new Error(`Failed to fetch panel-content.html (Status: ${response.status})`);
-            }
-            const htmlContent = await response.text();
-            
-            // Inject the new content directly into the existing .panel-content div
-            mainContentContainer.innerHTML = htmlContent;
+        // Note: We query *inside* the mainContentContainer to be specific
+        const tabButtons = mainContentContainer.querySelectorAll('.panel-tab-btn');
+        const tabContents = mainContentContainer.querySelectorAll('.tab-content');
 
-            // ===================================================================
-            // START: Logic from panel-tabs.js
-            // We run this logic *after* mainContentContainer.innerHTML is set.
-            // ===================================================================
-            
-            // Note: We query *inside* the mainContentContainer to be specific
-            const tabButtons = mainContentContainer.querySelectorAll('.panel-tab-btn');
-            const tabContents = mainContentContainer.querySelectorAll('.tab-content');
-
-            // Function to switch to a specific tab
-            function activateTab(tabId) {
-                tabButtons.forEach(btn => {
-                    if (btn.dataset.tab === tabId) {
-                        btn.classList.add('active');
-                    } else {
-                        btn.classList.remove('active');
-                    }
-                });
-
-                tabContents.forEach(content => {
-                    if (content.id === tabId) {
-                        content.classList.add('active');
-                    } else {
-                        content.classList.remove('active');
-                    }
-                });
-            }
-
-            // Add click event listener to each tab button
-            tabButtons.forEach(button => {
-                button.addEventListener('click', () => {
-                    const tabId = button.dataset.tab;
-                    activateTab(tabId);
-                });
+        // Function to switch to a specific tab
+        function activateTab(tabId) {
+            tabButtons.forEach(btn => {
+                if (btn.dataset.tab === tabId) {
+                    btn.classList.add('active');
+                } else {
+                    btn.classList.remove('active');
+                }
             });
 
-            // --- SimBrief Integration Logic ---
-            const urlParams = new URLSearchParams(window.location.search);
-            if (urlParams.get('view') === 'view-flight-plan' || urlParams.has('ofp_id')) {
-                activateTab('tab-flightplan');
-            } else {
-                // Show the default active tab (Welcome)
-                // The 'active' class is already on the HTML, but this confirms it.
-                activateTab('tab-welcome');
-            }
-
-            const aircraftSelect = mainContentContainer.querySelector('#fp-aircraft');
-            
-            if (aircraftSelect && AIRCRAFT_SELECTION_LIST.length > 0) {
-                // Loop through the constant and create <option> elements
-                AIRCRAFT_SELECTION_LIST.forEach(aircraft => {
-                    const option = document.createElement('option');
-                    option.value = aircraft.value; // e.g., "A320"
-                    option.textContent = aircraft.name; // e.g., "Airbus A320-200"
-                    aircraftSelect.appendChild(option);
-                });
-            } else {
-                console.warn("Could not find #fp-aircraft select or AIRCRAFT_SELECTION_LIST is empty.");
-            }
-
-            // Check if SimbriefIntegration object (from sb.js) exists
-            if (typeof SimbriefIntegration !== 'undefined') {
-                
-                // Initialize the module, passing in the helpers it needs
-                SimbriefIntegration.init({
-                    // netlifySimbriefUrl is already set in sb.js
-
-                    // Pass the main showNotification function from flight.js
-                    showNotification: showNotification,
-
-                    // Pass the populateDispatchPass function we just added
-                    populateDispatchPass: populateDispatchPass,
-
-                    // Pass the onFlightSaved callback we just added
-                    onFlightSaved: refreshSavedFlightList,
-
-                    // (Optional) Max number of flights to save.
-                    maxFlights: 2
-                });
-                
-                console.log("SimbriefIntegration module initialized successfully.");
-                
-            } else {
-                console.error("SimbriefIntegration (sb.js) is not loaded. SimBrief features will not work.");
-                // We can use the main notification function to tell the user
-                showNotification("SimBrief integration script (sb.js) failed to load.", "error");
-            }
-            
-        } catch (error) {
-            console.error('Error loading external panel content:', error);
-            mainContentContainer.innerHTML = `
-                <div class="info-panel-content">
-                    <p class="error-text">Could not load panel content.</p>
-                </div>
-            `;
+            tabContents.forEach(content => {
+                if (content.id === tabId) {
+                    content.classList.add('active');
+                } else {
+                    content.classList.remove('active');
+                }
+            });
         }
+
+        // Add click event listener to each tab button
+        tabButtons.forEach(button => {
+            button.addEventListener('click', () => {
+                const tabId = button.dataset.tab;
+                activateTab(tabId);
+            });
+        });
+
+        // --- SimBrief Integration Logic ---
+        const urlParams = new URLSearchParams(window.location.search);
+        if (urlParams.get('view') === 'view-flight-plan' || urlParams.has('ofp_id')) {
+            activateTab('tab-flightplan');
+        } else {
+            // Show the default active tab (Welcome)
+            // The 'active' class is already on the HTML, but this confirms it.
+            activateTab('tab-welcome');
+        }
+
+        const aircraftSelect = mainContentContainer.querySelector('#fp-aircraft');
+        
+        if (aircraftSelect && AIRCRAFT_SELECTION_LIST.length > 0) {
+            // Loop through the constant and create <option> elements
+            AIRCRAFT_SELECTION_LIST.forEach(aircraft => {
+                const option = document.createElement('option');
+                option.value = aircraft.value; // e.g., "A320"
+                option.textContent = aircraft.name; // e.g., "Airbus A320-200"
+                aircraftSelect.appendChild(option);
+            });
+        } else {
+            console.warn("Could not find #fp-aircraft select or AIRCRAFT_SELECTION_LIST is empty.");
+        }
+
+        // Check if SimbriefIntegration object (from sb.js) exists
+        if (typeof SimbriefIntegration !== 'undefined') {
+            
+            // Initialize the module, passing in the helpers it needs
+            SimbriefIntegration.init({
+                // netlifySimbriefUrl is already set in sb.js
+
+                // Pass the main showNotification function from flight.js
+                showNotification: showNotification,
+
+                // Pass the populateDispatchPass function we just added
+                populateDispatchPass: populateDispatchPass,
+
+                // Pass the onFlightSaved callback we just added
+                onFlightSaved: refreshSavedFlightList,
+
+                // (Optional) Max number of flights to save.
+                maxFlights: 2
+            });
+            
+            console.log("SimbriefIntegration module initialized successfully.");
+
+            // --- [NEW CODE TO ADD START] ---
+            
+            // 1. Add the master click listener for the saved flights list
+            // We attach it to mainContentContainer for event delegation
+            mainContentContainer.addEventListener('click', handleSavedFlightListClick);
+
+            // 2. Render the saved flights list on initial load
+            renderSavedFlightList();
+
+            // --- [NEW CODE TO ADD END] ---
+            
+        } else {
+            console.error("SimbriefIntegration (sb.js) is not loaded. SimBrief features will not work.");
+            // We can use the main notification function to tell the user
+            showNotification("SimBrief integration script (sb.js) failed to load.", "error");
+        }
+        
+    } catch (error) {
+        console.error('Error loading external panel content:', error);
+        mainContentContainer.innerHTML = `
+            <div class="info-panel-content">
+                <p class="error-text">Could not load panel content.</p>
+            </div>
+        `;
     }
+}
 
     /**
      * --- [FIXED] Handles the search input event.
