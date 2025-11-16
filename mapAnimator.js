@@ -41,13 +41,15 @@ class FlightAnimationState {
     }) {
         // The "rendered" state (what's on screen)
         this.renderedPos = initialPos; // [lon, lat]
-        this.renderedHeading = initialHeading; // degrees
-        this.renderedSpeedKt = initialSpeedKt; // knots
+        // [FIX] Rendered heading must be a number, so we default to 0 if invalid.
+        this.renderedHeading = initialHeading || 0; // degrees
+        this.renderedSpeedKt = initialSpeedKt || 0; // knots
 
         // The "target" state (from latest API packet)
         this.targetPos = initialPos;
+        // [FIX] Allow targetHeading to be undefined if initialHeading is.
         this.targetHeading = initialHeading;
-        this.targetSpeedKt = initialSpeedKt;
+        this.targetSpeedKt = initialSpeedKt || 0;
 
         // [NEW] Internal state for managing smooth landing
         this.isLanding = false;
@@ -87,8 +89,17 @@ class FlightAnimationState {
         newSpeedKt
     }) {
         this.targetPos = newPos;
-        this.targetHeading = newHeading;
-        this.targetSpeedKt = newSpeedKt;
+        
+        // [FIX] Only update targetHeading if newHeading is a valid number.
+        // (0 is a valid heading, so we check for null/undefined)
+        if (newHeading !== undefined && newHeading !== null) {
+            this.targetHeading = newHeading;
+        }
+
+        // [FIX] Same check for speed
+        if (newSpeedKt !== undefined && newSpeedKt !== null) {
+            this.targetSpeedKt = newSpeedKt;
+        }
     }
 
     /**
@@ -121,14 +132,25 @@ class FlightAnimationState {
         );
 
         // --- 3. Calculate "Desired" Heading (Seeker/Follower Logic) ---
-        // blendFactor = 1.0: 100% "seek" the target (when far away)
-        // blendFactor = 0.0: 100% "follow" the API heading (when on top of target)
-        const blendFactor = Math.min(1.0, distToTargetKm / this.followBlendDistanceKm);
+        
+        // [FIX] Check if we have a valid API heading to follow.
+        const hasValidTargetHeading = (this.targetHeading !== undefined && this.targetHeading !== null);
+
+        // If we don't have a valid heading (e.g., on first load),
+        // we MUST seek the target (blend = 1.0), ignoring the blend distance.
+        // Otherwise, use the normal distance-based blend factor.
+        const blendFactor = hasValidTargetHeading
+            ? Math.min(1.0, distToTargetKm / this.followBlendDistanceKm)
+            : 1.0; // Always seek if heading is unknown
+
+        // If API heading is invalid, use bearingToTarget as the "base"
+        // to prevent lerping from a stale or 0 heading.
+        const baseHeading = hasValidTargetHeading ? this.targetHeading : bearingToTarget;
 
         const desiredHeading = this._angularLerp(
-            this.targetHeading, // Start with API heading
+            baseHeading,     // Start with API heading (or bearing)
             bearingToTarget, // Blend towards bearing-to-target
-            blendFactor // Based on distance
+            blendFactor      // Based on distance (or 1.0 if no valid heading)
         );
 
         // --- 4. Smoothly blend the rendered heading ---
@@ -146,7 +168,10 @@ class FlightAnimationState {
         // we blend this down to 0. This makes the plane *naturally*
         // slow down and stop, preventing any "orbiting".
         const speedAtTargetBlend = Math.min(1.0, distToTargetKm / this.slowingDistanceKm);
-        const frameTargetSpeed = this.targetSpeedKt * speedAtTargetBlend;
+        
+        // [FIX] Ensure we use a valid number for targetSpeedKt
+        const currentTargetSpeed = this.targetSpeedKt || 0;
+        const frameTargetSpeed = currentTargetSpeed * speedAtTargetBlend;
 
         this.renderedSpeedKt = this._lerp(
             this.renderedSpeedKt,
@@ -177,7 +202,7 @@ class FlightAnimationState {
                 isFinished = true;
                 // Snap to final position to be precise
                 this.renderedPos = this.targetPos;
-                this.renderedHeading = this.targetHeading;
+                this.renderedHeading = this.targetHeading || bearingToTarget; // Use bearing if target is still invalid
             }
         }
 
@@ -303,8 +328,10 @@ export class MapAnimator {
         const flightId = newProperties.flightId;
         const newApiLon = newPosition.lon;
         const newApiLat = newPosition.lat;
-        const newApiHeading = newPosition.heading_deg || 0;
-        const newApiSpeedKt = newProperties.speed || 0;
+        
+        // [FIX] Do NOT default to 0. Let 'undefined' pass through.
+        const newApiHeading = newPosition.heading_deg;
+        const newApiSpeedKt = newProperties.speed;
 
         let animState = this.airborneFlightState.get(flightId);
 
@@ -346,8 +373,8 @@ export class MapAnimator {
                 // --- 2a. First time seeing this AIRBORNE flight ---
                 animState = new FlightAnimationState({
                     initialPos: [newApiLon, newApiLat],
-                    initialHeading: newApiHeading,
-                    initialSpeedKt: newApiSpeedKt
+                    initialHeading: newApiHeading, // [FIX] Pass potential undefined
+                    initialSpeedKt: newApiSpeedKt  // [FIX] Pass potential undefined
                 });
                 this.airborneFlightState.set(flightId, animState);
 
@@ -366,8 +393,8 @@ export class MapAnimator {
                 
                 animState.updateTargets({
                     newPos: [newApiLon, newApiLat],
-                    newHeading: newApiHeading,
-                    newSpeedKt: newApiSpeedKt
+                    newHeading: newApiHeading, // [FIX] Pass potential undefined
+                    newSpeedKt: newApiSpeedKt  // [FIX] Pass potential undefined
                 });
 
                 // Update properties
@@ -429,7 +456,7 @@ export class MapAnimator {
                 
                 // As a final guarantee, snap it to its final target pos
                 feature.geometry.coordinates = animState.targetPos;
-                feature.properties.heading = animState.targetHeading;
+                feature.properties.heading = animState.targetHeading || feature.properties.heading; // Use last known good
             }
         }
 
