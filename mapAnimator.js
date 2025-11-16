@@ -76,11 +76,16 @@ class FlightAnimationState {
         // [NEW] Distance (km) at which the plane begins to decelerate
         // for a smooth stop at its target. This fixes the "orbit" flaw.
         this.slowingDistanceKm = 0.5;
-
+        
         // [NEW] Thresholds to determine when a "landing" flight has
         // officially "arrived" and can be removed from the animation loop.
         this.arrivalThresholdKm = 0.01; // 10 meters
         this.arrivalThresholdKts = 0.5; // 0.5 knots
+        
+        // [FIX FOR SPINNING BUG]
+        // Minimum distance (km) required to calculate a stable bearing.
+        // Below this, we stop seeking to prevent spinning.
+        this.bearingCalcMinKm = 0.001; // 1 meter
     }
 
     /**
@@ -145,11 +150,22 @@ class FlightAnimationState {
             this.renderedPos[1], this.renderedPos[0],
             this.targetPos[1], this.targetPos[0]
         );
-        const bearingToTarget = this._getBearing(
-            this.renderedPos[1], this.renderedPos[0],
-            this.targetPos[1], this.targetPos[0]
-        );
 
+        // [FIX FOR SPINNING BUG]
+        // Check if we are "at" the target (within our minimum threshold).
+        const isAtTarget = distToTargetKm < this.bearingCalcMinKm;
+
+        // If we are at the target, _getBearing is unstable.
+        // To prevent spinning, we use the *current* heading as the
+        // "bearing", which effectively stops all "seeking".
+        // If we are not at the target, we calculate the bearing normally.
+        const bearingToTarget = isAtTarget ?
+            this.renderedHeading :
+            this._getBearing(
+                this.renderedPos[1], this.renderedPos[0],
+                this.targetPos[1], this.targetPos[0]
+            );
+        
         // --- 3. Calculate "Desired" Heading (Seeker/Follower Logic) ---
 
         // [FIX] Check if we have a valid API heading to follow.
