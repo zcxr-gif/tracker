@@ -5,17 +5,158 @@
  * A module to handle the smooth animation of airborne flights
  * while "teleporting" ground-based flights for a Mapbox GL JS map.
  *
- * VERSION 4: Eased-Blending Precision
- * - Fixes "strafing" during turns by matching extrapolated path
- * to the interpolated heading.
- * - Uses precise Haversine-based (great-circle) interpolation
- * for the correction path.
- * - [NEW] Uses a non-linear (ease-in-out) blend to smoothly
- * transition from the correction path to the extrapolated path,
- * making sharp turns feel natural.
+ * REFACTOR (TEST):
+ * - Introduces a 'FlightAnimationState' class.
+ * - Each instance manages the animation state and update
+ * logic for a *single* aircraft.
+ * - The main 'MapAnimator' loop is simplified to iterating
+ * and delegating the calculations to each instance.
+ * - This "individually" handles each plane's animation logic
+ * from an object-oriented perspective.
  * ===================================================================
  */
 
+const KTS_TO_KMS_PER_MS = 1.852 / 3600000;
+const EARTH_RADIUS_KM = 6371;
+
+/**
+ * Manages the animation state and interpolation/extrapolation
+ * logic for a single airborne flight.
+ */
+class FlightAnimationState {
+    constructor({
+        fromPos,
+        toPos,
+        fromHeading,
+        toHeading,
+        startTime,
+        duration,
+        apiSpeedKt,
+        apiHeadingDeg,
+        correctionDist,
+        correctionBearing
+    }) {
+        this.fromPos = fromPos;
+        this.toPos = toPos;
+        this.fromHeading = fromHeading;
+        this.toHeading = toHeading;
+        this.startTime = startTime;
+        this.duration = duration;
+        this.apiSpeedKt = apiSpeedKt;
+        this.apiHeadingDeg = apiHeadingDeg;
+        this.correctionDist = correctionDist;
+        this.correctionBearing = correctionBearing;
+    }
+
+    /**
+     * Calculates the flight's new position and heading for the current frame.
+     * @param {number} now - The current timestamp from performance.now().
+     * @returns {{coordinates: [number, number], heading: number}}
+     */
+    update(now) {
+        const timeElapsedMs = now - this.startTime;
+        let progress = timeElapsedMs / this.duration;
+        progress = Math.max(0.0, progress); // Clamp progress
+
+        // --- 1. Calculate INTERPOLATED HEADING ---
+        let finalHeading;
+        if (progress < 1.0) {
+            // BLENDING: LERP the heading
+            let deltaH = this.toHeading - this.fromHeading;
+            if (deltaH > 180) deltaH -= 360;
+            if (deltaH < -180) deltaH += 360;
+            finalHeading = this.fromHeading + (deltaH * progress);
+            finalHeading = (finalHeading + 360) % 360; // Normalize
+        } else {
+            // EXTRAPOLATING: Use the final API heading
+            finalHeading = this.apiHeadingDeg;
+        }
+
+        // --- 2. Calculate PURE EXTRAPOLATED Position (P_extrap) ---
+        const distanceToMoveKm = (this.apiSpeedKt * KTS_TO_KMS_PER_MS) * timeElapsedMs;
+        let P_extrap = { lon: this.toPos[0], lat: this.toPos[1] }; // Default
+
+        if (distanceToMoveKm > 0) {
+            P_extrap = this._getDestinationPoint(
+                this.toPos[1],       // Start from last API lat
+                this.toPos[0],       // Start from last API lon
+                finalHeading,        // ⭐️ Use the interpolated heading
+                distanceToMoveKm
+            );
+        }
+
+        let finalLon, finalLat;
+
+        if (progress < 1.0) {
+            // --- 3. BLENDING (Correction towards Extrapolation) ---
+
+            // --- 3a. Calculate 'Correction' Position (P_interp) ---
+            let P_interp_coords;
+            if (this.correctionDist > 0) {
+                P_interp_coords = this._getDestinationPoint(
+                    this.fromPos[1],           // Start from the *last rendered* lat
+                    this.fromPos[0],           // Start from the *last rendered* lon
+                    this.correctionBearing,    // Use the pre-calculated bearing
+                    this.correctionDist * progress // Travel 'progress' % of the way
+                );
+            } else {
+                P_interp_coords = { lon: this.fromPos[0], lat: this.fromPos[1] };
+            }
+            
+            // --- 3b. FINAL Position: Blend P_interp with P_extrap (Eased) ---
+            const easeProgress = 0.5 * (1 - Math.cos(Math.PI * progress));
+
+            finalLon = P_interp_coords.lon + (P_extrap.lon - P_interp_coords.lon) * easeProgress;
+            finalLat = P_interp_coords.lat + (P_extrap.lat - P_interp_coords.lat) * easeProgress;
+
+        } else {
+            // --- 4. PURE EXTRAPOLATING ---
+            finalLon = P_extrap.lon;
+            finalLat = P_extrap.lat;
+        }
+        
+        return {
+            coordinates: [finalLon, finalLat],
+            heading: finalHeading
+        };
+    }
+    
+    // --- Geo Helper (encapsulated) ---
+
+    _toRad(deg) { return (deg * Math.PI) / 180; }
+    _toDeg(rad) { return (rad * 180) / Math.PI; }
+
+    /**
+     * Calculates the destination point given a starting point, bearing, and distance.
+     */
+    _getDestinationPoint(lat, lon, bearing, distanceKm) {
+        const latRad = this._toRad(lat);
+        const lonRad = this._toRad(lon);
+        const bearingRad = this._toRad(bearing);
+
+        const angularDistance = distanceKm / EARTH_RADIUS_KM;
+
+        const destLatRad = Math.asin(
+            Math.sin(latRad) * Math.cos(angularDistance) +
+            Math.cos(latRad) * Math.sin(angularDistance) * Math.cos(bearingRad)
+        );
+
+        let destLonRad = lonRad + Math.atan2(
+            Math.sin(bearingRad) * Math.sin(angularDistance) * Math.cos(latRad),
+            Math.cos(angularDistance) - Math.sin(latRad) * Math.sin(destLatRad)
+        );
+
+        // Normalize longitude
+        destLonRad = (destLonRad + 3 * Math.PI) % (2 * Math.PI) - Math.PI;
+
+        return { lat: this._toDeg(destLatRad), lon: this._toDeg(destLonRad) };
+    }
+}
+
+
+/**
+ * Main animation manager for the Mapbox map.
+ */
 export class MapAnimator {
     /**
      * @param {mapboxgl.Map} map - The Mapbox map instance.
@@ -26,7 +167,7 @@ export class MapAnimator {
         this.map = map;
         this.sourceName = sourceName;
         this.currentMapFeatures = featuresObject; // This is a SHARED REFERENCE
-        this.airborneFlightState = new Map();     // Stores animation state for airborne flights
+        this.airborneFlightState = new Map();     // Stores FlightAnimationState instances
         this.animationFrameId = null;
 
         // Bind the animation loop to the class instance
@@ -84,12 +225,9 @@ export class MapAnimator {
             const currentFeature = this.currentMapFeatures[flightId];
             const now = performance.now();
             
-            // Get the 'from' state (current rendered position)
             const fromPos = currentFeature ? currentFeature.geometry.coordinates : [newApiLon, newApiLat];
             const fromHeading = currentFeature ? currentFeature.properties.heading : newApiHeading;
 
-            // --- [NEW] Pre-calculate the correction path's vector ---
-            // This is the great-circle path from the last rendered position to the new API position.
             const { distanceKm: correctionDist, initialBearing: correctionBearing } = 
                 this._getDistanceAndBearing(
                     fromPos[1], fromPos[0], // from
@@ -100,25 +238,23 @@ export class MapAnimator {
             const animationDuration = Math.max(500, packetDuration);
 
             if (!currentFeature) {
-                // This is a new flight. Force it to skip interpolation.
                 startTime = now - (animationDuration + 1);
             }
 
-            // Store the animation parameters
-            this.airborneFlightState.set(flightId, {
+            // ★★★ REFACTORED ★★★
+            // Create and store an instance of the new state class
+            this.airborneFlightState.set(flightId, new FlightAnimationState({
                 fromPos: fromPos,
                 toPos: [newApiLon, newApiLat],
                 fromHeading: fromHeading,
                 toHeading: newApiHeading,
                 startTime: startTime,
                 duration: animationDuration,
-                // --- Store data for extrapolation ---
                 apiSpeedKt: newProperties.speed || 0,
                 apiHeadingDeg: newApiHeading,
-                // --- [NEW] Store pre-calculated correction path ---
                 correctionDist: correctionDist,
                 correctionBearing: correctionBearing
-            });
+            }));
 
             // Update/create the feature
             if (currentFeature) {
@@ -144,19 +280,9 @@ export class MapAnimator {
 
     /**
      * The core animation loop (runs every frame).
-     * @private
-     * * ★★★ REVISED LOGIC (V4 - Eased Blending) ★★★
-     * * 1.  Calculate the `finalHeading` by interpolating between `fromHeading` and `toHeading`.
-     * 2.  Calculate `P_extrap`: The "pure" extrapolated position. This is calculated
-     * from `toPos` using the *`finalHeading`*. This is the key
-     * to fixing the "strafing" effect, as the extrapolated path now follows
-     * the icon's rotation, creating a natural arc.
-     * 3.  Calculate `P_interp`: The "correction" position. This is calculated by
-     * moving `progress` % along the great-circle arc from `fromPos` to `toPos`
-     * (using our pre-calculated `correctionBearing` and `correctionDist`).
-     * 4.  Calculate `finalPos`: We blend `P_interp` and `P_extrap` using an
-     * *ease-in-out* function instead of a linear one. This creates a
-     * much smoother transition during sharp turns.
+     * ★★★ REFACTORED ★★★
+     * This loop now *delegates* all calculation to the
+     * FlightAnimationState instance for each flight.
      */
     _animationLoop() {
         const source = this.map.getSource(this.sourceName);
@@ -166,92 +292,22 @@ export class MapAnimator {
         }
 
         const now = performance.now();
-        const KTS_TO_KMS_PER_MS = 1.852 / 3600000;
 
-        for (const [flightId, state] of this.airborneFlightState.entries()) {
+        // --- 1. Update all airborne features ---
+        for (const [flightId, animState] of this.airborneFlightState.entries()) {
             const feature = this.currentMapFeatures[flightId];
             if (!feature) {
                 this.airborneFlightState.delete(flightId);
                 continue;
             }
+            
+            // ★★★ NEW LOGIC ★★★
+            // Delegate all calculation to the individual flight's state object
+            const newState = animState.update(now);
 
-            const timeElapsedMs = now - state.startTime;
-            let progress = timeElapsedMs / state.duration;
-            progress = Math.max(0.0, progress); // Clamp progress
-
-            // --- 1. Calculate INTERPOLATED HEADING ---
-            // We calculate this *first* as it's needed for the P_extrap calculation.
-            let finalHeading;
-            if (progress < 1.0) {
-                // BLENDING: LERP the heading
-                let deltaH = state.toHeading - state.fromHeading;
-                if (deltaH > 180) deltaH -= 360;
-                if (deltaH < -180) deltaH += 360;
-                finalHeading = state.fromHeading + (deltaH * progress);
-                finalHeading = (finalHeading + 360) % 360; // Normalize
-            } else {
-                // EXTRAPOLATING: Use the final API heading
-                finalHeading = state.apiHeadingDeg;
-            }
-
-            // --- 2. Calculate PURE EXTRAPOLATED Position (P_extrap) ---
-            // This is where the plane *should* be, flying from the last
-            // API point (`toPos`) using the *current interpolated heading*.
-            const distanceToMoveKm = (state.apiSpeedKt * KTS_TO_KMS_PER_MS) * timeElapsedMs;
-            let P_extrap = { lon: state.toPos[0], lat: state.toPos[1] }; // Default
-
-            if (distanceToMoveKm > 0) {
-                P_extrap = this._getDestinationPoint(
-                    state.toPos[1],       // Start from last API lat
-                    state.toPos[0],       // Start from last API lon
-                    finalHeading,         // ⭐️ Use the interpolated heading
-                    distanceToMoveKm
-                );
-            }
-
-            let finalLon, finalLat;
-
-            if (progress < 1.0) {
-                // --- 3. BLENDING (Correction towards Extrapolation) ---
-
-                // --- 3a. Calculate 'Correction' Position (P_interp) ---
-                // Use Great-Circle (Haversine) interpolation for precision.
-                let P_interp_coords;
-                if (state.correctionDist > 0) {
-                    P_interp_coords = this._getDestinationPoint(
-                        state.fromPos[1],           // Start from the *last rendered* lat
-                        state.fromPos[0],           // Start from the *last rendered* lon
-                        state.correctionBearing,    // Use the pre-calculated bearing
-                        state.correctionDist * progress // Travel 'progress' % of the way
-                    );
-                } else {
-                    // No distance to correct (e.g., first packet), just use the start pos.
-                    P_interp_coords = { lon: state.fromPos[0], lat: state.fromPos[1] };
-                }
-                
-                // --- 3b. FINAL Position: Blend P_interp with P_extrap ---
-
-                // ★★★ NEW FIX ★★★
-                // We apply an Ease-In-Out function to the progress.
-                // This makes the blend non-linear and much smoother.
-                // It ensures the "fix" is applied *very* little at the beginning
-                // and end of the blend, smoothing out the "jump."
-                const easeProgress = 0.5 * (1 - Math.cos(Math.PI * progress));
-
-                // This LERP now uses the 'easeProgress' instead of the linear 'progress'.
-                finalLon = P_interp_coords.lon + (P_extrap.lon - P_interp_coords.lon) * easeProgress;
-                finalLat = P_interp_coords.lat + (P_extrap.lat - P_interp_coords.lat) * easeProgress;
-
-            } else {
-                // --- 4. PURE EXTRAPOLATING ---
-                // Blending is complete. Use the pure extrapolated position.
-                finalLon = P_extrap.lon;
-                finalLat = P_extrap.lat;
-            }
-
-            // Update the feature
-            feature.geometry.coordinates = [finalLon, finalLat];
-            feature.properties.heading = finalHeading;
+            // Update the feature from the result
+            feature.geometry.coordinates = newState.coordinates;
+            feature.properties.heading = newState.heading;
         }
 
         // --- 2. Update the map source with the new state of *all* features ---
@@ -263,20 +319,16 @@ export class MapAnimator {
         // --- 3. Request the next animation frame ---
         this.animationFrameId = requestAnimationFrame(this._animationLoop);
     }
+    
+    _toRad(deg) { return (deg * Math.PI) / 180; }
+    _toDeg(rad) { return (rad * 180) / Math.PI; }
 
     /**
-     * [NEW] Calculates the initial bearing and distance between two points.
-     * @param {number} lat1 - Start latitude
-     * @param {number} lon1 - Start longitude
-     * @param {number} lat2 - End latitude
-     * @param {number} lon2 - End longitude
-     * @returns {{distanceKm: number, initialBearing: number}}
-     * @private
+     * Calculates the initial bearing and distance between two points.
      */
     _getDistanceAndBearing(lat1, lon1, lat2, lon2) {
-        const R = 6371; // Earth's radius in km
-        const toRad = (deg) => (deg * Math.PI) / 180;
-        const toDeg = (rad) => (rad * 180) / Math.PI;
+        const toRad = this._toRad;
+        const toDeg = this._toDeg;
 
         const lat1Rad = toRad(lat1);
         const lon1Rad = toRad(lon1);
@@ -290,9 +342,8 @@ export class MapAnimator {
                   Math.cos(lat1Rad) * Math.cos(lat2Rad) *
                   Math.sin(deltaLon / 2) ** 2;
         const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
-        const distanceKm = R * c;
+        const distanceKm = EARTH_RADIUS_KM * c;
 
-        // Handle case where points are identical
         if (distanceKm === 0) {
             return { distanceKm: 0, initialBearing: 0 };
         }
@@ -302,45 +353,8 @@ export class MapAnimator {
         const x = Math.cos(lat1Rad) * Math.sin(lat2Rad) -
                   Math.sin(lat1Rad) * Math.cos(lat2Rad) * Math.cos(deltaLon);
         let initialBearing = toDeg(Math.atan2(y, x));
-        initialBearing = (initialBearing + 360) % 360; // Normalize to 0-360
+        initialBearing = (initialBearing + 360) % 360; // Normalize
 
         return { distanceKm, initialBearing };
-    }
-
-    /**
-     * Calculates the destination point given a starting point, bearing, and distance.
-     * Uses the Haversine formula.
-     * @param {number} lat - Starting latitude in degrees.
-     * @param {number} lon - Starting longitude in degrees.
-     * @param {number} bearing - Bearing in degrees (0-360).
-     * @param {number} distanceKm - Distance to travel in kilometers.
-     * @returns {{lat: number, lon: number}} The destination point.
-     * @private
-     */
-    _getDestinationPoint(lat, lon, bearing, distanceKm) {
-        const R = 6371; // Earth's radius in km
-        const toRad = (deg) => (deg * Math.PI) / 180;
-        const toDeg = (rad) => (rad * 180) / Math.PI;
-
-        const latRad = toRad(lat);
-        const lonRad = toRad(lon);
-        const bearingRad = toRad(bearing);
-
-        const angularDistance = distanceKm / R;
-
-        const destLatRad = Math.asin(
-            Math.sin(latRad) * Math.cos(angularDistance) +
-            Math.cos(latRad) * Math.sin(angularDistance) * Math.cos(bearingRad)
-        );
-
-        let destLonRad = lonRad + Math.atan2(
-            Math.sin(bearingRad) * Math.sin(angularDistance) * Math.cos(latRad),
-            Math.cos(angularDistance) - Math.sin(latRad) * Math.sin(destLatRad)
-        );
-
-        // Normalize longitude to -180 to +180
-        destLonRad = (destLonRad + 3 * Math.PI) % (2 * Math.PI) - Math.PI;
-
-        return { lat: toDeg(destLatRad), lon: toDeg(destLonRad) };
     }
 }
