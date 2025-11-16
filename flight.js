@@ -4495,17 +4495,19 @@ async function initializeSectorOpsMap(centerICAO) {
                     // ##### ⬆️ END OF FIX ⬆️ #####
 
                     // --- [NEW] ---
-                    // Add padding, which the background color will fill
-                    'text-padding': 3,
+                    // 'text-padding' was removed as it's not the correct property
+                    // for this effect. The "padding" is now controlled by
+                    // 'text-halo-width' in the 'paint' section.
                 },
                 paint: {
                     // --- [MODIFICATION] ---
                     // Set text to be white
                     'text-color': '#ffffff',
 
-                    // Use a data-driven background color to create a colored "tag"
-                    // This creates the "pill" effect you described (with sharp corners)
-                    'text-background-color': [
+                    // ##### ⬇️ START OF FIX ⬇️ #####
+                    // Replaced 'text-background-color' (which is invalid)
+                    // with 'text-halo-color' (which is correct).
+                    'text-halo-color': [
                         'match',
                         ['get', 'phase'],
                         'Climb', 'rgba(34, 139, 34, 0.9)',     // phase-climb
@@ -4516,11 +4518,11 @@ async function initializeSectorOpsMap(centerICAO) {
                         'rgba(100, 110, 130, 0.9)'             // Default
                     ],
                     
-                    // Remove the old halo properties
-                    // 'text-halo-color': '...',
-                    // 'text-halo-width': 1.5,
-                    // 'text-halo-blur': 1
-                    // --- [END MODIFICATION] ---
+                    // Added halo-width to create the "padding" for the pill
+                    'text-halo-width': 1.5,
+                    // Added halo-blur: 0 to make the edges sharp
+                    'text-halo-blur': 0
+                    // ##### ⬆️ END OF FIX ⬆️ #####
                 }
             });
         }
