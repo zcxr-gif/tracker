@@ -143,8 +143,12 @@ export class MapAnimator {
      * with a blended logic. This calculates the pure extrapolated position (P_extrap) 
      * and smoothly transitions the rendered position from the correction path (P_interp) 
      * towards P_extrap over the animation duration.
-     * * ** FIX 2: Replaced Linear Interpolation (LERP) for position correction 
+     * * FIX 2: Replaced Linear Interpolation (LERP) for position correction 
      * with a Quadratic Bézier Curve for smoother, more precise turns.
+     * * FIX 3 (New): Revert to linear progress and remove the P_interp/P_extrap blend 
+     * during the correction phase (progress < 1.0). This forces the plane to 
+     * follow the Bézier curve at a more constant velocity until it reaches 
+     * the new API point (P2), where it switches instantly to pure extrapolation.
      */
     _animationLoop() {
         const source = this.map.getSource(this.sourceName);
@@ -178,6 +182,7 @@ export class MapAnimator {
             // --- A. Calculate the PURE EXTRAPOLATED Position (P_extrap) ---
             // This is the position the plane *should* be if it moved constantly 
             // from the last API point (state.toPos) with the last API vector.
+            // Note: timeElapsedMs will continue past state.duration.
             const distanceToMoveKm = (state.apiSpeedKt * KTS_TO_KMS_PER_MS) * timeElapsedMs;
             
             let P_extrap = { lon: state.toPos[0], lat: state.toPos[1] }; // Default to last API pos
@@ -196,17 +201,18 @@ export class MapAnimator {
             let finalLon, finalLat, finalHeading;
 
             if (progress < 1.0) {
-                // --- I. BLENDING (Correction towards Extrapolation) ---
+                // --- I. CORRECTION PHASE (Follow Bézier Path) ---
                 
                 // P0: Last rendered position
                 const P0 = { lon: state.fromPos[0], lat: state.fromPos[1] };
                 // P2: New API position
                 const P2 = { lon: state.toPos[0], lat: state.toPos[1] };
                 
+                // Use linear progress as the time factor 't' for the Bézier curve.
+                const t = progress; 
+
                 // 1. Calculate Control Point (P1) for Quadratic Bézier Curve
                 // P1 forces the path to start in the direction of the last rendered heading.
-                // We'll project a small distance (e.g., 20% of the straight-line distance, min 0.1km) 
-                // from P0 along the 'from' heading.
                 
                 // Calculate the straight-line distance between P0 and P2 for scaling
                 const straightDistRad = Math.acos(
@@ -226,30 +232,24 @@ export class MapAnimator {
                 
                 // 2. Position Interpolation (P_interp): The Quadratic Bézier Curve.
                 // B(t) = (1-t)^2*P0 + 2(1-t)t*P1 + t^2*P2
-                const t = progress;
                 const t2 = t * t;
                 const oneMinusT = 1 - t;
                 const oneMinusT2 = oneMinusT * oneMinusT;
 
                 // Position on the correction path (P_interp)
-                const interpLon = oneMinusT2 * P0.lon + 2 * oneMinusT * t * P1.lon + t2 * P2.lon;
-                const interpLat = oneMinusT2 * P0.lat + 2 * oneMinusT * t * P1.lat + t2 * P2.lat;
+                finalLon = oneMinusT2 * P0.lon + 2 * oneMinusT * t * P1.lon + t2 * P2.lon;
+                finalLat = oneMinusT2 * P0.lat + 2 * oneMinusT * t * P1.lat + t2 * P2.lat;
                 
-                // 3. FINAL Position: Blend P_interp with P_extrap.
-                // At progress=0, use P_interp (full correction).
-                // As progress -> 1, the weight shifts to P_extrap (full projection).
-                finalLon = interpLon + (P_extrap.lon - interpLon) * progress;
-                finalLat = interpLat + (P_extrap.lat - interpLat) * progress;
-
-                // 4. Heading LERP: Transition the displayed heading
+                // 3. Heading LERP: Transition the displayed heading
                 let deltaH = state.toHeading - state.fromHeading;
                 if (deltaH > 180) deltaH -= 360;
                 if (deltaH < -180) deltaH += 360;
-                finalHeading = state.fromHeading + (deltaH * progress);
+                finalHeading = state.fromHeading + (deltaH * t);
             
             } else {
                 // --- II. PURE EXTRAPOLATING ---
-                // Blending is complete. Use the pure extrapolated position and heading.
+                // Correction is complete (progress >= 1.0). Use the pure extrapolated 
+                // position and the last known API heading.
                 finalLon = P_extrap.lon;
                 finalLat = P_extrap.lat;
                 finalHeading = state.apiHeadingDeg;
@@ -261,8 +261,6 @@ export class MapAnimator {
         }
 
         // --- 2. Update the map source with the new state of *all* features ---
-        // This single call renders *both* the teleported ground planes
-        // and the smoothly animated/extrapolated airborne planes.
         source.setData({
             type: 'FeatureCollection',
             features: Object.values(this.currentMapFeatures)
