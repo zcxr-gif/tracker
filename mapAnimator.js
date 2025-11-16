@@ -76,16 +76,11 @@ class FlightAnimationState {
         // [NEW] Distance (km) at which the plane begins to decelerate
         // for a smooth stop at its target. This fixes the "orbit" flaw.
         this.slowingDistanceKm = 0.5;
-        
+
         // [NEW] Thresholds to determine when a "landing" flight has
         // officially "arrived" and can be removed from the animation loop.
         this.arrivalThresholdKm = 0.01; // 10 meters
         this.arrivalThresholdKts = 0.5; // 0.5 knots
-        
-        // [FIX FOR SPINNING BUG]
-        // Minimum distance (km) required to calculate a stable bearing.
-        // Below this, we stop seeking to prevent spinning.
-        this.bearingCalcMinKm = 0.001; // 1 meter
     }
 
     /**
@@ -145,48 +140,51 @@ class FlightAnimationState {
         const headingLerpFactor = 1.0 - Math.exp(-this.headingSmoothFactor * dtSec);
         const speedLerpFactor = 1.0 - Math.exp(-this.speedSmoothFactor * dtSec);
 
-        // --- 2. Calculate Distance and Bearing to Target ---
+        // --- 2. Calculate Distance and State ---
         const distToTargetKm = this._getDistanceKm(
             this.renderedPos[1], this.renderedPos[0],
             this.targetPos[1], this.targetPos[0]
         );
+        
+        const hasValidTargetHeading = (this.targetHeading !== undefined && this.targetHeading !== null);
+        
+        // [FIX FOR SPINNING BUG V2]
+        // Check if we are "at" the target (within our arrival threshold).
+        const isAtTarget = distToTargetKm < this.arrivalThresholdKm; // 10 meters
 
-        // [FIX FOR SPINNING BUG]
-        // Check if we are "at" the target (within our minimum threshold).
-        const isAtTarget = distToTargetKm < this.bearingCalcMinKm;
+        let desiredHeading;
 
-        // If we are at the target, _getBearing is unstable.
-        // To prevent spinning, we use the *current* heading as the
-        // "bearing", which effectively stops all "seeking".
-        // If we are not at the target, we calculate the bearing normally.
-        const bearingToTarget = isAtTarget ?
-            this.renderedHeading :
-            this._getBearing(
+        if (isAtTarget) {
+            // --- 3A. AT THE TARGET (Stop Seeking) ---
+            // We are at the destination. Stop all seeking behavior.
+            // Either follow the final API heading (if valid) or hold the current
+            // rendered heading (if API heading is null) to prevent spinning.
+            desiredHeading = hasValidTargetHeading ? this.targetHeading : this.renderedHeading;
+
+        } else {
+            // --- 3B. IN TRANSIT (Seek/Follow Logic) ---
+            // We are still moving towards the target.
+            
+            // Calculate the bearing. This is safe because isAtTarget is false.
+            const bearingToTarget = this._getBearing(
                 this.renderedPos[1], this.renderedPos[0],
                 this.targetPos[1], this.targetPos[0]
             );
-        
-        // --- 3. Calculate "Desired" Heading (Seeker/Follower Logic) ---
 
-        // [FIX] Check if we have a valid API heading to follow.
-        const hasValidTargetHeading = (this.targetHeading !== undefined && this.targetHeading !== null);
-
-        // If we don't have a valid heading (e.g., on first load),
-        // we MUST seek the target (blend = 1.0), ignoring the blend distance.
-        // Otherwise, use the normal distance-based blend factor.
-        const blendFactor = hasValidTargetHeading ?
-            Math.min(1.0, distToTargetKm / this.followBlendDistanceKm) :
-            1.0; // Always seek if heading is unknown
-
-        // If API heading is invalid, use bearingToTarget as the "base"
-        // to prevent lerping from a stale or 0 heading.
-        const baseHeading = hasValidTargetHeading ? this.targetHeading : bearingToTarget;
-
-        const desiredHeading = this._angularLerp(
-            baseHeading, // Start with API heading (or bearing)
-            bearingToTarget, // Blend towards bearing-to-target
-            blendFactor // Based on distance (or 1.0 if no valid heading)
-        );
+            if (hasValidTargetHeading) {
+                // We have a valid API heading.
+                // Blend between "following" the API heading and "seeking" the target.
+                const blendFactor = Math.min(1.0, distToTargetKm / this.followBlendDistanceKm);
+                desiredHeading = this._angularLerp(
+                    this.targetHeading, // Start with API heading
+                    bearingToTarget,   // Blend towards bearing-to-target
+                    blendFactor        // Based on distance
+                );
+            } else {
+                // No valid API heading. We *must* seek the target.
+                desiredHeading = bearingToTarget;
+            }
+        }
 
         // --- 4. Smoothly blend the rendered heading ---
         this.renderedHeading = this._angularLerp(
@@ -197,7 +195,7 @@ class FlightAnimationState {
 
         // --- 5. Smoothly blend the rendered speed ---
 
-        // [FIX for ORBIT FLASW]
+        // [FIX for ORBIT FLAW]
         // We calculate a "frame target speed". This is normally the
         // API's target speed, but as we get close to the target,
         // we blend this down to 0. This makes the plane *naturally*
@@ -232,12 +230,12 @@ class FlightAnimationState {
         let isFinished = false;
         if (this.isLanding) {
             // If we are in "landing" mode, check if we've come to a stop.
-            if (distToTargetKm < this.arrivalThresholdKm && this.renderedSpeedKt < this.arrivalThresholdKts) {
+            if (isAtTarget && this.renderedSpeedKt < this.arrivalThresholdKts) {
                 // We've arrived.
                 isFinished = true;
                 // Snap to final position to be precise
                 this.renderedPos = this.targetPos;
-                this.renderedHeading = this.targetHeading || bearingToTarget; // Use bearing if target is still invalid
+                this.renderedHeading = this.targetHeading || this.renderedHeading; // Use last known good
             }
         }
 

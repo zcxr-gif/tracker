@@ -60,14 +60,6 @@ const SimbriefIntegration = {
      * @param {object} options - Configuration object with helpers and callbacks.
      */
     init: function(options) {
-        // Check if WeatherService is available
-        if (typeof window.WeatherService === 'undefined') {
-            console.error("SimbriefIntegration: window.WeatherService is not loaded. Weather parsing will fail.");
-            // Optionally, show a UI notification
-            if(options.showNotification) {
-                options.showNotification('Error: Weather Service script not found.', 'error');
-            }
-        }
 
         this.config = {
             netlifySimbriefUrl: options.netlifySimbriefUrl || '/.netlify/functions/simbrief',
