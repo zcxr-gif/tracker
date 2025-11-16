@@ -87,14 +87,26 @@ export class MapAnimator {
             const fromPos = currentFeature ? currentFeature.geometry.coordinates : [newApiLon, newApiLat];
             const fromHeading = currentFeature ? currentFeature.properties.heading : newApiHeading;
 
+            // ⬇️ 1. --- FIX: Jump straight to extrapolation for new flights ---
+            let startTime = now;
+            const animationDuration = Math.max(500, packetDuration);
+
+            if (!currentFeature) {
+                // This is a new flight.
+                // Force it to skip interpolation and go straight to extrapolation.
+                // Set startTime to the past so (now - startTime) / duration is > 1.
+                startTime = now - (animationDuration + 1);
+            }
+            // ⬆️ --- END OF FIX 1 ---
+
             // Store the animation parameters
             this.airborneFlightState.set(flightId, {
                 fromPos: fromPos,
                 toPos: [newApiLon, newApiLat],
                 fromHeading: fromHeading,
                 toHeading: newApiHeading,
-                startTime: now,
-                duration: Math.max(500, packetDuration),
+                startTime: startTime, // Use the (potentially modified) startTime
+                duration: animationDuration,
                 // --- [NEW] Store data for extrapolation ---
                 apiSpeedKt: newProperties.speed || 0,
                 apiHeadingDeg: newApiHeading
@@ -185,7 +197,11 @@ export class MapAnimator {
                 // Calculate distance to move *from the target position*
                 const distanceToMoveKm = ktsToKmsPerMs * timeSinceAnimEndMs;
 
-                if (distanceToMoveKm > 0 && state.apiSpeedKt > 30) {
+                // ⬇️ 2. --- FIX: Removed "state.apiSpeedKt > 30" ---
+                // This allows planes with low ground speed (e.g., just after takeoff)
+                // to extrapolate immediately instead of freezing.
+                if (distanceToMoveKm > 0) {
+                // ⬆️ --- END OF FIX 2 ---
                     // Calculate the new extrapolated position
                     const extrapolatedPos = this._getDestinationPoint(
                         state.toPos[1],       // Start from last API lat
