@@ -4353,9 +4353,11 @@ async function initializeSectorOpsMap(centerICAO) {
      * --- [NEW] Extracted function to set up base layers.
      * This is called on initial load AND on every style change.
      * --- [MODIFIED] Added text labels for callsign and phase.
+     * --- [MODIFIED v2] Split icons and labels into two layers
+     * to allow icons to always show while labels can hide.
      */
     async function setupMapLayersAndFog() {
-        // 1. Set globe fog
+        // 1. Set globe fog (Unchanged)
         sectorOpsMap.setFog({
             color: 'rgb(186, 210, 235)', // Lower atmosphere
             'high-color': 'rgb(36, 92, 223)', // Upper atmosphere
@@ -4422,7 +4424,7 @@ async function initializeSectorOpsMap(centerICAO) {
         await Promise.all(imagePromises).catch(err => console.error("Error loading map icons", err));
         console.log('All custom aircraft icons are ready.');
 
-        // 3. Add base flight data source and layer
+        // 3. Add base flight data source (Unchanged)
         if (!sectorOpsMap.getSource('sector-ops-live-flights-source')) {
             sectorOpsMap.addSource('sector-ops-live-flights-source', {
                 type: 'geojson',
@@ -4430,57 +4432,34 @@ async function initializeSectorOpsMap(centerICAO) {
             });
         }
 
+        // 4. --- [START OF MODIFICATION] ---
+        // Add the ICON layer
         if (!sectorOpsMap.getLayer('sector-ops-live-flights-layer')) {
             sectorOpsMap.addLayer({
-                id: 'sector-ops-live-flights-layer',
+                id: 'sector-ops-live-flights-layer', // Keep original ID for click listeners
                 type: 'symbol',
                 source: 'sector-ops-live-flights-source',
                 layout: {
-                    // --- Icon Properties (Unchanged) ---
+                    // --- Icon Properties ONLY ---
                     'icon-image': getIconImageExpression(mapFilters.iconColorMode),
                     'icon-size': 0.08,
                     'icon-rotate': ['get', 'heading'],
                     'icon-rotation-alignment': 'map',
+                    
+                    // --- THIS IS THE KEY ---
+                    // Force icons to always show, even if they overlap
                     'icon-allow-overlap': true,
                     'icon-ignore-placement': true,
 
-                    // --- [START NEW] Text Label Properties ---
-                    
-                    // 1. Define the text content.
-                    //    This creates two lines: "CALLSIGN" and "Phase"
-                    'text-field': [
-                        'format',
-                        ['get', 'callsign'], // Line 1
-                        '\n',                 // Newline
-                        ['get', 'phase']      // Line 2
-                    ],
-                    
-                    // 2. Set the font and size.
-                    'text-font': ['Mapbox Txt Regular', 'Arial Unicode MS Regular'],
-                    'text-size': 10,
-                    
-                    // 3. Offset the text to appear below the icon.
-                    'text-offset': [0, 2.5], // [X-offset, Y-offset] in ems
-                    'text-anchor': 'top',
-                    
-                    // 4. Prevent labels from overlapping each other (good for performance).
-                    'text-allow-overlap': false,
-                    'text-ignore-placement': false
-                    // --- [END NEW] ---
-                },
-                // --- [START NEW] Text Paint Properties ---
-                paint: {
-                    // Make the text white with a dark "halo" (outline)
-                    // so it's readable on any map background.
-                    'text-color': '#ffffff',
-                    'text-halo-color': 'rgba(0, 0, 0, 0.85)',
-                    'text-halo-width': 1.5,
-                    'text-halo-blur': 1
+                    // --- Remove all text properties ---
+                    // 'text-field': ... (REMOVED)
+                    // 'text-font': ... (REMOVED)
+                    // etc.
                 }
-                // --- [END NEW] ---
+                // --- No 'paint' block needed (it was only for text) ---
             });
 
-            // 4. Re-attach listeners (Unchanged)
+            // 4a. Add click/hover listeners (These will now only apply to the icon layer)
             sectorOpsMap.on('click', 'sector-ops-live-flights-layer', (e) => {
                 const props = e.features[0].properties;
                 const flightProps = { ...props, position: JSON.parse(props.position), aircraft: JSON.parse(props.aircraft) };
@@ -4494,6 +4473,44 @@ async function initializeSectorOpsMap(centerICAO) {
             sectorOpsMap.on('mouseenter', 'sector-ops-live-flights-layer', () => { sectorOpsMap.getCanvas().style.cursor = 'pointer'; });
             sectorOpsMap.on('mouseleave', 'sector-ops-live-flights-layer', () => { sectorOpsMap.getCanvas().style.cursor = ''; });
         }
+        
+        // 5. Add the LABEL layer
+        if (!sectorOpsMap.getLayer('sector-ops-live-flights-labels')) {
+            sectorOpsMap.addLayer({
+                id: 'sector-ops-live-flights-labels',
+                type: 'symbol',
+                source: 'sector-ops-live-flights-source', // Use the SAME source
+                layout: {
+                    // --- Text Properties ONLY ---
+                    'text-field': [
+                        'format',
+                        ['get', 'callsign'], // Line 1
+                        '\n',                 // Newline
+                        ['get', 'phase']      // Line 2
+                    ],
+                    'text-font': ['Mapbox Txt Regular', 'Arial Unicode MS Regular'],
+                    'text-size': 10,
+                    'text-offset': [0, 2.5], // Offset text below the icon
+                    'text-anchor': 'top',
+                    
+                    // --- THIS IS THE KEY ---
+                    // Allow text to hide on collision
+                    'text-allow-overlap': false,
+                    'text-ignore-placement': false,
+
+                    // --- Remove all icon properties ---
+                    // 'icon-image': ... (REMOVED)
+                },
+                paint: {
+                    // --- Text Paint Properties ---
+                    'text-color': '#ffffff',
+                    'text-halo-color': 'rgba(0, 0, 0, 0.85)',
+                    'text-halo-width': 1.5,
+                    'text-halo-blur': 1
+                }
+            });
+        }
+        // --- [END OF MODIFICATION] ---
     }
     
     // --- [NEW] This handles style changes ---
