@@ -91,16 +91,16 @@
                     </button>
                 </div>
 
-                <form id="sbapiform" target="simbrief" method="post" action="https://www.simbrief.com/ofp/ofp.php" style="display: none;">
-                    <input type="text" name="username" value="">
-                    <input type="text" name="orig" value="">
-                    <input type="text" name="dest" value="">
-                    <input type="text" name="type" value="">
-                    <input type="text" name="fltnum" value="">
-                    <input type="text" name="return_url" value="">
+                <form id="sbapiform" class="hidden" target="simbrief" method="post" action="https://www.simbrief.com/ofp/ofp.php">
+                    <input type="text" id="sb-username" name="username" value="" title="SimBrief username" placeholder="SimBrief username" aria-label="SimBrief username">
+                    <input type="text" id="sb-orig" name="orig" value="" title="Departure airport (ICAO)" placeholder="Departure (ICAO), e.g., EGLL" aria-label="Departure airport">
+                    <input type="text" id="sb-dest" name="dest" value="" title="Arrival airport (ICAO)" placeholder="Arrival (ICAO), e.g., KJFK" aria-label="Arrival airport">
+                    <input type="text" id="sb-type" name="type" value="" title="Aircraft type" placeholder="Aircraft type, e.g., A320" aria-label="Aircraft type">
+                    <input type="text" id="sb-fltnum" name="fltnum" value="" title="Flight number" placeholder="Flight number, e.g., AAL123" aria-label="Flight number">
+                    <input type="text" id="sb-return_url" name="return_url" value="" title="Return URL" placeholder="Return URL for form response" aria-label="Return URL">
                 </form>
 
-            </div> <div id="dispatch-pass-display" style="display: none;">
+            </div> <div id="dispatch-pass-display" class="hidden">
                 </div>
 
         </div> </div> </div>
