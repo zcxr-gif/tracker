@@ -4349,13 +4349,6 @@ async function initializeSectorOpsMap(centerICAO) {
         projection: 'globe'
     });
 
-    /**
-     * --- [NEW] Extracted function to set up base layers.
-     * This is called on initial load AND on every style change.
-     * --- [MODIFIED] Added text labels for callsign and phase.
-     * --- [MODIFIED v2] Split icons and labels into two layers
-     * to allow icons to always show while labels can hide.
-     */
     async function setupMapLayersAndFog() {
         // 1. Set globe fog (Unchanged)
         sectorOpsMap.setFog({
@@ -4432,7 +4425,7 @@ async function initializeSectorOpsMap(centerICAO) {
             });
         }
 
-        // 4. --- [START OF MODIFICATION] ---
+        // 4. --- [ICON LAYER - Unchanged] ---
         // Add the ICON layer
         if (!sectorOpsMap.getLayer('sector-ops-live-flights-layer')) {
             sectorOpsMap.addLayer({
@@ -4474,39 +4467,58 @@ async function initializeSectorOpsMap(centerICAO) {
             sectorOpsMap.on('mouseleave', 'sector-ops-live-flights-layer', () => { sectorOpsMap.getCanvas().style.cursor = ''; });
         }
         
-        // 5. Add the LABEL layer
+        // 5. --- [LABEL LAYER - MODIFIED] ---
+        // Add the LABEL layer
         if (!sectorOpsMap.getLayer('sector-ops-live-flights-labels')) {
             sectorOpsMap.addLayer({
                 id: 'sector-ops-live-flights-labels',
                 type: 'symbol',
                 source: 'sector-ops-live-flights-source', // Use the SAME source
                 layout: {
-                    // --- Text Properties ONLY ---
+                    // --- [MODIFICATION] ---
+                    // Combine callsign and phase onto one line
                     'text-field': [
-                        'format',
-                        ['get', 'callsign'], // Line 1
-                        '\n',                 // Newline
-                        ['get', 'phase']      // Line 2
+                        'concat',
+                        ['get', 'callsign'],
+                        ' ', // Add a space
+                        ['get', 'phase']
                     ],
+                    // --- [END MODIFICATION] ---
                     'text-font': ['Mapbox Txt Regular', 'Arial Unicode MS Regular'],
                     'text-size': 10,
                     'text-offset': [0, 2.5], // Offset text below the icon
                     'text-anchor': 'top',
                     
-                    // --- THIS IS THE KEY ---
-                    // Allow text to hide on collision
                     'text-allow-overlap': false,
                     'text-ignore-placement': false,
 
-                    // --- Remove all icon properties ---
-                    // 'icon-image': ... (REMOVED)
+                    // --- [NEW] ---
+                    // Add padding, which the background color will fill
+                    'text-padding': 3,
                 },
                 paint: {
-                    // --- Text Paint Properties ---
+                    // --- [MODIFICATION] ---
+                    // Set text to be white
                     'text-color': '#ffffff',
-                    'text-halo-color': 'rgba(0, 0, 0, 0.85)',
-                    'text-halo-width': 1.5,
-                    'text-halo-blur': 1
+
+                    // Use a data-driven background color to create a colored "tag"
+                    // This creates the "pill" effect you described (with sharp corners)
+                    'text-background-color': [
+                        'match',
+                        ['get', 'phase'],
+                        'Climb', 'rgba(34, 139, 34, 0.9)',     // phase-climb
+                        'Cruise', 'rgba(0, 119, 255, 0.9)',    // phase-cruise
+                        'Descent', 'rgba(255, 140, 0, 0.9)',   // phase-descent
+                        'Ground', 'rgba(100, 110, 130, 0.9)',   // phase-enroute
+                        'Enroute', 'rgba(100, 110, 130, 0.9)',  // phase-enroute
+                        'rgba(100, 110, 130, 0.9)'             // Default
+                    ],
+                    
+                    // Remove the old halo properties
+                    // 'text-halo-color': '...',
+                    // 'text-halo-width': 1.5,
+                    // 'text-halo-blur': 1
+                    // --- [END MODIFICATION] ---
                 }
             });
         }
