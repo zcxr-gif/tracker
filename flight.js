@@ -4572,7 +4572,7 @@ function rebuildDynamicLayers() {
     renderAirportMarkers();
 }
 
-    /**
+/**
  * --- [NEW] Draws or updates the filed flight plan layers (direct or full)
  * based on the current filter settings.
  * @param {string} flightId - The flightId of the selected aircraft.
@@ -4586,6 +4586,9 @@ function updateFlightPlanLayer(flightId, plan, currentPosition) {
 
     const layerIdDirect = `plan-path-direct-${flightId}`;
     const layerIdFull = `plan-path-full-${flightId}`;
+    
+    // --- [MODIFICATION] Add new layer ID for labels ---
+    const layerIdFullLabels = layerIdFull + '-labels'; // e.g., 'plan-path-full-FLIGHTID-labels'
 
     // --- Ensure layer IDs are tracked ---
     if (!sectorOpsLiveFlightPathLayers[flightId]) {
@@ -4593,11 +4596,13 @@ function updateFlightPlanLayer(flightId, plan, currentPosition) {
     }
     sectorOpsLiveFlightPathLayers[flightId].planDirect = layerIdDirect;
     sectorOpsLiveFlightPathLayers[flightId].planFull = layerIdFull;
+    // --- [NEW] Track the label layer ID ---
+    sectorOpsLiveFlightPathLayers[flightId].planFullLabels = layerIdFullLabels;
     
     // --- Get destination coordinates ---
-    const allWaypoints = flattenWaypointsFromPlan(plan.flightPlanItems);
-    if (allWaypoints.length < 2) return;
-    const destinationCoords = allWaypoints[allWaypoints.length - 1];
+    const allWaypointsForLine = flattenWaypointsFromPlan(plan.flightPlanItems); // Kept for 'direct' mode
+    if (allWaypointsForLine.length < 2) return;
+    const destinationCoords = allWaypointsForLine[allWaypointsForLine.length - 1];
     const currentCoords = [currentPosition.lon, currentPosition.lat];
 
     // --- 1. Handle "Direct to Destination" Line ---
@@ -4637,29 +4642,96 @@ function updateFlightPlanLayer(flightId, plan, currentPosition) {
     if (mapFilters.planDisplayMode === 'full') {
         const source = sectorOpsMap.getSource(layerIdFull);
         if (!source) {
+            // --- [START MODIFICATION] ---
             // This layer is static, so we only create it once
-            const fullLineData = {
+            
+            // Get coordinates for the line
+            const allWaypoints = flattenWaypointsFromPlan(plan.flightPlanItems);
+            // Get objects for the points/labels
+            const waypointObjects = getFlatWaypointObjects(plan.flightPlanItems);
+
+            const features = [];
+
+            // 1. Add the LineString feature
+            features.push({
                 type: 'Feature',
                 geometry: {
                     type: 'LineString',
                     coordinates: allWaypoints
                 }
+            });
+
+            // 2. Add all the Point features for labels
+            waypointObjects.forEach(wp => {
+                // Only add if it has a valid location
+                if (wp.location && wp.location.longitude != null && wp.location.latitude != null) {
+                    features.push({
+                        type: 'Feature',
+                        geometry: {
+                            type: 'Point',
+                            coordinates: [wp.location.longitude, wp.location.latitude]
+                        },
+                        properties: {
+                            // Use identifier first (e.g., "KLAX", "VDOT"), fallback to name (e.g., "Los Angeles Intl")
+                            name: wp.identifier || wp.name || '' 
+                        }
+                    });
+                }
+            });
+            
+            const fullLineData = {
+                type: 'FeatureCollection',
+                features: features
             };
+            
             sectorOpsMap.addSource(layerIdFull, { type: 'geojson', data: fullLineData });
+            
+            // Add the LINE layer (as requested by user)
             sectorOpsMap.addLayer({
                 id: layerIdFull,
                 type: 'line',
                 source: layerIdFull,
+                // Filter so this layer only draws the LineString
+                'filter': ['==', '$type', 'LineString'], 
                 paint: {
-                    'line-color': '#00a8ff', // Same blue
+                    'line-color': '#aaaaaa',      // Light grey color
                     'line-width': 2,
-                    'line-opacity': 0.8 // Solid line
+                    'line-opacity': 0.7,        // Not too showy
+                    'line-dasharray': [3, 3]    // Dashed line
                 }
             }, 'sector-ops-live-flights-layer'); // Below aircraft
+
+            // Add the LABEL layer
+            sectorOpsMap.addLayer({
+                id: layerIdFullLabels, // Use the new ID
+                type: 'symbol',
+                source: layerIdFull,
+                // Filter so this layer only draws the Points
+                'filter': ['==', '$type', 'Point'],
+                layout: {
+                    'text-field': ['get', 'name'],
+                    'text-font': ['Mapbox Txt Regular', 'Arial Unicode MS Regular'],
+                    'text-size': 10, // "not too big"
+                    'text-offset': [0, 0.8], // Offset slightly above the point
+                    'text-anchor': 'top',
+                    'text-allow-overlap': false, // Prevent clutter
+                    'text-ignore-placement': false
+                },
+                paint: {
+                    'text-color': '#ffffff',
+                    'text-halo-color': '#000000',
+                    'text-halo-width': 1
+                }
+            }, 'sector-ops-live-flights-layer'); // Below aircraft
+            
+            // --- [END MODIFICATION] ---
         }
     } else {
         // Remove the layer if the mode is not 'full'
         if (sectorOpsMap.getLayer(layerIdFull)) sectorOpsMap.removeLayer(layerIdFull);
+        // --- [NEW] Also remove the label layer ---
+        if (sectorOpsMap.getLayer(layerIdFullLabels)) sectorOpsMap.removeLayer(layerIdFullLabels);
+        
         if (sectorOpsMap.getSource(layerIdFull)) sectorOpsMap.removeSource(layerIdFull);
     }
 }
