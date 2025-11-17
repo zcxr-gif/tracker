@@ -148,7 +148,11 @@ class FlightAnimationState {
     // --- Math & Geo Helpers (Unchanged) ---
 
     _toRad(deg) { return (deg * Math.PI) / 180; }
-    _toDeg(rad) { return (rad * 180) / 180; }
+    
+    // !!!!!!!!!!!!! THIS WAS THE BUG !!!!!!!!!!!!!
+    // It said (rad * 180) / 180 before.
+    _toDeg(rad) { return (rad * 180) / Math.PI; } 
+    // !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
 
     _angularLerp(a, b, t) {
         let delta = b - a;
