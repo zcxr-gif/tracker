@@ -1,10 +1,12 @@
-// Crew Center – Merged Script with Pilot Stats Card & Upgraded PFD
+import { MapAnimator } from './mapAnimator.js';
+
 document.addEventListener('DOMContentLoaded', async () => {
     // --- Global Configuration ---
     const API_BASE_URL = 'https://site--indgo-backend--6dmjph8ltlhv.code.run';
     const LIVE_FLIGHTS_API_URL = 'https://site--acars-backend--6dmjph8ltlhv.code.run/flights';
     const ACARS_USER_API_URL = 'https://site--acars-backend--6dmjph8ltlhv.code.run/users'; // NEW: For user stats
     const TARGET_SERVER_NAME = 'Expert Server';
+    const CURRENT_SITE_URL = window.location.origin;
 
 
     // --- State Variables ---
@@ -35,7 +37,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     let pilotMarkers = {};
     let liveFlightsInterval = null;
     let sectorOpsMap = null;
-    let sectorOpsAnimationInterval = null; // Add this new variable
+    let mapAnimator = null;
     let airportAndAtcMarkers = {}; // Holds all airport markers (blue dots and red ATC dots)
     let sectorOpsMapRouteLayers = [];
     let sectorOpsLiveFlightPathLayers = {}; // NEW: To track multiple flight trails
@@ -70,19 +72,413 @@ document.addEventListener('DOMContentLoaded', async () => {
         hideAtcMarkers: false,
         hideAllAirports: false,
         hideNoAtcMarkers: false,
-        planDisplayMode: 'none'
+        planDisplayMode: 'none',
+        iconColorMode: 'default',
+        showAircraftLabels: false 
     };
 
     const departureHubs = []; // Empty array
     let ALL_AVAILABLE_ROUTES = []; // Empty array
     const DYNAMIC_FLEET = []; // Empty array
-    const AIRCRAFT_SELECTION_LIST = []; // Empty array
+    const AIRCRAFT_SELECTION_LIST = [
+        // Airbus
+        { value: 'A318', name: 'Airbus A318-100' },
+        { value: 'A319', name: 'Airbus A319-100' },
+        { value: 'A320', name: 'Airbus A320-200' },
+        { value: 'A20N', name: 'Airbus A320neo' },
+        { value: 'A321', name: 'Airbus A321-200' },
+        { value: 'A21N', name: 'Airbus A321neo' },
+        { value: 'A333', name: 'Airbus A330-300' },
+        { value: 'A339', name: 'Airbus A330-900neo' },
+        { value: 'A346', name: 'Airbus A340-600' },
+        { value: 'A359', name: 'Airbus A350-900' },
+        { value: 'A388', name: 'Airbus A380-800' },
+        // Boeing
+        { value: 'B712', name: 'Boeing 717-200' },
+        { value: 'B737', name: 'Boeing 737-700' },
+        { value: 'B738', name: 'Boeing 737-800' },
+        { value: 'B739', name: 'Boeing 737-900' },
+        { value: 'B38M', name: 'Boeing 737 MAX 8' },
+        { value: 'B742', name: 'Boeing 747-200B' },
+        { value: 'B744', name: 'Boeing 747-400' },
+        { value: 'B748', name: 'Boeing 747-8' },
+        { value: 'B752', name: 'Boeing 757-200' },
+        { value: 'B763', name: 'Boeing 767-300ER' },
+        { value: 'B772', name: 'Boeing 777-200ER' },
+        { value: 'B77L', name: 'Boeing 777-200LR' },
+        { value: 'B77W', name: 'Boeing 777-300ER' },
+        { value: 'B788', name: 'Boeing 787-8' },
+        { value: 'B789', name: 'Boeing 787-9' },
+        { value: 'B78X', name: 'Boeing 787-10' },
+        // Bombardier (CRJ)
+        { value: 'CRJ2', name: 'Bombardier CRJ-200' },
+        { value: 'CRJ7', name: 'Bombardier CRJ-700' },
+        { value: 'CRJ9', name: 'Bombardier CRJ-900' },
+        { value: 'CRJX', name: 'Bombardier CRJ-1000' },
+        // De Havilland
+        { value: 'DH8D', name: 'De Havilland Dash 8 Q400' },
+        // Embraer
+        { value: 'E175', name: 'Embraer E175' },
+        { value: 'E190', name: 'Embraer E190' },
+        // McDonnell Douglas
+        { value: 'DC10', name: 'McDonnell Douglas DC-10' },
+        { value: 'MD11', name: 'McDonnell Douglas MD-11' },
+    ];
+
+    /**
+     * --- [NEW] Saves the current mapFilters state to local storage.
+     */
+    function saveFiltersToLocalStorage() {
+        try {
+            localStorage.setItem('mapFilters', JSON.stringify(mapFilters));
+        } catch (e) {
+            console.warn("Could not save filters to local storage.", e);
+        }
+    }
+
+    /**
+     * --- [NEW] Loads mapFilters from local storage and merges with defaults.
+     */
+    function loadFiltersFromLocalStorage() {
+        const savedFilters = localStorage.getItem('mapFilters');
+        if (savedFilters) {
+            try {
+                const parsedFilters = JSON.parse(savedFilters);
+                // Merge saved filters with defaults to ensure new properties are not lost
+                mapFilters = { ...mapFilters, ...parsedFilters };
+                console.log("Loaded map filters from local storage.", mapFilters);
+            } catch (e) {
+                console.warn("Could not parse saved filters from local storage.", e);
+                // On error, just use the defaults
+            }
+        }
+    }
 
     async function fetchAndRenderRosters(hubIcao) {
         // This feature is disabled
         console.log("Roster feature is disabled.");
         return []; // Return empty array
     }
+
+    /**
+     * Helper Function: Renders the dispatch preview.
+     * This is the 'populateDispatchPass' function that
+     * SimbriefIntegration.js (sb.js) requires.
+     */
+    function populateDispatchPass(container, plan, options = {}) {
+        // Clear previous content
+        container.innerHTML = '';
+
+        // --- Helper functions for formatting ---
+        const formatEtd = (date) => {
+            const d = new Date(date);
+            return {
+                time: d.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit', timeZone: 'UTC' }),
+                date: d.toLocaleDateString('en-US', { year: 'numeric', month: 'short', day: 'numeric', timeZone: 'UTC' })
+            };
+        };
+        
+        const formatEet = (decimalHours) => {
+            const hours = Math.floor(decimalHours);
+            const minutes = Math.round((decimalHours % 1) * 60);
+            return `${String(hours).padStart(2, '0')}:${String(minutes).padStart(2, '0')}`;
+        };
+
+        // --- Format data for display ---
+        const etd = formatEtd(plan.etd);
+        const eetFormatted = formatEet(plan.eet);
+        const cargoFormatted = (plan.cargo > 0) ? plan.cargo.toFixed(0) : '0';
+        const cruiseSpeed = String(plan.cruiseSpeed).startsWith('M') ? plan.cruiseSpeed : `M${plan.cruiseSpeed}`;
+
+        // --- Define reusable inline styles ---
+        const sectionStyle = `padding: 16px 20px; border-bottom: 1px solid rgba(255, 255, 255, 0.1);`;
+        const gridStyle = `display: grid; grid-template-columns: repeat(auto-fit, minmax(120px, 1fr)); gap: 16px;`;
+        const itemStyle = `display: flex; flex-direction: column; gap: 4px;`;
+        const labelStyle = `font-size: 0.8rem; color: #9fa8da; text-transform: uppercase; font-weight: 600;`;
+        const valueStyle = `font-size: 1.1rem; color: #fff; font-weight: 600;`;
+        const headingStyle = `margin: 0 0 15px 0; color: #00a8ff; font-size: 1rem; font-weight: 600; display: flex; align-items: center; gap: 8px;`;
+        const metarStyle = `display: block; width: 100%; box-sizing: border-box; background: rgba(0,0,0,0.2); padding: 8px 10px; border-radius: 4px; font-family: monospace; color: #e0e0e0; font-size: 0.85rem; border: 1px solid rgba(255,255,255,0.1);`;
+
+        // Build the HTML for the dispatch preview
+        container.innerHTML = `
+            <div class="info-panel-header" style="display: flex; justify-content: space-between; align-items: center; padding: 16px 20px; background: rgba(10, 12, 26, 0.6); border-bottom: 1px solid rgba(255, 255, 255, 0.1);">
+                <h3>Dispatch Preview</h3>
+                <button id="dispatch-close-btn" class="sb-close-btn" title="Close Preview" style="background: none; border: none; color: #fff; font-size: 1.2rem; cursor: pointer;">
+                    <i class="fa-solid fa-times"></i>
+                </button>
+            </div>
+            <div class="dispatch-pass-body" style="padding: 0; color: #e8eaf6;">
+
+                <div class="dispatch-section" style="${sectionStyle}">
+                    <h4 style="${headingStyle}"><i class="fa-solid fa-plane"></i> Flight Details</h4>
+                    <div class="dispatch-grid" style="${gridStyle} grid-template-columns: 1fr 1fr;">
+                        <div class="dispatch-item" style="${itemStyle}">
+                            <span style="${labelStyle}">Flight</span>
+                            <span style="${valueStyle}">${plan.flightNumber}</span>
+                        </div>
+                        <div class="dispatch-item" style="${itemStyle}">
+                            <span style="${labelStyle}">Aircraft</span>
+                            <span style="${valueStyle}">${plan.aircraft}</span>
+                        </div>
+                        <div class="dispatch-item" style="${itemStyle}">
+                            <span style="${labelStyle}">Departure</span>
+                            <span style="${valueStyle}">${plan.departure}</span>
+                        </div>
+                        <div class="dispatch-item" style="${itemStyle}">
+                            <span style="${labelStyle}">Arrival</span>
+                            <span style="${valueStyle}">${plan.arrival}</span>
+                        </div>
+                        <div class="dispatch-item" style="${itemStyle}">
+                            <span style="${labelStyle}">Alternate</span>
+                            <span style="${valueStyle}">${plan.alternate || 'N/A'}</span>
+                        </div>
+                        <div class="dispatch-item" style="${itemStyle}">
+                            <span style="${labelStyle}">Squawk</span>
+                            <span style="${valueStyle}">${plan.squawkCode || '----'}</span>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="dispatch-section" style="${sectionStyle}">
+                    <h4 style="${headingStyle}"><i class="fa-solid fa-clock"></i> Performance & Time</h4>
+                    <div class="dispatch-grid" style="${gridStyle}">
+                        <div class="dispatch-item" style="${itemStyle}">
+                            <span style="${labelStyle}">ETD (UTC)</span>
+                            <span style="${valueStyle}">${etd.time}</span>
+                        </div>
+                        <div class="dispatch-item" style="${itemStyle}">
+                            <span style="${labelStyle}">Date</span>
+                            <span style="${valueStyle}">${etd.date}</span>
+                        </div>
+                        <div class="dispatch-item" style="${itemStyle}">
+                            <span style="${labelStyle}">EET</span>
+                            <span style="${valueStyle}">${eetFormatted}</span>
+                        </div>
+                        <div class="dispatch-item" style="${itemStyle}">
+                            <span style="${labelStyle}">Cruise</span>
+                            <span style="${valueStyle}">${plan.cruiseAltitude} ft / ${cruiseSpeed}</span>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="dispatch-section" style="${sectionStyle}">
+                    <h4 style="${headingStyle}"><i class="fa-solid fa-weight-hanging"></i> Weight & Fuel</h4>
+                    <div class="dispatch-grid" style="${gridStyle}">
+                        <div class="dispatch-item" style="${itemStyle}">
+                            <span style="${labelStyle}">POB</span>
+                            <span style="${valueStyle}">${plan.pob}</span>
+                        </div>
+                        <div class="dispatch-item" style="${itemStyle}">
+                            <span style="${labelStyle}">Cargo (KG)</span>
+                            <span style="${valueStyle}">${cargoFormatted}</span>
+                        </div>
+                        <div class="dispatch-item" style="${itemStyle}">
+                            <span style="${labelStyle}">ZFW (KG)</span>
+                            <span style="${valueStyle}">${plan.zfw}</span>
+                        </div>
+                        <div class="dispatch-item" style="${itemStyle}">
+                            <span style="${labelStyle}">TOW (KG)</span>
+                            <span style="${valueStyle}">${plan.tow}</span>
+                        </div>
+                        <div class="dispatch-item" style="${itemStyle} grid-column: 1 / -1;">
+                            <span style="${labelStyle}">Block Fuel (KG)</span>
+                            <span style="${valueStyle}">${plan.fuelTotal}</span>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="dispatch-section" style="${sectionStyle}">
+                    <h4 style="${headingStyle}"><i class="fa-solid fa-cloud-sun"></i> Weather</h4>
+                    <div class="dispatch-item" style="${itemStyle} margin-bottom: 12px;">
+                        <span style="${labelStyle}">Departure (${plan.departure})</span>
+                        <code style="${metarStyle}">${plan.departureWeather.raw}</code>
+                    </div>
+                    <div class="dispatch-item" style="${itemStyle}">
+                        <span style="${labelStyle}">Arrival (${plan.arrival})</span>
+                        <code style="${metarStyle}">${plan.arrivalWeather.raw}</code>
+                    </div>
+                </div>
+                
+                <div class="dispatch-section" style="padding: 16px 20px; background: rgba(10, 12, 26, 0.6);">
+                    <h4 style="${headingStyle}"><i class="fa-solid fa-route"></i> Full Route</h4>
+                    <textarea readonly style="width: 100%; height: 100px; background: #1a1a1a; color: #fff; border: 1px solid #444; border-radius: 4px; font-family: monospace; padding: 8px; box-sizing: border-box;">${plan.route}</textarea>
+                </div>
+                
+                ${options.isPreview ? `
+                    <div class="dispatch-button-area" style="padding: 16px 20px; background: rgba(10, 12, 26, 0.6);">
+                        <button id="save-from-simbrief-btn" class="sb-generate-btn" style="width: 100%; padding: 12px; background: #00a8ff; color: #fff; border: none; border-radius: 5px; cursor: pointer; font-size: 1rem; font-weight: 600;">
+                            <i class="fa-solid fa-save"></i> Save This Flight Plan
+                        </button>
+                    </div>
+                ` : ``}
+            </div>
+        `;
+    }
+
+    /**
+ * Helper Function: Callback for when flights are saved/erased.
+ * This is the 'onFlightSaved' callback for SimbriefIntegration.js.
+ * --- MODIFIED: This function now re-renders the saved flight list. ---
+ */
+function refreshSavedFlightList() {
+    console.log("SimbriefIntegration: onFlightSaved callback triggered!");
+    // This new function will render the list in the UI
+    renderSavedFlightList();
+}
+
+/**
+ * --- [NEW FUNCTION] ---
+ * Renders the list of saved flights from local storage into the UI.
+ */
+function renderSavedFlightList() {
+    // Ensure SimbriefIntegration is available
+    if (typeof SimbriefIntegration === 'undefined') {
+        return;
+    }
+
+    const flights = SimbriefIntegration.getAllSavedFlights();
+    
+    const listContainer = document.getElementById('saved-flights-list');
+    const noFlightsMsg = document.getElementById('no-saved-flights-msg');
+    const deleteAllBtn = document.getElementById('saved-flights-delete-all-btn');
+
+    if (!listContainer || !noFlightsMsg || !deleteAllBtn) {
+        // The HTML for the panel hasn't loaded yet, or is missing.
+        return;
+    }
+
+    // Clear the list first
+    listContainer.innerHTML = '';
+
+    if (flights.length === 0) {
+        // Show "No flights" message
+        noFlightsMsg.style.display = 'block';
+        listContainer.style.display = 'none';
+        deleteAllBtn.style.display = 'none';
+    } else {
+        // Hide "No flights" message and show list
+        noFlightsMsg.style.display = 'none';
+        listContainer.style.display = 'block';
+        deleteAllBtn.style.display = 'block';
+
+        // `getAllSavedFlights` returns flights oldest-to-newest.
+        // We reverse it to show the newest flight on top.
+        flights.reverse().forEach(flight => {
+            const flightHtml = `
+                <li class="saved-flight-item">
+                    <div class="saved-flight-info">
+                        <strong>
+                            <i class="fa-solid fa-plane"></i>
+                            ${flight.flightNumber || 'No Callsign'}
+                        </strong>
+                        <small>${flight.departure || '???'} &rarr; ${flight.arrival || '???'} (${flight.aircraft || 'A/C'})</small>
+                    </div>
+                    <div class="saved-flight-actions">
+                        <button class="saved-flight-btn saved-flight-view-btn" data-flight-id="${flight.id}">
+                            View
+                        </button>
+                        <button class="saved-flight-btn saved-flight-delete-btn" data-flight-id="${flight.id}" title="Delete this plan">
+                            <i class="fa-solid fa-trash"></i>
+                        </button>
+                    </div>
+                </li>
+            `;
+            listContainer.insertAdjacentHTML('beforeend', flightHtml);
+        });
+    }
+}
+
+/**
+ * --- [NEW FUNCTION] ---
+ * Handles all clicks for the saved flights list using event delegation.
+ */
+function handleSavedFlightListClick(e) {
+    const viewBtn = e.target.closest('.saved-flight-view-btn');
+    const deleteBtn = e.target.closest('.saved-flight-delete-btn');
+    const deleteAllBtn = e.target.closest('#saved-flights-delete-all-btn');
+
+    // 1. Handle "View" button click
+    if (viewBtn) {
+        e.preventDefault();
+        const flightId = viewBtn.dataset.flightId;
+        if (!flightId || typeof SimbriefIntegration === 'undefined') return;
+
+        const flights = SimbriefIntegration.getAllSavedFlights();
+        const flightToView = flights.find(f => f.id === flightId);
+
+        if (flightToView) {
+            // The dispatch pass renderer needs 'etd' and 'eta' as Date objects.
+            // The saved payload has 'etd' as a string and only 'eet' (decimal hours).
+            
+            // Re-calculate ETA
+            const etdDate = new Date(flightToView.etd);
+            const eetMs = (flightToView.eet || 0) * 3600 * 1000;
+            const etaDate = new Date(etdDate.getTime() + eetMs);
+
+            // Get containers
+            const dispatchDisplay = document.getElementById('dispatch-pass-display');
+            const manualDispatchContainer = document.getElementById('manual-dispatch-container');
+
+            if (!dispatchDisplay || !manualDispatchContainer) return;
+
+            // Populate the dispatch pass
+            // We create a new object to pass the correct Date objects
+            populateDispatchPass(dispatchDisplay, {
+                ...flightToView,
+                etd: etdDate,
+                eta: etaDate
+            }, { isPreview: false }); // isPreview: false hides the "Save" button
+
+            // Show the dispatch pass and hide the form
+            manualDispatchContainer.style.display = 'none';
+            dispatchDisplay.style.display = 'block';
+
+            // Scroll the tab content to the top
+            const tabContent = dispatchDisplay.closest('.tab-content');
+            if (tabContent) {
+                tabContent.scrollTop = 0;
+            }
+        }
+        return; // End execution
+    }
+
+    // 2. Handle "Delete" (single) button click
+    if (deleteBtn) {
+        e.preventDefault();
+        const flightId = deleteBtn.dataset.flightId;
+        if (!flightId || typeof SimbriefIntegration === 'undefined') return;
+        
+        // Use native browser confirm dialog
+        if (confirm("Are you sure you want to delete this flight plan?")) {
+            const flights = SimbriefIntegration.getAllSavedFlights();
+            const newFlights = flights.filter(f => f.id !== flightId);
+            
+            // Save the new array back to local storage
+            // Note: sb.js doesn't have a "delete one" method, so we do it manually
+            localStorage.setItem('communityTrackerFlights', JSON.stringify(newFlights));
+            
+            // Manually trigger the refresh
+            refreshSavedFlightList();
+            showNotification('Flight plan deleted.', 'success');
+        }
+        return; // End execution
+    }
+
+    // 3. Handle "Delete All" button click
+    if (deleteAllBtn) {
+        e.preventDefault();
+        if (typeof SimbriefIntegration === 'undefined') return;
+
+        // Use native browser confirm dialog
+        if (confirm("Are you sure you want to delete ALL saved flight plans? This cannot be undone.")) {
+            // This function from sb.js will delete the key
+            // and automatically call our 'refreshSavedFlightList'
+            // callback, which re-renders the (now empty) list.
+            SimbriefIntegration.eraseAllSavedFlights();
+        }
+        return; // End execution
+    }
+}
     
     async function fetchAndRenderRoutes() {
         // This feature is disabled
@@ -98,7 +494,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     // --- Helper: Fetch API Keys from Netlify Function ---
     async function fetchApiKeys() {
         try {
-            const response = await fetch('https://inflight.info/.netlify/functions/config');
+            const response = await fetch(`${CURRENT_SITE_URL}/.netlify/functions/config`);
             if (!response.ok) throw new Error('Could not fetch server configuration.');
             
             const config = await response.json();
@@ -1453,7 +1849,7 @@ function injectCustomStyles() {
         ====================================================================
         */
 
-        /* ##### MODIFICATION START ##### */
+        /* ##### MODIFICATION START (Specificity Fix) ##### */
         /* --- [NEW] Aircraft Window Tab Styles --- */
         .ac-info-window-tabs {
             display: flex;
@@ -1502,10 +1898,11 @@ function injectCustomStyles() {
         .ac-info-tab-btn.active { color: #00a8ff; border-bottom-color: #00a8ff; }
 
         /* Hide the old toggle buttons, as tabs replace them */
-        .pilot-stats-toggle-btn,
+        /* .pilot-stats-toggle-btn,
         .back-to-flight-btn {
-            display: none !important;
+            display: none !important; 
         }
+        */
 
         /* --- [MODIFIED] VSD Disclaimer --- */
         .vsd-disclaimer {
@@ -2010,57 +2407,251 @@ function injectCustomStyles() {
 }
 
 /**
-     * --- [NEW - REVISED v3] Fetches and injects the external HTML content for the info panel.
-     * This function now REPLACES the old tab structure with the new single-page content,
-     * reusing and RE-STYLING the existing .panel-content wrapper to make it scrollable.
-     */
-    async function loadExternalPanelContent() {
-        const panel = document.getElementById('sector-ops-floating-panel');
-        if (!panel) {
-            console.error('Could not find #sector-ops-floating-panel to inject content.');
-            return;
-        }
+ * --- [FIXED] Helper to find the Simbrief aircraft <option> value
+ * from a given aircraft name.
+ * @param {string} aircraftName - The aircraft name (e.g., "Airbus A320-200" or "A320").
+ * @returns {string|null} The matching value (e.g., "A320") or null.
+ */
+function findSimbriefAircraftValue(aircraftName) {
+    if (!aircraftName || !AIRCRAFT_SELECTION_LIST) return null;
+    
+    const upperName = aircraftName.toUpperCase().trim();
 
-        // 1. Find and remove the old UI tabs
-        const oldTabs = panel.querySelector('.panel-tabs');
-        if (oldTabs) {
-            oldTabs.remove();
-        }
-
-        // 2. Find the main content container (which we will REUSE)
-        const mainContentContainer = panel.querySelector('.panel-content');
-        if (!mainContentContainer) {
-            console.error('Could not find .panel-content to inject content into.');
-            return;
-        }
+    // --- [NEW FIX] Step 0: Create a specific mapping for known mismatches ---
+    // This is the most reliable solution.
+    // Key: The exact name from the Infinite Flight API (in uppercase).
+    // Value: The "value" from your AIRCRAFT_SELECTION_LIST.
+    const knownMismatches = {
+        // --- Airbus ---
+        "AIRBUS A318": "A318",
+        "AIRBUS A319": "A319",
+        "AIRBUS A320-200": "A320",
+        "A320": "A320", // In case the API just sends "A320"
+        "AIRBUS A320NEO": "A20N",
+        "A320NEO": "A20N",
+        "AIRBUS A321": "A321",
+        "A321": "A321",
+        "AIRBUS A321NEO": "A21N",
+        "A321NEO": "A21N",
+        "AIRBUS A330-300": "A333",
+        "AIRBUS A330-900": "A339",
+        "AIRBUS A340": "A346",
+        "AIRBUS A350": "A359",
+        "AIRBUS A380": "A388",
         
-        // 3. Clear this container and show a loading spinner
-        mainContentContainer.innerHTML = '<div class="spinner-small" style="margin: 2rem auto;"></div>';
+        // --- Boeing ---
+        "BOEING 717-200": "B712",
+        "BOEING 737-700": "B737",
+        "BOEING 737-800": "B738",
+        "B738": "B738", // In case the API just sends "B738"
+        "BOEING 737-900": "B739",
+        "BOEING 737 MAX 8": "B38M",
+        "BOEING 747-200B": "B742",
+        "BOEING 747-400": "B744",
+        "BOEING 747-8": "B748",
+        "BOEING 757-200": "B752",
+        "BOEING 767-300ER": "B763",
+        "BOEING 777-200ER": "B772",
+        "BOEING 777-200LR": "B77L",
+        "BOEING 777-300ER": "B77W",
+        "BOEING 787-8": "B788",
+        "BOEING 787-9": "B789",
+        "BOEING 787-10": "B78X",
 
-        // 4. [CRITICAL FIX] Modify the container to be scrollable
-        // The original CSS in index.html has 'overflow: hidden', which we must override.
-        mainContentContainer.style.overflow = 'auto'; 
+        // --- Others ---
+        "CRJ-200": "CRJ2",
+        "CRJ-700": "CRJ7",
+        "CRJ-900": "CRJ9",
+        "CRJ-1000": "CRJX",
+        "DE HAVILLAND DASH 8 Q400": "DH8D",
+        "E175": "E175",
+        "E190": "E190",
+        "DC-10": "DC10",
+        "MD-11": "MD11"
         
-        // 5. Fetch and inject the new content
-        try {
-            const response = await fetch('panel-content.html');
-            if (!response.ok) {
-                throw new Error(`Failed to fetch panel-content.html (Status: ${response.status})`);
-            }
-            const htmlContent = await response.text();
-            
-            // Inject the new content directly into the existing .panel-content div
-            mainContentContainer.innerHTML = htmlContent;
-            
-        } catch (error) {
-            console.error('Error loading external panel content:', error);
-            mainContentContainer.innerHTML = `
-                <div class="info-panel-content">
-                    <p class="error-text">Could not load panel content.</p>
-                </div>
-            `;
-        }
+        // --- Add more known mismatches here as you find them ---
+        // "API NAME": "YOUR_VALUE",
+    };
+
+    // Try the new mismatch map first.
+    if (knownMismatches[upperName]) {
+        return knownMismatches[upperName];
     }
+    
+    // --- If not in the map, fallback to existing logic ---
+
+    // 1. Try to match by "value" (e.g., "A320")
+    let match = AIRCRAFT_SELECTION_LIST.find(ac => ac.value.toUpperCase() === upperName);
+    if (match) return match.value;
+
+    // 2. Try to match by "name" (e.g., "Airbus A320-200")
+    match = AIRCRAFT_SELECTION_LIST.find(ac => ac.name.toUpperCase() === upperName);
+    if (match) return match.value;
+    
+    // 3. Fallback: Try to find a "value" that is *included* in the name
+    // (e.g., name is "Airbus A320neo", value is "A20N")
+    match = AIRCRAFT_SELECTION_LIST.find(ac => upperName.includes(ac.value.toUpperCase()));
+    if (match) return match.value;
+
+    // 4. Fallback: Try to find a "name" that *includes* the given name
+    // (e.g., name is "A320", list name is "Airbus A320-200")
+     match = AIRCRAFT_SELECTION_LIST.find(ac => ac.name.toUpperCase().includes(upperName));
+    if (match) return match.value;
+
+    console.warn(`Could not find Simbrief match for aircraft: ${aircraftName}`);
+    return null; // No match found
+}
+
+
+    /**
+ * render the flight list on load.
+ */
+async function loadExternalPanelContent() {
+    const panel = document.getElementById('sector-ops-floating-panel');
+    if (!panel) {
+        console.error('Could not find #sector-ops-floating-panel to inject content.');
+        return;
+    }
+
+    // 1. Find and remove the old UI tabs
+    const oldTabs = panel.querySelector('.panel-tabs');
+    if (oldTabs) {
+        oldTabs.remove();
+    }
+
+    // 2. Find the main content container (which we will REUSE)
+    const mainContentContainer = panel.querySelector('.panel-content');
+    if (!mainContentContainer) {
+        console.error('Could not find .panel-content to inject content into.');
+        return;
+    }
+    
+    // 3. Clear this container and show a loading spinner
+    mainContentContainer.innerHTML = '<div class="spinner-small" style="margin: 2rem auto;"></div>';
+
+    // 4. [CRITICAL FIX] Modify the container to be scrollable
+    // The original CSS in index.html has 'overflow: hidden', which we must override.
+    mainContentContainer.style.overflow = 'auto'; 
+    
+    // 5. Fetch and inject the new content
+    try {
+        const response = await fetch('panel-content.html');
+        if (!response.ok) {
+            throw new Error(`Failed to fetch panel-content.html (Status: ${response.status})`);
+        }
+        const htmlContent = await response.text();
+        
+        // Inject the new content directly into the existing .panel-content div
+        mainContentContainer.innerHTML = htmlContent;
+
+        // ===================================================================
+        // START: Logic from panel-tabs.js
+        // We run this logic *after* mainContentContainer.innerHTML is set.
+        // ===================================================================
+        
+        // Note: We query *inside* the mainContentContainer to be specific
+        const tabButtons = mainContentContainer.querySelectorAll('.panel-tab-btn');
+        const tabContents = mainContentContainer.querySelectorAll('.tab-content');
+
+        // Function to switch to a specific tab
+        function activateTab(tabId) {
+            tabButtons.forEach(btn => {
+                if (btn.dataset.tab === tabId) {
+                    btn.classList.add('active');
+                } else {
+                    btn.classList.remove('active');
+                }
+            });
+
+            tabContents.forEach(content => {
+                if (content.id === tabId) {
+                    content.classList.add('active');
+                } else {
+                    content.classList.remove('active');
+                }
+            });
+        }
+
+        // Add click event listener to each tab button
+        tabButtons.forEach(button => {
+            button.addEventListener('click', () => {
+                const tabId = button.dataset.tab;
+                activateTab(tabId);
+            });
+        });
+
+        // --- SimBrief Integration Logic ---
+        const urlParams = new URLSearchParams(window.location.search);
+        if (urlParams.get('view') === 'view-flight-plan' || urlParams.has('ofp_id')) {
+            activateTab('tab-flightplan');
+        } else {
+            // Show the default active tab (Welcome)
+            // The 'active' class is already on the HTML, but this confirms it.
+            activateTab('tab-welcome');
+        }
+
+        const aircraftSelect = mainContentContainer.querySelector('#fp-aircraft');
+        
+        if (aircraftSelect && AIRCRAFT_SELECTION_LIST.length > 0) {
+            // Loop through the constant and create <option> elements
+            AIRCRAFT_SELECTION_LIST.forEach(aircraft => {
+                const option = document.createElement('option');
+                option.value = aircraft.value; // e.g., "A320"
+                option.textContent = aircraft.name; // e.g., "Airbus A320-200"
+                aircraftSelect.appendChild(option);
+            });
+        } else {
+            console.warn("Could not find #fp-aircraft select or AIRCRAFT_SELECTION_LIST is empty.");
+        }
+
+        // Check if SimbriefIntegration object (from sb.js) exists
+        if (typeof SimbriefIntegration !== 'undefined') {
+            
+            // Initialize the module, passing in the helpers it needs
+            SimbriefIntegration.init({
+                // netlifySimbriefUrl is already set in sb.js
+
+                // Pass the main showNotification function from flight.js
+                showNotification: showNotification,
+
+                // Pass the populateDispatchPass function we just added
+                populateDispatchPass: populateDispatchPass,
+
+                // Pass the onFlightSaved callback we just added
+                onFlightSaved: refreshSavedFlightList,
+
+                // (Optional) Max number of flights to save.
+                maxFlights: 2
+            });
+            
+            console.log("SimbriefIntegration module initialized successfully.");
+
+            // --- [NEW CODE TO ADD START] ---
+            
+            // 1. Add the master click listener for the saved flights list
+            // We attach it to mainContentContainer for event delegation
+            mainContentContainer.addEventListener('click', handleSavedFlightListClick);
+
+            // 2. Render the saved flights list on initial load
+            renderSavedFlightList();
+
+            // --- [NEW CODE TO ADD END] ---
+            
+        } else {
+            console.error("SimbriefIntegration (sb.js) is not loaded. SimBrief features will not work.");
+            // We can use the main notification function to tell the user
+            showNotification("SimBrief integration script (sb.js) failed to load.", "error");
+        }
+        
+    } catch (error) {
+        console.error('Error loading external panel content:', error);
+        mainContentContainer.innerHTML = `
+            <div class="info-panel-content">
+                <p class="error-text">Could not load panel content.</p>
+            </div>
+        `;
+    }
+}
 
     /**
      * --- [FIXED] Handles the search input event.
@@ -2220,6 +2811,25 @@ function injectCustomStyles() {
                 }
             });
     }
+
+/**
+ * --- [NEW FUNCTION] ---
+ * Toggles the visibility of the aircraft label layer based on mapFilters.showAircraftLabels state.
+ */
+function updateAircraftLabelVisibility() {
+    if (!sectorOpsMap || !sectorOpsMap.getLayer('sector-ops-live-flights-labels')) {
+        return;
+    }
+    
+    // Use setLayoutProperty to change the layer's visibility
+    sectorOpsMap.setLayoutProperty(
+        'sector-ops-live-flights-labels',
+        'visibility',
+        mapFilters.showAircraftLabels ? 'visible' : 'none'
+    );
+    
+    console.log('Aircraft label visibility set to:', mapFilters.showAircraftLabels ? 'visible' : 'none');
+}
 
 /**
      * --- [FIXED] Toggles the OpenWeatherMap Precipitation Layer ---
@@ -2393,10 +3003,13 @@ function injectCustomStyles() {
         // 1. Update Aircraft Filter (using Mapbox setFilter)
         updateAircraftLayerFilter();
 
-        // 2. Update Airport Filter (by re-rendering markers)
+        // 2. Update Aircraft Label Filter
+        updateAircraftLabelVisibility();
+
+        // 3. Update Airport Filter (by re-rendering markers)
         renderAirportMarkers();
         
-        // 3. Update Toolbar Button States (Weather + Filters)
+        // 4. Update Toolbar Button States (Weather + Filters)
         updateToolbarButtonStates();
     }
 
@@ -2488,7 +3101,7 @@ async function fetchAndDisplayGeocode(lat, lon) {
 
     try {
         // 3. Call your new Netlify Function
-        const response = await fetch(`https://inflight.info/.netlify/functions/reverse-geocode?lat=${lat}&lon=${lon}`);
+        const response = await fetch(`${CURRENT_SITE_URL}/.netlify/functions/reverse-geocode?lat=${lat}&lon=${lon}`);
 
         // [CRITICAL FIX] Query all *after* the await to get the (potentially) new DOM structure
         const currentElements = document.querySelectorAll('#ac-location');
@@ -2537,6 +3150,38 @@ async function fetchRunwaysData() {
         console.error('Failed to fetch runway data:', error);
         showNotification('Runway data not available; takeoff/landing detection may be limited.', 'error');
     }
+}
+
+/**
+ * --- [NEW] Gets a simplified, "lite" flight phase based only on position data.
+ * This is cheap to calculate and suitable for all-flight map labels.
+ * @param {object} position - The flight's position object from the socket.
+ * @returns {string} A simple phase string.
+ */
+function getLiteFlightPhase(position) {
+    if (!position) return '';
+
+    const vs = position.vs_fpm || 0;
+    const altitude = position.alt_ft || 0;
+    const gs = position.gs_kt || 0;
+
+    // On Ground Check (simplified: under 1000ft, low groundspeed, low VS)
+    if (altitude < 1000 && gs < 40 && Math.abs(vs) < 150) {
+        return 'Ground';
+    }
+    
+    // In-Air Checks
+    if (vs > 350) {
+        return 'Climb';
+    }
+    if (vs < -500) {
+        return 'Descent';
+    }
+    if (altitude > 18000 && Math.abs(vs) < 500) {
+        return 'Cruise';
+    }
+    
+    return 'Enroute'; // Default for level flight, etc.
 }
 
 /**
@@ -2754,109 +3399,102 @@ function getIntermediatePoint(lat1, lon1, lat2, lon2, fraction) {
 
 
 /**
- * --- [REPLACEMENT - TELEPORT VERSION] Handles live flight data received from the WebSocket.
- * This function updates the map source directly, causing aircraft to "teleport"
- * to their new positions with each update.
- *
- * ⬇️ MODIFIED: Now passes `isStaff` and `isVAMember` to the map source properties.
- * ⬇️
- * ⬇️ --- FIX: Added timestamp check to prevent race conditions ("jump back" bug) ---
- * ⬇️ --- FIX (v2): Ensure `flight.aircraft` is not undefined to prevent JSON.parse errors downstream.
+ * --- [REPLACEMENT - DELEGATOR VERSION - MODIFIED] Handles live flight data received from the WebSocket.
+ * This function now only validates data, creates the properties object,
+ * and delegates all animation/map logic to the MapAnimator.
+ * The strict check (newPacketTimestamp <= lastSocketUpdateTimestamp)
+ * has been removed. The animator will now "chase" every packet
+ * it receives, even if it's technically "stale," preventing
+ * the icon from freezing due to network/server packet ordering issues.
  */
 function handleSocketFlightUpdate(data) {
     if (!data || !Array.isArray(data.flights) || !data.timestamp) {
         console.warn('Socket: Received invalid or untimestamped flights data packet.');
         return;
     }
+    
+    // --- [REMOVED] Timestamp validation block ---
+    // The strict timestamp check has been removed to
+    // accept all incoming data packets as valid targets.
+    // We still update the lastSocketUpdateTimestamp for reference,
+    // but we no longer use it to discard packets.
+    lastSocketUpdateTimestamp = new Date(data.timestamp).getTime();
+    // --- [END REMOVED BLOCK] ---
 
-    // --- [NEW] Timestamp validation to prevent "jump back" race condition ---
-    const newPacketTimestamp = new Date(data.timestamp).getTime();
-    if (newPacketTimestamp <= lastSocketUpdateTimestamp) {
-        // This packet is older than (or same as) the one we just rendered. Discard it.
-        console.warn(`Socket: Discarding stale flight data packet (Lag: ${lastSocketUpdateTimestamp - newPacketTimestamp}ms)`);
-        return;
-    }
-    // This packet is new. Update our "last seen" time.
-    lastSocketUpdateTimestamp = newPacketTimestamp;
-    // --- [END NEW] ---
-
-
-    if (!sectorOpsMap || !sectorOpsMap.isStyleLoaded()) {
-        return; // Map not ready
-    }
-
-    const source = sectorOpsMap.getSource('sector-ops-live-flights-source');
-    if (!source) {
-        console.warn('Socket: Map source not found, cannot update flight positions.');
-        return;
+    if (!sectorOpsMap || !sectorOpsMap.isStyleLoaded() || !mapAnimator) {
+        return; // Map or Animator not ready
     }
 
     const flights = data.flights;
     const updatedFlightIds = new Set();
 
     flights.forEach(flight => {
-        if (!flight.position || flight.position.lat == null || flight.position.lon == null) return;
+        //
+        // ##### THIS IS THE FIX #####
+        //
+        // The previous check (lat == null) did NOT filter out NaN.
+        // If a plane's lat/lon becomes NaN, it poisons the
+        // animation state.
+        //
+        // isFinite() correctly checks for null, undefined, AND NaN.
+        //
+        if (!flight.position || !isFinite(flight.position.lat) || !isFinite(flight.position.lon)) {
+            return; // Skip this flight
+        }
+        //
+        // ##### END FIX #####
+        //
 
         const flightId = flight.flightId;
         updatedFlightIds.add(flightId);
 
-        // Extract new API data
-        const newApiLat = flight.position.lat;
-        const newApiLon = flight.position.lon;
-        // ⬇️ MODIFIED: Read from heading_deg as track_deg is no longer sent
-        const newApiHeading = flight.position.heading_deg || 0;
-        const newApiSpeed = flight.position.gs_kt || 0;
+        // --- This function is still responsible for building the properties ---
+        // --- (because this is application-specific) ---
         
-        // --- [START OF FIX] ---
-        // Ensure `flight.aircraft` is at least `null` if it's undefined
+        const litePhase = getLiteFlightPhase(flight.position);
         const aircraftData = flight.aircraft || null;
-        // --- [END OF FIX] ---
         
         const newProperties = {
             flightId: flight.flightId,
             callsign: flight.callsign,
             username: flight.username,
             altitude: flight.position.alt_ft,
-            speed: newApiSpeed,
+            speed: flight.position.gs_kt || 0,
             verticalSpeed: flight.position.vs_fpm || 0,
             position: JSON.stringify(flight.position),
-            
-            // --- [MODIFIED BY FIX] ---
-            aircraft: JSON.stringify(aircraftData), // Use the safe variable
-            // --- [END MODIFIED] ---
-            
+            aircraft: JSON.stringify(aircraftData),
             userId: flight.userId,
             category: getAircraftCategory(flight.aircraft?.aircraftName),
-            heading: newApiHeading, // Pass heading for icon rotation
-            // ⬇️ === NEW: Add VA status for icon logic === ⬇️
+            //
+            // ##### THIS IS THE FIX #####
+            //
+            // We remove '|| 0'. This allows a 'null' or 'undefined' heading
+            // to be passed to the animator, which is correctly
+            // designed to handle it by holding the last known good heading.
+            // Forcing it to '0' here was causing conflicts.
+            //
+            heading: flight.position.heading_deg, 
+            //
+            // ##### END FIX #####
+            //
             isStaff: flight.isStaff,
-            isVAMember: flight.isVAMember
-            // ⬆️ === END OF NEW LINES === ⬆️
+            isVAMember: flight.isVAMember,
+            phase: litePhase 
         };
 
-        // Create or update the feature in our state
-        currentMapFeatures[flightId] = {
-            type: 'Feature',
-            geometry: {
-                type: 'Point',
-                coordinates: [newApiLon, newApiLat]
-            },
-            properties: newProperties
-        };
+        // --- Delegate to the animator ---
+        // We no longer pass 'packetDuration' as the animator
+        // (mapAnimator.js) doesn't use it.
+        mapAnimator.updateFlight(flight.position, newProperties);
     });
 
-    // Clean up old flights that are no longer in the broadcast
+    // Clean up old flights
     for (const flightId in currentMapFeatures) {
-        if (!updatedFlightIds.has(flightId)) {
-            delete currentMapFeatures[flightId];
+        if (!updatedFlightIds.has(String(flightId))) {
+            // --- Delegate removal to the animator ---
+            mapAnimator.removeFlight(flightId);
         }
     }
-
-    // Update the map source with the new feature collection
-    source.setData({
-        type: 'FeatureCollection',
-        features: Object.values(currentMapFeatures)
-    });
 }
 
 /**
@@ -3515,7 +4153,7 @@ function updatePfdDisplay(pfdData) {
         // Fetch weather
         let weatherHtml = '';
         try {
-            const weatherRes = await fetch(`https://inflight.info/.netlify/functions/weather?icao=${icao}`);
+            const weatherRes = await fetch(`${CURRENT_SITE_URL}/.netlify/functions/weather?icao=${icao}`);
             if (weatherRes.ok) {
                 const weatherData = await weatherRes.json();
                 if (weatherData.data && weatherData.data.length > 0) {
@@ -3896,6 +4534,73 @@ function setupAircraftWindowEvents() {
         const closeBtn = e.target.closest('.aircraft-window-close-btn');
         const hideBtn = e.target.closest('.aircraft-window-hide-btn');
         const tabBtn = e.target.closest('.ac-info-tab-btn');
+        
+        // ===================================================================
+        // --- [NEW BUTTON LISTENER START] ---
+        // ===================================================================
+        const planBtn = e.target.closest('#plan-this-flight-btn');
+
+        if (planBtn) {
+            e.preventDefault();
+            
+            const departure = planBtn.dataset.departure;
+            const arrival = planBtn.dataset.arrival;
+            const aircraft = planBtn.dataset.aircraft;
+
+            if (!departure || !arrival || !aircraft) {
+                showNotification("Could not get flight data to plan.", "error");
+                return;
+            }
+
+            // 1. Get form elements from the side panel
+            const depInput = document.getElementById('fp-departure');
+            const arrInput = document.getElementById('fp-arrival');
+            const acSelect = document.getElementById('fp-aircraft');
+            
+            if (!depInput || !arrInput || !acSelect) {
+                showNotification("Flight plan form is not loaded.", "error");
+                return;
+            }
+
+            // 2. Fill the form
+            depInput.value = departure;
+            arrInput.value = arrival;
+            acSelect.value = aircraft; // This sets the dropdown
+
+            // 3. Switch to the "Flight Plan" tab
+            const flightPlanTabBtn = document.querySelector('.panel-tab-btn[data-tab="tab-flightplan"]');
+            if (flightPlanTabBtn) {
+                flightPlanTabBtn.click();
+            }
+            
+            // 4. Hide (don't close) the aircraft info window
+            const hideButton = aircraftInfoWindow.querySelector('.aircraft-window-hide-btn');
+            if (hideButton) {
+                hideButton.click();
+            }
+            
+            // 5. Open the side panel if it's collapsed
+            const panel = document.getElementById('sector-ops-floating-panel');
+            if (panel && panel.classList.contains('panel-collapsed')) {
+                const toolbarToggleBtn = document.getElementById('toolbar-toggle-panel-btn');
+                if (toolbarToggleBtn) {
+                    toolbarToggleBtn.click();
+                }
+            }
+            
+            // 6. Scroll the flight plan tab to the top to show the form
+            const flightPlanTabContent = document.getElementById('tab-flightplan');
+            if (flightPlanTabContent) {
+                flightPlanTabContent.scrollTop = 0;
+            }
+
+            showNotification("Flight plan form populated.", "success");
+            return; // Stop event propagation
+        }
+        // ===================================================================
+        // --- [NEW BUTTON LISTENER END] ---
+        // ===================================================================
+
 
         // --- Tab Switching Logic (Unchanged) ---
         if (tabBtn) {
@@ -3990,6 +4695,35 @@ function setupAircraftWindowEvents() {
     });
     
     aircraftInfoWindow.dataset.eventsAttached = 'true';
+}
+
+/**
+ * --- [NEW] Helper function to build the icon-image expression based on the filter state
+ * @param {string} colorMode - 'default', 'blue', or 'orange'
+ * @returns {Array} A Mapbox 'match' expression
+ */
+function getIconImageExpression(colorMode = 'default') {
+    let suffix = '';
+    if (colorMode === 'orange') {
+        suffix = '-orange';
+    } else if (colorMode === 'blue') {
+        suffix = '-blue';
+    }
+    // 'default' mode (white) has no suffix
+
+    return [
+        'match',
+        ['get', 'category'],
+        'jumbo', `icon-jumbo${suffix}`,
+        'widebody', `icon-widebody${suffix}`,
+        'narrowbody', `icon-narrowbody${suffix}`,
+        'regional', `icon-regional${suffix}`,
+        'private', `icon-private${suffix}`,
+        'fighter', `icon-fighter${suffix}`,
+        'military', `icon-military${suffix}`,
+        'cessna', `icon-cessna${suffix}`,
+        `icon-default${suffix}` // Fallback
+    ];
 }
 
 
@@ -4127,8 +4861,33 @@ async function initializeSectorOpsView() {
                                     <span class="toggle-slider"></span>
                                 </label>
                             </li>
-                        </ul>
+                            
+                            <li class="filter-toggle-item">
+                                <span class="filter-toggle-label"><i class="fa-solid fa-tags"></i> Show Aircraft Labels</span>
+                                <label class="toggle-switch">
+                                    <input type="checkbox" id="filter-toggle-aircraft-labels">
+                                    <span class="toggle-slider"></span>
+                                </label>
+                            </li>
+                            </ul>
 
+                        <div class="filter-section-divider">
+                            <span class="filter-section-title">Aircraft Icon Color</span>
+                        </div>
+                        <ul class="filter-toggle-list" id="icon-color-filter-group" style="padding-top: 8px;">
+                            <li class="filter-radio-item">
+                                <input type="radio" id="icon-color-default" name="icon-color-mode" value="default" checked>
+                                <label for="icon-color-default"><i class="fa-solid fa-plane" style="color: #fff;"></i> Default (White)</label>
+                            </li>
+                            <li class="filter-radio-item">
+                                <input type="radio" id="icon-color-blue" name="icon-color-mode" value="blue">
+                                <label for="icon-color-blue"><i class="fa-solid fa-plane" style="color: #00a8ff;"></i> Blue</label>
+                            </li>
+                            <li class="filter-radio-item">
+                                <input type="radio" id="icon-color-orange" name="icon-color-mode" value="orange">
+                                <label for="icon-color-orange"><i class="fa-solid fa-plane" style="color: #ff9900;"></i> Orange</label>
+                            </li>
+                        </ul>
                         <div class="filter-section-divider">
                             <span class="filter-section-title">Active Flight Plan Display</span>
                         </div>
@@ -4244,7 +5003,7 @@ async function initializeSectorOpsView() {
 }
 
 
-async function initializeSectorOpsMap(centerICAO) {
+function initializeSectorOpsMap(centerICAO) {
     if (!MAPBOX_ACCESS_TOKEN) {
         document.getElementById('sector-ops-map-fullscreen').innerHTML = '<p class="map-error-msg">Map service not available.</p>';
         return;
@@ -4265,9 +5024,12 @@ async function initializeSectorOpsMap(centerICAO) {
     /**
      * --- [NEW] Extracted function to set up base layers.
      * This is called on initial load AND on every style change.
+     * --- [MODIFIED] Added text labels for callsign and phase.
+     * --- [MODIFIED v2] Split icons and labels into two layers
+     * to allow icons to always show while labels can hide.
      */
     async function setupMapLayersAndFog() {
-        // 1. Set globe fog
+        // 1. Set globe fog (Unchanged)
         sectorOpsMap.setFog({
             color: 'rgb(186, 210, 235)', // Lower atmosphere
             'high-color': 'rgb(36, 92, 223)', // Upper atmosphere
@@ -4276,9 +5038,9 @@ async function initializeSectorOpsMap(centerICAO) {
             'star-intensity': 0.6 // Adjust star intensity
         });
 
-        // 2. Load all aircraft icons
+        // 2. Load all aircraft icons (Unchanged)
         const iconsToLoad = [
-            // Regular
+            // Regular (Default)
             { id: 'icon-jumbo', path: '/Images/map_icons/jumbo.png' },
             { id: 'icon-widebody', path: '/Images/map_icons/widebody.png' },
             { id: 'icon-narrowbody', path: '/Images/map_icons/narrowbody.png' },
@@ -4288,26 +5050,28 @@ async function initializeSectorOpsMap(centerICAO) {
             { id: 'icon-default', path: '/Images/map_icons/default.png' },
             { id: 'icon-military', path: '/Images/map_icons/military.png' },
             { id: 'icon-cessna', path: '/Images/map_icons/cessna.png' },
-            // Members
-            { id: 'icon-jumbo-member', path: '/Images/map_icons/members/jumbo.png' },
-            { id: 'icon-widebody-member', path: '/Images/map_icons/members/widebody.png' },
-            { id: 'icon-narrowbody-member', path: '/Images/map_icons/members/narrowbody.png' },
-            { id: 'icon-regional-member', path: '/Images/map_icons/members/regional.png' },
-            { id: 'icon-private-member', path: '/Images/map_icons/members/private.png' },
-            { id: 'icon-fighter-member', path: '/Images/map_icons/members/fighter.png' },
-            { id: 'icon-default-member', path: '/Images/map_icons/members/default.png' },
-            { id: 'icon-military-member', path: '/Images/map_icons/members/military.png' },
-            { id: 'icon-cessna-member', path: '/Images/map_icons/members/cessna.png' },
-            // Staff
-            { id: 'icon-jumbo-staff', path: '/Images/map_icons/staff/jumbo.png' },
-            { id: 'icon-widebody-staff', path: '/Images/map_icons/staff/widebody.png' },
-            { id: 'icon-narrowbody-staff', path: '/Images/map_icons/staff/narrowbody.png' },
-            { id: 'icon-regional-staff', path: '/Images/map_icons/staff/regional.png' },
-            { id: 'icon-private-staff', path: '/Images/map_icons/staff/private.png' },
-            { id: 'icon-fighter-staff', path: '/Images/map_icons/staff/fighter.png' },
-            { id: 'icon-default-staff', path: '/Images/map_icons/staff/default.png' },
-            { id: 'icon-military-staff', path: '/Images/map_icons/staff/military.png' },
-            { id: 'icon-cessna-staff', path: '/Images/map_icons/staff/cessna.png' }
+            
+            // --- MODIFICATION: Changed 'red' to 'orange' ---
+            { id: 'icon-jumbo-orange', path: '/Images/map_icons/orange/jumbo.png' },
+            { id: 'icon-widebody-orange', path: '/Images/map_icons/orange/widebody.png' },
+            { id: 'icon-narrowbody-orange', path: '/Images/map_icons/orange/narrowbody.png' },
+            { id: 'icon-regional-orange', path: '/Images/map_icons/orange/regional.png' },
+            { id: 'icon-private-orange', path: '/Images/map_icons/orange/private.png' },
+            { id: 'icon-fighter-orange', path: '/Images/map_icons/orange/fighter.png' },
+            { id: 'icon-default-orange', path: '/Images/map_icons/orange/default.png' },
+            { id: 'icon-military-orange', path: '/Images/map_icons/orange/military.png' },
+            { id: 'icon-cessna-orange', path: '/Images/map_icons/orange/cessna.png' },
+
+            // --- MODIFICATION: Renamed 'staff' to 'blue' ---
+            { id: 'icon-jumbo-blue', path: '/Images/map_icons/blue/jumbo.png' },
+            { id: 'icon-widebody-blue', path: '/Images/map_icons/blue/widebody.png' },
+            { id: 'icon-narrowbody-blue', path: '/Images/map_icons/blue/narrowbody.png' },
+            { id: 'icon-regional-blue', path: '/Images/map_icons/blue/regional.png' },
+            { id: 'icon-private-blue', path: '/Images/map_icons/blue/private.png' },
+            { id: 'icon-fighter-blue', path: '/Images/map_icons/blue/fighter.png' },
+            { id: 'icon-default-blue', path: '/Images/map_icons/blue/default.png' },
+            { id: 'icon-military-blue', path: '/Images/map_icons/blue/military.png' },
+            { id: 'icon-cessna-blue', path: '/Images/map_icons/blue/cessna.png' }
         ];
 
         const imagePromises = iconsToLoad.map(icon =>
@@ -4332,7 +5096,7 @@ async function initializeSectorOpsMap(centerICAO) {
         await Promise.all(imagePromises).catch(err => console.error("Error loading map icons", err));
         console.log('All custom aircraft icons are ready.');
 
-        // 3. Add base flight data source and layer
+        // 3. Add base flight data source (Unchanged)
         if (!sectorOpsMap.getSource('sector-ops-live-flights-source')) {
             sectorOpsMap.addSource('sector-ops-live-flights-source', {
                 type: 'geojson',
@@ -4340,68 +5104,36 @@ async function initializeSectorOpsMap(centerICAO) {
             });
         }
 
+        mapAnimator = new MapAnimator(sectorOpsMap, 'sector-ops-live-flights-source', currentMapFeatures);
+
+        // 4. --- [START OF MODIFICATION] ---
+        // Add the ICON layer
         if (!sectorOpsMap.getLayer('sector-ops-live-flights-layer')) {
             sectorOpsMap.addLayer({
-                id: 'sector-ops-live-flights-layer',
+                id: 'sector-ops-live-flights-layer', // Keep original ID for click listeners
                 type: 'symbol',
                 source: 'sector-ops-live-flights-source',
                 layout: {
-                    'icon-image': [
-                        'case',
-                        // Condition 1: Is Staff?
-                        ['==', ['get', 'isStaff'], true],
-                        [ // Result: Use Staff icons
-                            'match',
-                            ['get', 'category'],
-                            'jumbo', 'icon-jumbo-staff',
-                            'widebody', 'icon-widebody-staff',
-                            'narrowbody', 'icon-narrowbody-staff',
-                            'regional', 'icon-regional-staff',
-                            'private', 'icon-private-staff',
-                            'fighter', 'icon-fighter-staff',
-                            'military', 'icon-military-staff', 
-                            'cessna', 'icon-cessna-staff',     
-                            'icon-default-staff' // Staff fallback
-                        ],
-                        // Condition 2: Is Member?
-                        ['==', ['get', 'isVAMember'], true],
-                        [ // Result: Use Member icons
-                            'match',
-                            ['get', 'category'],
-                            'jumbo', 'icon-jumbo-member',
-                            'widebody', 'icon-widebody-member',
-                            'narrowbody', 'icon-narrowbody-member',
-                            'regional', 'icon-regional-member',
-                            'private', 'icon-private-member',
-                            'fighter', 'icon-fighter-member',
-                            'military', 'icon-military-member', 
-                            'cessna', 'icon-cessna-member',     
-                            'icon-default-member' // Member fallback
-                        ],
-                        // Default: Use Regular icons
-                        [
-                            'match',
-                            ['get', 'category'],
-                            'jumbo', 'icon-jumbo',
-                            'widebody', 'icon-widebody',
-                            'narrowbody', 'icon-narrowbody',
-                            'regional', 'icon-regional',
-                            'private', 'icon-private',
-                            'fighter', 'icon-fighter',
-                            'military', 'icon-military', 
-                            'cessna', 'icon-cessna',     
-                            'icon-default' // Regular fallback
-                        ]
-                    ],
+                    // --- Icon Properties ONLY ---
+                    'icon-image': getIconImageExpression(mapFilters.iconColorMode),
                     'icon-size': 0.08,
                     'icon-rotate': ['get', 'heading'],
                     'icon-rotation-alignment': 'map',
+                    
+                    // --- THIS IS THE KEY ---
+                    // Force icons to always show, even if they overlap
                     'icon-allow-overlap': true,
-                    'icon-ignore-placement': true
+                    'icon-ignore-placement': true,
+
+                    // --- Remove all text properties ---
+                    // 'text-field': ... (REMOVED)
+                    // 'text-font': ... (REMOVED)
+                    // etc.
                 }
+                // --- No 'paint' block needed (it was only for text) ---
             });
 
-            // 4. Re-attach listeners
+            // 4a. Add click/hover listeners (These will now only apply to the icon layer)
             sectorOpsMap.on('click', 'sector-ops-live-flights-layer', (e) => {
                 const props = e.features[0].properties;
                 const flightProps = { ...props, position: JSON.parse(props.position), aircraft: JSON.parse(props.aircraft) };
@@ -4415,6 +5147,79 @@ async function initializeSectorOpsMap(centerICAO) {
             sectorOpsMap.on('mouseenter', 'sector-ops-live-flights-layer', () => { sectorOpsMap.getCanvas().style.cursor = 'pointer'; });
             sectorOpsMap.on('mouseleave', 'sector-ops-live-flights-layer', () => { sectorOpsMap.getCanvas().style.cursor = ''; });
         }
+        
+        // 5. Add the LABEL layer
+        if (!sectorOpsMap.getLayer('sector-ops-live-flights-labels')) {
+            sectorOpsMap.addLayer({
+                id: 'sector-ops-live-flights-labels',
+                type: 'symbol',
+                source: 'sector-ops-live-flights-source', // Use the SAME source
+                
+                // ##### PERFORMANCE FIX START #####
+                // By setting a minzoom, we prevent Mapbox from trying to
+                // calculate label collisions for all aircraft on the map
+                // when zoomed out, which is the cause of the lag.
+                minzoom: 6.5,
+                // ##### PERFORMANCE FIX END #####
+
+                layout: {
+                    // ##### MODIFICATION START #####
+                    'visibility': mapFilters.showAircraftLabels ? 'visible' : 'none',
+                    // ##### MODIFICATION END #####
+
+                    // --- [MODIFICATION START] ---
+                    // Use a 'format' expression to set colors per line
+                    'text-field': [
+                        'format',
+                        // Part 1: Callsign (White)
+                        ['get', 'callsign'], 
+                        { 'text-color': '#FFFFFF' }, 
+                        
+                        // Part 2: Newline
+                        '\n',                
+                        {},                  
+                        
+                        // Part 3: Phase (Color-coded)
+                        ['get', 'phase'],    
+                        { 
+                            'text-color': [ 
+                                'match',
+                                ['get', 'phase'],
+                                'Climb', '#28a745',     // Green
+                                'Cruise', '#007bff',    // Blue
+                                'Descent', '#ff9900',   // Orange
+                                'Approach', '#a33ea3',  // Purple
+                                'Ground', '#9fa8da',    // Muted Grey
+                                '#e8eaf6' // Default (for Enroute etc.)
+                            ]
+                        }
+                    ],
+                    // --- [MODIFICATION END] ---
+
+                    'text-font': ['Mapbox Txt Regular', 'Arial Unicode MS Regular'],
+                    'text-size': 10,
+                    'text-offset': [0, 2.5], // Offset text below the icon
+                    'text-anchor': 'top',
+                    
+                    'text-allow-overlap': false,
+                    'text-ignore-placement': false,
+
+                    // --- [NEW] ---
+                    'text-padding': 3, // Add padding *inside* the background box
+                },
+                paint: {
+                    // --- [MODIFICATION START] ---
+                    // 'text-color' is REMOVED (now handled by 'format' in layout)
+                    
+                    // Use the halo as a solid background
+                    'text-halo-color': 'rgba(10, 12, 26, 0.85)', // Dark UI color
+                    'text-halo-width': 2, // This creates the box padding effect
+                    'text-halo-blur': 0   // This makes the box sharp
+                    // --- [MODIFICATION END] ---
+                }
+            });
+        }
+        // --- [END OF MODIFICATION] ---
     }
     
     // --- [NEW] This handles style changes ---
@@ -4565,8 +5370,8 @@ function rebuildDynamicLayers() {
     renderAirportMarkers();
 }
 
-    /**
- * --- [NEW] Draws or updates the filed flight plan layers (direct or full)
+/**
+ * --- [MODIFIED] Draws or updates the filed flight plan layers (direct or full)
  * based on the current filter settings.
  * @param {string} flightId - The flightId of the selected aircraft.
  * @param {object} plan - The parsed flight plan object.
@@ -4579,6 +5384,9 @@ function updateFlightPlanLayer(flightId, plan, currentPosition) {
 
     const layerIdDirect = `plan-path-direct-${flightId}`;
     const layerIdFull = `plan-path-full-${flightId}`;
+    
+    // --- [MODIFICATION] Add new layer ID for labels ---
+    const layerIdFullLabels = layerIdFull + '-labels'; // e.g., 'plan-path-full-FLIGHTID-labels'
 
     // --- Ensure layer IDs are tracked ---
     if (!sectorOpsLiveFlightPathLayers[flightId]) {
@@ -4586,11 +5394,13 @@ function updateFlightPlanLayer(flightId, plan, currentPosition) {
     }
     sectorOpsLiveFlightPathLayers[flightId].planDirect = layerIdDirect;
     sectorOpsLiveFlightPathLayers[flightId].planFull = layerIdFull;
+    // --- [NEW] Track the label layer ID ---
+    sectorOpsLiveFlightPathLayers[flightId].planFullLabels = layerIdFullLabels;
     
     // --- Get destination coordinates ---
-    const allWaypoints = flattenWaypointsFromPlan(plan.flightPlanItems);
-    if (allWaypoints.length < 2) return;
-    const destinationCoords = allWaypoints[allWaypoints.length - 1];
+    const allWaypointsForLine = flattenWaypointsFromPlan(plan.flightPlanItems); // Kept for 'direct' mode
+    if (allWaypointsForLine.length < 2) return;
+    const destinationCoords = allWaypointsForLine[allWaypointsForLine.length - 1];
     const currentCoords = [currentPosition.lon, currentPosition.lat];
 
     // --- 1. Handle "Direct to Destination" Line ---
@@ -4630,29 +5440,99 @@ function updateFlightPlanLayer(flightId, plan, currentPosition) {
     if (mapFilters.planDisplayMode === 'full') {
         const source = sectorOpsMap.getSource(layerIdFull);
         if (!source) {
+            // --- [START MODIFICATION] ---
             // This layer is static, so we only create it once
-            const fullLineData = {
+            
+            // Get coordinates for the line
+            const allWaypoints = flattenWaypointsFromPlan(plan.flightPlanItems);
+            // Get objects for the points/labels
+            const waypointObjects = getFlatWaypointObjects(plan.flightPlanItems);
+
+            const features = [];
+
+            // 1. Add the LineString feature
+            features.push({
                 type: 'Feature',
                 geometry: {
                     type: 'LineString',
                     coordinates: allWaypoints
                 }
+            });
+
+            // 2. Add all the Point features for labels
+            waypointObjects.forEach(wp => {
+                // Only add if it has a valid location
+                if (wp.location && wp.location.longitude != null && wp.location.latitude != null) {
+                    features.push({
+                        type: 'Feature',
+                        geometry: {
+                            type: 'Point',
+                            coordinates: [wp.location.longitude, wp.location.latitude]
+                        },
+                        properties: {
+                            // Use identifier first (e.g., "KLAX", "VDOT"), fallback to name (e.g., "Los Angeles Intl")
+                            name: wp.identifier || wp.name || '' 
+                        }
+                    });
+                }
+            });
+            
+            const fullLineData = {
+                type: 'FeatureCollection',
+                features: features
             };
+            
             sectorOpsMap.addSource(layerIdFull, { type: 'geojson', data: fullLineData });
+            
+            // Add the LINE layer (as requested by user)
             sectorOpsMap.addLayer({
                 id: layerIdFull,
                 type: 'line',
                 source: layerIdFull,
+                // Filter so this layer only draws the LineString
+                'filter': ['==', '$type', 'LineString'], 
                 paint: {
-                    'line-color': '#00a8ff', // Same blue
+                    'line-color': '#aaaaaa',      // Light grey color
                     'line-width': 2,
-                    'line-opacity': 0.8 // Solid line
+                    'line-opacity': 0.7,        // Not too showy
+                    'line-dasharray': [3, 3]    // Dashed line
                 }
             }, 'sector-ops-live-flights-layer'); // Below aircraft
+
+            // Add the LABEL layer
+            sectorOpsMap.addLayer({
+                id: layerIdFullLabels, // Use the new ID
+                type: 'symbol',
+                source: layerIdFull,
+                // Filter so this layer only draws the Points
+                'filter': ['==', '$type', 'Point'],
+                layout: {
+                    'text-field': ['get', 'name'],
+                    'text-font': ['Mapbox Txt Regular', 'Arial Unicode MS Regular'],
+                    'text-size': 10, // "not too big"
+                    'text-offset': [0, 0.8], // Offset slightly above the point
+                    'text-anchor': 'top',
+                    'text-allow-overlap': false, // Prevent clutter
+                    'text-ignore-placement': false
+                },
+                paint: {
+                    // --- [START OF FIX] ---
+                    'text-color': '#ffffff', // Keep text white
+                    'text-halo-color': 'rgba(10, 12, 26, 0.9)', // Use a dark, opaque UI color for the halo
+                    'text-halo-width': 2, // Make the halo thicker to act as a background
+                    'text-halo-blur': 1   // Add a slight blur to soften it
+                    // --- [END OF FIX] ---
+                }
+            }, 'sector-ops-live-flights-layer'); // Below aircraft
+            
+            // --- [END MODIFICATION] ---
         }
     } else {
         // Remove the layer if the mode is not 'full'
-        if (sectorOpsMap.getLayer(layerIdFull)) sectorOpsMap.removeLayer(layerIdFull);
+        if (sectorOpsMap.getLayer(layerIdFull)) sectorOpsMap.removeLayer(layerDetails);
+        // --- [NEW] Also remove the label layer ---
+        if (sectorOpsMap.getLayer(layerIdFullLabels)) sectorOpsMap.removeLayer(layerIdFullLabels);
+        
         if (sectorOpsMap.getSource(layerIdFull)) sectorOpsMap.removeSource(layerIdFull);
     }
 }
@@ -5366,6 +6246,29 @@ function populateAircraftInfoWindow(baseProps, plan, sortedRoutePoints) { // <--
     const depFlagDisplay = depCountryCode ? 'block' : 'none';
     const arrFlagDisplay = arrCountryCode ? 'block' : 'none';
     // --- [END NEW] ---
+    
+    // ===================================================================
+    // --- [NEW INJECTION START] ---
+    // ===================================================================
+    // Find the Simbrief aircraft value
+    const simbriefAircraftValue = findSimbriefAircraftValue(aircraftName);
+    
+    let planButtonHtml = '';
+    // Only show the button if we have a plan AND a matching aircraft
+    if (hasPlan && simbriefAircraftValue) {
+        planButtonHtml = `
+        <button id="plan-this-flight-btn" class="pilot-stats-toggle-btn" 
+                data-departure="${departureIcao}" 
+                data-arrival="${arrivalIcao}" 
+                data-aircraft="${simbriefAircraftValue}"
+                style="margin-bottom: 16px;">
+            <i class="fa-solid fa-file-invoice"></i> Plan This Flight
+        </button>
+        `;
+    }
+    // ===================================================================
+    // --- [NEW INJECTION END] ---
+    // ===================================================================
 
     windowEl.innerHTML = `
     <div class="info-window-content">
@@ -5434,7 +6337,7 @@ function populateAircraftInfoWindow(baseProps, plan, sortedRoutePoints) { // <--
             
             <div id="ac-tab-flight-data" class="ac-tab-pane active">
                 
-                <div class="pfd-and-location-grid">
+                ${planButtonHtml} <div class="pfd-and-location-grid">
                 
                     <div class="pfd-main-panel">
                         <div id="pfd-container">
@@ -6561,18 +7464,33 @@ function setupFilterSettingsWindowEvents() {
         return;
     }
 
-    // --- [NEW] Read settings from localStorage on window open ---
-    const currentMobileMode = localStorage.getItem('mobileDisplayMode') || 'hud';
-    const mobileModeHud = document.getElementById('mobile-mode-hud');
-    const mobileModeLegacy = document.getElementById('mobile-mode-legacy');
-    if (mobileModeHud && mobileModeLegacy) {
-        if (currentMobileMode === 'legacy') {
-            mobileModeLegacy.checked = true;
-        } else {
-            mobileModeHud.checked = true;
+    // --- [NEW] Helper to set the UI state from mapFilters ---
+    const setUIFromState = () => {
+        // Toggles
+        document.getElementById('filter-toggle-atc').checked = mapFilters.hideAtcMarkers;
+        document.getElementById('filter-toggle-satellite-mode').checked = (currentMapStyle === MAP_STYLE_SATELLITE);
+        // --- [NEW] Set the new label toggle ---
+        document.getElementById('filter-toggle-aircraft-labels').checked = mapFilters.showAircraftLabels;
+
+        // Radios
+        document.querySelector(`input[name="icon-color-mode"][value="${mapFilters.iconColorMode}"]`).checked = true;
+        document.querySelector(`input[name="plan-display-mode"][value="${mapFilters.planDisplayMode}"]`).checked = true;
+        
+        // Mobile-specific (no change, this was correct)
+        const currentMobileMode = localStorage.getItem('mobileDisplayMode') || 'hud';
+        const mobileModeHud = document.getElementById('mobile-mode-hud');
+        const mobileModeLegacy = document.getElementById('mobile-mode-legacy');
+        if (mobileModeHud && mobileModeLegacy) {
+            if (currentMobileMode === 'legacy') {
+                mobileModeLegacy.checked = true;
+            } else {
+                mobileModeHud.checked = true;
+            }
         }
-    }
-    // --- [END NEW] ---
+    };
+    
+    // --- [NEW] Set the UI when the window is first set up ---
+    setUIFromState();
 
     // Use a single listener on the window for better performance
     filterSettingsWindow.addEventListener('click', (e) => {
@@ -6591,6 +7509,7 @@ function setupFilterSettingsWindowEvents() {
         // --- Handle Flight Plan Radio Logic ---
         if (target.name === 'plan-display-mode') {
             mapFilters.planDisplayMode = target.value;
+            saveFiltersToLocalStorage(); // <-- SAVE
             if (currentFlightInWindow && cachedFlightDataForStatsView.plan) {
                 const { flightProps, plan } = cachedFlightDataForStatsView;
                 const position = currentAircraftPositionForGeocode || flightProps.position;
@@ -6599,43 +7518,59 @@ function setupFilterSettingsWindowEvents() {
             return;
         }
         
-        // --- [START NEW] Handle Mobile Display Mode Radio Logic ---
+        // Handle Icon Color Radio Logic
+        if (target.name === 'icon-color-mode') {
+            mapFilters.iconColorMode = target.value;
+            saveFiltersToLocalStorage(); // <-- SAVE
+            const newExpression = getIconImageExpression(mapFilters.iconColorMode);
+            
+            if (sectorOpsMap && sectorOpsMap.getLayer('sector-ops-live-flights-layer')) {
+                sectorOpsMap.setLayoutProperty('sector-ops-live-flights-layer', 'icon-image', newExpression);
+            }
+            return; 
+        }
+        
+        // Handle Mobile Display Mode Radio Logic
         if (target.name === 'mobile-display-mode') {
+            // (This was already saving to its own local storage item, which is fine)
             const newMode = target.value;
             localStorage.setItem('mobileDisplayMode', newMode);
-            // Show a note that a change requires re-opening the window
             if (!document.getElementById('mobile-mode-note')) {
                 document.getElementById('mobile-mode-filter-group').insertAdjacentHTML(
                     'beforeend',
                     '<p id="mobile-mode-note" class="muted-text" style="padding: 10px 0 0 0; text-align: left; font-size: 0.8rem;">Changes will apply the next time you open an aircraft window.</p>'
                 );
             }
-            return; // Stop processing
+            return; 
         }
-        // --- [END NEW] ---
 
         if (target.type !== 'checkbox') return;
 
+        // --- [NEW] Handle Aircraft Label Toggle ---
+        if (target.id === 'filter-toggle-aircraft-labels') {
+            mapFilters.showAircraftLabels = target.checked;
+            saveFiltersToLocalStorage(); // <-- SAVE
+            updateAircraftLabelVisibility(); // Apply the change
+            // No need to update other filters, so we can return
+            return;
+        }
+
         // --- Handle Map Style Logic ---
-        const lightModeToggle = document.getElementById('filter-toggle-light-mode');
         const satelliteModeToggle = document.getElementById('filter-toggle-satellite-mode');
+        // --- [REMOVED] lightModeToggle ---
         let styleChanged = false;
         let newMapStyle = currentMapStyle;
 
-        if (target.id === 'filter-toggle-light-mode' && target.checked) {
-            if (satelliteModeToggle) satelliteModeToggle.checked = false;
-            newMapStyle = MAP_STYLE_LIGHT;
-            styleChanged = true;
-        } else if (target.id === 'filter-toggle-satellite-mode' && target.checked) {
-            if (lightModeToggle) lightModeToggle.checked = false;
-            newMapStyle = MAP_STYLE_SATELLITE;
-            styleChanged = true;
-        } else if ((target.id === 'filter-toggle-light-mode' || target.id === 'filter-toggle-satellite-mode') && !target.checked) {
-            if (!lightModeToggle.checked && !satelliteModeToggle.checked) {
+        // --- [MODIFIED] Simplified style logic ---
+        if (target.id === 'filter-toggle-satellite-mode') {
+            if (target.checked) {
+                newMapStyle = MAP_STYLE_SATELLITE;
+            } else {
                 newMapStyle = MAP_STYLE_DARK; // Revert to dark
-                styleChanged = true;
             }
+            styleChanged = true;
         }
+        // --- [END MODIFIED] ---
 
         // 1. Update the global mapFilters state object from the DOM
         mapFilters.showVaOnly = document.getElementById('filter-toggle-members-only')?.checked || false;
@@ -6647,12 +7582,16 @@ function setupFilterSettingsWindowEvents() {
             console.log(`Changing map style to: ${newMapStyle}`);
             currentMapStyle = newMapStyle;
             sectorOpsMap.setStyle(currentMapStyle);
+            // Don't save style to local storage, but filters will be re-applied on 'style.load'
         } else if (!styleChanged) {
+            // If just a regular filter (like hideAtc) changed
+            saveFiltersToLocalStorage(); // <-- SAVE
             updateMapFilters();
         }
 
         // 3. Update toolbar button state (always)
-        updateMapFilters();
+        // (This is now called by updateMapFilters, but we call it again for safety)
+        updateToolbarButtonStates(); // <-- MODIFIED: Renamed function
     });
 
     filterSettingsWindow.dataset.eventsAttached = 'true';
@@ -6739,9 +7678,8 @@ function setupFilterSettingsWindowEvents() {
     // ====================================================================
 
 
-// --- [REPLACEMENT for startSectorOpsLiveLoop] ---
-// This function is updated to only connect to the WebSocket and 
-// set up the poller for ATC/NOTAMs.
+// --- [REPLACEMENT] ---
+// Starts the data polling AND the animation loop.
 function startSectorOpsLiveLoop() {
     stopSectorOpsLiveLoop(); // Clear any old loops
 
@@ -6750,17 +7688,15 @@ function startSectorOpsLiveLoop() {
     sectorOpsAtcNotamInterval = setInterval(updateSectorOpsSecondaryData, DATA_REFRESH_INTERVAL_MS); 
 
     // 2. Initialize and connect the WebSocket
-    // This is responsible for receiving flight data
     initializeSectorOpsSocket();
 
-    // 3. Animation loop is no longer started here.
-    // Data updates happen directly in handleSocketFlightUpdate.
+    // 3. Start the MapAnimator loop
+    if (mapAnimator) {
+        mapAnimator.start();
+    }
 }
 
-
-// --- [REPLACEMENT for stopSectorOpsLiveLoop] ---
-// This function is updated to stop the socket
-// and clear the ATC/NOTAM poller.
+// Stops the data polling AND the animation loop.
 function stopSectorOpsLiveLoop() {
     // 1. Clear the data-fetching interval for ATC/NOTAMs
     if (sectorOpsAtcNotamInterval) {
@@ -6768,14 +7704,19 @@ function stopSectorOpsLiveLoop() {
         sectorOpsAtcNotamInterval = null;
     }
     
-    // 2. Disconnect the WebSocket and remove listeners
+    // 2. Disconnect the WebSocket
     if (sectorOpsSocket) {
         console.log('Socket: Disconnecting from Sector Ops...');
         sectorOpsSocket.disconnect();
         sectorOpsSocket = null;
     }
 
-    // 3. NEW: Clear the feature state to prevent stale aircraft
+    // 3. Stop the MapAnimator loop
+    if (mapAnimator) {
+        mapAnimator.stop();
+    }
+
+    // 4. Clear the feature state
     currentMapFeatures = {};
 }
 
@@ -6912,9 +7853,10 @@ async function updateSectorOpsSecondaryData() {
 
 
     // --- Initial Load ---
-// --- Start the application ---
-    async function initializeApp() {
+async function initializeApp() {
         mainContentLoader.classList.add('active');
+
+        loadFiltersFromLocalStorage();
 
         // Inject all custom CSS
         injectCustomStyles();
