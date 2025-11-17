@@ -44,7 +44,7 @@ const EARTH_RADIUS_KM = 6371;
 // By setting this *slower* than a real plane's speed, we
 // guarantee the animation will always be lagging and continuous
 // as long as new data is arriving.
-const ANIMATION_SPEED_KM_PER_SECOND = 0.15; // Approx 540 km/h
+const ANIMATION_SPEED_KM_PER_SECOND = 0.23; // Approx 540 km/h
 
 // Heading smoothing can remain proportional, as it looks good.
 // This controls how quickly the plane "turns" to its new bearing.
