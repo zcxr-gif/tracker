@@ -1849,7 +1849,7 @@ function injectCustomStyles() {
         ====================================================================
         */
 
-        /* ##### MODIFICATION START ##### */
+        /* ##### MODIFICATION START (Specificity Fix) ##### */
         /* --- [NEW] Aircraft Window Tab Styles --- */
         .ac-info-window-tabs {
             display: flex;
@@ -1898,10 +1898,11 @@ function injectCustomStyles() {
         .ac-info-tab-btn.active { color: #00a8ff; border-bottom-color: #00a8ff; }
 
         /* Hide the old toggle buttons, as tabs replace them */
-        .pilot-stats-toggle-btn,
+        /* .pilot-stats-toggle-btn,
         .back-to-flight-btn {
-            display: none !important;
+            display: none !important; 
         }
+        */
 
         /* --- [MODIFIED] VSD Disclaimer --- */
         .vsd-disclaimer {
