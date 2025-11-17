@@ -3285,9 +3285,13 @@ function getIntermediatePoint(lat1, lon1, lat2, lon2, fraction) {
 
 
 /**
- * --- [REPLACEMENT - DELEGATOR VERSION] Handles live flight data received from the WebSocket.
+ * --- [REPLACEMENT - DELEGATOR VERSION - MODIFIED] Handles live flight data received from the WebSocket.
  * This function now only validates data, creates the properties object,
  * and delegates all animation/map logic to the MapAnimator.
+ * The strict check (newPacketTimestamp <= lastSocketUpdateTimestamp)
+ * has been removed. The animator will now "chase" every packet
+ * it receives, even if it's technically "stale," preventing
+ * the icon from freezing due to network/server packet ordering issues.
  */
 function handleSocketFlightUpdate(data) {
     if (!data || !Array.isArray(data.flights) || !data.timestamp) {
@@ -3295,15 +3299,13 @@ function handleSocketFlightUpdate(data) {
         return;
     }
     
-    // --- Timestamp validation ---
-    const newPacketTimestamp = new Date(data.timestamp).getTime();
-    if (newPacketTimestamp <= lastSocketUpdateTimestamp) {
-        console.warn(`Socket: Discarding stale flight data packet (Lag: ${lastSocketUpdateTimestamp - newPacketTimestamp}ms)`);
-        return;
-    }
-    const packetDuration = newPacketTimestamp - lastSocketUpdateTimestamp;
-    lastSocketUpdateTimestamp = newPacketTimestamp;
-    // --- [END] ---
+    // --- [REMOVED] Timestamp validation block ---
+    // The strict timestamp check has been removed to
+    // accept all incoming data packets as valid targets.
+    // We still update the lastSocketUpdateTimestamp for reference,
+    // but we no longer use it to discard packets.
+    lastSocketUpdateTimestamp = new Date(data.timestamp).getTime();
+    // --- [END REMOVED BLOCK] ---
 
     if (!sectorOpsMap || !sectorOpsMap.isStyleLoaded() || !mapAnimator) {
         return; // Map or Animator not ready
@@ -3367,7 +3369,9 @@ function handleSocketFlightUpdate(data) {
         };
 
         // --- Delegate to the animator ---
-        mapAnimator.updateFlight(flight.position, newProperties, packetDuration);
+        // We no longer pass 'packetDuration' as the animator
+        // (mapAnimator.js) doesn't use it.
+        mapAnimator.updateFlight(flight.position, newProperties);
     });
 
     // Clean up old flights
