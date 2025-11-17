@@ -1089,6 +1089,9 @@ function injectCustomStyles() {
             border: 1px solid rgba(255, 255, 255, 0.05);
             padding: 16px;
             border-top: 3px solid #00a8ff; /* Colorful accent */
+            
+            /* --- [REMOVED FOR REDESIGN] --- */
+            display: none; 
         }
 
         /* [NEW] This is an individual item in the new data bar */
@@ -1124,7 +1127,7 @@ function injectCustomStyles() {
             font-family: "Font Awesome 6 Free";
         }
         /* --- [END NEW] --- */
-        
+
         /* [NEW] This is the full-width VSD card (styles mostly unchanged) */
         .ac-profile-card-new {
             background: rgba(10, 12, 26, 0.5);
@@ -2396,6 +2399,96 @@ function injectCustomStyles() {
                 max-height: calc(100vh - 90px); /* Adjust max-height accordingly */
             }
             /* --- [END MODIFICATION - INFO WINDOW FIX] --- */
+        }
+        
+        /* ----------------------------------------------- */
+        /* --- [NEW STYLES FOR REDESIGN] --- */
+        /* ----------------------------------------------- */
+
+        /* 1. New Two-Column Layout for the Data Sections */
+        .flight-data-sections-grid {
+            display: grid;
+            grid-template-columns: 1fr; /* Stack vertically on mobile */
+            gap: 16px;
+        }
+
+        @media (min-width: 768px) {
+            .flight-data-sections-grid {
+                /* Split into two columns for desktop: Navigation (2fr) and Performance (1fr) */
+                grid-template-columns: 2fr 1fr;
+            }
+        }
+
+        /* Style the common title for both new cards */
+        .route-progress-card h4, .performance-indicators-bar h4 {
+            margin: 0 0 10px 0;
+            font-size: 0.95rem;
+            font-weight: 600;
+            color: #e8eaf6;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            text-align: left;
+        }
+
+        /* 2. Style for the Navigation Card (Route Progress) */
+        .route-progress-card {
+            padding: 16px 20px;
+            
+            /* Internal Grid for the 4 Nav Items (more compact) */
+            .progress-info-grid {
+                display: grid;
+                grid-template-columns: repeat(2, 1fr); /* Always 2x2 */
+                gap: 12px;
+                margin-top: 10px;
+            }
+
+            /* Ensure data-bar-item styles still apply for text sizes */
+            .data-bar-item .data-label {
+                 font-size: 0.8rem; /* Slightly larger label */
+            }
+            .data-bar-item .data-value {
+                 font-size: 1.4rem; /* Main value size */
+            }
+        }
+
+        /* 3. Style for the Performance Bar (Right Column/Bottom Row) */
+        .performance-indicators-bar {
+            padding: 16px 20px;
+            
+            /* Internal Grid for the Performance items */
+            .performance-grid {
+                display: grid;
+                grid-template-columns: 1fr; /* Stack items vertically */
+                gap: 16px 0;
+                margin-top: 10px;
+            }
+
+            /* Override the original .data-bar-item to be left-aligned and cleaner */
+            .performance-indicators-bar .data-bar-item {
+                flex-direction: row; /* Horizontal layout */
+                justify-content: space-between; /* Push label to left, value to right */
+                align-items: center;
+                text-align: left;
+                padding: 5px 0;
+                border-bottom: 1px dashed rgba(255, 255, 255, 0.08); /* Subtle separator */
+                gap: 0;
+            }
+
+            .performance-indicators-bar .data-bar-item:last-child {
+                border-bottom: none;
+            }
+
+            .performance-indicators-bar .data-bar-item .data-label {
+                font-size: 0.8rem;
+                text-align: left;
+            }
+
+            .performance-indicators-bar .data-bar-item .data-value {
+                font-size: 1.1rem; /* Smaller, cleaner value for compact display */
+                font-weight: 600;
+                text-align: right;
+            }
         }
     `;
 
@@ -6447,29 +6540,53 @@ function populateAircraftInfoWindow(baseProps, plan, sortedRoutePoints) { // <--
                     </div>
                 
                 </div>
-                <div class="flight-data-bar">
-                    <div class="data-bar-item">
-                        <span class="data-label">NEXT WP</span>
-                        <span class="data-value" id="ac-next-wp">---</span>
+                <div class="flight-data-sections-grid">
+    
+                    <div class="route-progress-card ac-profile-card-new" style="border-top-color: #00a8ff;">
+                        <h4><i class="fa-solid fa-map-location-dot"></i> Navigation & Timing</h4>
+                        <div class="progress-info-grid">
+                            <div class="data-bar-item compact-item">
+                                <span class="data-label">Next Waypoint</span>
+                                <span class="data-value" id="ac-next-wp">---</span>
+                            </div>
+                            <div class="data-bar-item compact-item">
+                                <span class="data-label">Dist. to WP</span>
+                                <span class="data-value" id="ac-next-wp-dist">--.-<span class="unit">NM</span></span>
+                            </div>
+                            <div class="data-bar-item compact-item">
+                                <span class="data-label">Dist. to Dest.</span>
+                                <span class="data-value" id="ac-dist">---<span class="unit">NM</span></span>
+                            </div>
+                            <div class="data-bar-item compact-item">
+                                <span class="data-label">ETE to Dest.</span>
+                                <span class="data-value" id="ac-ete">--:--</span>
+                            </div>
+                        </div>
                     </div>
-                    <div class="data-bar-item">
-                        <span class="data-label">DIST. TO WP</span>
-                        <span class="data-value" id="ac-next-wp-dist">--.-<span class="unit">NM</span></span>
+                    
+                    <div class="performance-indicators-bar ac-profile-card-new" style="border-top-color: #28a745;">
+                        <h4><i class="fa-solid fa-rocket"></i> Aircraft Performance</h4>
+                        <div class="performance-grid">
+                            <div class="data-bar-item">
+                                <span class="data-label">Vertical Speed</span>
+                                <span class="data-value" id="ac-vs">--<span class="unit">fpm</span></span>
+                            </div>
+                            <div class="data-bar-item">
+                                <span class="data-label">Altitude</span>
+                                <span class="data-value" id="ac-alt-bar">---<span class="unit">FL</span></span>
+                            </div>
+                            <div class="data-bar-item">
+                                <span class="data-label">Ground Speed</span>
+                                <span class="data-value" id="ac-gs-bar">---<span class="unit">kt</span></span>
+                            </div>
+                            <div class="data-bar-item">
+                                <span class="data-label">Fuel Remaining</span>
+                                <span class="data-value" id="ac-fuel-bar">--.-<span class="unit">T</span></span>
+                            </div>
+                        </div>
                     </div>
-                    <div class="data-bar-item">
-                        <span class="data-label">DIST. TO DEST.</span>
-                        <span class="data-value" id="ac-dist">---<span class="unit">NM</span></span>
-                    </div>
-                    <div class="data-bar-item">
-                        <span class="data-label">ETE TO DEST.</span>
-                        <span class="data-value" id="ac-ete">--:--</span>
-                    </div>
-                    <div class="data-bar-item">
-                        <span class="data-label">VERTICAL SPEED</span>
-                        <span class="data-value" id="ac-vs">---<span class="unit">fpm</span></span>
-                    </div>
-                    </div>
-                
+                    
+                </div>
                 <div class="ac-profile-card-new">
                     <h4>Vertical Profile</h4>
                     <div id="vsd-panel" class="vsd-panel" data-plan-id="" data-profile-built="false">
@@ -6686,9 +6803,9 @@ function renderPilotStatsHTML(stats, username) {
  * --- [MODIFIED v8] Added Donut Chart and Odometer logic
  * --- [MODIFIED v9] Added live updates for Flags and Times
  * --- [MODIFIED v11] Use airportsData for flags
- * --- [MODIFIED v12.1] Removed inline gradient from image loading
  * --- [MODIFIED v13 - YOUR FIX] Calculate live ETA and use ATD.
  * --- [MODIFIED v14 - REHAUL] Re-bound data to new top-down layout. Removed donut/odometer logic.
+ * --- [MODIFIED v15 - DATA REDESIGN] Updated to new two-card layout logic.
 */
 function updateAircraftInfoWindow(baseProps, plan, sortedRoutePoints) {
     // --- Helper function to update all elements matching a selector ---
@@ -6715,6 +6832,11 @@ function updateAircraftInfoWindow(baseProps, plan, sortedRoutePoints) {
     const originalFlatWaypoints = (plan && plan.flightPlanItems) ? flattenWaypointsFromPlan(plan.flightPlanItems) : [];
     const originalFlatWaypointObjects = (plan && plan.flightPlanItems) ? getFlatWaypointObjects(plan.flightPlanItems) : [];
     const hasPlan = originalFlatWaypoints.length >= 2;
+    
+    // --- Get position data ---
+    const altitude = baseProps.position.alt_ft || 0;
+    const gs = baseProps.position.gs_kt || 0;
+    const vs = baseProps.position.vs_fpm || 0;
 
     let progress = 0, ete = '--:--', distanceToDestNM = 0;
     let totalDistanceNM = 0;
@@ -6836,25 +6958,42 @@ function updateAircraftInfoWindow(baseProps, plan, sortedRoutePoints) {
     }
 
 
-    // --- [MODIFIED] Update New Data Bar (using helper) ---
+    // --- [START NEW DATA BAR UPDATES] ---
+    // 1. Navigation & Timing Card
     const nextWpDisplay = nextWpName;
     const nextWpDistDisplay = (nextWpDistNM === '---' || isNaN(parseFloat(nextWpDistNM))) ? '--.-' : Number(nextWpDistNM).toFixed(1);
 
     updateAll('#ac-next-wp', nextWpDisplay);
     updateAll('#ac-next-wp-dist', `${nextWpDistDisplay}<span class="unit">NM</span>`, true);
-    updateAll('#ac-dist', `${Math.round(distanceToDestNM)}<span class="unit">NM</span>`, true);
+    updateAll('#ac-dist', `${Math.round(distanceToDestNM).toLocaleString()}<span class="unit">NM</span>`, true);
     updateAll('#ac-ete', ete);
-    // --- [END MODIFIED] ---
+    
+    // 2. Performance Indicators Bar
+    // V/S: Use icon and absolute value (Math.abs)
+    const vsIcon = vs > 100 ? 'fa-arrow-up' : vs < -100 ? 'fa-arrow-down' : 'fa-minus';
+    const vsAbs = Math.abs(Math.round(vs));
+    updateAll('#ac-vs', `<i class="fa-solid ${vsIcon}"></i> ${vsAbs.toLocaleString()}<span class="unit">fpm</span>`, true);
+    
+    // Altitude: Format as Flight Level (FL)
+    const flightLevel = Math.round(altitude / 100);
+    updateAll('#ac-alt-bar', `${flightLevel.toLocaleString()}<span class="unit">FL</span>`, true);
+
+    // Ground Speed (GS)
+    updateAll('#ac-gs-bar', `${Math.round(gs)}<span class="unit">kt</span>`, true);
+
+    // Fuel Remaining (Placeholder, needs real logic from API)
+    // Assuming a key `baseProps.fuel_t` or similar is available
+    const fuelTons = baseProps.fuel_t || baseProps.fuelRemainingTons || '25.0'; 
+    updateAll('#ac-fuel-bar', `${Number(fuelTons).toFixed(1)}<span class="unit">T</span>`, true);
+
+    // --- [END NEW DATA BAR UPDATES] ---
 
 
     // --- Flight Phase State Machine (Unchanged) ---
-    // ... (This entire section is unchanged) ...
+    // ... (This entire section remains the same) ...
     let flightPhase = 'ENROUTE';
     let phaseClass = 'phase-enroute';
     let phaseIcon = 'fa-route';
-    const vs = baseProps.position.vs_fpm || 0;
-    const altitude = baseProps.position.alt_ft || 0;
-    const gs = baseProps.position.gs_kt || 0;
     let departureIcao = null;
     let arrivalIcao = null;
     if (plan && Array.isArray(plan.flightPlanItems) && plan.flightPlanItems.length >= 2) {
@@ -6931,7 +7070,6 @@ function updateAircraftInfoWindow(baseProps, plan, sortedRoutePoints) {
 
 
     // --- [MODIFIED] VSD LOGIC (using querySelectorAll) ---
-    // This logic is now safe because it queries *within* its parent.
     const vsdPanels = document.querySelectorAll('#vsd-panel');
     vsdPanels.forEach(vsdPanel => {
         if (!hasPlan) return;
@@ -7159,17 +7297,11 @@ function updateAircraftInfoWindow(baseProps, plan, sortedRoutePoints) {
             vsdGraphContent.style.transform = `translateX(${translateX - 35}px)`;
             vsdAircraftIcon.style.left = `75px`;
         }
-        
-        // --- 6. [MODIFIED] Update Data Bar's V/S (using querySelector) ---
-        const vsdSummaryVS = vsdPanel.closest('.ac-tab-pane').querySelector('#ac-vs');
-        if (vsdSummaryVS) {
-            vsdSummaryVS.innerHTML = `<i class="fa-solid ${vs > 100 ? 'fa-arrow-up' : vs < -100 ? 'fa-arrow-down' : 'fa-minus'}"></i> ${Math.round(vs)}<span class="unit">fpm</span>`;
-        }
     });
     // --- [END VSD LOGIC] ---
 
 
-    // --- [MODIFIED] Update Other DOM Elements (using helpers) ---
+    // --- Update Progress & Phase Elements (Unchanged) ---
     styleAll('#ac-progress-bar', 'width', `${progress.toFixed(1)}%`);
     updateAll('#ac-phase-indicator', `<i class="fa-solid ${phaseIcon}"></i> ${flightPhase}`, true);
     
@@ -7179,7 +7311,7 @@ function updateAircraftInfoWindow(baseProps, plan, sortedRoutePoints) {
         el.className = `flight-phase-indicator ${phaseClass}`;
     });
 
-    // --- Update Times and Flags ---
+    // --- Update Times and Flags (Unchanged) ---
     const atdTimestamp = (sortedRoutePoints && sortedRoutePoints.length > 0) ? sortedRoutePoints[0].date : null;
     const atdTime = atdTimestamp ? formatTimeFromTimestamp(atdTimestamp) : '--:--';
     let etaTime = '--:--';
