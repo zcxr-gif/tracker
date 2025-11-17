@@ -20,7 +20,7 @@
  * 3. DURATION: There is no fixed duration. The animation is
  * continuous.
  *
-_ * 4. ANIMATION: The loop calculates a small interpolation
+ * 4. ANIMATION: The loop calculates a small interpolation
  * factor 't' based on the time elapsed since the last frame (delta-time)
  * and a smoothing rate. The plane moves *t* percent closer
  * to its target on every frame.
@@ -36,16 +36,18 @@ const EARTH_RADIUS_KM = 6371;
 // These control how "slow" the animation is.
 // Higher numbers = faster, more responsive.
 // Lower numbers = slower, smoother, more "behind".
-// A value of 1.0 means it tries to close the distance in ~1 second.
-// A value of 2.0 means it tries to close the distance in ~0.5 seconds.
 
-// --- [FIX for "Stop-and-Go" animation] ---
-// The previous values (1.5, 2.0) were too high, causing the
-// animation to catch its target and stop. These lower values
-// create a much smoother "chase" effect that remains continuous
+// --- [USER REQUEST: Slow down *drastically*] ---
+// The previous 0.5/0.8 values were still too fast, causing the
+// animation to "catch" its target and pause.
+// These much-lower values create a significant "lag"
+// to ensure the animation is always chasing and never "settles"
 // as long as new data is arriving.
-const POSITION_SMOOTHING_RATE = 0.1; // Was 1.5
-const HEADING_SMOOTHING_RATE = 0.2; // Was 2.0
+//
+// A value of 0.2 means it tries to close the distance in ~5 seconds.
+// A value of 0.4 means it tries to close the heading gap in ~2.5 seconds.
+const POSITION_SMOOTHING_RATE = 0.2; // Was 0.5
+const HEADING_SMOOTHING_RATE = 0.4; // Was 0.8
 
 
 /**
@@ -77,7 +79,7 @@ class FlightAnimationState {
     updateTargets({
         newPos,
         newHeading
-    }) { // durationMs is no longer needed
+    }) {
         // The new packet data becomes the new "target"
         this.targetPos = newPos;
         this.targetHeading = (newHeading !== undefined && newHeading !== null) ? newHeading : this.targetHeading; // Use last good if new is null
@@ -115,12 +117,15 @@ class FlightAnimationState {
             this.targetPos[1], this.targetPos[0]
         );
 
+        // This will be the bearing of our *actual* movement this frame
+        let segmentBearing = 0;
+
         if (totalSegmentDistKm < 1e-6) {
             // We are (practically) at the target. Snap to it.
             this.currentRenderedPos = this.targetPos;
         } else {
             // Find the bearing from *current* to *target*
-            const segmentBearing = this._getBearing(
+            segmentBearing = this._getBearing(
                 this.currentRenderedPos[1], this.currentRenderedPos[0],
                 this.targetPos[1], this.targetPos[0]
             );
@@ -136,11 +141,19 @@ class FlightAnimationState {
             this.currentRenderedPos = [newPos.lon, newPos.lat];
         }
 
-        // --- 3. Calculate Heading (Simple Angular Lerp) ---
-        // Interpolate 't_heading' *percent* towards the target heading
+        // --- 3. Calculate Heading (Improved Logic) ---
+        // If we are moving, the plane should point in the direction
+        // of its ground-track (the 'segmentBearing').
+        // If we have "settled" at the target, it should use the
+        // last known API heading ('this.targetHeading').
+        const effectiveHeadingTarget = (totalSegmentDistKm < 1e-6)
+            ? this.targetHeading  // We are "settled", use API heading
+            : segmentBearing;      // We are moving, use ground track
+
+        // Interpolate 't_heading' *percent* towards the effective target
         this.currentRenderedHeading = this._angularLerp(
             this.currentRenderedHeading,
-            this.targetHeading,
+            effectiveHeadingTarget,
             t_heading
         );
 
@@ -151,14 +164,11 @@ class FlightAnimationState {
         };
     }
 
-    // --- Math & Geo Helpers (Unchanged) ---
+    // --- Math & Geo Helpers ---
 
     _toRad(deg) { return (deg * Math.PI) / 180; }
     
-    // !!!!!!!!!!!!! THIS WAS THE BUG !!!!!!!!!!!!!
-    // It said (rad * 180) / 180 before.
     _toDeg(rad) { return (rad * 180) / Math.PI; } 
-    // !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
 
     _angularLerp(a, b, t) {
         let delta = b - a;
@@ -266,9 +276,8 @@ export class MapAnimator {
      * Updates or creates a flight's state based on new data.
      * @param {object} newPosition - {lon, lat, heading_deg}
      * @param {object} newProperties - The full properties object.
-     * @param {number} packetDuration - The expected time (ms) until the NEXT packet. (NOTE: No longer used by this model)
      */
-    updateFlight(newPosition, newProperties, packetDuration) {
+    updateFlight(newPosition, newProperties) { // packetDuration no longer needed
         const flightId = newProperties.flightId;
         const newApiLon = newPosition.lon;
         const newApiLat = newPosition.lat;
@@ -319,7 +328,7 @@ export class MapAnimator {
                 animState.updateTargets({
                     newPos: [newApiLon, newApiLat],
                     newHeading: newApiHeading
-                }); // No duration needed
+                });
 
                 // Update properties
                 this.currentMapFeatures[flightId].properties = newProperties;
