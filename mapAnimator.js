@@ -44,8 +44,8 @@ const EARTH_RADIUS_KM = 6371;
 // animation to catch its target and stop. These lower values
 // create a much smoother "chase" effect that remains continuous
 // as long as new data is arriving.
-const POSITION_SMOOTHING_RATE = 0.5; // Was 1.5
-const HEADING_SMOOTHING_RATE = 0.8; // Was 2.0
+const POSITION_SMOOTHING_RATE = 0.1; // Was 1.5
+const HEADING_SMOOTHING_RATE = 0.2; // Was 2.0
 
 
 /**
