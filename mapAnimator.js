@@ -5,34 +5,45 @@
  * A module to handle the animation of airborne flights
  * while "teleporting" ground-based flights for a Mapbox GL JS map.
  *
- * --- [USER-REQUESTED REWRITE: Time-based Interpolation Model] ---
+ * --- [USER-REQUESTED REWRITE: Velocity-based Smoothing Model] ---
  *
- * This model prioritizes data-point accuracy over velocity blending.
+ * This model prioritizes smooth, continuous motion over data-point
+ * accuracy. The plane "chases" the latest known data point.
  *
- * 1. STATE: Each rendered plane's animation is defined by a
- * "start" state (pos, heading) and a "target" state.
+ * 1. STATE: Each rendered plane's animation is defined by its
+ * "current" rendered state (pos, heading) and a "target" state
+ * (the latest data from the API).
  *
- * 2. TARGET: When a new API packet arrives, the *current*
- * rendered position becomes the "start" state, and the new
- * packet's data becomes the "target" state.
+ * 2. TARGET: When a new API packet arrives, the "target"
+ * state is simply updated. The "current" state is NOT changed.
  *
- * 3. DURATION: The animation between "start" and "target"
- * occurs over a fixed time (the 'packetDuration').
+ * 3. DURATION: There is no fixed duration. The animation is
+ * continuous.
  *
- * 4. ANIMATION: The loop calculates a time percentage 't' (0.0 to 1.0)
- * and interpolates the plane's position along a great-circle
- * path and separately interpolates its heading.
+_ * 4. ANIMATION: The loop calculates a small interpolation
+ * factor 't' based on the time elapsed since the last frame (delta-time)
+ * and a smoothing rate. The plane moves *t* percent closer
+ * to its target on every frame.
  *
- * This model ensures the plane *always* animates from its last
- * on-screen spot, preventing any "snapping" or "drag-back"
- * when new data arrives.
+ * This model ensures the plane *never stops* as long as new data
+ * is arriving, creating a "slow and behind" smoothing effect.
  * ===================================================================
  */
 
 const EARTH_RADIUS_KM = 6371;
 
+// --- CONFIGURATION for the new smoothing model ---
+// These control how "slow" the animation is.
+// Higher numbers = faster, more responsive.
+// Lower numbers = slower, smoother, more "behind".
+// A value of 1.0 means it tries to close the distance in ~1 second.
+// A value of 2.0 means it tries to close the distance in ~0.5 seconds.
+const POSITION_SMOOTHING_RATE = 1.5;
+const HEADING_SMOOTHING_RATE = 2.0;
+
+
 /**
- * Manages the "A-to-B" interpolation state
+ * Manages the "chase" interpolation state
  * for a single airborne flight.
  */
 class FlightAnimationState {
@@ -41,19 +52,11 @@ class FlightAnimationState {
         initialHeading
     }) {
         // --- Animation State ---
-        // We hold "start" and "target" for the current segment.
-        this.startPos = initialPos;
+        // "Target" is the latest API data (where we *want* to be)
         this.targetPos = initialPos;
-        this.startHeading = initialHeading || 0;
         this.targetHeading = initialHeading || 0;
 
-        // --- Timing ---
-        this.animationStartTimeMs = performance.now();
-        this.animationDurationMs = 1000; // Default, will be overwritten
-
-        // --- Internal State ---
-        // Store the last calculated state to prevent "snapping"
-        // when a new updateTarget is called.
+        // "Current" is the last rendered position (where we *are*)
         this.currentRenderedPos = initialPos;
         this.currentRenderedHeading = initialHeading || 0;
 
@@ -63,24 +66,15 @@ class FlightAnimationState {
 
     /**
      * Called by MapAnimator.updateFlight when a new packet arrives.
-     * This sets the new "target" and moves the current "rendered"
-     * state to be the "start".
+     * This simply updates the "target" state.
      */
     updateTargets({
         newPos,
         newHeading
-    }, durationMs) {
-        // The current rendered state becomes the new "start"
-        this.startPos = this.currentRenderedPos;
-        this.startHeading = this.currentRenderedHeading;
-
+    }) { // durationMs is no longer needed
         // The new packet data becomes the new "target"
         this.targetPos = newPos;
-        this.targetHeading = (newHeading !== undefined && newHeading !== null) ? newHeading : this.startHeading; // Use last good if new is null
-
-        // Reset the animation clock
-        this.animationStartTimeMs = performance.now();
-        this.animationDurationMs = durationMs > 0 ? durationMs : 1000; // Ensure valid duration
+        this.targetHeading = (newHeading !== undefined && newHeading !== null) ? newHeading : this.targetHeading; // Use last good if new is null
 
         // We are now ready to animate
         this.isWaitingForFirstUpdate = false;
@@ -88,44 +82,48 @@ class FlightAnimationState {
 
     /**
      * Calculates the flight's new position and heading for the current frame.
-     * @param {number} currentTimeMs - The current `performance.now()` timestamp.
+     * @param {number} deltaTimeMs - The time elapsed since the last frame.
      * @returns {{coordinates: [number, number], heading: number}}
      */
-    getState(currentTimeMs) {
+    getState(deltaTimeMs) {
         // If we're waiting for the first real update, just
         // return the static, as-is position and heading.
         if (this.isWaitingForFirstUpdate) {
             return {
-                coordinates: this.startPos,
-                heading: this.startHeading
+                coordinates: this.currentRenderedPos,
+                heading: this.currentRenderedHeading
             };
         }
 
-        // --- 1. Calculate Interpolation Factor 't' ---
-        const elapsedMs = currentTimeMs - this.animationStartTimeMs;
-        const t = Math.min(1.0, elapsedMs / this.animationDurationMs);
+        // --- 1. Calculate Interpolation Factors 't' ---
+        // We use delta-time to make the animation smooth regardless of frame rate.
+        // We cap at 1.0 to prevent overshooting in a single frame if a lag spike occurs.
+        const dtSeconds = deltaTimeMs / 1000.0;
+        const t_pos = Math.min(1.0, POSITION_SMOOTHING_RATE * dtSeconds);
+        const t_heading = Math.min(1.0, HEADING_SMOOTHING_RATE * dtSeconds);
 
         // --- 2. Calculate Position (Great-Circle Path) ---
-        // We find the total distance and bearing of the segment,
-        // then move the plane 't' percent along that path.
+        // Find the total distance/bearing from *current* to *target*
         const totalSegmentDistKm = this._getDistanceKm(
-            this.startPos[1], this.startPos[0],
+            this.currentRenderedPos[1], this.currentRenderedPos[0],
             this.targetPos[1], this.targetPos[0]
         );
 
         if (totalSegmentDistKm < 1e-6) {
-            // We are already at the target, don't move.
+            // We are (practically) at the target. Snap to it.
             this.currentRenderedPos = this.targetPos;
         } else {
+            // Find the bearing from *current* to *target*
             const segmentBearing = this._getBearing(
-                this.startPos[1], this.startPos[0],
+                this.currentRenderedPos[1], this.currentRenderedPos[0],
                 this.targetPos[1], this.targetPos[0]
             );
 
-            const distanceToMoveKm = totalSegmentDistKm * t;
+            // Move 't_pos' *percent* of the remaining distance
+            const distanceToMoveKm = totalSegmentDistKm * t_pos;
             const newPos = this._getDestinationPoint(
-                this.startPos[1],
-                this.startPos[0],
+                this.currentRenderedPos[1],
+                this.currentRenderedPos[0],
                 segmentBearing,
                 distanceToMoveKm
             );
@@ -133,25 +131,24 @@ class FlightAnimationState {
         }
 
         // --- 3. Calculate Heading (Simple Angular Lerp) ---
-        // NOTE: This heading is interpolated independently from the
-        // position. This may cause the "crabbing" effect.
+        // Interpolate 't_heading' *percent* towards the target heading
         this.currentRenderedHeading = this._angularLerp(
-            this.startHeading,
+            this.currentRenderedHeading,
             this.targetHeading,
-            t
+            t_heading
         );
 
-        // --- 4. Return and save current state ---
+        // --- 4. Return current state ---
         return {
             coordinates: this.currentRenderedPos,
             heading: this.currentRenderedHeading
         };
     }
 
-    // --- Math & Geo Helpers ---
+    // --- Math & Geo Helpers (Unchanged) ---
 
     _toRad(deg) { return (deg * Math.PI) / 180; }
-    _toDeg(rad) { return (rad * 180) / Math.PI; }
+    _toDeg(rad) { return (rad * 180) / 180; }
 
     _angularLerp(a, b, t) {
         let delta = b - a;
@@ -227,7 +224,7 @@ export class MapAnimator {
         this.airborneFlightState = new Map(); // Stores FlightAnimationState instances
         this.animationFrameId = null;
 
-        this.lastFrameTime = performance.now(); // Only used for loop safety
+        this.lastFrameTime = performance.now(); // Used for delta-time calculation
 
         this._animationLoop = this._animationLoop.bind(this);
     }
@@ -239,7 +236,7 @@ export class MapAnimator {
         this.stop(); // Ensure no duplicates
         this.lastFrameTime = performance.now();
         this.animationFrameId = requestAnimationFrame(this._animationLoop);
-        console.log('MapAnimator (Time-based) started.');
+        console.log('MapAnimator (Smoothing-based) started.');
     }
 
     /**
@@ -251,15 +248,15 @@ export class MapAnimator {
             this.animationFrameId = null;
         }
         this.airborneFlightState.clear();
-        console.log('MapAnimator (Time-based) stopped.');
+        console.log('MapAnimator (Smoothing-based) stopped.');
     }
 
     /**
-     * [REWRITTEN for Time-based Interpolation]
+     * [REWRITTEN for Smoothing-based Interpolation]
      * Updates or creates a flight's state based on new data.
      * @param {object} newPosition - {lon, lat, heading_deg}
      * @param {object} newProperties - The full properties object.
-     * @param {number} packetDuration - The expected time (ms) until the NEXT packet.
+     * @param {number} packetDuration - The expected time (ms) until the NEXT packet. (NOTE: No longer used by this model)
      */
     updateFlight(newPosition, newProperties, packetDuration) {
         const flightId = newProperties.flightId;
@@ -308,12 +305,11 @@ export class MapAnimator {
 
             } else {
                 // --- 2b. This is an existing AIRBORNE flight ---
-                // Update its "target" state. The animation
-                // will automatically restart from its current position.
+                // Update its "target" state.
                 animState.updateTargets({
                     newPos: [newApiLon, newApiLat],
                     newHeading: newApiHeading
-                }, packetDuration); // Pass in the new duration
+                }); // No duration needed
 
                 // Update properties
                 this.currentMapFeatures[flightId].properties = newProperties;
@@ -331,7 +327,7 @@ export class MapAnimator {
     }
 
     /**
-     * [REWRITTEN for Time-based Interpolation]
+     * [REWRITTEN for Smoothing-based Interpolation]
      * The core animation loop (runs every frame).
      */
     _animationLoop() {
@@ -350,6 +346,9 @@ export class MapAnimator {
         if (deltaTimeMs > 1000) {
             return; // Skip massive deltas (e.g., tabbed out)
         }
+        if (deltaTimeMs <= 0) {
+            return; // No time has passed
+        }
 
         // --- 2. Update all animating features ---
         for (const [flightId, animState] of this.airborneFlightState.entries()) {
@@ -360,17 +359,15 @@ export class MapAnimator {
             }
 
             // Delegate all calculation to the state object
-            // Pass 'now' so it can calculate 't'
-            const newState = animState.getState(now);
+            // Pass 'deltaTimeMs' so it can calculate its 't'
+            const newState = animState.getState(deltaTimeMs);
 
             // Update the feature's geometry and heading
             feature.geometry.coordinates = newState.coordinates;
             feature.properties.heading = newState.heading;
 
-            // NOTE: No 'isFinished' check is needed.
-            // The animation simply stops at t=1.0. If data is late,
-            // the plane pauses. When new data arrives, 'updateFlight'
-            // provides a new target and the animation continues.
+            // NOTE: The animation *never* stops, it just
+            // "settles" when it reaches its target.
         }
 
         // --- 3. Update the map source with the new state of *all* features ---
