@@ -5,53 +5,54 @@
  * A module to handle the animation of airborne flights
  * while "teleporting" ground-based flights for a Mapbox GL JS map.
  *
- * --- [USER-REQUESTED REWRITE: Velocity-based Smoothing Model] ---
+ * --- [USER-REQUESTED REWRITE: Constant-Speed Model] ---
  *
- * This model prioritizes smooth, continuous motion over data-point
- * accuracy. The plane "chases" the latest known data point.
+ * This model prioritizes a smooth, continuous, and *capped*
+ * speed over the previous "chase" model.
  *
  * 1. STATE: Each rendered plane's animation is defined by its
  * "current" rendered state (pos, heading) and a "target" state
  * (the latest data from the API).
  *
  * 2. TARGET: When a new API packet arrives, the "target"
- * state is simply updated. The "current" state is NOT changed.
+ * state is simply updated.
  *
- * 3. DURATION: There is no fixed duration. The animation is
- * continuous.
+ * 3. ANIMATION: The loop calculates the distance to move based on
+ * a *fixed speed* (e.g., 540 km/h) and the time elapsed
+ * since the last frame (delta-time).
  *
- * 4. ANIMATION: The loop calculates a small interpolation
- * factor 't' based on the time elapsed since the last frame (delta-time)
- * and a smoothing rate. The plane moves *t* percent closer
- * to its target on every frame.
- *
- * This model ensures the plane *never stops* as long as new data
- * is arriving, creating a "slow and behind" smoothing effect.
+ * This model ensures the plane *never* speeds up to "catch" a
+ * distant target. It always moves at a constant, believable
+ * visual speed, which will naturally lag behind the "true" data.
  * ===================================================================
  */
 
 const EARTH_RADIUS_KM = 6371;
 
-// --- CONFIGURATION for the new smoothing model ---
-// These control how "slow" the animation is.
-// Higher numbers = faster, more responsive.
-// Lower numbers = slower, smoother, more "behind".
+// --- CONFIGURATION for the new Constant-Speed model ---
 
-// --- [USER REQUEST: Slow down *drastically*] ---
-// The previous 0.5/0.8 values were still too fast, causing the
-// animation to "catch" its target and pause.
-// These much-lower values create a significant "lag"
-// to ensure the animation is always chasing and never "settles"
-// as long as new data is arriving.
+// --- [USER REQUEST: Use a constant, slow animation speed] ---
+// This is the visual speed the plane icon will travel across the map,
+// in kilometers per second.
+// This is the *most important* value for tuning the feel.
 //
-// A value of 0.2 means it tries to close the distance in ~5 seconds.
-// A value of 0.4 means it tries to close the heading gap in ~2.5 seconds.
-const POSITION_SMOOTHING_RATE = 0.2; // Was 0.5
-const HEADING_SMOOTHING_RATE = 0.4; // Was 0.8
+// For reference:
+// 900 km/h (Real cruise) = 0.25 km/s
+// 720 km/h = 0.20 km/s
+// 540 km/h (Slower) = 0.15 km/s
+//
+// By setting this *slower* than a real plane's speed, we
+// guarantee the animation will always be lagging and continuous
+// as long as new data is arriving.
+const ANIMATION_SPEED_KM_PER_SECOND = 0.15; // Approx 540 km/h
+
+// Heading smoothing can remain proportional, as it looks good.
+// This controls how quickly the plane "turns" to its new bearing.
+const HEADING_SMOOTHING_RATE = 0.4;
 
 
 /**
- * Manages the "chase" interpolation state
+ * Manages the "constant-speed" interpolation state
  * for a single airborne flight.
  */
 class FlightAnimationState {
@@ -103,12 +104,14 @@ class FlightAnimationState {
             };
         }
 
-        // --- 1. Calculate Interpolation Factors 't' ---
-        // We use delta-time to make the animation smooth regardless of frame rate.
-        // We cap at 1.0 to prevent overshooting in a single frame if a lag spike occurs.
+        // --- 1. Calculate Delta-Time & Factors ---
         const dtSeconds = deltaTimeMs / 1000.0;
-        const t_pos = Math.min(1.0, POSITION_SMOOTHING_RATE * dtSeconds);
+        
+        // Heading interpolation remains proportional (it feels good)
         const t_heading = Math.min(1.0, HEADING_SMOOTHING_RATE * dtSeconds);
+
+        // [NEW] Position movement is based on a *fixed speed*
+        const maxDistanceToMoveThisFrame = ANIMATION_SPEED_KM_PER_SECOND * dtSeconds;
 
         // --- 2. Calculate Position (Great-Circle Path) ---
         // Find the total distance/bearing from *current* to *target*
@@ -130,8 +133,16 @@ class FlightAnimationState {
                 this.targetPos[1], this.targetPos[0]
             );
 
-            // Move 't_pos' *percent* of the remaining distance
-            const distanceToMoveKm = totalSegmentDistKm * t_pos;
+            // --- [CRITICAL FIX] ---
+            // We are no longer moving a *percentage* of the distance.
+            // We are moving at our *fixed animation speed* TOWARDS
+            // the target, but no further than the target itself.
+            const distanceToMoveKm = Math.min(
+                maxDistanceToMoveThisFrame, 
+                totalSegmentDistKm
+            );
+            // --- [END CRITICAL FIX] ---
+
             const newPos = this._getDestinationPoint(
                 this.currentRenderedPos[1],
                 this.currentRenderedPos[0],
@@ -142,10 +153,7 @@ class FlightAnimationState {
         }
 
         // --- 3. Calculate Heading (Improved Logic) ---
-        // If we are moving, the plane should point in the direction
-        // of its ground-track (the 'segmentBearing').
-        // If we have "settled" at the target, it should use the
-        // last known API heading ('this.targetHeading').
+        // This logic is still good: point where we are moving.
         const effectiveHeadingTarget = (totalSegmentDistKm < 1e-6)
             ? this.targetHeading  // We are "settled", use API heading
             : segmentBearing;      // We are moving, use ground track
@@ -256,7 +264,7 @@ export class MapAnimator {
         this.stop(); // Ensure no duplicates
         this.lastFrameTime = performance.now();
         this.animationFrameId = requestAnimationFrame(this._animationLoop);
-        console.log('MapAnimator (Smoothing-based) started.');
+        console.log('MapAnimator (Constant-Speed) started.');
     }
 
     /**
@@ -268,16 +276,15 @@ export class MapAnimator {
             this.animationFrameId = null;
         }
         this.airborneFlightState.clear();
-        console.log('MapAnimator (Smoothing-based) stopped.');
+        console.log('MapAnimator (Constant-Speed) stopped.');
     }
 
     /**
-     * [REWRITTEN for Smoothing-based Interpolation]
      * Updates or creates a flight's state based on new data.
      * @param {object} newPosition - {lon, lat, heading_deg}
      * @param {object} newProperties - The full properties object.
      */
-    updateFlight(newPosition, newProperties) { // packetDuration no longer needed
+    updateFlight(newPosition, newProperties) { 
         const flightId = newProperties.flightId;
         const newApiLon = newPosition.lon;
         const newApiLat = newPosition.lat;
@@ -346,7 +353,6 @@ export class MapAnimator {
     }
 
     /**
-     * [REWRITTEN for Smoothing-based Interpolation]
      * The core animation loop (runs every frame).
      */
     _animationLoop() {
@@ -378,15 +384,12 @@ export class MapAnimator {
             }
 
             // Delegate all calculation to the state object
-            // Pass 'deltaTimeMs' so it can calculate its 't'
+            // Pass 'deltaTimeMs' so it can calculate its speed
             const newState = animState.getState(deltaTimeMs);
 
             // Update the feature's geometry and heading
             feature.geometry.coordinates = newState.coordinates;
             feature.properties.heading = newState.heading;
-
-            // NOTE: The animation *never* stops, it just
-            // "settles" when it reaches its target.
         }
 
         // --- 3. Update the map source with the new state of *all* features ---
