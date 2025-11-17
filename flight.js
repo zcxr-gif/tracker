@@ -2406,7 +2406,7 @@ function injectCustomStyles() {
 }
 
 /**
- * --- [NEW] Helper to find the Simbrief aircraft <option> value
+ * --- [FIXED] Helper to find the Simbrief aircraft <option> value
  * from a given aircraft name.
  * @param {string} aircraftName - The aircraft name (e.g., "Airbus A320-200" or "A320").
  * @returns {string|null} The matching value (e.g., "A320") or null.
@@ -2415,6 +2415,69 @@ function findSimbriefAircraftValue(aircraftName) {
     if (!aircraftName || !AIRCRAFT_SELECTION_LIST) return null;
     
     const upperName = aircraftName.toUpperCase().trim();
+
+    // --- [NEW FIX] Step 0: Create a specific mapping for known mismatches ---
+    // This is the most reliable solution.
+    // Key: The exact name from the Infinite Flight API (in uppercase).
+    // Value: The "value" from your AIRCRAFT_SELECTION_LIST.
+    const knownMismatches = {
+        // --- Airbus ---
+        "AIRBUS A318": "A318",
+        "AIRBUS A319": "A319",
+        "AIRBUS A320-200": "A320",
+        "A320": "A320", // In case the API just sends "A320"
+        "AIRBUS A320NEO": "A20N",
+        "A320NEO": "A20N",
+        "AIRBUS A321": "A321",
+        "A321": "A321",
+        "AIRBUS A321NEO": "A21N",
+        "A321NEO": "A21N",
+        "AIRBUS A330-300": "A333",
+        "AIRBUS A330-900": "A339",
+        "AIRBUS A340": "A346",
+        "AIRBUS A350": "A359",
+        "AIRBUS A380": "A388",
+        
+        // --- Boeing ---
+        "BOEING 717-200": "B712",
+        "BOEING 737-700": "B737",
+        "BOEING 737-800": "B738",
+        "B738": "B738", // In case the API just sends "B738"
+        "BOEING 737-900": "B739",
+        "BOEING 737 MAX 8": "B38M",
+        "BOEING 747-200B": "B742",
+        "BOEING 747-400": "B744",
+        "BOEING 747-8": "B748",
+        "BOEING 757-200": "B752",
+        "BOEING 767-300ER": "B763",
+        "BOEING 777-200ER": "B772",
+        "BOEING 777-200LR": "B77L",
+        "BOEING 777-300ER": "B77W",
+        "BOEING 787-8": "B788",
+        "BOEING 787-9": "B789",
+        "BOEING 787-10": "B78X",
+
+        // --- Others ---
+        "CRJ-200": "CRJ2",
+        "CRJ-700": "CRJ7",
+        "CRJ-900": "CRJ9",
+        "CRJ-1000": "CRJX",
+        "DE HAVILLAND DASH 8 Q400": "DH8D",
+        "E175": "E175",
+        "E190": "E190",
+        "DC-10": "DC10",
+        "MD-11": "MD11"
+        
+        // --- Add more known mismatches here as you find them ---
+        // "API NAME": "YOUR_VALUE",
+    };
+
+    // Try the new mismatch map first.
+    if (knownMismatches[upperName]) {
+        return knownMismatches[upperName];
+    }
+    
+    // --- If not in the map, fallback to existing logic ---
 
     // 1. Try to match by "value" (e.g., "A320")
     let match = AIRCRAFT_SELECTION_LIST.find(ac => ac.value.toUpperCase() === upperName);
