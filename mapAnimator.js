@@ -38,8 +38,14 @@ const EARTH_RADIUS_KM = 6371;
 // Lower numbers = slower, smoother, more "behind".
 // A value of 1.0 means it tries to close the distance in ~1 second.
 // A value of 2.0 means it tries to close the distance in ~0.5 seconds.
-const POSITION_SMOOTHING_RATE = 1.5;
-const HEADING_SMOOTHING_RATE = 2.0;
+
+// --- [FIX for "Stop-and-Go" animation] ---
+// The previous values (1.5, 2.0) were too high, causing the
+// animation to catch its target and stop. These lower values
+// create a much smoother "chase" effect that remains continuous
+// as long as new data is arriving.
+const POSITION_SMOOTHING_RATE = 0.5; // Was 1.5
+const HEADING_SMOOTHING_RATE = 0.8; // Was 2.0
 
 
 /**
