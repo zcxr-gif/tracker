@@ -245,6 +245,8 @@
     flex-direction: column;
     gap: 16px;
     margin-top: 20px;
+    /** [FIX #2] This centers the whole form block **/
+    align-items: center;
 }
 
 .form-group {
@@ -253,15 +255,24 @@
     gap: 8px;
 }
 
+/** [FIX #2] This new rule targets the single, full-width groups **/
+.fp-form > .form-group {
+    width: 100%;
+    /* 150px + 12px gap + 150px = 312px */
+    max-width: 312px; 
+}
+
 .form-group-row {
     display: flex;
     gap: 12px;
-    /** [FIX] This centers the boxes when they don't fill the space **/
+    /** [FIX #1 - Unchanged] This centers the boxes when they don't fill the space **/
     justify-content: center;
+    width: 100%;
+    max-width: 312px;
 }
 
 .form-group-row .form-group {
-    /** [FIX] Changed 'flex: 1' to stop boxes from growing **/
+    /** [FIX #1 - Unchanged] Changed 'flex: 1' to stop boxes from growing **/
     flex: 0 1 150px;
 }
 
@@ -276,7 +287,7 @@
     background: rgba(0, 0, 0, 0.25);
     border: 1px solid rgba(255, 255, 255, 0.1);
     border-radius: 6px;
-    /** [FIX] Reduced padding from 12px to make boxes slimmer **/
+    /** [FIX #1 - Unchanged] Reduced padding from 12px to make boxes slimmer **/
     padding: 10px;
     color: #e8eaf6;
     font-size: 0.95rem;
@@ -308,6 +319,9 @@
     justify-content: center;
     gap: 10px;
     margin-top: 12px;
+    /** [FIX #2] Make the button match the width of the form elements **/
+    width: 100%;
+    max-width: 312px;
 }
 
 .sb-generate-btn:hover {
@@ -330,7 +344,7 @@
     background: rgba(0, 0, 0, 0.25);
     border: 1px solid rgba(255, 255, 255, 0.1);
     border-radius: 6px;
-    /** [FIX] Reduced padding from 12px to match inputs **/
+    /** [FIX #1 - Unchanged] Reduced padding from 12px to match inputs **/
     padding: 10px;
     color: #e8eaf6;
     font-size: 0.95rem;
