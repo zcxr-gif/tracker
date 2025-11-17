@@ -2405,11 +2405,42 @@ function injectCustomStyles() {
     document.head.appendChild(style);
 }
 
+/**
+ * --- [NEW] Helper to find the Simbrief aircraft <option> value
+ * from a given aircraft name.
+ * @param {string} aircraftName - The aircraft name (e.g., "Airbus A320-200" or "A320").
+ * @returns {string|null} The matching value (e.g., "A320") or null.
+ */
+function findSimbriefAircraftValue(aircraftName) {
+    if (!aircraftName || !AIRCRAFT_SELECTION_LIST) return null;
+    
+    const upperName = aircraftName.toUpperCase().trim();
+
+    // 1. Try to match by "value" (e.g., "A320")
+    let match = AIRCRAFT_SELECTION_LIST.find(ac => ac.value.toUpperCase() === upperName);
+    if (match) return match.value;
+
+    // 2. Try to match by "name" (e.g., "Airbus A320-200")
+    match = AIRCRAFT_SELECTION_LIST.find(ac => ac.name.toUpperCase() === upperName);
+    if (match) return match.value;
+    
+    // 3. Fallback: Try to find a "value" that is *included* in the name
+    // (e.g., name is "Airbus A320neo", value is "A20N")
+    match = AIRCRAFT_SELECTION_LIST.find(ac => upperName.includes(ac.value.toUpperCase()));
+    if (match) return match.value;
+
+    // 4. Fallback: Try to find a "name" that *includes* the given name
+    // (e.g., name is "A320", list name is "Airbus A320-200")
+     match = AIRCRAFT_SELECTION_LIST.find(ac => ac.name.toUpperCase().includes(upperName));
+    if (match) return match.value;
+
+    console.warn(`Could not find Simbrief match for aircraft: ${aircraftName}`);
+    return null; // No match found
+}
+
 
     /**
- * --- [REPLACE THIS FUNCTION] ---
- * This is your existing function, modified to add the event listener
- * and render the flight list on load.
+ * render the flight list on load.
  */
 async function loadExternalPanelContent() {
     const panel = document.getElementById('sector-ops-floating-panel');
@@ -4420,6 +4451,73 @@ function setupAircraftWindowEvents() {
         const closeBtn = e.target.closest('.aircraft-window-close-btn');
         const hideBtn = e.target.closest('.aircraft-window-hide-btn');
         const tabBtn = e.target.closest('.ac-info-tab-btn');
+        
+        // ===================================================================
+        // --- [NEW BUTTON LISTENER START] ---
+        // ===================================================================
+        const planBtn = e.target.closest('#plan-this-flight-btn');
+
+        if (planBtn) {
+            e.preventDefault();
+            
+            const departure = planBtn.dataset.departure;
+            const arrival = planBtn.dataset.arrival;
+            const aircraft = planBtn.dataset.aircraft;
+
+            if (!departure || !arrival || !aircraft) {
+                showNotification("Could not get flight data to plan.", "error");
+                return;
+            }
+
+            // 1. Get form elements from the side panel
+            const depInput = document.getElementById('fp-departure');
+            const arrInput = document.getElementById('fp-arrival');
+            const acSelect = document.getElementById('fp-aircraft');
+            
+            if (!depInput || !arrInput || !acSelect) {
+                showNotification("Flight plan form is not loaded.", "error");
+                return;
+            }
+
+            // 2. Fill the form
+            depInput.value = departure;
+            arrInput.value = arrival;
+            acSelect.value = aircraft; // This sets the dropdown
+
+            // 3. Switch to the "Flight Plan" tab
+            const flightPlanTabBtn = document.querySelector('.panel-tab-btn[data-tab="tab-flightplan"]');
+            if (flightPlanTabBtn) {
+                flightPlanTabBtn.click();
+            }
+            
+            // 4. Hide (don't close) the aircraft info window
+            const hideButton = aircraftInfoWindow.querySelector('.aircraft-window-hide-btn');
+            if (hideButton) {
+                hideButton.click();
+            }
+            
+            // 5. Open the side panel if it's collapsed
+            const panel = document.getElementById('sector-ops-floating-panel');
+            if (panel && panel.classList.contains('panel-collapsed')) {
+                const toolbarToggleBtn = document.getElementById('toolbar-toggle-panel-btn');
+                if (toolbarToggleBtn) {
+                    toolbarToggleBtn.click();
+                }
+            }
+            
+            // 6. Scroll the flight plan tab to the top to show the form
+            const flightPlanTabContent = document.getElementById('tab-flightplan');
+            if (flightPlanTabContent) {
+                flightPlanTabContent.scrollTop = 0;
+            }
+
+            showNotification("Flight plan form populated.", "success");
+            return; // Stop event propagation
+        }
+        // ===================================================================
+        // --- [NEW BUTTON LISTENER END] ---
+        // ===================================================================
+
 
         // --- Tab Switching Logic (Unchanged) ---
         if (tabBtn) {
@@ -6065,6 +6163,29 @@ function populateAircraftInfoWindow(baseProps, plan, sortedRoutePoints) { // <--
     const depFlagDisplay = depCountryCode ? 'block' : 'none';
     const arrFlagDisplay = arrCountryCode ? 'block' : 'none';
     // --- [END NEW] ---
+    
+    // ===================================================================
+    // --- [NEW INJECTION START] ---
+    // ===================================================================
+    // Find the Simbrief aircraft value
+    const simbriefAircraftValue = findSimbriefAircraftValue(aircraftName);
+    
+    let planButtonHtml = '';
+    // Only show the button if we have a plan AND a matching aircraft
+    if (hasPlan && simbriefAircraftValue) {
+        planButtonHtml = `
+        <button id="plan-this-flight-btn" class="pilot-stats-toggle-btn" 
+                data-departure="${departureIcao}" 
+                data-arrival="${arrivalIcao}" 
+                data-aircraft="${simbriefAircraftValue}"
+                style="margin-bottom: 16px;">
+            <i class="fa-solid fa-file-invoice"></i> Plan This Flight
+        </button>
+        `;
+    }
+    // ===================================================================
+    // --- [NEW INJECTION END] ---
+    // ===================================================================
 
     windowEl.innerHTML = `
     <div class="info-window-content">
@@ -6133,7 +6254,7 @@ function populateAircraftInfoWindow(baseProps, plan, sortedRoutePoints) { // <--
             
             <div id="ac-tab-flight-data" class="ac-tab-pane active">
                 
-                <div class="pfd-and-location-grid">
+                ${planButtonHtml} <div class="pfd-and-location-grid">
                 
                     <div class="pfd-main-panel">
                         <div id="pfd-container">
