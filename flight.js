@@ -3543,6 +3543,9 @@ function getIntermediatePoint(lat1, lon1, lat2, lon2, fraction) {
  * has been removed. The animator will now "chase" every packet
  * it receives, even if it's technically "stale," preventing
  * the icon from freezing due to network/server packet ordering issues.
+ *
+ * --- [FIX v2.0] Added 'last_update' property so that
+ * MapAnimator can de-conflict out-of-order packets.
  */
 function handleSocketFlightUpdate(data) {
     if (!data || !Array.isArray(data.flights) || !data.timestamp) {
@@ -3616,7 +3619,14 @@ function handleSocketFlightUpdate(data) {
             //
             isStaff: flight.isStaff,
             isVAMember: flight.isVAMember,
-            phase: litePhase 
+            phase: litePhase,
+
+            // --- [THIS IS THE FIX] ---
+            // Add the position's timestamp so MapAnimator can prevent
+            // out-of-order "jump back" packets.
+            // We use the position's report time, falling back to the packet time.
+            last_update: flight.position.lastReport || data.timestamp
+            // --- [END OF FIX] ---
         };
 
         // --- Delegate to the animator ---
