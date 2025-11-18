@@ -788,21 +788,22 @@ function injectCustomStyles() {
             margin-top: 4px; 
         }
 
-        /* --- [NEW] Keyframes for subtext animation --- */
+        /* ##### MODIFICATION START ##### */
+        /* --- [NEW] Keyframes for 50/50 subtext animation --- */
         @keyframes primarySubtextAnimation {
             0%   { opacity: 1; transform: translateY(0); }
-            60%  { opacity: 1; transform: translateY(0); } /* Hold Username (6s) */
-            65%  { opacity: 0; transform: translateY(10px); } /* Fade Out (0.5s) */
-            95%  { opacity: 0; transform: translateY(-10px); } /* Stay Hidden (3s) */
-            100% { opacity: 1; transform: translateY(0); } /* Fade In (0.5s) */
+            40%  { opacity: 1; transform: translateY(0); }     /* Hold Livery (3.2s) */
+            50%  { opacity: 0; transform: translateY(10px); }  /* Fade Out (0.8s) */
+            51%  { opacity: 0; transform: translateY(-10px); } /* Reset position */
+            90%  { opacity: 0; transform: translateY(-10px); } /* Stay Hidden (3.2s) */
+            100% { opacity: 1; transform: translateY(0); }     /* Fade In (0.8s) */
         }
         @keyframes secondarySubtextAnimation {
-            0%   { opacity: 0; transform: translateY(-10px); } /* Start Hidden (6.5s) */
-            65%  { opacity: 0; transform: translateY(-10px); }
-            70%  { opacity: 1; transform: translateY(0); } /* Fade In (0.5s) */
-            90%  { opacity: 1; transform: translateY(0); } /* Hold Aircraft (2s) */
-            95%  { opacity: 0; transform: translateY(10px); } /* Fade Out (0.5s) */
-            100% { opacity: 0; transform: translateY(-10px); } /* Stay Hidden (0.5s) */
+            0%   { opacity: 0; transform: translateY(-10px); } /* Start Hidden */
+            40%  { opacity: 0; transform: translateY(-10px); } /* Stay Hidden (3.2s) */
+            50%  { opacity: 1; transform: translateY(0); }     /* Fade In (0.8s) */
+            90%  { opacity: 1; transform: translateY(0); }     /* Hold A/C Name (3.2s) */
+            100% { opacity: 0; transform: translateY(10px); }  /* Fade Out (0.8s) */
         }
         
         /* --- [NEW] Individual subtext items --- */
@@ -813,7 +814,7 @@ function injectCustomStyles() {
             width: 100%;
             animation-name: primarySubtextAnimation; /* Default to primary */
             animation-iteration-count: infinite;
-            animation-duration: 10s;
+            animation-duration: 8s; /* <-- MODIFIED */
             animation-timing-function: ease-in-out;
             opacity: 0; /* Start hidden, animation will show it */
             white-space: nowrap;
@@ -821,13 +822,14 @@ function injectCustomStyles() {
             text-overflow: ellipsis;
         }
         
-        #ac-header-username {
+        #ac-header-livery { /* <-- MODIFIED */
             animation-name: primarySubtextAnimation;
         }
         
         #ac-header-actype {
             animation-name: secondarySubtextAnimation;
         }
+        /* ##### MODIFICATION END ##### */
 
         .overview-col-right {
             text-align: right;
@@ -6284,7 +6286,7 @@ function populateAircraftInfoWindow(baseProps, plan, sortedRoutePoints) { // <--
                     <h3 id="ac-header-callsign">${logoHtml}${baseProps.callsign}</h3>
                     
                     <p id="ac-header-subtext-container">
-                        <span class="ac-header-subtext" id="ac-header-username">${baseProps.username || 'N/A'}</span>
+                        <span class="ac-header-subtext" id="ac-header-livery">${airlineName}</span>
                         <span class="ac-header-subtext" id="ac-header-actype">${aircraftName}</span>
                     </p>
                 </div>
