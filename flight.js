@@ -3580,7 +3580,7 @@ function handleSocketFlightUpdate(data) {
         };
 
         // ================================================================
-        // === PASTE THE NEW LOGIC BLOCK HERE ===
+        // === NEW LOGIC BLOCK ===
         // This checks if the flight in the loop is the one we have open.
         // ================================================================
         if (flightId === currentFlightInWindow) {
@@ -3611,6 +3611,67 @@ function handleSocketFlightUpdate(data) {
 
                 // 5. Update the UI
                 updatePfdDisplay(flight.position);
+                
+                // === NEW: Update Navigation Display Iframe ===
+                const navIframe = document.getElementById('nav-display-frame');
+                if (navIframe && navIframe.contentWindow) {
+                    
+                    // A. Process Traffic
+                    const ndTraffic = [];
+                    const myLat = flight.position.lat;
+                    const myLon = flight.position.lon;
+                    const myAlt = flight.position.alt_ft;
+
+                    // Iterate over ALL flights to find traffic
+                    flights.forEach(other => {
+                        if (other.flightId === flightId) return; // Skip self
+                        
+                        // Simple distance check first (optimization)
+                        const latDiff = Math.abs(other.position.lat - myLat);
+                        const lonDiff = Math.abs(other.position.lon - myLon);
+                        if (latDiff > 1 || lonDiff > 1) return; // Roughly 60nm box
+
+                        // Calculate precise distance
+                        const distKm = getDistanceKm(myLat, myLon, other.position.lat, other.position.lon);
+                        const distNM = distKm / 1.852;
+
+                        // Only send if within ND range (e.g. 45NM max for now)
+                        if (distNM < 45) {
+                            const bearingTo = getBearing(myLat, myLon, other.position.lat, other.position.lon);
+                            // Relative bearing (0 = nose)
+                            let relBearing = bearingTo - flight.position.heading_deg;
+                            
+                            // Normalize -180 to 180
+                            if (relBearing > 180) relBearing -= 360;
+                            if (relBearing < -180) relBearing += 360;
+
+                            // Altitude difference (in 100s of feet)
+                            const altDiffFt = other.position.alt_ft - myAlt;
+                            const altDiff100 = Math.round(altDiffFt / 100);
+
+                            ndTraffic.push({
+                                id: other.flightId,
+                                bearing: relBearing, // Relative to nose
+                                dist: distNM,
+                                altDiff: altDiff100,
+                                vs: other.position.vs_fpm
+                            });
+                        }
+                    });
+
+                    // B. Send Data to Iframe
+                    navIframe.contentWindow.postMessage({
+                        heading: flight.position.heading_deg,
+                        track: flight.position.heading_deg, // IF API doesn't always give track, assume Heading=Track for now
+                        tas: Math.round(flight.position.gs_kt), // Approximation if TAS unavailable
+                        gs: Math.round(flight.position.gs_kt),
+                        windDir: 0, // Live wind not in this packet usually
+                        windSpd: 0,
+                        traffic: ndTraffic
+                    }, '*');
+                }
+                // === END NEW ===
+
                 // We pass the *full* properties object here
                 updateAircraftInfoWindow(fullFlightProps, cachedFlightDataForStatsView.plan, localTrail);
 
@@ -6413,7 +6474,9 @@ function populateAircraftInfoWindow(baseProps, plan, sortedRoutePoints) { // <--
             
             <div id="ac-tab-flight-data" class="ac-tab-pane active">
                 
-                ${planButtonHtml} <div class="pfd-and-location-grid">
+                ${planButtonHtml} 
+                
+                <div class="pfd-and-location-grid">
                 
                     <div class="pfd-main-panel">
                         <div id="pfd-container">
@@ -6534,6 +6597,11 @@ function populateAircraftInfoWindow(baseProps, plan, sortedRoutePoints) { // <--
                             </defs>
                             </svg>
                         </div>
+                    </div>
+                    
+                    <!-- NEW: Navigation Display Iframe -->
+                    <div id="nd-container" style="background: #000; border-radius: 12px; overflow: hidden; border: 1px solid rgba(255,255,255,0.1); aspect-ratio: 1/1; min-height: 300px;">
+                        <iframe id="nav-display-frame" src="nav.html" style="width: 100%; height: 100%; border: none;" scrolling="no"></iframe>
                     </div>
                     
                     <div id="location-data-panel" class="data-bar-item">

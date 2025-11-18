@@ -1,0 +1,699 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Airbus A320 Navigation Display Simulation</title>
+    <style>
+        /* --- Imports & Variables --- */
+        @import url('https://fonts.googleapis.com/css2?family=Inconsolata:wght@400;700&display=swap');
+        
+        :root {
+            --bg-body: #1a1a1a;
+            --bg-panel: #111827;   /* gray-900 */
+            --bg-bezel: #1f2937;   /* gray-800 */
+            --border-main: #374151; /* gray-700 */
+            --border-dark: #111827; /* gray-900 */
+            --screw-color: #4b5563; /* gray-600 */
+            
+            --text-main: #e5e7eb;   /* gray-200 */
+            --text-muted: #9ca3af;  /* gray-400 */
+            --text-dim: #6b7280;    /* gray-500 */
+            
+            --accent-green: #4ade80;
+            --accent-cyan: #22d3ee;
+            
+            --font-mono: 'Inconsolata', monospace;
+        }
+
+        /* --- Reset & Base --- */
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+        }
+
+        body {
+            background-color: var(--bg-body);
+            font-family: var(--font-mono);
+            color: var(--text-main);
+            height: 100vh;
+            width: 100%;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            padding: 1rem;
+            overflow: hidden; /* Prevent scrolling */
+        }
+
+        /* --- Layout Components --- */
+        .cockpit-container {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            width: 100%;
+            max-width: 42rem; /* Matches max-w-2xl */
+            gap: 1rem;
+        }
+
+        /* --- Display Unit (The Monitor Bezel) --- */
+        .display-bezel {
+            position: relative;
+            background-color: var(--bg-bezel);
+            padding: 1rem;
+            border-radius: 1.5rem;
+            border: 4px solid var(--border-main);
+            box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.5); /* Deep shadow */
+            width: 100%;
+            aspect-ratio: 1 / 1;
+            max-height: 600px;
+            display: flex;
+            flex-direction: column;
+        }
+
+        /* Decorative Screws */
+        .screw {
+            position: absolute;
+            width: 0.75rem;
+            height: 0.75rem;
+            background-color: var(--screw-color);
+            border-radius: 50%;
+            box-shadow: inset 1px 1px 2px rgba(0,0,0,0.5);
+        }
+        .screw.tl { top: 0.5rem; left: 0.5rem; }
+        .screw.tr { top: 0.5rem; right: 0.5rem; }
+        .screw.bl { bottom: 0.5rem; left: 0.5rem; }
+        .screw.br { bottom: 0.5rem; right: 0.5rem; }
+
+        /* --- CRT Screen Area --- */
+        .crt-container {
+            width: 100%;
+            height: 100%;
+            position: relative;
+            border: 2px solid var(--border-dark);
+            background: #000;
+            border-radius: 20px;
+            overflow: hidden;
+            box-shadow: inset 0 0 20px rgba(0,0,0,0.8);
+        }
+
+        canvas {
+            display: block; /* Removes inline gap */
+            width: 100%;
+            height: 100%;
+        }
+
+        /* Scanline Overlay */
+        .scanlines::before {
+            content: " ";
+            display: block;
+            position: absolute;
+            top: 0; left: 0; bottom: 0; right: 0;
+            background: linear-gradient(rgba(18, 16, 16, 0) 50%, rgba(0, 0, 0, 0.25) 50%), 
+                        linear-gradient(90deg, rgba(255, 0, 0, 0.06), rgba(0, 255, 0, 0.02), rgba(0, 0, 255, 0.06));
+            z-index: 10;
+            background-size: 100% 2px, 3px 100%;
+            pointer-events: none;
+        }
+
+        /* --- Control Panel --- */
+        .control-panel {
+            width: 100%;
+            background-color: var(--bg-panel);
+            padding: 1.5rem;
+            border-radius: 0.75rem;
+            border: 1px solid var(--border-main);
+            box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.3);
+            
+            display: grid;
+            grid-template-columns: 1fr;
+            gap: 1.5rem;
+        }
+
+        /* Desktop Grid layout */
+        @media (min-width: 768px) {
+            .control-panel {
+                grid-template-columns: repeat(3, 1fr);
+            }
+        }
+
+        .control-group {
+            display: flex;
+            flex-direction: column;
+            gap: 0.5rem;
+        }
+
+        .label-text {
+            font-size: 0.75rem;
+            font-weight: 700;
+            color: var(--text-muted);
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+        }
+
+        .input-row {
+            display: flex;
+            align-items: center;
+            gap: 0.75rem;
+        }
+
+        /* Digital Value Displays */
+        .value-display {
+            font-size: 1.25rem; /* text-xl */
+            width: 3rem;
+            font-family: var(--font-mono);
+        }
+        .value-display.green { color: var(--accent-green); }
+        .value-display.cyan { color: var(--accent-cyan); }
+
+        /* --- Range Buttons --- */
+        .button-group {
+            display: flex;
+            justify-content: space-between;
+            background-color: var(--bg-bezel);
+            border-radius: 0.25rem;
+            padding: 0.25rem 0.5rem;
+        }
+
+        .range-btn {
+            background: none;
+            border: none;
+            cursor: pointer;
+            font-family: var(--font-mono);
+            font-size: 0.75rem;
+            font-weight: 700;
+            padding: 0.25rem 0.5rem;
+            border-radius: 0.25rem;
+            transition: color 0.2s;
+        }
+
+        .range-btn:hover {
+            color: #fff;
+        }
+
+        /* Active/Inactive states for buttons */
+        .btn-active {
+            color: var(--accent-green);
+        }
+        .btn-inactive {
+            color: var(--text-dim);
+        }
+
+        /* --- Footer --- */
+        .footer-text {
+            font-size: 0.75rem;
+            color: var(--text-dim);
+            margin-top: 0.5rem;
+        }
+
+        /* --- Form Elements (Sliders) --- */
+        input[type=range] {
+            -webkit-appearance: none; 
+            appearance: none;
+            background: transparent; 
+            width: 100%;
+        }
+        
+        input[type=range]:focus {
+            outline: none;
+        }
+
+        input[type=range]::-webkit-slider-thumb {
+            -webkit-appearance: none;
+            height: 20px;
+            width: 20px;
+            border-radius: 50%;
+            background: var(--accent-green);
+            margin-top: -8px;
+            cursor: pointer;
+            box-shadow: 0 0 5px rgba(74, 222, 128, 0.5);
+        }
+
+        input[type=range]::-webkit-slider-runnable-track {
+            width: 100%;
+            height: 4px;
+            cursor: pointer;
+            background: #4b5563;
+            border-radius: 2px;
+        }
+        
+        input[type=range]::-moz-range-thumb {
+            height: 20px;
+            width: 20px;
+            border: none;
+            border-radius: 50%;
+            background: var(--accent-green);
+            cursor: pointer;
+        }
+
+        input[type=range]::-moz-range-track {
+            width: 100%;
+            height: 4px;
+            cursor: pointer;
+            background: #4b5563;
+            border-radius: 2px;
+        }
+
+    </style>
+</head>
+<body>
+
+    <!-- Main Cockpit Panel -->
+    <div class="cockpit-container">
+        
+        <!-- Display Unit Bezel -->
+        <div class="display-bezel">
+            
+            <!-- Screw details -->
+            <div class="screw tl"></div>
+            <div class="screw tr"></div>
+            <div class="screw bl"></div>
+            <div class="screw br"></div>
+
+            <!-- The Screen (Canvas) -->
+            <div class="crt-container scanlines">
+                <canvas id="ndCanvas"></canvas>
+            </div>
+            
+        </div>
+
+        <!-- Control Panel (Simulates FCU/EFIS Control Panel) -->
+        <div class="control-panel">
+            
+            <!-- Heading Control -->
+            <div class="control-group">
+                <label class="label-text">Heading (HDG)</label>
+                <div class="input-row">
+                    <span class="value-display green" id="hdgVal">270°</span>
+                    <input type="range" id="hdgInput" min="0" max="359" value="270">
+                </div>
+            </div>
+
+            <!-- Speed Control -->
+            <div class="control-group">
+                <label class="label-text">True Airspeed (TAS)</label>
+                <div class="input-row">
+                    <span class="value-display cyan" id="tasVal">0</span>
+                    <input type="range" id="tasInput" min="0" max="450" value="0">
+                </div>
+            </div>
+
+            <!-- Range Control -->
+            <div class="control-group">
+                <label class="label-text">Range (NM)</label>
+                <div class="button-group">
+                    <!-- Added semantic classes for JS targeting -->
+                    <button onclick="setRange(10)" class="range-btn btn-active" id="btn-10">10</button>
+                    <button onclick="setRange(20)" class="range-btn btn-inactive" id="btn-20">20</button>
+                    <button onclick="setRange(40)" class="range-btn btn-inactive" id="btn-40">40</button>
+                </div>
+            </div>
+            
+        </div>
+        
+        <p class="footer-text">Use controls above to simulate flight inputs.</p>
+    </div>
+
+   <style>
+        /* Add this to your existing CSS in nav.html to handle embedded mode */
+        body.embedded .control-panel {
+            display: none !important;
+        }
+        body.embedded .cockpit-container {
+            padding: 0;
+            max-width: 100%;
+        }
+        body.embedded .display-bezel {
+            box-shadow: none;
+            border: none; /* Optional: remove bezel border if you want it flush */
+            border-radius: 0;
+            padding: 0;
+            background: transparent;
+        }
+        body.embedded .screw {
+            display: none; /* Hide screws in embedded mode */
+        }
+        body.embedded .crt-container {
+            border-radius: 0;
+            border: none;
+        }
+    </style>
+
+    <script>
+        // --- Configuration & State ---
+        const canvas = document.getElementById('ndCanvas');
+        const ctx = canvas.getContext('2d');
+        
+        // Check if embedded
+        if (window.self !== window.top) {
+            document.body.classList.add('embedded');
+        }
+
+        let state = {
+            heading: 0,
+            tas: 0, 
+            gs: 0,  
+            range: 40, // Default range
+            windDir: 0,
+            windSpd: 0,
+            track: 0, 
+            time: "00:00",
+            simTime: new Date()
+        };
+
+        let traffic = []; // Dynamic traffic array
+
+        // Colors (Airbus standard)
+        const COLORS = {
+            bg: '#000000',
+            white: '#e6e6e6',
+            green: '#00ff00',
+            cyan: '#00ffff',
+            yellow: '#ffff00',
+            magenta: '#ff00ff',
+            amber: '#ff9900',
+            grey: '#666666'
+        };
+
+        // Resize handling
+        function resize() {
+            const parent = canvas.parentElement;
+            canvas.width = parent.clientWidth * 2; 
+            canvas.height = parent.clientHeight * 2;
+            ctx.scale(2, 2);
+        }
+        window.addEventListener('resize', resize);
+        setTimeout(resize, 0);
+
+        // --- Physics & Update Logic ---
+        function updatePhysics() {
+            // In embedded mode, GS and Track are provided by parent, 
+            // so we barely need to calculate physics here, mostly just time.
+            const now = new Date();
+            state.time = now.getUTCHours().toString().padStart(2, '0') + ":" + 
+                         now.getUTCMinutes().toString().padStart(2, '0');
+        }
+
+        // --- Drawing Functions ---
+        function draw() {
+            const w = canvas.width / 2;
+            const h = canvas.height / 2;
+            const cx = w / 2;
+            const cy = h / 2; // Center for ARC mode usually lower, but we'll stick to standard
+            
+            // Constants for layout (Airbus ARC mode)
+            const arcCenterY = h * 0.85; 
+            const arcCenterX = w * 0.5;
+            const arcRadius = h * 0.75; 
+
+            // 1. Background
+            ctx.fillStyle = COLORS.bg;
+            ctx.fillRect(0, 0, w, h);
+
+            // 2. Rotating Map Layer
+            ctx.save();
+            ctx.translate(arcCenterX, arcCenterY);
+            ctx.rotate(-state.heading * Math.PI / 180);
+
+            drawCompassRose(arcRadius);
+            drawTraffic(arcRadius);
+
+            ctx.restore();
+
+            // 3. Static Overlays
+            drawRangeRings(arcCenterX, arcCenterY, arcRadius);
+            drawAircraftSymbol(arcCenterX, arcCenterY);
+            drawHeadingPointers(arcCenterX, arcCenterY, arcRadius);
+            drawOverlays(w, h);
+        }
+
+        function drawCompassRose(radius) {
+            ctx.strokeStyle = COLORS.white;
+            ctx.fillStyle = COLORS.white;
+            ctx.textAlign = "center";
+            ctx.textBaseline = "middle";
+            ctx.lineWidth = 2;
+            ctx.font = "bold 18px 'Inconsolata', monospace";
+
+            const tickLenShort = 10;
+            const tickLenLong = 20;
+
+            for (let d = 0; d < 360; d += 5) {
+                const rad = d * Math.PI / 180;
+                
+                // Optimization: specific to ARC view (approx 100 deg FOV)
+                let rel = Math.abs(d - state.heading);
+                if (rel > 180) rel = 360 - rel;
+                if (rel > 110) continue; 
+
+                const isMajor = (d % 10 === 0);
+                const len = isMajor ? tickLenLong : tickLenShort;
+
+                const x1 = Math.sin(rad) * radius;
+                const y1 = -Math.cos(rad) * radius;
+                const x2 = Math.sin(rad) * (radius - len);
+                const y2 = -Math.cos(rad) * (radius - len);
+
+                ctx.beginPath();
+                ctx.moveTo(x1, y1);
+                ctx.lineTo(x2, y2);
+                ctx.stroke();
+
+                if (d % 30 === 0) {
+                    const textRadius = radius - 35;
+                    const tx = Math.sin(rad) * textRadius;
+                    const ty = -Math.cos(rad) * textRadius;
+                    
+                    ctx.save();
+                    ctx.translate(tx, ty);
+                    ctx.rotate(state.heading * Math.PI / 180); 
+                    
+                    let label = (d / 10).toString().padStart(2, '0');
+                    if (d === 0) label = "N"; 
+                    ctx.fillText(label, 0, 0);
+                    ctx.restore();
+                }
+            }
+        }
+
+        function drawRangeRings(cx, cy, radius) {
+            ctx.strokeStyle = COLORS.white;
+            ctx.setLineDash([5, 5]); 
+            ctx.lineWidth = 1;
+            
+            // Ring 1 (50%)
+            ctx.beginPath();
+            ctx.arc(cx, cy, radius * 0.5, Math.PI + 0.6, 2 * Math.PI - 0.6);
+            ctx.stroke();
+            
+            // Ring 2 (75%)
+            ctx.beginPath();
+            ctx.arc(cx, cy, radius * 0.75, Math.PI + 0.4, 2 * Math.PI - 0.4);
+            ctx.stroke();
+            ctx.setLineDash([]); 
+
+            // Labels
+            ctx.fillStyle = COLORS.cyan;
+            ctx.font = "12px 'Inconsolata'";
+            ctx.textAlign = "right";
+            
+            let midVal = state.range / 2;
+            let threeQuarterVal = state.range * 0.75;
+            
+             ctx.fillText(midVal.toString(), cx - (radius*0.5) - 5, cy - 5); 
+             ctx.fillText(threeQuarterVal.toString(), cx - (radius*0.75) - 5, cy - 5);
+        }
+
+        function drawAircraftSymbol(cx, cy) {
+            ctx.strokeStyle = COLORS.yellow;
+            ctx.lineWidth = 3;
+            ctx.beginPath();
+            ctx.moveTo(cx, cy - 15); ctx.lineTo(cx, cy + 15); // Fuselage
+            ctx.moveTo(cx - 15, cy); ctx.lineTo(cx + 15, cy); // Wings
+            ctx.moveTo(cx - 6, cy + 12); ctx.lineTo(cx + 6, cy + 12); // Tail
+            ctx.stroke();
+            ctx.fillStyle = '#000';
+            ctx.beginPath(); ctx.arc(cx, cy, 2, 0, Math.PI*2); ctx.fill();
+        }
+
+        function drawHeadingPointers(cx, cy, radius) {
+            // Lubber line
+            ctx.fillStyle = COLORS.yellow;
+            ctx.beginPath();
+            const topY = cy - radius + 10; 
+            ctx.moveTo(cx, topY);
+            ctx.lineTo(cx - 8, topY - 15);
+            ctx.lineTo(cx + 8, topY - 15);
+            ctx.fill();
+            
+            // Track Line (Green)
+            const drift = state.track - state.heading;
+            const driftRad = drift * Math.PI / 180;
+            
+            ctx.strokeStyle = COLORS.green;
+            ctx.lineWidth = 2;
+            
+            const endX = cx + radius * Math.sin(driftRad);
+            const endY = cy - radius * Math.cos(driftRad);
+            
+            ctx.beginPath();
+            ctx.moveTo(cx, cy);
+            ctx.lineTo(endX, endY);
+            ctx.stroke();
+        }
+
+        function drawTraffic(radius) {
+            if (!traffic || traffic.length === 0) return;
+
+            // Pixels per Nautical Mile
+            const pxPerNM = radius / state.range;
+
+            traffic.forEach(t => {
+                // Only draw if within range (+ slight buffer)
+                if (t.dist > state.range + 5) return;
+
+                const tX = Math.sin(t.bearing * Math.PI / 180) * (t.dist * pxPerNM);
+                const tY = -Math.cos(t.bearing * Math.PI / 180) * (t.dist * pxPerNM);
+                
+                ctx.fillStyle = COLORS.white;
+                ctx.strokeStyle = COLORS.white;
+                ctx.lineWidth = 2;
+                
+                // TCAS Diamond
+                ctx.beginPath();
+                ctx.moveTo(tX, tY - 6);
+                ctx.lineTo(tX + 6, tY);
+                ctx.lineTo(tX, tY + 6);
+                ctx.lineTo(tX - 6, tY);
+                ctx.closePath();
+                ctx.stroke();
+                
+                // Altitude Tag (+12 means 1200ft above)
+                ctx.font = "bold 14px Arial";
+                const altDiff = t.altDiff; // e.g., +12 or -05
+                const sign = altDiff >= 0 ? "+" : "";
+                ctx.fillText(sign + altDiff, tX + 15, tY - 5);
+                
+                // V/S Arrow
+                if (t.vs > 500) ctx.fillText("↑", tX + 35, tY - 5);
+                else if (t.vs < -500) ctx.fillText("↓", tX + 35, tY - 5);
+            });
+        }
+
+        function drawOverlays(w, h) {
+            ctx.font = "bold 20px 'Inconsolata', monospace";
+            const leftM = 20;
+            const topM = 40;
+            
+            // GS / TAS
+            ctx.fillStyle = COLORS.green;
+            ctx.textAlign = "left";
+            ctx.fillText("GS", leftM, topM);
+            const gsText = Math.round(state.gs).toString().padStart(3, '0');
+            ctx.fillText(gsText, leftM + 40, topM);
+            
+            ctx.fillText("TAS", leftM, topM + 25);
+            const tasText = Math.round(state.tas).toString().padStart(3, '0');
+            ctx.fillText(tasText, leftM + 40, topM + 25);
+
+            // Wind
+            if (state.windSpd > 0) {
+                 ctx.fillText(`${state.windDir}°/${state.windSpd}`, leftM, topM + 55);
+                 // Draw wind arrow
+                 const arrowX = leftM + 90;
+                 const arrowY = topM + 50;
+                 ctx.save();
+                 ctx.translate(arrowX, arrowY);
+                 // Rotate relative to screen up (Subtract heading)
+                 const windRelAngle = (state.windDir - state.heading + 180) * Math.PI / 180;
+                 ctx.rotate(windRelAngle);
+                 ctx.strokeStyle = COLORS.green;
+                 ctx.lineWidth = 2;
+                 ctx.beginPath();
+                 ctx.moveTo(0, -10); ctx.lineTo(0, 10);
+                 ctx.moveTo(0, 10); ctx.lineTo(-5, 5);
+                 ctx.moveTo(0, 10); ctx.lineTo(5, 5);
+                 ctx.stroke();
+                 ctx.restore();
+            }
+
+            // Range (Top Right)
+            const rightM = w - 20;
+            ctx.textAlign = "right";
+            ctx.fillStyle = COLORS.cyan; // Range is usually blue/cyan
+            ctx.fillText(state.range + " NM", rightM, topM + 50); // Added Range Text
+
+            ctx.fillStyle = COLORS.green;
+            ctx.fillText("PPOS", rightM, topM);
+            
+            ctx.fillStyle = COLORS.white;
+            ctx.fillText(state.time, rightM, topM + 25);
+            
+            ctx.textAlign = "center";
+            ctx.fillStyle = COLORS.green;
+            ctx.font = "bold 18px 'Inconsolata', monospace";
+            ctx.fillText("GPS PRIMARY", w / 2, h - 20);
+        }
+
+        // Event Listeners
+        document.getElementById('hdgInput').addEventListener('input', (e) => {
+            state.heading = parseInt(e.target.value);
+            document.getElementById('hdgVal').innerText = state.heading.toString().padStart(3, '0') + "°";
+        });
+
+        document.getElementById('tasInput').addEventListener('input', (e) => {
+            state.tas = parseInt(e.target.value);
+            document.getElementById('tasVal').innerText = state.tas;
+        });
+        
+        window.setRange = function(r) {
+            state.range = r;
+            [10, 20, 40, 80, 160].forEach(val => {
+                const btn = document.getElementById(`btn-${val}`);
+                if(btn) {
+                    if (val === r) {
+                        btn.classList.remove('btn-inactive');
+                        btn.classList.add('btn-active');
+                    } else {
+                        btn.classList.add('btn-inactive');
+                        btn.classList.remove('btn-active');
+                    }
+                }
+            });
+        };
+
+        // Animation Loop
+        function animate() {
+            if (window.self === window.top) {
+                // Only calculate physics manually if standalone
+                updatePhysics();
+            }
+            draw();
+            requestAnimationFrame(animate);
+        }
+
+        animate();
+
+        // --- MESSAGING INTERFACE ---
+        window.addEventListener('message', (event) => {
+            const data = event.data;
+
+            if (data.heading !== undefined) state.heading = data.heading;
+            if (data.track !== undefined) state.track = data.track;
+            if (data.tas !== undefined) state.tas = data.tas;
+            if (data.gs !== undefined) state.gs = data.gs;
+            if (data.windDir !== undefined) state.windDir = data.windDir;
+            if (data.windSpd !== undefined) state.windSpd = data.windSpd;
+            
+            // Range can be controlled from parent
+            if (data.range !== undefined) state.range = data.range;
+
+            // Update traffic array directly
+            if (data.traffic && Array.isArray(data.traffic)) {
+                traffic = data.traffic;
+            }
+        });
+    </script>
+</body>
+</html>
