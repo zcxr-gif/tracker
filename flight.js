@@ -6867,17 +6867,8 @@ function renderPilotStatsHTML(stats, username) {
         }
     }
 
-//**
- * --- [REHAULED v2.1] Renders the Pilot Report with collapsible sections and a case-sensitive profile link.
- * --- [MODIFIED v2.2] Removed back button for new tabbed layout
- * --- [MODIFIED v8] Added Donut Chart and Odometer logic
- * --- [MODIFIED v9] Added live updates for Flags and Times
- * --- [MODIFIED v11] Use airportsData for flags
- * --- [MODIFIED v12.1] Removed inline gradient from image loading
- * --- [MODIFIED v13 - YOUR FIX] Calculate live ETA and use ATD.
- * --- [MODIFIED v14 - REHAUL] Re-bound data to new top-down layout. Removed donut/odometer logic.
- * --- [MODIFIED v15] Added SSD (Speed Situation Display) logic in parallel with VSD.
-*/
+
+
 function updateAircraftInfoWindow(baseProps, plan, sortedRoutePoints) {
     // --- Helper function to update all elements matching a selector ---
     const updateAll = (selector, value, isHTML = false) => {
