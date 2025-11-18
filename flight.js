@@ -6221,8 +6221,31 @@ function populateAircraftInfoWindow(baseProps, plan, sortedRoutePoints) { // <--
     const departureIcao = hasPlan ? allWaypoints[0]?.name : 'N/A';
     const arrivalIcao = hasPlan ? allWaypoints[allWaypoints.length - 1]?.name : 'N/A';
 
-    // --- [REMOVED] Airline Logo & Sanitizer Logic ---
-    // The block that created 'logoHtml' has been deleted.
+    // --- [FIXED] Get Airline Logo (Using consistent sanitizer) ---
+    
+// 1. Get the original, unsanitized name from the API
+const liveryName = baseProps.aircraft?.liveryName || '';
+
+// 2. Define the *correct* sanitizer (from updateAircraftInfoWindow)
+const sanitizeFilename = (name) => {
+    if (!name || typeof name !== 'string') return 'unknown';
+    // This regex allows letters, numbers (via 0-j), and hyphens
+    // It replaces spaces and special chars like ( ) with underscores
+    return name.trim().toLowerCase().replace(/[^a-z0-j-9-]/g, '_'); 
+};
+
+// 3. Create the sanitized *filename* from the *full* livery name
+const sanitizedLogoName = sanitizeFilename(liveryName);
+
+// 4. Build the path using the sanitized filename
+const logoPath = sanitizedLogoName ? `Images/airline_logos/${sanitizedLogoName}.png` : '';
+
+// 5. Build the HTML:
+// - src uses the sanitized path (logoPath)
+// - alt uses the original, unsanitized name (liveryName)
+const logoHtml = logoPath ? `<img src="${logoPath}" alt="${liveryName}" class="ac-header-logo" onerror="this.style.display='none'">` : '';
+// --- End [FIXED] ---
+
 
     // --- [FIX v11] ---
     // Get country code from our own airportsData using the ICAO, not the plan object.
@@ -6236,20 +6259,6 @@ function populateAircraftInfoWindow(baseProps, plan, sortedRoutePoints) { // <--
     const arrFlagDisplay = arrCountryCode ? 'block' : 'none';
     // --- [END NEW] ---
 
-    // --- [MODIFIED] Calculate ATD/ETA ---
-    const atdTimestamp = (sortedRoutePoints && sortedRoutePoints.length > 0) ? sortedRoutePoints[0].date : null;
-    const atdTime = atdTimestamp ? formatTimeFromTimestamp(atdTimestamp) : '--:--';
-    // ETA is calculated live in updateAircraftInfoWindow, so we just set a placeholder.
-    const etaTime = '--:--'; 
-    // --- [END MODIFIED] ---
-
-    // --- [MODIFIED] Get Aircraft Image ---
-    // We just set a temporary background. The real one is loaded
-    // in updateAircraftInfoWindow to prevent a white flash.
-    const tempBg = `background-image: linear-gradient(180deg, rgba(0,0,0,0.4) 0%, rgba(0,0,0,0) 35%)`;
-    // --- [END MODIFIED] ---
-
-
     windowEl.innerHTML = `
     <div class="info-window-content">
         <div class="aircraft-overview-panel" id="ac-overview-panel" style="${tempBg}">
@@ -6261,14 +6270,27 @@ function populateAircraftInfoWindow(baseProps, plan, sortedRoutePoints) { // <--
 
             <div class="overview-content">
                 
+                <!-- 
+                ====================================================================
+                --- [START] MODIFICATION FROM SHOWCASE ---
+                ====================================================================
+                -->
+                
                 <div class="overview-col-left info-header-box">
+                    <h3 id="ac-header-callsign">${logoHtml}${baseProps.callsign}</h3>
                     
-                    <h3 id="ac-header-callsign">${baseProps.callsign}</h3>
-                    
-                    <p id="ac-header-livery">${airlineName}</p>
-
+                    <p id="ac-header-subtext-container">
+                        <span class="ac-header-subtext" id="ac-header-username">${baseProps.username || 'N/A'}</span>
+                        <span class="ac-header-subtext" id="ac-header-actype">${aircraftName}</span>
+                    </p>
                 </div>
                 
+                <!-- 
+                ====================================================================
+                --- [END] MODIFICATION FROM SHOWCASE ---
+                ====================================================================
+                -->
+
                 <div class="overview-col-right">
                     <span class="route-icao" id="ac-header-dep">${departureIcao}</span>
                     <span class="route-icao" id="ac-header-arr">${arrivalIcao}</span>
@@ -6301,7 +6323,7 @@ function populateAircraftInfoWindow(baseProps, plan, sortedRoutePoints) { // <--
                 <span class="time" id="ac-bar-eta">${etaTime} Z</span>
             </div>
         </div>
-        
+
         <div class="ac-info-window-tabs">
             <div class="ac-tabs-wrapper">
                 <button class="ac-info-tab-btn active" data-tab="ac-tab-flight-data">
@@ -6310,18 +6332,10 @@ function populateAircraftInfoWindow(baseProps, plan, sortedRoutePoints) { // <--
                 <button class="ac-info-tab-btn" data-tab="ac-tab-pilot-report" data-user-id="${baseProps.userId}" data-username="${baseProps.username || 'N/A'}">
                     <i class="fa-solid fa-chart-simple"></i> Pilot Report
                 </button>
-                
-                <button class="ac-info-tab-btn" id="plan-this-flight-btn" title="Populate SimBrief form with this flight"
-                    data-departure="${departureIcao}"
-                    data-arrival="${arrivalIcao}"
-                    data-aircraft="${findSimbriefAircraftValue(aircraftName) || ''}">
-                    <i class="fa-solid fa-file-import"></i> Plan This
-                </button>
             </div>
             
             <img src="Images/inflight.png" alt="Inflight Logo" class="ac-info-tab-logo">
         </div>
-
         <div class="unified-display-main-content">
             
             <div id="ac-tab-flight-data" class="ac-tab-pane active">
@@ -6481,12 +6495,6 @@ function populateAircraftInfoWindow(baseProps, plan, sortedRoutePoints) { // <--
                 <div class="ac-profile-card-new">
                     <h4>Vertical Profile</h4>
                     <div id="vsd-panel" class="vsd-panel" data-plan-id="" data-profile-built="false">
-                        <div id="vsd-y-axis">
-                            <div class="y-axis-label" style="top: 186.7px;">10K</div>
-                            <div class="y-axis-label" style="top: 133.3px;">20K</div>
-                            <div class="y-axis-label" style="top: 80px;">30K</div>
-                            <div class="y-axis-label" style="top: 26.7px;">40K</div>
-                        </div>
                         <div id="vsd-graph-window" class="vsd-graph-window">
                             <div id="vsd-aircraft-icon"></div>
                             <div id="vsd-graph-content">
@@ -6694,6 +6702,16 @@ function renderPilotStatsHTML(stats, username) {
         }
     }
 
+/**
+ * --- [REHAULED v2.1] Renders the Pilot Report with collapsible sections and a case-sensitive profile link.
+ * --- [MODIFIED v2.2] Removed back button for new tabbed layout
+ * --- [MODIFIED v8] Added Donut Chart and Odometer logic
+ * --- [MODIFIED v9] Added live updates for Flags and Times
+ * --- [MODIFIED v11] Use airportsData for flags
+ * --- [MODIFIED v12.1] Removed inline gradient from image loading
+ * --- [MODIFIED v13 - YOUR FIX] Calculate live ETA and use ATD.
+ * --- [MODIFIED v14 - REHAUL] Re-bound data to new top-down layout. Removed donut/odometer logic.
+*/
 function updateAircraftInfoWindow(baseProps, plan, sortedRoutePoints) {
     // --- Helper function to update all elements matching a selector ---
     const updateAll = (selector, value, isHTML = false) => {
@@ -7195,12 +7213,6 @@ function updateAircraftInfoWindow(baseProps, plan, sortedRoutePoints) {
             etaTime = formatTimeFromTimestamp(etaTimestamp);
         }
     }
-    
-    // --- [MODIFIED] Get ICAOs from plan state ---
-    const departureIcao = (plan && plan.flightPlanItems) ? plan.flightPlanItems[0]?.identifier : null;
-    const arrivalIcao = (plan && plan.flightPlanItems) ? plan.flightPlanItems[plan.flightPlanItems.length - 1]?.identifier : null;
-    // --- [END MODIFIED] ---
-    
     const depCountryCode = airportsData[departureIcao]?.country ? airportsData[departureIcao].country.toLowerCase() : '';
     const arrCountryCode = airportsData[arrivalIcao]?.country ? airportsData[arrivalIcao].country.toLowerCase() : '';
     const depFlagSrc = depCountryCode ? `https://flagcdn.com/w20/${depCountryCode}.png` : '';
@@ -7220,18 +7232,7 @@ function updateAircraftInfoWindow(baseProps, plan, sortedRoutePoints) {
         el.style.display = arrCountryCode ? 'block' : 'none'; 
     });
 
-    // --- [REMOVED] Logo Update Logic ---
-    // The block for updating '.ac-header-logo' has been deleted.
-
-    // --- [REMOVED] Animated Subtext Logic ---
-    // The block for updating '#ac-header-username' and '#ac-header-actype'
-    // has been deleted.
-    
-    // --- [NEW] Update Static Livery Name ---
-    const airlineName = baseProps.aircraft?.liveryName || 'Generic Livery';
-    updateAll('#ac-header-livery', airlineName);
-
-    // --- Update Aircraft Image (This is the background, which you wanted to keep) ---
+    // --- Update Aircraft Image (using querySelectorAll) ---
     const overviewPanels = document.querySelectorAll('#ac-overview-panel');
     overviewPanels.forEach(overviewPanel => {
         const sanitizeFilename = (name) => {
