@@ -6221,52 +6221,31 @@ function populateAircraftInfoWindow(baseProps, plan, sortedRoutePoints) { // <--
     const departureIcao = hasPlan ? allWaypoints[0]?.name : 'N/A';
     const arrivalIcao = hasPlan ? allWaypoints[allWaypoints.length - 1]?.name : 'N/A';
 
-    // --- [NEW] Get Airline Logo (REVISED with new rules) ---
-    const liveryName = baseProps.aircraft?.liveryName || '';
-    const words = liveryName.trim().split(/\s+/); // Split by one or more spaces
-    let logoName = '';
-    const specialCharRegex = /[^a-zA-Z0-9]/; // Regex to find any non-alphanumeric character
-
-    if (words.length === 1) {
-        // Rule 2: Only one thing, take it. (e.g., "Generic")
-        logoName = words[0];
-    } else if (words.length > 1) {
-        const firstWord = words[0];
-        const secondWord = words[1];
-
-        // Rule 3: Check if the second word contains special characters (e.g., "(6E)")
-        if (specialCharRegex.test(secondWord)) {
-            // It's a special word, so "just keep the first thing"
-            logoName = firstWord; // e.g., "IndiGo"
-        } else {
-            // Rule 1: Second word is clean, take the first two. (e.g., "El Al", "Delta Air")
-            logoName = `${firstWord} ${secondWord}`;
-        }
-    }
-
-    // Sanitize the final result for the filename
-    const sanitizedLogoName = logoName
-        .toLowerCase()
-        .replace(/[^a-z0-9\s]/g, '') // Remove any remaining special chars
-        .replace(/\s+/g, '_'); // Replace spaces with underscores
-
-    // The path is still 'Images/airline_logos/'
-    const logoPath = sanitizedLogoName ? `Images/airline_logos/${sanitizedLogoName}.png` : '';
-    const logoHtml = logoPath ? `<img src="${logoPath}" alt="${liveryName}" class="ac-header-logo" onerror="this.style.display='none'">` : '';
-    // --- End [NEW] ---
-
-    // --- [YOUR FIX] ---
-    // We set no image initially. The 'updateAircraftInfoWindow' function
-    // (called immediately after) will handle loading the correct image.
-    // This prevents the "flash" of the default image.
-    const tempBg = ``;
-    // --- [END FIX] ---
+    // --- [FIXED] Get Airline Logo (Using consistent sanitizer) ---
     
-    // --- [MODIFIED - YOUR FIX] Get Actual Departure Time and clear initial ETA ---
-    const atdTimestamp = (sortedRoutePoints && sortedRoutePoints.length > 0) ? sortedRoutePoints[0].date : null;
-    const atdTime = atdTimestamp ? formatTimeFromTimestamp(atdTimestamp) : '--:--'; // This is now ATD
-    const etaTime = '--:--'; // ETA will be calculated live
-    // --- [END FIX] ---
+// 1. Get the original, unsanitized name from the API
+const liveryName = baseProps.aircraft?.liveryName || '';
+
+// 2. Define the *correct* sanitizer (from updateAircraftInfoWindow)
+const sanitizeFilename = (name) => {
+    if (!name || typeof name !== 'string') return 'unknown';
+    // This regex allows letters, numbers (via 0-j), and hyphens
+    // It replaces spaces and special chars like ( ) with underscores
+    return name.trim().toLowerCase().replace(/[^a-z0-j-9-]/g, '_'); 
+};
+
+// 3. Create the sanitized *filename* from the *full* livery name
+const sanitizedLogoName = sanitizeFilename(liveryName);
+
+// 4. Build the path using the sanitized filename
+const logoPath = sanitizedLogoName ? `Images/airline_logos/${sanitizedLogoName}.png` : '';
+
+// 5. Build the HTML:
+// - src uses the sanitized path (logoPath)
+// - alt uses the original, unsanitized name (liveryName)
+const logoHtml = logoPath ? `<img src="${logoPath}" alt="${liveryName}" class="ac-header-logo" onerror="this.style.display='none'">` : '';
+// --- End [FIXED] ---
+
 
     // --- [FIX v11] ---
     // Get country code from our own airportsData using the ICAO, not the plan object.
