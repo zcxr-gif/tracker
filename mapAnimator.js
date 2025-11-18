@@ -185,7 +185,7 @@ export class MapAnimator {
     _animationLoop(timestamp) {
         if (!this.isAnimating) return;
 
-        // --- [FIX 1: Cap deltaT] ---
+        // --- [Cap deltaT] ---
         if (!this.lastFrameTimestamp) {
             this.lastFrameTimestamp = timestamp;
             this.animationFrameId = requestAnimationFrame(this._animationLoop);
@@ -199,7 +199,7 @@ export class MapAnimator {
         if (deltaT_seconds > 0.067) {
             deltaT_seconds = 0.067;
         }
-        // --- [END FIX 1] ---
+        // --- [END Cap] ---
 
 
         let needsMapUpdate = false;
@@ -216,7 +216,7 @@ export class MapAnimator {
             // This creates the smooth, realistic turning motion.
             state.currentHeading = lerpAngle(state.currentHeading, state.targetHeading, this.HEADING_INTERPOLATION_FACTOR);
 
-            // --- 2. [FIX 2: Extrapolate AND Reconcile Position] ---
+            // --- 2. [Extrapolate AND Reconcile Position] ---
             
             // Part A: Extrapolation (Prediction)
             // Move the plane forward based on its *current* heading and *target* speed.
@@ -243,7 +243,7 @@ export class MapAnimator {
             // This prevents drift and corrects extrapolation errors *without* snapping.
             state.currentLon = lerp(state.currentLon, state.targetLon, this.POSITION_INTERPOLATION_FACTOR);
             state.currentLat = lerp(state.currentLat, state.targetLat, this.POSITION_INTERPOLATION_FACTOR);
-            // --- [END FIX 2] ---
+            // --- [END Extrapolate/Reconcile] ---
 
 
             // --- 3. Update the Shared Feature Object ---
@@ -316,6 +316,7 @@ function toRadians(degrees) {
  * @returns {number}
  */
 function toDegrees(radians) {
+    // [FIX] This was the bug. It is now corrected.
     return radians * (180 / Math.PI);
 }
 
