@@ -6200,6 +6200,12 @@ function rebuildDynamicLayers() {
 
 
 
+/**
+ * --- [REHAULED v15 - LOGOS REMOVED] ---
+ * Populates the aircraft info window with its initial HTML structure.
+ * This version removes the airline logo <img> and replaces it with
+ * the unsanitized livery name text inside the header.
+ */
 function populateAircraftInfoWindow(baseProps, plan, sortedRoutePoints) { // <-- MODIFIED: Added 3rd arg
     const windowEl = document.getElementById('aircraft-info-window');
 
@@ -6221,30 +6227,15 @@ function populateAircraftInfoWindow(baseProps, plan, sortedRoutePoints) { // <--
     const departureIcao = hasPlan ? allWaypoints[0]?.name : 'N/A';
     const arrivalIcao = hasPlan ? allWaypoints[allWaypoints.length - 1]?.name : 'N/A';
 
-    // --- [FIXED] Get Airline Logo (Using consistent sanitizer) ---
+    // --- [MODIFIED] Get Livery Name (Logos Removed) ---
+    // The variable 'airlineName' (the unsanitized livery name) is already defined
+    // at the top of this function. We will use it directly.
     
-// 1. Get the original, unsanitized name from the API
-const liveryName = baseProps.aircraft?.liveryName || '';
-
-// 2. Define the *correct* sanitizer (from updateAircraftInfoWindow)
-const sanitizeFilename = (name) => {
-    if (!name || typeof name !== 'string') return 'unknown';
-    // This regex allows letters, numbers (via 0-j), and hyphens
-    // It replaces spaces and special chars like ( ) with underscores
-    return name.trim().toLowerCase().replace(/[^a-z0-j-9-]/g, '_'); 
-};
-
-// 3. Create the sanitized *filename* from the *full* livery name
-const sanitizedLogoName = sanitizeFilename(liveryName);
-
-// 4. Build the path using the sanitized filename
-const logoPath = sanitizedLogoName ? `Images/airline_logos/${sanitizedLogoName}.png` : '';
-
-// 5. Build the HTML:
-// - src uses the sanitized path (logoPath)
-// - alt uses the original, unsanitized name (liveryName)
-const logoHtml = logoPath ? `<img src="${logoPath}" alt="${liveryName}" class="ac-header-logo" onerror="this.style.display='none'">` : '';
-// --- End [FIXED] ---
+    // 1. Build the HTML for the livery name as text.
+    // We use a new class 'ac-header-livery-name' so it can be styled.
+    // It is placed where the logo <img> used to be, inside the flexbox <h3>.
+    const logoHtml = airlineName ? `<span class="ac-header-livery-name">${airlineName}</span>` : '';
+    // --- End [MODIFIED] ---
 
 
     // --- [FIX v11] ---
@@ -6253,10 +6244,56 @@ const logoHtml = logoPath ? `<img src="${logoPath}" alt="${liveryName}" class="a
     const arrCountryCode = airportsData[arrivalIcao]?.country ? airportsData[arrivalIcao].country.toLowerCase() : '';
     // --- [END FIX v11] ---
 
+    // --- [NEW] Calculate ATD & initial ETA from base props ---
+    let atdTime = '--:--';
+    let etaTime = '--:--';
+
+    // Find ATD from sorted route points
+    if (sortedRoutePoints && sortedRoutePoints.length > 0) {
+        atdTime = formatTimeFromTimestamp(sortedRoutePoints[0].date);
+    }
+
+    // Calculate initial ETE/ETA
+    if (hasPlan && baseProps.position.gs_kt > 50) {
+        const [destLon, destLat] = allWaypoints[allWaypoints.length - 1].location ?
+                                  [allWaypoints[allWaypoints.length - 1].location.longitude, allWaypoints[allWaypoints.length - 1].location.latitude] :
+                                  [null, null];
+        
+        if (destLon !== null) {
+            // Calculate total distance
+            let totalDistanceKm = 0;
+            const flatCoords = flattenWaypointsFromPlan(plan.flightPlanItems);
+            for (let i = 0; i < flatCoords.length - 1; i++) {
+                totalDistanceKm += getDistanceKm(flatCoords[i][1], flatCoords[i][0], flatCoords[i+1][1], flatCoords[i+1][0]);
+            }
+            const totalDistanceNM = totalDistanceKm / 1.852;
+            
+            if (totalDistanceNM > 0) {
+                const remainingDistanceKm = getDistanceKm(baseProps.position.lat, baseProps.position.lon, destLat, destLon);
+                const distanceToDestNM = remainingDistanceKm / 1.852;
+                const eteHours = distanceToDestNM / baseProps.position.gs_kt;
+                
+                if (eteHours > 0 && eteHours < 48) { // Sanity check
+                    const eteMs = eteHours * 3600 * 1000;
+                    const etaTimestamp = new Date(Date.now() + eteMs);
+                    etaTime = formatTimeFromTimestamp(etaTimestamp);
+                }
+            }
+        }
+    }
+    // --- [END NEW] ---
+
+    // --- [NEW] Get Country Flags ---
     const depFlagSrc = depCountryCode ? `https://flagcdn.com/w20/${depCountryCode}.png` : '';
     const arrFlagSrc = arrCountryCode ? `https://flagcdn.com/w20/${arrCountryCode}.png` : '';
     const depFlagDisplay = depCountryCode ? 'block' : 'none';
     const arrFlagDisplay = arrCountryCode ? 'block' : 'none';
+    // --- [END NEW] ---
+
+    // --- [NEW] Set background image ---
+    // This logic is simple, it just gets a default.
+    // The *live update* function will load the correct one.
+    const tempBg = `background-image: url('/CommunityPlanes/default.png');`;
     // --- [END NEW] ---
 
     windowEl.innerHTML = `
@@ -6270,14 +6307,9 @@ const logoHtml = logoPath ? `<img src="${logoPath}" alt="${liveryName}" class="a
 
             <div class="overview-content">
                 
-                <!-- 
-                ====================================================================
-                --- [START] MODIFICATION FROM SHOWCASE ---
-                ====================================================================
-                -->
-                
                 <div class="overview-col-left info-header-box">
-                    <h3 id="ac-header-callsign">${logoHtml}${baseProps.callsign}</h3>
+                    
+                    <h3 id="ac-header-callsign">${logoHtml}</h3>
                     
                     <p id="ac-header-subtext-container">
                         <span class="ac-header-subtext" id="ac-header-username">${baseProps.username || 'N/A'}</span>
@@ -6285,12 +6317,6 @@ const logoHtml = logoPath ? `<img src="${logoPath}" alt="${liveryName}" class="a
                     </p>
                 </div>
                 
-                <!-- 
-                ====================================================================
-                --- [END] MODIFICATION FROM SHOWCASE ---
-                ====================================================================
-                -->
-
                 <div class="overview-col-right">
                     <span class="route-icao" id="ac-header-dep">${departureIcao}</span>
                     <span class="route-icao" id="ac-header-arr">${arrivalIcao}</span>
@@ -6324,6 +6350,26 @@ const logoHtml = logoPath ? `<img src="${logoPath}" alt="${liveryName}" class="a
             </div>
         </div>
 
+        ${hasPlan ? `
+        <div class="ac-info-window-tabs" style="padding-bottom: 5px;">
+            <div class="ac-tabs-wrapper">
+                <button class="ac-info-tab-btn active" data-tab="ac-tab-flight-data">
+                    <i class="fa-solid fa-gauge-high"></i> Flight Display
+                </button>
+                <button class="ac-info-tab-btn" data-tab="ac-tab-pilot-report" data-user-id="${baseProps.userId}" data-username="${baseProps.username || 'N/A'}">
+                    <i class="fa-solid fa-chart-simple"></i> Pilot Report
+                </button>
+            </div>
+            
+            <button class="cta-button" id="plan-this-flight-btn" 
+                data-departure="${departureIcao}" 
+                data-arrival="${arrivalIcao}" 
+                data-aircraft="${findSimbriefAircraftValue(aircraftName) || ''}"
+                title="Copy this route to the SimBrief flight planner">
+                <i class="fa-solid fa-file-import"></i> Plan This
+            </button>
+        </div>
+        ` : `
         <div class="ac-info-window-tabs">
             <div class="ac-tabs-wrapper">
                 <button class="ac-info-tab-btn active" data-tab="ac-tab-flight-data">
@@ -6336,6 +6382,7 @@ const logoHtml = logoPath ? `<img src="${logoPath}" alt="${liveryName}" class="a
             
             <img src="Images/inflight.png" alt="Inflight Logo" class="ac-info-tab-logo">
         </div>
+        `}
         <div class="unified-display-main-content">
             
             <div id="ac-tab-flight-data" class="ac-tab-pane active">
