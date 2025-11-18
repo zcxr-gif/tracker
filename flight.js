@@ -756,12 +756,36 @@ function injectCustomStyles() {
             justify-content: space-between;
             align-items: flex-start;
         }
+
+        /* ====================================================================
+        --- [START] MODIFICATION FROM SHOWCASE ---
+        ====================================================================
+        */
+        
+        /* [NEW] This is the glass box for the callsign */
+        .info-header-box {
+            display: inline-flex; /* Use inline-flex to fit content */
+            flex-direction: column; /* Stack h3 and p vertically */
+            gap: 4px; /* Small gap between callsign and subtext */
+            
+            /* Background styles */
+            background: rgba(10, 12, 26, 0.1); /* Very transparent */
+            padding: 8px 12px;
+            border-radius: 8px; /* Rounded corners */
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            box-shadow: 0 4px 15px rgba(0,0,0,0.3); /* Shadow for the box itself */
+            backdrop-filter: blur(2px); /* Subtle blur */
+            -webkit-backdrop-filter: blur(2px);
+        }
+
+        /* [MODIFIED] This rule is now just for text layout */
         .overview-col-left h3 {
             margin: 0;
             font-size: 1.6rem; 
             font-weight: 700; 
             letter-spacing: 0.5px;
-            text-shadow: 0 4px 10px rgba(0, 0, 0, 0.7), 0 0 2px rgba(255, 255, 255, 0.2);
+            /* [MODIFIED] Simplified shadow for text inside the box */
+            text-shadow: 0 2px 5px rgba(0, 0, 0, 0.5); 
             display: flex;
             align-items: center;
             gap: 12px;
@@ -771,9 +795,13 @@ function injectCustomStyles() {
         .ac-header-logo {
             height: 1.8rem; 
             width: auto;
-            max-width: 100px; /* Prevent huge logos */
+            /* [MODIFIED] From showcase, use 150px max width */
+            max-width: 150px; 
             object-fit: contain;
-            filter: drop-shadow(0 2px 4px rgba(0,0,0,0.7)) drop-shadow(0 0 5px rgba(255, 255, 255, 0.3));
+            /* [MODIFIED] From showcase */
+            filter: drop-shadow(0 1px 2px rgba(0,0,0,0.3));
+            background-color: rgba(0,0,0,0.2);
+            border-radius: 4px;
         }
         
         /* --- [MODIFIED] Container for animating subtext --- */
@@ -785,8 +813,14 @@ function injectCustomStyles() {
             font-weight: 400;
             text-shadow: 0 2px 5px rgba(0, 0, 0, 0.6);
             min-height: 1.2em; /* 1.0rem * 1.2 line-height */
-            margin-top: 4px; 
+            /* [MODIFIED] margin-top is now 0, gap is handled by parent */
+            margin-top: 0; 
         }
+        
+        /* ====================================================================
+        --- [END] MODIFICATION FROM SHOWCASE ---
+        ====================================================================
+        */
 
         /* --- [NEW] Keyframes for subtext animation --- */
         @keyframes primarySubtextAnimation {
@@ -1849,7 +1883,7 @@ function injectCustomStyles() {
         ====================================================================
         */
 
-        /* ##### MODIFICATION START (Specificity Fix) ##### */
+        /* ##### MODIFICATION START ##### */
         /* --- [NEW] Aircraft Window Tab Styles --- */
         .ac-info-window-tabs {
             display: flex;
@@ -1898,11 +1932,10 @@ function injectCustomStyles() {
         .ac-info-tab-btn.active { color: #00a8ff; border-bottom-color: #00a8ff; }
 
         /* Hide the old toggle buttons, as tabs replace them */
-        /* .pilot-stats-toggle-btn,
+        .pilot-stats-toggle-btn,
         .back-to-flight-btn {
-            display: none !important; 
+            display: none !important;
         }
-        */
 
         /* --- [MODIFIED] VSD Disclaimer --- */
         .vsd-disclaimer {
@@ -6246,29 +6279,6 @@ function populateAircraftInfoWindow(baseProps, plan, sortedRoutePoints) { // <--
     const depFlagDisplay = depCountryCode ? 'block' : 'none';
     const arrFlagDisplay = arrCountryCode ? 'block' : 'none';
     // --- [END NEW] ---
-    
-    // ===================================================================
-    // --- [NEW INJECTION START] ---
-    // ===================================================================
-    // Find the Simbrief aircraft value
-    const simbriefAircraftValue = findSimbriefAircraftValue(aircraftName);
-    
-    let planButtonHtml = '';
-    // Only show the button if we have a plan AND a matching aircraft
-    if (hasPlan && simbriefAircraftValue) {
-        planButtonHtml = `
-        <button id="plan-this-flight-btn" class="pilot-stats-toggle-btn" 
-                data-departure="${departureIcao}" 
-                data-arrival="${arrivalIcao}" 
-                data-aircraft="${simbriefAircraftValue}"
-                style="margin-bottom: 16px;">
-            <i class="fa-solid fa-file-invoice"></i> Plan This Flight
-        </button>
-        `;
-    }
-    // ===================================================================
-    // --- [NEW INJECTION END] ---
-    // ===================================================================
 
     windowEl.innerHTML = `
     <div class="info-window-content">
@@ -6280,7 +6290,14 @@ function populateAircraftInfoWindow(baseProps, plan, sortedRoutePoints) { // <--
             </div>
 
             <div class="overview-content">
-                <div class="overview-col-left">
+                
+                <!-- 
+                ====================================================================
+                --- [START] MODIFICATION FROM SHOWCASE ---
+                ====================================================================
+                -->
+                
+                <div class="overview-col-left info-header-box">
                     <h3 id="ac-header-callsign">${logoHtml}${baseProps.callsign}</h3>
                     
                     <p id="ac-header-subtext-container">
@@ -6288,6 +6305,13 @@ function populateAircraftInfoWindow(baseProps, plan, sortedRoutePoints) { // <--
                         <span class="ac-header-subtext" id="ac-header-actype">${aircraftName}</span>
                     </p>
                 </div>
+                
+                <!-- 
+                ====================================================================
+                --- [END] MODIFICATION FROM SHOWCASE ---
+                ====================================================================
+                -->
+
                 <div class="overview-col-right">
                     <span class="route-icao" id="ac-header-dep">${departureIcao}</span>
                     <span class="route-icao" id="ac-header-arr">${arrivalIcao}</span>
@@ -6337,7 +6361,7 @@ function populateAircraftInfoWindow(baseProps, plan, sortedRoutePoints) { // <--
             
             <div id="ac-tab-flight-data" class="ac-tab-pane active">
                 
-                ${planButtonHtml} <div class="pfd-and-location-grid">
+                <div class="pfd-and-location-grid">
                 
                     <div class="pfd-main-panel">
                         <div id="pfd-container">
