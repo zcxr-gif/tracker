@@ -6311,7 +6311,7 @@ function rebuildDynamicLayers() {
 
 
 
-ffunction populateAircraftInfoWindow(baseProps, plan, sortedRoutePoints) { // <-- MODIFIED: Added 3rd arg
+function populateAircraftInfoWindow(baseProps, plan, sortedRoutePoints) { // <-- MODIFIED: Added 3rd arg
     const windowEl = document.getElementById('aircraft-info-window');
 
     // --- Get Aircraft & Route Data ---
@@ -6410,14 +6410,7 @@ ffunction populateAircraftInfoWindow(baseProps, plan, sortedRoutePoints) { // <-
         </button>
         `;
     }
-    // ===================================================================
-    // --- [NEW INJECTION END] ---
-    // ===================================================================
 
-    // ===================================================================
-    // --- [MODIFICATION START] ---
-    // ===================================================================
-    // Logic for Pilot Report Tab Text
     const pilotUsername = baseProps.username || 'N/A';
     const pilotReportTabText = (pilotUsername !== 'N/A' && pilotUsername) ? pilotUsername : 'Pilot Report';
     // ===================================================================
