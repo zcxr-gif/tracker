@@ -775,25 +775,6 @@ function injectCustomStyles() {
             object-fit: contain;
             filter: drop-shadow(0 2px 4px rgba(0,0,0,0.7)) drop-shadow(0 0 5px rgba(255, 255, 255, 0.3));
         }
-
-        /* ##### MODIFICATION START ##### */
-        .ac-header-username-pill {
-            display: inline-block;
-            background: rgba(255, 255, 255, 0.1);
-            border: 1px solid rgba(255, 255, 255, 0.2);
-            border-radius: 20px; /* Pill shape */
-            font-size: 0.8rem; /* Smaller font */
-            font-weight: 500;
-            color: #e8eaf6;
-            padding: 3px 10px; /* Small padding */
-            line-height: 1;
-            backdrop-filter: blur(5px);
-            white-space: nowrap;
-            max-width: 150px;
-            overflow: hidden;
-            text-overflow: ellipsis;
-        }
-        /* ##### MODIFICATION END ##### */
         
         /* --- [MODIFIED] Container for animating subtext --- */
         .overview-col-left p {
@@ -807,6 +788,7 @@ function injectCustomStyles() {
             margin-top: 4px; 
         }
 
+        /* ##### MODIFICATION START ##### */
         /* --- [NEW] Keyframes for 50/50 subtext animation --- */
         @keyframes primarySubtextAnimation {
             0%   { opacity: 1; transform: translateY(0); }
@@ -847,6 +829,7 @@ function injectCustomStyles() {
         #ac-header-actype {
             animation-name: secondarySubtextAnimation;
         }
+        /* ##### MODIFICATION END ##### */
 
         .overview-col-right {
             text-align: right;
@@ -6185,6 +6168,7 @@ function rebuildDynamicLayers() {
 }
 
 
+
 function populateAircraftInfoWindow(baseProps, plan, sortedRoutePoints) { // <-- MODIFIED: Added 3rd arg
     const windowEl = document.getElementById('aircraft-info-window');
 
@@ -6299,14 +6283,9 @@ function populateAircraftInfoWindow(baseProps, plan, sortedRoutePoints) { // <--
 
             <div class="overview-content">
                 <div class="overview-col-left">
-                    <h3 id="ac-header-callsign">
-                        ${logoHtml}
-                        ${baseProps.callsign}
-                    </h3>
+                    <h3 id="ac-header-callsign">${logoHtml}${baseProps.callsign}</h3>
                     
-                    <span class="ac-header-username-pill" style="margin-top: 6px;">${baseProps.username || 'N/A'}</span>
-
-                    <p id="ac-header-subtext-container" style="margin-top: 6px;">
+                    <p id="ac-header-subtext-container">
                         <span class="ac-header-subtext" id="ac-header-livery">${airlineName}</span>
                         <span class="ac-header-subtext" id="ac-header-actype">${aircraftName}</span>
                     </p>
