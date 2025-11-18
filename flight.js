@@ -6272,6 +6272,16 @@ function populateAircraftInfoWindow(baseProps, plan, sortedRoutePoints) { // <--
     // --- [NEW INJECTION END] ---
     // ===================================================================
 
+    // ===================================================================
+    // --- [MODIFICATION START] ---
+    // ===================================================================
+    // Logic for Pilot Report Tab Text
+    const pilotUsername = baseProps.username || 'N/A';
+    const pilotReportTabText = (pilotUsername !== 'N/A' && pilotUsername) ? pilotUsername : 'Pilot Report';
+    // ===================================================================
+    // --- [MODIFICATION END] ---
+    // ===================================================================
+
     windowEl.innerHTML = `
     <div class="info-window-content">
         <div class="aircraft-overview-panel" id="ac-overview-panel" style="${tempBg}">
@@ -6328,10 +6338,11 @@ function populateAircraftInfoWindow(baseProps, plan, sortedRoutePoints) { // <--
                 <button class="ac-info-tab-btn active" data-tab="ac-tab-flight-data">
                     <i class="fa-solid fa-gauge-high"></i> Flight Display
                 </button>
-                <button class="ac-info-tab-btn" data-tab="ac-tab-pilot-report" data-user-id="${baseProps.userId}" data-username="${baseProps.username || 'N/A'}">
-                    <i class="fa-solid fa-chart-simple"></i> Pilot Report
+                
+                <button class="ac-info-tab-btn" data-tab="ac-tab-pilot-report" data-user-id="${baseProps.userId}" data-username="${pilotUsername}">
+                    <i class="fa-solid fa-chart-simple"></i> ${pilotReportTabText}
                 </button>
-            </div>
+                </div>
             
             <img src="Images/inflight.png" alt="Inflight Logo" class="ac-info-tab-logo">
         </div>
