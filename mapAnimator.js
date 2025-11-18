@@ -4,21 +4,21 @@
  * -------------------------------------------------------------------
  * A module to handle updating flight positions on a Mapbox GL JS map.
  *
- * --- [Extrapolation / Dead Reckoning Model] ---
+ * --- [Extrapolation / Reconciliation Model] ---
  *
- * This model provides smooth, realistic animation by extrapolating
- * a flight's position based on its last known speed and heading.
+ * This model provides smooth animation by combining two techniques:
  *
- * It "dead reckons" the plane's position between server updates.
+ * 1. Extrapolation (Prediction):
+ * The animation loop moves the plane forward at ~60fps based
+ * on its last known speed and smoothly interpolated heading.
  *
- * - The animation loop runs at ~60fps.
- * - On each frame, it moves the plane forward based on its current
- * speed and heading.
- * - The plane's HEADING is smoothly interpolated (using lerpAngle)
- * to create realistic, banking turns.
- * - The plane's POSITION is extrapolated, not interpolated. This
- * prevents "sliding" and ensures the plane only moves in the
- * direction it is facing.
+ * 2. Reconciliation (Correction):
+ * The loop also *gently nudges* the plane's animated position
+ * towards its *true* server-reported position.
+ *
+ * This eliminates "snapping" and "jitter" by *never*
+ * instantly resetting the plane's position. It smoothly
+ * corrects any drift between the prediction and the server's data.
  * ===================================================================
  */
 
@@ -27,7 +27,7 @@ const EARTH_RADIUS_NM = 3440.065;
 
 /**
  * Main manager for the Mapbox map.
- * Animates features by extrapolating their position.
+ * Animates features by extrapolating and reconciling their position.
  */
 export class MapAnimator {
     /**
@@ -46,7 +46,8 @@ export class MapAnimator {
          * Key: flightId
          * Value: {
          * currentLon, currentLat, currentHeading, // The animated values
-         * targetHeading, targetSpeedKts,         // The target values from the server
+         * targetLon, targetLat, targetHeading,    // The *true* server values
+         * targetSpeedKts,
          * lastUpdateTimestamp,
          * properties
          * }
@@ -57,10 +58,14 @@ export class MapAnimator {
         this.isAnimating = false;
         this.lastFrameTimestamp = null; // For calculating deltaT
         
-        // Tunable animation parameter for TURNS.
-        // Lower = Slower, more "heavy" turns
-        // Higher = Faster, "snappier" turns
-        this.INTERPOLATION_FACTOR = 0.1; 
+        // --- Tunable Parameters ---
+
+        // For turns (heading). Lower = Slower, "heavier" turns.
+        this.HEADING_INTERPOLATION_FACTOR = 0.05; 
+        
+        // For position (reconciliation). Lower = Smoother, but more drift.
+        // Keep this low to prevent any jitter.
+        this.POSITION_INTERPOLATION_FACTOR = 0.05; 
     }
 
     /**
@@ -70,7 +75,7 @@ export class MapAnimator {
         if (this.isAnimating) return;
         this.isAnimating = true;
         this.lastFrameTimestamp = null; // Reset timestamp on start
-        console.log('MapAnimator (Extrapolation) started.');
+        console.log('MapAnimator (Extrapolation/Reconciliation) started.');
         
         // Bind the loop to `this` and start it
         this._animationLoop = this._animationLoop.bind(this);
@@ -87,7 +92,7 @@ export class MapAnimator {
             cancelAnimationFrame(this.animationFrameId);
         }
         this.animationFrameId = null;
-        console.log('MapAnimator (Extrapolation) stopped.');
+        console.log('MapAnimator (Extrapolation/Reconciliation) stopped.');
     }
 
     /**
@@ -109,11 +114,8 @@ export class MapAnimator {
 
         const state = this.flightStates.get(flightId);
 
-        // --- [!! IMPORTANT !!] ---
-        // This model REQUIRES speed in knots.
-        // Change 'speed_kts' if your property is named differently (e.g., 'groundSpeed_kts')
+        // We assume 'speed_kts' is present and in knots, as confirmed.
         const speed = newProperties.speed_kts || 0;
-        // --- [!! /IMPORTANT !!] ---
 
         if (state) {
             // --- Existing Flight: Check Timestamp ---
@@ -122,13 +124,12 @@ export class MapAnimator {
                 return; // Ignore old/out-of-order packet
             }
             
-            // --- Valid Update: "Snap" Position and Update Targets ---
-            // We "snap" the current position to the new data to prevent drift.
-            state.currentLon = newPosition.lon;
-            state.currentLat = newPosition.lat;
-            
-            // We update the TARGETS for heading and speed.
-            // The animation loop will smoothly interpolate towards these.
+            // --- [FIX: UPDATE TARGETS, DO NOT SNAP] ---
+            // We ONLY update the *target* (server) values.
+            // DO NOT snap state.currentLon / state.currentLat.
+            // The animation loop will smoothly reconcile the position.
+            state.targetLon = newPosition.lon;
+            state.targetLat = newPosition.lat;
             state.targetHeading = newPosition.heading_deg;
             state.targetSpeedKts = speed;
             
@@ -137,13 +138,15 @@ export class MapAnimator {
             
         } else {
             // --- New Flight: Create State ---
-            // The plane "pops" into existence.
+            // Animated and Target positions are identical on creation.
             this.flightStates.set(flightId, {
-                currentLon: newPosition.lon,
-                currentLat: newPosition.lat,
-                currentHeading: newPosition.heading_deg, // Start facing the correct way
+                currentLon: newPosition.lon, // Animated position
+                currentLat: newPosition.lat, // Animated position
+                currentHeading: newPosition.heading_deg, // Animated heading
                 
-                targetHeading: newPosition.heading_deg,
+                targetLon: newPosition.lon, // Server position
+                targetLat: newPosition.lat, // Server position
+                targetHeading: newPosition.heading_deg, // Server heading
                 targetSpeedKts: speed,
                 
                 lastUpdateTimestamp: newTimestamp,
@@ -182,14 +185,22 @@ export class MapAnimator {
     _animationLoop(timestamp) {
         if (!this.isAnimating) return;
 
-        // Calculate deltaT (time since last frame) in seconds
+        // --- [FIX 1: Cap deltaT] ---
         if (!this.lastFrameTimestamp) {
             this.lastFrameTimestamp = timestamp;
             this.animationFrameId = requestAnimationFrame(this._animationLoop);
             return;
         }
-        const deltaT_seconds = (timestamp - this.lastFrameTimestamp) / 1000.0;
+        let deltaT_seconds = (timestamp - this.lastFrameTimestamp) / 1000.0;
         this.lastFrameTimestamp = timestamp;
+
+        // Cap deltaT to prevent massive jumps if the loop pauses (e.g., tab switch)
+        // 0.067s is ~15fps. The plane will slow down rather than jump.
+        if (deltaT_seconds > 0.067) {
+            deltaT_seconds = 0.067;
+        }
+        // --- [END FIX 1] ---
+
 
         let needsMapUpdate = false;
 
@@ -203,19 +214,22 @@ export class MapAnimator {
 
             // --- 1. Interpolate Heading ---
             // This creates the smooth, realistic turning motion.
-            state.currentHeading = lerpAngle(state.currentHeading, state.targetHeading, this.INTERPOLATION_FACTOR);
+            state.currentHeading = lerpAngle(state.currentHeading, state.targetHeading, this.HEADING_INTERPOLATION_FACTOR);
 
-            // --- 2. Extrapolate Position ---
-            // Only move the plane if its speed is greater than a small threshold.
+            // --- 2. [FIX 2: Extrapolate AND Reconcile Position] ---
+            
+            // Part A: Extrapolation (Prediction)
+            // Move the plane forward based on its *current* heading and *target* speed.
             if (speedKts > 0.1) {
                 // Calculate distance to move this frame (in nautical miles)
+                // (speed_knots * (deltaT_seconds / 3600.0))
                 const distanceNm = (speedKts * deltaT_seconds) / 3600.0;
                 
-                // Calculate the new position
+                // Calculate the new position based on the *animated* state
                 const { lon, lat } = getDestinationPoint(
                     state.currentLon,
                     state.currentLat,
-                    state.currentHeading,
+                    state.currentHeading, // Use the *animated* heading
                     distanceNm
                 );
                 
@@ -224,6 +238,14 @@ export class MapAnimator {
                 state.currentLat = lat;
             }
             
+            // Part B: Reconciliation (Correction)
+            // Gently "pull" the animated position towards the *true* server position.
+            // This prevents drift and corrects extrapolation errors *without* snapping.
+            state.currentLon = lerp(state.currentLon, state.targetLon, this.POSITION_INTERPOLATION_FACTOR);
+            state.currentLat = lerp(state.currentLat, state.targetLat, this.POSITION_INTERPOLATION_FACTOR);
+            // --- [END FIX 2] ---
+
+
             // --- 3. Update the Shared Feature Object ---
             // We update this *every* frame to reflect new heading or position
             feature.geometry.coordinates = [state.currentLon, state.currentLat];
@@ -267,6 +289,17 @@ export class MapAnimator {
 // =========================
 // Helper Functions
 // =========================
+
+/**
+ * Added a simple Linear Interpolation function for position.
+ * @param {number} a - Start value
+ * @param {number} b - End value
+ * @param {number} t - Interpolation factor (0.0 to 1.0)
+ * @returns {number}
+ */
+function lerp(a, b, t) {
+    return a + (b - a) * t;
+}
 
 /**
  * Converts degrees to radians.
