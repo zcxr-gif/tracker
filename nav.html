@@ -53,7 +53,7 @@
             flex-direction: column;
             align-items: center;
             width: 100%;
-            max-width: 42rem; /* Matches max-w-2xl */
+            max-width: 42rem; /* Matches max-w-2xl - You can change this to 30rem to visually minify */
             gap: 1rem;
         }
 
@@ -345,24 +345,33 @@
         const canvas = document.getElementById('ndCanvas');
         const ctx = canvas.getContext('2d');
         
+        // NEW CONSTANT: Adjust this value to control the visual size of the elements when minified.
+        // Lower value = smaller text/lines/symbols. (0.8 = 80% size)
+        const GLOBAL_SCALE = 0.8; 
+
         // Check if embedded
         if (window.self !== window.top) {
             document.body.classList.add('embedded');
         }
 
         let state = {
-            heading: 0,
+            heading: 270,
             tas: 0, 
             gs: 0,  
             range: 40, // Default range
             windDir: 0,
             windSpd: 0,
-            track: 0, 
+            track: 270, 
             time: "00:00",
             simTime: new Date()
         };
 
-        let traffic = []; // Dynamic traffic array
+        let traffic = [
+             // Example traffic, relative to aircraft (bearing, distance in NM, altitude difference in FL, vertical speed)
+            { bearing: 30, dist: 15, altDiff: 12, vs: 800 },
+            { bearing: 180, dist: 25, altDiff: -5, vs: -500 },
+            { bearing: 300, dist: 8, altDiff: 0, vs: 0 },
+        ]; 
 
         // Colors (Airbus standard)
         const COLORS = {
@@ -378,18 +387,16 @@
 
         // Resize handling
         function resize() {
-            const parent = canvas.parentElement;
-            canvas.width = parent.clientWidth * 2; 
-            canvas.height = parent.clientHeight * 2;
-            ctx.scale(2, 2);
+            // Set canvas resolution to a fixed high number to maintain clarity.
+            // The scaling is handled by GLOBAL_SCALE in the draw function.
+            canvas.width = 1000; 
+            canvas.height = 1000;
         }
         window.addEventListener('resize', resize);
         setTimeout(resize, 0);
 
         // --- Physics & Update Logic ---
         function updatePhysics() {
-            // In embedded mode, GS and Track are provided by parent, 
-            // so we barely need to calculate physics here, mostly just time.
             const now = new Date();
             state.time = now.getUTCHours().toString().padStart(2, '0') + ":" + 
                          now.getUTCMinutes().toString().padStart(2, '0');
@@ -397,19 +404,28 @@
 
         // --- Drawing Functions ---
         function draw() {
-            const w = canvas.width / 2;
-            const h = canvas.height / 2;
-            const cx = w / 2;
-            const cy = h / 2; // Center for ARC mode usually lower, but we'll stick to standard
+            // Determine the base width and height from the high resolution canvas
+            const w = canvas.width;
+            const h = canvas.height;
             
-            // Constants for layout (Airbus ARC mode)
-            const arcCenterY = h * 0.85; 
-            const arcCenterX = w * 0.5;
-            const arcRadius = h * 0.75; 
-
             // 1. Background
             ctx.fillStyle = COLORS.bg;
             ctx.fillRect(0, 0, w, h);
+
+            // Apply Global Scale and Center Translation for minification
+            ctx.save();
+            ctx.translate(w/2, h/2); // Move origin to center of high-res canvas
+            ctx.scale(GLOBAL_SCALE, GLOBAL_SCALE); // Apply the minification scale
+
+            // The rest of the drawing logic assumes a centered coordinate system
+            // Calculate new drawing dimensions based on the scale factor
+            const scaledW = w / GLOBAL_SCALE;
+            const scaledH = h / GLOBAL_SCALE;
+            
+            // Coordinates relative to the new origin (0, 0)
+            const arcCenterY = scaledH * 0.45 - (scaledH / 2); // Position relative to origin
+            const arcCenterX = 0; 
+            const arcRadius = scaledH * 0.4; // Radius is 40% of scaled height
 
             // 2. Rotating Map Layer
             ctx.save();
@@ -421,11 +437,13 @@
 
             ctx.restore();
 
-            // 3. Static Overlays
+            // 3. Static Overlays (Adjusted to use origin 0,0)
             drawRangeRings(arcCenterX, arcCenterY, arcRadius);
             drawAircraftSymbol(arcCenterX, arcCenterY);
             drawHeadingPointers(arcCenterX, arcCenterY, arcRadius);
-            drawOverlays(w, h);
+            drawOverlays(scaledW, scaledH); // Pass scaled dimensions for overlay positioning
+            
+            ctx.restore(); // Restore global scale and center translation
         }
 
         function drawCompassRose(radius) {
@@ -433,11 +451,13 @@
             ctx.fillStyle = COLORS.white;
             ctx.textAlign = "center";
             ctx.textBaseline = "middle";
-            ctx.lineWidth = 2;
-            ctx.font = "bold 18px 'Inconsolata', monospace";
+            ctx.lineWidth = 2 / GLOBAL_SCALE; // Scaled line width
+            
+            // Scaled Font Size
+            ctx.font = `bold ${18 / GLOBAL_SCALE}px 'Inconsolata', monospace`;
 
-            const tickLenShort = 10;
-            const tickLenLong = 20;
+            const tickLenShort = 10 / GLOBAL_SCALE; // Scaled length
+            const tickLenLong = 20 / GLOBAL_SCALE; // Scaled length
 
             for (let d = 0; d < 360; d += 5) {
                 const rad = d * Math.PI / 180;
@@ -461,7 +481,7 @@
                 ctx.stroke();
 
                 if (d % 30 === 0) {
-                    const textRadius = radius - 35;
+                    const textRadius = radius - (35 / GLOBAL_SCALE); // Scaled offset
                     const tx = Math.sin(rad) * textRadius;
                     const ty = -Math.cos(rad) * textRadius;
                     
@@ -479,8 +499,8 @@
 
         function drawRangeRings(cx, cy, radius) {
             ctx.strokeStyle = COLORS.white;
-            ctx.setLineDash([5, 5]); 
-            ctx.lineWidth = 1;
+            ctx.setLineDash([5 / GLOBAL_SCALE, 5 / GLOBAL_SCALE]); // Scaled dashes
+            ctx.lineWidth = 1 / GLOBAL_SCALE; // Scaled line width
             
             // Ring 1 (50%)
             ctx.beginPath();
@@ -495,36 +515,52 @@
 
             // Labels
             ctx.fillStyle = COLORS.cyan;
-            ctx.font = "12px 'Inconsolata'";
+            ctx.font = `${12 / GLOBAL_SCALE}px 'Inconsolata'`; // Scaled font
             ctx.textAlign = "right";
             
             let midVal = state.range / 2;
             let threeQuarterVal = state.range * 0.75;
             
-             ctx.fillText(midVal.toString(), cx - (radius*0.5) - 5, cy - 5); 
-             ctx.fillText(threeQuarterVal.toString(), cx - (radius*0.75) - 5, cy - 5);
+             // Scaled offset positions
+             const offset = 5 / GLOBAL_SCALE;
+             ctx.fillText(midVal.toString(), cx - (radius*0.5) - offset, cy - offset); 
+             ctx.fillText(threeQuarterVal.toString(), cx - (radius*0.75) - offset, cy - offset);
         }
 
         function drawAircraftSymbol(cx, cy) {
             ctx.strokeStyle = COLORS.yellow;
-            ctx.lineWidth = 3;
+            ctx.lineWidth = 3 / GLOBAL_SCALE; // Scaled line width
             ctx.beginPath();
-            ctx.moveTo(cx, cy - 15); ctx.lineTo(cx, cy + 15); // Fuselage
-            ctx.moveTo(cx - 15, cy); ctx.lineTo(cx + 15, cy); // Wings
-            ctx.moveTo(cx - 6, cy + 12); ctx.lineTo(cx + 6, cy + 12); // Tail
+            
+            // Scaled symbol size constants
+            const size = 15 / GLOBAL_SCALE;
+            const tailOffset = 12 / GLOBAL_SCALE;
+            const tailWidth = 6 / GLOBAL_SCALE;
+            const centerDot = 2 / GLOBAL_SCALE;
+
+            ctx.moveTo(cx, cy - size); ctx.lineTo(cx, cy + size); // Fuselage
+            ctx.moveTo(cx - size, cy); ctx.lineTo(cx + size, cy); // Wings
+            ctx.moveTo(cx - tailWidth, cy + tailOffset); ctx.lineTo(cx + tailWidth, cy + tailOffset); // Tail
             ctx.stroke();
             ctx.fillStyle = '#000';
-            ctx.beginPath(); ctx.arc(cx, cy, 2, 0, Math.PI*2); ctx.fill();
+            ctx.beginPath(); ctx.arc(cx, cy, centerDot, 0, Math.PI*2); ctx.fill();
         }
 
         function drawHeadingPointers(cx, cy, radius) {
             // Lubber line
             ctx.fillStyle = COLORS.yellow;
             ctx.beginPath();
-            const topY = cy - radius + 10; 
+            
+            // Scaled arrow dimensions
+            const arrowHeight = 15 / GLOBAL_SCALE;
+            const arrowWidth = 8 / GLOBAL_SCALE;
+            const topYOffset = 10 / GLOBAL_SCALE;
+            
+            const topY = cy - radius + topYOffset; 
+            
             ctx.moveTo(cx, topY);
-            ctx.lineTo(cx - 8, topY - 15);
-            ctx.lineTo(cx + 8, topY - 15);
+            ctx.lineTo(cx - arrowWidth, topY - arrowHeight);
+            ctx.lineTo(cx + arrowWidth, topY - arrowHeight);
             ctx.fill();
             
             // Track Line (Green)
@@ -532,7 +568,7 @@
             const driftRad = drift * Math.PI / 180;
             
             ctx.strokeStyle = COLORS.green;
-            ctx.lineWidth = 2;
+            ctx.lineWidth = 2 / GLOBAL_SCALE; // Scaled line width
             
             const endX = cx + radius * Math.sin(driftRad);
             const endY = cy - radius * Math.cos(driftRad);
@@ -558,98 +594,120 @@
                 
                 ctx.fillStyle = COLORS.white;
                 ctx.strokeStyle = COLORS.white;
-                ctx.lineWidth = 2;
+                ctx.lineWidth = 2 / GLOBAL_SCALE; // Scaled line width
                 
-                // TCAS Diamond
+                // TCAS Diamond (Scaled size)
+                const dSize = 6 / GLOBAL_SCALE;
                 ctx.beginPath();
-                ctx.moveTo(tX, tY - 6);
-                ctx.lineTo(tX + 6, tY);
-                ctx.lineTo(tX, tY + 6);
-                ctx.lineTo(tX - 6, tY);
+                ctx.moveTo(tX, tY - dSize);
+                ctx.lineTo(tX + dSize, tY);
+                ctx.lineTo(tX, tY + dSize);
+                ctx.lineTo(tX - dSize, tY);
                 ctx.closePath();
                 ctx.stroke();
                 
-                // Altitude Tag (+12 means 1200ft above)
-                ctx.font = "bold 14px Arial";
+                // Altitude Tag
+                ctx.font = `bold ${14 / GLOBAL_SCALE}px Arial`; // Scaled font
                 const altDiff = t.altDiff; // e.g., +12 or -05
                 const sign = altDiff >= 0 ? "+" : "";
-                ctx.fillText(sign + altDiff, tX + 15, tY - 5);
+                
+                // Scaled label offsets
+                const xOffset = 15 / GLOBAL_SCALE;
+                const yOffset = 5 / GLOBAL_SCALE;
+
+                ctx.fillText(sign + altDiff, tX + xOffset, tY - yOffset);
                 
                 // V/S Arrow
-                if (t.vs > 500) ctx.fillText("↑", tX + 35, tY - 5);
-                else if (t.vs < -500) ctx.fillText("↓", tX + 35, tY - 5);
+                if (t.vs > 500) ctx.fillText("↑", tX + (xOffset + 20/GLOBAL_SCALE), tY - yOffset);
+                else if (t.vs < -500) ctx.fillText("↓", tX + (xOffset + 20/GLOBAL_SCALE), tY - yOffset);
             });
         }
 
         function drawOverlays(w, h) {
-            ctx.font = "bold 20px 'Inconsolata', monospace";
-            const leftM = 20;
-            const topM = 40;
+            // Scaled Font size
+            ctx.font = `bold ${20 / GLOBAL_SCALE}px 'Inconsolata', monospace`;
             
+            // Coordinates are relative to the center (0,0) and use scaledW/scaledH
+            const leftM = -w / 2 + (20 / GLOBAL_SCALE); // Scaled left margin
+            const topM = -h / 2 + (40 / GLOBAL_SCALE);  // Scaled top margin
+            const rightM = w / 2 - (20 / GLOBAL_SCALE); // Scaled right margin
+            
+            const lineSpacing = 25 / GLOBAL_SCALE;
+            const labelOffset = 40 / GLOBAL_SCALE;
+
             // GS / TAS
             ctx.fillStyle = COLORS.green;
             ctx.textAlign = "left";
             ctx.fillText("GS", leftM, topM);
             const gsText = Math.round(state.gs).toString().padStart(3, '0');
-            ctx.fillText(gsText, leftM + 40, topM);
+            ctx.fillText(gsText, leftM + labelOffset, topM);
             
-            ctx.fillText("TAS", leftM, topM + 25);
+            ctx.fillText("TAS", leftM, topM + lineSpacing);
             const tasText = Math.round(state.tas).toString().padStart(3, '0');
-            ctx.fillText(tasText, leftM + 40, topM + 25);
+            ctx.fillText(tasText, leftM + labelOffset, topM + lineSpacing);
 
             // Wind
             if (state.windSpd > 0) {
-                 ctx.fillText(`${state.windDir}°/${state.windSpd}`, leftM, topM + 55);
+                 ctx.fillText(`${state.windDir}°/${state.windSpd}`, leftM, topM + lineSpacing * 2.2);
+                 
                  // Draw wind arrow
-                 const arrowX = leftM + 90;
-                 const arrowY = topM + 50;
+                 const arrowX = leftM + (90 / GLOBAL_SCALE);
+                 const arrowY = topM + lineSpacing * 2 - (10 / GLOBAL_SCALE);
                  ctx.save();
                  ctx.translate(arrowX, arrowY);
+                 
                  // Rotate relative to screen up (Subtract heading)
                  const windRelAngle = (state.windDir - state.heading + 180) * Math.PI / 180;
                  ctx.rotate(windRelAngle);
                  ctx.strokeStyle = COLORS.green;
-                 ctx.lineWidth = 2;
+                 ctx.lineWidth = 2 / GLOBAL_SCALE;
+                 
+                 const halfLine = 10 / GLOBAL_SCALE;
+                 const headSize = 5 / GLOBAL_SCALE;
+                 
                  ctx.beginPath();
-                 ctx.moveTo(0, -10); ctx.lineTo(0, 10);
-                 ctx.moveTo(0, 10); ctx.lineTo(-5, 5);
-                 ctx.moveTo(0, 10); ctx.lineTo(5, 5);
+                 ctx.moveTo(0, -halfLine); ctx.lineTo(0, halfLine);
+                 ctx.moveTo(0, halfLine); ctx.lineTo(-headSize, halfLine - headSize);
+                 ctx.moveTo(0, halfLine); ctx.lineTo(headSize, halfLine - headSize);
                  ctx.stroke();
                  ctx.restore();
             }
 
             // Range (Top Right)
-            const rightM = w - 20;
             ctx.textAlign = "right";
             ctx.fillStyle = COLORS.cyan; // Range is usually blue/cyan
-            ctx.fillText(state.range + " NM", rightM, topM + 50); // Added Range Text
+            ctx.fillText(state.range + " NM", rightM, topM + lineSpacing * 2); // Added Range Text
 
             ctx.fillStyle = COLORS.green;
             ctx.fillText("PPOS", rightM, topM);
             
             ctx.fillStyle = COLORS.white;
-            ctx.fillText(state.time, rightM, topM + 25);
+            ctx.fillText(state.time, rightM, topM + lineSpacing);
             
+            // Bottom Center Text
             ctx.textAlign = "center";
             ctx.fillStyle = COLORS.green;
-            ctx.font = "bold 18px 'Inconsolata', monospace";
-            ctx.fillText("GPS PRIMARY", w / 2, h - 20);
+            ctx.font = `bold ${18 / GLOBAL_SCALE}px 'Inconsolata', monospace`;
+            ctx.fillText("GPS PRIMARY", 0, h / 2 - (20 / GLOBAL_SCALE)); // 0 is center X
         }
 
         // Event Listeners
         document.getElementById('hdgInput').addEventListener('input', (e) => {
             state.heading = parseInt(e.target.value);
+            state.track = parseInt(e.target.value); // Assume track follows heading for simple sim
             document.getElementById('hdgVal').innerText = state.heading.toString().padStart(3, '0') + "°";
         });
 
         document.getElementById('tasInput').addEventListener('input', (e) => {
             state.tas = parseInt(e.target.value);
+            // Simple GS approximation for demo
+            state.gs = state.tas + Math.round(state.tas * (Math.random() * 0.1 - 0.05)); 
             document.getElementById('tasVal').innerText = state.tas;
         });
         
         window.setRange = function(r) {
             state.range = r;
-            [10, 20, 40, 80, 160].forEach(val => {
+            [10, 20, 40].forEach(val => { // Only checking for defined buttons
                 const btn = document.getElementById(`btn-${val}`);
                 if(btn) {
                     if (val === r) {
@@ -662,6 +720,12 @@
                 }
             });
         };
+
+        // Initialize state display
+        window.setRange(40);
+        document.getElementById('hdgVal').innerText = state.heading.toString().padStart(3, '0') + "°";
+        document.getElementById('tasVal').innerText = state.tas;
+
 
         // Animation Loop
         function animate() {
@@ -687,7 +751,10 @@
             if (data.windSpd !== undefined) state.windSpd = data.windSpd;
             
             // Range can be controlled from parent
-            if (data.range !== undefined) state.range = data.range;
+            if (data.range !== undefined) {
+                 state.range = data.range;
+                 window.setRange(data.range); // Update buttons too
+            }
 
             // Update traffic array directly
             if (data.traffic && Array.isArray(data.traffic)) {
