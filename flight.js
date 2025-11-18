@@ -1093,6 +1093,23 @@ function injectCustomStyles() {
             border-top: 3px solid #00a8ff; /* Colorful accent */
         }
 
+        .ac-profile-card-new .flight-data-bar {
+            /* Reset card styles */
+            background: transparent;
+            border: none;
+            border-radius: 0;
+            
+            /* Add a separator */
+            border-top: 1px solid rgba(255, 255, 255, 0.1);
+            
+            /* Adjust spacing */
+            padding: 16px 5px 5px 5px; /* More top padding, less on sides/bottom */
+            margin-top: 10px; /* Space from the graph */
+            
+            /* Tweak grid for 5 items */
+            grid-template-columns: repeat(auto-fit, minmax(90px, 1fr));
+        }
+
         /* [NEW] This is an individual item in the new data bar */
         .data-bar-item {
             display: flex;
@@ -6614,28 +6631,6 @@ function populateAircraftInfoWindow(baseProps, plan, sortedRoutePoints) { // <--
                     </div>
                 
                 </div>
-                <div class="flight-data-bar">
-                    <div class="data-bar-item">
-                        <span class="data-label">NEXT WP</span>
-                        <span class="data-value" id="ac-next-wp">---</span>
-                    </div>
-                    <div class="data-bar-item">
-                        <span class="data-label">DIST. TO WP</span>
-                        <span class="data-value" id="ac-next-wp-dist">--.-<span class="unit">NM</span></span>
-                    </div>
-                    <div class="data-bar-item">
-                        <span class="data-label">DIST. TO DEST.</span>
-                        <span class="data-value" id="ac-dist">---<span class="unit">NM</span></span>
-                    </div>
-                    <div class="data-bar-item">
-                        <span class="data-label">ETE TO DEST.</span>
-                        <span class="data-value" id="ac-ete">--:--</span>
-                    </div>
-                    <div class="data-bar-item">
-                        <span class="data-label">VERTICAL SPEED</span>
-                        <span class="data-value" id="ac-vs">---<span class="unit">fpm</span></span>
-                    </div>
-                    </div>
                 
                 <div class="ac-profile-card-new">
                     <div class="ac-profile-header">
@@ -6669,6 +6664,29 @@ function populateAircraftInfoWindow(baseProps, plan, sortedRoutePoints) { // <--
                                 <div id="ssd-waypoint-labels"></div>
                             </div>
                         </div>
+                    </div>
+                    </div>
+
+                    <div class="flight-data-bar">
+                    <div class="data-bar-item">
+                        <span class="data-label">NEXT WP</span>
+                        <span class="data-value" id="ac-next-wp">---</span>
+                    </div>
+                    <div class="data-bar-item">
+                        <span class="data-label">DIST. TO WP</span>
+                        <span class="data-value" id="ac-next-wp-dist">--.-<span class="unit">NM</span></span>
+                    </div>
+                    <div class="data-bar-item">
+                        <span class="data-label">DIST. TO DEST.</span>
+                        <span class="data-value" id="ac-dist">---<span class="unit">NM</span></span>
+                    </div>
+                    <div class="data-bar-item">
+                        <span class="data-label">ETE TO DEST.</span>
+                        <span class="data-value" id="ac-ete">--:--</span>
+                    </div>
+                    <div class="data-bar-item">
+                        <span class="data-label">VERTICAL SPEED</span>
+                        <span class="data-value" id="ac-vs">---<span class="unit">fpm</span></span>
                     </div>
                     </div>
 
