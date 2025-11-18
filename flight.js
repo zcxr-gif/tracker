@@ -6301,11 +6301,12 @@ function populateAircraftInfoWindow(baseProps, plan, sortedRoutePoints) { // <--
                 <div class="overview-col-left">
                     <h3 id="ac-header-callsign">
                         ${logoHtml}
-                        <span class="ac-header-username-pill">${baseProps.username || 'N/A'}</span>
                         ${baseProps.callsign}
                     </h3>
                     
-                    <p id="ac-header-subtext-container">
+                    <span class="ac-header-username-pill" style="margin-top: 6px;">${baseProps.username || 'N/A'}</span>
+
+                    <p id="ac-header-subtext-container" style="margin-top: 6px;">
                         <span class="ac-header-subtext" id="ac-header-livery">${airlineName}</span>
                         <span class="ac-header-subtext" id="ac-header-actype">${aircraftName}</span>
                     </p>
