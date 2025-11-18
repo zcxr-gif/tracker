@@ -756,36 +756,12 @@ function injectCustomStyles() {
             justify-content: space-between;
             align-items: flex-start;
         }
-
-        /* ====================================================================
-        --- [START] MODIFICATION FROM SHOWCASE ---
-        ====================================================================
-        */
-        
-        /* [NEW] This is the glass box for the callsign */
-        .info-header-box {
-            display: inline-flex; /* Use inline-flex to fit content */
-            flex-direction: column; /* Stack h3 and p vertically */
-            gap: 4px; /* Small gap between callsign and subtext */
-            
-            /* Background styles */
-            background: rgba(10, 12, 26, 0.1); /* Very transparent */
-            padding: 8px 12px;
-            border-radius: 8px; /* Rounded corners */
-            border: 1px solid rgba(255, 255, 255, 0.1);
-            box-shadow: 0 4px 15px rgba(0,0,0,0.3); /* Shadow for the box itself */
-            backdrop-filter: blur(2px); /* Subtle blur */
-            -webkit-backdrop-filter: blur(2px);
-        }
-
-        /* [MODIFIED] This rule is now just for text layout */
         .overview-col-left h3 {
             margin: 0;
             font-size: 1.6rem; 
             font-weight: 700; 
             letter-spacing: 0.5px;
-            /* [MODIFIED] Simplified shadow for text inside the box */
-            text-shadow: 0 2px 5px rgba(0, 0, 0, 0.5); 
+            text-shadow: 0 4px 10px rgba(0, 0, 0, 0.7), 0 0 2px rgba(255, 255, 255, 0.2);
             display: flex;
             align-items: center;
             gap: 12px;
@@ -795,13 +771,9 @@ function injectCustomStyles() {
         .ac-header-logo {
             height: 1.8rem; 
             width: auto;
-            /* [MODIFIED] From showcase, use 150px max width */
-            max-width: 150px; 
+            max-width: 100px; /* Prevent huge logos */
             object-fit: contain;
-            /* [MODIFIED] From showcase */
-            filter: drop-shadow(0 1px 2px rgba(0,0,0,0.3));
-            background-color: rgba(0,0,0,0.2);
-            border-radius: 4px;
+            filter: drop-shadow(0 2px 4px rgba(0,0,0,0.7)) drop-shadow(0 0 5px rgba(255, 255, 255, 0.3));
         }
         
         /* --- [MODIFIED] Container for animating subtext --- */
@@ -813,14 +785,8 @@ function injectCustomStyles() {
             font-weight: 400;
             text-shadow: 0 2px 5px rgba(0, 0, 0, 0.6);
             min-height: 1.2em; /* 1.0rem * 1.2 line-height */
-            /* [MODIFIED] margin-top is now 0, gap is handled by parent */
-            margin-top: 0; 
+            margin-top: 4px; 
         }
-        
-        /* ====================================================================
-        --- [END] MODIFICATION FROM SHOWCASE ---
-        ====================================================================
-        */
 
         /* --- [NEW] Keyframes for subtext animation --- */
         @keyframes primarySubtextAnimation {
@@ -1883,7 +1849,7 @@ function injectCustomStyles() {
         ====================================================================
         */
 
-        /* ##### MODIFICATION START ##### */
+        /* ##### MODIFICATION START (Specificity Fix) ##### */
         /* --- [NEW] Aircraft Window Tab Styles --- */
         .ac-info-window-tabs {
             display: flex;
@@ -1932,10 +1898,11 @@ function injectCustomStyles() {
         .ac-info-tab-btn.active { color: #00a8ff; border-bottom-color: #00a8ff; }
 
         /* Hide the old toggle buttons, as tabs replace them */
-        .pilot-stats-toggle-btn,
+        /* .pilot-stats-toggle-btn,
         .back-to-flight-btn {
-            display: none !important;
+            display: none !important; 
         }
+        */
 
         /* --- [MODIFIED] VSD Disclaimer --- */
         .vsd-disclaimer {
@@ -6200,12 +6167,6 @@ function rebuildDynamicLayers() {
 
 
 
-/**
- * --- [REHAULED v15 - LOGOS REMOVED] ---
- * Populates the aircraft info window with its initial HTML structure.
- * This version removes the airline logo <img> and replaces it with
- * the unsanitized livery name text inside the header.
- */
 function populateAircraftInfoWindow(baseProps, plan, sortedRoutePoints) { // <-- MODIFIED: Added 3rd arg
     const windowEl = document.getElementById('aircraft-info-window');
 
@@ -6227,16 +6188,52 @@ function populateAircraftInfoWindow(baseProps, plan, sortedRoutePoints) { // <--
     const departureIcao = hasPlan ? allWaypoints[0]?.name : 'N/A';
     const arrivalIcao = hasPlan ? allWaypoints[allWaypoints.length - 1]?.name : 'N/A';
 
-    // --- [MODIFIED] Get Livery Name (Logos Removed) ---
-    // The variable 'airlineName' (the unsanitized livery name) is already defined
-    // at the top of this function. We will use it directly.
-    
-    // 1. Build the HTML for the livery name as text.
-    // We use a new class 'ac-header-livery-name' so it can be styled.
-    // It is placed where the logo <img> used to be, inside the flexbox <h3>.
-    const logoHtml = airlineName ? `<span class="ac-header-livery-name">${airlineName}</span>` : '';
-    // --- End [MODIFIED] ---
+    // --- [NEW] Get Airline Logo (REVISED with new rules) ---
+    const liveryName = baseProps.aircraft?.liveryName || '';
+    const words = liveryName.trim().split(/\s+/); // Split by one or more spaces
+    let logoName = '';
+    const specialCharRegex = /[^a-zA-Z0-9]/; // Regex to find any non-alphanumeric character
 
+    if (words.length === 1) {
+        // Rule 2: Only one thing, take it. (e.g., "Generic")
+        logoName = words[0];
+    } else if (words.length > 1) {
+        const firstWord = words[0];
+        const secondWord = words[1];
+
+        // Rule 3: Check if the second word contains special characters (e.g., "(6E)")
+        if (specialCharRegex.test(secondWord)) {
+            // It's a special word, so "just keep the first thing"
+            logoName = firstWord; // e.g., "IndiGo"
+        } else {
+            // Rule 1: Second word is clean, take the first two. (e.g., "El Al", "Delta Air")
+            logoName = `${firstWord} ${secondWord}`;
+        }
+    }
+
+    // Sanitize the final result for the filename
+    const sanitizedLogoName = logoName
+        .toLowerCase()
+        .replace(/[^a-z0-9\s]/g, '') // Remove any remaining special chars
+        .replace(/\s+/g, '_'); // Replace spaces with underscores
+
+    // The path is still 'Images/airline_logos/'
+    const logoPath = sanitizedLogoName ? `Images/airline_logos/${sanitizedLogoName}.png` : '';
+    const logoHtml = logoPath ? `<img src="${logoPath}" alt="${liveryName}" class="ac-header-logo" onerror="this.style.display='none'">` : '';
+    // --- End [NEW] ---
+
+    // --- [YOUR FIX] ---
+    // We set no image initially. The 'updateAircraftInfoWindow' function
+    // (called immediately after) will handle loading the correct image.
+    // This prevents the "flash" of the default image.
+    const tempBg = ``;
+    // --- [END FIX] ---
+    
+    // --- [MODIFIED - YOUR FIX] Get Actual Departure Time and clear initial ETA ---
+    const atdTimestamp = (sortedRoutePoints && sortedRoutePoints.length > 0) ? sortedRoutePoints[0].date : null;
+    const atdTime = atdTimestamp ? formatTimeFromTimestamp(atdTimestamp) : '--:--'; // This is now ATD
+    const etaTime = '--:--'; // ETA will be calculated live
+    // --- [END FIX] ---
 
     // --- [FIX v11] ---
     // Get country code from our own airportsData using the ICAO, not the plan object.
@@ -6244,57 +6241,34 @@ function populateAircraftInfoWindow(baseProps, plan, sortedRoutePoints) { // <--
     const arrCountryCode = airportsData[arrivalIcao]?.country ? airportsData[arrivalIcao].country.toLowerCase() : '';
     // --- [END FIX v11] ---
 
-    // --- [NEW] Calculate ATD & initial ETA from base props ---
-    let atdTime = '--:--';
-    let etaTime = '--:--';
-
-    // Find ATD from sorted route points
-    if (sortedRoutePoints && sortedRoutePoints.length > 0) {
-        atdTime = formatTimeFromTimestamp(sortedRoutePoints[0].date);
-    }
-
-    // Calculate initial ETE/ETA
-    if (hasPlan && baseProps.position.gs_kt > 50) {
-        const [destLon, destLat] = allWaypoints[allWaypoints.length - 1].location ?
-                                  [allWaypoints[allWaypoints.length - 1].location.longitude, allWaypoints[allWaypoints.length - 1].location.latitude] :
-                                  [null, null];
-        
-        if (destLon !== null) {
-            // Calculate total distance
-            let totalDistanceKm = 0;
-            const flatCoords = flattenWaypointsFromPlan(plan.flightPlanItems);
-            for (let i = 0; i < flatCoords.length - 1; i++) {
-                totalDistanceKm += getDistanceKm(flatCoords[i][1], flatCoords[i][0], flatCoords[i+1][1], flatCoords[i+1][0]);
-            }
-            const totalDistanceNM = totalDistanceKm / 1.852;
-            
-            if (totalDistanceNM > 0) {
-                const remainingDistanceKm = getDistanceKm(baseProps.position.lat, baseProps.position.lon, destLat, destLon);
-                const distanceToDestNM = remainingDistanceKm / 1.852;
-                const eteHours = distanceToDestNM / baseProps.position.gs_kt;
-                
-                if (eteHours > 0 && eteHours < 48) { // Sanity check
-                    const eteMs = eteHours * 3600 * 1000;
-                    const etaTimestamp = new Date(Date.now() + eteMs);
-                    etaTime = formatTimeFromTimestamp(etaTimestamp);
-                }
-            }
-        }
-    }
-    // --- [END NEW] ---
-
-    // --- [NEW] Get Country Flags ---
     const depFlagSrc = depCountryCode ? `https://flagcdn.com/w20/${depCountryCode}.png` : '';
     const arrFlagSrc = arrCountryCode ? `https://flagcdn.com/w20/${arrCountryCode}.png` : '';
     const depFlagDisplay = depCountryCode ? 'block' : 'none';
     const arrFlagDisplay = arrCountryCode ? 'block' : 'none';
     // --- [END NEW] ---
-
-    // --- [NEW] Set background image ---
-    // This logic is simple, it just gets a default.
-    // The *live update* function will load the correct one.
-    const tempBg = `background-image: url('/CommunityPlanes/default.png');`;
-    // --- [END NEW] ---
+    
+    // ===================================================================
+    // --- [NEW INJECTION START] ---
+    // ===================================================================
+    // Find the Simbrief aircraft value
+    const simbriefAircraftValue = findSimbriefAircraftValue(aircraftName);
+    
+    let planButtonHtml = '';
+    // Only show the button if we have a plan AND a matching aircraft
+    if (hasPlan && simbriefAircraftValue) {
+        planButtonHtml = `
+        <button id="plan-this-flight-btn" class="pilot-stats-toggle-btn" 
+                data-departure="${departureIcao}" 
+                data-arrival="${arrivalIcao}" 
+                data-aircraft="${simbriefAircraftValue}"
+                style="margin-bottom: 16px;">
+            <i class="fa-solid fa-file-invoice"></i> Plan This Flight
+        </button>
+        `;
+    }
+    // ===================================================================
+    // --- [NEW INJECTION END] ---
+    // ===================================================================
 
     windowEl.innerHTML = `
     <div class="info-window-content">
@@ -6306,17 +6280,14 @@ function populateAircraftInfoWindow(baseProps, plan, sortedRoutePoints) { // <--
             </div>
 
             <div class="overview-content">
-                
-                <div class="overview-col-left info-header-box">
-                    
-                    <h3 id="ac-header-callsign">${logoHtml}</h3>
+                <div class="overview-col-left">
+                    <h3 id="ac-header-callsign">${logoHtml}${baseProps.callsign}</h3>
                     
                     <p id="ac-header-subtext-container">
                         <span class="ac-header-subtext" id="ac-header-username">${baseProps.username || 'N/A'}</span>
                         <span class="ac-header-subtext" id="ac-header-actype">${aircraftName}</span>
                     </p>
                 </div>
-                
                 <div class="overview-col-right">
                     <span class="route-icao" id="ac-header-dep">${departureIcao}</span>
                     <span class="route-icao" id="ac-header-arr">${arrivalIcao}</span>
@@ -6350,26 +6321,6 @@ function populateAircraftInfoWindow(baseProps, plan, sortedRoutePoints) { // <--
             </div>
         </div>
 
-        ${hasPlan ? `
-        <div class="ac-info-window-tabs" style="padding-bottom: 5px;">
-            <div class="ac-tabs-wrapper">
-                <button class="ac-info-tab-btn active" data-tab="ac-tab-flight-data">
-                    <i class="fa-solid fa-gauge-high"></i> Flight Display
-                </button>
-                <button class="ac-info-tab-btn" data-tab="ac-tab-pilot-report" data-user-id="${baseProps.userId}" data-username="${baseProps.username || 'N/A'}">
-                    <i class="fa-solid fa-chart-simple"></i> Pilot Report
-                </button>
-            </div>
-            
-            <button class="cta-button" id="plan-this-flight-btn" 
-                data-departure="${departureIcao}" 
-                data-arrival="${arrivalIcao}" 
-                data-aircraft="${findSimbriefAircraftValue(aircraftName) || ''}"
-                title="Copy this route to the SimBrief flight planner">
-                <i class="fa-solid fa-file-import"></i> Plan This
-            </button>
-        </div>
-        ` : `
         <div class="ac-info-window-tabs">
             <div class="ac-tabs-wrapper">
                 <button class="ac-info-tab-btn active" data-tab="ac-tab-flight-data">
@@ -6382,12 +6333,11 @@ function populateAircraftInfoWindow(baseProps, plan, sortedRoutePoints) { // <--
             
             <img src="Images/inflight.png" alt="Inflight Logo" class="ac-info-tab-logo">
         </div>
-        `}
         <div class="unified-display-main-content">
             
             <div id="ac-tab-flight-data" class="ac-tab-pane active">
                 
-                <div class="pfd-and-location-grid">
+                ${planButtonHtml} <div class="pfd-and-location-grid">
                 
                     <div class="pfd-main-panel">
                         <div id="pfd-container">
