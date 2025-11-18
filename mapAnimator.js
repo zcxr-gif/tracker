@@ -4,22 +4,30 @@
  * -------------------------------------------------------------------
  * A module to handle updating flight positions on a Mapbox GL JS map.
  *
- * --- [Interpolation Model] ---
+ * --- [Extrapolation / Dead Reckoning Model] ---
  *
- * This model provides smooth animation using linear interpolation.
+ * This model provides smooth, realistic animation by extrapolating
+ * a flight's position based on its last known speed and heading.
  *
- * It maintains an internal "state" for each flight, including its
- * current animated position and its target position (from the API).
+ * It "dead reckons" the plane's position between server updates.
  *
- * A `requestAnimationFrame` loop runs ~60fps to move the "current"
- * position slightly closer to the "target" position on each frame,
- * resulting in smooth movement.
+ * - The animation loop runs at ~60fps.
+ * - On each frame, it moves the plane forward based on its current
+ * speed and heading.
+ * - The plane's HEADING is smoothly interpolated (using lerpAngle)
+ * to create realistic, banking turns.
+ * - The plane's POSITION is extrapolated, not interpolated. This
+ * prevents "sliding" and ensures the plane only moves in the
+ * direction it is facing.
  * ===================================================================
  */
 
+// Earth's radius in Nautical Miles
+const EARTH_RADIUS_NM = 3440.065;
+
 /**
  * Main manager for the Mapbox map.
- * Animates features by interpolating them towards a target state.
+ * Animates features by extrapolating their position.
  */
 export class MapAnimator {
     /**
@@ -37,8 +45,8 @@ export class MapAnimator {
          * Stores the animation state for all flights.
          * Key: flightId
          * Value: {
-         * currentLon, currentLat, currentHeading,
-         * targetLon, targetLat, targetHeading,
+         * currentLon, currentLat, currentHeading, // The animated values
+         * targetHeading, targetSpeedKts,         // The target values from the server
          * lastUpdateTimestamp,
          * properties
          * }
@@ -47,11 +55,12 @@ export class MapAnimator {
         
         this.animationFrameId = null;
         this.isAnimating = false;
+        this.lastFrameTimestamp = null; // For calculating deltaT
         
-        // Tunable animation parameter.
-        // 0.1 = Slower, smoother (more "laggy")
-        // 0.5 = Faster, more responsive (more "snappy")
-        this.INTERPOLATION_FACTOR = 0.2; 
+        // Tunable animation parameter for TURNS.
+        // Lower = Slower, more "heavy" turns
+        // Higher = Faster, "snappier" turns
+        this.INTERPOLATION_FACTOR = 0.1; 
     }
 
     /**
@@ -60,7 +69,8 @@ export class MapAnimator {
     start() {
         if (this.isAnimating) return;
         this.isAnimating = true;
-        console.log('MapAnimator (Interpolation) started.');
+        this.lastFrameTimestamp = null; // Reset timestamp on start
+        console.log('MapAnimator (Extrapolation) started.');
         
         // Bind the loop to `this` and start it
         this._animationLoop = this._animationLoop.bind(this);
@@ -77,13 +87,12 @@ export class MapAnimator {
             cancelAnimationFrame(this.animationFrameId);
         }
         this.animationFrameId = null;
-        console.log('MapAnimator (Interpolation) stopped.');
+        console.log('MapAnimator (Extrapolation) stopped.');
     }
 
     /**
      * Updates a flight's *target* state.
-     * This is called by your Socket.IO receiver. It does NOT
-     * update the map directly.
+     * This is called by your Socket.IO receiver.
      *
      * @param {object} newPosition - {lon, lat, heading_deg, lastReportMs}
      * @param {object} newProperties - The full properties object (the flight).
@@ -92,45 +101,50 @@ export class MapAnimator {
         const flightId = newProperties.flightId;
         
         // --- [TIMESTAMP GUARD] ---
-        // We get the timestamp from the position object,
-        // which your server.js 'simplifyFlight' function puts there.
         const newTimestamp = newPosition.lastReportMs;
         if (!newTimestamp) {
             console.warn(`Ignoring update for ${flightId}: missing 'lastReportMs'`);
-            return; // No timestamp, can't animate
+            return;
         }
 
         const state = this.flightStates.get(flightId);
 
+        // --- [!! IMPORTANT !!] ---
+        // This model REQUIRES speed in knots.
+        // Change 'speed_kts' if your property is named differently (e.g., 'groundSpeed_kts')
+        const speed = newProperties.speed_kts || 0;
+        // --- [!! /IMPORTANT !!] ---
+
         if (state) {
             // --- Existing Flight: Check Timestamp ---
-            
-            // The Guard Clause:
-            // If the new data is older than (or equal to) the current data,
-            // stop right here. Do not process this "old" packet.
             if (newTimestamp <= state.lastUpdateTimestamp) {
                 // console.warn(`Ignoring out-of-order data for ${flightId}`);
-                return; // Do nothing
+                return; // Ignore old/out-of-order packet
             }
             
-            // --- Valid Update: Update Target ---
-            state.targetLon = newPosition.lon;
-            state.targetLat = newPosition.lat;
+            // --- Valid Update: "Snap" Position and Update Targets ---
+            // We "snap" the current position to the new data to prevent drift.
+            state.currentLon = newPosition.lon;
+            state.currentLat = newPosition.lat;
+            
+            // We update the TARGETS for heading and speed.
+            // The animation loop will smoothly interpolate towards these.
             state.targetHeading = newPosition.heading_deg;
+            state.targetSpeedKts = speed;
+            
             state.lastUpdateTimestamp = newTimestamp;
             state.properties = newProperties; // Store the latest full properties
             
         } else {
             // --- New Flight: Create State ---
-            // It "pops" in. Current and Target are the same.
+            // The plane "pops" into existence.
             this.flightStates.set(flightId, {
                 currentLon: newPosition.lon,
                 currentLat: newPosition.lat,
-                currentHeading: newPosition.heading_deg,
+                currentHeading: newPosition.heading_deg, // Start facing the correct way
                 
-                targetLon: newPosition.lon,
-                targetLat: newPosition.lat,
                 targetHeading: newPosition.heading_deg,
+                targetSpeedKts: speed,
                 
                 lastUpdateTimestamp: newTimestamp,
                 properties: newProperties
@@ -156,58 +170,79 @@ export class MapAnimator {
      * @param {string} flightId 
      */
     removeFlight(flightId) {
-        // Delete from our internal animator state
         this.flightStates.delete(flightId);
-        
-        // Delete from the shared map state (this is the reference)
         delete this.currentMapFeatures[flightId];
-        
-        // The map will be updated on the next animation loop,
-        // which will see the feature is gone.
     }
     
     /**
      * @private
      * The main animation loop (runs ~60fps).
+     * @param {number} timestamp - DOMHighResTimeStamp from requestAnimationFrame
      */
-    _animationLoop() {
+    _animationLoop(timestamp) {
         if (!this.isAnimating) return;
+
+        // Calculate deltaT (time since last frame) in seconds
+        if (!this.lastFrameTimestamp) {
+            this.lastFrameTimestamp = timestamp;
+            this.animationFrameId = requestAnimationFrame(this._animationLoop);
+            return;
+        }
+        const deltaT_seconds = (timestamp - this.lastFrameTimestamp) / 1000.0;
+        this.lastFrameTimestamp = timestamp;
 
         let needsMapUpdate = false;
 
         // Iterate over all flights we are tracking
         for (const [flightId, state] of this.flightStates.entries()) {
             
-            // --- 1. Interpolate Values ---
-            state.currentLon = lerp(state.currentLon, state.targetLon, this.INTERPOLATION_FACTOR);
-            state.currentLat = lerp(state.currentLat, state.targetLat, this.INTERPOLATION_FACTOR);
-            state.currentHeading = lerpAngle(state.currentHeading, state.targetHeading, this.INTERPOLATION_FACTOR);
-            
-            // --- 2. Update the Shared Feature Object ---
-            // This is the object the map source is pointing to.
-            // We mutate it directly.
             const feature = this.currentMapFeatures[flightId];
-            
-            if (feature) {
-                // Update geometry
-                feature.geometry.coordinates = [state.currentLon, state.currentLat];
-                
-                // Update properties (most importantly, heading for rotation)
-                // We also re-assign all properties to keep data fresh.
-                Object.assign(feature.properties, state.properties);
-                feature.properties.heading = state.currentHeading;
+            if (!feature) continue; // Should not happen, but safe to check
 
-                needsMapUpdate = true;
+            const speedKts = state.targetSpeedKts;
+
+            // --- 1. Interpolate Heading ---
+            // This creates the smooth, realistic turning motion.
+            state.currentHeading = lerpAngle(state.currentHeading, state.targetHeading, this.INTERPOLATION_FACTOR);
+
+            // --- 2. Extrapolate Position ---
+            // Only move the plane if its speed is greater than a small threshold.
+            if (speedKts > 0.1) {
+                // Calculate distance to move this frame (in nautical miles)
+                const distanceNm = (speedKts * deltaT_seconds) / 3600.0;
+                
+                // Calculate the new position
+                const { lon, lat } = getDestinationPoint(
+                    state.currentLon,
+                    state.currentLat,
+                    state.currentHeading,
+                    distanceNm
+                );
+                
+                // Update the state's animated position
+                state.currentLon = lon;
+                state.currentLat = lat;
             }
-            // (If no feature, it was a new flight and was created in updateFlight)
+            
+            // --- 3. Update the Shared Feature Object ---
+            // We update this *every* frame to reflect new heading or position
+            feature.geometry.coordinates = [state.currentLon, state.currentLat];
+            
+            // Re-assign all properties to keep data fresh (e.g., altitude)
+            Object.assign(feature.properties, state.properties);
+            
+            // CRITICAL: Update the 'heading' property for Mapbox to rotate the icon
+            feature.properties.heading = state.currentHeading;
+
+            needsMapUpdate = true;
         }
 
-        // --- 3. Update the Map Source (if anything changed) ---
+        // --- 4. Update the Map Source (if anything changed) ---
         if (needsMapUpdate) {
             this._updateMapSource();
         }
 
-        // --- 4. Request the next frame ---
+        // --- 5. Request the next frame ---
         this.animationFrameId = requestAnimationFrame(this._animationLoop);
     }
 
@@ -234,14 +269,21 @@ export class MapAnimator {
 // =========================
 
 /**
- * Linear interpolation (Lerp).
- * @param {number} a - Start value
- * @param {number} b - End value
- * @param {number} t - Interpolation factor (0.0 to 1.0)
+ * Converts degrees to radians.
+ * @param {number} degrees
  * @returns {number}
  */
-function lerp(a, b, t) {
-    return a + (b - a) * t;
+function toRadians(degrees) {
+    return degrees * (Math.PI / 180);
+}
+
+/**
+ * Converts radians to degrees.
+ * @param {number} radians
+ * @returns {number}
+ */
+function toDegrees(radians) {
+    return radians * (180 / Math.PI);
 }
 
 /**
@@ -265,4 +307,35 @@ function lerpAngle(a, b, t) {
     
     // Keep the result between 0 and 360
     return (newAngle + 360) % 360;
+}
+
+/**
+ * Calculates a new lat/lon coordinate given a starting point,
+ * bearing (heading), and distance.
+ * @param {number} lon - Starting longitude
+ * @param {number} lat - Starting latitude
+ * @param {number} bearing - Bearing (heading) in degrees
+ * @param {number} distanceNm - Distance in nautical miles
+ * @returns {{lon: number, lat: number}}
+ */
+function getDestinationPoint(lon, lat, bearing, distanceNm) {
+    const latRad = toRadians(lat);
+    const lonRad = toRadians(lon);
+    const bearingRad = toRadians(bearing);
+    const angularDistance = distanceNm / EARTH_RADIUS_NM;
+
+    const lat2Rad = Math.asin(
+        Math.sin(latRad) * Math.cos(angularDistance) +
+        Math.cos(latRad) * Math.sin(angularDistance) * Math.cos(bearingRad)
+    );
+
+    const lon2Rad = lonRad + Math.atan2(
+        Math.sin(bearingRad) * Math.sin(angularDistance) * Math.cos(latRad),
+        Math.cos(angularDistance) - Math.sin(latRad) * Math.sin(lat2Rad)
+    );
+
+    return {
+        lat: toDegrees(lat2Rad),
+        lon: toDegrees(lon2Rad)
+    };
 }
