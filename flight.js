@@ -3535,31 +3535,13 @@ function getIntermediatePoint(lat1, lon1, lat2, lon2, fraction) {
 
 
 
-/**
- * --- [REPLACEMENT - DELEGATOR VERSION - MODIFIED] Handles live flight data received from the WebSocket.
- * This function now only validates data, creates the properties object,
- * and delegates all animation/map logic to the MapAnimator.
- * The strict check (newPacketTimestamp <= lastSocketUpdateTimestamp)
- * has been removed. The animator will now "chase" every packet
- * it receives, even if it's technically "stale," preventing
- * the icon from freezing due to network/server packet ordering issues.
- *
- * --- [FIX v2.0] Added 'last_update' property so that
- * MapAnimator can de-conflict out-of-order packets.
- */
 function handleSocketFlightUpdate(data) {
     if (!data || !Array.isArray(data.flights) || !data.timestamp) {
         console.warn('Socket: Received invalid or untimestamped flights data packet.');
         return;
     }
     
-    // --- [REMOVED] Timestamp validation block ---
-    // The strict timestamp check has been removed to
-    // accept all incoming data packets as valid targets.
-    // We still update the lastSocketUpdateTimestamp for reference,
-    // but we no longer use it to discard packets.
     lastSocketUpdateTimestamp = new Date(data.timestamp).getTime();
-    // --- [END REMOVED BLOCK] ---
 
     if (!sectorOpsMap || !sectorOpsMap.isStyleLoaded() || !mapAnimator) {
         return; // Map or Animator not ready
@@ -3569,28 +3551,13 @@ function handleSocketFlightUpdate(data) {
     const updatedFlightIds = new Set();
 
     flights.forEach(flight => {
-        //
-        // ##### THIS IS THE FIX #####
-        //
-        // The previous check (lat == null) did NOT filter out NaN.
-        // If a plane's lat/lon becomes NaN, it poisons the
-        // animation state.
-        //
-        // isFinite() correctly checks for null, undefined, AND NaN.
-        //
         if (!flight.position || !isFinite(flight.position.lat) || !isFinite(flight.position.lon)) {
             return; // Skip this flight
         }
-        //
-        // ##### END FIX #####
-        //
 
         const flightId = flight.flightId;
         updatedFlightIds.add(flightId);
 
-        // --- This function is still responsible for building the properties ---
-        // --- (because this is application-specific) ---
-        
         const litePhase = getLiteFlightPhase(flight.position);
         const aircraftData = flight.aircraft || null;
         
@@ -3605,40 +3572,73 @@ function handleSocketFlightUpdate(data) {
             aircraft: JSON.stringify(aircraftData),
             userId: flight.userId,
             category: getAircraftCategory(flight.aircraft?.aircraftName),
-            //
-            // ##### THIS IS THE FIX #####
-            //
-            // We remove '|| 0'. This allows a 'null' or 'undefined' heading
-            // to be passed to the animator, which is correctly
-            // designed to handle it by holding the last known good heading.
-            // Forcing it to '0' here was causing conflicts.
-            //
             heading: flight.position.heading_deg, 
-            //
-            // ##### END FIX #####
-            //
             isStaff: flight.isStaff,
             isVAMember: flight.isVAMember,
             phase: litePhase,
-
-            // --- [THIS IS THE FIX] ---
-            // Add the position's timestamp so MapAnimator can prevent
-            // out-of-order "jump back" packets.
-            // We use the position's report time, falling back to the packet time.
             last_update: flight.position.lastReport || data.timestamp
-            // --- [END OF FIX] ---
         };
 
-        // --- Delegate to the animator ---
-        // We no longer pass 'packetDuration' as the animator
-        // (mapAnimator.js) doesn't use it.
+        // ================================================================
+        // === PASTE THE NEW LOGIC BLOCK HERE ===
+        // This checks if the flight in the loop is the one we have open.
+        // ================================================================
+        if (flightId === currentFlightInWindow) {
+            // This is the selected aircraft. Update the PFD, trail, and info window.
+            
+            // 1. Update the shared position for the geocoder
+            currentAircraftPositionForGeocode = flight.position;
+
+            // 2. Get the trail from cache
+            const localTrail = liveTrailCache.get(flightId);
+            
+            // Re-create the full 'flight' object expected by updateAircraftInfoWindow
+            const fullFlightProps = { ...newProperties, position: flight.position, aircraft: aircraftData };
+
+            if (localTrail) {
+                // 3. Create the new route point
+                const newRoutePoint = {
+                    latitude: flight.position.lat,
+                    longitude: flight.position.lon,
+                    altitude: flight.position.alt_ft,
+                    groundSpeed: flight.position.gs_kt,
+                    track: flight.position.heading_deg,
+                    date: new Date(flight.position.lastReport || Date.now()).toISOString()
+                };
+                // 4. Add to the cache
+                localTrail.push(newRoutePoint);
+                liveTrailCache.set(flightId, localTrail);
+
+                // 5. Update the UI
+                updatePfdDisplay(flight.position);
+                // We pass the *full* properties object here
+                updateAircraftInfoWindow(fullFlightProps, cachedFlightDataForStatsView.plan, localTrail);
+
+                // 6. Update the map trail
+                const layerId = sectorOpsLiveFlightPathLayers[flightId]?.flown;
+                const source = layerId ? sectorOpsMap.getSource(layerId) : null;
+                if (source) {
+                    const newRouteData = generateAltitudeColoredRoute(localTrail, flight.position);
+                    source.setData(newRouteData);
+                }
+            }
+
+            // 7. Live-update the planned layer for the "Direct to" line
+            if (cachedFlightDataForStatsView.plan && mapFilters.planDisplayMode === 'direct') {
+                updateFlightPlanLayer(flightId, cachedFlightDataForStatsView.plan, flight.position);
+            }
+        }
+        // ================================================================
+        // === END OF NEW LOGIC BLOCK ===
+        // ================================================================
+
+        // This line was already here. It updates the map icon's position.
         mapAnimator.updateFlight(flight.position, newProperties);
     });
 
     // Clean up old flights
     for (const flightId in currentMapFeatures) {
         if (!updatedFlightIds.has(String(flightId))) {
-            // --- Delegate removal to the animator ---
             mapAnimator.removeFlight(flightId);
         }
     }
@@ -6117,111 +6117,12 @@ async function handleAircraftClick(flightProps, sessionId) {
         }, FIVE_MINUTES_MS); // Call again every 5 minutes
         // --- [END MODIFICATION] ---
 
-        // --- [MODIFIED] ---
-        // The interval will NOW re-fetch the route data on every tick.
-        activePfdUpdateInterval = setInterval(async () => {
-            try {
-                // --- [MODIFIED] ---
-                // We ONLY fetch the live flights data now.
-                const [freshDataRes] = await Promise.all([
-                    fetch(`${LIVE_FLIGHTS_API_URL}/${sessionId}`), // Live position
-                    // The 'routeRes' fetch has been REMOVED.
-                ]);
+        // ===================================================================
+        // === THIS ENTIRE `setInterval` BLOCK HAS BEEN REMOVED ===
+        // ===================================================================
+        // activePfdUpdateInterval = setInterval(async () => { ... }, 3000);
+        // ===================================================================
 
-
-                if (!freshDataRes.ok) throw new Error("Flight data update failed.");
-                
-                const allFlights = await freshDataRes.json();
-                const updatedFlight = allFlights.flights.find(f => f.flightId === flightProps.flightId);
-
-                // --- [MODIFIED] ---
-                // Get the trail from our local cache.
-                const localTrail = liveTrailCache.get(flightProps.flightId);
-                if (!localTrail) {
-                    // This can happen if the window was closed and re-opened quickly.
-                    // We must stop the interval.
-                    throw new Error("Local trail cache was lost.");
-                }
-                // The 'updatedSortedRoutePoints' block has been REMOVED.
-                // --- [END MODIFICATION] ---
-
-                if (updatedFlight && updatedFlight.position) {
-                    
-                    // --- [NEW] Update the shared position variable ---
-                    currentAircraftPositionForGeocode = updatedFlight.position;
-                    // --- [END NEW] ---
-
-                    // --- Logic to update the info window (Unchanged) ---
-                    updatePfdDisplay(updatedFlight.position);
-                    
-                    // --- [NEW: THE FIX] ---
-                    // Convert the new live data to a "route point" format
-                    // so it matches the historical data.
-                    const newRoutePoint = {
-                        latitude: updatedFlight.position.lat,
-                        longitude: updatedFlight.position.lon,
-                        altitude: updatedFlight.position.alt_ft,
-                        groundSpeed: updatedFlight.position.gs_kt,
-                        track: updatedFlight.position.heading_deg, // Use heading_deg
-                        date: new Date(updatedFlight.position.lastReport || Date.now()).toISOString()
-                    };
-                    
-                    // Add this new, high-resolution point to our local trail
-                    localTrail.push(newRoutePoint);
-                    // Update the cache with the new, longer trail
-                    liveTrailCache.set(flightProps.flightId, localTrail);
-                    // --- [END NEW] ---
-                    
-                    // Pass the NEWLY fetched *and grown* local trail
-                    updateAircraftInfoWindow(updatedFlight, plan, localTrail);
-                    
-                    // --- [NEW] Live update for the 2D altitude-colored trail ---
-                    const layerId = sectorOpsLiveFlightPathLayers[flightProps.flightId]?.flown;
-                    const source = layerId ? sectorOpsMap.getSource(layerId) : null;
-                    
-                    if (source) {
-                        // Pass the *updated* local trail to the map drawing function
-                        const newRouteData = generateAltitudeColoredRoute(localTrail, updatedFlight.position);
-                        source.setData(newRouteData);
-                    }
-                    // --- [END NEW] ---
-
-                    // --- [FIX 2 of 2] ---
-                    // Live-update the planned layer. This is essential for the
-                    // "Direct to Destination" line to follow the aircraft.
-                    // We only run it if the mode is 'direct' to save resources.
-                    if (plan && mapFilters.planDisplayMode === 'direct') {
-                        updateFlightPlanLayer(flightProps.flightId, plan, updatedFlight.position);
-                    }
-                    // --- [END OF FIX 2] ---
-
-                } else {
-                    // Flight no longer found, stop the interval
-                    clearInterval(activePfdUpdateInterval);
-                    activePfdUpdateInterval = null;
-                    // --- [NEW] Stop geocode interval too ---
-                    if (activeGeocodeUpdateInterval) clearInterval(activeGeocodeUpdateInterval);
-                    activeGeocodeUpdateInterval = null;
-                    
-                    // --- [NEW] ---
-                    // Clean up the cache for this flight
-                    liveTrailCache.delete(flightProps.flightId);
-                    // --- [END NEW] ---
-                }
-            } catch (error) {
-                console.error("Stopping PFD update due to error:", error);
-                clearInterval(activePfdUpdateInterval);
-                activePfdUpdateInterval = null;
-                // --- [NEW] Stop geocode interval too ---
-                if (activeGeocodeUpdateInterval) clearInterval(activeGeocodeUpdateInterval);
-                activeGeocodeUpdateInterval = null;
-
-                // --- [NEW] ---
-                // Clean up the cache for this flight
-                liveTrailCache.delete(flightProps.flightId);
-                // --- [END NEW] ---
-            }
-        }, 3000); // 3000ms is a good, fast interval
 
         // [RESILIENCE] Unset loading flag on success
         isAircraftWindowLoading = false;
