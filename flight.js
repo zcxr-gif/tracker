@@ -1138,13 +1138,50 @@ function injectCustomStyles() {
             flex-direction: column;
             gap: 10px;
         }
-        .ac-profile-card-new h4 { /* Title for VSD */
-            margin: 0 0 5px 0;
+        
+        /* ##### MODIFICATION START ##### */
+        /* [NEW] Header for the profile card with title and toggles */
+        .ac-profile-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 0 5px; /* Small padding */
+        }
+        
+        .ac-profile-header h4 { /* Title for VSD/SSD */
+            margin: 0;
             font-size: 0.9rem;
             font-weight: 600;
             color: #e8eaf6;
-            text-align: center;
         }
+        
+        /* [NEW] Toggle buttons for VSD/SSD */
+        .profile-toggle-buttons {
+            display: flex;
+            background: rgba(0,0,0,0.3);
+            border-radius: 6px;
+        }
+        .profile-toggle-btn {
+            background: transparent;
+            border: none;
+            color: #9fa8da;
+            padding: 6px 10px;
+            font-size: 0.75rem;
+            font-weight: 600;
+            cursor: pointer;
+            border-radius: 6px;
+            transition: all 0.2s ease-in-out;
+        }
+        .profile-toggle-btn:hover {
+            color: #fff;
+        }
+        .profile-toggle-btn.active {
+            background: #00a8ff;
+            color: #fff;
+            box-shadow: 0 2px 5px rgba(0, 168, 255, 0.3);
+        }
+        /* ##### MODIFICATION END ##### */
+
         
         /* ====================================================================
         --- [END] REHAUL: PFD-first, top-down layout ---
@@ -1660,21 +1697,28 @@ function injectCustomStyles() {
         }
         
         /* ====================================================================
-        --- [START] VSD RE-DESIGN (USER REQUEST) --- 
+        --- [START] VSD/SSD RE-DESIGN --- 
         ====================================================================
         */
-        #vsd-panel {
+        
+        /* [MODIFIED] Common styles for VSD and SSD panels */
+        #vsd-panel, #ssd-panel {
             position: relative;
-            display: flex;
+            display: none; /* Hide by default */
             flex-direction: column;
-            background: transparent; /* --- [MODIFIED] Card bg handles this --- */
+            background: transparent;
             border-radius: 12px;
-            min-height: 240px; /* Give it a fixed height */
+            min-height: 240px;
             max-height: 240px;
             overflow: hidden;
             font-family: 'Courier New', monospace;
-            flex-grow: 1; /* --- [NEW] --- */
-            width: 100%; /* --- [NEW] --- */
+            flex-grow: 1;
+            width: 100%;
+        }
+        
+        /* [NEW] Show the active panel */
+        #vsd-panel.active, #ssd-panel.active {
+            display: flex;
         }
         
         #vsd-summary-bar {
@@ -1682,18 +1726,19 @@ function injectCustomStyles() {
            display: none;
         }
 
-        #vsd-graph-window {
+        /* [MODIFIED] Common styles for graph windows */
+        #vsd-graph-window, #ssd-graph-window {
             position: relative;
             width: 100%;
             flex-grow: 1;
             overflow: hidden;
             border-radius: 12px;
-            
-            /* --- [MODIFIED] Add padding for the new Y-Axis --- */
-            padding-left: 35px;
-            box-sizing: border-box; /* Ensure padding is included in width */
-            
-            /* Add horizontal grid lines for altitude */
+            padding-left: 35px; /* Space for Y-Axis */
+            box-sizing: border-box; 
+        }
+
+        #vsd-graph-window {
+            /* VSD: Add horizontal grid lines for altitude */
             background: linear-gradient(
                 rgba(0, 168, 255, 0.1) 1px, 
                 transparent 1px
@@ -1701,9 +1746,18 @@ function injectCustomStyles() {
             /* --- [MODIFIED] Adjusted background size to match 10k ft intervals --- */
             background-size: 100% 53.3px; /* (240px / 45k ft) * 10k ft */
         }
+        
+        /* [NEW] SSD: Add horizontal grid lines for speed */
+        #ssd-graph-window {
+            background: linear-gradient(
+                rgba(40, 167, 69, 0.1) 1px, /* Green lines */
+                transparent 1px
+            );
+            background-size: 100% 40px; /* (240px / 600 kts) * 100 kts = 40px */
+        }
 
-        /* --- [NEW] Y-Axis (Altitude Scale) --- */
-        #vsd-y-axis {
+        /* [MODIFIED] Common styles for Y-Axis */
+        #vsd-y-axis, #ssd-y-axis {
             position: absolute;
             left: 0;
             top: 0;
@@ -1714,9 +1768,18 @@ function injectCustomStyles() {
             font-weight: 600;
             padding: 5px 0;
             box-sizing: border-box;
-            border-right: 1px solid rgba(0, 168, 255, 0.1);
+            border-right: 1px solid rgba(255, 255, 255, 0.1);
             pointer-events: none; /* Let clicks pass through */
         }
+        
+        #vsd-y-axis {
+            border-right-color: rgba(0, 168, 255, 0.1); /* Blue */
+        }
+        
+        #ssd-y-axis {
+            border-right-color: rgba(40, 167, 69, 0.1); /* Green */
+        }
+
         .y-axis-label {
             position: absolute;
             left: 5px;
@@ -1725,16 +1788,14 @@ function injectCustomStyles() {
         }
         /* --- [END NEW] --- */
 
-        /* --- [MODIFIED] Aircraft Icon (Added Dropline) --- */
-        #vsd-aircraft-icon {
+        /* [MODIFIED] Common styles for Aircraft Icon */
+        #vsd-aircraft-icon, #ssd-aircraft-icon {
             position: absolute;
             left: 0px; /* Will be set by JS */
             top: 50%; /* Will be set by JS */
             width: 30px;
             height: 20px;
             z-index: 10;
-            /* Simple '>' icon for aircraft */
-            background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 30 20' fill='%2300a8ff'%3E%3Cpath d='M2,10 L10,2 L10,7 L28,7 L28,13 L10,13 L10,18 L2,10 Z' /%3E%3C/svg%3E");
             background-size: contain;
             background-repeat: no-repeat;
             background-position: center;
@@ -1742,20 +1803,38 @@ function injectCustomStyles() {
             transition: top 0.5s ease-out, left 1s linear;
         }
         
-        /* --- [NEW] Vertical Dropline for aircraft --- */
-        #vsd-aircraft-icon::before {
+        #vsd-aircraft-icon {
+            /* Blue Icon */
+            background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 30 20' fill='%2300a8ff'%3E%3Cpath d='M2,10 L10,2 L10,7 L28,7 L28,13 L10,13 L10,18 L2,10 Z' /%3E%3C/svg%3E");
+        }
+        
+        /* [NEW] SSD Icon */
+        #ssd-aircraft-icon {
+            /* Green Icon */
+            background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 30 20' fill='%2328a745'%3E%3Cpath d='M2,10 L10,2 L10,7 L28,7 L28,13 L10,13 L10,18 L2,10 Z' /%3E%3C/svg%3E");
+        }
+        
+        /* [MODIFIED] Common styles for dropline */
+        #vsd-aircraft-icon::before, #ssd-aircraft-icon::before {
             content: '';
             position: absolute;
             top: 50%; /* Start at icon center */
             left: 10px; /* Position horizontally within icon bounds */
             width: 2px;
             height: 500px; /* Arbitrarily long */
-            background: linear-gradient(to bottom, #00a8ff, transparent 80%);
             opacity: 0.7;
         }
-        /* --- [END NEW] --- */
+
+        #vsd-aircraft-icon::before {
+             background: linear-gradient(to bottom, #00a8ff, transparent 80%);
+        }
         
-        #vsd-graph-content {
+        #ssd-aircraft-icon::before {
+            background: linear-gradient(to bottom, #28a745, transparent 80%);
+        }
+        
+        /* [MODIFIED] Common styles for graph content */
+        #vsd-graph-content, #ssd-graph-content {
             position: absolute;
             top: 0;
             left: 35px; /* --- [MODIFIED] Start after Y-Axis --- */
@@ -1765,7 +1844,8 @@ function injectCustomStyles() {
             transition: transform 1s linear; /* Smooth scroll */
         }
 
-        #vsd-profile-svg {
+        /* [MODIFIED] Common styles for SVG container */
+        #vsd-profile-svg, #ssd-profile-svg {
             position: absolute;
             top: 0;
             left: 0;
@@ -1781,7 +1861,6 @@ function injectCustomStyles() {
             stroke-linejoin: round;
         }
 
-        /* --- [MODIFIED] Style for the Flown Altitude Path --- */
         #vsd-flown-path {
             fill: none;
             stroke: #dc3545; /* Red */
@@ -1789,9 +1868,18 @@ function injectCustomStyles() {
             stroke-linejoin: round;
             opacity: 0.9; /* <-- MODIFIED */
         }
-        /* --- [END MODIFIED] --- */
 
-        #vsd-waypoint-labels {
+        /* [NEW] Style for the Flown Speed Path */
+        #ssd-flown-path {
+            fill: none;
+            stroke: #28a745; /* Green */
+            stroke-width: 4;
+            stroke-linejoin: round;
+            opacity: 0.9;
+        }
+
+        /* [MODIFIED] Common styles for waypoint labels */
+        #vsd-waypoint-labels, #ssd-waypoint-labels {
             position: absolute;
             top: 0;
             left: 0;
@@ -1800,7 +1888,7 @@ function injectCustomStyles() {
             pointer-events: none;
         }
         
-        /* --- [MODIFIED] Waypoint Labels (Staggering) --- */
+        /* [MODIFIED] VSD-specific label */
         .vsd-wp-label {
             position: absolute;
             transform: translateX(-50%); /* Center the label on its 'left' pos */
@@ -1823,8 +1911,6 @@ function injectCustomStyles() {
             font-size: 0.75rem;
             color: #c5cae9;
         }
-
-        /* --- [NEW] Tick lines for labels --- */
         .vsd-wp-label::after {
             content: '';
             position: absolute;
@@ -1834,20 +1920,47 @@ function injectCustomStyles() {
             height: 12px; /* Connects label to profile */
             background: rgba(255, 255, 255, 0.3);
         }
-        
-        /* High label: tick goes from bottom-center DOWN */
-        .vsd-wp-label.high-label::after {
+        .vsd-wp-label.high-label::after { top: 100%; }
+        .vsd-wp-label.low-label::after { bottom: 100%; }
+
+        /* [NEW] SSD-specific label (simpler, just shows waypoint name) */
+         .ssd-wp-label {
+            position: absolute;
+            transform: translateX(-50%);
+            font-size: 0.8rem;
+            font-weight: 700;
+            color: #89f7fe;
+            text-shadow: 0 0 5px rgba(0,0,0,0.8);
+            padding: 2px 4px;
+            background: rgba(10, 12, 26, 0.5);
+            border-radius: 3px;
+            white-space: nowrap;
+        }
+        .ssd-wp-label::after {
+            content: '';
+            position: absolute;
+            left: 50%;
+            transform: translateX(-50%);
+            width: 1px;
+            height: 12px;
+            background: rgba(255, 255, 255, 0.3);
+        }
+        /* [NEW] Staggering for SSD labels (simpler than VSD) */
+        .ssd-wp-label.high-label {
+            top: 10px; /* Always at the top */
+        }
+        .ssd-wp-label.high-label::after {
             top: 100%;
         }
-
-        /* Low label: tick goes from top-center UP */
-        .vsd-wp-label.low-label::after {
+        .ssd-wp-label.low-label {
+            bottom: 10px; /* Always at the bottom */
+        }
+        .ssd-wp-label.low-label::after {
             bottom: 100%;
         }
-        /* --- [END NEW] --- */
 
         /* ====================================================================
-        --- [END] VSD RE-DESIGN --- 
+        --- [END] VSD/SSD RE-DESIGN --- 
         ====================================================================
         */
 
@@ -1917,7 +2030,8 @@ function injectCustomStyles() {
         .disclaimer-legend {
             display: flex;
             justify-content: center;
-            gap: 20px;
+            flex-wrap: wrap; /* [NEW] Allow wrapping */
+            gap: 16px; /* [MODIFIED] Slightly less gap */
             margin-bottom: 8px;
             font-size: 0.8rem;
             font-weight: 600;
@@ -1926,6 +2040,10 @@ function injectCustomStyles() {
             display: flex;
             align-items: center;
             gap: 6px;
+        }
+        /* [NEW] Make icon slightly bigger */
+        .disclaimer-legend span .fa-solid {
+            font-size: 0.9rem;
         }
         .vsd-disclaimer p {
             font-size: 0.75rem;
@@ -4528,6 +4646,7 @@ async function updateLiveFlights() {
 /**
  * [FIXED] Attaches event listeners to the aircraft info window.
  * Now correctly clears *both* intervals on close/hide to prevent memory leaks.
+ * --- [MODIFIED] Added event listener for VSD/SSD toggle. ---
  */
 function setupAircraftWindowEvents() {
     if (!aircraftInfoWindow || aircraftInfoWindow.dataset.eventsAttached === 'true') return;
@@ -4536,12 +4655,38 @@ function setupAircraftWindowEvents() {
         const closeBtn = e.target.closest('.aircraft-window-close-btn');
         const hideBtn = e.target.closest('.aircraft-window-hide-btn');
         const tabBtn = e.target.closest('.ac-info-tab-btn');
-        
-        // ===================================================================
-        // --- [NEW BUTTON LISTENER START] ---
-        // ===================================================================
         const planBtn = e.target.closest('#plan-this-flight-btn');
+        
+        // ##### MODIFICATION START #####
+        const profileToggleBtn = e.target.closest('.profile-toggle-btn');
 
+        // 1. Handle VSD/SSD Toggle
+        if (profileToggleBtn) {
+            e.preventDefault();
+            if (profileToggleBtn.classList.contains('active')) {
+                return; // Already active
+            }
+
+            const targetPanelId = profileToggleBtn.dataset.target; // e.g., "vsd-panel"
+            const profileCard = profileToggleBtn.closest('.ac-profile-card-new');
+            
+            if (!targetPanelId || !profileCard) return;
+
+            // Deactivate current button and panel
+            profileCard.querySelector('.profile-toggle-btn.active')?.classList.remove('active');
+            profileCard.querySelector('#vsd-panel.active')?.classList.remove('active');
+            profileCard.querySelector('#ssd-panel.active')?.classList.remove('active');
+
+            // Activate new button and panel
+            profileToggleBtn.classList.add('active');
+            profileCard.querySelector(`#${targetPanelId}`)?.classList.add('active');
+            
+            return; // End execution
+        }
+        // ##### MODIFICATION END #####
+
+
+        // 2. Handle "Plan This Flight" Button
         if (planBtn) {
             e.preventDefault();
             
@@ -4599,12 +4744,9 @@ function setupAircraftWindowEvents() {
             showNotification("Flight plan form populated.", "success");
             return; // Stop event propagation
         }
-        // ===================================================================
-        // --- [NEW BUTTON LISTENER END] ---
-        // ===================================================================
 
 
-        // --- Tab Switching Logic (Unchanged) ---
+        // 3. Handle Tab Switching Logic
         if (tabBtn) {
             e.preventDefault();
             const tabId = tabBtn.dataset.tab;
@@ -4633,7 +4775,7 @@ function setupAircraftWindowEvents() {
             }
         }
 
-        // --- [FIXED] Close/Hide Logic ---
+        // 4. Handle Close/Hide Logic
         if (closeBtn) {
             aircraftInfoWindow.classList.remove('visible');
             MobileUIHandler.closeActiveWindow();
@@ -6169,7 +6311,7 @@ function rebuildDynamicLayers() {
 
 
 
-function populateAircraftInfoWindow(baseProps, plan, sortedRoutePoints) { // <-- MODIFIED: Added 3rd arg
+ffunction populateAircraftInfoWindow(baseProps, plan, sortedRoutePoints) { // <-- MODIFIED: Added 3rd arg
     const windowEl = document.getElementById('aircraft-info-window');
 
     // --- Get Aircraft & Route Data ---
@@ -6205,7 +6347,7 @@ function populateAircraftInfoWindow(baseProps, plan, sortedRoutePoints) { // <--
 
         // Rule 3: Check if the second word contains special characters (e.g., "(6E)")
         if (specialCharRegex.test(secondWord)) {
-            // It's a special word, so "just keep the first thing"
+            // It's a special word, "just keep the first thing"
             logoName = firstWord; // e.g., "IndiGo"
         } else {
             // Rule 1: Second word is clean, take the first two. (e.g., "El Al", "Delta Air")
@@ -6503,8 +6645,15 @@ function populateAircraftInfoWindow(baseProps, plan, sortedRoutePoints) { // <--
                     </div>
                 
                 <div class="ac-profile-card-new">
-                    <h4>Vertical Profile</h4>
-                    <div id="vsd-panel" class="vsd-panel" data-plan-id="" data-profile-built="false">
+                    <div class="ac-profile-header">
+                        <h4 id="profile-card-title">Vertical Profile</h4>
+                        <div class="profile-toggle-buttons">
+                            <button class="profile-toggle-btn active" data-target="vsd-panel" title="Vertical Situation Display">VSD</button>
+                            <button class="profile-toggle-btn" data-target="ssd-panel" title="Speed Situation Display">SSD</button>
+                        </div>
+                    </div>
+
+                    <div id="vsd-panel" class="vsd-panel active" data-plan-id="" data-profile-built="false">
                         <div id="vsd-graph-window" class="vsd-graph-window">
                             <div id="vsd-aircraft-icon"></div>
                             <div id="vsd-graph-content">
@@ -6516,13 +6665,26 @@ function populateAircraftInfoWindow(baseProps, plan, sortedRoutePoints) { // <--
                             </div>
                         </div>
                     </div>
-                </div>
+
+                    <div id="ssd-panel" class="ssd-panel" data-plan-id="" data-profile-built="false">
+                        <div id="ssd-graph-window" class="ssd-graph-window">
+                            <div id="ssd-aircraft-icon"></div>
+                            <div id="ssd-graph-content">
+                                <svg id="ssd-profile-svg" xmlns="http://www.w3.org/2000/svg">
+                                    <path id="ssd-flown-path" d="" />
+                                    </svg>
+                                <div id="ssd-waypoint-labels"></div>
+                            </div>
+                        </div>
+                    </div>
+                    </div>
 
                 <div class="vsd-disclaimer">
                     <div class="disclaimer-legend">
                         <span><i class="fa-solid fa-circle" style="color: #00a8ff;"></i> Planned FPL</span>
-                        <span><i class="fa-solid fa-circle" style="color: #dc3545;"></i> Flown Route</span>
-                    </div>
+                        <span><i class="fa-solid fa-circle" style="color: #dc3545;"></i> Flown Altitude</span>
+                        <span><i class="fa-solid fa-circle" style="color: #28a745;"></i> Flown Speed</span>
+                        </div>
                     <p><i class="fa-solid fa-circle-info"></i> The vertical profile may be inaccurate if your filed flight plan altitudes are incomplete or incorrect.</p>
                 </div>
 
@@ -6712,7 +6874,7 @@ function renderPilotStatsHTML(stats, username) {
         }
     }
 
-/**
+//**
  * --- [REHAULED v2.1] Renders the Pilot Report with collapsible sections and a case-sensitive profile link.
  * --- [MODIFIED v2.2] Removed back button for new tabbed layout
  * --- [MODIFIED v8] Added Donut Chart and Odometer logic
@@ -6721,6 +6883,7 @@ function renderPilotStatsHTML(stats, username) {
  * --- [MODIFIED v12.1] Removed inline gradient from image loading
  * --- [MODIFIED v13 - YOUR FIX] Calculate live ETA and use ATD.
  * --- [MODIFIED v14 - REHAUL] Re-bound data to new top-down layout. Removed donut/odometer logic.
+ * --- [MODIFIED v15] Added SSD (Speed Situation Display) logic in parallel with VSD.
 */
 function updateAircraftInfoWindow(baseProps, plan, sortedRoutePoints) {
     // --- Helper function to update all elements matching a selector ---
@@ -6962,9 +7125,16 @@ function updateAircraftInfoWindow(baseProps, plan, sortedRoutePoints) {
     }
 
 
-    // --- [MODIFIED] VSD LOGIC (using querySelectorAll) ---
+    // --- [MODIFIED] VSD & SSD LOGIC (using querySelectorAll) ---
     // This logic is now safe because it queries *within* its parent.
     const vsdPanels = document.querySelectorAll('#vsd-panel');
+    
+    // ##### MODIFICATION START #####
+    const ssdPanels = document.querySelectorAll('#ssd-panel');
+    const planId = (plan && (plan.flightPlanId || plan.id)) || 'unknown';
+    // ##### MODIFICATION END #####
+
+    // --- VSD Panel Logic ---
     vsdPanels.forEach(vsdPanel => {
         if (!hasPlan) return;
         
@@ -6985,7 +7155,6 @@ function updateAircraftInfoWindow(baseProps, plan, sortedRoutePoints) {
         const FIXED_X_SCALE_PX_PER_NM = 4;
         
         // --- 2. Build the Profile (Only once) ---
-        const planId = plan.flightPlanId || plan.id || 'unknown';
         if (vsdPanel.dataset.profileBuilt !== 'true' || vsdPanel.dataset.planId !== planId) {
             // ... (VSD profile, label, and Y-axis generation logic is unchanged) ...
             let flatWaypointObjects = JSON.parse(JSON.stringify(originalFlatWaypointObjects));
@@ -7122,7 +7291,8 @@ function updateAircraftInfoWindow(baseProps, plan, sortedRoutePoints) {
             fullFlownRoute.push({
                 latitude: baseProps.position.lat,
                 longitude: baseProps.position.lon,
-                altitude: baseProps.position.alt_ft
+                altitude: baseProps.position.alt_ft,
+                groundSpeed: baseProps.position.gs_kt // <-- Pass speed
             });
             const flownPathPoints = [];
             let totalActualFlownNM = 0;
@@ -7144,25 +7314,68 @@ function updateAircraftInfoWindow(baseProps, plan, sortedRoutePoints) {
                         segmentDistNM = getDistanceKm(lastFlownLat, lastFlownLon, wpLat, wpLon) / 1.852;
                     }
                     totalActualFlownNM += segmentDistNM;
-                    flownPathPoints.push({ x_nm: totalActualFlownNM, y_px: wpAltPx });
+                    
+                    // Store Altitude AND Speed
+                    flownPathPoints.push({ 
+                        x_nm: totalActualFlownNM, 
+                        y_px_alt: wpAltPx,
+                        y_kts: point.groundSpeed || 0
+                    });
+
                     lastFlownLat = wpLat;
                     lastFlownLon = wpLon;
                 }
                 const plannedProgressNM = progressAlongRouteNM;
                 const scaleFactor = (totalActualFlownNM > 0.1 && plannedProgressNM > 0.01) ? (plannedProgressNM / totalActualFlownNM) : 1;
+                
+                // ##### MODIFICATION START #####
+                // We must define the speed scale here to draw the path
+                const SSD_HEIGHT_PX = VSD_HEIGHT_PX; // Same height
+                const MAX_SPEED_KTS = 600; // 0-600 kts
+                const Y_SCALE_PX_PER_KT = SSD_HEIGHT_PX / MAX_SPEED_KTS;
+                
+                let flown_speed_path_d = ""; // [NEW] Path for speed
+                const startSpeedKts = flownPathPoints[0]?.y_kts || 0;
+                const startSpeedPx = SSD_HEIGHT_PX - (startSpeedKts * Y_SCALE_PX_PER_KT);
+                // ##### MODIFICATION END #####
+
                 for (let i = 0; i < flownPathPoints.length; i++) {
                     const point = flownPathPoints[i];
                     const scaled_x_px = point.x_nm * scaleFactor * FIXED_X_SCALE_PX_PER_NM; 
+                    
+                    // VSD Altitude Path (Unchanged)
                     if (i === 0) {
                         flown_path_d = `M 0 ${startAltPx}`;
                         if (flownPathPoints.length === 1) {
-                            flown_path_d += ` L ${scaled_x_px} ${point.y_px}`;
+                            flown_path_d += ` L ${scaled_x_px} ${point.y_px_alt}`;
                         }
                     } else {
-                        flown_path_d += ` L ${scaled_x_px} ${point.y_px}`;
+                        flown_path_d += ` L ${scaled_x_px} ${point.y_px_alt}`;
                     }
+                    
+                    // ##### MODIFICATION START #####
+                    // [NEW] SSD Speed Path
+                    const wpSpeedPx = SSD_HEIGHT_PX - (point.y_kts * Y_SCALE_PX_PER_KT);
+                    if (i === 0) {
+                        flown_speed_path_d = `M 0 ${startSpeedPx}`;
+                         if (flownPathPoints.length === 1) {
+                            flown_speed_path_d += ` L ${scaled_x_px} ${wpSpeedPx}`;
+                        }
+                    } else {
+                        flown_speed_path_d += ` L ${scaled_x_px} ${wpSpeedPx}`;
+                    }
+                    // ##### MODIFICATION END #####
                 }
+                
                 vsdFlownPath.setAttribute('d', flown_path_d);
+                
+                // ##### MODIFICATION START #####
+                // [NEW] Set the speed path on the SSD panel
+                const ssdFlownPath = document.querySelector(`#ssd-panel[data-plan-id="${planId}"] #ssd-flown-path`);
+                if (ssdFlownPath) {
+                    ssdFlownPath.setAttribute('d', flown_speed_path_d);
+                }
+                // ##### MODIFICATION END #####
             }
         }
 
@@ -7199,6 +7412,117 @@ function updateAircraftInfoWindow(baseProps, plan, sortedRoutePoints) {
         }
     });
     // --- [END VSD LOGIC] ---
+
+
+    // ##### MODIFICATION START #####
+    // --- [NEW] SSD Panel Logic ---
+    ssdPanels.forEach(ssdPanel => {
+        if (!hasPlan) return;
+        
+        // Find elements *relative* to this specific ssdPanel
+        const ssdAircraftIcon = ssdPanel.querySelector('#ssd-aircraft-icon');
+        const ssdGraphWindow = ssdPanel.querySelector('#ssd-graph-window');
+        const ssdGraphContent = ssdPanel.querySelector('#ssd-graph-content');
+        const ssdFlownPath = ssdPanel.querySelector('#ssd-flown-path');
+        const ssdWpLabels = ssdPanel.querySelector('#ssd-waypoint-labels');
+
+        if (!ssdGraphContent || !ssdAircraftIcon) return;
+
+        // --- 1. Define SSD scales ---
+        const SSD_HEIGHT_PX = ssdGraphContent.clientHeight || 240;
+        const MAX_SPEED_KTS = 600; // 0-600 kts
+        const Y_SCALE_PX_PER_KT = SSD_HEIGHT_PX / MAX_SPEED_KTS;
+        const FIXED_X_SCALE_PX_PER_NM = 4; // Must match VSD
+        
+        // --- 2. Build the Profile (Only once) ---
+        if (ssdPanel.dataset.profileBuilt !== 'true' || ssdPanel.dataset.planId !== planId) {
+            let flatWaypointObjects = JSON.parse(JSON.stringify(originalFlatWaypointObjects));
+
+            // Build Y-Axis for Speed
+            if (ssdGraphWindow && !ssdGraphWindow.querySelector('#ssd-y-axis')) {
+                let yAxisHtml = '<div id="ssd-y-axis">';
+                // Labels every 100kts, lines every 50kts
+                const speedLabels = [100, 200, 300, 400, 500]; 
+                for (const spd of speedLabels) {
+                    const yPos = SSD_HEIGHT_PX - (spd * Y_SCALE_PX_PER_KT);
+                    yAxisHtml += `<div class="y-axis-label" style="top: ${yPos}px;">${spd}</div>`;
+                }
+                yAxisHtml += '</div>';
+                ssdGraphWindow.insertAdjacentHTML('afterbegin', yAxisHtml);
+            }
+            
+            // Build Waypoint Labels (simpler, just name)
+            let labels_html = "";
+            let current_x_px = 0;
+            let last_label_x_px = -1000;
+            let stagger_level = 0;
+            const MIN_LABEL_SPACING_PX = 80;
+            
+            if (flatWaypointObjects.length === 0) return;
+
+            for (let i = 0; i < flatWaypointObjects.length; i++) {
+                const wp = flatWaypointObjects[i];
+                current_x_px = wp.cumulativeNM * FIXED_X_SCALE_PX_PER_NM;
+
+                let label_y_pos_class = '';
+                if (current_x_px - last_label_x_px < MIN_LABEL_SPACING_PX) {
+                    stagger_level = 1 - stagger_level; // Toggle 0 and 1
+                } else {
+                    stagger_level = 0;
+                }
+                
+                label_y_pos_class = (stagger_level === 1) ? 'low-label' : 'high-label';
+                last_label_x_px = current_x_px;
+
+                labels_html += `
+                    <div class="ssd-wp-label ${label_y_pos_class}" style="left: ${current_x_px}px;">
+                        ${wp.identifier}
+                    </div>`;
+            }
+            
+            // Set width of content
+            ssdGraphContent.style.width = `${current_x_px + 100}px`;
+            ssdFlownPath.closest('svg').style.width = `${current_x_px + 100}px`;
+            ssdWpLabels.innerHTML = labels_html;
+            ssdPanel.dataset.profileBuilt = 'true';
+            ssdPanel.dataset.planId = planId;
+        }
+        
+        // --- 3. Build/Update Flown Speed Path ---
+        // This is now handled inside the VSD loop (search for 'flown_speed_path_d')
+        // to avoid duplicating the path calculation.
+        
+        // --- 4. Update Aircraft Icon Position (Vertical) ---
+        const currentSpeedKts = gs || 0;
+        const currentSpeedPx = SSD_HEIGHT_PX - (currentSpeedKts * Y_SCALE_PX_PER_KT);
+        ssdAircraftIcon.style.top = `${currentSpeedPx}px`;
+
+        // --- 5. Scroll the Graph (Horizontal) ---
+        // This MUST be identical to the VSD scrolling logic
+        if (ssdGraphWindow && ssdGraphWindow.clientWidth > 0) {
+            const distanceFlownNM = progressAlongRouteNM; 
+            const scrollOffsetPx = (distanceFlownNM * FIXED_X_SCALE_PX_PER_NM);
+            const ssdViewportWidth = ssdGraphWindow.clientWidth;
+            const totalProfileWidthPx = ssdGraphContent.scrollWidth;
+            const centerOffset = (ssdViewportWidth / 2) + 35;
+            const desiredTranslateX = centerOffset - scrollOffsetPx;
+            const maxTranslateX = 0;
+            const minTranslateX = Math.min(0, ssdViewportWidth - totalProfileWidthPx);
+            const finalTranslateX = Math.max(minTranslateX, Math.min(maxTranslateX, desiredTranslateX));
+            ssdGraphContent.style.transform = `translateX(${finalTranslateX - 35}px)`;
+            const iconLeftPx = scrollOffsetPx + finalTranslateX;
+            ssdAircraftIcon.style.left = `${iconLeftPx}px`;
+        } else {
+            // Fallback for when clientWidth is 0
+            const distanceFlownNM = progressAlongRouteNM;
+            const scrollOffsetPx = (distanceFlownNM * FIXED_X_SCALE_PX_PER_NM);
+            const translateX = 75 - scrollOffsetPx; 
+            ssdGraphContent.style.transform = `translateX(${translateX - 35}px)`;
+            ssdAircraftIcon.style.left = `75px`;
+        }
+    });
+    // --- [END SSD LOGIC] ---
+    // ##### MODIFICATION END #####
 
 
     // --- [MODIFIED] Update Other DOM Elements (using helpers) ---
