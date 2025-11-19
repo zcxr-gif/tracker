@@ -58,20 +58,20 @@
 
         /* --- Display Unit (The Monitor Bezel) --- */
         .display-bezel {
-    position: relative;
-    background-color: var(--bg-bezel);
-    padding: 0.75rem; 
-    border-radius: 1rem;
-    border: 4px solid var(--border-main);
-    box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.5); 
-    
-    /* --- CHANGED DIMENSIONS TO MATCH PFD --- */
-    width: 335px;
-    height: 335px; /* Increased from 242px to match PFD ratio */
-    
-    display: flex;
-    flex-direction: column;
-}
+            position: relative;
+            background-color: var(--bg-bezel);
+            padding: 0.75rem; 
+            border-radius: 1rem;
+            border: 4px solid var(--border-main);
+            box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.5); 
+            
+            /* --- CHANGED DIMENSIONS TO MATCH PFD --- */
+            width: 335px;
+            height: 335px; /* Increased from 242px to match PFD ratio */
+            
+            display: flex;
+            flex-direction: column;
+        }
 
         /* Decorative Screws */
         .screw {
@@ -348,8 +348,8 @@
         } else {
             // ONLY load dummy data if we are running Standalone
             state.flightPlan = [
-                { name: "WPT01", x: -12, y: 0 },   
-                { name: "WPT02", x: -30, y: -10 }, 
+                { name: "WPT01", x: -12, y: 0, alt: "FL120" },   
+                { name: "WPT02", x: -30, y: -10, alt: "2500" }, 
                 { name: "WPT03", x: -55, y: 5 }    
             ];
         }
@@ -448,12 +448,13 @@
             const clipRadius = radius * 0.92; 
 
             ctx.save(); 
-            if (state.range < 40) {
-                ctx.beginPath();
-                ctx.arc(0, 0, clipRadius, 0, 2 * Math.PI);
-                ctx.clip();
-            }
+            
+            // Clip to compass area
+            ctx.beginPath();
+            ctx.arc(0, 0, clipRadius, 0, 2 * Math.PI);
+            ctx.clip();
 
+            // Draw connecting lines
             ctx.strokeStyle = COLORS.green;
             ctx.lineWidth = 3;
             ctx.lineJoin = 'round';
@@ -471,7 +472,7 @@
             });
             ctx.stroke();
 
-            ctx.fillStyle = COLORS.green;
+            // Draw Waypoints
             state.flightPlan.forEach(wpt => {
                 const px = wpt.x * pxPerNM;
                 const py = -wpt.y * pxPerNM; 
@@ -479,19 +480,45 @@
                 const dist = Math.sqrt(wpt.x*wpt.x + wpt.y*wpt.y);
                 if (dist > state.range + 80) return; 
 
+                // Draw Hollow Diamond (Green Line, Empty Inside)
                 const dSize = 5;
+                ctx.lineWidth = 2;
+                ctx.strokeStyle = COLORS.green;
+                
                 ctx.beginPath();
                 ctx.moveTo(px, py - dSize);
                 ctx.lineTo(px + dSize, py);
                 ctx.lineTo(px, py + dSize);
                 ctx.lineTo(px - dSize, py);
                 ctx.closePath();
-                ctx.fill();
+                ctx.stroke(); 
                 
-                ctx.fillStyle = COLORS.white;
-                ctx.font = `bold ${radius * 0.07}px 'Inconsolata'`;
-                ctx.fillText(wpt.name, px + 10, py);
+                // Draw Text (Un-rotated, Smaller, Green)
                 ctx.fillStyle = COLORS.green; 
+                const fontSize = radius * 0.055;
+                ctx.font = `bold ${fontSize}px 'Inconsolata'`;
+                
+                ctx.save();
+                ctx.translate(px, py);
+                // Rotate opposite to the map heading so text stays upright
+                ctx.rotate(state.heading * Math.PI / 180);
+                ctx.textAlign = "left"; 
+                ctx.textBaseline = "middle"; // Ensure vertical centering base
+
+                const textOffset = 15; // Offset to the right of the diamond
+                
+                if (wpt.alt) {
+                    // If altitude exists, stack them.
+                    // We shift the name up by half a line, and altitude down by half a line
+                    const halfLine = fontSize * 0.6; 
+                    ctx.fillText(wpt.name, textOffset, -halfLine); 
+                    ctx.fillText(wpt.alt, textOffset, halfLine);
+                } else {
+                    // Centered if no altitude
+                    ctx.fillText(wpt.name, textOffset, 0); 
+                }
+                
+                ctx.restore();
             });
 
             ctx.restore();
