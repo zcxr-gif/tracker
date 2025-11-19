@@ -2635,12 +2635,6 @@ function getNearestRunway(aircraftPos, airportIcao, maxDistanceNM = 2.0) {
     }
     
 
-/**
- * [FIXED] Updates the PFD display(s).
- * This function is now safe for mobile cloning because it uses
- * querySelectorAll to find and update *all* PFD instances,
- * rather than just the first one found by getElementById.
- */
 function updatePfdDisplay(pfdData) {
   if (!pfdData) return;
 
@@ -2675,8 +2669,6 @@ function updatePfdDisplay(pfdData) {
   
   if (attitudeGroups.length === 0) return; // No PFDs found, exit
   
-  // (All calculation logic below is unchanged)
-
   // ---- tunables ----
   const WINDOW_SEC          = 2.4;   // regression window
   const LATCH_ON_TURN       = 0.20;  // deg/s to latch "turning"
@@ -2847,14 +2839,8 @@ function updatePfdDisplay(pfdData) {
   // ---- pitch from VS ----
   const pitch_deg = Math.max(-PITCH_LIMIT, Math.min(PITCH_LIMIT, (vs_fpm / 1000) * 4));
 
-  // ---- global scales (with sane fallbacks) ----
-  const PFD_PITCH_SCALE       = window.PFD_PITCH_SCALE ?? 2.0;
-  const PFD_SPEED_REF_VALUE   = window.PFD_SPEED_REF_VALUE ?? 0;
-  const PFD_SPEED_SCALE       = window.PFD_SPEED_SCALE ?? -0.6;
-  const PFD_ALTITUDE_SCALE    = window.PFD_ALTITUDE_SCALE ?? 0.7;
-  const PFD_REEL_SPACING      = window.PFD_REEL_SPACING ?? 40;
-  const PFD_HEADING_REF_VALUE = window.PFD_HEADING_REF_VALUE ?? 0;
-  const PFD_HEADING_SCALE     = window.PFD_HEADING_SCALE ?? 4;
+  // ---- FIX: Use module constants (removed the incorrect shadowing defaults) ----
+  // We rely on PFD_PITCH_SCALE, PFD_SPEED_SCALE, etc., defined in the outer scope.
 
   // ---- [FIX] Apply transforms to ALL found elements ----
   const rollForSvg = -S.rollDisp; // SVG rotation sense
