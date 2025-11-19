@@ -336,7 +336,10 @@
             track: 270, 
             time: "00:00",
             simTime: new Date(),
-            flightPlan: [] 
+            flightPlan: [],
+            nextWp: "WYPT",
+            nextWpDist: 0,
+            nextWpEte: "00:00"
         };
 
         // Check if embedded
@@ -668,65 +671,83 @@
         }
 
         function drawOverlays(w, h) {
-            const fontSize = h * 0.06; 
-            ctx.font = `bold ${fontSize}px 'Inconsolata', monospace`;
-            
-            const leftM = -w / 2 + 20;
-            const topM = -h / 2 + 35;
-            const rightM = w / 2 - 20;
-            
-            const lineSpacing = fontSize * 1.2;
-            const labelOffset = fontSize * 2.5;
+    const fontSize = h * 0.06; 
+    ctx.font = `bold ${fontSize}px 'Inconsolata', monospace`;
+    
+    const leftM = -w / 2 + 20;
+    const topM = -h / 2 + 35;
+    const rightM = w / 2 - 20;
+    
+    const lineSpacing = fontSize * 1.2;
+    const labelOffset = fontSize * 2.5;
 
-            ctx.fillStyle = COLORS.green;
-            ctx.textAlign = "left";
-            ctx.fillText("GS", leftM, topM);
-            const gsText = Math.round(state.gs).toString().padStart(3, '0');
-            ctx.fillText(gsText, leftM + labelOffset, topM);
-            
-            ctx.fillText("TAS", leftM, topM + lineSpacing);
-            const tasText = Math.round(state.tas).toString().padStart(3, '0');
-            ctx.fillText(tasText, leftM + labelOffset, topM + lineSpacing);
+    // --- LEFT SIDE (GS, TAS, Wind) ---
+    ctx.fillStyle = COLORS.green;
+    ctx.textAlign = "left";
+    
+    // GS
+    ctx.fillText("GS", leftM, topM);
+    const gsText = Math.round(state.gs).toString().padStart(3, '0');
+    ctx.fillText(gsText, leftM + labelOffset, topM);
+    
+    // TAS
+    ctx.fillText("TAS", leftM, topM + lineSpacing);
+    const tasText = Math.round(state.tas).toString().padStart(3, '0');
+    ctx.fillText(tasText, leftM + labelOffset, topM + lineSpacing);
 
-            if (state.windSpd > 0) {
-                 ctx.fillText(`${state.windDir}°/${state.windSpd}`, leftM, topM + lineSpacing * 2.5);
-                 
-                 const arrowX = leftM + (fontSize * 4);
-                 const arrowY = topM + lineSpacing * 2.2;
-                 ctx.save();
-                 ctx.translate(arrowX, arrowY);
-                 
-                 const windRelAngle = (state.windDir - state.heading + 180) * Math.PI / 180;
-                 ctx.rotate(windRelAngle);
-                 ctx.strokeStyle = COLORS.green;
-                 ctx.lineWidth = 2;
-                 
-                 const halfLine = 10;
-                 const headSize = 5;
-                 
-                 ctx.beginPath();
-                 ctx.moveTo(0, -halfLine); ctx.lineTo(0, halfLine);
-                 ctx.moveTo(0, halfLine); ctx.lineTo(-headSize, halfLine - headSize);
-                 ctx.moveTo(0, halfLine); ctx.lineTo(headSize, halfLine - headSize);
-                 ctx.stroke();
-                 ctx.restore();
-            }
-
-            ctx.textAlign = "right";
-            ctx.fillStyle = COLORS.cyan; 
-            ctx.fillText(state.range + " NM", rightM, topM + lineSpacing * 2); 
-
-            ctx.fillStyle = COLORS.green;
-            ctx.fillText("PPOS", rightM, topM);
+    // Wind Arrow
+    if (state.windSpd > 0) {
+            ctx.fillText(`${state.windDir}°/${state.windSpd}`, leftM, topM + lineSpacing * 2.5);
             
-            ctx.fillStyle = COLORS.white;
-            ctx.fillText(state.time, rightM, topM + lineSpacing);
+            const arrowX = leftM + (fontSize * 4);
+            const arrowY = topM + lineSpacing * 2.2;
+            ctx.save();
+            ctx.translate(arrowX, arrowY);
             
-            ctx.textAlign = "center";
-            ctx.fillStyle = COLORS.green;
-            ctx.font = `bold ${fontSize * 0.9}px 'Inconsolata', monospace`;
-            ctx.fillText("GPS PRIMARY", 0, h / 2 - 20); 
-        }
+            const windRelAngle = (state.windDir - state.heading + 180) * Math.PI / 180;
+            ctx.rotate(windRelAngle);
+            ctx.strokeStyle = COLORS.green;
+            ctx.lineWidth = 2;
+            
+            const halfLine = 10;
+            const headSize = 5;
+            
+            ctx.beginPath();
+            ctx.moveTo(0, -halfLine); ctx.lineTo(0, halfLine);
+            ctx.moveTo(0, halfLine); ctx.lineTo(-headSize, halfLine - headSize);
+            ctx.moveTo(0, halfLine); ctx.lineTo(headSize, halfLine - headSize);
+            ctx.stroke();
+            ctx.restore();
+    }
+
+    // --- RIGHT SIDE (Waypoint Info) ---
+    ctx.textAlign = "right";
+    
+    // Check if we have a valid next waypoint (not default PPOS)
+    const hasNextWp = (state.nextWp && state.nextWp !== "PPOS");
+
+    // 1. Top Line: Waypoint Name (Green)
+    ctx.fillStyle = COLORS.green;
+    ctx.fillText(state.nextWp, rightM, topM);
+    
+    // 2. Middle Line: ETE (White)
+    // Shows ETE to waypoint if active, otherwise shows System Time
+    ctx.fillStyle = COLORS.white;
+    const middleText = hasNextWp ? state.nextWpEte : state.time;
+    ctx.fillText(middleText, rightM, topM + lineSpacing);
+
+    // 3. Bottom Line: Distance (Cyan)
+    // Shows Dist to waypoint if active, otherwise shows Map Range
+    ctx.fillStyle = COLORS.cyan; 
+    const bottomText = hasNextWp ? state.nextWpDist : state.range;
+    ctx.fillText(bottomText + " NM", rightM, topM + lineSpacing * 2); 
+
+    // --- BOTTOM CENTER ---
+    ctx.textAlign = "center";
+    ctx.fillStyle = COLORS.green;
+    ctx.font = `bold ${fontSize * 0.9}px 'Inconsolata', monospace`;
+    ctx.fillText("", 0, h / 2 - 20); 
+}
 
         document.getElementById('hdgInput').addEventListener('input', (e) => {
             state.heading = parseInt(e.target.value);
@@ -789,24 +810,26 @@
         animate();
 
         window.addEventListener('message', (event) => {
-            const data = event.data;
-            if (data.heading !== undefined) state.heading = data.heading;
-            if (data.track !== undefined) state.track = data.track;
-            if (data.tas !== undefined) state.tas = data.tas;
-            if (data.gs !== undefined) state.gs = data.gs;
-            if (data.windDir !== undefined) state.windDir = data.windDir;
-            if (data.windSpd !== undefined) state.windSpd = data.windSpd;
-            
-            // Important: Only update range/mode if sent explicitly, 
-            // usually user clicks inside iframe handle this.
-            
-            if (data.traffic && Array.isArray(data.traffic)) {
-                traffic = data.traffic;
-            }
-            if (data.flightPlan && Array.isArray(data.flightPlan)) {
-                state.flightPlan = data.flightPlan;
-            }
-        });
+    const data = event.data;
+    if (data.heading !== undefined) state.heading = data.heading;
+    if (data.track !== undefined) state.track = data.track;
+    if (data.tas !== undefined) state.tas = data.tas;
+    if (data.gs !== undefined) state.gs = data.gs;
+    if (data.windDir !== undefined) state.windDir = data.windDir;
+    if (data.windSpd !== undefined) state.windSpd = data.windSpd;
+    
+    // --- NEW DATA HANDLERS ---
+    if (data.nextWp !== undefined) state.nextWp = data.nextWp;
+    if (data.nextWpDist !== undefined) state.nextWpDist = data.nextWpDist;
+    if (data.nextWpEte !== undefined) state.nextWpEte = data.nextWpEte;
+    
+    if (data.traffic && Array.isArray(data.traffic)) {
+        traffic = data.traffic;
+    }
+    if (data.flightPlan && Array.isArray(data.flightPlan)) {
+        state.flightPlan = data.flightPlan;
+    }
+});
     </script>
 </body>
 </html>
