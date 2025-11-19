@@ -22,16 +22,14 @@
             
             --accent-green: #4ade80;
             --accent-cyan: #22d3ee;
+            --accent-amber: #f59e0b;
+            --accent-red: #ef4444;
             
             --font-mono: 'Inconsolata', monospace;
         }
 
         /* --- Reset & Base --- */
-        * {
-            box-sizing: border-box;
-            margin: 0;
-            padding: 0;
-        }
+        * { box-sizing: border-box; margin: 0; padding: 0; }
 
         body {
             background-color: var(--bg-body);
@@ -52,7 +50,7 @@
             display: flex;
             flex-direction: column;
             align-items: center;
-            width: fit-content; /* Fits the fixed bezel size */
+            width: fit-content;
             gap: 1rem;
         }
 
@@ -64,20 +62,15 @@
             border-radius: 1rem;
             border: 4px solid var(--border-main);
             box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.5); 
-            
-            /* STRICT DIMENSIONS */
             width: 300px;
             height: 242px;
-            
             display: flex;
             flex-direction: column;
         }
 
-        /* Decorative Screws */
         .screw {
             position: absolute;
-            width: 0.5rem; 
-            height: 0.5rem;
+            width: 0.5rem; height: 0.5rem;
             background-color: var(--screw-color);
             border-radius: 50%;
             box-shadow: inset 1px 1px 2px rgba(0,0,0,0.5);
@@ -99,13 +92,8 @@
             box-shadow: inset 0 0 20px rgba(0,0,0,0.8);
         }
 
-        canvas {
-            display: block; 
-            width: 100%;
-            height: 100%;
-        }
+        canvas { display: block; width: 100%; height: 100%; }
 
-        /* Scanline Overlay */
         .scanlines::before {
             content: " ";
             display: block;
@@ -120,16 +108,15 @@
 
         /* --- Control Panel --- */
         .control-panel {
-            width: 300px; /* Match the bezel width */
+            width: 300px;
             background-color: var(--bg-panel);
             padding: 1rem;
             border-radius: 0.75rem;
             border: 1px solid var(--border-main);
             box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.3);
-            
             display: flex;
             flex-direction: column; 
-            gap: 1rem;
+            gap: 0.75rem;
         }
 
         .control-group {
@@ -152,44 +139,72 @@
             gap: 0.5rem;
         }
 
-        /* Digital Value Displays */
         .value-display {
-            font-size: 1rem; 
-            width: 2.5rem;
+            font-size: 0.9rem; 
+            width: 2.8rem;
             font-family: var(--font-mono);
+            text-align: right;
         }
         .value-display.green { color: var(--accent-green); }
         .value-display.cyan { color: var(--accent-cyan); }
 
-        /* --- Range Buttons --- */
-        .button-group {
-            display: flex;
-            justify-content: space-between;
+        /* --- Buttons --- */
+        .button-grid {
+            display: grid;
+            grid-template-columns: repeat(3, 1fr);
+            gap: 0.25rem;
             background-color: var(--bg-bezel);
-            border-radius: 0.25rem;
             padding: 0.25rem;
+            border-radius: 0.25rem;
         }
 
-        .range-btn {
+        .mode-toggle {
+            display: flex;
+            background-color: var(--bg-bezel);
+            padding: 0.25rem;
+            border-radius: 0.25rem;
+            gap: 0.25rem;
+        }
+
+        .ctrl-btn {
             background: none;
             border: none;
             cursor: pointer;
             font-family: var(--font-mono);
-            font-size: 0.7rem;
+            font-size: 0.65rem;
             font-weight: 700;
-            padding: 0.25rem 0.5rem;
+            padding: 0.35rem 0;
             border-radius: 0.25rem;
-            transition: color 0.2s;
+            transition: all 0.2s;
+            text-align: center;
+            color: var(--text-dim);
+            width: 100%;
         }
 
-        .range-btn:hover {
-            color: #fff;
+        .ctrl-btn:hover { color: #fff; background: rgba(255,255,255,0.1); }
+        .ctrl-btn.active { color: var(--bg-panel); background: var(--accent-green); }
+
+        /* --- Sliders --- */
+        input[type=range] {
+            -webkit-appearance: none; appearance: none;
+            background: transparent; width: 100%;
+        }
+        input[type=range]:focus { outline: none; }
+        input[type=range]::-webkit-slider-thumb {
+            -webkit-appearance: none;
+            height: 12px; width: 12px;
+            border-radius: 50%;
+            background: var(--accent-green);
+            margin-top: -4px;
+            cursor: pointer;
+        }
+        input[type=range]::-webkit-slider-runnable-track {
+            width: 100%; height: 4px;
+            cursor: pointer;
+            background: #4b5563;
+            border-radius: 2px;
         }
 
-        .btn-active { color: var(--accent-green); }
-        .btn-inactive { color: var(--text-dim); }
-
-        /* --- Footer --- */
         .footer-text {
             font-size: 0.65rem;
             color: var(--text-dim);
@@ -197,60 +212,44 @@
             text-align: center;
         }
 
-        /* --- Form Elements (Sliders) --- */
-        input[type=range] {
-            -webkit-appearance: none; 
-            appearance: none;
-            background: transparent; 
-            width: 100%;
+        /* Embedded Styling Override */
+        body.embedded .control-panel { display: none !important; }
+        body.embedded .cockpit-container { padding: 0; width: fit-content; }
+        body.embedded .display-bezel {
+            box-shadow: none; border: none; border-radius: 0; padding: 0;
+            background: transparent; width: 300px; height: 242px;
         }
-        
-        input[type=range]:focus { outline: none; }
-
-        input[type=range]::-webkit-slider-thumb {
-            -webkit-appearance: none;
-            height: 14px; /* Smaller thumb */
-            width: 14px;
-            border-radius: 50%;
-            background: var(--accent-green);
-            margin-top: -5px;
-            cursor: pointer;
-            box-shadow: 0 0 5px rgba(74, 222, 128, 0.5);
-        }
-
-        input[type=range]::-webkit-slider-runnable-track {
-            width: 100%;
-            height: 4px;
-            cursor: pointer;
-            background: #4b5563;
-            border-radius: 2px;
-        }
+        body.embedded .screw { display: none; }
+        body.embedded .crt-container { border-radius: 0; border: none; }
     </style>
 </head>
 <body>
 
-    <!-- Main Cockpit Panel -->
     <div class="cockpit-container">
         
-        <!-- Display Unit Bezel (Fixed 300x242) -->
+        <!-- Display Unit -->
         <div class="display-bezel">
-            
-            <!-- Screw details -->
-            <div class="screw tl"></div>
-            <div class="screw tr"></div>
-            <div class="screw bl"></div>
-            <div class="screw br"></div>
-
-            <!-- The Screen (Canvas) -->
+            <div class="screw tl"></div><div class="screw tr"></div>
+            <div class="screw bl"></div><div class="screw br"></div>
             <div class="crt-container scanlines">
                 <canvas id="ndCanvas"></canvas>
             </div>
-            
         </div>
 
-        <!-- Control Panel (Fits width) -->
+        <!-- Control Panel -->
         <div class="control-panel">
             
+            <!-- Mode & Heading -->
+            <div class="control-group">
+                <div style="display:flex; justify-content:space-between; align-items:center;">
+                    <label class="label-text">ND Mode</label>
+                    <div class="mode-toggle" style="width: 120px;">
+                        <button onclick="setMode('ROSE')" id="btn-mode-rose" class="ctrl-btn">ROSE</button>
+                        <button onclick="setMode('ARC')" id="btn-mode-arc" class="ctrl-btn active">ARC</button>
+                    </div>
+                </div>
+            </div>
+
             <div class="control-group">
                 <label class="label-text">Heading (HDG)</label>
                 <div class="input-row">
@@ -259,285 +258,248 @@
                 </div>
             </div>
 
+            <!-- Speed & Wind -->
             <div class="control-group">
-                <label class="label-text">Speed (TAS)</label>
+                <label class="label-text">True Airspeed (TAS)</label>
                 <div class="input-row">
-                    <span class="value-display cyan" id="tasVal">0</span>
-                    <input type="range" id="tasInput" min="0" max="450" value="0">
+                    <span class="value-display cyan" id="tasVal">250</span>
+                    <input type="range" id="tasInput" min="0" max="450" value="250">
                 </div>
             </div>
 
             <div class="control-group">
+                <label class="label-text">Wind (Dir/Spd)</label>
+                <div class="input-row">
+                    <span class="value-display green" id="windVal">090/20</span>
+                    <input type="range" id="windDirInput" min="0" max="359" value="90" style="width: 50%;">
+                    <input type="range" id="windSpdInput" min="0" max="100" value="20" style="width: 50%;">
+                </div>
+            </div>
+
+            <!-- Range -->
+            <div class="control-group">
                 <label class="label-text">Range (NM)</label>
-                <div class="button-group">
-                    <button onclick="setRange(10)" class="range-btn btn-active" id="btn-10">10</button>
-                    <button onclick="setRange(20)" class="range-btn btn-inactive" id="btn-20">20</button>
-                    <button onclick="setRange(40)" class="range-btn btn-inactive" id="btn-40">40</button>
+                <div class="button-grid">
+                    <button onclick="setRange(10)" class="ctrl-btn" id="btn-rng-10">10</button>
+                    <button onclick="setRange(20)" class="ctrl-btn" id="btn-rng-20">20</button>
+                    <button onclick="setRange(40)" class="ctrl-btn active" id="btn-rng-40">40</button>
+                    <button onclick="setRange(80)" class="ctrl-btn" id="btn-rng-80">80</button>
+                    <button onclick="setRange(160)" class="ctrl-btn" id="btn-rng-160">160</button>
+                    <button onclick="setRange(320)" class="ctrl-btn" id="btn-rng-320">320</button>
                 </div>
             </div>
             
         </div>
-        
-        <p class="footer-text">Use controls to simulate.</p>
+        <p class="footer-text">A320 ND Simulation • v2.0 Physics</p>
     </div>
-
-   <style>
-        body.embedded .control-panel {
-            display: none !important;
-        }
-        body.embedded .cockpit-container {
-            padding: 0;
-            width: fit-content;
-        }
-        body.embedded .display-bezel {
-            box-shadow: none;
-            border: none;
-            border-radius: 0;
-            padding: 0;
-            background: transparent;
-            width: 300px;
-            height: 242px;
-        }
-        body.embedded .screw { display: none; }
-        body.embedded .crt-container {
-            border-radius: 0;
-            border: none;
-        }
-    </style>
 
     <script>
         // --- Configuration & State ---
         const canvas = document.getElementById('ndCanvas');
         const ctx = canvas.getContext('2d');
         
+        // Global Scale Factor allows fitting content comfortably
         const GLOBAL_SCALE = 0.85; 
-
+        
         let state = {
+            mode: 'ARC', // 'ROSE' or 'ARC'
+            range: 40,   // NM: 10, 20, 40, 80, 160, 320
+            
             heading: 270,
-            tas: 0, 
-            gs: 0,  
-            range: 40,
-            windDir: 0,
-            windSpd: 0,
-            track: 270, 
+            tas: 250, 
+            gs: 0,      // Calculated
+            track: 0,   // Calculated
+            
+            windDir: 90,
+            windSpd: 20,
+            
             time: "00:00",
-            simTime: new Date(),
-            flightPlan: [] // Default to empty so no hardcoded lines appear in production
+            flightPlan: [] 
         };
 
-        // Check if embedded
+        // Embedded Check
         if (window.self !== window.top) {
             document.body.classList.add('embedded');
         } else {
-            // ONLY load dummy data if we are running Standalone (for testing)
+            // Dummy Data for Standalone Mode
             state.flightPlan = [
                 { name: "WPT01", x: -12, y: 0 },   
                 { name: "WPT02", x: -30, y: -10 }, 
-                { name: "WPT03", x: -55, y: 5 }    
+                { name: "WPT03", x: -55, y: 5 },
+                { name: "VOR1", x: -80, y: 20 }
             ];
         }
 
+        // Enhanced Traffic Data with Threat Levels
+        // 0: Other (Hollow), 1: Proximate (Solid White), 2: TA (Amber), 3: RA (Red)
         let traffic = [
-            { bearing: 30, dist: 15, altDiff: 12, vs: 800 },
-            { bearing: 180, dist: 25, altDiff: -5, vs: -500 },
-            { bearing: 300, dist: 8, altDiff: 0, vs: 0 },
+            { bearing: 30, dist: 15, altDiff: 12, vs: 800, level: 1 },
+            { bearing: 180, dist: 25, altDiff: -5, vs: -500, level: 0 },
+            { bearing: 300, dist: 6, altDiff: -2, vs: 0, level: 3 }, // RA
+            { bearing: 350, dist: 10, altDiff: 8, vs: -200, level: 2 } // TA
         ]; 
 
-        // Colors
         const COLORS = {
             bg: '#000000',
             white: '#e6e6e6',
             green: '#00ff00',
-            cyan: '#00ffff',
+            cyan: '#22d3ee',
             yellow: '#ffff00',
             magenta: '#ff00ff',
             amber: '#ff9900',
+            red: '#ef4444',
             grey: '#666666'
         };
 
+        // --- Resize Logic ---
         function resize() {
             const rect = canvas.getBoundingClientRect();
-            const width = rect.width || 300;
-            const height = rect.height || 242;
-            canvas.width = width * 2;
-            canvas.height = height * 2;
+            canvas.width = (rect.width || 300) * 2;
+            canvas.height = (rect.height || 242) * 2;
         }
         window.addEventListener('resize', resize);
         setTimeout(resize, 0);
+
+        // --- Physics & Calculation ---
+        function toRad(deg) { return deg * Math.PI / 180; }
+        function toDeg(rad) { return rad * 180 / Math.PI; }
 
         function updatePhysics() {
             const now = new Date();
             state.time = now.getUTCHours().toString().padStart(2, '0') + ":" + 
                          now.getUTCMinutes().toString().padStart(2, '0');
+
+            // --- Ground Speed Vector Calculation ---
+            // Air Vector (Aircraft relative to air mass)
+            // Note: Math angles are counter-clockwise from East (0). Aviation is CW from North.
+            // V_air_x = TAS * sin(hdg)
+            // V_air_y = TAS * cos(hdg)
+            const hdgRad = toRad(state.heading);
+            const vAirX = state.tas * Math.sin(hdgRad);
+            const vAirY = state.tas * Math.cos(hdgRad);
+
+            // Wind Vector (Wind blows FROM direction)
+            // So the vector affecting the plane is opposite to wind direction.
+            const windRad = toRad(state.windDir);
+            // Wind pushes TOWARDS (windDir + 180)
+            const vWindX = state.windSpd * Math.sin(windRad + Math.PI); 
+            const vWindY = state.windSpd * Math.cos(windRad + Math.PI);
+
+            // Ground Vector
+            const vGsX = vAirX + vWindX;
+            const vGsY = vAirY + vWindY;
+
+            // Calculate GS Magnitude
+            state.gs = Math.sqrt(vGsX*vGsX + vGsY*vGsY);
+
+            // Calculate Track (Direction of Ground Vector)
+            // atan2(x, y) gives angle from Y axis (North) in range -PI to PI
+            let trkRad = Math.atan2(vGsX, vGsY);
+            let trkDeg = toDeg(trkRad);
+            if (trkDeg < 0) trkDeg += 360;
+            
+            state.track = trkDeg;
         }
+
+        // --- Drawing Functions ---
 
         function draw() {
             const w = canvas.width;
             const h = canvas.height;
+            const scaledW = w / GLOBAL_SCALE;
+            const scaledH = h / GLOBAL_SCALE;
             
             ctx.fillStyle = COLORS.bg;
             ctx.fillRect(0, 0, w, h);
 
-            // Center origin
             ctx.save();
             ctx.translate(w/2, h/2); 
             ctx.scale(GLOBAL_SCALE, GLOBAL_SCALE);
 
-            const scaledH = h / GLOBAL_SCALE;
-            const scaledW = w / GLOBAL_SCALE;
-            
-            const isRoseMode = (state.range >= 40);
+            // Determine Origin & Radius based on Mode
+            let originX = 0;
+            let originY = 0;
+            let compassRadius = 0;
 
-            let arcCenterY, arcCenterX, arcRadius;
-
-            if (isRoseMode) {
-                // ROSE MODE
-                arcCenterX = 0;
-                arcCenterY = 0; 
-                arcRadius = scaledH * 0.42; 
+            if (state.mode === 'ROSE') {
+                originX = 0;
+                originY = 0;
+                compassRadius = scaledH * 0.42; // Standard Rose size
             } else {
-                // ARC MODE
-                arcCenterX = 0;
-                arcCenterY = (scaledH / 2) - 60; 
-                // Slightly reduced radius to fit numbers on the outside
-                arcRadius = scaledH * 0.72; 
+                // ARC Mode
+                originX = 0;
+                originY = (scaledH / 2) - 60; // Shift origin down
+                compassRadius = scaledH * 0.72; // Larger radius for ARC
             }
 
-            // Rotating Map Area
+            // 1. Rotating Map Layer (Waypoints, Traffic, Compass)
             ctx.save();
-            ctx.translate(arcCenterX, arcCenterY);
-            ctx.rotate(-state.heading * Math.PI / 180);
+            ctx.translate(originX, originY);
             
-            drawCompassRose(arcRadius, isRoseMode);
-            drawFlightPlan(arcRadius);
-            drawTraffic(arcRadius);
-            
-            ctx.restore();
-
-            // Static Overlays
-            drawRangeRings(arcCenterX, arcCenterY, arcRadius, isRoseMode);
-            drawAircraftSymbol(arcCenterX, arcCenterY);
-            drawHeadingPointers(arcCenterX, arcCenterY, arcRadius);
-            
-            drawOverlays(scaledW, scaledH); 
-            
-            ctx.restore();
-        }
-
-        function drawFlightPlan(radius) {
-            // Only draw if we have a plan
-            if (!state.flightPlan || state.flightPlan.length === 0) return;
-
-            const pxPerNM = radius / state.range;
-            
-            // Calculate the "inner" radius where the solid line is.
-            // This matches drawCompassRose logic (tickLenLong = radius * 0.08).
-            // So the solid line is at radius * (1 - 0.08) = radius * 0.92.
-            const clipRadius = radius * 0.92; 
-
-            ctx.save(); // Save state for clipping
-
-            // --- CONTENTION LOGIC ---
-            // Flight plan is only allowed to get out when fully zoomed out (Range 40).
-            // If Range < 40, we clip it to the inner ring.
-            if (state.range < 40) {
+            // Masking for ARC mode (Clip bottom half)
+            if (state.mode === 'ARC') {
                 ctx.beginPath();
-                ctx.arc(0, 0, clipRadius, 0, 2 * Math.PI);
+                // Create a wedge shape for clipping
+                ctx.moveTo(0, 0);
+                ctx.arc(0, 0, compassRadius + 50, toRad(-90 - 55), toRad(-90 + 55)); // +/- 55 degrees from Up
+                ctx.closePath();
                 ctx.clip();
             }
 
-            ctx.strokeStyle = COLORS.green;
-            ctx.lineWidth = 3;
-            ctx.lineJoin = 'round';
-            ctx.beginPath();
+            // Rotate world based on heading
+            ctx.rotate(toRad(-state.heading));
 
-            // --- FIX: Removed ctx.moveTo(0, 0) ---
-            // Instead, we check the index. If it's the first point, move there.
-            // Otherwise, draw a line to it.
-            state.flightPlan.forEach((wpt, index) => {
-                const px = wpt.x * pxPerNM;
-                const py = -wpt.y * pxPerNM; 
-                
-                if (index === 0) {
-                    ctx.moveTo(px, py);
-                } else {
-                    ctx.lineTo(px, py); 
-                }
-            });
-            ctx.stroke();
+            drawCompassRose(compassRadius);
+            drawFlightPlan(compassRadius);
+            drawTraffic(compassRadius);
+            
+            ctx.restore(); // End Map Rotation
 
-            ctx.fillStyle = COLORS.green;
-            state.flightPlan.forEach(wpt => {
-                const px = wpt.x * pxPerNM;
-                const py = -wpt.y * pxPerNM; 
+            // 2. Static Overlays (Fixed to screen, relative to origin)
+            drawStaticSymbols(originX, originY, compassRadius);
+            drawTextData(scaledW, scaledH);
 
-                // We relax the distance check slightly since the visual clip handles the boundary
-                const dist = Math.sqrt(wpt.x*wpt.x + wpt.y*wpt.y);
-                if (dist > state.range + 80) return; 
-
-                const dSize = 5;
-                ctx.beginPath();
-                ctx.moveTo(px, py - dSize);
-                ctx.lineTo(px + dSize, py);
-                ctx.lineTo(px, py + dSize);
-                ctx.lineTo(px - dSize, py);
-                ctx.closePath();
-                ctx.fill();
-                
-                ctx.fillStyle = COLORS.white;
-                ctx.font = `bold ${radius * 0.07}px 'Inconsolata'`;
-                ctx.fillText(wpt.name, px + 10, py);
-                ctx.fillStyle = COLORS.green; 
-            });
-
-            ctx.restore(); // Restore context (remove clip)
+            ctx.restore(); // End Global Scale
         }
 
-        function drawCompassRose(outerRadius, isRoseMode) {
-            // --- NEW "INSIDE OUT" LOGIC ---
-            // We treat 'outerRadius' as the outer tip of the tick marks.
-            // The Solid Line is now the INNER baseline.
-            
-            const tickLenLong = outerRadius * 0.08;
-            const tickLenShort = outerRadius * 0.04;
-            
-            // innerRadius is where the solid line sits
-            const innerRadius = outerRadius - tickLenLong;
+        function drawCompassRose(radius) {
+            const tickLenLong = radius * 0.08;
+            const tickLenShort = radius * 0.04;
+            const innerRadius = radius - tickLenLong;
 
             ctx.strokeStyle = COLORS.white;
             ctx.fillStyle = COLORS.white;
             ctx.textAlign = "center";
             ctx.textBaseline = "middle";
             ctx.lineWidth = 2; 
-            
-            // Dynamic font size
-            ctx.font = `bold ${outerRadius * 0.09}px 'Inconsolata', monospace`;
+            ctx.font = `bold ${radius * 0.08}px 'Inconsolata'`;
 
-            // 1. Draw the SINGLE Solid Line at the Inner Radius
+            // Draw the Baseline Arc
             ctx.beginPath();
-            ctx.arc(0, 0, innerRadius, 0, 2 * Math.PI);
+            if (state.mode === 'ROSE') {
+                ctx.arc(0, 0, innerRadius, 0, 2 * Math.PI);
+            } else {
+                // ARC Mode: Just draw a wide arc for the visible area
+                // We draw extra so it doesn't cut off during rotation logic inside draw()
+                // but actually the compass rotates, so we draw full circle? 
+                // No, efficiency: draw full circle, clipping handles visibility.
+                 ctx.arc(0, 0, innerRadius, 0, 2 * Math.PI);
+            }
             ctx.stroke();
 
-            // 2. Draw Ticks & Numbers
+            // Ticks & Numbers
             for (let d = 0; d < 360; d += 5) {
-                if (!isRoseMode) {
-                    let rel = Math.abs(d - state.heading);
-                    if (rel > 180) rel = 360 - rel;
-                    if (rel > 130) continue; 
-                }
-
-                const rad = d * Math.PI / 180;
-                const isMajor = (d % 10 === 0);
+                // Optimization: In ARC mode, skip ticks behind us?
+                // Since we rotated the context, we are drawing in "World Space".
+                // 0 is North. 
+                // It is safer to draw all and let clip handle it, or compute relative angle.
                 
-                // Ticks start at innerRadius (line) and go OUTWARDS
-                // Long ticks go all the way to outerRadius
-                // Short ticks go part way
+                const rad = toRad(d);
+                const isMajor = (d % 10 === 0);
                 const currentTickLen = isMajor ? tickLenLong : tickLenShort;
                 
-                // Calculate Start (Line) and End (Outwards)
                 const x1 = Math.sin(rad) * innerRadius;
                 const y1 = -Math.cos(rad) * innerRadius;
-                
                 const x2 = Math.sin(rad) * (innerRadius + currentTickLen);
                 const y2 = -Math.cos(rad) * (innerRadius + currentTickLen);
 
@@ -546,18 +508,15 @@
                 ctx.lineTo(x2, y2);
                 ctx.stroke();
 
-                // Numbers (Major only) - Placed OUTSIDE the ticks
+                // Numbers
                 if (d % 30 === 0) {
-                    // Push text slightly further out than the long ticks
-                    const textPadding = 18; 
-                    const textRadius = outerRadius + textPadding;
-                    
+                    const textRadius = radius + 18;
                     const tx = Math.sin(rad) * textRadius;
                     const ty = -Math.cos(rad) * textRadius;
                     
                     ctx.save();
                     ctx.translate(tx, ty);
-                    ctx.rotate(state.heading * Math.PI / 180); 
+                    ctx.rotate(toRad(state.heading)); // Rotate text back to be upright
                     
                     let label = (d / 10).toString().padStart(2, '0');
                     if (d === 0) label = "N"; 
@@ -567,244 +526,308 @@
             }
         }
 
-        function drawRangeRings(cx, cy, radius, isRoseMode) {
-            ctx.strokeStyle = COLORS.white;
-            ctx.setLineDash([5, 5]); 
-            ctx.lineWidth = 1; 
+        function drawFlightPlan(radius) {
+            if (!state.flightPlan.length) return;
             
-            // We don't need an outer boundary ring anymore because the 
-            // Compass Rose's solid inner line acts as the visual boundary.
-            
-            if (isRoseMode) {
-                // Inner ring only
-                ctx.beginPath();
-                ctx.arc(cx, cy, radius * 0.5, 0, Math.PI * 2);
-                ctx.stroke();
-            } else {
-                // Arc Mode: Inner rings
-                ctx.beginPath();
-                ctx.arc(cx, cy, radius * 0.5, Math.PI + 0.6, 2 * Math.PI - 0.6);
-                ctx.stroke();
-                ctx.beginPath();
-                ctx.arc(cx, cy, radius * 0.75, Math.PI + 0.4, 2 * Math.PI - 0.4); // Reduced arc length slightly
-                ctx.stroke();
-            }
-            
-            ctx.setLineDash([]); 
-
-            // Labels
-            ctx.fillStyle = COLORS.cyan;
-            ctx.font = `${radius * 0.06}px 'Inconsolata'`;
-            ctx.textAlign = "right";
-            
-            const midVal = state.range / 2;
-            const offset = 5;
-
-            if (isRoseMode) {
-                 ctx.fillText(midVal.toString(), cx - (radius*0.5) - offset, cy - offset); 
-            } else {
-                 const threeQuarterVal = state.range * 0.75;
-                 ctx.fillText(midVal.toString(), cx - (radius*0.5) - offset, cy - offset); 
-                 ctx.fillText(threeQuarterVal.toString(), cx - (radius*0.75) - offset, cy - offset);
-            }
-        }
-
-        function drawAircraftSymbol(cx, cy) {
-            ctx.strokeStyle = COLORS.yellow;
-            ctx.lineWidth = 3;
-            ctx.beginPath();
-            
-            const size = 15;
-            const tailOffset = 12;
-            const tailWidth = 6;
-            const centerDot = 2;
-
-            ctx.moveTo(cx, cy - size); ctx.lineTo(cx, cy + size);
-            ctx.moveTo(cx - size, cy); ctx.lineTo(cx + size, cy);
-            ctx.moveTo(cx - tailWidth, cy + tailOffset); ctx.lineTo(cx + tailWidth, cy + tailOffset);
-            ctx.stroke();
-            ctx.fillStyle = '#000';
-            ctx.beginPath(); ctx.arc(cx, cy, centerDot, 0, Math.PI*2); ctx.fill();
-        }
-
-        function drawHeadingPointers(cx, cy, radius) {
-            ctx.fillStyle = COLORS.yellow;
-            ctx.beginPath();
-            
-            // Triangle sits near the numbers, so we push it out to match
-            // the new outer radius where numbers are.
-            const pointerRadius = radius + 15; 
-            
-            const arrowHeight = radius * 0.08;
-            const arrowWidth = radius * 0.04;
-            
-            // Adjust top Y to be at the new pointer radius
-            const topY = cy - pointerRadius; 
-            
-            // Top Triangle (Lubber Line)
-            // Pointing down towards the scale
-            ctx.moveTo(cx, topY);
-            ctx.lineTo(cx - arrowWidth, topY - arrowHeight);
-            ctx.lineTo(cx + arrowWidth, topY - arrowHeight);
-            ctx.fill();
-            
-            // Track Pointer (Green Diamond)
-            // Needs to be on the line (inner radius)
-            const tickLenLong = radius * 0.08;
-            const innerRadius = radius - tickLenLong;
-            
-            const drift = state.track - state.heading;
-            const driftRad = drift * Math.PI / 180;
-            
-            ctx.strokeStyle = COLORS.green;
-            ctx.lineWidth = 3;
-            
-            // Position on the inner line
-            const startX = cx + (innerRadius - 8) * Math.sin(driftRad);
-            const startY = cy - (innerRadius - 8) * Math.cos(driftRad);
-            const endX = cx + (innerRadius + 8) * Math.sin(driftRad);
-            const endY = cy - (innerRadius + 8) * Math.cos(driftRad);
-
-            ctx.beginPath();
-            ctx.moveTo(startX, startY);
-            ctx.lineTo(endX, endY);
-            ctx.stroke();
-        }
-
-        function drawTraffic(radius) {
-            if (!traffic || traffic.length === 0) return;
+            // Coordinate Transform:
+            // ScreenPixels = WorldNM * (RadiusPixels / SelectedRangeNM)
             const pxPerNM = radius / state.range;
 
-            traffic.forEach(t => {
-                if (t.dist > state.range + 5) return;
+            ctx.strokeStyle = COLORS.green;
+            ctx.lineWidth = 3;
+            ctx.lineJoin = 'round';
+            ctx.beginPath();
 
-                const tX = Math.sin(t.bearing * Math.PI / 180) * (t.dist * pxPerNM);
-                const tY = -Math.cos(t.bearing * Math.PI / 180) * (t.dist * pxPerNM);
+            state.flightPlan.forEach((wpt, i) => {
+                const px = wpt.x * pxPerNM;
+                const py = -wpt.y * pxPerNM; // Invert Y for screen coords
+                if (i === 0) ctx.moveTo(px, py);
+                else ctx.lineTo(px, py);
+            });
+            ctx.stroke();
+
+            // Draw Waypoints
+            state.flightPlan.forEach(wpt => {
+                const px = wpt.x * pxPerNM;
+                const py = -wpt.y * pxPerNM;
                 
-                ctx.fillStyle = COLORS.white;
-                ctx.strokeStyle = COLORS.white;
-                ctx.lineWidth = 2;
-                
-                const dSize = 6;
+                ctx.fillStyle = COLORS.green;
+                const dSize = 5;
                 ctx.beginPath();
-                ctx.moveTo(tX, tY - dSize);
-                ctx.lineTo(tX + dSize, tY);
-                ctx.lineTo(tX, tY + dSize);
-                ctx.lineTo(tX - dSize, tY);
-                ctx.closePath();
-                ctx.stroke();
-                
-                ctx.font = `bold ${radius * 0.07}px Arial`;
-                const altDiff = t.altDiff;
-                const sign = altDiff >= 0 ? "+" : "";
-                
-                const xOffset = 15;
-                const yOffset = 5;
+                ctx.moveTo(px, py - dSize);
+                ctx.lineTo(px + dSize, py);
+                ctx.lineTo(px, py + dSize);
+                ctx.lineTo(px - dSize, py);
+                ctx.fill();
 
-                ctx.fillText(sign + altDiff, tX + xOffset, tY - yOffset);
-                
-                if (t.vs > 500) ctx.fillText("↑", tX + (xOffset + 20), tY - yOffset);
-                else if (t.vs < -500) ctx.fillText("↓", tX + (xOffset + 20), tY - yOffset);
+                ctx.fillStyle = COLORS.white;
+                ctx.font = `bold ${radius * 0.06}px 'Inconsolata'`;
+                // Rotate text back to be upright
+                ctx.save();
+                ctx.translate(px + 12, py);
+                ctx.rotate(toRad(state.heading)); 
+                ctx.fillText(wpt.name, 0, 0);
+                ctx.restore();
             });
         }
 
-        function drawOverlays(w, h) {
-            const fontSize = h * 0.06; 
-            ctx.font = `bold ${fontSize}px 'Inconsolata', monospace`;
-            
-            const leftM = -w / 2 + 20;
-            const topM = -h / 2 + 35;
-            const rightM = w / 2 - 20;
-            
-            const lineSpacing = fontSize * 1.2;
-            const labelOffset = fontSize * 2.5;
+        function drawTraffic(radius) {
+            if (!traffic.length) return;
+            const pxPerNM = radius / state.range;
 
-            // GS / TAS
-            ctx.fillStyle = COLORS.green;
-            ctx.textAlign = "left";
-            ctx.fillText("GS", leftM, topM);
-            const gsText = Math.round(state.gs).toString().padStart(3, '0');
-            ctx.fillText(gsText, leftM + labelOffset, topM);
-            
-            ctx.fillText("TAS", leftM, topM + lineSpacing);
-            const tasText = Math.round(state.tas).toString().padStart(3, '0');
-            ctx.fillText(tasText, leftM + labelOffset, topM + lineSpacing);
+            traffic.forEach(t => {
+                // Polar to Cartesian
+                // t.bearing is relative to North? Or relative to nose? 
+                // Usually generic traffic data is Bearing relative to OWN SHIP NOSE or Magnetic Bearing.
+                // Let's assume Magnetic Bearing from Own Ship.
+                
+                const tX = Math.sin(toRad(t.bearing)) * (t.dist * pxPerNM);
+                const tY = -Math.cos(toRad(t.bearing)) * (t.dist * pxPerNM);
+                
+                ctx.save();
+                ctx.translate(tX, tY);
+                ctx.rotate(toRad(state.heading)); // Make symbol upright
+                
+                // Determine Color & Shape based on Threat Level
+                // 0: Other (Hollow White)
+                // 1: Proximate (Solid White)
+                // 2: TA (Solid Amber Circle)
+                // 3: RA (Solid Red Square)
 
-            // Wind
-            if (state.windSpd > 0) {
-                 ctx.fillText(`${state.windDir}°/${state.windSpd}`, leftM, topM + lineSpacing * 2.5);
-                 
-                 const arrowX = leftM + (fontSize * 4);
-                 const arrowY = topM + lineSpacing * 2.2;
-                 ctx.save();
-                 ctx.translate(arrowX, arrowY);
-                 
-                 const windRelAngle = (state.windDir - state.heading + 180) * Math.PI / 180;
-                 ctx.rotate(windRelAngle);
-                 ctx.strokeStyle = COLORS.green;
-                 ctx.lineWidth = 2;
-                 
-                 const halfLine = 10;
-                 const headSize = 5;
-                 
-                 ctx.beginPath();
-                 ctx.moveTo(0, -halfLine); ctx.lineTo(0, halfLine);
-                 ctx.moveTo(0, halfLine); ctx.lineTo(-headSize, halfLine - headSize);
-                 ctx.moveTo(0, halfLine); ctx.lineTo(headSize, halfLine - headSize);
-                 ctx.stroke();
-                 ctx.restore();
-            }
+                const size = 8; // base size
 
-            // Range
-            ctx.textAlign = "right";
-            ctx.fillStyle = COLORS.cyan; 
-            ctx.fillText(state.range + " NM", rightM, topM + lineSpacing * 2); 
+                if (t.level === 3) {
+                    // RA - Red Square
+                    ctx.fillStyle = COLORS.red;
+                    ctx.fillRect(-size, -size, size*2, size*2);
+                } 
+                else if (t.level === 2) {
+                    // TA - Amber Circle
+                    ctx.fillStyle = COLORS.amber;
+                    ctx.beginPath();
+                    ctx.arc(0, 0, size, 0, Math.PI*2);
+                    ctx.fill();
+                } 
+                else if (t.level === 1) {
+                    // Proximate - Solid White Diamond
+                    ctx.fillStyle = COLORS.white;
+                    ctx.beginPath();
+                    ctx.moveTo(0, -size*1.2);
+                    ctx.lineTo(size, 0);
+                    ctx.lineTo(0, size*1.2);
+                    ctx.lineTo(-size, 0);
+                    ctx.fill();
+                } 
+                else {
+                    // Other - Hollow White Diamond
+                    ctx.strokeStyle = COLORS.white;
+                    ctx.lineWidth = 2;
+                    ctx.beginPath();
+                    ctx.moveTo(0, -size*1.2);
+                    ctx.lineTo(size, 0);
+                    ctx.lineTo(0, size*1.2);
+                    ctx.lineTo(-size, 0);
+                    ctx.stroke();
+                }
 
-            ctx.fillStyle = COLORS.green;
-            ctx.fillText("PPOS", rightM, topM);
-            
-            ctx.fillStyle = COLORS.white;
-            ctx.fillText(state.time, rightM, topM + lineSpacing);
-            
-            // Bottom Center Text
-            ctx.textAlign = "center";
-            ctx.fillStyle = COLORS.green;
-            ctx.font = `bold ${fontSize * 0.9}px 'Inconsolata', monospace`;
-            ctx.fillText("GPS PRIMARY", 0, h / 2 - 20); 
+                // Data Tag (Alt Diff + VS)
+                const tagColor = (t.level === 3) ? COLORS.red : (t.level === 2 ? COLORS.amber : COLORS.white);
+                ctx.fillStyle = tagColor;
+                ctx.font = "bold 14px Arial";
+                
+                const altText = (t.altDiff >= 0 ? "+" : "") + t.altDiff;
+                const vsArrow = t.vs > 500 ? "↑" : (t.vs < -500 ? "↓" : "");
+                
+                ctx.fillText(altText + vsArrow, size + 4, 4);
+
+                ctx.restore();
+            });
         }
 
-        document.getElementById('hdgInput').addEventListener('input', (e) => {
-            state.heading = parseInt(e.target.value);
-            state.track = parseInt(e.target.value);
-            document.getElementById('hdgVal').innerText = state.heading.toString().padStart(3, '0') + "°";
-        });
+        function drawStaticSymbols(cx, cy, radius) {
+            // 1. Range Rings
+            ctx.strokeStyle = COLORS.white;
+            ctx.setLineDash([5, 5]);
+            ctx.lineWidth = 1;
 
-        document.getElementById('tasInput').addEventListener('input', (e) => {
-            state.tas = parseInt(e.target.value);
-            state.gs = state.tas; 
-            document.getElementById('tasVal').innerText = state.tas;
-        });
-        
-        window.setRange = function(r) {
+            const ringStep = radius / 2; // Simplified: Draw ring at 50%
+            // In ROSE: Ring at 50%
+            // In ARC: Ring at 50% and maybe 25%? A320 usually just has arcs.
+            
+            ctx.beginPath();
+            if (state.mode === 'ROSE') {
+                ctx.arc(cx, cy, radius * 0.5, 0, Math.PI * 2);
+            } else {
+                ctx.arc(cx, cy, radius * 0.5, toRad(270 - 60), toRad(270 + 60));
+            }
+            ctx.stroke();
+            ctx.setLineDash([]);
+
+            // Range Labels
+            ctx.fillStyle = COLORS.cyan;
+            ctx.font = "bold 14px 'Inconsolata'";
+            ctx.textAlign = "right";
+            const midRange = state.range / 2;
+            ctx.fillText(midRange.toString(), cx - (radius*0.5) - 5, cy - 5);
+
+            // 2. Aircraft Symbol (Yellow)
+            ctx.strokeStyle = COLORS.yellow;
+            ctx.lineWidth = 3;
+            ctx.fillStyle = COLORS.bg; // Mask line under it if needed
+            
+            const planeSize = 18;
+            ctx.beginPath();
+            // Simple Cross/Airplane shape
+            ctx.moveTo(cx, cy - planeSize); ctx.lineTo(cx, cy + planeSize); // Fuselage
+            ctx.moveTo(cx - planeSize, cy); ctx.lineTo(cx + planeSize, cy); // Wings
+            ctx.moveTo(cx - 6, cy + 14); ctx.lineTo(cx + 6, cy + 14); // Tail
+            ctx.stroke();
+            
+            // Center Dot
+            ctx.fillStyle = COLORS.bg;
+            ctx.beginPath(); ctx.arc(cx, cy, 4, 0, Math.PI*2); ctx.fill();
+            ctx.stroke();
+
+            // 3. Heading Pointer (Yellow Triangle)
+            // Always at top of the compass radius
+            ctx.fillStyle = COLORS.yellow;
+            const ptrY = cy - radius - 15; 
+            ctx.beginPath();
+            ctx.moveTo(cx, ptrY);
+            ctx.lineTo(cx - 8, ptrY - 12);
+            ctx.lineTo(cx + 8, ptrY - 12);
+            ctx.fill();
+
+            // 4. Track Pointer (Green Diamond) - Rotates with drift
+            const drift = state.track - state.heading;
+            // Limit drift display visually if needed, but usually it floats on the line
+            // We need to position this on the inner ring radius relative to the center (UP)
+            // But wait, the RING rotates. The pointer should be static relative to the ring's rotation?
+            // No. The Scale Rotates. The Heading Pointer is fixed UP.
+            // The Track Pointer is fixed at the Drift Angle relative to UP.
+            
+            const innerR = radius * 0.92;
+            const trkRad = toRad(drift); // Angle relative to Heading (Up)
+            
+            const trkX = cx + Math.sin(trkRad) * innerR;
+            const trkY = cy - Math.cos(trkRad) * innerR;
+
+            ctx.strokeStyle = COLORS.green;
+            ctx.lineWidth = 3;
+            ctx.beginPath();
+            ctx.moveTo(trkX, trkY);
+            // Small diamond shape logic or just a line for now
+            // A320 is a diamond on the line
+            ctx.lineTo(trkX + Math.sin(trkRad)*10, trkY - Math.cos(trkRad)*10);
+            ctx.stroke();
+        }
+
+        function drawTextData(w, h) {
+            const fontSize = 18;
+            ctx.font = `bold ${fontSize}px 'Inconsolata'`;
+            const leftX = -w/2 + 20;
+            const topY = -h/2 + 30;
+            const rightX = w/2 - 20;
+
+            // Top Left: GS / TAS
+            ctx.textAlign = "left";
+            ctx.fillStyle = COLORS.green;
+            ctx.fillText("GS", leftX, topY);
+            ctx.fillStyle = COLORS.white;
+            ctx.fillText(Math.round(state.gs).toString().padStart(3, '0'), leftX + 35, topY);
+
+            ctx.fillStyle = COLORS.green;
+            ctx.fillText("TAS", leftX, topY + 22);
+            ctx.fillStyle = COLORS.cyan;
+            ctx.fillText(Math.round(state.tas).toString().padStart(3, '0'), leftX + 35, topY + 22);
+
+            // Wind Arrow below TAS
+            if (state.windSpd > 0) {
+                const windY = topY + 60;
+                ctx.fillStyle = COLORS.green;
+                ctx.fillText(`${state.windDir}°/${state.windSpd}`, leftX, windY);
+                
+                // Visual Arrow
+                const arrowX = leftX + 100;
+                const arrowY = windY - 5;
+                ctx.save();
+                ctx.translate(arrowX, arrowY);
+                // Wind angle relative to plane heading
+                // Wind Dir 90, Hdg 360 -> Wind is from Right (90 deg)
+                // Arrow should point LEFT (towards 270)
+                // Relative Angle = WindDir - Heading
+                // Arrow Rotation = RelAngle + 180 (since it points FROM wind)
+                const relWind = toRad(state.windDir - state.heading + 180);
+                ctx.rotate(relWind);
+                
+                ctx.strokeStyle = COLORS.green;
+                ctx.lineWidth = 2;
+                ctx.beginPath();
+                ctx.moveTo(0, -10); ctx.lineTo(0, 10);
+                ctx.moveTo(0, 10); ctx.lineTo(-4, 6);
+                ctx.moveTo(0, 10); ctx.lineTo(4, 6);
+                ctx.stroke();
+                ctx.restore();
+            }
+
+            // Top Right: Range & Mode
+            ctx.textAlign = "right";
+            ctx.fillStyle = COLORS.cyan;
+            ctx.font = `bold 22px 'Inconsolata'`;
+            ctx.fillText(state.range + " NM", rightX, topY + 30);
+            
+            ctx.fillStyle = COLORS.green;
+            ctx.font = `bold 18px 'Inconsolata'`;
+            ctx.fillText(state.mode, rightX, topY + 50);
+
+            // Clock
+            ctx.fillStyle = COLORS.white;
+            ctx.fillText(state.time, rightX, topY + 75);
+        }
+
+        // --- Event Listeners ---
+        window.setRange = (r) => {
             state.range = r;
-            [10, 20, 40].forEach(val => {
-                const btn = document.getElementById(`btn-${val}`);
+            // Update UI classes
+            [10, 20, 40, 80, 160, 320].forEach(val => {
+                const btn = document.getElementById(`btn-rng-${val}`);
                 if(btn) {
-                    if (val === r) {
-                        btn.classList.remove('btn-inactive');
-                        btn.classList.add('btn-active');
-                    } else {
-                        btn.classList.add('btn-inactive');
-                        btn.classList.remove('btn-active');
-                    }
+                    if(val === r) btn.classList.add('active');
+                    else btn.classList.remove('active');
                 }
             });
         };
 
-        window.setRange(40);
-        document.getElementById('hdgVal').innerText = state.heading.toString().padStart(3, '0') + "°";
-        document.getElementById('tasVal').innerText = state.tas;
+        window.setMode = (m) => {
+            state.mode = m;
+            document.getElementById('btn-mode-rose').classList.toggle('active', m === 'ROSE');
+            document.getElementById('btn-mode-arc').classList.toggle('active', m === 'ARC');
+        };
 
+        // Controls
+        document.getElementById('hdgInput').addEventListener('input', (e) => {
+            state.heading = parseInt(e.target.value);
+            document.getElementById('hdgVal').innerText = state.heading.toString().padStart(3, '0') + "°";
+        });
+        document.getElementById('tasInput').addEventListener('input', (e) => {
+            state.tas = parseInt(e.target.value);
+            document.getElementById('tasVal').innerText = state.tas;
+        });
+        document.getElementById('windDirInput').addEventListener('input', (e) => {
+            state.windDir = parseInt(e.target.value);
+            updateWindDisplay();
+        });
+        document.getElementById('windSpdInput').addEventListener('input', (e) => {
+            state.windSpd = parseInt(e.target.value);
+            updateWindDisplay();
+        });
+
+        function updateWindDisplay() {
+            document.getElementById('windVal').innerText = 
+                `${state.windDir.toString().padStart(3,'0')}/${state.windSpd}`;
+        }
+
+        // Animation Loop
         function animate() {
             if (window.self === window.top) {
                 updatePhysics();
@@ -812,28 +835,21 @@
             draw();
             requestAnimationFrame(animate);
         }
-
         animate();
 
+        // Message Handler (for external data)
         window.addEventListener('message', (event) => {
             const data = event.data;
             if (data.heading !== undefined) state.heading = data.heading;
-            if (data.track !== undefined) state.track = data.track;
             if (data.tas !== undefined) state.tas = data.tas;
-            if (data.gs !== undefined) state.gs = data.gs;
+            if (data.range !== undefined) window.setRange(data.range);
+            if (data.mode !== undefined) window.setMode(data.mode);
+            if (data.flightPlan) state.flightPlan = data.flightPlan;
+            if (data.traffic) traffic = data.traffic;
             if (data.windDir !== undefined) state.windDir = data.windDir;
             if (data.windSpd !== undefined) state.windSpd = data.windSpd;
-            if (data.range !== undefined) {
-                 state.range = data.range;
-                 window.setRange(data.range); 
-            }
-            if (data.traffic && Array.isArray(data.traffic)) {
-                traffic = data.traffic;
-            }
-            if (data.flightPlan && Array.isArray(data.flightPlan)) {
-                state.flightPlan = data.flightPlan;
-            }
         });
+
     </script>
 </body>
 </html>
