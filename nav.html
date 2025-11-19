@@ -588,15 +588,21 @@
             ctx.lineWidth = 3;
             ctx.beginPath();
             
-            const size = 15;
-            const tailOffset = 12;
-            const tailWidth = 6;
-            const centerDot = 2;
+            // Check mode to determine scale
+            // If ARC, scale is 1.5 (50% bigger). If ROSE, scale is 1.0.
+            const scale = (state.mode === 'ARC') ? 1.5 : 1.0;
+
+            // Apply scale to dimensions
+            const size = 15 * scale;
+            const tailOffset = 12 * scale;
+            const tailWidth = 6 * scale;
+            const centerDot = 2 * scale;
 
             ctx.moveTo(cx, cy - size); ctx.lineTo(cx, cy + size);
             ctx.moveTo(cx - size, cy); ctx.lineTo(cx + size, cy);
             ctx.moveTo(cx - tailWidth, cy + tailOffset); ctx.lineTo(cx + tailWidth, cy + tailOffset);
             ctx.stroke();
+            
             ctx.fillStyle = '#000';
             ctx.beginPath(); ctx.arc(cx, cy, centerDot, 0, Math.PI*2); ctx.fill();
         }
@@ -671,84 +677,85 @@
         }
 
         function drawOverlays(w, h) {
-    const fontSize = h * 0.06; 
-    ctx.font = `bold ${fontSize}px 'Inconsolata', monospace`;
-    
-    const leftM = -w / 2 + 20;
-    const topM = -h / 2 + 35;
-    const rightM = w / 2 - 20;
-    
-    const lineSpacing = fontSize * 1.2;
-    const labelOffset = fontSize * 2.5;
-
-    // --- LEFT SIDE (GS, TAS, Wind) ---
-    ctx.fillStyle = COLORS.green;
-    ctx.textAlign = "left";
-    
-    // GS
-    ctx.fillText("GS", leftM, topM);
-    const gsText = Math.round(state.gs).toString().padStart(3, '0');
-    ctx.fillText(gsText, leftM + labelOffset, topM);
-    
-    // TAS
-    ctx.fillText("TAS", leftM, topM + lineSpacing);
-    const tasText = Math.round(state.tas).toString().padStart(3, '0');
-    ctx.fillText(tasText, leftM + labelOffset, topM + lineSpacing);
-
-    // Wind Arrow
-    if (state.windSpd > 0) {
-            ctx.fillText(`${state.windDir}°/${state.windSpd}`, leftM, topM + lineSpacing * 2.5);
+            // Reduced from 0.06 to 0.045 to size down the letters
+            const fontSize = h * 0.045; 
+            ctx.font = `bold ${fontSize}px 'Inconsolata', monospace`;
             
-            const arrowX = leftM + (fontSize * 4);
-            const arrowY = topM + lineSpacing * 2.2;
-            ctx.save();
-            ctx.translate(arrowX, arrowY);
+            const leftM = -w / 2 + 20;
+            const topM = -h / 2 + 35;
+            const rightM = w / 2 - 20;
             
-            const windRelAngle = (state.windDir - state.heading + 180) * Math.PI / 180;
-            ctx.rotate(windRelAngle);
-            ctx.strokeStyle = COLORS.green;
-            ctx.lineWidth = 2;
+            const lineSpacing = fontSize * 1.2;
+            const labelOffset = fontSize * 2.5;
+
+            // --- LEFT SIDE (GS, TAS, Wind) ---
+            ctx.fillStyle = COLORS.green;
+            ctx.textAlign = "left";
             
-            const halfLine = 10;
-            const headSize = 5;
+            // GS
+            ctx.fillText("GS", leftM, topM);
+            const gsText = Math.round(state.gs).toString().padStart(3, '0');
+            ctx.fillText(gsText, leftM + labelOffset, topM);
             
-            ctx.beginPath();
-            ctx.moveTo(0, -halfLine); ctx.lineTo(0, halfLine);
-            ctx.moveTo(0, halfLine); ctx.lineTo(-headSize, halfLine - headSize);
-            ctx.moveTo(0, halfLine); ctx.lineTo(headSize, halfLine - headSize);
-            ctx.stroke();
-            ctx.restore();
-    }
+            // TAS
+            ctx.fillText("TAS", leftM, topM + lineSpacing);
+            const tasText = Math.round(state.tas).toString().padStart(3, '0');
+            ctx.fillText(tasText, leftM + labelOffset, topM + lineSpacing);
 
-    // --- RIGHT SIDE (Waypoint Info) ---
-    ctx.textAlign = "right";
-    
-    // Check if we have a valid next waypoint (not default PPOS)
-    const hasNextWp = (state.nextWp && state.nextWp !== "PPOS");
+            // Wind Arrow
+            if (state.windSpd > 0) {
+                    ctx.fillText(`${state.windDir}°/${state.windSpd}`, leftM, topM + lineSpacing * 2.5);
+                    
+                    const arrowX = leftM + (fontSize * 4);
+                    const arrowY = topM + lineSpacing * 2.2;
+                    ctx.save();
+                    ctx.translate(arrowX, arrowY);
+                    
+                    const windRelAngle = (state.windDir - state.heading + 180) * Math.PI / 180;
+                    ctx.rotate(windRelAngle);
+                    ctx.strokeStyle = COLORS.green;
+                    ctx.lineWidth = 2;
+                    
+                    const halfLine = 10; // You can scale this if you want the arrow smaller too: 10 * (fontSize/oldSize)
+                    const headSize = 5;
+                    
+                    ctx.beginPath();
+                    ctx.moveTo(0, -halfLine); ctx.lineTo(0, halfLine);
+                    ctx.moveTo(0, halfLine); ctx.lineTo(-headSize, halfLine - headSize);
+                    ctx.moveTo(0, halfLine); ctx.lineTo(headSize, halfLine - headSize);
+                    ctx.stroke();
+                    ctx.restore();
+            }
 
-    // 1. Top Line: Waypoint Name (Green)
-    ctx.fillStyle = COLORS.green;
-    ctx.fillText(state.nextWp, rightM, topM);
-    
-    // 2. Middle Line: ETE (White)
-    // Shows ETE to waypoint if active, otherwise shows System Time
-    ctx.fillStyle = COLORS.white;
-    const middleText = hasNextWp ? state.nextWpEte : state.time;
-    ctx.fillText(middleText, rightM, topM + lineSpacing);
+            // --- RIGHT SIDE (Waypoint Info) ---
+            ctx.textAlign = "right";
+            
+            // Check if we have a valid next waypoint (not default PPOS)
+            const hasNextWp = (state.nextWp && state.nextWp !== "PPOS");
 
-    // 3. Bottom Line: Distance (Cyan)
-    // Shows Dist to waypoint if active, otherwise shows Map Range
-    ctx.fillStyle = COLORS.cyan; 
-    const bottomText = hasNextWp ? state.nextWpDist : state.range;
-    ctx.fillText(bottomText + " NM", rightM, topM + lineSpacing * 2); 
+            // 1. Top Line: Waypoint Name (Green)
+            ctx.fillStyle = COLORS.green;
+            ctx.fillText(state.nextWp, rightM, topM);
+            
+            // 2. Middle Line: ETE (White)
+            // Shows ETE to waypoint if active, otherwise shows System Time
+            ctx.fillStyle = COLORS.white;
+            const middleText = hasNextWp ? state.nextWpEte : state.time;
+            ctx.fillText(middleText, rightM, topM + lineSpacing);
 
-    // --- BOTTOM CENTER ---
-    ctx.textAlign = "center";
-    ctx.fillStyle = COLORS.green;
-    ctx.font = `bold ${fontSize * 0.9}px 'Inconsolata', monospace`;
-    ctx.fillText("", 0, h / 2 - 20); 
-}
+            // 3. Bottom Line: Distance (Cyan)
+            // Shows Dist to waypoint if active, otherwise shows Map Range
+            ctx.fillStyle = COLORS.cyan; 
+            const bottomText = hasNextWp ? state.nextWpDist : state.range;
+            ctx.fillText(bottomText + " NM", rightM, topM + lineSpacing * 2); 
 
+            // --- BOTTOM CENTER ---
+            ctx.textAlign = "center";
+            ctx.fillStyle = COLORS.green;
+            ctx.font = `bold ${fontSize * 0.9}px 'Inconsolata', monospace`;
+            ctx.fillText("", 0, h / 2 - 20); 
+        }
+        
         document.getElementById('hdgInput').addEventListener('input', (e) => {
             state.heading = parseInt(e.target.value);
             state.track = parseInt(e.target.value);
