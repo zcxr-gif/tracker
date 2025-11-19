@@ -6334,7 +6334,7 @@ function rebuildDynamicLayers() {
 
 
 
-function populateAircraftInfoWindow(baseProps, plan, sortedRoutePoints) { // <-- MODIFIED: Added 3rd arg
+function populateAircraftInfoWindow(baseProps, plan, sortedRoutePoints) {
     const windowEl = document.getElementById('aircraft-info-window');
 
     // --- Get Aircraft & Route Data ---
@@ -6355,73 +6355,50 @@ function populateAircraftInfoWindow(baseProps, plan, sortedRoutePoints) { // <--
     const departureIcao = hasPlan ? allWaypoints[0]?.name : 'N/A';
     const arrivalIcao = hasPlan ? allWaypoints[allWaypoints.length - 1]?.name : 'N/A';
 
-    // --- [NEW] Get Airline Logo (REVISED with new rules) ---
+    // --- Get Airline Logo ---
     const liveryName = baseProps.aircraft?.liveryName || '';
-    const words = liveryName.trim().split(/\s+/); // Split by one or more spaces
+    const words = liveryName.trim().split(/\s+/);
     let logoName = '';
-    const specialCharRegex = /[^a-zA-Z0-9]/; // Regex to find any non-alphanumeric character
+    const specialCharRegex = /[^a-zA-Z0-9]/;
 
     if (words.length === 1) {
-        // Rule 2: Only one thing, take it. (e.g., "Generic")
         logoName = words[0];
     } else if (words.length > 1) {
         const firstWord = words[0];
         const secondWord = words[1];
-
-        // Rule 3: Check if the second word contains special characters (e.g., "(6E)")
         if (specialCharRegex.test(secondWord)) {
-            // It's a special word, "just keep the first thing"
-            logoName = firstWord; // e.g., "IndiGo"
+            logoName = firstWord;
         } else {
-            // Rule 1: Second word is clean, take the first two. (e.g., "El Al", "Delta Air")
             logoName = `${firstWord} ${secondWord}`;
         }
     }
 
-    // Sanitize the final result for the filename
     const sanitizedLogoName = logoName
         .toLowerCase()
-        .replace(/[^a-z0-9\s]/g, '') // Remove any remaining special chars
-        .replace(/\s+/g, '_'); // Replace spaces with underscores
+        .replace(/[^a-z0-9\s]/g, '')
+        .replace(/\s+/g, '_');
 
-    // The path is still 'Images/airline_logos/'
     const logoPath = sanitizedLogoName ? `Images/airline_logos/${sanitizedLogoName}.png` : '';
     const logoHtml = logoPath ? `<img src="${logoPath}" alt="${liveryName}" class="ac-header-logo" onerror="this.style.display='none'">` : '';
-    // --- End [NEW] ---
-
-    // --- [YOUR FIX] ---
-    // We set no image initially. The 'updateAircraftInfoWindow' function
-    // (called immediately after) will handle loading the correct image.
-    // This prevents the "flash" of the default image.
-    const tempBg = ``;
-    // --- [END FIX] ---
     
-    // --- [MODIFIED - YOUR FIX] Get Actual Departure Time and clear initial ETA ---
-    const atdTimestamp = (sortedRoutePoints && sortedRoutePoints.length > 0) ? sortedRoutePoints[0].date : null;
-    const atdTime = atdTimestamp ? formatTimeFromTimestamp(atdTimestamp) : '--:--'; // This is now ATD
-    const etaTime = '--:--'; // ETA will be calculated live
-    // --- [END FIX] ---
+    const tempBg = ``;
 
-    // --- [FIX v11] ---
-    // Get country code from our own airportsData using the ICAO, not the plan object.
+    // --- Get Times and Flags ---
+    const atdTimestamp = (sortedRoutePoints && sortedRoutePoints.length > 0) ? sortedRoutePoints[0].date : null;
+    const atdTime = atdTimestamp ? formatTimeFromTimestamp(atdTimestamp) : '--:--';
+    const etaTime = '--:--'; 
+
     const depCountryCode = airportsData[departureIcao]?.country ? airportsData[departureIcao].country.toLowerCase() : '';
     const arrCountryCode = airportsData[arrivalIcao]?.country ? airportsData[arrivalIcao].country.toLowerCase() : '';
-    // --- [END FIX v11] ---
 
     const depFlagSrc = depCountryCode ? `https://flagcdn.com/w20/${depCountryCode}.png` : '';
     const arrFlagSrc = arrCountryCode ? `https://flagcdn.com/w20/${arrCountryCode}.png` : '';
     const depFlagDisplay = depCountryCode ? 'block' : 'none';
     const arrFlagDisplay = arrCountryCode ? 'block' : 'none';
-    // --- [END NEW] ---
-    
-    // ===================================================================
-    // --- [NEW INJECTION START] ---
-    // ===================================================================
-    // Find the Simbrief aircraft value
+
+    // --- SimBrief Planning Button ---
     const simbriefAircraftValue = findSimbriefAircraftValue(aircraftName);
-    
     let planButtonHtml = '';
-    // Only show the button if we have a plan AND a matching aircraft
     if (hasPlan && simbriefAircraftValue) {
         planButtonHtml = `
         <button id="plan-this-flight-btn" class="pilot-stats-toggle-btn" 
@@ -6436,10 +6413,8 @@ function populateAircraftInfoWindow(baseProps, plan, sortedRoutePoints) { // <--
 
     const pilotUsername = baseProps.username || 'N/A';
     const pilotReportTabText = (pilotUsername !== 'N/A' && pilotUsername) ? pilotUsername : 'Pilot Report';
-    // ===================================================================
-    // --- [MODIFICATION END] ---
-    // ===================================================================
 
+    // --- HTML Injection ---
     windowEl.innerHTML = `
     <div class="info-window-content">
         <div class="aircraft-overview-panel" id="ac-overview-panel" style="${tempBg}">
@@ -6464,7 +6439,7 @@ function populateAircraftInfoWindow(baseProps, plan, sortedRoutePoints) { // <--
                 </div>
             </div>
 
-            </div>
+        </div>
 
         <div class="route-summary-overlay">
             <div class="route-summary-airport" id="route-summary-dep">
@@ -6500,7 +6475,7 @@ function populateAircraftInfoWindow(baseProps, plan, sortedRoutePoints) { // <--
                 <button class="ac-info-tab-btn" data-tab="ac-tab-pilot-report" data-user-id="${baseProps.userId}" data-username="${pilotUsername}">
                     <i class="fa-solid fa-chart-simple"></i> ${pilotReportTabText}
                 </button>
-                </div>
+            </div>
             
             <img src="Images/inflight.png" alt="Inflight Logo" class="ac-info-tab-logo">
         </div>
@@ -6631,12 +6606,10 @@ function populateAircraftInfoWindow(baseProps, plan, sortedRoutePoints) { // <--
                             </defs>
                             </svg>
                         </div>
-                    </div>
-                    
-                    <!-- NEW: Navigation Display Iframe -->
-                    <div id="nd-container" style="background: #000; border-radius: 12px; overflow: hidden; border: 1px solid rgba(255,255,255,0.1); aspect-ratio: 1/1; min-height: 300px;">
-                        <iframe id="nav-display-frame" src="nav.html" style="width: 100%; height: 100%; border: none;" scrolling="no"></iframe>
-                    </div>
+                        <div id="nd-container" style="background: transparent; overflow: hidden; display: flex; justify-content: center; height: 380px; margin-top: 0px;">
+                            <iframe id="nav-display-frame" src="nav.html" style="width: 320px; height: 100%; border: none;" scrolling="no"></iframe>
+                        </div>
+                        </div>
                     
                     <div id="location-data-panel" class="data-bar-item">
                         <span class="data-label">CURRENTLY OVER</span>
@@ -6725,9 +6698,6 @@ function populateAircraftInfoWindow(baseProps, plan, sortedRoutePoints) { // <--
     
     createPfdDisplay();
     updatePfdDisplay(baseProps.position);
-    
-    // --- [MODIFIED] ---
-    // Pass the historical route data to the update function
     updateAircraftInfoWindow(baseProps, plan, sortedRoutePoints);
 }
 
