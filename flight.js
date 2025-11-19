@@ -58,6 +58,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     let currentFlightInWindow = null; // Stores the flightId of the last selected aircraft
     let activePfdUpdateInterval = null; // Interval for updating the PFD display
     let activeGeocodeUpdateInterval = null; // NEW: Interval for reverse geocoding
+    let activeWeatherUpdateInterval = null;
     let currentAircraftPositionForGeocode = null; // NEW: Stores the latest position
     let lastGeocodeCoords = { lat: 0, lon: 0 }; // NEW: Prevents redundant calls
     // --- FIX: Added roll_deg to state to prevent flickering ---
@@ -3441,6 +3442,61 @@ function getAircraftCategory(aircraftName) {
     return 'default';
 }
 
+/**
+ * Fetches OAT and Wind data from OpenMeteo and stores it in the flight state.
+ */
+async function fetchAndDisplayWeather() {
+    if (!currentAircraftPositionForGeocode) return;
+
+    const lat = currentAircraftPositionForGeocode.lat;
+    const lon = currentAircraftPositionForGeocode.lon;
+
+    // Use OpenMeteo API endpoint (No API key required for this data)
+    const OPENMETEO_URL = `https://api.open-meteo.com/v1/forecast?latitude=${lat}&longitude=${lon}&current=temperature_2m,wind_speed_10m,wind_direction_10m&forecast_days=1`;
+    
+    // Elements to update (optional, but good for debugging)
+    const windDisplay = document.getElementById('wind-speed-display');
+
+    try {
+        // 1. Fetch data
+        const response = await fetch(OPENMETEO_URL);
+        if (!response.ok) throw new Error('OpenMeteo fetch failed.');
+        
+        const data = await response.json();
+        const current = data.current;
+
+        if (!current) throw new Error('Invalid OpenMeteo response.');
+
+        // 2. Update the shared state object with new data
+        // We use temperature_2m as OAT approximation (simplification)
+        currentAircraftPositionForGeocode.oat_c = current.temperature_2m;
+        currentAircraftPositionForGeocode.wind_dir = current.wind_direction_10m;
+        
+        // Convert m/s to knots (1 m/s ≈ 1.944 kts)
+        currentAircraftPositionForGeocode.wind_spd_kts = Math.round(current.wind_speed_10m * 1.944);
+
+        // 3. Update the Nav Display iframe *immediately* with new wind data
+        const navIframe = document.getElementById('nav-display-frame');
+        if (navIframe && navIframe.contentWindow) {
+             navIframe.contentWindow.postMessage({
+                windDir: currentAircraftPositionForGeocode.wind_dir,
+                windSpd: currentAircraftPositionForGeocode.wind_spd_kts
+            }, '*');
+        }
+
+        console.log(`Weather updated: OAT=${current.temperature_2m}C, Wind=${current.wind_direction_10m}° @ ${currentAircraftPositionForGeocode.wind_spd_kts}kts`);
+        
+    } catch (error) {
+        console.error("Weather fetch error:", error);
+        // Clear or set default values on error
+        if (currentAircraftPositionForGeocode) {
+            currentAircraftPositionForGeocode.oat_c = 15; // Default ISA temp
+            currentAircraftPositionForGeocode.wind_dir = 0;
+            currentAircraftPositionForGeocode.wind_spd_kts = 0;
+        }
+    }
+}
+
     /**
      * Calculates the distance between two coordinates in kilometers using the Haversine formula.
      */
@@ -3455,6 +3511,36 @@ function getAircraftCategory(aircraftName) {
       const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
       return R * c;
     }
+
+    /**
+ * Calculates True Airspeed (TAS) in knots based on Pressure Altitude and OAT.
+ * Uses the approximate TAS formula derived from the speed of sound ratio.
+ *
+ * @param {number} alt_ft - Pressure altitude in feet (from flight data).
+ * @param {number} oat_c - Outside Air Temperature in Celsius (from OpenMeteo).
+ * @param {number} gs_kt - Ground Speed in knots (from flight data, used as a starting point).
+ * @returns {number} Calculated TAS in knots.
+ */
+function calculateTas(alt_ft, oat_c, gs_kt) {
+    // 1. Convert Altitude to Pressure Altitude in meters (approx)
+    const alt_m = alt_ft * 0.3048;
+
+    // 2. Calculate Standard Temperature at Altitude (ISA) in Kelvin (K)
+    // T_ISA = 288.15 - 0.0065 * alt_m (up to 11,000m)
+    const T_ISA_K = 288.15 - 0.0065 * alt_m; 
+    
+    // 3. Convert OAT (C) to Kelvin (K)
+    const T_OAT_K = oat_c + 273.15;
+    
+    // 4. TAS is proportional to IAS/CAS times the square root of (T_OAT / T_ISA)
+    // For simplicity and avoiding IAS conversion, we use GS as a base,
+    // which provides a reasonable wind-corrected approximation for display.
+    if (T_ISA_K <= 0) return gs_kt; // Safety check
+
+    const TAS_kt = gs_kt * Math.sqrt(T_OAT_K / T_ISA_K);
+
+    return Math.round(TAS_kt);
+}
 
 
     /**
@@ -3580,23 +3666,34 @@ function handleSocketFlightUpdate(data) {
         };
 
         // ================================================================
-        // === NEW LOGIC BLOCK ===
-        // This checks if the flight in the loop is the one we have open.
+        // === SELECTED AIRCRAFT UPDATE LOGIC ===
         // ================================================================
         if (flightId === currentFlightInWindow) {
-            // This is the selected aircraft. Update the PFD, trail, and info window.
             
-            // 1. Update the shared position for the geocoder
+            // 1. Update the shared position object (used by Geocoder & Weather Fetcher)
             currentAircraftPositionForGeocode = flight.position;
-
-            // 2. Get the trail from cache
-            const localTrail = liveTrailCache.get(flightId);
             
-            // Re-create the full 'flight' object expected by updateAircraftInfoWindow
+            // 2. Retrieve Cached Weather Data (from the 5-min interval fetch)
+            // Default to Standard Day (15C, 0 wind) if not yet fetched
+            const cachedOat = currentAircraftPositionForGeocode.oat_c ?? 15; 
+            const cachedWindDir = currentAircraftPositionForGeocode.wind_dir || 0;
+            const cachedWindSpd = currentAircraftPositionForGeocode.wind_spd_kts || 0;
+
+            // 3. Calculate TAS using the helper function
+            let calculatedTas = 0;
+            if (flight.position.alt_ft != null) {
+                calculatedTas = calculateTas(
+                    flight.position.alt_ft, 
+                    cachedOat, 
+                    flight.position.gs_kt || 0
+                );
+            }
+
+            // 4. Update Trail Cache
+            const localTrail = liveTrailCache.get(flightId);
             const fullFlightProps = { ...newProperties, position: flight.position, aircraft: aircraftData };
 
             if (localTrail) {
-                // 3. Create the new route point
                 const newRoutePoint = {
                     latitude: flight.position.lat,
                     longitude: flight.position.lon,
@@ -3605,53 +3702,42 @@ function handleSocketFlightUpdate(data) {
                     track: flight.position.heading_deg,
                     date: new Date(flight.position.lastReport || Date.now()).toISOString()
                 };
-                // 4. Add to the cache
                 localTrail.push(newRoutePoint);
                 liveTrailCache.set(flightId, localTrail);
 
-                // 5. Update the UI
+                // 5. Update PFD Display
                 updatePfdDisplay(flight.position);
                 
-                // === NEW: Update Navigation Display Iframe ===
+                // 6. Update Navigation Display Iframe
                 const navIframe = document.getElementById('nav-display-frame');
                 if (navIframe && navIframe.contentWindow) {
                     
-                    // A. Process Traffic
+                    // A. Process Traffic (unchanged)
                     const ndTraffic = [];
                     const myLat = flight.position.lat;
                     const myLon = flight.position.lon;
                     const myAlt = flight.position.alt_ft;
 
-                    // Iterate over ALL flights to find traffic
                     flights.forEach(other => {
-                        if (other.flightId === flightId) return; // Skip self
-                        
-                        // Simple distance check first (optimization)
+                        if (other.flightId === flightId) return; 
                         const latDiff = Math.abs(other.position.lat - myLat);
                         const lonDiff = Math.abs(other.position.lon - myLon);
-                        if (latDiff > 1 || lonDiff > 1) return; // Roughly 60nm box
+                        if (latDiff > 1 || lonDiff > 1) return; 
 
-                        // Calculate precise distance
                         const distKm = getDistanceKm(myLat, myLon, other.position.lat, other.position.lon);
                         const distNM = distKm / 1.852;
 
-                        // Only send if within ND range (e.g. 45NM max for now)
                         if (distNM < 45) {
                             const bearingTo = getBearing(myLat, myLon, other.position.lat, other.position.lon);
-                            // Relative bearing (0 = nose)
                             let relBearing = bearingTo - flight.position.heading_deg;
-                            
-                            // Normalize -180 to 180
                             if (relBearing > 180) relBearing -= 360;
                             if (relBearing < -180) relBearing += 360;
-
-                            // Altitude difference (in 100s of feet)
                             const altDiffFt = other.position.alt_ft - myAlt;
                             const altDiff100 = Math.round(altDiffFt / 100);
 
                             ndTraffic.push({
                                 id: other.flightId,
-                                bearing: relBearing, // Relative to nose
+                                bearing: relBearing,
                                 dist: distNM,
                                 altDiff: altDiff100,
                                 vs: other.position.vs_fpm
@@ -3659,57 +3745,43 @@ function handleSocketFlightUpdate(data) {
                         }
                     });
 
-                    // --- [NEW] B. Process Flight Plan for ND ---
+                    // B. Process Flight Plan for ND (unchanged)
                     let ndFlightPlan = [];
-                    
-                    // Check if we have a cached plan for the currently open window
                     if (cachedFlightDataForStatsView && cachedFlightDataForStatsView.plan) {
-                        // Use existing helper to get flat array of waypoint objects
                         const flatWaypoints = getFlatWaypointObjects(cachedFlightDataForStatsView.plan.flightPlanItems);
-                        
                         ndFlightPlan = flatWaypoints.map(wp => {
                             if (!wp.location || wp.location.latitude == null || wp.location.longitude == null) return null;
-
-                            // 1. Get Distance in NM
                             const distKm = getDistanceKm(myLat, myLon, wp.location.latitude, wp.location.longitude);
                             const distNM = distKm / 1.852;
-
-                            // 2. Get True Bearing from Aircraft to Waypoint
                             const bearingTo = getBearing(myLat, myLon, wp.location.latitude, wp.location.longitude);
-
-                            // 3. Convert to Cartesian Coordinates (North-Relative)
-                            // In this system: Y is North, X is East
-                            // The ND's canvas rotation logic will handle aligning North to the Aircraft Heading
                             const rad = bearingTo * Math.PI / 180;
-                            const x = Math.sin(rad) * distNM; 
-                            const y = Math.cos(rad) * distNM; 
-
                             return {
                                 name: wp.identifier || wp.name || 'WP',
-                                x: x, 
-                                y: y 
+                                x: Math.sin(rad) * distNM, 
+                                y: Math.cos(rad) * distNM 
                             };
-                        }).filter(Boolean); // Remove nulls
+                        }).filter(Boolean);
                     }
 
-                    // C. Send Data to Iframe
+                    // C. Post Message to Iframe (Now includes Cached Weather & Calculated TAS)
                     navIframe.contentWindow.postMessage({
                         heading: flight.position.heading_deg,
-                        track: flight.position.heading_deg, // IF API doesn't always give track, assume Heading=Track for now
-                        tas: Math.round(flight.position.gs_kt), // Approximation if TAS unavailable
+                        track: flight.position.heading_deg,
                         gs: Math.round(flight.position.gs_kt),
-                        windDir: 0, // Live wind not in this packet usually
-                        windSpd: 0,
+                        // --- NEW DATA ---
+                        tas: calculatedTas, 
+                        windDir: cachedWindDir, 
+                        windSpd: cachedWindSpd,
+                        // ----------------
                         traffic: ndTraffic,
-                        flightPlan: ndFlightPlan // <--- Sending the calculated plan
+                        flightPlan: ndFlightPlan
                     }, '*');
                 }
-                // === END NEW ===
 
-                // We pass the *full* properties object here
+                // 7. Update Info Window UI
                 updateAircraftInfoWindow(fullFlightProps, cachedFlightDataForStatsView.plan, localTrail);
 
-                // 6. Update the map trail
+                // 8. Update Map Trail
                 const layerId = sectorOpsLiveFlightPathLayers[flightId]?.flown;
                 const source = layerId ? sectorOpsMap.getSource(layerId) : null;
                 if (source) {
@@ -3718,16 +3790,13 @@ function handleSocketFlightUpdate(data) {
                 }
             }
 
-            // 7. Live-update the planned layer for the "Direct to" line
+            // 9. Update Planned Route Line
             if (cachedFlightDataForStatsView.plan && mapFilters.planDisplayMode === 'direct') {
                 updateFlightPlanLayer(flightId, cachedFlightDataForStatsView.plan, flight.position);
             }
         }
-        // ================================================================
-        // === END OF NEW LOGIC BLOCK ===
-        // ================================================================
 
-        // This line was already here. It updates the map icon's position.
+        // Update Map Icon Position
         mapAnimator.updateFlight(flight.position, newProperties);
     });
 
@@ -4763,13 +4832,6 @@ async function updateLiveFlights() {
     }
     
 
-
-
-/**
- * [FIXED] Attaches event listeners to the aircraft info window.
- * Now correctly clears *both* intervals on close/hide to prevent memory leaks.
- * --- [MODIFIED] Added event listener for VSD/SSD toggle. ---
- */
 function setupAircraftWindowEvents() {
     if (!aircraftInfoWindow || aircraftInfoWindow.dataset.eventsAttached === 'true') return;
 
@@ -4778,40 +4840,30 @@ function setupAircraftWindowEvents() {
         const hideBtn = e.target.closest('.aircraft-window-hide-btn');
         const tabBtn = e.target.closest('.ac-info-tab-btn');
         const planBtn = e.target.closest('#plan-this-flight-btn');
-        
-        // ##### MODIFICATION START #####
         const profileToggleBtn = e.target.closest('.profile-toggle-btn');
 
         // 1. Handle VSD/SSD Toggle
         if (profileToggleBtn) {
             e.preventDefault();
-            if (profileToggleBtn.classList.contains('active')) {
-                return; // Already active
-            }
+            if (profileToggleBtn.classList.contains('active')) return;
 
-            const targetPanelId = profileToggleBtn.dataset.target; // e.g., "vsd-panel"
+            const targetPanelId = profileToggleBtn.dataset.target;
             const profileCard = profileToggleBtn.closest('.ac-profile-card-new');
             
             if (!targetPanelId || !profileCard) return;
 
-            // Deactivate current button and panel
             profileCard.querySelector('.profile-toggle-btn.active')?.classList.remove('active');
             profileCard.querySelector('#vsd-panel.active')?.classList.remove('active');
             profileCard.querySelector('#ssd-panel.active')?.classList.remove('active');
 
-            // Activate new button and panel
             profileToggleBtn.classList.add('active');
             profileCard.querySelector(`#${targetPanelId}`)?.classList.add('active');
-            
-            return; // End execution
+            return;
         }
-        // ##### MODIFICATION END #####
-
 
         // 2. Handle "Plan This Flight" Button
         if (planBtn) {
             e.preventDefault();
-            
             const departure = planBtn.dataset.departure;
             const arrival = planBtn.dataset.arrival;
             const aircraft = planBtn.dataset.aircraft;
@@ -4821,7 +4873,6 @@ function setupAircraftWindowEvents() {
                 return;
             }
 
-            // 1. Get form elements from the side panel
             const depInput = document.getElementById('fp-departure');
             const arrInput = document.getElementById('fp-arrival');
             const acSelect = document.getElementById('fp-aircraft');
@@ -4831,103 +4882,93 @@ function setupAircraftWindowEvents() {
                 return;
             }
 
-            // 2. Fill the form
             depInput.value = departure;
             arrInput.value = arrival;
-            acSelect.value = aircraft; // This sets the dropdown
+            acSelect.value = aircraft;
 
-            // 3. Switch to the "Flight Plan" tab
             const flightPlanTabBtn = document.querySelector('.panel-tab-btn[data-tab="tab-flightplan"]');
-            if (flightPlanTabBtn) {
-                flightPlanTabBtn.click();
-            }
+            if (flightPlanTabBtn) flightPlanTabBtn.click();
             
-            // 4. Hide (don't close) the aircraft info window
             const hideButton = aircraftInfoWindow.querySelector('.aircraft-window-hide-btn');
-            if (hideButton) {
-                hideButton.click();
-            }
+            if (hideButton) hideButton.click();
             
-            // 5. Open the side panel if it's collapsed
             const panel = document.getElementById('sector-ops-floating-panel');
             if (panel && panel.classList.contains('panel-collapsed')) {
                 const toolbarToggleBtn = document.getElementById('toolbar-toggle-panel-btn');
-                if (toolbarToggleBtn) {
-                    toolbarToggleBtn.click();
-                }
+                if (toolbarToggleBtn) toolbarToggleBtn.click();
             }
             
-            // 6. Scroll the flight plan tab to the top to show the form
             const flightPlanTabContent = document.getElementById('tab-flightplan');
-            if (flightPlanTabContent) {
-                flightPlanTabContent.scrollTop = 0;
-            }
+            if (flightPlanTabContent) flightPlanTabContent.scrollTop = 0;
 
             showNotification("Flight plan form populated.", "success");
-            return; // Stop event propagation
+            return;
         }
 
-
-        // 3. Handle Tab Switching Logic
+        // 3. Handle Tab Switching
         if (tabBtn) {
             e.preventDefault();
             const tabId = tabBtn.dataset.tab;
-            if (!tabId || tabBtn.classList.contains('active')) {
-                return;
-            }
+            if (!tabId || tabBtn.classList.contains('active')) return;
+            
             const windowContent = tabBtn.closest('.info-window-content');
             if (!windowContent) return;
+            
             tabBtn.closest('.ac-info-window-tabs').querySelector('.ac-info-tab-btn.active')?.classList.remove('active');
             windowContent.querySelector('.ac-tab-pane.active')?.classList.remove('active');
+            
             tabBtn.classList.add('active');
             const newPane = windowContent.querySelector(`#${tabId}`);
+            if (newPane) newPane.classList.add('active');
             
-            if (newPane) {
-                newPane.classList.add('active');
-            }
             if (tabId === 'ac-tab-pilot-report') {
                 const statsDisplay = newPane.querySelector('#pilot-stats-display');
                 if (statsDisplay && statsDisplay.innerHTML.trim() === '') { 
                     const userId = tabBtn.dataset.userId;
                     const username = tabBtn.dataset.username;
-                    if (userId) {
-                        await displayPilotStats(userId, username); 
-                    }
+                    if (userId) await displayPilotStats(userId, username); 
                 }
             }
         }
 
-        // 4. Handle Close/Hide Logic
+        // 4. Handle Close Logic
         if (closeBtn) {
             aircraftInfoWindow.classList.remove('visible');
-            MobileUIHandler.closeActiveWindow();
+            if (window.MobileUIHandler) window.MobileUIHandler.closeActiveWindow();
             aircraftInfoWindowRecallBtn.classList.remove('visible');
             
             clearLiveFlightPath(currentFlightInWindow); 
             
-            // --- [CRITICAL FIX] Clear BOTH intervals ---
+            // --- [CRITICAL FIX] Clear ALL intervals ---
             if (activePfdUpdateInterval) clearInterval(activePfdUpdateInterval);
             if (activeGeocodeUpdateInterval) clearInterval(activeGeocodeUpdateInterval);
+            if (activeWeatherUpdateInterval) clearInterval(activeWeatherUpdateInterval); // Clear Weather
+            
             activePfdUpdateInterval = null;
             activeGeocodeUpdateInterval = null;
-            currentAircraftPositionForGeocode = null;
-            // --- [END FIX] ---
+            activeWeatherUpdateInterval = null;
+            // ------------------------------------------
             
+            currentAircraftPositionForGeocode = null;
             liveTrailCache.delete(currentFlightInWindow);
             currentFlightInWindow = null;
             cachedFlightDataForStatsView = { flightProps: null, plan: null };
         }
 
+        // 5. Handle Hide Logic
         if (hideBtn) {
             aircraftInfoWindow.classList.remove('visible');
             clearLiveFlightPath(currentFlightInWindow);
 
-            // --- [CRITICAL FIX] Clear BOTH intervals ---
+            // --- [CRITICAL FIX] Clear ALL intervals (pause updates while hidden) ---
             if (activePfdUpdateInterval) clearInterval(activePfdUpdateInterval);
             if (activeGeocodeUpdateInterval) clearInterval(activeGeocodeUpdateInterval);
+            if (activeWeatherUpdateInterval) clearInterval(activeWeatherUpdateInterval); // Clear Weather
+            
             activePfdUpdateInterval = null;
             activeGeocodeUpdateInterval = null;
-            // --- [END FIX] ---
+            activeWeatherUpdateInterval = null;
+            // ---------------------------------------------------------------------
             
             if (currentFlightInWindow) {
                 aircraftInfoWindowRecallBtn.classList.add('visible', 'palpitate');
@@ -4936,7 +4977,7 @@ function setupAircraftWindowEvents() {
         }
     });
 
-    // The recall button logic remains the same.
+    // Recall Button Logic
     aircraftInfoWindowRecallBtn.addEventListener('click', () => {
         if (currentFlightInWindow) {
             const layer = sectorOpsMap.getLayer('sector-ops-live-flights-layer');
@@ -4946,7 +4987,6 @@ function setupAircraftWindowEvents() {
                 const feature = features.find(f => f.properties.flightId === currentFlightInWindow);
                 if (feature) {
                     const props = feature.properties;
-                    // --- [FIX] Re-parse position from stringified properties ---
                     const flightProps = { ...props, position: JSON.parse(props.position), aircraft: JSON.parse(props.aircraft) };
                     
                     fetch('https://site--acars-backend--6dmjph8ltlhv.code.run/if-sessions').then(res => res.json()).then(data => {
@@ -6210,14 +6250,14 @@ async function handleAircraftClick(flightProps, sessionId) {
                 );
             }
         }, FIVE_MINUTES_MS); // Call again every 5 minutes
-        // --- [END MODIFICATION] ---
-
-        // ===================================================================
-        // === THIS ENTIRE `setInterval` BLOCK HAS BEEN REMOVED ===
-        // ===================================================================
-        // activePfdUpdateInterval = setInterval(async () => { ... }, 3000);
-        // ===================================================================
-
+        let activeWeatherUpdateInterval = null; // Ensure this is defined outside if necessary
+    
+    // Run initial fetch immediately
+    fetchAndDisplayWeather();
+    
+    activeWeatherUpdateInterval = setInterval(() => {
+         fetchAndDisplayWeather();
+    }, FIVE_MINUTES_MS);
 
         // [RESILIENCE] Unset loading flag on success
         isAircraftWindowLoading = false;
