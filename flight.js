@@ -893,7 +893,7 @@ function injectCustomStyles() {
         #pfd-container svg {
     width: 100%; height: auto; max-width: 300px;
     /* CHANGED: 787 / 715 (Added 80px to height) */
-    aspect-ratio: 787 / 715; 
+    aspect-ratio: 787 / 800; 
     background-color: #1a1a1a;
     font-family: monospace, sans-serif; color: white;
     overflow: hidden; position: relative; border-radius: 0;
