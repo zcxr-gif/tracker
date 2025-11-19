@@ -2488,16 +2488,26 @@ function getNearestRunway(aircraftPos, airportIcao, maxDistanceNM = 2.0) {
 
     function createPfdDisplay() {
         const SVG_NS = "http://www.w3.org/2000/svg";
+        
+        // --- Existing Groups ---
         const attitudeGroup = document.getElementById('attitude_group');
         const speedTapeGroup = document.getElementById('speed_tape_group');
         const altitudeTapeGroup = document.getElementById('altitude_tape_group');
         const tensReelGroup = document.getElementById('altitude_tens_reel_group');
         const headingTapeGroup = document.getElementById('heading_tape_group');
+        
+        // --- NEW: Select the main PFD group to attach the FMA ---
+        const pfdGroup = document.getElementById('PFD');
 
-        if (!attitudeGroup || !speedTapeGroup || !altitudeTapeGroup || !tensReelGroup || !headingTapeGroup || attitudeGroup.dataset.initialized) {
+        // Safety check
+        if (!attitudeGroup || !speedTapeGroup || !altitudeTapeGroup || !tensReelGroup || !headingTapeGroup || !pfdGroup) {
             return;
         }
+        
+        // Prevent double-initialization
+        if (attitudeGroup.dataset.initialized === 'true') return;
 
+        // 1. Generate Attitude Indicators (Existing Logic)
         function generateAttitudeIndicators() {
             const centerX = 401.5;
             const centerY = 312.5;
@@ -2537,6 +2547,8 @@ function getNearestRunway(aircraftPos, airportIcao, maxDistanceNM = 2.0) {
                 }
             }
         }
+
+        // 2. Generate Speed Tape (Existing Logic)
         function generateSpeedTape() {
             const MIN_SPEED = 0, MAX_SPEED = 999;
             for (let s = MIN_SPEED; s <= MAX_SPEED; s += 5) {
@@ -2557,6 +2569,8 @@ function getNearestRunway(aircraftPos, airportIcao, maxDistanceNM = 2.0) {
                 speedTapeGroup.appendChild(tick);
             }
         }
+
+        // 3. Generate Altitude Tape (Existing Logic)
         function generateAltitudeTape() {
             const MIN_ALTITUDE = 0, MAX_ALTITUDE = 50000;
             for (let alt = MIN_ALTITUDE; alt <= MAX_ALTITUDE; alt += 20) {
@@ -2578,15 +2592,14 @@ function getNearestRunway(aircraftPos, airportIcao, maxDistanceNM = 2.0) {
                 altitudeTapeGroup.appendChild(tick);
             }
         }
+
+        // 4. Generate Reels (Existing Logic)
         function generateAltitudeTensReel() {
             const center_y = 316;
             for (let i = -5; i < 10; i++) {
                 let value = (i * 20); value = (value < 0) ? 100 + (value % 100) : value % 100;
                 const displayValue = String(value).padStart(2, '0');
-                
-                // [FIXED] SUBTRACT spacing so positive i (20, 40) goes UP (negative Y)
                 const yPos = center_y - (i * PFD_REEL_SPACING);
-                
                 const text = document.createElementNS(SVG_NS, 'text');
                 text.setAttribute('x', '745'); text.setAttribute('y', yPos);
                 text.setAttribute('fill', '#00FF00'); text.setAttribute('font-size', '32');
@@ -2594,6 +2607,8 @@ function getNearestRunway(aircraftPos, airportIcao, maxDistanceNM = 2.0) {
                 tensReelGroup.appendChild(text);
             }
         }
+
+        // 5. Generate Heading Tape (Existing Logic)
         function generateHeadingTape() {
             const y_text = 650, y_tick_top = 620, y_tick_bottom_major = 635, y_tick_bottom_minor = 628;
             for (let h = -360; h <= 720; h += 5) {
@@ -2621,11 +2636,113 @@ function getNearestRunway(aircraftPos, airportIcao, maxDistanceNM = 2.0) {
             }
         }
         
+        // --- 6. NEW: Generate Flight Mode Annunciator (FMA) ---
+        function generateFMA() {
+            // FMA Container Group
+            const fmaGroup = document.createElementNS(SVG_NS, 'g');
+            fmaGroup.setAttribute('id', 'fma_group');
+            
+            // Background Box (Top of PFD)
+            // y=30 is where the SVG viewBox starts visible content
+            const fmaBg = document.createElementNS(SVG_NS, 'rect');
+            fmaBg.setAttribute('x', '0');
+            fmaBg.setAttribute('y', '30');
+            fmaBg.setAttribute('width', '787');
+            fmaBg.setAttribute('height', '50');
+            fmaBg.setAttribute('fill', '#050505'); // Almost black
+            // fmaBg.setAttribute('fill-opacity', '0.9');
+            fmaGroup.appendChild(fmaBg);
+
+            // Separator Lines (5 Columns -> 4 lines)
+            // Width 787 / 5 ≈ 157.4
+            const colWidth = 157.4;
+            for (let i = 1; i < 5; i++) {
+                const x = i * colWidth;
+                const line = document.createElementNS(SVG_NS, 'line');
+                line.setAttribute('x1', x); line.setAttribute('x2', x);
+                line.setAttribute('y1', '30'); line.setAttribute('y2', '80');
+                line.setAttribute('stroke', '#555'); // Grey divider
+                line.setAttribute('stroke-width', '1');
+                fmaGroup.appendChild(line);
+            }
+
+            // Text Placeholders
+            // Style: Green (#00FF00) for active modes, White for secondary/armed (not simulated here yet), Font size ~20-22
+            
+            // Col 1: Auto-Thrust (Center x ~ 78)
+            const textCol1 = document.createElementNS(SVG_NS, 'text');
+            textCol1.setAttribute('id', 'fma_col1_text');
+            textCol1.setAttribute('x', '78');
+            textCol1.setAttribute('y', '62'); // Center vertically approx
+            textCol1.setAttribute('fill', '#00FF00'); // Airbus Green
+            textCol1.setAttribute('font-family', 'monospace');
+            textCol1.setAttribute('font-size', '20');
+            textCol1.setAttribute('font-weight', 'bold');
+            textCol1.setAttribute('text-anchor', 'middle');
+            textCol1.textContent = ""; // Init empty
+            fmaGroup.appendChild(textCol1);
+
+            // Col 2: Vertical Mode (Center x ~ 235)
+            const textCol2 = document.createElementNS(SVG_NS, 'text');
+            textCol2.setAttribute('id', 'fma_col2_text');
+            textCol2.setAttribute('x', '235');
+            textCol2.setAttribute('y', '62');
+            textCol2.setAttribute('fill', '#00FF00');
+            textCol2.setAttribute('font-family', 'monospace');
+            textCol2.setAttribute('font-size', '20');
+            textCol2.setAttribute('font-weight', 'bold');
+            textCol2.setAttribute('text-anchor', 'middle');
+            textCol2.textContent = ""; 
+            fmaGroup.appendChild(textCol2);
+
+            // Col 3: Lateral Mode (Center x ~ 392)
+            const textCol3 = document.createElementNS(SVG_NS, 'text');
+            textCol3.setAttribute('id', 'fma_col3_text');
+            textCol3.setAttribute('x', '392');
+            textCol3.setAttribute('y', '62');
+            textCol3.setAttribute('fill', '#00FF00');
+            textCol3.setAttribute('font-family', 'monospace');
+            textCol3.setAttribute('font-size', '20');
+            textCol3.setAttribute('font-weight', 'bold');
+            textCol3.setAttribute('text-anchor', 'middle');
+            textCol3.textContent = ""; 
+            fmaGroup.appendChild(textCol3);
+
+            // Col 4: Approach Capability (Center x ~ 549) - Static for now
+            const textCol4 = document.createElementNS(SVG_NS, 'text');
+            textCol4.setAttribute('id', 'fma_col4_text');
+            textCol4.setAttribute('x', '549');
+            textCol4.setAttribute('y', '55');
+            textCol4.setAttribute('fill', '#FFFFFF'); // White for status
+            textCol4.setAttribute('font-family', 'monospace');
+            textCol4.setAttribute('font-size', '16');
+            textCol4.setAttribute('text-anchor', 'middle');
+            
+            // We can initialize lines for CAT3 / DUAL
+            const tspan1 = document.createElementNS(SVG_NS, 'tspan');
+            tspan1.setAttribute('x', '549');
+            tspan1.setAttribute('dy', '0');
+            tspan1.textContent = ""; 
+            textCol4.appendChild(tspan1);
+            
+            const tspan2 = document.createElementNS(SVG_NS, 'tspan');
+            tspan2.setAttribute('x', '549');
+            tspan2.setAttribute('dy', '18');
+            tspan2.textContent = ""; 
+            textCol4.appendChild(tspan2);
+            
+            fmaGroup.appendChild(textCol4);
+
+            // Append FMA to PFD Group (Last = On Top)
+            pfdGroup.appendChild(fmaGroup);
+        }
+
         generateAttitudeIndicators();
         generateSpeedTape();
         generateAltitudeTape();
         generateAltitudeTensReel();
         generateHeadingTape();
+        generateFMA(); // <-- Call the new generator
 
         attitudeGroup.dataset.initialized = 'true'; 
     }
@@ -2859,6 +2976,85 @@ function updatePfdDisplay(pfdData) {
   const xOffset = -(track_deg - PFD_HEADING_REF_VALUE) * PFD_HEADING_SCALE;
   headingReadouts.forEach(el => el.textContent = String(hdg).padStart(3, '0'));
   headingTapeGroups.forEach(el => el.setAttribute('transform', `translate(${xOffset}, 0)`));
+
+  // ---------------------------------------------------------
+  // ---- NEW: UPDATE FMA TEXT (Flight Mode Annunciator) ----
+  // ---------------------------------------------------------
+  
+  // 1. Determine Modes Logic
+  let thrustMode = "SPEED";
+  let vertMode = "ALT";
+  let latMode = "NAV";
+  let catStatus = ""; // E.g., "CAT3\nDUAL"
+
+  // -- Logic: Phase Detection --
+  const isClimbing = vs_fpm > 400;
+  const isDescending = vs_fpm < -400;
+  const isOnGround = alt_ft < 50 && gs_kt > 30; // Pseudo-takeoff
+  const isTurning = Math.abs(S.rollDisp) > 3.0;
+  
+  // Use inferred alignment logic (Low alt, low speed, steady roll)
+  // Note: This assumes landing configuration without checking runways directly (simulated)
+  const isLandingConfig = alt_ft < 2500 && gs_kt < 180 && !isClimbing; 
+  const isEstablished = isLandingConfig && !isTurning;
+
+  // -- Col 1: Auto-Thrust --
+  if (isOnGround) {
+      thrustMode = "TOGA";
+  } else if (isClimbing) {
+      thrustMode = "THR CLB";
+  } else if (isDescending) {
+      thrustMode = "THR IDLE";
+  } else {
+      thrustMode = "SPEED";
+  }
+
+  // -- Col 2: Vertical Mode --
+  if (isClimbing) {
+      vertMode = "CLB";
+  } else if (isDescending) {
+      vertMode = "DES";
+  } else if (isEstablished && isLandingConfig) {
+      vertMode = "G/S";
+  } else {
+      vertMode = "ALT"; // Level flight
+  }
+
+  // -- Col 3: Lateral Mode --
+  if (isOnGround) {
+      latMode = "RWY";
+  } else if (isEstablished && isLandingConfig) {
+      latMode = "LOC";
+  } else if (isTurning) {
+      latMode = "HDG";
+  } else {
+      latMode = "NAV";
+  }
+
+  // -- Col 4: Approach Status (Simulated) --
+  if (latMode === "LOC" && vertMode === "G/S" && alt_ft < 1000) {
+      catStatus = "CAT3\nDUAL"; 
+  }
+
+  // 2. Update DOM
+  const fmaCol1 = document.getElementById('fma_col1_text');
+  const fmaCol2 = document.getElementById('fma_col2_text');
+  const fmaCol3 = document.getElementById('fma_col3_text');
+  const fmaCol4 = document.getElementById('fma_col4_text');
+
+  if (fmaCol1) fmaCol1.textContent = thrustMode;
+  if (fmaCol2) fmaCol2.textContent = vertMode;
+  if (fmaCol3) fmaCol3.textContent = latMode;
+
+  if (fmaCol4) {
+      // Handle multiline logic for Col 4
+      const lines = catStatus.split('\n');
+      const spans = fmaCol4.querySelectorAll('tspan');
+      if (spans.length >= 2) {
+          spans[0].textContent = lines[0] || "";
+          spans[1].textContent = lines[1] || "";
+      }
+  }
 }
 
     /**
