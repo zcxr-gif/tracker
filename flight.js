@@ -891,14 +891,14 @@ function injectCustomStyles() {
         
         /* --- [UPDATED] PFD SVG - Brighter with Glow --- */
         #pfd-container svg {
-            width: 100%; height: auto; max-width: 300px;
-            aspect-ratio: 787 / 635; background-color: #1a1a1a;
-            font-family: monospace, sans-serif; color: white;
-            overflow: hidden; position: relative; border-radius: 0; /* Remove inner radius */
-            
-            /* Increased brightness/contrast and added glow */
-            filter: brightness(1.3) contrast(1.2) drop-shadow(0 0 2px rgba(255, 255, 255, 0.3));
-        }
+    width: 100%; height: auto; max-width: 300px;
+    /* CHANGED: 787 / 715 (Added 80px to height) */
+    aspect-ratio: 787 / 715; 
+    background-color: #1a1a1a;
+    font-family: monospace, sans-serif; color: white;
+    overflow: hidden; position: relative; border-radius: 0;
+    filter: brightness(1.3) contrast(1.2) drop-shadow(0 0 2px rgba(255, 255, 255, 0.3));
+}
 
         /* --- Pilot Stats --- */
         .stats-rehaul-container { display: flex; flex-direction: column; gap: 16px; color: #e8eaf6; }
@@ -2643,79 +2643,82 @@ function getNearestRunway(aircraftPos, airportIcao, maxDistanceNM = 2.0) {
             fmaGroup.setAttribute('id', 'fma_group');
             
             // Background Box (Top of PFD)
-            // [FIX] Moved up to y=0 and increased height to 65 for better visibility
+            // y=30 is where the SVG viewBox starts visible content
             const fmaBg = document.createElementNS(SVG_NS, 'rect');
             fmaBg.setAttribute('x', '0');
-            fmaBg.setAttribute('y', '0'); // Moved to top
+            fmaBg.setAttribute('y', '30');
             fmaBg.setAttribute('width', '787');
-            fmaBg.setAttribute('height', '65'); // Increased height (was 50)
-            fmaBg.setAttribute('fill', '#050505');
+            fmaBg.setAttribute('height', '50');
+            fmaBg.setAttribute('fill', '#050505'); // Almost black
+            // fmaBg.setAttribute('fill-opacity', '0.9');
             fmaGroup.appendChild(fmaBg);
 
-            // Separator Lines
+            // Separator Lines (5 Columns -> 4 lines)
+            // Width 787 / 5 ≈ 157.4
             const colWidth = 157.4;
             for (let i = 1; i < 5; i++) {
                 const x = i * colWidth;
                 const line = document.createElementNS(SVG_NS, 'line');
                 line.setAttribute('x1', x); line.setAttribute('x2', x);
-                line.setAttribute('y1', '0'); line.setAttribute('y2', '65'); // Extended to match new height
-                line.setAttribute('stroke', '#555');
+                line.setAttribute('y1', '30'); line.setAttribute('y2', '80');
+                line.setAttribute('stroke', '#555'); // Grey divider
                 line.setAttribute('stroke-width', '1');
                 fmaGroup.appendChild(line);
             }
 
             // Text Placeholders
-            // [FIX] Increased font size to 24 and adjusted Y position to center in new height
+            // Style: Green (#00FF00) for active modes, White for secondary/armed (not simulated here yet), Font size ~20-22
             
-            // Col 1: Auto-Thrust
+            // Col 1: Auto-Thrust (Center x ~ 78)
             const textCol1 = document.createElementNS(SVG_NS, 'text');
             textCol1.setAttribute('id', 'fma_col1_text');
             textCol1.setAttribute('x', '78');
-            textCol1.setAttribute('y', '40'); // Adjusted center
-            textCol1.setAttribute('fill', '#00FF00');
+            textCol1.setAttribute('y', '62'); // Center vertically approx
+            textCol1.setAttribute('fill', '#00FF00'); // Airbus Green
             textCol1.setAttribute('font-family', 'monospace');
-            textCol1.setAttribute('font-size', '24'); // Bigger font
+            textCol1.setAttribute('font-size', '20');
             textCol1.setAttribute('font-weight', 'bold');
             textCol1.setAttribute('text-anchor', 'middle');
-            textCol1.textContent = ""; 
+            textCol1.textContent = ""; // Init empty
             fmaGroup.appendChild(textCol1);
 
-            // Col 2: Vertical Mode
+            // Col 2: Vertical Mode (Center x ~ 235)
             const textCol2 = document.createElementNS(SVG_NS, 'text');
             textCol2.setAttribute('id', 'fma_col2_text');
             textCol2.setAttribute('x', '235');
-            textCol2.setAttribute('y', '40'); // Adjusted center
+            textCol2.setAttribute('y', '62');
             textCol2.setAttribute('fill', '#00FF00');
             textCol2.setAttribute('font-family', 'monospace');
-            textCol2.setAttribute('font-size', '24'); // Bigger font
+            textCol2.setAttribute('font-size', '20');
             textCol2.setAttribute('font-weight', 'bold');
             textCol2.setAttribute('text-anchor', 'middle');
             textCol2.textContent = ""; 
             fmaGroup.appendChild(textCol2);
 
-            // Col 3: Lateral Mode
+            // Col 3: Lateral Mode (Center x ~ 392)
             const textCol3 = document.createElementNS(SVG_NS, 'text');
             textCol3.setAttribute('id', 'fma_col3_text');
             textCol3.setAttribute('x', '392');
-            textCol3.setAttribute('y', '40'); // Adjusted center
+            textCol3.setAttribute('y', '62');
             textCol3.setAttribute('fill', '#00FF00');
             textCol3.setAttribute('font-family', 'monospace');
-            textCol3.setAttribute('font-size', '24'); // Bigger font
+            textCol3.setAttribute('font-size', '20');
             textCol3.setAttribute('font-weight', 'bold');
             textCol3.setAttribute('text-anchor', 'middle');
             textCol3.textContent = ""; 
             fmaGroup.appendChild(textCol3);
 
-            // Col 4: Approach Capability
+            // Col 4: Approach Capability (Center x ~ 549) - Static for now
             const textCol4 = document.createElementNS(SVG_NS, 'text');
             textCol4.setAttribute('id', 'fma_col4_text');
             textCol4.setAttribute('x', '549');
-            textCol4.setAttribute('y', '32'); // Adjusted for 2 lines
-            textCol4.setAttribute('fill', '#FFFFFF'); 
+            textCol4.setAttribute('y', '55');
+            textCol4.setAttribute('fill', '#FFFFFF'); // White for status
             textCol4.setAttribute('font-family', 'monospace');
-            textCol4.setAttribute('font-size', '18'); // Bigger font (was 16)
+            textCol4.setAttribute('font-size', '16');
             textCol4.setAttribute('text-anchor', 'middle');
             
+            // We can initialize lines for CAT3 / DUAL
             const tspan1 = document.createElementNS(SVG_NS, 'tspan');
             tspan1.setAttribute('x', '549');
             tspan1.setAttribute('dy', '0');
@@ -2724,12 +2727,13 @@ function getNearestRunway(aircraftPos, airportIcao, maxDistanceNM = 2.0) {
             
             const tspan2 = document.createElementNS(SVG_NS, 'tspan');
             tspan2.setAttribute('x', '549');
-            tspan2.setAttribute('dy', '20'); // Adjusted spacing
+            tspan2.setAttribute('dy', '18');
             tspan2.textContent = ""; 
             textCol4.appendChild(tspan2);
             
             fmaGroup.appendChild(textCol4);
 
+            // Append FMA to PFD Group (Last = On Top)
             pfdGroup.appendChild(fmaGroup);
         }
 
@@ -3053,11 +3057,16 @@ function updatePfdDisplay(pfdData) {
   }
 }
 
+    /**
+     * --- [NEW] Resets the PFD state and visuals to neutral. ---
+     * Call this when selecting a new aircraft to prevent displaying stale data.
+     */
     function resetPfdState() {
         // 1. Invalidate the persistent state object.
+        //    This forces updatePfdDisplay to re-initialize it on its next run.
         window.lastPfdState = null;
 
-        // 2. Immediately set the core SVG elements to a neutral state.
+        // 2. Immediately set the core SVG elements to a neutral, "level flight" state.
         const attitudeGroup = document.getElementById('attitude_group');
         const speedReadout = document.getElementById('speed_readout');
         const altReadoutHund = document.getElementById('altitude_readout_hundreds');
@@ -3066,34 +3075,20 @@ function updatePfdDisplay(pfdData) {
         const altitudeTapeGroup = document.getElementById('altitude_tape_group');
         const headingTapeGroup = document.getElementById('heading_tape_group');
 
-        // --- NEW: FMA Elements ---
-        const fmaCol1 = document.getElementById('fma_col1_text');
-        const fmaCol2 = document.getElementById('fma_col2_text');
-        const fmaCol3 = document.getElementById('fma_col3_text');
-        const fmaCol4 = document.getElementById('fma_col4_text');
-
         if (attitudeGroup) {
+            // Set to zero pitch translation and zero roll rotation.
             attitudeGroup.setAttribute('transform', 'translate(0, 0) rotate(0, 401.5, 312.5)');
         }
         
-        // 3. Clear readouts
+        // 3. Clear readouts to avoid showing the last aircraft's data.
         if (speedReadout) speedReadout.textContent = '---';
         if (altReadoutHund) altReadoutHund.textContent = '---';
         if (headingReadout) headingReadout.textContent = '---';
 
-        // 4. Reset tape positions
+        // 4. Reset tape positions to zero.
         if (speedTapeGroup) speedTapeGroup.setAttribute('transform', 'translate(0, 0)');
         if (altitudeTapeGroup) altitudeTapeGroup.setAttribute('transform', 'translate(0, 0)');
         if (headingTapeGroup) headingTapeGroup.setAttribute('transform', 'translate(0, 0)');
-
-        // --- NEW: Reset FMA ---
-        if (fmaCol1) fmaCol1.textContent = "";
-        if (fmaCol2) fmaCol2.textContent = "";
-        if (fmaCol3) fmaCol3.textContent = "";
-        if (fmaCol4) {
-             const spans = fmaCol4.querySelectorAll('tspan');
-             spans.forEach(s => s.textContent = "");
-        }
     }
 
 
@@ -5193,9 +5188,9 @@ function populateAircraftInfoWindow(baseProps, plan, sortedRoutePoints) {
                             <div class="screw br"></div>
                             
                             <div class="crt-container scanlines" id="pfd-container">
-                        <svg width="787" height="635" viewBox="0 0 787 665" fill="none" xmlns="http://www.w3.org/2000/svg">
-                        <g id="PFD" clip-path="url(#clip0_1_2890)">
-                            <g id="attitude_group">
+                                <svg width="787" height="635" viewBox="0 30 787 665" fill="none" xmlns="http://www.w3.org/2000/svg">
+                                <g id="PFD" clip-path="url(#clip0_1_2890)">
+                                    <g id="attitude_group">
                                         <rect id="Sky" x="-186" y="-222" width="1121" height="532" fill="#0596FF"/>
                                         <rect id="Ground" x="-138" y="307" width="1024" height="527" fill="#9A4710"/>
                                         </g>
