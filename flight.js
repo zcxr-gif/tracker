@@ -1967,6 +1967,17 @@ function handleSocketFlightUpdate(data) {
 
                 // 5. Update PFD Display
                 updatePfdDisplay(flight.position);
+
+                // --- [FIX] UPDATE RIGHT-SIDE NAV PANEL ---
+                updateNavPanelData(
+                    flight.position.lat,
+                    flight.position.lon,
+                    flight.position.heading_deg,
+                    cachedOat,
+                    cachedWindDir,
+                    cachedWindSpd
+                );
+                // -----------------------------------------
                 
                 // 6. Update Navigation Display Iframe
                 const navIframe = document.getElementById('nav-display-frame');
@@ -2006,84 +2017,84 @@ function handleSocketFlightUpdate(data) {
                     });
 
                     // B. Process Flight Plan for ND
-let ndFlightPlan = [];
-// Default values for the ND Overlay
-let ndNextWp = "WYPT";
-let ndDist = 0;
-let ndEte = "00:00";
+                    let ndFlightPlan = [];
+                    // Default values for the ND Overlay
+                    let ndNextWp = "WYPT";
+                    let ndDist = 0;
+                    let ndEte = "00:00";
 
-if (cachedFlightDataForStatsView && cachedFlightDataForStatsView.plan) {
-    const planItems = cachedFlightDataForStatsView.plan.flightPlanItems;
-    const flatWaypoints = getFlatWaypointObjects(planItems);
-    
-    // 1. Generate ND Lines (Existing Logic)
-    ndFlightPlan = flatWaypoints.map(wp => {
-        if (!wp.location || wp.location.latitude == null || wp.location.longitude == null) return null;
-        const distKm = getDistanceKm(myLat, myLon, wp.location.latitude, wp.location.longitude);
-        const distNM = distKm / 1.852;
-        const bearingTo = getBearing(myLat, myLon, wp.location.latitude, wp.location.longitude);
-        const rad = bearingTo * Math.PI / 180;
-        return {
-            name: wp.identifier || wp.name || 'WP',
-            x: Math.sin(rad) * distNM, 
-            y: Math.cos(rad) * distNM 
-        };
-    }).filter(Boolean);
+                    if (cachedFlightDataForStatsView && cachedFlightDataForStatsView.plan) {
+                        const planItems = cachedFlightDataForStatsView.plan.flightPlanItems;
+                        const flatWaypoints = getFlatWaypointObjects(planItems);
+                        
+                        // 1. Generate ND Lines (Existing Logic)
+                        ndFlightPlan = flatWaypoints.map(wp => {
+                            if (!wp.location || wp.location.latitude == null || wp.location.longitude == null) return null;
+                            const distKm = getDistanceKm(myLat, myLon, wp.location.latitude, wp.location.longitude);
+                            const distNM = distKm / 1.852;
+                            const bearingTo = getBearing(myLat, myLon, wp.location.latitude, wp.location.longitude);
+                            const rad = bearingTo * Math.PI / 180;
+                            return {
+                                name: wp.identifier || wp.name || 'WP',
+                                x: Math.sin(rad) * distNM, 
+                                y: Math.cos(rad) * distNM 
+                            };
+                        }).filter(Boolean);
 
-    // 2. Calculate Next Waypoint Info for ND Overlay (NEW LOGIC)
-    const currentTrack = flight.position.heading_deg;
-    let bestIndex = -1;
-    let minDist = Infinity;
+                        // 2. Calculate Next Waypoint Info for ND Overlay (NEW LOGIC)
+                        const currentTrack = flight.position.heading_deg;
+                        let bestIndex = -1;
+                        let minDist = Infinity;
 
-    if (flatWaypoints.length > 1) {
-        for (let i = 1; i < flatWaypoints.length; i++) {
-            const wp = flatWaypoints[i];
-            if (!wp.location) continue;
-            
-            const dKm = getDistanceKm(myLat, myLon, wp.location.latitude, wp.location.longitude);
-            const b = getBearing(myLat, myLon, wp.location.latitude, wp.location.longitude);
-            const bDiff = Math.abs(normalizeBearingDiff(currentTrack - b));
-            
-            // Simple logic: Closest waypoint roughly in front of us
-            if (bDiff <= 100 && dKm < minDist) {
-                minDist = dKm;
-                bestIndex = i;
-            }
-        }
-    }
+                        if (flatWaypoints.length > 1) {
+                            for (let i = 1; i < flatWaypoints.length; i++) {
+                                const wp = flatWaypoints[i];
+                                if (!wp.location) continue;
+                                
+                                const dKm = getDistanceKm(myLat, myLon, wp.location.latitude, wp.location.longitude);
+                                const b = getBearing(myLat, myLon, wp.location.latitude, wp.location.longitude);
+                                const bDiff = Math.abs(normalizeBearingDiff(currentTrack - b));
+                                
+                                // Simple logic: Closest waypoint roughly in front of us
+                                if (bDiff <= 100 && dKm < minDist) {
+                                    minDist = dKm;
+                                    bestIndex = i;
+                                }
+                            }
+                        }
 
-    // If we found a valid next waypoint
-    if (bestIndex !== -1) {
-        const wp = flatWaypoints[bestIndex];
-        const distNM = minDist / 1.852;
-        const gs = Math.max(1, flight.position.gs_kt || 0); // Prevent div by 0
-        
-        ndNextWp = wp.identifier || wp.name || "WPT";
-        ndDist = Math.round(distNM);
-        
-        // Calculate ETE (Hours:Minutes)
-        const totalMinutes = (distNM / gs) * 60;
-        const h = Math.floor(totalMinutes / 60);
-        const m = Math.floor(totalMinutes % 60);
-        ndEte = `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}`;
-    }
-}
+                        // If we found a valid next waypoint
+                        if (bestIndex !== -1) {
+                            const wp = flatWaypoints[bestIndex];
+                            const distNM = minDist / 1.852;
+                            const gs = Math.max(1, flight.position.gs_kt || 0); // Prevent div by 0
+                            
+                            ndNextWp = wp.identifier || wp.name || "WPT";
+                            ndDist = Math.round(distNM);
+                            
+                            // Calculate ETE (Hours:Minutes)
+                            const totalMinutes = (distNM / gs) * 60;
+                            const h = Math.floor(totalMinutes / 60);
+                            const m = Math.floor(totalMinutes % 60);
+                            ndEte = `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}`;
+                        }
+                    }
 
-// C. Post Message to Iframe (Updated)
-navIframe.contentWindow.postMessage({
-    heading: flight.position.heading_deg,
-    track: flight.position.heading_deg,
-    gs: Math.round(flight.position.gs_kt),
-    tas: calculatedTas, 
-    windDir: cachedWindDir, 
-    windSpd: cachedWindSpd,
-    traffic: ndTraffic,
-    flightPlan: ndFlightPlan,
-    // --- PASS NEW DATA ---
-    nextWp: ndNextWp,
-    nextWpDist: ndDist,
-    nextWpEte: ndEte
-}, '*');
+                    // C. Post Message to Iframe (Updated)
+                    navIframe.contentWindow.postMessage({
+                        heading: flight.position.heading_deg,
+                        track: flight.position.heading_deg,
+                        gs: Math.round(flight.position.gs_kt),
+                        tas: calculatedTas, 
+                        windDir: cachedWindDir, 
+                        windSpd: cachedWindSpd,
+                        traffic: ndTraffic,
+                        flightPlan: ndFlightPlan,
+                        // --- PASS NEW DATA ---
+                        nextWp: ndNextWp,
+                        nextWpDist: ndDist,
+                        nextWpEte: ndEte
+                    }, '*');
                 }
 
                 // 7. Update Info Window UI
@@ -4676,6 +4687,18 @@ async function handleAircraftClick(flightProps, sessionId) {
         // --- [NEW] Perform the *first* geocode call immediately ---
         fetchAndDisplayGeocode(flightProps.position.lat, flightProps.position.lon);
 
+        // --- [FIX] UPDATE RIGHT-SIDE NAV PANEL IMMEDIATELY ---
+        // Initialize with 0/15C defaults, weather fetcher will update shortly
+        updateNavPanelData(
+            flightProps.position.lat,
+            flightProps.position.lon,
+            flightProps.position.heading_deg,
+            flightProps.position.oat_c || 15,
+            flightProps.position.wind_dir || 0,
+            flightProps.position.wind_spd_kts || 0
+        );
+        // ----------------------------------------------------
+
         // --- [NEW] Generate the initial altitude-colored route ---
         const routeFeatureCollection = generateAltitudeColoredRoute(sortedRoutePoints, flightProps.position);
 
@@ -4745,12 +4768,12 @@ async function handleAircraftClick(flightProps, sessionId) {
         }, FIVE_MINUTES_MS); // Call again every 5 minutes
         let activeWeatherUpdateInterval = null; // Ensure this is defined outside if necessary
     
-    // Run initial fetch immediately
-    fetchAndDisplayWeather();
-    
-    activeWeatherUpdateInterval = setInterval(() => {
-         fetchAndDisplayWeather();
-    }, FIVE_MINUTES_MS);
+        // Run initial fetch immediately
+        fetchAndDisplayWeather();
+        
+        activeWeatherUpdateInterval = setInterval(() => {
+             fetchAndDisplayWeather();
+        }, FIVE_MINUTES_MS);
 
         // [RESILIENCE] Unset loading flag on success
         isAircraftWindowLoading = false;
