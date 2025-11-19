@@ -451,12 +451,18 @@
             ctx.lineJoin = 'round';
             ctx.beginPath();
 
-            ctx.moveTo(0, 0);
-
-            state.flightPlan.forEach(wpt => {
+            // --- FIX: Removed ctx.moveTo(0, 0) ---
+            // Instead, we check the index. If it's the first point, move there.
+            // Otherwise, draw a line to it.
+            state.flightPlan.forEach((wpt, index) => {
                 const px = wpt.x * pxPerNM;
                 const py = -wpt.y * pxPerNM; 
-                ctx.lineTo(px, py); 
+                
+                if (index === 0) {
+                    ctx.moveTo(px, py);
+                } else {
+                    ctx.lineTo(px, py); 
+                }
             });
             ctx.stroke();
 
