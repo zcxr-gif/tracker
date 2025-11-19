@@ -4839,25 +4839,35 @@ function rebuildDynamicLayers() {
 
 
 function populateAircraftInfoWindow(baseProps, plan, sortedRoutePoints) {
+    // --- Helper function to update all elements matching a selector ---
+    const updateAll = (selector, value, isHTML = false) => {
+        const elements = document.querySelectorAll(selector);
+        elements.forEach(el => {
+            if (isHTML) {
+                el.innerHTML = value;
+            } else {
+                el.textContent = value;
+            }
+        });
+    };
+    
+    // --- Helper for styling ---
+    const styleAll = (selector, property, value) => {
+        const elements = document.querySelectorAll(selector);
+        elements.forEach(el => {
+            el.style[property] = value;
+        });
+    };
+
+    // --- Get Original Data ---
+    const originalFlatWaypoints = (plan && plan.flightPlanItems) ? flattenWaypointsFromPlan(plan.flightPlanItems) : [];
+    const originalFlatWaypointObjects = (plan && plan.flightPlanItems) ? getFlatWaypointObjects(plan.flightPlanItems) : [];
+    const hasPlan = originalFlatWaypoints.length >= 2;
     const windowEl = document.getElementById('aircraft-info-window');
 
     // --- Get Aircraft & Route Data ---
     const aircraftName = baseProps.aircraft?.aircraftName || 'Unknown Type';
     const airlineName = baseProps.aircraft?.liveryName || 'Generic Livery';
-
-    const allWaypoints = [];
-    if (plan && plan.flightPlanItems) {
-        const extractWps = (items) => {
-            for (const item of items) {
-                if (item.location && (item.location.latitude !== 0 || item.location.longitude !== 0)) { allWaypoints.push(item); }
-                if (Array.isArray(item.children)) { extractWps(item.children); }
-            }
-        };
-        extractWps(plan.flightPlanItems);
-    }
-    const hasPlan = allWaypoints.length >= 2;
-    const departureIcao = hasPlan ? allWaypoints[0]?.name : 'N/A';
-    const arrivalIcao = hasPlan ? allWaypoints[allWaypoints.length - 1]?.name : 'N/A';
 
     // --- Get Airline Logo ---
     const liveryName = baseProps.aircraft?.liveryName || '';
@@ -4891,6 +4901,9 @@ function populateAircraftInfoWindow(baseProps, plan, sortedRoutePoints) {
     const atdTimestamp = (sortedRoutePoints && sortedRoutePoints.length > 0) ? sortedRoutePoints[0].date : null;
     const atdTime = atdTimestamp ? formatTimeFromTimestamp(atdTimestamp) : '--:--';
     const etaTime = '--:--'; 
+
+    const departureIcao = hasPlan ? originalFlatWaypointObjects[0]?.identifier || originalFlatWaypointObjects[0]?.name : 'N/A';
+    const arrivalIcao = hasPlan ? originalFlatWaypointObjects[originalFlatWaypointObjects.length - 1]?.identifier || originalFlatWaypointObjects[originalFlatWaypointObjects.length - 1]?.name : 'N/A';
 
     const depCountryCode = airportsData[departureIcao]?.country ? airportsData[departureIcao].country.toLowerCase() : '';
     const arrCountryCode = airportsData[arrivalIcao]?.country ? airportsData[arrivalIcao].country.toLowerCase() : '';
@@ -5044,8 +5057,13 @@ function populateAircraftInfoWindow(baseProps, plan, sortedRoutePoints) {
                                     <path id="Vector 18" d="M610 199.5L619 194" stroke="#029705" stroke-width="3"/>
                                     <line id="Line 1" x1="184" y1="211" x2="184" y2="184" stroke="#DBDBDC" stroke-width="2"/>
                                     <line id="Line 2" x1="610" y1="211" x2="610" y2="184" stroke="#DBDBDC" stroke-width="2"/>
+                                    
                                     <rect id="altitude_bg" x="675" y="73" width="72" height="476" fill="#76767A"/>
-                                    <svg x="675" y="73" width="72" height="476"><g id="altitude_tape_group"></g></svg>
+                                    
+                                    <g clip-path="url(#altTapeClip)">
+                                        <svg x="675" y="73" width="72" height="476"><g id="altitude_tape_group"></g></svg>
+                                    </g>
+
                                     <g id="altitude_indicator_static">
                                         <rect id="altitude_1" x="675" y="280" width="73" height="49" fill="#030309"/>
                                         <text id="altitude_readout_hundreds" x="740" y="316" fill="#00FF00" font-size="32" text-anchor="end" font-weight="bold">0</text>
@@ -5064,8 +5082,13 @@ function populateAircraftInfoWindow(baseProps, plan, sortedRoutePoints) {
                                         <path d="M636 229C636 232.866 632.866 236 629 236C625.134 236 622 232.866 622 229C622 225.134 625.134 222 629 222C632.866 222 636 225.134 636 229Z" fill="#D9D9D9"/>
                                         <path d="M636 395C636 398.866 632.866 402 629 402C625.134 402 622 398.866 622 395C622 391.134 625.134 388 629 388C632.866 388 636 391.134 636 395Z" fill="#D9D9D9"/>
                                     </g>
+                                    
                                     <rect id="speed" x="28" y="73" width="97" height="477" fill="#76767A"/>
-                                    <svg x="28" y="73" width="97" height="477"><g id="speed_tape_group"></g></svg>
+                                    
+                                    <g clip-path="url(#speedTapeClip)">
+                                        <svg x="28" y="73" width="97" height="477"><g id="speed_tape_group"></g></svg>
+                                    </g>
+
                                     <g id="speed_indicator_static">
                                         <path id="Polygon 9" d="M128.036 311.591L150.451 301.561L150.513 321.482L128.036 311.591Z" fill="#FDFD03"/>
                                         <path id="Vector 20" d="M137 311H96.5" stroke="#FDFD03" stroke-width="4"/>
@@ -5113,6 +5136,8 @@ function populateAircraftInfoWindow(baseProps, plan, sortedRoutePoints) {
                                     <clipPath id="clip0_1_2890"><rect width="787" height="695" fill="white"/></clipPath>
                                     <clipPath id="tensReelClip"><rect x="732" y="269" width="50" height="75"/></clipPath>
                                     <clipPath id="headingClip"><rect x="243" y="620" width="326" height="45"/></clipPath>
+                                    <clipPath id="speedTapeClip"><rect x="28" y="73" width="97" height="477"/></clipPath>
+                                    <clipPath id="altTapeClip"><rect x="675" y="73" width="72" height="476"/></clipPath>
                                 </defs>
                                 </svg>
                             </div>
