@@ -312,11 +312,6 @@
         
         const GLOBAL_SCALE = 0.85; 
 
-        // Check if embedded
-        if (window.self !== window.top) {
-            document.body.classList.add('embedded');
-        }
-
         let state = {
             heading: 270,
             tas: 0, 
@@ -327,17 +322,22 @@
             track: 270, 
             time: "00:00",
             simTime: new Date(),
-            flightPlan: [
-                // Initial dummy data for standalone preview. 
-                // This gets overwritten immediately when receiving data from flight.js
+            flightPlan: [] // Default to empty so no hardcoded lines appear in production
+        };
+
+        // Check if embedded
+        if (window.self !== window.top) {
+            document.body.classList.add('embedded');
+        } else {
+            // ONLY load dummy data if we are running Standalone (for testing)
+            state.flightPlan = [
                 { name: "WPT01", x: -12, y: 0 },   
                 { name: "WPT02", x: -30, y: -10 }, 
                 { name: "WPT03", x: -55, y: 5 }    
-            ]
-        };
+            ];
+        }
 
         let traffic = [
-            // Initial dummy traffic
             { bearing: 30, dist: 15, altDiff: 12, vs: 800 },
             { bearing: 180, dist: 25, altDiff: -5, vs: -500 },
             { bearing: 300, dist: 8, altDiff: 0, vs: 0 },
@@ -425,7 +425,7 @@
         }
 
         function drawFlightPlan(radius) {
-            // Safety check
+            // Only draw if we have a plan
             if (!state.flightPlan || state.flightPlan.length === 0) return;
 
             const pxPerNM = radius / state.range;
@@ -451,27 +451,21 @@
             ctx.lineJoin = 'round';
             ctx.beginPath();
 
-            // Draw lines
-            ctx.moveTo(0, 0); // Start at aircraft (0,0)
+            ctx.moveTo(0, 0);
 
             state.flightPlan.forEach(wpt => {
-                // In flight.js: x = East (Right), y = North (Up).
-                // In canvas: +x is Right, +y is Down.
-                // So we map: canvasX = wpt.x, canvasY = -wpt.y
                 const px = wpt.x * pxPerNM;
                 const py = -wpt.y * pxPerNM; 
                 ctx.lineTo(px, py); 
             });
             ctx.stroke();
 
-            // Draw Waypoint Diamonds & Labels
             ctx.fillStyle = COLORS.green;
             state.flightPlan.forEach(wpt => {
                 const px = wpt.x * pxPerNM;
                 const py = -wpt.y * pxPerNM; 
 
-                // Distance check (visual culling)
-                // We relax the check if clipped, but for performance, don't draw way too far out
+                // We relax the distance check slightly since the visual clip handles the boundary
                 const dist = Math.sqrt(wpt.x*wpt.x + wpt.y*wpt.y);
                 if (dist > state.range + 80) return; 
 
@@ -530,6 +524,8 @@
                 const isMajor = (d % 10 === 0);
                 
                 // Ticks start at innerRadius (line) and go OUTWARDS
+                // Long ticks go all the way to outerRadius
+                // Short ticks go part way
                 const currentTickLen = isMajor ? tickLenLong : tickLenShort;
                 
                 // Calculate Start (Line) and End (Outwards)
@@ -569,6 +565,9 @@
             ctx.strokeStyle = COLORS.white;
             ctx.setLineDash([5, 5]); 
             ctx.lineWidth = 1; 
+            
+            // We don't need an outer boundary ring anymore because the 
+            // Compass Rose's solid inner line acts as the visual boundary.
             
             if (isRoseMode) {
                 // Inner ring only
@@ -626,6 +625,8 @@
             ctx.fillStyle = COLORS.yellow;
             ctx.beginPath();
             
+            // Triangle sits near the numbers, so we push it out to match
+            // the new outer radius where numbers are.
             const pointerRadius = radius + 15; 
             
             const arrowHeight = radius * 0.08;
@@ -635,12 +636,14 @@
             const topY = cy - pointerRadius; 
             
             // Top Triangle (Lubber Line)
+            // Pointing down towards the scale
             ctx.moveTo(cx, topY);
             ctx.lineTo(cx - arrowWidth, topY - arrowHeight);
             ctx.lineTo(cx + arrowWidth, topY - arrowHeight);
             ctx.fill();
             
             // Track Pointer (Green Diamond)
+            // Needs to be on the line (inner radius)
             const tickLenLong = radius * 0.08;
             const innerRadius = radius - tickLenLong;
             
@@ -667,9 +670,8 @@
             const pxPerNM = radius / state.range;
 
             traffic.forEach(t => {
-                if (t.dist > state.range + 20) return;
+                if (t.dist > state.range + 5) return;
 
-                // Calculate position
                 const tX = Math.sin(t.bearing * Math.PI / 180) * (t.dist * pxPerNM);
                 const tY = -Math.cos(t.bearing * Math.PI / 180) * (t.dist * pxPerNM);
                 
@@ -822,7 +824,6 @@
             if (data.traffic && Array.isArray(data.traffic)) {
                 traffic = data.traffic;
             }
-            // --- [NEW] Flight Plan Receiver ---
             if (data.flightPlan && Array.isArray(data.flightPlan)) {
                 state.flightPlan = data.flightPlan;
             }
