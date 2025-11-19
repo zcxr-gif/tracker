@@ -57,11 +57,10 @@
         }
 
         /* --- Display Unit (The Monitor Bezel) --- */
-        /* UPDATED: Fixed dimensions per request */
         .display-bezel {
             position: relative;
             background-color: var(--bg-bezel);
-            padding: 0.75rem; /* Slightly reduced padding for smaller frame */
+            padding: 0.75rem; 
             border-radius: 1rem;
             border: 4px solid var(--border-main);
             box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.5); 
@@ -69,7 +68,6 @@
             /* STRICT DIMENSIONS */
             width: 300px;
             height: 242px;
-            /* Removed aspect-ratio: 1/1 to allow rectangular shape */
             
             display: flex;
             flex-direction: column;
@@ -78,7 +76,7 @@
         /* Decorative Screws */
         .screw {
             position: absolute;
-            width: 0.5rem; /* Smaller screws for smaller bezel */
+            width: 0.5rem; 
             height: 0.5rem;
             background-color: var(--screw-color);
             border-radius: 50%;
@@ -96,7 +94,7 @@
             position: relative;
             border: 2px solid var(--border-dark);
             background: #000;
-            border-radius: 12px; /* Slightly smaller radius */
+            border-radius: 12px; 
             overflow: hidden;
             box-shadow: inset 0 0 20px rgba(0,0,0,0.8);
         }
@@ -130,7 +128,7 @@
             box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.3);
             
             display: flex;
-            flex-direction: column; /* Force column on small width */
+            flex-direction: column; 
             gap: 1rem;
         }
 
@@ -297,9 +295,6 @@
             border-radius: 0;
             padding: 0;
             background: transparent;
-            /* Keep dimensions rigid even in embedded mode if desired, 
-               or remove this line if embedded should be fluid. 
-               Sticking to request for fixed size: */
             width: 300px;
             height: 242px;
         }
@@ -315,10 +310,6 @@
         const canvas = document.getElementById('ndCanvas');
         const ctx = canvas.getContext('2d');
         
-        // SCALE FACTOR:
-        // Since the physical screen is small (300x242), we need to ensure the
-        // drawing logic doesn't create elements that are too microscopic.
-        // 1.0 is standard relative to canvas size.
         const GLOBAL_SCALE = 0.85; 
 
         // Check if embedded
@@ -335,10 +326,18 @@
             windSpd: 0,
             track: 270, 
             time: "00:00",
-            simTime: new Date()
+            simTime: new Date(),
+            flightPlan: [
+                // Initial dummy data for standalone preview. 
+                // This gets overwritten immediately when receiving data from flight.js
+                { name: "WPT01", x: -12, y: 0 },   
+                { name: "WPT02", x: -30, y: -10 }, 
+                { name: "WPT03", x: -55, y: 5 }    
+            ]
         };
 
         let traffic = [
+            // Initial dummy traffic
             { bearing: 30, dist: 15, altDiff: 12, vs: 800 },
             { bearing: 180, dist: 25, altDiff: -5, vs: -500 },
             { bearing: 300, dist: 8, altDiff: 0, vs: 0 },
@@ -356,24 +355,14 @@
             grey: '#666666'
         };
 
-        // UPDATED RESIZE LOGIC
         function resize() {
-            // We want high resolution drawing internally (crisp lines),
-            // but we must respect the aspect ratio of the CSS size (300x242).
             const rect = canvas.getBoundingClientRect();
-            const dpr = window.devicePixelRatio || 1;
-            
-            // Use the actual rendered size (from CSS) to determine canvas resolution
-            // This ensures 1:1 mapping of drawing aspect ratio to screen aspect ratio
             const width = rect.width || 300;
             const height = rect.height || 242;
-
-            // Multiply by DPR (or fixed 2x) for Retina sharpness
             canvas.width = width * 2;
             canvas.height = height * 2;
         }
         window.addEventListener('resize', resize);
-        // Call immediately
         setTimeout(resize, 0);
 
         function updatePhysics() {
@@ -394,72 +383,180 @@
             ctx.translate(w/2, h/2); 
             ctx.scale(GLOBAL_SCALE, GLOBAL_SCALE);
 
-            // Calculate responsive sizes based on current canvas height
             const scaledH = h / GLOBAL_SCALE;
             const scaledW = w / GLOBAL_SCALE;
             
-            // Position adjustments for the wider/shorter aspect ratio
-            const arcCenterY = scaledH * 0.45 - (scaledH / 2); 
-            const arcCenterX = 0; 
-            const arcRadius = scaledH * 0.42; // Slightly larger relative radius since we have width
+            const isRoseMode = (state.range >= 40);
 
-            // Rotating Map
+            let arcCenterY, arcCenterX, arcRadius;
+
+            if (isRoseMode) {
+                // ROSE MODE
+                arcCenterX = 0;
+                arcCenterY = 0; 
+                arcRadius = scaledH * 0.42; 
+            } else {
+                // ARC MODE
+                arcCenterX = 0;
+                arcCenterY = (scaledH / 2) - 60; 
+                // Slightly reduced radius to fit numbers on the outside
+                arcRadius = scaledH * 0.72; 
+            }
+
+            // Rotating Map Area
             ctx.save();
             ctx.translate(arcCenterX, arcCenterY);
             ctx.rotate(-state.heading * Math.PI / 180);
-            drawCompassRose(arcRadius);
+            
+            drawCompassRose(arcRadius, isRoseMode);
+            drawFlightPlan(arcRadius);
             drawTraffic(arcRadius);
+            
             ctx.restore();
 
             // Static Overlays
-            drawRangeRings(arcCenterX, arcCenterY, arcRadius);
+            drawRangeRings(arcCenterX, arcCenterY, arcRadius, isRoseMode);
             drawAircraftSymbol(arcCenterX, arcCenterY);
             drawHeadingPointers(arcCenterX, arcCenterY, arcRadius);
+            
             drawOverlays(scaledW, scaledH); 
             
             ctx.restore();
         }
 
-        function drawCompassRose(radius) {
+        function drawFlightPlan(radius) {
+            // Safety check
+            if (!state.flightPlan || state.flightPlan.length === 0) return;
+
+            const pxPerNM = radius / state.range;
+            
+            // Calculate the "inner" radius where the solid line is.
+            // This matches drawCompassRose logic (tickLenLong = radius * 0.08).
+            // So the solid line is at radius * (1 - 0.08) = radius * 0.92.
+            const clipRadius = radius * 0.92; 
+
+            ctx.save(); // Save state for clipping
+
+            // --- CONTENTION LOGIC ---
+            // Flight plan is only allowed to get out when fully zoomed out (Range 40).
+            // If Range < 40, we clip it to the inner ring.
+            if (state.range < 40) {
+                ctx.beginPath();
+                ctx.arc(0, 0, clipRadius, 0, 2 * Math.PI);
+                ctx.clip();
+            }
+
+            ctx.strokeStyle = COLORS.green;
+            ctx.lineWidth = 3;
+            ctx.lineJoin = 'round';
+            ctx.beginPath();
+
+            // Draw lines
+            ctx.moveTo(0, 0); // Start at aircraft (0,0)
+
+            state.flightPlan.forEach(wpt => {
+                // In flight.js: x = East (Right), y = North (Up).
+                // In canvas: +x is Right, +y is Down.
+                // So we map: canvasX = wpt.x, canvasY = -wpt.y
+                const px = wpt.x * pxPerNM;
+                const py = -wpt.y * pxPerNM; 
+                ctx.lineTo(px, py); 
+            });
+            ctx.stroke();
+
+            // Draw Waypoint Diamonds & Labels
+            ctx.fillStyle = COLORS.green;
+            state.flightPlan.forEach(wpt => {
+                const px = wpt.x * pxPerNM;
+                const py = -wpt.y * pxPerNM; 
+
+                // Distance check (visual culling)
+                // We relax the check if clipped, but for performance, don't draw way too far out
+                const dist = Math.sqrt(wpt.x*wpt.x + wpt.y*wpt.y);
+                if (dist > state.range + 80) return; 
+
+                const dSize = 5;
+                ctx.beginPath();
+                ctx.moveTo(px, py - dSize);
+                ctx.lineTo(px + dSize, py);
+                ctx.lineTo(px, py + dSize);
+                ctx.lineTo(px - dSize, py);
+                ctx.closePath();
+                ctx.fill();
+                
+                ctx.fillStyle = COLORS.white;
+                ctx.font = `bold ${radius * 0.07}px 'Inconsolata'`;
+                ctx.fillText(wpt.name, px + 10, py);
+                ctx.fillStyle = COLORS.green; 
+            });
+
+            ctx.restore(); // Restore context (remove clip)
+        }
+
+        function drawCompassRose(outerRadius, isRoseMode) {
+            // --- NEW "INSIDE OUT" LOGIC ---
+            // We treat 'outerRadius' as the outer tip of the tick marks.
+            // The Solid Line is now the INNER baseline.
+            
+            const tickLenLong = outerRadius * 0.08;
+            const tickLenShort = outerRadius * 0.04;
+            
+            // innerRadius is where the solid line sits
+            const innerRadius = outerRadius - tickLenLong;
+
             ctx.strokeStyle = COLORS.white;
             ctx.fillStyle = COLORS.white;
             ctx.textAlign = "center";
             ctx.textBaseline = "middle";
             ctx.lineWidth = 2; 
             
-            // Use relative font sizes
-            ctx.font = `bold ${radius * 0.09}px 'Inconsolata', monospace`;
+            // Dynamic font size
+            ctx.font = `bold ${outerRadius * 0.09}px 'Inconsolata', monospace`;
 
-            const tickLenShort = radius * 0.04;
-            const tickLenLong = radius * 0.08;
+            // 1. Draw the SINGLE Solid Line at the Inner Radius
+            ctx.beginPath();
+            ctx.arc(0, 0, innerRadius, 0, 2 * Math.PI);
+            ctx.stroke();
 
+            // 2. Draw Ticks & Numbers
             for (let d = 0; d < 360; d += 5) {
+                if (!isRoseMode) {
+                    let rel = Math.abs(d - state.heading);
+                    if (rel > 180) rel = 360 - rel;
+                    if (rel > 130) continue; 
+                }
+
                 const rad = d * Math.PI / 180;
-                let rel = Math.abs(d - state.heading);
-                if (rel > 180) rel = 360 - rel;
-                if (rel > 110) continue; 
-
                 const isMajor = (d % 10 === 0);
-                const len = isMajor ? tickLenLong : tickLenShort;
-
-                const x1 = Math.sin(rad) * radius;
-                const y1 = -Math.cos(rad) * radius;
-                const x2 = Math.sin(rad) * (radius - len);
-                const y2 = -Math.cos(rad) * (radius - len);
+                
+                // Ticks start at innerRadius (line) and go OUTWARDS
+                const currentTickLen = isMajor ? tickLenLong : tickLenShort;
+                
+                // Calculate Start (Line) and End (Outwards)
+                const x1 = Math.sin(rad) * innerRadius;
+                const y1 = -Math.cos(rad) * innerRadius;
+                
+                const x2 = Math.sin(rad) * (innerRadius + currentTickLen);
+                const y2 = -Math.cos(rad) * (innerRadius + currentTickLen);
 
                 ctx.beginPath();
                 ctx.moveTo(x1, y1);
                 ctx.lineTo(x2, y2);
                 ctx.stroke();
 
+                // Numbers (Major only) - Placed OUTSIDE the ticks
                 if (d % 30 === 0) {
-                    const textRadius = radius - (radius * 0.18); 
+                    // Push text slightly further out than the long ticks
+                    const textPadding = 18; 
+                    const textRadius = outerRadius + textPadding;
+                    
                     const tx = Math.sin(rad) * textRadius;
                     const ty = -Math.cos(rad) * textRadius;
                     
                     ctx.save();
                     ctx.translate(tx, ty);
                     ctx.rotate(state.heading * Math.PI / 180); 
+                    
                     let label = (d / 10).toString().padStart(2, '0');
                     if (d === 0) label = "N"; 
                     ctx.fillText(label, 0, 0);
@@ -468,20 +565,26 @@
             }
         }
 
-        function drawRangeRings(cx, cy, radius) {
+        function drawRangeRings(cx, cy, radius, isRoseMode) {
             ctx.strokeStyle = COLORS.white;
             ctx.setLineDash([5, 5]); 
             ctx.lineWidth = 1; 
             
-            // Ring 1
-            ctx.beginPath();
-            ctx.arc(cx, cy, radius * 0.5, Math.PI + 0.6, 2 * Math.PI - 0.6);
-            ctx.stroke();
+            if (isRoseMode) {
+                // Inner ring only
+                ctx.beginPath();
+                ctx.arc(cx, cy, radius * 0.5, 0, Math.PI * 2);
+                ctx.stroke();
+            } else {
+                // Arc Mode: Inner rings
+                ctx.beginPath();
+                ctx.arc(cx, cy, radius * 0.5, Math.PI + 0.6, 2 * Math.PI - 0.6);
+                ctx.stroke();
+                ctx.beginPath();
+                ctx.arc(cx, cy, radius * 0.75, Math.PI + 0.4, 2 * Math.PI - 0.4); // Reduced arc length slightly
+                ctx.stroke();
+            }
             
-            // Ring 2
-            ctx.beginPath();
-            ctx.arc(cx, cy, radius * 0.75, Math.PI + 0.4, 2 * Math.PI - 0.4);
-            ctx.stroke();
             ctx.setLineDash([]); 
 
             // Labels
@@ -489,12 +592,16 @@
             ctx.font = `${radius * 0.06}px 'Inconsolata'`;
             ctx.textAlign = "right";
             
-            let midVal = state.range / 2;
-            let threeQuarterVal = state.range * 0.75;
-            
-             const offset = 5;
-             ctx.fillText(midVal.toString(), cx - (radius*0.5) - offset, cy - offset); 
-             ctx.fillText(threeQuarterVal.toString(), cx - (radius*0.75) - offset, cy - offset);
+            const midVal = state.range / 2;
+            const offset = 5;
+
+            if (isRoseMode) {
+                 ctx.fillText(midVal.toString(), cx - (radius*0.5) - offset, cy - offset); 
+            } else {
+                 const threeQuarterVal = state.range * 0.75;
+                 ctx.fillText(midVal.toString(), cx - (radius*0.5) - offset, cy - offset); 
+                 ctx.fillText(threeQuarterVal.toString(), cx - (radius*0.75) - offset, cy - offset);
+            }
         }
 
         function drawAircraftSymbol(cx, cy) {
@@ -502,7 +609,6 @@
             ctx.lineWidth = 3;
             ctx.beginPath();
             
-            // Fixed pixel sizes usually look better for the symbol, but we can scale lightly
             const size = 15;
             const tailOffset = 12;
             const tailWidth = 6;
@@ -520,28 +626,38 @@
             ctx.fillStyle = COLORS.yellow;
             ctx.beginPath();
             
+            const pointerRadius = radius + 15; 
+            
             const arrowHeight = radius * 0.08;
             const arrowWidth = radius * 0.04;
-            const topYOffset = radius * 0.02;
             
-            const topY = cy - radius + topYOffset; 
+            // Adjust top Y to be at the new pointer radius
+            const topY = cy - pointerRadius; 
             
+            // Top Triangle (Lubber Line)
             ctx.moveTo(cx, topY);
             ctx.lineTo(cx - arrowWidth, topY - arrowHeight);
             ctx.lineTo(cx + arrowWidth, topY - arrowHeight);
             ctx.fill();
             
+            // Track Pointer (Green Diamond)
+            const tickLenLong = radius * 0.08;
+            const innerRadius = radius - tickLenLong;
+            
             const drift = state.track - state.heading;
             const driftRad = drift * Math.PI / 180;
             
             ctx.strokeStyle = COLORS.green;
-            ctx.lineWidth = 2;
+            ctx.lineWidth = 3;
             
-            const endX = cx + radius * Math.sin(driftRad);
-            const endY = cy - radius * Math.cos(driftRad);
-            
+            // Position on the inner line
+            const startX = cx + (innerRadius - 8) * Math.sin(driftRad);
+            const startY = cy - (innerRadius - 8) * Math.cos(driftRad);
+            const endX = cx + (innerRadius + 8) * Math.sin(driftRad);
+            const endY = cy - (innerRadius + 8) * Math.cos(driftRad);
+
             ctx.beginPath();
-            ctx.moveTo(cx, cy);
+            ctx.moveTo(startX, startY);
             ctx.lineTo(endX, endY);
             ctx.stroke();
         }
@@ -551,8 +667,9 @@
             const pxPerNM = radius / state.range;
 
             traffic.forEach(t => {
-                if (t.dist > state.range + 5) return;
+                if (t.dist > state.range + 20) return;
 
+                // Calculate position
                 const tX = Math.sin(t.bearing * Math.PI / 180) * (t.dist * pxPerNM);
                 const tY = -Math.cos(t.bearing * Math.PI / 180) * (t.dist * pxPerNM);
                 
@@ -584,7 +701,6 @@
         }
 
         function drawOverlays(w, h) {
-            // Use height-relative font size so it scales if we change CSS height later
             const fontSize = h * 0.06; 
             ctx.font = `bold ${fontSize}px 'Inconsolata', monospace`;
             
@@ -705,6 +821,10 @@
             }
             if (data.traffic && Array.isArray(data.traffic)) {
                 traffic = data.traffic;
+            }
+            // --- [NEW] Flight Plan Receiver ---
+            if (data.flightPlan && Array.isArray(data.flightPlan)) {
+                state.flightPlan = data.flightPlan;
             }
         });
     </script>

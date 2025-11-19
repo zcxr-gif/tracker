@@ -3659,7 +3659,40 @@ function handleSocketFlightUpdate(data) {
                         }
                     });
 
-                    // B. Send Data to Iframe
+                    // --- [NEW] B. Process Flight Plan for ND ---
+                    let ndFlightPlan = [];
+                    
+                    // Check if we have a cached plan for the currently open window
+                    if (cachedFlightDataForStatsView && cachedFlightDataForStatsView.plan) {
+                        // Use existing helper to get flat array of waypoint objects
+                        const flatWaypoints = getFlatWaypointObjects(cachedFlightDataForStatsView.plan.flightPlanItems);
+                        
+                        ndFlightPlan = flatWaypoints.map(wp => {
+                            if (!wp.location || wp.location.latitude == null || wp.location.longitude == null) return null;
+
+                            // 1. Get Distance in NM
+                            const distKm = getDistanceKm(myLat, myLon, wp.location.latitude, wp.location.longitude);
+                            const distNM = distKm / 1.852;
+
+                            // 2. Get True Bearing from Aircraft to Waypoint
+                            const bearingTo = getBearing(myLat, myLon, wp.location.latitude, wp.location.longitude);
+
+                            // 3. Convert to Cartesian Coordinates (North-Relative)
+                            // In this system: Y is North, X is East
+                            // The ND's canvas rotation logic will handle aligning North to the Aircraft Heading
+                            const rad = bearingTo * Math.PI / 180;
+                            const x = Math.sin(rad) * distNM; 
+                            const y = Math.cos(rad) * distNM; 
+
+                            return {
+                                name: wp.identifier || wp.name || 'WP',
+                                x: x, 
+                                y: y 
+                            };
+                        }).filter(Boolean); // Remove nulls
+                    }
+
+                    // C. Send Data to Iframe
                     navIframe.contentWindow.postMessage({
                         heading: flight.position.heading_deg,
                         track: flight.position.heading_deg, // IF API doesn't always give track, assume Heading=Track for now
@@ -3667,7 +3700,8 @@ function handleSocketFlightUpdate(data) {
                         gs: Math.round(flight.position.gs_kt),
                         windDir: 0, // Live wind not in this packet usually
                         windSpd: 0,
-                        traffic: ndTraffic
+                        traffic: ndTraffic,
+                        flightPlan: ndFlightPlan // <--- Sending the calculated plan
                     }, '*');
                 }
                 // === END NEW ===
