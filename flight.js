@@ -2643,14 +2643,13 @@ function getNearestRunway(aircraftPos, airportIcao, maxDistanceNM = 2.0) {
             fmaGroup.setAttribute('id', 'fma_group');
             
             // Background Box (Top of PFD)
-            // UPDATED: y=0 to use the new gap. Height=80 to fill it.
+            // UPDATED: Height 100
             const fmaBg = document.createElementNS(SVG_NS, 'rect');
             fmaBg.setAttribute('x', '0');
             fmaBg.setAttribute('y', '0'); 
             fmaBg.setAttribute('width', '787');
-            fmaBg.setAttribute('height', '80'); // Taller to match new gap
-            fmaBg.setAttribute('fill', '#101010'); // Dark background
-            // Optional: Add a bottom border line
+            fmaBg.setAttribute('height', '100'); // Taller
+            fmaBg.setAttribute('fill', '#101010'); 
             fmaBg.setAttribute('stroke', '#555');
             fmaBg.setAttribute('stroke-width', '0'); 
             fmaGroup.appendChild(fmaBg);
@@ -2661,24 +2660,24 @@ function getNearestRunway(aircraftPos, airportIcao, maxDistanceNM = 2.0) {
                 const x = i * colWidth;
                 const line = document.createElementNS(SVG_NS, 'line');
                 line.setAttribute('x1', x); line.setAttribute('x2', x);
-                // UPDATED: Line spans full FMA height (0 to 80)
-                line.setAttribute('y1', '0'); line.setAttribute('y2', '80');
+                // UPDATED: y2 is 100
+                line.setAttribute('y1', '0'); line.setAttribute('y2', '100');
                 line.setAttribute('stroke', '#555'); 
                 line.setAttribute('stroke-width', '1');
                 fmaGroup.appendChild(line);
             }
 
             // Text Placeholders
-            // UPDATED: Y positions centered in new 0-80 height (approx y=48)
+            // UPDATED: Centered vertically for 100px height (~58px) and increased font size
             
             // Col 1: Auto-Thrust
             const textCol1 = document.createElementNS(SVG_NS, 'text');
             textCol1.setAttribute('id', 'fma_col1_text');
             textCol1.setAttribute('x', '78');
-            textCol1.setAttribute('y', '48'); 
+            textCol1.setAttribute('y', '58'); 
             textCol1.setAttribute('fill', '#00FF00'); 
             textCol1.setAttribute('font-family', 'monospace');
-            textCol1.setAttribute('font-size', '22'); // Slightly larger
+            textCol1.setAttribute('font-size', '24'); // Larger
             textCol1.setAttribute('font-weight', 'bold');
             textCol1.setAttribute('text-anchor', 'middle');
             textCol1.textContent = ""; 
@@ -2688,10 +2687,10 @@ function getNearestRunway(aircraftPos, airportIcao, maxDistanceNM = 2.0) {
             const textCol2 = document.createElementNS(SVG_NS, 'text');
             textCol2.setAttribute('id', 'fma_col2_text');
             textCol2.setAttribute('x', '235');
-            textCol2.setAttribute('y', '48');
+            textCol2.setAttribute('y', '58');
             textCol2.setAttribute('fill', '#00FF00');
             textCol2.setAttribute('font-family', 'monospace');
-            textCol2.setAttribute('font-size', '22');
+            textCol2.setAttribute('font-size', '24');
             textCol2.setAttribute('font-weight', 'bold');
             textCol2.setAttribute('text-anchor', 'middle');
             textCol2.textContent = ""; 
@@ -2701,10 +2700,10 @@ function getNearestRunway(aircraftPos, airportIcao, maxDistanceNM = 2.0) {
             const textCol3 = document.createElementNS(SVG_NS, 'text');
             textCol3.setAttribute('id', 'fma_col3_text');
             textCol3.setAttribute('x', '392');
-            textCol3.setAttribute('y', '48');
+            textCol3.setAttribute('y', '58');
             textCol3.setAttribute('fill', '#00FF00');
             textCol3.setAttribute('font-family', 'monospace');
-            textCol3.setAttribute('font-size', '22');
+            textCol3.setAttribute('font-size', '24');
             textCol3.setAttribute('font-weight', 'bold');
             textCol3.setAttribute('text-anchor', 'middle');
             textCol3.textContent = ""; 
@@ -2714,10 +2713,10 @@ function getNearestRunway(aircraftPos, airportIcao, maxDistanceNM = 2.0) {
             const textCol4 = document.createElementNS(SVG_NS, 'text');
             textCol4.setAttribute('id', 'fma_col4_text');
             textCol4.setAttribute('x', '549');
-            textCol4.setAttribute('y', '42'); // Slightly higher to account for 2 lines
+            textCol4.setAttribute('y', '52'); // Slightly higher
             textCol4.setAttribute('fill', '#FFFFFF'); 
             textCol4.setAttribute('font-family', 'monospace');
-            textCol4.setAttribute('font-size', '18');
+            textCol4.setAttribute('font-size', '20'); // Larger
             textCol4.setAttribute('text-anchor', 'middle');
             
             const tspan1 = document.createElementNS(SVG_NS, 'tspan');
@@ -2728,7 +2727,7 @@ function getNearestRunway(aircraftPos, airportIcao, maxDistanceNM = 2.0) {
             
             const tspan2 = document.createElementNS(SVG_NS, 'tspan');
             tspan2.setAttribute('x', '549');
-            tspan2.setAttribute('dy', '20');
+            tspan2.setAttribute('dy', '22');
             tspan2.textContent = ""; 
             textCol4.appendChild(tspan2);
             
@@ -2737,7 +2736,8 @@ function getNearestRunway(aircraftPos, airportIcao, maxDistanceNM = 2.0) {
             // --- Add a divider line at the bottom of the FMA ---
             const bottomBorder = document.createElementNS(SVG_NS, 'line');
             bottomBorder.setAttribute('x1', '0'); bottomBorder.setAttribute('x2', '787');
-            bottomBorder.setAttribute('y1', '80'); bottomBorder.setAttribute('y2', '80');
+            // UPDATED: y 100
+            bottomBorder.setAttribute('y1', '100'); bottomBorder.setAttribute('y2', '100');
             bottomBorder.setAttribute('stroke', '#ffffff');
             bottomBorder.setAttribute('stroke-width', '2');
             fmaGroup.appendChild(bottomBorder);
@@ -5200,7 +5200,7 @@ function populateAircraftInfoWindow(baseProps, plan, sortedRoutePoints) {
                                 <svg width="787" height="800" viewBox="0 0 787 800" fill="none" xmlns="http://www.w3.org/2000/svg">
                                 <g id="PFD" clip-path="url(#clip0_1_2890)">
                                     
-                                    <g transform="translate(0, 80)">
+                                    <g transform="translate(0, 100)">
                                     
                                         <g id="attitude_group">
                                             <rect id="Sky" x="-186" y="-222" width="1121" height="600" fill="#0596FF"/>
@@ -5321,7 +5321,8 @@ function populateAircraftInfoWindow(baseProps, plan, sortedRoutePoints) {
                                         <line id="Line 3" x1="746" y1="345.5" x2="786" y2="345.5" stroke="#ECED06" stroke-width="3"/>
                                     
                                     </g> 
-                                    </g>
+                                    
+                                </g>
                                 <defs>
                                     <clipPath id="clip0_1_2890"><rect width="787" height="800" fill="white"/></clipPath>
                                     <clipPath id="tensReelClip"><rect x="732" y="269" width="50" height="75"/></clipPath>
