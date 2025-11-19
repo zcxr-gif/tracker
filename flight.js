@@ -2486,10 +2486,6 @@ function getNearestRunway(aircraftPos, airportIcao, maxDistanceNM = 2.0) {
     const PFD_HEADING_CENTER_X = 406;
     const PFD_HEADING_REF_VALUE = 0;
 
-    /**
-     * Initializes the SVG PFD by generating its static elements like tapes and ladders.
-     * This function should only be called ONCE when the PFD container is first created.
-     */
     function createPfdDisplay() {
         const SVG_NS = "http://www.w3.org/2000/svg";
         const attitudeGroup = document.getElementById('attitude_group');
@@ -2502,8 +2498,6 @@ function getNearestRunway(aircraftPos, airportIcao, maxDistanceNM = 2.0) {
             return;
         }
 
-
-        // --- GENERATION FUNCTIONS (unchanged from your original static function) ---
         function generateAttitudeIndicators() {
             const centerX = 401.5;
             const centerY = 312.5;
@@ -2564,7 +2558,6 @@ function getNearestRunway(aircraftPos, airportIcao, maxDistanceNM = 2.0) {
             }
         }
         function generateAltitudeTape() {
-            // ✅ FIX: Changed MIN_ALTITUDE from -1000 to 0 to prevent negative numbers on the tape.
             const MIN_ALTITUDE = 0, MAX_ALTITUDE = 50000;
             for (let alt = MIN_ALTITUDE; alt <= MAX_ALTITUDE; alt += 20) {
                 const yPos = PFD_ALTITUDE_CENTER_Y - (alt - PFD_ALTITUDE_REF_VALUE) * PFD_ALTITUDE_SCALE;
@@ -2590,7 +2583,10 @@ function getNearestRunway(aircraftPos, airportIcao, maxDistanceNM = 2.0) {
             for (let i = -5; i < 10; i++) {
                 let value = (i * 20); value = (value < 0) ? 100 + (value % 100) : value % 100;
                 const displayValue = String(value).padStart(2, '0');
-                const yPos = center_y + (i * PFD_REEL_SPACING);
+                
+                // [FIXED] SUBTRACT spacing so positive i (20, 40) goes UP (negative Y)
+                const yPos = center_y - (i * PFD_REEL_SPACING);
+                
                 const text = document.createElementNS(SVG_NS, 'text');
                 text.setAttribute('x', '745'); text.setAttribute('y', yPos);
                 text.setAttribute('fill', '#00FF00'); text.setAttribute('font-size', '32');
@@ -2839,9 +2835,6 @@ function updatePfdDisplay(pfdData) {
   // ---- pitch from VS ----
   const pitch_deg = Math.max(-PITCH_LIMIT, Math.min(PITCH_LIMIT, (vs_fpm / 1000) * 4));
 
-  // ---- FIX: Use module constants (removed the incorrect shadowing defaults) ----
-  // We rely on PFD_PITCH_SCALE, PFD_SPEED_SCALE, etc., defined in the outer scope.
-
   // ---- [FIX] Apply transforms to ALL found elements ----
   const rollForSvg = -S.rollDisp; // SVG rotation sense
   const attitudeTransform = `translate(0, ${pitch_deg * PFD_PITCH_SCALE}) rotate(${rollForSvg}, 401.5, 312.5)`;
@@ -2858,7 +2851,8 @@ function updatePfdDisplay(pfdData) {
   altitudeTapeGroups.forEach(el => el.setAttribute('transform', `translate(0, ${tapeYOffset})`));
 
   const tensValue = altitude % 100;
-  const reelYOffset = -(tensValue / 20) * PFD_REEL_SPACING;
+  // [FIXED] Removed negative sign. Moves DOWN (positive Y) as value increases to reveal numbers from above.
+  const reelYOffset = (tensValue / 20) * PFD_REEL_SPACING;
   tensReelGroups.forEach(el => el.setAttribute('transform', `translate(0, ${reelYOffset})`));
 
   const hdg = ((Math.round(track_deg) % 360) + 360) % 360;
