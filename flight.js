@@ -525,61 +525,40 @@ function injectCustomStyles() {
         /* --- [FIX] Sector Ops View Layout --- */
         #view-rosters.active {
             position: absolute;
-            inset: 0; /* Sets top, right, bottom, left to 0 */
+            inset: 0;
             width: 100%;
             height: 100%;
             padding: 0;
             overflow: hidden;
-
-            /* Use Grid to layer the map and floating panel */
             display: grid;
             grid-template-columns: 1fr;
             grid-template-rows: 1fr;
         }
-
-        /* This places the map into the grid, filling the entire space */
         #sector-ops-map-fullscreen {
             grid-column: 1 / -1;
             grid-row: 1 / -1;
         }
-
-        /* * --- [ - MOVED!] ---
-         * This rule is now GLOBAL (for desktop + mobile).
-         * It makes the main content area fill the entire viewport 
-         * ONLY when the Sector Ops map is active.
-        */
         .main-content:has(#view-rosters.active) {
-            padding: 0; /* Remove ALL padding (top, right, bottom, left) */
-            height: 100dvh; /* Set height to 100% of the viewport height */
-            overflow: hidden; /* Prevent the main container from scrolling */
+            padding: 0; 
+            height: 100dvh; 
+            overflow: hidden; 
         }
         
-        /* --- [OVERHAUL] Base Info Window Styles (Refined Glassmorphism) --- */
+        /* --- [OVERHAUL] Base Info Window Styles --- */
         .info-window {
             position: absolute;
-            /* ##### FIX START ##### */
-            /* Reverted to original top position */
             top: 20px; 
-            /* ##### FIX END ##### */
             right: 20px;
-            /* --- REDESIGN: Wider for new layout --- */
             width: 540px; 
             max-width: 90vw;
-            /* ##### FIX START ##### */
-            /* Reverted to original max-height */
             max-height: calc(100vh - 40px);
-            /* ##### FIX END ##### */
             background: rgba(18, 20, 38, 0.75);
             backdrop-filter: blur(20px) saturate(180%);
             -webkit-backdrop-filter: blur(20px) saturate(180%);
             border-radius: 16px;
             border: 1px solid rgba(255, 255, 255, 0.1);
             box-shadow: 0 12px 40px rgba(0,0,0,0.6);
-            /* ##### FIX START ##### */
-            /* Set z-index to be ON TOP of search */
             z-index: 1060; 
-            /* ##### FIX END ##### */
-            /* --- [FIX] Changed 'display: none' to 'display: flex' for fade-out --- */
             display: flex;
             flex-direction: column;
             overflow: hidden;
@@ -587,14 +566,11 @@ function injectCustomStyles() {
             transition: opacity 0.3s ease, transform 0.3s ease;
             opacity: 0;
             transform: translateX(20px);
-            /* --- [FIX] Add pointer-events to prevent interaction when hidden --- */
             pointer-events: none; 
         }
         .info-window.visible { 
-            /* --- [FIX] Removed 'display: flex' (now in base) --- */
             opacity: 1;
             transform: translateX(0);
-            /* --- [FIX] Allow interaction only when visible --- */
             pointer-events: auto;
         }
         .info-window-header {
@@ -644,7 +620,6 @@ function injectCustomStyles() {
             flex-grow: 1; 
             padding: 0;
         }
-        /* Custom Scrollbar */
         .info-window-content::-webkit-scrollbar { width: 8px; }
         .info-window-content::-webkit-scrollbar-track { background: rgba(0,0,0,0.2); }
         .info-window-content::-webkit-scrollbar-thumb { background-color: #00a8ff; border-radius: 10px; border: 2px solid transparent; background-clip: content-box; }
@@ -699,13 +674,9 @@ function injectCustomStyles() {
         .info-tab-content li:last-child { border-bottom: none; }
         .muted-text { color: #9fa8da; text-align: center; padding: 2rem; }
 
-
         /* --- [NEW DESIGN] AIRCRAFT FLIGHT DISPLAY --- */
-        #aircraft-info-window .info-window-content {
-            background: #1C1E2A; /* Solid dark background for content area */
-        }
+        #aircraft-info-window .info-window-content { background: #1C1E2A; }
         
-        /* 1. Overview Panel (Image + Top Info) */
         .aircraft-overview-panel {
             position: relative;
             height: 200px;
@@ -717,1823 +688,309 @@ function injectCustomStyles() {
             display: flex;
             flex-direction: column;
             justify-content: space-between;
-
-            /* --- [NEW SMOOTHER FADE] ---
-              This gradient now has an intermediate step for a
-              more gradual fade-out compared to the old 70%-100% linear fade.
-            */
             -webkit-mask-image: linear-gradient(180deg, black 65%, rgba(0,0,0,0.7) 80%, transparent 100%);
             mask-image: linear-gradient(180deg, black 65%, rgba(0,0,0,0.7) 80%, transparent 100%);
-            
-            /* --- [MODIFIED v12] ---
-              Pull the element below it (the summary bar) up by 40px
-              so it overlaps with the faded-out image area.
-            */
             margin-bottom: -40px; 
         }
-        
-        /* --- [FIXED GRADIENT] ---
-           This overlay provides a *subtle* hint of darkness at the top
-           for text readability, without darkening the whole image.
-           It's now controlled here in CSS, not in JavaScript.
-        */
         .aircraft-overview-panel::before {
-            content: '';
-            position: absolute;
-            inset: 0;
-            z-index: 1;
-            background: linear-gradient(180deg, 
-                rgba(0, 0, 0, 0.4) 0%,  /* Hint of dark at the top */
-                rgba(0, 0, 0, 0) 35%   /* Fades out quickly */
-            );
+            content: ''; position: absolute; inset: 0; z-index: 1;
+            background: linear-gradient(180deg, rgba(0, 0, 0, 0.4) 0%, rgba(0, 0, 0, 0) 35%);
         }
         
-        /* Container for top-left/right text */
         .overview-content {
-            position: relative;
-            z-index: 2;
-            padding: 16px 20px 0 20px;
-            display: flex;
-            justify-content: space-between;
-            align-items: flex-start;
+            position: relative; z-index: 2; padding: 16px 20px 0 20px;
+            display: flex; justify-content: space-between; align-items: flex-start;
         }
         .overview-col-left h3 {
-            margin: 0;
-            font-size: 1.6rem; 
-            font-weight: 700; 
-            letter-spacing: 0.5px;
+            margin: 0; font-size: 1.6rem; font-weight: 700; letter-spacing: 0.5px;
             text-shadow: 0 4px 10px rgba(0, 0, 0, 0.7), 0 0 2px rgba(255, 255, 255, 0.2);
-            display: flex;
-            align-items: center;
-            gap: 12px;
+            display: flex; align-items: center; gap: 12px;
         }
-
-        /* --- [NEW] Style for Airline Logo in Header --- */
         .ac-header-logo {
-            height: 1.8rem; 
-            width: auto;
-            max-width: 100px; /* Prevent huge logos */
-            object-fit: contain;
+            height: 1.8rem; width: auto; max-width: 100px; object-fit: contain;
             filter: drop-shadow(0 2px 4px rgba(0,0,0,0.7)) drop-shadow(0 0 5px rgba(255, 255, 255, 0.3));
         }
-        
-        /* --- [MODIFIED] Container for animating subtext --- */
         .overview-col-left p {
-            position: relative; 
-            margin: 0;
-            font-size: 1.0rem; 
-            color: #e8eaf6; 
-            font-weight: 400;
-            text-shadow: 0 2px 5px rgba(0, 0, 0, 0.6);
-            min-height: 1.2em; /* 1.0rem * 1.2 line-height */
-            margin-top: 4px; 
+            position: relative; margin: 0; font-size: 1.0rem; color: #e8eaf6; font-weight: 400;
+            text-shadow: 0 2px 5px rgba(0, 0, 0, 0.6); min-height: 1.2em; margin-top: 4px; 
         }
-
-        /* ##### MODIFICATION START ##### */
-        /* --- [NEW] Keyframes for 50/50 subtext animation --- */
         @keyframes primarySubtextAnimation {
             0%   { opacity: 1; transform: translateY(0); }
-            40%  { opacity: 1; transform: translateY(0); }     /* Hold Livery (3.2s) */
-            50%  { opacity: 0; transform: translateY(10px); }  /* Fade Out (0.8s) */
-            51%  { opacity: 0; transform: translateY(-10px); } /* Reset position */
-            90%  { opacity: 0; transform: translateY(-10px); } /* Stay Hidden (3.2s) */
-            100% { opacity: 1; transform: translateY(0); }     /* Fade In (0.8s) */
+            40%  { opacity: 1; transform: translateY(0); }
+            50%  { opacity: 0; transform: translateY(10px); }
+            51%  { opacity: 0; transform: translateY(-10px); }
+            90%  { opacity: 0; transform: translateY(-10px); }
+            100% { opacity: 1; transform: translateY(0); }
         }
         @keyframes secondarySubtextAnimation {
-            0%   { opacity: 0; transform: translateY(-10px); } /* Start Hidden */
-            40%  { opacity: 0; transform: translateY(-10px); } /* Stay Hidden (3.2s) */
-            50%  { opacity: 1; transform: translateY(0); }     /* Fade In (0.8s) */
-            90%  { opacity: 1; transform: translateY(0); }     /* Hold A/C Name (3.2s) */
-            100% { opacity: 0; transform: translateY(10px); }  /* Fade Out (0.8s) */
+            0%   { opacity: 0; transform: translateY(-10px); }
+            40%  { opacity: 0; transform: translateY(-10px); }
+            50%  { opacity: 1; transform: translateY(0); }
+            90%  { opacity: 1; transform: translateY(0); }
+            100% { opacity: 0; transform: translateY(10px); }
         }
-        
-        /* --- [NEW] Individual subtext items --- */
         .ac-header-subtext {
-            position: absolute;
-            top: 0;
-            left: 0;
-            width: 100%;
-            animation-name: primarySubtextAnimation; /* Default to primary */
-            animation-iteration-count: infinite;
-            animation-duration: 8s; /* <-- MODIFIED */
-            animation-timing-function: ease-in-out;
-            opacity: 0; /* Start hidden, animation will show it */
-            white-space: nowrap;
-            overflow: hidden;
-            text-overflow: ellipsis;
+            position: absolute; top: 0; left: 0; width: 100%;
+            animation-name: primarySubtextAnimation; animation-iteration-count: infinite;
+            animation-duration: 8s; animation-timing-function: ease-in-out;
+            opacity: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
         }
-        
-        #ac-header-livery { /* <-- MODIFIED */
-            animation-name: primarySubtextAnimation;
-        }
-        
-        #ac-header-actype {
-            animation-name: secondarySubtextAnimation;
-        }
-        /* ##### MODIFICATION END ##### */
-
-        .overview-col-right {
-            text-align: right;
-            display: none; /* Hide the top-right ICAOs */
-        }
-        .overview-col-right .route-icao {
-            font-size: 1.5rem;
-            font-weight: 700;
-            font-family: 'Courier New', monospace;
-            display: block;
-        }
-        .overview-col-right .route-subtext {
-            font-size: 0.85rem;
-            color: #c5cae9;
-        }
-        
-        /* Action buttons (Hide/Close) */
+        #ac-header-livery { animation-name: primarySubtextAnimation; }
+        #ac-header-actype { animation-name: secondarySubtextAnimation; }
+        .overview-col-right { text-align: right; display: none; }
         .overview-actions {
-            position: absolute;
-            top: 16px;
-            right: 16px;
-            z-index: 3;
-            display: flex;
-            gap: 8px;
+            position: absolute; top: 16px; right: 16px; z-index: 3; display: flex; gap: 8px;
         }
         .overview-actions button {
-            background: rgba(255, 255, 255, 0.1);
-            border: 1px solid rgba(255, 255, 255, 0.2);
-            color: #e8eaf6;
-            width: 32px;
-            height: 32px;
-            border-radius: 50%;
-            cursor: pointer;
-            display: grid;
-            place-items: center;
-            transition: all 0.2s ease-in-out;
+            background: rgba(255, 255, 255, 0.1); border: 1px solid rgba(255, 255, 255, 0.2);
+            color: #e8eaf6; width: 32px; height: 32px; border-radius: 50%;
+            cursor: pointer; display: grid; place-items: center; transition: all 0.2s ease-in-out;
             backdrop-filter: blur(5px);
         }
         .overview-actions button:hover {
-            background: #00a8ff;
-            color: #fff;
-            transform: scale(1.1);
-            border-color: transparent;
+            background: #00a8ff; color: #fff; transform: scale(1.1); border-color: transparent;
         }
 
-        /* 2. Route Summary Overlay (User Request) */
         .route-summary-overlay {
-            /* --- [NEW v12] --- 
-              Add position relative so it renders correctly 
-              when overlapping the image panel above it.
-            */
-            position: relative;
-            
-            /* --- [MODIFIED v12] ---
-               Change padding to give more space at the top
-               for the elements sitting on the transparent area.
-            */
-            padding: 25px 20px 12px 20px;
-            
-            /* --- [NEW COLOR MIX] --- 
-               This gradient now fades from transparent to a
-               subtle light blue (rgba(0, 168, 255, 0.15)), 
-               then to the dark UI color.
-            */
-            background: linear-gradient(
-                180deg, 
-                transparent 0%, 
-                rgba(0, 168, 255, 0.15) 30%, /* <-- Added light blue glow */
-                rgba(18, 20, 38, 0.8) 50%, 
-                #1C1E2A 70%
-            );
-            
-            border-radius: 0; /* Flush with content above and below */
-            
-            display: grid;
-            grid-template-columns: auto 1fr auto;
-            align-items: center;
-            gap: 16px;
-            width: 100%;
-            box-sizing: border-box; 
+            position: relative; padding: 25px 20px 12px 20px;
+            background: linear-gradient(180deg, transparent 0%, rgba(0, 168, 255, 0.15) 30%, rgba(18, 20, 38, 0.8) 50%, #1C1E2A 70%);
+            border-radius: 0; display: grid; grid-template-columns: auto 1fr auto;
+            align-items: center; gap: 16px; width: 100%; box-sizing: border-box; 
         }
-
-        /* --- [NEW] Styles for Flag/Time/ICAO --- */
-        .route-summary-airport {
-            display: flex;
-            flex-direction: column;
-        }
-        #route-summary-dep { 
-            text-align: left; 
-            /* --- [NEW v12] --- */
-            display: flex;
-            flex-direction: column;
-            align-items: center;
-        }
-        #route-summary-arr { 
-            text-align: right; 
-            /* --- [NEW v12] --- */
-            display: flex;
-            flex-direction: column;
-            align-items: center;
-        }
+        .route-summary-airport { display: flex; flex-direction: column; }
+        #route-summary-dep { text-align: left; display: flex; flex-direction: column; align-items: center; }
+        #route-summary-arr { text-align: right; display: flex; flex-direction: column; align-items: center; }
+        .route-summary-airport .airport-line { display: flex; align-items: center; gap: 8px; }
+        #route-summary-arr .airport-line { justify-content: flex-end; }
+        .route-summary-airport .icao { font-family: 'Courier New', monospace; font-size: 1.2rem; font-weight: 700; color: #fff; text-shadow: 0 1px 3px rgba(0,0,0,0.5); }
+        .route-summary-airport .time { font-size: 0.85rem; font-weight: 600; color: #c5cae9; margin-top: 4px; display: block; text-align: center; }
+        .route-summary-airport .country-flag { width: 20px; height: auto; border-radius: 3px; border: 1px solid rgba(255, 255, 255, 0.2); display: none; }
         
-        .route-summary-airport .airport-line {
-            display: flex;
-            align-items: center;
-            gap: 8px;
-        }
-        #route-summary-arr .airport-line {
-            justify-content: flex-end; /* Align arrival to the right */
-        }
-        
-        .route-summary-airport .icao {
-            font-family: 'Courier New', monospace;
-            font-size: 1.2rem;
-            font-weight: 700;
-            color: #fff;
-            /* --- [NEW v12] --- */
-            text-shadow: 0 1px 3px rgba(0,0,0,0.5); 
-        }
-        .route-summary-airport .time {
-            font-size: 0.85rem;
-            font-weight: 600;
-            color: #c5cae9;
-            margin-top: 4px; /* [MODIFIED v12] Added slightly more margin */
-            /* --- [NEW v12] --- 
-               Force it to be a block and center its own text.
-               This aligns it with the ICAO/flag line above.
-            */
-            display: block;
-            text-align: center;
-        }
-        .route-summary-airport .country-flag {
-            width: 20px;
-            height: auto;
-            border-radius: 3px;
-            border: 1px solid rgba(255, 255, 255, 0.2);
-            display: none; /* Hidden by default, shown by JS */
-        }
-        /* --- [END NEW] --- */
-
         .route-progress-container {
-            /* --- MODIFIED: Use Grid for layering --- */
-            display: grid;
-            grid-template-columns: 1fr;
-            grid-template-rows: 1fr;
-            align-items: center;
-            justify-items: center;
-            position: relative;
-            min-height: 28px; /* Space for the pill indicator */
+            display: grid; grid-template-columns: 1fr; grid-template-rows: 1fr;
+            align-items: center; justify-items: center; position: relative; min-height: 28px;
         }
         .route-progress-bar-container {
-            width: 100%;
-            height: 6px;
-            background: rgba(10, 12, 26, 0.7);
-            border-radius: 3px;
-            overflow: hidden;
-            /* --- MODIFIED: Layering --- */
-            grid-row: 1 / 1;
-            grid-column: 1 / 1;
-            z-index: 1;
+            width: 100%; height: 6px; background: rgba(10, 12, 26, 0.7); border-radius: 3px; overflow: hidden;
+            grid-row: 1 / 1; grid-column: 1 / 1; z-index: 1;
         }
-        .progress-bar-fill {
-            height: 100%;
-            width: 0%;
-            background: linear-gradient(90deg, #00a8ff, #89f7fe);
-            transition: width 0.5s ease-out;
-            border-radius: 3px;
-        }
+        .progress-bar-fill { height: 100%; width: 0%; background: linear-gradient(90deg, #00a8ff, #89f7fe); transition: width 0.5s ease-out; border-radius: 3px; }
         .flight-phase-indicator {
-            padding: 4px 12px;
-            border-radius: 20px;
-            font-size: 0.75rem;
-            font-weight: 700;
-            color: #fff;
-            display: flex;
-            align-items: center;
-            gap: 6px;
-            border: 1px solid rgba(255, 255, 255, 0.1);
-            transition: all 0.4s ease-out;
-            /* --- MODIFIED: Layering & Shadow --- */
-            grid-row: 1 / 1;
-            grid-column: 1 / 1;
-            z-index: 2;
+            padding: 4px 12px; border-radius: 20px; font-size: 0.75rem; font-weight: 700; color: #fff;
+            display: flex; align-items: center; gap: 6px; border: 1px solid rgba(255, 255, 255, 0.1);
+            transition: all 0.4s ease-out; grid-row: 1 / 1; grid-column: 1 / 1; z-index: 2;
             box-shadow: 0 4px 15px rgba(0, 0, 0, 0.5);
         }
-        .flight-phase-indicator .fa-solid { font-size: 0.8rem; }
-        /* --- [MODIFIED] --- Opacity increased from 0.7 to 0.9 --- */
         .phase-climb { background: rgba(34, 139, 34, 0.9); box-shadow: 0 0 10px rgba(34, 139, 34, 0.7); }
         .phase-cruise { background: rgba(0, 119, 255, 0.9); box-shadow: 0 0 10px rgba(0, 119, 255, 0.7); }
         .phase-descent { background: rgba(255, 140, 0, 0.9); box-shadow: 0 0 10px rgba(255, 140, 0, 0.7); }
         .phase-approach { background: rgba(138, 43, 226, 0.9); box-shadow: 0 0 10px rgba(138, 43, 226, 0.7); }
         .phase-enroute { background: rgba(100, 110, 130, 0.9); box-shadow: 0 0 10px rgba(100, 110, 130, 0.7); }
 
-        /* 3. Main Content (PFD + Grids) */
-        .unified-display-main-content {
-            padding: 16px;
-            flex-grow: 1;
-            display: flex;
-            flex-direction: column;
-            gap: 16px;
-        }
+        .unified-display-main-content { padding: 16px; flex-grow: 1; display: flex; flex-direction: column; gap: 16px; }
+        .ac-tab-pane { display: none; flex-direction: column; gap: 16px; animation: fadeIn 0.4s; }
+        .ac-tab-pane.active { display: flex; }
         
-        /* ====================================================================
-        --- [START] REHAUL: PFD-first, top-down layout ---
-        ====================================================================
-        */
-        
-        /* --- [REMOVED] Tab styles --- */
-
-        /* --- [NEW] Simple Pane switching --- */
-        .ac-tab-pane {
-            display: none;
-            /* --- [NEW] Use Flex Column for new layout --- */
-            display: none;
-            flex-direction: column;
-            gap: 16px; /* <-- Matches gap of .unified-display-main-content */
-            animation: fadeIn 0.4s;
-        }
-        .ac-tab-pane.active {
-            display: flex;
-        }
-
-        /* [REMOVED] .pfd-data-grid (The 2-column layout) */
-        .pfd-data-grid {
-            display: none; /* This layout is no longer used */
-        }
-        
-        /* [REMOVED] .live-data-panel-new (The right-hand data panel) */
-        .live-data-panel-new {
-            display: none; /* This layout is no longer used */
-        }
-        
-        /* [REMOVED] .ac-primary-data-item (The individual items in the right panel) */
-        .ac-primary-data-item {
-           display: none;
-        }
-        
-        /* --- [REMOVED] Donut Chart Styles --- */
-        .donut-chart-container { display: none; }
-        .donut-chart { display: none; }
-        .donut-chart-text { display: none; }
-        .donut-bg, .donut-fg { display: none; }
-
-        /* --- [REMOVED] Odometer Styles --- */
-        .odometer-container { display: none; }
-        .odometer-separator { display: none; }
-        .odometer-value { display: none; }
-
-        /* [NEW] This is the new data bar that sits below the PFD */
         .flight-data-bar {
-            display: grid;
-            /* --- [NEW] This grid creates 3 columns on small screens, 5 on larger ones --- */
-            grid-template-columns: repeat(auto-fit, minmax(100px, 1fr));
-            gap: 12px;
-            
-            /* Give it the "card" look */
-            background: rgba(10, 12, 26, 0.5);
-            border-radius: 12px;
-            border: 1px solid rgba(255, 255, 255, 0.05);
-            padding: 16px;
-            border-top: 3px solid #00a8ff; /* Colorful accent */
+            display: grid; grid-template-columns: repeat(auto-fit, minmax(100px, 1fr)); gap: 12px;
+            background: rgba(10, 12, 26, 0.5); border-radius: 12px; border: 1px solid rgba(255, 255, 255, 0.05);
+            padding: 16px; border-top: 3px solid #00a8ff;
         }
+        .data-bar-item { display: flex; flex-direction: column; text-align: center; gap: 4px; }
+        .data-bar-item .data-label { font-size: 0.7rem; color: #c5cae9; text-transform: uppercase; }
+        .data-bar-item .data-value { font-size: 1.5rem; color: #fff; font-weight: 600; font-family: 'Courier New', monospace; line-height: 1.1; }
+        .data-bar-item .data-value .unit { font-size: 0.8rem; font-weight: 400; color: #9fa8da; margin-left: 3px; font-family: 'Segoe UI', sans-serif; }
 
-        .ac-profile-card-new .flight-data-bar {
-            /* Reset card styles */
-            background: transparent;
-            border: none;
-            border-radius: 0;
-            
-            /* Add a separator */
-            border-top: 1px solid rgba(255, 255, 255, 0.1);
-            
-            /* Adjust spacing */
-            padding: 16px 5px 5px 5px; /* More top padding, less on sides/bottom */
-            margin-top: 10px; /* Space from the graph */
-            
-            /* Tweak grid for 5 items */
-            grid-template-columns: repeat(auto-fit, minmax(90px, 1fr));
-        }
-
-        /* [NEW] This is an individual item in the new data bar */
-        .data-bar-item {
-            display: flex;
-            flex-direction: column;
-            text-align: center;
-            gap: 4px;
-        }
-        .data-bar-item .data-label {
-            font-size: 0.7rem;
-            color: #c5cae9;
-            text-transform: uppercase;
-        }
-        .data-bar-item .data-value {
-            font-size: 1.5rem;
-            color: #fff;
-            font-weight: 600;
-            font-family: 'Courier New', monospace;
-            line-height: 1.1;
-        }
-        .data-bar-item .data-value .unit {
-            font-size: 0.8rem;
-            font-weight: 400;
-            color: #9fa8da;
-            margin-left: 3px;
-            font-family: 'Segoe UI', sans-serif;
-        }
-        .data-bar-item .data-value .fa-solid {
-            font-size: 0.9rem;
-            margin-right: 4px;
-            color: #00a8ff;
-            font-family: "Font Awesome 6 Free";
-        }
-        /* --- [END NEW] --- */
-        
-        /* [NEW] This is the full-width VSD card (styles mostly unchanged) */
         .ac-profile-card-new {
-            background: rgba(10, 12, 26, 0.5);
-            border-radius: 12px;
-            border: 1px solid rgba(255, 255, 255, 0.05);
-            padding: 10px;
-            border-top: 3px solid #a33ea3; /* Colorful accent */
-            display: flex;
-            flex-direction: column;
-            gap: 10px;
+            background: rgba(10, 12, 26, 0.5); border-radius: 12px; border: 1px solid rgba(255, 255, 255, 0.05);
+            padding: 10px; border-top: 3px solid #a33ea3; display: flex; flex-direction: column; gap: 10px;
         }
-        
-        /* ##### MODIFICATION START ##### */
-        /* [NEW] Header for the profile card with title and toggles */
-        .ac-profile-header {
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-            padding: 0 5px; /* Small padding */
-        }
-        
-        .ac-profile-header h4 { /* Title for VSD/SSD */
-            margin: 0;
-            font-size: 0.9rem;
-            font-weight: 600;
-            color: #e8eaf6;
-        }
-        
-        /* [NEW] Toggle buttons for VSD/SSD */
-        .profile-toggle-buttons {
-            display: flex;
-            background: rgba(0,0,0,0.3);
-            border-radius: 6px;
-        }
+        .ac-profile-header { display: flex; justify-content: space-between; align-items: center; padding: 0 5px; }
+        .ac-profile-header h4 { margin: 0; font-size: 0.9rem; font-weight: 600; color: #e8eaf6; }
+        .profile-toggle-buttons { display: flex; background: rgba(0,0,0,0.3); border-radius: 6px; }
         .profile-toggle-btn {
-            background: transparent;
-            border: none;
-            color: #9fa8da;
-            padding: 6px 10px;
-            font-size: 0.75rem;
-            font-weight: 600;
-            cursor: pointer;
-            border-radius: 6px;
-            transition: all 0.2s ease-in-out;
+            background: transparent; border: none; color: #9fa8da; padding: 6px 10px;
+            font-size: 0.75rem; font-weight: 600; cursor: pointer; border-radius: 6px; transition: all 0.2s;
         }
-        .profile-toggle-btn:hover {
-            color: #fff;
-        }
-        .profile-toggle-btn.active {
-            background: #00a8ff;
-            color: #fff;
-            box-shadow: 0 2px 5px rgba(0, 168, 255, 0.3);
-        }
-        /* ##### MODIFICATION END ##### */
+        .profile-toggle-btn:hover { color: #fff; }
+        .profile-toggle-btn.active { background: #00a8ff; color: #fff; box-shadow: 0 2px 5px rgba(0, 168, 255, 0.3); }
 
+        .pfd-and-location-grid { display: grid; grid-template-columns: 1fr; gap: 16px; }
+        @media (min-width: 500px) { .pfd-and-location-grid { grid-template-columns: 2fr 1fr; } }
         
-        /* ====================================================================
-        --- [END] REHAUL: PFD-first, top-down layout ---
-        ====================================================================
-        */
-
-        #aircraft-display-main {
-            /* --- [REMOVED] --- This ID is no longer used for layout --- */
-        }
-        .unified-display-main {
-            /* --- [REMOVED] --- Replaced by .pfd-data-grid --- */
-        }
-
-        /* 4. PFD Styles (Resized) */
-        
-        /* --- [NEW] 2-Column Grid for PFD + Location --- */
-        .pfd-and-location-grid {
-            display: grid;
-            grid-template-columns: 1fr; /* Mobile: 1 column */
-            gap: 16px;
-        }
-        
-        /* --- [NEW] Desktop: 2 columns --- */
-        @media (min-width: 500px) {
-            .pfd-and-location-grid {
-                 /* PFD gets 2 parts, Location gets 1 part */
-                grid-template-columns: 2fr 1fr;
-            }
-        }
-        
-        /* --- [NEW] Right-hand column for Location --- */
         #location-data-panel {
-            /* Use .data-bar-item styles but add card look */
-            background: rgba(10, 12, 26, 0.5);
-            border-radius: 12px;
-            border: 1px solid rgba(255, 255, 255, 0.05);
-            padding: 16px;
-            border-top: 3px solid #28a745; /* Green accent */
-            
-            /* Center content */
-            justify-content: center;
-            height: 100%;
-            box-sizing: border-box;
+            background: rgba(10, 12, 26, 0.5); border-radius: 12px; border: 1px solid rgba(255, 255, 255, 0.05);
+            padding: 16px; border-top: 3px solid #28a745; justify-content: center; height: 100%; box-sizing: border-box;
         }
-        #location-data-panel .data-label {
-            font-size: 0.8rem; /* Make label a bit bigger */
-        }
-        #location-data-panel .data-value {
-             /* Make text smaller to fit long names */
-            font-size: 1.1rem;
-            font-family: 'Segoe UI', sans-serif;
-            font-weight: 600;
-            white-space: normal; /* Allow wrapping */
-            line-height: 1.3;
-            margin-top: 8px;
-            color: #e8eaf6;
-        }
-        /* --- [END NEW] --- */
+        #location-data-panel .data-label { font-size: 0.8rem; }
+        #location-data-panel .data-value { font-size: 1.1rem; font-family: 'Segoe UI', sans-serif; font-weight: 600; white-space: normal; line-height: 1.3; margin-top: 8px; color: #e8eaf6; }
 
         .pfd-main-panel {
-            display: flex;
-            flex-direction: column;
-            justify-content: flex-start; 
-            min-width: 0;
-            gap: 0;
-            /* --- [MODIFIED] No longer centered, width is 100% of its grid col */
-            max-width: 100%;
-            width: 100%;
-            margin: 0;
+            display: flex; flex-direction: column; justify-content: flex-start; min-width: 0; gap: 0;
+            max-width: 100%; width: 100%; margin: 0;
         }
         
-        #pfd-container {
-            display: grid;
-            place-items: center;
-            background: rgba(10, 12, 26, 0.5);
-            border-radius: 12px;
-            overflow: hidden;
-            min-width: 0;
-            /* --- [MODIFIED] PFD container is now standalone --- */
-        }
-        #pfd-container svg {
-            width: 100%;
-            height: auto;
-            /* --- [MODIFIED] Max width is now smaller --- */
-            max-width: 300px;
-            /* --- MODIFIED: New aspect ratio based on cropped height --- */
-            aspect-ratio: 787 / 635; 
-            background-color: #1a1a1a;
-            font-family: monospace, sans-serif;
-            color: white;
-            overflow: hidden;
+        /* --- [NEW] PFD Bezel Styles --- */
+        .display-bezel {
             position: relative;
-            border-radius: 8px;
-        }
-        #pfd-container svg #attitude_group {
-            transition: transform 0.5s ease-out;
-        }
-
-        /* --- [REMOVED] PFD Footer Display --- */
-        .pfd-footer-display {
-           display: none;
-        }
-        .pfd-footer-ac-icon {
-           display: none;
-        }
-        .pfd-footer-nav-item {
-           display: none;
-        }
-        /* --- [END REMOVED] --- */
-
-
-        /* Aircraft Type Readout (REMOVED) */
-        #aircraft-type-readout {
-           display: none; /* This is no longer used */
-        }
-
-        /* --- [REMOVED] --- .live-data-panel styles (replaced by .live-data-panel-new) */
-
-        /* 6. Pilot Stats Button */
-        /* --- [RESTORED] --- */
-        .pilot-stats-toggle-btn {
-            background: rgba(255,255,255,0.08);
-            border: 1px solid rgba(255,255,255,0.15);
-            color: #e8eaf6;
-            padding: 10px 12px;
+            background-color: #1f2937; /* gray-800 */
+            padding: 0.75rem; 
+            border-radius: 1rem;
+            border: 4px solid #374151; /* gray-700 */
+            box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.5); 
             width: 100%;
-            border-radius: 8px;
-            cursor: pointer;
-            text-align: center;
-            transition: all 0.2s;
-            font-size: 0.9rem;
-            font-weight: 600;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            gap: 8px;
-        }
-        .pilot-stats-toggle-btn:hover {
-            background: #00a8ff;
-            color: #fff;
-        }
-
-        /* 7. Pilot Stats View */
-        #pilot-stats-display {
-            /* --- [REMOVED] --- This is now handled by .ac-tab-pane */
-        }
-        .stats-rehaul-container {
-            padding: 0; /* Remove padding, handled by parent */
             display: flex;
             flex-direction: column;
-            gap: 16px;
-            color: #e8eaf6;
-        }
-        .section-title {
-            margin: 8px 0 -8px 0;
-            font-size: 0.9rem;
-            font-weight: 600;
-            color: #9fa8da;
-            text-transform: uppercase;
-            letter-spacing: 0.5px;
-            border-bottom: 1px solid rgba(255,255,255,0.1);
-            padding-bottom: 8px;
-        }
-        .kpi-grid {
-            display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(100px, 1fr));
-            gap: 12px;
-        }
-        .kpi-card {
-            background: rgba(10, 12, 26, 0.7);
-            border-radius: 8px;
-            padding: 12px;
-            text-align: center;
-            border: 1px solid rgba(255,255,255,0.05);
-        }
-        .kpi-label {
-            font-size: 0.7rem;
-            color: #c5cae9;
-            margin-bottom: 6px;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            gap: 6px;
-        }
-        .kpi-value {
-            font-size: 1.4rem;
-            font-weight: 700;
-            color: #fff;
-            line-height: 1.2;
-        }
-        .progression-container {
-            display: grid;
-            grid-template-columns: 1fr;
-            gap: 12px;
-        }
-        .progress-card {
-            background: rgba(10, 12, 26, 0.6);
-            border-radius: 8px;
-            padding: 16px;
-            border-left: 4px solid #00a8ff;
-        }
-        .progress-card.complete {
-            border-left-color: #28a745;
-            text-align: center;
-        }
-        .progress-card h4 {
-            margin: 0 0 12px 0;
-            font-size: 1.1rem;
-            color: #fff;
-        }
-        .progress-item {
-            margin-bottom: 12px;
-        }
-        .progress-item:last-child {
-            margin-bottom: 0;
-        }
-        .progress-label {
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-            font-size: 0.85rem;
-            margin-bottom: 6px;
-            color: #e8eaf6;
-        }
-        .progress-label .fa-solid { color: #9fa8da; margin-right: 6px; }
-        .progress-bar-bg {
-            width: 100%;
-            height: 8px;
-            background-color: rgba(0,0,0,0.3);
-            border-radius: 4px;
-            overflow: hidden;
-        }
-        .progress-bar-fg {
-            height: 100%;
-            background: linear-gradient(90deg, #00a8ff, #89f7fe);
-            border-radius: 4px;
-            transition: width 0.5s ease-out;
-        }
-        .req-met { color: #28a745; }
-        .req-not-met { color: #dc3545; }
-        .req-met .fa-solid, .req-not-met .fa-solid { margin-left: 6px; }
-
-        .details-grid.stats-details { /* Add class to differentiate */
-            display: grid;
-            grid-template-columns: 1fr 1fr;
-            gap: 10px 16px;
-            background: rgba(10, 12, 26, 0.6);
-            padding: 16px;
-            border-radius: 8px;
-        }
-        .detail-item.stats-item { /* Add class to differentiate */
-            display: flex;
-            justify-content: space-between;
-            font-size: 0.9rem;
-            padding: 6px 0;
-            border-bottom: 1px solid rgba(255,255,255,0.05);
-        }
-        .detail-item.stats-item:last-child, .detail-item.stats-item:nth-last-child(2) { border-bottom: none; }
-        /* --- MODIFIED: Need to redefine detail-label/value as they were removed --- */
-        .detail-label { color: #c5cae9; }
-        .detail-value { color: #fff; font-weight: 600; }
-        .back-to-flight-btn { /* Changed from back-to-pfd-btn */
-            background: rgba(255,255,255,0.08); border: 1px solid rgba(255,255,255,0.15);
-            color: #e8eaf6; padding: 10px 12px; width: 100%;
-            border-radius: 8px; cursor: pointer; text-align: center;
-            transition: all 0.2s; font-size: 0.9rem; font-weight: 600;
-        }
-        .back-to-flight-btn:hover { background: #00a8ff; color: #fff; }
-
-        /* Stats Accordion */
-        .stats-rehaul-container .stats-header {
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-            margin-bottom: 0; /* Adjusted margin */
-        }
-        .stats-rehaul-container .stats-header h4 {
-            margin: 0;
-            font-size: 1.4rem;
-        }
-        .community-profile-link {
-            display: inline-flex;
-            align-items: center;
-            gap: 8px;
-            background-color: rgba(0, 168, 255, 0.1);
-            color: #00a8ff;
-            padding: 6px 12px;
-            border-radius: 20px;
-            font-size: 0.8rem;
-            font-weight: 600;
-            text-decoration: none;
-            border: 1px solid rgba(0, 168, 255, 0.3);
-            transition: all 0.2s ease-in-out;
-        }
-        .community-profile-link:hover {
-            background-color: #00a8ff;
-            color: #fff;
-            transform: translateY(-2px);
-            box-shadow: 0 4px 10px rgba(0, 168, 255, 0.3);
-        }
-
-        .stats-accordion {
-            margin-top: 16px;
-            display: flex;
-            flex-direction: column;
-            gap: 12px;
-        }
-        .accordion-item {
-            background: rgba(10, 12, 26, 0.5);
-            border: 1px solid rgba(255, 255, 255, 0.1);
-            border-radius: 8px;
-            overflow: hidden;
-            transition: background-color 0.2s;
-        }
-        .accordion-item.active {
-            background: rgba(10, 12, 26, 0.8);
-        }
-        .accordion-header {
-            width: 100%;
-            background: none;
-            border: none;
-            padding: 16px;
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-            cursor: pointer;
-            font-size: 1rem;
-            font-weight: 600;
-            color: #e8eaf6;
-            text-align: left;
-        }
-        .accordion-header span {
-            display: flex;
-            align-items: center;
-            gap: 10px;
-        }
-        .accordion-header .toggle-icon {
-            transition: transform 0.3s ease-in-out;
-            color: #9fa8da;
-        }
-        .accordion-item.active .toggle-icon {
-            transform: rotate(180deg);
-        }
-        .accordion-content {
-            max-height: 0;
-            overflow: hidden;
-            transition: max-height 0.3s ease-in-out, padding 0.3s ease-in-out;
-            padding: 0 16px;
-        }
-        .accordion-item.active .accordion-content {
-            padding: 0 16px 16px 16px;
-        }
-        .accordion-content > .progression-container,
-        .accordion-content > .details-grid {
-            padding-top: 8px;
-        }
-        
-        /* --- Toolbar Recall Buttons --- */
-        #airport-recall-btn, #aircraft-recall-btn {
-            display: none; font-size: 1.1rem; position: relative;
-        }
-        #airport-recall-btn.visible, #aircraft-recall-btn.visible {
-            display: inline-block;
-        }
-        #airport-recall-btn.palpitate, #aircraft-recall-btn.palpitate {
-            animation: palpitate 0.5s ease-in-out 2;
-        }
-        @keyframes palpitate {
-            0%, 100% { transform: scale(1); color: #00a8ff; }
-            50% { transform: scale(1.3); color: #fff; }
-        }
-        
-        /* Styles for Active ATC Markers on Sector Ops Map */
-        @keyframes atc-pulse {
-            0% { box-shadow: 0 0 0 0 rgba(220, 53, 69, 0.7); }
-            70% { box-shadow: 0 0 0 10px rgba(220, 53, 69, 0); }
-            100% { box-shadow: 0 0 0 0 rgba(220, 53, 69, 0); }
-        }
-        @keyframes atc-breathe {
-            0% { transform: scale(0.95); opacity: 0.6; }
-            50% { transform: scale(1.4); opacity: 0.9; }
-            100% { transform: scale(0.95); opacity: 0.6; }
-        }
-        .atc-active-marker {
-            width: 15px; height: 15px; background-color: #dc3545; border-radius: 50%;
-            border: 2px solid #fff; cursor: pointer; animation: atc-pulse 2s infinite;
-            display: grid; place-items: center;
-        }
-        .atc-approach-active::before {
-            content: ''; grid-area: 1 / 1; width: 250%; height: 250%; border-radius: 50%;
-            background-color: rgba(240, 173, 78, 0.8); z-index: -1; 
-            animation: atc-breathe 4s ease-in-out infinite;
-        }
-        
-        /* --- [NEW] Mobile Sidebar Toggle & Overlay --- */
-        .mobile-sidebar-toggle-btn {
-            display: none; /* Hidden by default on desktop */
-            place-items: center;
-            position: fixed;
-            top: 15px;
-            left: 15px;
-            z-index: 1100; /* ✅ High z-index to be on top of everything */
-            background-color: rgba(18, 20, 38, 0.8);
-            border: 1px solid rgba(255, 255, 255, 0.1);
-            color: #e8eaf6;
-            width: 44px;
-            height: 44px;
-            border-radius: 50%;
-            cursor: pointer;
-            font-size: 1.2rem;
-            backdrop-filter: blur(10px);
-            transition: all 0.2s ease-in-out;
-        }
-        .mobile-sidebar-toggle-btn:hover {
-            background-color: #00a8ff;
-            color: #fff;
-            transform: scale(1.1);
-        }
-
-        .mobile-nav-overlay {
-            display: none; /* ✅ Should be hidden by default */
-            position: fixed;
-            inset: 0;
-            background-color: rgba(0, 0, 0, 0.6);
-            z-index: 998; /* ✅ Below sidebar, above content */
-        }
-
-        /* --- [NEW] Responsive Media Query for Mobile --- */
-        @media (max-width: 992px) {
-            .mobile-sidebar-toggle-btn {
-                display: grid; /* Show the button on mobile */
-            }
-
-            /* Hide the desktop toggle button on mobile */
-            #sidebar-toggle {
-                display: none;
-            }
-
-            .sidebar {
-                position: fixed;
-                left: 0;
-                top: 0;
-                height: 100%;
-                width: 260px;
-                transform: translateX(-100%); /* Start off-screen */
-                transition: transform 0.3s ease-in-out;
-                z-index: 999; /* ✅ Higher than the overlay */
-                box-shadow: 5px 0 25px rgba(0,0,0,0.3);
-            }
-
-            /* When the menu is open, slide the sidebar in */
-            .dashboard-container.sidebar-mobile-open .sidebar {
-                transform: translateX(0);
-            }
-
-            /* ✅ When the menu is open, show the overlay */
-            .dashboard-container.sidebar-mobile-open .mobile-nav-overlay {
-                display: block;
-            }
-            
-            
-            /*
-             * --- [ - REMOVED!] ---
-             * This rule was moved out of the media query
-             * to apply to all screen sizes.
-            */
-            /*
-            .main-content:has(#view-rosters.active) {
-                padding: 0; 
-                height: 100dvh; 
-                overflow: hidden; 
-            }
-            */
-
-            /* --- [REDESIGN] Mobile layout for info window --- */
-            .info-window {
-                width: 95vw; /* Almost full width */
-                top: 10px;
-                right: 2.5vw;
-                left: 2.5vw;
-                max-height: calc(100vh - 20px);
-            }
-            
-            /* --- [REMOVED] Mobile grid styles for deleted elements --- */
-            
-            /* --- [NEW] Make new data bar stack on mobile --- */
-            .flight-data-bar {
-                grid-template-columns: repeat(auto-fit, minmax(80px, 1fr));
-                gap: 16px 8px; /* More vertical gap */
-            }
-
-            /* ⬇️ --- [NEW FIX] --- ⬇️ */
-            /* Selectively reduce callsign font size only on mobile */
-            .overview-col-left h3 {
-                font-size: 1.1rem;
-            }
-            .ac-header-logo {
-                height: 1.3rem;
-            }
-            /* ⬆️ --- [END NEW FIX] --- ⬆️ */
-            
-            /* --- [NEW] On mobile, stack PFD and Location --- */
-            .pfd-and-location-grid {
-                grid-template-columns: 1fr; /* 1 column */
-            }
-
-            /* ##### MODIFICATION START (Specificity Fix) ##### */
-            /* Show the mobile-only filter section on mobile, using a stronger selector */
-            #filter-settings-window .mobile-only-filter-section {
-                display: block;
-            }
-            /* ##### MODIFICATION END (Specificity Fix) ##### */
-        }
-        
-        /* ====================================================================
-        --- [START] VSD/SSD RE-DESIGN --- 
-        ====================================================================
-        */
-        
-        /* [MODIFIED] Common styles for VSD and SSD panels */
-        #vsd-panel, #ssd-panel {
-            position: relative;
-            display: none; /* Hide by default */
-            flex-direction: column;
-            background: transparent;
-            border-radius: 12px;
-            min-height: 240px;
-            max-height: 240px;
-            overflow: hidden;
-            font-family: 'Courier New', monospace;
-            flex-grow: 1;
-            width: 100%;
-        }
-        
-        /* [NEW] Show the active panel */
-        #vsd-panel.active, #ssd-panel.active {
-            display: flex;
-        }
-        
-        #vsd-summary-bar {
-           /* --- [REMOVED] --- This is no longer used --- */
-           display: none;
-        }
-
-        /* [MODIFIED] Common styles for graph windows */
-        #vsd-graph-window, #ssd-graph-window {
-            position: relative;
-            width: 100%;
-            flex-grow: 1;
-            overflow: hidden;
-            border-radius: 12px;
-            padding-left: 35px; /* Space for Y-Axis */
-            box-sizing: border-box; 
-        }
-
-        #vsd-graph-window {
-            /* VSD: Add horizontal grid lines for altitude */
-            background: linear-gradient(
-                rgba(0, 168, 255, 0.1) 1px, 
-                transparent 1px
-            );
-            /* --- [MODIFIED] Adjusted background size to match 10k ft intervals --- */
-            background-size: 100% 53.3px; /* (240px / 45k ft) * 10k ft */
-        }
-        
-        /* [NEW] SSD: Add horizontal grid lines for speed */
-        #ssd-graph-window {
-            background: linear-gradient(
-                rgba(40, 167, 69, 0.1) 1px, /* Green lines */
-                transparent 1px
-            );
-            background-size: 100% 40px; /* (240px / 600 kts) * 100 kts = 40px */
-        }
-
-        /* [MODIFIED] Common styles for Y-Axis */
-        #vsd-y-axis, #ssd-y-axis {
-            position: absolute;
-            left: 0;
-            top: 0;
-            bottom: 0;
-            width: 35px; /* Matches padding-left */
-            font-size: 0.7rem;
-            color: #9fa8da;
-            font-weight: 600;
-            padding: 5px 0;
             box-sizing: border-box;
-            border-right: 1px solid rgba(255, 255, 255, 0.1);
-            pointer-events: none; /* Let clicks pass through */
         }
-        
-        #vsd-y-axis {
-            border-right-color: rgba(0, 168, 255, 0.1); /* Blue */
-        }
-        
-        #ssd-y-axis {
-            border-right-color: rgba(40, 167, 69, 0.1); /* Green */
-        }
-
-        .y-axis-label {
+        .screw {
             position: absolute;
-            left: 5px;
-            transform: translateY(-50%); /* Center on its 'top' value */
-            text-shadow: 0 0 3px rgba(0,0,0,0.5);
+            width: 0.5rem; height: 0.5rem;
+            background-color: #4b5563; /* gray-600 */
+            border-radius: 50%;
+            box-shadow: inset 1px 1px 2px rgba(0,0,0,0.5);
+            z-index: 5;
         }
-        /* --- [END NEW] --- */
+        .screw.tl { top: 0.35rem; left: 0.35rem; }
+        .screw.tr { top: 0.35rem; right: 0.35rem; }
+        .screw.bl { bottom: 0.35rem; left: 0.35rem; }
+        .screw.br { bottom: 0.35rem; right: 0.35rem; }
 
-        /* [MODIFIED] Common styles for Aircraft Icon */
-        #vsd-aircraft-icon, #ssd-aircraft-icon {
+        .crt-container {
+            width: 100%;
+            position: relative;
+            border: 2px solid #111827; /* gray-900 */
+            background: #000;
+            border-radius: 4px;
+            overflow: hidden;
+            box-shadow: inset 0 0 20px rgba(0,0,0,0.8);
+            display: grid;
+            place-items: center;
+        }
+        .scanlines::before {
+            content: " ";
+            display: block;
             position: absolute;
-            left: 0px; /* Will be set by JS */
-            top: 50%; /* Will be set by JS */
-            width: 30px;
-            height: 20px;
+            top: 0; left: 0; bottom: 0; right: 0;
+            background: linear-gradient(rgba(18, 16, 16, 0) 50%, rgba(0, 0, 0, 0.25) 50%), 
+                        linear-gradient(90deg, rgba(255, 0, 0, 0.06), rgba(0, 255, 0, 0.02), rgba(0, 0, 255, 0.06));
             z-index: 10;
-            background-size: contain;
-            background-repeat: no-repeat;
-            background-position: center;
-            transform: translateY(-50%);
-            transition: top 0.5s ease-out, left 1s linear;
-        }
-        
-        #vsd-aircraft-icon {
-            /* Blue Icon */
-            background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 30 20' fill='%2300a8ff'%3E%3Cpath d='M2,10 L10,2 L10,7 L28,7 L28,13 L10,13 L10,18 L2,10 Z' /%3E%3C/svg%3E");
-        }
-        
-        /* [NEW] SSD Icon */
-        #ssd-aircraft-icon {
-            /* Green Icon */
-            background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 30 20' fill='%2328a745'%3E%3Cpath d='M2,10 L10,2 L10,7 L28,7 L28,13 L10,13 L10,18 L2,10 Z' /%3E%3C/svg%3E");
-        }
-        
-        /* [MODIFIED] Common styles for dropline */
-        #vsd-aircraft-icon::before, #ssd-aircraft-icon::before {
-            content: '';
-            position: absolute;
-            top: 50%; /* Start at icon center */
-            left: 10px; /* Position horizontally within icon bounds */
-            width: 2px;
-            height: 500px; /* Arbitrarily long */
-            opacity: 0.7;
-        }
-
-        #vsd-aircraft-icon::before {
-             background: linear-gradient(to bottom, #00a8ff, transparent 80%);
-        }
-        
-        #ssd-aircraft-icon::before {
-            background: linear-gradient(to bottom, #28a745, transparent 80%);
-        }
-        
-        /* [MODIFIED] Common styles for graph content */
-        #vsd-graph-content, #ssd-graph-content {
-            position: absolute;
-            top: 0;
-            left: 35px; /* --- [MODIFIED] Start after Y-Axis --- */
-            height: 100%;
-            width: 1px; /* Will be set by JS */
-            will-change: transform;
-            transition: transform 1s linear; /* Smooth scroll */
-        }
-
-        /* [MODIFIED] Common styles for SVG container */
-        #vsd-profile-svg, #ssd-profile-svg {
-            position: absolute;
-            top: 0;
-            left: 0;
-            width: 100%;
-            height: 100%;
-            overflow: visible;
-        }
-        
-        #vsd-profile-path {
-            fill: none;
-            stroke: #00a8ff;
-            stroke-width: 3;
-            stroke-linejoin: round;
-        }
-
-        #vsd-flown-path {
-            fill: none;
-            stroke: #dc3545; /* Red */
-            stroke-width: 4; /* <-- MODIFIED */
-            stroke-linejoin: round;
-            opacity: 0.9; /* <-- MODIFIED */
-        }
-
-        /* [NEW] Style for the Flown Speed Path */
-        #ssd-flown-path {
-            fill: none;
-            stroke: #28a745; /* Green */
-            stroke-width: 4;
-            stroke-linejoin: round;
-            opacity: 0.9;
-        }
-
-        /* [MODIFIED] Common styles for waypoint labels */
-        #vsd-waypoint-labels, #ssd-waypoint-labels {
-            position: absolute;
-            top: 0;
-            left: 0;
-            width: 100%;
-            height: 100%;
+            background-size: 100% 2px, 3px 100%;
             pointer-events: none;
         }
+
+        #pfd-container {
+            width: 100%;
+            /* Removed background/radius as the bezel handles it now */
+            background: transparent;
+            border-radius: 0;
+        }
+        #pfd-container svg {
+            width: 100%; height: auto; max-width: 300px;
+            aspect-ratio: 787 / 635; background-color: #1a1a1a;
+            font-family: monospace, sans-serif; color: white;
+            overflow: hidden; position: relative; border-radius: 0; /* Remove inner radius */
+        }
+
+        /* --- Pilot Stats --- */
+        .stats-rehaul-container { display: flex; flex-direction: column; gap: 16px; color: #e8eaf6; }
+        .kpi-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(100px, 1fr)); gap: 12px; }
+        .kpi-card { background: rgba(10, 12, 26, 0.7); border-radius: 8px; padding: 12px; text-align: center; border: 1px solid rgba(255,255,255,0.05); }
+        .kpi-label { font-size: 0.7rem; color: #c5cae9; margin-bottom: 6px; display: flex; align-items: center; justify-content: center; gap: 6px; }
+        .kpi-value { font-size: 1.4rem; font-weight: 700; color: #fff; line-height: 1.2; }
         
-        /* [MODIFIED] VSD-specific label */
-        .vsd-wp-label {
-            position: absolute;
-            transform: translateX(-50%); /* Center the label on its 'left' pos */
-            color: #fff;
-            font-size: 0.8rem;
-            text-align: center;
-            text-shadow: 0 0 5px rgba(0,0,0,0.8);
-            line-height: 1.2;
-            padding: 2px 4px;
-            background: rgba(10, 12, 26, 0.5);
-            border-radius: 3px;
-            white-space: nowrap;
-        }
-        .vsd-wp-label .wp-name {
-            font-weight: 700;
-            font-size: 0.9rem;
-            color: #89f7fe;
-        }
-        .vsd-wp-label .wp-alt {
-            font-size: 0.75rem;
-            color: #c5cae9;
-        }
-        .vsd-wp-label::after {
-            content: '';
-            position: absolute;
-            left: 50%;
-            transform: translateX(-50%);
-            width: 1px;
-            height: 12px; /* Connects label to profile */
-            background: rgba(255, 255, 255, 0.3);
-        }
-        .vsd-wp-label.high-label::after { top: 100%; }
-        .vsd-wp-label.low-label::after { bottom: 100%; }
+        /* ... (Rest of stats styles mostly fine, heavily truncated for brevity) ... */
+        .accordion-item { background: rgba(10, 12, 26, 0.5); border: 1px solid rgba(255, 255, 255, 0.1); border-radius: 8px; overflow: hidden; }
+        .accordion-header { width: 100%; background: none; border: none; padding: 16px; display: flex; justify-content: space-between; align-items: center; cursor: pointer; font-size: 1rem; font-weight: 600; color: #e8eaf6; text-align: left; }
+        .accordion-content { max-height: 0; overflow: hidden; transition: max-height 0.3s ease-in-out, padding 0.3s ease-in-out; padding: 0 16px; }
+        .accordion-item.active .accordion-content { padding: 0 16px 16px 16px; }
 
-        /* [NEW] SSD-specific label (simpler, just shows waypoint name) */
-         .ssd-wp-label {
-            position: absolute;
-            transform: translateX(-50%);
-            font-size: 0.8rem;
-            font-weight: 700;
-            color: #89f7fe;
-            text-shadow: 0 0 5px rgba(0,0,0,0.8);
-            padding: 2px 4px;
-            background: rgba(10, 12, 26, 0.5);
-            border-radius: 3px;
-            white-space: nowrap;
-        }
-        .ssd-wp-label::after {
-            content: '';
-            position: absolute;
-            left: 50%;
-            transform: translateX(-50%);
-            width: 1px;
-            height: 12px;
-            background: rgba(255, 255, 255, 0.3);
-        }
-        /* [NEW] Staggering for SSD labels (simpler than VSD) */
-        .ssd-wp-label.high-label {
-            top: 10px; /* Always at the top */
-        }
-        .ssd-wp-label.high-label::after {
-            top: 100%;
-        }
-        .ssd-wp-label.low-label {
-            bottom: 10px; /* Always at the bottom */
-        }
-        .ssd-wp-label.low-label::after {
-            bottom: 100%;
+        /* Mobile */
+        @media (max-width: 992px) {
+            .mobile-sidebar-toggle-btn { display: grid; }
+            #sidebar-toggle { display: none; }
+            .sidebar { position: fixed; left: 0; top: 0; height: 100%; width: 260px; transform: translateX(-100%); transition: transform 0.3s ease-in-out; z-index: 999; box-shadow: 5px 0 25px rgba(0,0,0,0.3); }
+            .dashboard-container.sidebar-mobile-open .sidebar { transform: translateX(0); }
+            .dashboard-container.sidebar-mobile-open .mobile-nav-overlay { display: block; }
+            .info-window { width: 95vw; top: 10px; right: 2.5vw; left: 2.5vw; max-height: calc(100vh - 20px); }
+            .flight-data-bar { grid-template-columns: repeat(auto-fit, minmax(80px, 1fr)); gap: 16px 8px; }
+            .pfd-and-location-grid { grid-template-columns: 1fr; }
+            #filter-settings-window .mobile-only-filter-section { display: block; }
         }
 
-        /* ====================================================================
-        --- [END] VSD/SSD RE-DESIGN --- 
-        ====================================================================
-        */
-
-        /* ##### MODIFICATION START (Specificity Fix) ##### */
-        /* --- [NEW] Aircraft Window Tab Styles --- */
-        .ac-info-window-tabs {
-            display: flex;
-            /* [MODIFIED] Use space-between to push logo to the right */
-            justify-content: space-between; 
-            /* [NEW] Vertically center the buttons and logo */
-            align-items: center; 
-            
-            background: rgba(10, 12, 26, 0.4);
-            padding: 5px 15px 0 15px;
-            /* --- [FIX] Removed margins that incorrectly placed it inside the content area --- */
-            /* margin: 0 16px; */ 
-            /* margin-top: 16px; */
-            border-radius: 0; /* --- [FIX] Removed border-radius --- */
-        }
-
-        /* [NEW] Wrapper for the tab buttons */
-        .ac-tabs-wrapper {
-            display: flex;
-        }
-
-        /* [NEW] Style for your logo */
-        .ac-info-tab-logo {
-            height: 48px; /* Adjust height as needed */
-            width: auto;
-            object-fit: contain;
-            opacity: 0.7; /* Optional: makes it blend nicely */
-        }
-        /* ##### MODIFICATION END ##### */
-
-        .ac-info-tab-btn {
-            padding: 14px 18px;
-            border: none;
-            background: none;
-            color: #c5cae9;
-            cursor: pointer;
-            font-size: 0.9rem;
-            font-weight: 600;
-            border-bottom: 3px solid transparent;
-            transition: all 0.25s;
-            display: flex;
-            align-items: center;
-            gap: 8px;
-        }
+        /* VSD/SSD Styles */
+        #vsd-panel, #ssd-panel { position: relative; display: none; flex-direction: column; background: transparent; border-radius: 12px; min-height: 240px; max-height: 240px; overflow: hidden; font-family: 'Courier New', monospace; flex-grow: 1; width: 100%; }
+        #vsd-panel.active, #ssd-panel.active { display: flex; }
+        #vsd-graph-window, #ssd-graph-window { position: relative; width: 100%; flex-grow: 1; overflow: hidden; border-radius: 12px; padding-left: 35px; box-sizing: border-box; }
+        #vsd-graph-window { background: linear-gradient(rgba(0, 168, 255, 0.1) 1px, transparent 1px); background-size: 100% 53.3px; }
+        #ssd-graph-window { background: linear-gradient(rgba(40, 167, 69, 0.1) 1px, transparent 1px); background-size: 100% 40px; }
+        #vsd-y-axis, #ssd-y-axis { position: absolute; left: 0; top: 0; bottom: 0; width: 35px; font-size: 0.7rem; color: #9fa8da; font-weight: 600; padding: 5px 0; box-sizing: border-box; border-right: 1px solid rgba(255, 255, 255, 0.1); pointer-events: none; }
+        #vsd-y-axis { border-right-color: rgba(0, 168, 255, 0.1); }
+        #ssd-y-axis { border-right-color: rgba(40, 167, 69, 0.1); }
+        .y-axis-label { position: absolute; left: 5px; transform: translateY(-50%); text-shadow: 0 0 3px rgba(0,0,0,0.5); }
+        #vsd-aircraft-icon, #ssd-aircraft-icon { position: absolute; left: 0px; top: 50%; width: 30px; height: 20px; z-index: 10; background-size: contain; background-repeat: no-repeat; background-position: center; transform: translateY(-50%); transition: top 0.5s ease-out, left 1s linear; }
+        #vsd-aircraft-icon { background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 30 20' fill='%2300a8ff'%3E%3Cpath d='M2,10 L10,2 L10,7 L28,7 L28,13 L10,13 L10,18 L2,10 Z' /%3E%3C/svg%3E"); }
+        #ssd-aircraft-icon { background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 30 20' fill='%2328a745'%3E%3Cpath d='M2,10 L10,2 L10,7 L28,7 L28,13 L10,13 L10,18 L2,10 Z' /%3E%3C/svg%3E"); }
+        #vsd-aircraft-icon::before, #ssd-aircraft-icon::before { content: ''; position: absolute; top: 50%; left: 10px; width: 2px; height: 500px; opacity: 0.7; }
+        #vsd-aircraft-icon::before { background: linear-gradient(to bottom, #00a8ff, transparent 80%); }
+        #ssd-aircraft-icon::before { background: linear-gradient(to bottom, #28a745, transparent 80%); }
+        #vsd-graph-content, #ssd-graph-content { position: absolute; top: 0; left: 35px; height: 100%; width: 1px; will-change: transform; transition: transform 1s linear; }
+        #vsd-profile-svg, #ssd-profile-svg { position: absolute; top: 0; left: 0; width: 100%; height: 100%; overflow: visible; }
+        #vsd-profile-path { fill: none; stroke: #00a8ff; stroke-width: 3; stroke-linejoin: round; }
+        #vsd-flown-path { fill: none; stroke: #dc3545; stroke-width: 4; stroke-linejoin: round; opacity: 0.9; }
+        #ssd-flown-path { fill: none; stroke: #28a745; stroke-width: 4; stroke-linejoin: round; opacity: 0.9; }
+        #vsd-waypoint-labels, #ssd-waypoint-labels { position: absolute; top: 0; left: 0; width: 100%; height: 100%; pointer-events: none; }
+        .vsd-wp-label, .ssd-wp-label { position: absolute; transform: translateX(-50%); color: #fff; font-size: 0.8rem; text-align: center; text-shadow: 0 0 5px rgba(0,0,0,0.8); padding: 2px 4px; background: rgba(10, 12, 26, 0.5); border-radius: 3px; white-space: nowrap; }
+        .vsd-wp-label .wp-name { font-weight: 700; font-size: 0.9rem; color: #89f7fe; }
+        .vsd-wp-label .wp-alt { font-size: 0.75rem; color: #c5cae9; }
+        .vsd-wp-label::after, .ssd-wp-label::after { content: ''; position: absolute; left: 50%; transform: translateX(-50%); width: 1px; height: 12px; background: rgba(255, 255, 255, 0.3); }
+        .vsd-wp-label.high-label::after, .ssd-wp-label.high-label::after { top: 100%; }
+        .vsd-wp-label.low-label::after, .ssd-wp-label.low-label::after { bottom: 100%; }
+        .ssd-wp-label.high-label { top: 10px; }
+        .ssd-wp-label.low-label { bottom: 10px; }
+        .ssd-wp-label { font-weight: 700; color: #89f7fe; }
+        
+        .ac-info-window-tabs { display: flex; justify-content: space-between; align-items: center; background: rgba(10, 12, 26, 0.4); padding: 5px 15px 0 15px; }
+        .ac-tabs-wrapper { display: flex; }
+        .ac-info-tab-logo { height: 48px; width: auto; object-fit: contain; opacity: 0.7; }
+        .ac-info-tab-btn { padding: 14px 18px; border: none; background: none; color: #c5cae9; cursor: pointer; font-size: 0.9rem; font-weight: 600; border-bottom: 3px solid transparent; transition: all 0.25s; display: flex; align-items: center; gap: 8px; }
         .ac-info-tab-btn:hover { color: #fff; }
         .ac-info-tab-btn.active { color: #00a8ff; border-bottom-color: #00a8ff; }
-
-        /* Hide the old toggle buttons, as tabs replace them */
-        /* .pilot-stats-toggle-btn,
-        .back-to-flight-btn {
-            display: none !important; 
-        }
-        */
-
-        /* --- [MODIFIED] VSD Disclaimer --- */
-        .vsd-disclaimer {
-            background: rgba(10, 12, 26, 0.5); /* --- [MODIFIED] Re-add bg --- */
-            border: 1px solid rgba(255, 255, 255, 0.05); /* --- [MODIFIED] Re-add border --- */
-            border-radius: 8px; /* --- [NEW] --- */
-            padding: 10px 14px;
-            margin-top: 0; 
-        }
-        .disclaimer-legend {
-            display: flex;
-            justify-content: center;
-            flex-wrap: wrap; /* [NEW] Allow wrapping */
-            gap: 16px; /* [MODIFIED] Slightly less gap */
-            margin-bottom: 8px;
-            font-size: 0.8rem;
-            font-weight: 600;
-        }
-        .disclaimer-legend span {
-            display: flex;
-            align-items: center;
-            gap: 6px;
-        }
-        /* [NEW] Make icon slightly bigger */
-        .disclaimer-legend span .fa-solid {
-            font-size: 0.9rem;
-        }
-        .vsd-disclaimer p {
-            font-size: 0.75rem;
-            color: #9fa8da;
-            text-align: center;
-            margin: 0;
-            padding-top: 8px;
-            border-top: 1px solid rgba(255, 255, 255, 0.05);
-        }
-        .vsd-disclaimer p .fa-solid {
-            margin-right: 4px;
-        }
         
-        /* ====================================================================
-        --- [NEW STYLES FOR WEATHER WINDOW] --- 
-        ====================================================================
-        */
-
-        #weather-settings-window {
-            /* Position on the left, not the right */
-            left: 20px;
-            right: auto;
-            
-            /* Make it smaller */
-            width: 360px;
-            
-            /* Fix transform direction */
-            transform: translateX(-20px);
-        }
+        .vsd-disclaimer { background: rgba(10, 12, 26, 0.5); border: 1px solid rgba(255, 255, 255, 0.05); border-radius: 8px; padding: 10px 14px; margin-top: 0; }
+        .disclaimer-legend { display: flex; justify-content: center; flex-wrap: wrap; gap: 16px; margin-bottom: 8px; font-size: 0.8rem; font-weight: 600; }
+        .disclaimer-legend span { display: flex; align-items: center; gap: 6px; }
+        .vsd-disclaimer p { font-size: 0.75rem; color: #9fa8da; text-align: center; margin: 0; padding-top: 8px; border-top: 1px solid rgba(255, 255, 255, 0.05); }
         
-        #weather-settings-window.visible {
-            transform: translateX(0);
-        }
-
-        .weather-toggle-list {
-            list-style: none;
-            padding: 16px 20px;
-            margin: 0;
-            display: flex;
-            flex-direction: column;
-            gap: 16px;
-        }
+        /* Map Search */
+        .sector-ops-search { position: absolute; top: 20px; right: 20px; z-index: 1050; display: flex; flex-direction: column; align-items: center; transition: all 0.3s ease; }
+        .search-bar-container { position: relative; display: flex; align-items: center; width: 300px; background: rgba(18, 20, 38, 0.75); backdrop-filter: blur(15px); -webkit-backdrop-filter: blur(15px); border: 1px solid rgba(255, 255, 255, 0.1); border-radius: 25px; box-shadow: 0 4px 15px rgba(0,0,0,0.4); overflow: hidden; z-index: 2; }
+        .sector-ops-search:not(:focus-within) .search-bar-container { width: 44px; }
+        .sector-ops-search .search-icon-label { color: #9fa8da; padding: 12px 14px; font-size: 1rem; z-index: 1; transition: color 0.2s; line-height: 1; cursor: text; display: grid; place-items: center; }
+        .sector-ops-search .search-icon { padding: 0; }
+        #sector-ops-search-input { width: 0; border: none; background: transparent; color: #e8eaf6; font-size: 1rem; outline: none; padding: 12px 0 12px 0; transition: width 0.3s ease-in-out; }
+        .sector-ops-search:focus-within .search-bar-container { width: 300px; background: rgba(10, 12, 26, 0.8); border-bottom-left-radius: 0; border-bottom-right-radius: 0; }
+        .sector-ops-search:focus-within .search-icon-label { color: #00a8ff; }
+        .sector-ops-search:focus-within #sector-ops-search-input { width: 210px; }
+        .search-clear-btn { background: none; border: none; color: #9fa8da; cursor: pointer; font-size: 1.1rem; padding: 10px 14px; margin-left: auto; line-height: 1; }
+        .sector-ops-search:focus-within #sector-ops-search-input:not(:placeholder-shown) + #sector-ops-search-clear { display: block; }
+        .search-results-dropdown { width: 300px; max-height: 400px; overflow-y: auto; background: rgba(10, 12, 26, 0.9); backdrop-filter: blur(10px); -webkit-backdrop-filter: blur(10px); border: 1px solid rgba(255, 255, 255, 0.1); border-top: none; border-radius: 0 0 16px 16px; box-shadow: 0 10px 20px rgba(0,0,0,0.3); z-index: 1; display: none; }
+        .sector-ops-search:focus-within .search-results-dropdown:not(:empty) { display: block; }
+        .search-result-item { padding: 12px 16px; display: flex; align-items: center; gap: 12px; cursor: pointer; border-bottom: 1px solid rgba(255, 255, 255, 0.05); transition: background-color 0.2s; }
+        .search-result-item:last-child { border-bottom: none; }
+        .search-result-item:hover { background-color: #00a8ff; }
+        .search-result-info { display: flex; flex-direction: column; line-height: 1.3; overflow: hidden; }
+        .search-result-info strong { font-size: 0.95rem; color: #fff; white-space: nowrap; text-overflow: ellipsis; overflow: hidden; }
         
-        .weather-toggle-item {
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-        }
-        
-        .weather-toggle-label {
-            font-size: 1rem;
-            font-weight: 600;
-            color: #e8eaf6;
-            display: flex;
-            align-items: center;
-            gap: 12px;
-        }
-        .weather-toggle-label .fa-solid {
-            width: 20px;
-            text-align: center;
-            color: #00a8ff;
-        }
-        
-        .weather-disclaimer-note {
-            padding: 16px 20px;
-            margin: 0 20px 20px 20px;
-            background: rgba(0, 0, 0, 0.2);
-            border-radius: 8px;
-            font-size: 0.8rem;
-            color: #c5cae9;
-            border: 1px solid rgba(255, 255, 255, 0.05);
-            line-height: 1.5;
-        }
-        .weather-disclaimer-note .fa-solid {
-            color: #f39c12;
-            margin-right: 8px;
-        }
-
-        /* --- CSS Toggle Switch --- */
-        .toggle-switch {
-            position: relative;
-            display: inline-block;
-            width: 50px;
-            height: 28px;
-        }
-        .toggle-switch input {
-            opacity: 0;
-            width: 0;
-            height: 0;
-        }
-        .toggle-slider {
-            position: absolute;
-            cursor: pointer;
-            top: 0;
-            left: 0;
-            right: 0;
-            bottom: 0;
-            background-color: rgba(10, 12, 26, 0.7);
-            border: 1px solid rgba(255, 255, 255, 0.1);
-            transition: .3s;
-            border-radius: 28px;
-        }
-        .toggle-slider:before {
-            position: absolute;
-            content: "";
-            height: 20px;
-            width: 20px;
-            left: 3px;
-            bottom: 3px;
-            background-color: white;
-            transition: .3s;
-            border-radius: 50%;
-        }
-        input:checked + .toggle-slider {
-            background-color: #00a8ff;
-        }
-        input:checked + .toggle-slider:before {
-            transform: translateX(22px);
-        }
-        /* --- End Toggle Switch --- */
-
-        /* ====================================================================
-        --- [NEW STYLES FOR FILTER WINDOW] --- 
-        ====================================================================
-        */
-
-        #filter-settings-window {
-            /* Position on the left, not the right */
-            left: 20px;
-            right: auto;
-            
-            /* --- [NEW] Stack it below the weather window --- */
-            top: 20px; 
-            
-            /* Make it smaller */
-            width: 360px;
-            
-            /* Fix transform direction */
-            transform: translateX(-20px);
-        }
-        
-        #filter-settings-window.visible {
-            transform: translateX(0);
-        }
-
-        .filter-toggle-list {
-            list-style: none;
-            padding: 16px 20px;
-            margin: 0;
-            display: flex;
-            flex-direction: column;
-            gap: 16px;
-        }
-        
-        .filter-toggle-item {
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-        }
-        
-        .filter-toggle-label {
-            font-size: 1rem;
-            font-weight: 600;
-            color: #e8eaf6;
-            display: flex;
-            align-items: center;
-            gap: 12px;
-        }
-        .filter-toggle-label .fa-solid {
-            width: 20px;
-            text-align: center;
-            color: #00a8ff; /* Re-use blue color for consistency */
-        }
-
-        /* --- [START NEW] --- */
-        .filter-section-divider {
-            padding: 12px 20px 8px 20px;
-            border-top: 1px solid rgba(255, 255, 255, 0.1);
-        }
-
-        .filter-section-title {
-            font-size: 0.8rem;
-            font-weight: 600;
-            color: #9fa8da;
-            text-transform: uppercase;
-        }
-
-        .filter-radio-item {
-            display: flex;
-            align-items: center;
-            gap: 12px;
-            padding: 10px 0; /* A bit less padding than toggles */
-        }
-        
-        .filter-radio-item input[type="radio"] {
-            /* Use accent-color for modern browsers */
-            accent-color: #00a8ff;
-            width: 18px;
-            height: 18px;
-        }
-        
-        .filter-radio-item label {
-            font-size: 1rem;
-            font-weight: 600;
-            color: #e8eaf6;
-            cursor: pointer;
-            display: flex;
-            align-items: center;
-            gap: 12px;
-        }
-        
-        .filter-radio-item label .fa-solid {
-            width: 20px;
-            text-align: center;
-            color: #00a8ff;
-        }
-        /* --- [END NEW] --- */
-
-        /* ##### MODIFICATION START (Specificity Fix) ##### */
-        /* By default, hide the mobile-only setting on desktop */
-        .mobile-only-filter-section {
-            display: none;
-        }
-        /* ##### MODIFICATION END (Specificity Fix) ##### */
-
-        /* ====================================================================
-        --- [NEW STYLES FOR MAP SEARCH BAR] --- 
-        ====================================================================
-        */
-        .sector-ops-search {
-            position: absolute;
-            top: 20px;
-            
-            /* ##### FIX START ##### */
-            /* Position top-right */
-            right: 20px; 
-            /* ##### FIX END ##### */
-            
-            /* ##### FIX START ##### */
-            /* Set z-index to be BENEATH info window */
-            z-index: 1050; 
-            /* ##### FIX END ##### */
-            display: flex;
-            flex-direction: column; 
-            align-items: center;
-            transition: all 0.3s ease;
-        }
-
-        /* --- [NEW] Container for the input bar itself --- */
-        .search-bar-container {
-            position: relative;
-            display: flex;
-            align-items: center;
-            width: 300px; /* Start at full width */
-            background: rgba(18, 20, 38, 0.75);
-            backdrop-filter: blur(15px);
-            -webkit-backdrop-filter: blur(15px);
-            border: 1px solid rgba(255, 255, 255, 0.1);
-            border-radius: 25px;
-            box-shadow: 0 4px 15px rgba(0,0,0,0.4);
-            overflow: hidden;
-            z-index: 2; /* Keep bar above results */
-        }
-        
-        /* Minimal "icon only" state when not focused */
-        .sector-ops-search:not(:focus-within) .search-bar-container {
-            width: 44px;
-        }
-        
-        /* --- [START OF FIX] --- */
-        /* This rule now targets the new <label> element */
-        .sector-ops-search .search-icon-label {
-            color: #9fa8da;
-            padding: 12px 14px;
-            font-size: 1rem;
-            z-index: 1;
-            transition: color 0.2s;
-            line-height: 1;
-            cursor: text;
-            display: grid;
-            place-items: center;
-        }
-        
-        /* [NEW] This rule removes padding from the <i> icon itself */
-        .sector-ops-search .search-icon {
-            padding: 0;
-        }
-        /* --- [END OF FIX] --- */
-
-        #sector-ops-search-input {
-            width: 0; /* Hidden by default */
-            border: none;
-            background: transparent;
-            color: #e8eaf6;
-            font-size: 1rem; /* --- [FIX] Changed from 0.95rem to prevent mobile zoom --- */
-            outline: none;
-            padding: 12px 0 12px 0;
-            transition: width 0.3s ease-in-out;
-        }
-        
-        #sector-ops-search-input::placeholder {
-            color: #9fa8da;
-            opacity: 0.8;
-        }
-        
-        /* Expand when the input or its container is focused */
-        .sector-ops-search:focus-within .search-bar-container {
-            width: 300px;
-            background: rgba(10, 12, 26, 0.8);
-            border-bottom-left-radius: 0; /* --- [NEW] --- */
-            border-bottom-right-radius: 0; /* --- [NEW] --- */
-        }
-        
-        /* --- [START OF FIX] --- */
-        /* This rule now targets the <label> on focus-within */
-        .sector-ops-search:focus-within .search-icon-label {
-            color: #00a8ff;
-        }
-        /* --- [END OF FIX] --- */
-        
-        .sector-ops-search:focus-within #sector-ops-search-input {
-            /* 300px (total) - 44px (icon) - 46px (clear button) */
-            width: 210px; 
-        }
-
-        .search-clear-btn {
-            background: none;
-            border: none;
-            color: #9fa8da;
-            cursor: pointer;
-            font-size: 1.1rem;
-            padding: 10px 14px;
-            margin-left: auto;
-            line-height: 1;
-        }
-        .search-clear-btn:hover {
-            color: #fff;
-        }
-        
-        /* Show/hide clear button logic */
-        .sector-ops-search:focus-within #sector-ops-search-input:not(:placeholder-shown) + #sector-ops-search-clear {
-            display: block;
-        }
-        .sector-ops-search:focus-within #sector-ops-search-input:placeholder-shown + #sector-ops-search-clear,
-        .sector-ops-search:not(:focus-within) #sector-ops-search-clear {
-            display: none;
-        }
-
-        /* --- [START NEW] Search Results Dropdown --- */
-        .search-results-dropdown {
-            width: 300px;
-            max-height: 400px;
-            overflow-y: auto;
-            background: rgba(10, 12, 26, 0.9);
-            backdrop-filter: blur(10px);
-            -webkit-backdrop-filter: blur(10px);
-            border: 1px solid rgba(255, 255, 255, 0.1);
-            border-top: none;
-            border-radius: 0 0 16px 16px;
-            box-shadow: 0 10px 20px rgba(0,0,0,0.3);
-            z-index: 1; /* Below bar */
-            display: none; /* Hidden by default */
-        }
-
-        /* Show dropdown when search is focused and has results */
-        .sector-ops-search:focus-within .search-results-dropdown:not(:empty) {
-            display: block;
-        }
-
-        .search-result-item {
-            padding: 12px 16px;
-            display: flex;
-            align-items: center;
-            gap: 12px;
-            cursor: pointer;
-            border-bottom: 1px solid rgba(255, 255, 255, 0.05);
-            transition: background-color 0.2s;
-        }
-        .search-result-item:last-child {
-            border-bottom: none;
-        }
-        .search-result-item:hover {
-            background-color: #00a8ff;
-        }
-
-        .search-result-item .fa-solid {
-            color: #9fa8da;
-            width: 16px;
-        }
-        .search-result-item:hover .fa-solid {
-            color: #fff;
-        }
-
-        .search-result-info {
-            display: flex;
-            flex-direction: column;
-            line-height: 1.3;
-            overflow: hidden;
-        }
-        .search-result-info strong {
-            font-size: 0.95rem;
-            color: #fff;
-            white-space: nowrap;
-            text-overflow: ellipsis;
-            overflow: hidden;
-        }
-        .search-result-info small {
-            font-size: 0.8rem;
-            color: #c5cae9;
-            white-space: nowrap;
-            text-overflow: ellipsis;
-            overflow: hidden;
-        }
-        .search-result-item:hover small {
-            color: #e8eaf6;
-        }
-        /* --- [END NEW] Search Results Dropdown --- */
-
-
-        /* --- Mobile adjustments for search bar --- */
         @media (max-width: 992px) {
-            .sector-ops-search {
-                /* --- [START MODIFICATION - TOP FIX] --- */
-                top: 15px; /* Change from 50px to 15px to move it to the very top */
-                left: 50%;
-                transform: translateX(-50%);
-                z-index: 990 !important;
-                width: 300px;
-                max-width: calc(100vw - 30px);
-                /* --- [END MODIFICATION - TOP FIX] --- */
-            }
-            
-            /* Keep it expanded on mobile */
-            .search-bar-container,
-            .sector-ops-search:not(:focus-within) .search-bar-container,
-            .sector-ops-search:focus-within .search-bar-container {
-                 width: 100%;
-                 border-radius: 25px; 
-            }
-
-            /* --- [NEW] --- */
-            .search-results-dropdown {
-                width: 100%;
-            }
-            .sector-ops-search:focus-within .search-bar-container {
-                border-bottom-left-radius: 0;
-                border-bottom-right-radius: 0;
-            }
-            /* --- [END NEW] --- */
-            
-            .sector-ops-search #sector-ops-search-input,
-            .sector-ops-search:focus-within #sector-ops-search-input {
-                 /* Fill remaining space */
-                 width: calc(100% - 88px);
-            }
-
-            /* Show clear button if not empty (no focus-within needed) */
-            #sector-ops-search-input:not(:placeholder-shown) + #sector-ops-search-clear {
-                display: block;
-            }
-            #sector-ops-search-input:placeholder-shown + #sector-ops-search-clear {
-                display: none;
-            }
-
-            /* --- [START MODIFICATION - INFO WINDOW FIX] --- */
-            /* Adjust info window to not clash */
-            .info-window {
-                /* Sits below the search bar */
-                top: 75px; 
-                max-height: calc(100vh - 90px); /* Adjust max-height accordingly */
-            }
-            /* --- [END MODIFICATION - INFO WINDOW FIX] --- */
+            .sector-ops-search { top: 15px; left: 50%; transform: translateX(-50%); z-index: 990 !important; width: 300px; max-width: calc(100vw - 30px); }
+            .search-bar-container, .sector-ops-search:not(:focus-within) .search-bar-container, .sector-ops-search:focus-within .search-bar-container { width: 100%; border-radius: 25px; }
+            .search-results-dropdown { width: 100%; }
+            .sector-ops-search:focus-within .search-bar-container { border-bottom-left-radius: 0; border-bottom-right-radius: 0; }
+            .sector-ops-search #sector-ops-search-input, .sector-ops-search:focus-within #sector-ops-search-input { width: calc(100% - 88px); }
+            #sector-ops-search-input:not(:placeholder-shown) + #sector-ops-search-clear { display: block; }
+            #sector-ops-search-input:placeholder-shown + #sector-ops-search-clear { display: none; }
+            .info-window { top: 75px; max-height: calc(100vh - 90px); }
         }
     `;
 
@@ -6528,123 +4985,130 @@ function populateAircraftInfoWindow(baseProps, plan, sortedRoutePoints) {
                 <div class="pfd-and-location-grid">
                 
                     <div class="pfd-main-panel">
-                        <div id="pfd-container">
-                            <svg width="787" height="635" viewBox="0 30 787 665" fill="none" xmlns="http://www.w3.org/2000/svg">
-                            <g id="PFD" clip-path="url(#clip0_1_2890)">
-                                <g id="attitude_group">
-                                    <rect id="Sky" x="-186" y="-222" width="1121" height="532" fill="#0596FF"/>
-                                    <rect id="Ground" x="-138" y="307" width="1024" height="527" fill="#9A4710"/>
+                        <div class="display-bezel">
+                            <div class="screw tl"></div>
+                            <div class="screw tr"></div>
+                            <div class="screw bl"></div>
+                            <div class="screw br"></div>
+                            
+                            <div class="crt-container scanlines" id="pfd-container">
+                                <svg width="787" height="635" viewBox="0 30 787 665" fill="none" xmlns="http://www.w3.org/2000/svg">
+                                <g id="PFD" clip-path="url(#clip0_1_2890)">
+                                    <g id="attitude_group">
+                                        <rect id="Sky" x="-186" y="-222" width="1121" height="532" fill="#0596FF"/>
+                                        <rect id="Ground" x="-138" y="307" width="1024" height="527" fill="#9A4710"/>
+                                        </g>
+                                    <rect id="Rectangle 1" x="-6" y="5" width="191" height="566" fill="#030309"/>
+                                    <rect id="Rectangle 9" x="609" width="185" height="566" fill="#030309"/>
+                                    <path id="Rectangle 2" d="M273.905 84.9424L180.983 183.181L-23 -9.76114L69.9218 -108L273.905 84.9424Z" fill="#030309"/>
+                                    <path id="Rectangle 8" d="M303.215 77.0814L187.591 147.198L42 -92.8829L157.624 -163L303.215 77.0814Z" fill="#030309"/>
+                                    <path id="Rectangle 7" d="M372.606 54.0171L244.59 97.5721L154.152 -168.242L282.169 -211.796L372.606 54.0171Z" fill="#030309"/>
+                                    <rect id="Rectangle 10" x="25" y="487.905" width="168.696" height="262.947" transform="rotate(-31.8041 25 487.905)" fill="#030309"/>
+                                    <rect id="Rectangle 14" width="67.3639" height="53.5561" transform="matrix(-0.972506 0.23288 0.23288 0.972506 482.512 537)" fill="#030309"/>
+                                    <rect id="Rectangle 19" width="80.8905" height="53.5561" transform="matrix(-0.999899 0.0142423 0.0142423 0.999899 442.882 549.506)" fill="#030309"/>
+                                    <rect id="Rectangle 18" width="46.2297" height="53.5561" transform="matrix(-0.988103 -0.153795 -0.153795 0.988103 369.916 549.11)" fill="#030309"/>
+                                    <rect id="Rectangle 17" width="46.2297" height="53.5561" transform="matrix(-0.940186 -0.340662 -0.340662 0.940186 337.709 546.749)" fill="#030309"/>
+                                    <rect id="Rectangle 16" width="46.2297" height="53.5561" transform="matrix(-0.940186 -0.340662 -0.340662 0.940186 299.709 531.749)" fill="#030309"/>
+                                    <rect id="Rectangle 15" x="387" y="587.269" width="168.696" height="262.947" transform="rotate(-27.6434 387 587.269)" fill="#030309"/>
+                                    <rect id="Rectangle 13" x="86" y="584.104" width="168.696" height="262.947" transform="rotate(-46.8648 86 584.104)" fill="#030309"/>
+                                    <rect id="Rectangle 11" x="527" y="532.777" width="168.696" height="262.947" transform="rotate(-51.9135 527 532.777)" fill="#030309"/>
+                                    <rect id="Rectangle 12" x="503" y="527.247" width="168.696" height="262.947" transform="rotate(-31.9408 503 527.247)" fill="#030309"/>
+                                    <rect id="Rectangle 6" x="456.715" y="60.2651" width="131.991" height="278.153" transform="rotate(-177.303 456.715 60.2651)" fill="#030309"/>
+                                    <rect id="Rectangle 5" x="525.118" y="90.4898" width="131.991" height="274.627" transform="rotate(-158.368 525.118 90.4898)" fill="#030309"/>
+                                    <rect id="Rectangle 4" x="570.695" y="127.633" width="109.94" height="223.222" transform="rotate(-142.051 570.695 127.633)" fill="#030309"/>
+                                    <rect id="Rectangle 3" x="613.292" y="189.098" width="99.2768" height="223.222" transform="rotate(-128.125 613.292 189.098)" fill="#030309"/>
+                                    <path id="Vector 3" d="M609 183V422.5" stroke="#E7E6E8" stroke-width="4"/>
+                                    <path id="Vector 1" d="M185.5 425.5L185 180" stroke="#DBDBDC" stroke-width="4"/>
+                                    <path id="Vector 2" d="M185 181.502C185 181.502 269.8 52.0936 397 56.0907C524.2 60.0879 576.603 135.189 609 184" stroke="#DBDBDC" stroke-width="4"/>
+                                    <path id="Vector 4" d="M608.5 424.5C608.5 424.5 557 548 396 550.5C235 553 185 424.5 185 424.5" stroke="#DBDBDC" stroke-width="4"/>
+                                    <path id="Polygon 1" d="M396.252 65.2333L377.848 35.8138L414.647 35.8079L396.252 65.2333Z" fill="#E7F013"/>
+                                    <path id="Polygon 2" d="M407.919 38.9482L396.431 59.4193L384.446 38.7244L407.919 38.9482Z" fill="#030309"/>
+                                    <path id="Vector 6" d="M307 76L302 64.5L312 60.5L317 71" stroke="#E7E6E8" stroke-width="4"/>
+                                    <path id="Vector 7" d="M279.5 91L268.5 73.5L259 79L269.5 97.5" stroke="#E7E6E8" stroke-width="4"/>
+                                    <path id="Vector 8" d="M225 135L206.5 117" stroke="#E7E6E8" stroke-width="4"/>
+                                    <path id="Vector 9" d="M477.153 71.5794L479.366 59.3018L489.886 61.5697L488.226 73.0218" stroke="#E7E6E8" stroke-width="4"/>
+                                    <path id="Vector 10" d="M347.928 61.4888L346.352 49.0483L357.072 48.0112L358.929 59.4917" stroke="#E7E6E8" stroke-width="4"/>
+                                    <path id="Vector 11" d="M435.153 59.5794L437.366 47.3018L447.886 49.5697L446.226 61.0218" stroke="#E7E6E8" stroke-width="4"/>
+                                    <path id="Vector 12" d="M514.032 86.1754L522.756 72.2658L533.956 78.0405L525.5 93.5" stroke="#E7E6E8" stroke-width="4"/>
+                                    <path id="Vector 13" d="M569.5 131.5L585.5 116" stroke="#E7E6E8" stroke-width="4"/>
+                                    <path id="Vector 15" d="M183.5 193.5L173 187" stroke="#029705" stroke-width="4"/>
+                                    <path id="Vector 16" d="M184 203L173.5 196.5" stroke="#029705" stroke-width="4"/>
+                                    <path id="Vector 17" d="M610 193.5L619 188" stroke="#029705" stroke-width="3"/>
+                                    <path id="Vector 18" d="M610 199.5L619 194" stroke="#029705" stroke-width="3"/>
+                                    <line id="Line 1" x1="184" y1="211" x2="184" y2="184" stroke="#DBDBDC" stroke-width="2"/>
+                                    <line id="Line 2" x1="610" y1="211" x2="610" y2="184" stroke="#DBDBDC" stroke-width="2"/>
+                                    <rect id="altitude_bg" x="675" y="73" width="72" height="476" fill="#76767A"/>
+                                    <svg x="675" y="73" width="72" height="476"><g id="altitude_tape_group"></g></svg>
+                                    <g id="altitude_indicator_static">
+                                        <rect id="altitude_1" x="675" y="280" width="73" height="49" fill="#030309"/>
+                                        <text id="altitude_readout_hundreds" x="740" y="316" fill="#00FF00" font-size="32" text-anchor="end" font-weight="bold">0</text>
+                                        <g id="altitude_tens_reel_container" clip-path="url(#tensReelClip)"><g id="altitude_tens_reel_group"></g></g>
+                                        <line id="Line 8" x1="669" y1="307" x2="618" y2="307" stroke="#DDDF07" stroke-width="8"/>
                                     </g>
-                                <rect id="Rectangle 1" x="-6" y="5" width="191" height="566" fill="#030309"/>
-                                <rect id="Rectangle 9" x="609" width="185" height="566" fill="#030309"/>
-                                <path id="Rectangle 2" d="M273.905 84.9424L180.983 183.181L-23 -9.76114L69.9218 -108L273.905 84.9424Z" fill="#030309"/>
-                                <path id="Rectangle 8" d="M303.215 77.0814L187.591 147.198L42 -92.8829L157.624 -163L303.215 77.0814Z" fill="#030309"/>
-                                <path id="Rectangle 7" d="M372.606 54.0171L244.59 97.5721L154.152 -168.242L282.169 -211.796L372.606 54.0171Z" fill="#030309"/>
-                                <rect id="Rectangle 10" x="25" y="487.905" width="168.696" height="262.947" transform="rotate(-31.8041 25 487.905)" fill="#030309"/>
-                                <rect id="Rectangle 14" width="67.3639" height="53.5561" transform="matrix(-0.972506 0.23288 0.23288 0.972506 482.512 537)" fill="#030309"/>
-                                <rect id="Rectangle 19" width="80.8905" height="53.5561" transform="matrix(-0.999899 0.0142423 0.0142423 0.999899 442.882 549.506)" fill="#030309"/>
-                                <rect id="Rectangle 18" width="46.2297" height="53.5561" transform="matrix(-0.988103 -0.153795 -0.153795 0.988103 369.916 549.11)" fill="#030309"/>
-                                <rect id="Rectangle 17" width="46.2297" height="53.5561" transform="matrix(-0.940186 -0.340662 -0.340662 0.940186 337.709 546.749)" fill="#030309"/>
-                                <rect id="Rectangle 16" width="46.2297" height="53.5561" transform="matrix(-0.940186 -0.340662 -0.340662 0.940186 299.709 531.749)" fill="#030309"/>
-                                <rect id="Rectangle 15" x="387" y="587.269" width="168.696" height="262.947" transform="rotate(-27.6434 387 587.269)" fill="#030309"/>
-                                <rect id="Rectangle 13" x="86" y="584.104" width="168.696" height="262.947" transform="rotate(-46.8648 86 584.104)" fill="#030309"/>
-                                <rect id="Rectangle 11" x="527" y="532.777" width="168.696" height="262.947" transform="rotate(-51.9135 527 532.777)" fill="#030309"/>
-                                <rect id="Rectangle 12" x="503" y="527.247" width="168.696" height="262.947" transform="rotate(-31.9408 503 527.247)" fill="#030309"/>
-                                <rect id="Rectangle 6" x="456.715" y="60.2651" width="131.991" height="278.153" transform="rotate(-177.303 456.715 60.2651)" fill="#030309"/>
-                                <rect id="Rectangle 5" x="525.118" y="90.4898" width="131.991" height="274.627" transform="rotate(-158.368 525.118 90.4898)" fill="#030309"/>
-                                <rect id="Rectangle 4" x="570.695" y="127.633" width="109.94" height="223.222" transform="rotate(-142.051 570.695 127.633)" fill="#030309"/>
-                                <rect id="Rectangle 3" x="613.292" y="189.098" width="99.2768" height="223.222" transform="rotate(-128.125 613.292 189.098)" fill="#030309"/>
-                                <path id="Vector 3" d="M609 183V422.5" stroke="#E7E6E8" stroke-width="4"/>
-                                <path id="Vector 1" d="M185.5 425.5L185 180" stroke="#DBDBDC" stroke-width="4"/>
-                                <path id="Vector 2" d="M185 181.502C185 181.502 269.8 52.0936 397 56.0907C524.2 60.0879 576.603 135.189 609 184" stroke="#DBDBDC" stroke-width="4"/>
-                                <path id="Vector 4" d="M608.5 424.5C608.5 424.5 557 548 396 550.5C235 553 185 424.5 185 424.5" stroke="#DBDBDC" stroke-width="4"/>
-                                <path id="Polygon 1" d="M396.252 65.2333L377.848 35.8138L414.647 35.8079L396.252 65.2333Z" fill="#E7F013"/>
-                                <path id="Polygon 2" d="M407.919 38.9482L396.431 59.4193L384.446 38.7244L407.919 38.9482Z" fill="#030309"/>
-                                <path id="Vector 6" d="M307 76L302 64.5L312 60.5L317 71" stroke="#E7E6E8" stroke-width="4"/>
-                                <path id="Vector 7" d="M279.5 91L268.5 73.5L259 79L269.5 97.5" stroke="#E7E6E8" stroke-width="4"/>
-                                <path id="Vector 8" d="M225 135L206.5 117" stroke="#E7E6E8" stroke-width="4"/>
-                                <path id="Vector 9" d="M477.153 71.5794L479.366 59.3018L489.886 61.5697L488.226 73.0218" stroke="#E7E6E8" stroke-width="4"/>
-                                <path id="Vector 10" d="M347.928 61.4888L346.352 49.0483L357.072 48.0112L358.929 59.4917" stroke="#E7E6E8" stroke-width="4"/>
-                                <path id="Vector 11" d="M435.153 59.5794L437.366 47.3018L447.886 49.5697L446.226 61.0218" stroke="#E7E6E8" stroke-width="4"/>
-                                <path id="Vector 12" d="M514.032 86.1754L522.756 72.2658L533.956 78.0405L525.5 93.5" stroke="#E7E6E8" stroke-width="4"/>
-                                <path id="Vector 13" d="M569.5 131.5L585.5 116" stroke="#E7E6E8" stroke-width="4"/>
-                                <path id="Vector 15" d="M183.5 193.5L173 187" stroke="#029705" stroke-width="4"/>
-                                <path id="Vector 16" d="M184 203L173.5 196.5" stroke="#029705" stroke-width="4"/>
-                                <path id="Vector 17" d="M610 193.5L619 188" stroke="#029705" stroke-width="3"/>
-                                <path id="Vector 18" d="M610 199.5L619 194" stroke="#029705" stroke-width="3"/>
-                                <line id="Line 1" x1="184" y1="211" x2="184" y2="184" stroke="#DBDBDC" stroke-width="2"/>
-                                <line id="Line 2" x1="610" y1="211" x2="610" y2="184" stroke="#DBDBDC" stroke-width="2"/>
-                                <rect id="altitude_bg" x="675" y="73" width="72" height="476" fill="#76767A"/>
-                                <svg x="675" y="73" width="72" height="476"><g id="altitude_tape_group"></g></svg>
-                                <g id="altitude_indicator_static">
-                                    <rect id="altitude_1" x="675" y="280" width="73" height="49" fill="#030309"/>
-                                    <text id="altitude_readout_hundreds" x="740" y="316" fill="#00FF00" font-size="32" text-anchor="end" font-weight="bold">0</text>
-                                    <g id="altitude_tens_reel_container" clip-path="url(#tensReelClip)"><g id="altitude_tens_reel_group"></g></g>
-                                    <line id="Line 8" x1="669" y1="307" x2="618" y2="307" stroke="#DDDF07" stroke-width="8"/>
-                                </g>
-                                <path id="limit" d="M636 336.08L621.413 307.511L650.858 307.651L636 336.08Z" fill="#C477C6"/>
-                                <path id="limit2" d="M636 279L650.722 307.5H621.278L636 279Z" fill="#C477C6"/>
-                                <path id="limit3" d="M636 285L643.794 303H628.206L636 285Z" fill="#100010"/>
-                                <path id="limit4" d="M636.191 329.14L628.276 311.242L643.534 310.999L636.191 329.14Z" fill="#030309"/>
-                                <line id="Line 6" x1="746.5" y1="263" x2="746.5" y2="281" stroke="#ECED06" stroke-width="3"/>
-                                <line id="Line 4" x1="746.5" y1="329" x2="746.5" y2="347" stroke="#ECED06" stroke-width="3"/>
-                                <path id="Ellipse 1" d="M636 481C636 484.866 632.866 488 629 488C625.134 488 622 484.866 622 481C622 477.134 625.134 474 629 474C632.866 474 636 477.134 636 481Z" fill="#D9D9D9"/>
-                                <path id="Ellipse 4" d="M636 147C636 150.866 632.866 154 629 154C625.134 154 622 150.866 622 147C622 143.134 625.134 140 629 140C632.866 140 636 143.134 636 147Z" fill="#D9D9D9"/>
-                                <g id="Ellipse 3">
-                                    <path d="M636 229C636 232.866 632.866 236 629 236C625.134 236 622 232.866 622 229C622 225.134 625.134 222 629 222C632.866 222 636 225.134 636 229Z" fill="#D9D9D9"/>
-                                    <path d="M636 395C636 398.866 632.866 402 629 402C625.134 402 622 398.866 622 395C622 391.134 625.134 388 629 388C632.866 388 636 391.134 636 395Z" fill="#D9D9D9"/>
-                                </g>
-                                <rect id="speed" x="28" y="73" width="97" height="477" fill="#76767A"/>
-                                <svg x="28" y="73" width="97" height="477"><g id="speed_tape_group"></g></svg>
-                                <g id="speed_indicator_static">
-                                    <path id="Polygon 9" d="M128.036 311.591L150.451 301.561L150.513 321.482L128.036 311.591Z" fill="#FDFD03"/>
-                                    <path id="Vector 20" d="M137 311H96.5" stroke="#FDFD03" stroke-width="4"/>
-                                    <rect x="50" y="296" width="45" height="30" fill="black" stroke="#999" stroke-width="1"/>
-                                    <text id="speed_readout" x="72.5" y="318" fill="#00FF00" font-size="20" text-anchor="middle" font-weight="bold">0</text>
-                                </g>
-                                <path id="Vector 19" d="M19.5 311H31" stroke="#FDFD03" stroke-width="4"/>
-                                <path id="Vector 21" d="M29 73H151.5" stroke="#E7E6E8" stroke-width="4"/>
-                                <path id="Vector 22" d="M28 549H151.5" stroke="#E7E6E8" stroke-width="4"/>
-                                <path id="Vector 23" d="M672.5 73H774" stroke="#E7E6E8" stroke-width="4"/>
-                                <path id="Vector 24" d="M672 548.5H773" stroke="#E7E6E8" stroke-width="4"/>
-                                <path id="Vector 25" d="M745 549.5L746 347" stroke="#E7E6E8" stroke-width="3"/>
-                                <path id="Vector 26" d="M745 73V265" stroke="#E7E6E8" stroke-width="3"/>
-                                <g id="wings">
-                                    <rect id="Rectangle 21" x="280" y="315" width="11" height="25" fill="#030309"/>
-                                    <rect id="Rectangle 23" x="522" y="304" width="71" height="12" fill="#030309"/>
-                                    <rect id="Rectangle 22" x="512" y="305" width="13" height="35" fill="#030309"/>
-                                    <rect id="Rectangle 20" x="208" y="304" width="83" height="13" fill="#030309"/>
-                                    <g id="wing">
-                                        <path d="M278.591 316.857H208V304H291.608V340H278.591V316.857Z" stroke="#FEFE03" stroke-width="3"/>
-                                        <path d="M511.392 340V304H595V316.857H524.409V340H511.392Z" stroke="#FEFE03" stroke-width="3"/>
+                                    <path id="limit" d="M636 336.08L621.413 307.511L650.858 307.651L636 336.08Z" fill="#C477C6"/>
+                                    <path id="limit2" d="M636 279L650.722 307.5H621.278L636 279Z" fill="#C477C6"/>
+                                    <path id="limit3" d="M636 285L643.794 303H628.206L636 285Z" fill="#100010"/>
+                                    <path id="limit4" d="M636.191 329.14L628.276 311.242L643.534 310.999L636.191 329.14Z" fill="#030309"/>
+                                    <line id="Line 6" x1="746.5" y1="263" x2="746.5" y2="281" stroke="#ECED06" stroke-width="3"/>
+                                    <line id="Line 4" x1="746.5" y1="329" x2="746.5" y2="347" stroke="#ECED06" stroke-width="3"/>
+                                    <path id="Ellipse 1" d="M636 481C636 484.866 632.866 488 629 488C625.134 488 622 484.866 622 481C622 477.134 625.134 474 629 474C632.866 474 636 477.134 636 481Z" fill="#D9D9D9"/>
+                                    <path id="Ellipse 4" d="M636 147C636 150.866 632.866 154 629 154C625.134 154 622 150.866 622 147C622 143.134 625.134 140 629 140C632.866 140 636 143.134 636 147Z" fill="#D9D9D9"/>
+                                    <g id="Ellipse 3">
+                                        <path d="M636 229C636 232.866 632.866 236 629 236C625.134 236 622 232.866 622 229C622 225.134 625.134 222 629 222C632.866 222 636 225.134 636 229Z" fill="#D9D9D9"/>
+                                        <path d="M636 395C636 398.866 632.866 402 629 402C625.134 402 622 398.866 622 395C622 391.134 625.134 388 629 388C632.866 388 636 391.134 636 395Z" fill="#D9D9D9"/>
                                     </g>
-                                </g>
-                                <g id="middle">
-                                    <rect id="middle_2" x="393" y="304" width="17" height="17" fill="#0CC704"/>
-                                    <rect id="Rectangle 24" x="395" y="307" width="13" height="11" fill="#030309"/>
-                                </g>
-                                <rect id="Rectangle 25" y="571" width="787" height="140" fill="#030309"/>
-                                <rect id="header" x="243" y="599" width="326" height="66" fill="#76767A"/>
-                                <g id="heading_indicator">
-                                    <g id="heading_tape_container" clip-path="url(#headingClip)"><g id="heading_tape_group"></g></g>
-                                    <g id="heading_static_elements">
-                                        <line x1="406" y1="620" x2="406" y2="635" stroke="#FDFD03" stroke-width="3"/>
-                                        <rect x="381" y="599" width="50" height="20" fill="black" stroke="#FFFFFF" stroke-width="1"/>
-                                        <text id="heading_readout" x="406" y="615" fill="#00FF00" font-size="16" text-anchor="middle" font-weight="bold">000</text>
+                                    <rect id="speed" x="28" y="73" width="97" height="477" fill="#76767A"/>
+                                    <svg x="28" y="73" width="97" height="477"><g id="speed_tape_group"></g></svg>
+                                    <g id="speed_indicator_static">
+                                        <path id="Polygon 9" d="M128.036 311.591L150.451 301.561L150.513 321.482L128.036 311.591Z" fill="#FDFD03"/>
+                                        <path id="Vector 20" d="M137 311H96.5" stroke="#FDFD03" stroke-width="4"/>
+                                        <rect x="50" y="296" width="45" height="30" fill="black" stroke="#999" stroke-width="1"/>
+                                        <text id="speed_readout" x="72.5" y="318" fill="#00FF00" font-size="20" text-anchor="middle" font-weight="bold">0</text>
                                     </g>
+                                    <path id="Vector 19" d="M19.5 311H31" stroke="#FDFD03" stroke-width="4"/>
+                                    <path id="Vector 21" d="M29 73H151.5" stroke="#E7E6E8" stroke-width="4"/>
+                                    <path id="Vector 22" d="M28 549H151.5" stroke="#E7E6E8" stroke-width="4"/>
+                                    <path id="Vector 23" d="M672.5 73H774" stroke="#E7E6E8" stroke-width="4"/>
+                                    <path id="Vector 24" d="M672 548.5H773" stroke="#E7E6E8" stroke-width="4"/>
+                                    <path id="Vector 25" d="M745 549.5L746 347" stroke="#E7E6E8" stroke-width="3"/>
+                                    <path id="Vector 26" d="M745 73V265" stroke="#E7E6E8" stroke-width="3"/>
+                                    <g id="wings">
+                                        <rect id="Rectangle 21" x="280" y="315" width="11" height="25" fill="#030309"/>
+                                        <rect id="Rectangle 23" x="522" y="304" width="71" height="12" fill="#030309"/>
+                                        <rect id="Rectangle 22" x="512" y="305" width="13" height="35" fill="#030309"/>
+                                        <rect id="Rectangle 20" x="208" y="304" width="83" height="13" fill="#030309"/>
+                                        <g id="wing">
+                                            <path d="M278.591 316.857H208V304H291.608V340H278.591V316.857Z" stroke="#FEFE03" stroke-width="3"/>
+                                            <path d="M511.392 340V304H595V316.857H524.409V340H511.392Z" stroke="#FEFE03" stroke-width="3"/>
+                                        </g>
+                                    </g>
+                                    <g id="middle">
+                                        <rect id="middle_2" x="393" y="304" width="17" height="17" fill="#0CC704"/>
+                                        <rect id="Rectangle 24" x="395" y="307" width="13" height="11" fill="#030309"/>
+                                    </g>
+                                    <rect id="Rectangle 25" y="571" width="787" height="140" fill="#030309"/>
+                                    <rect id="header" x="243" y="599" width="326" height="66" fill="#76767A"/>
+                                    <g id="heading_indicator">
+                                        <g id="heading_tape_container" clip-path="url(#headingClip)"><g id="heading_tape_group"></g></g>
+                                        <g id="heading_static_elements">
+                                            <line x1="406" y1="620" x2="406" y2="635" stroke="#FDFD03" stroke-width="3"/>
+                                            <rect x="381" y="599" width="50" height="20" fill="black" stroke="#FFFFFF" stroke-width="1"/>
+                                            <text id="heading_readout" x="406" y="615" fill="#00FF00" font-size="16" text-anchor="middle" font-weight="bold">000</text>
+                                        </g>
+                                    </g>
+                                    <path id="Vector 27" d="M243 599V667" stroke="#FCFCFF" stroke-width="4"/>
+                                    <g id="Line 5"><line id="Line 5_2" x1="745" y1="264.5" x2="787" y2="264.5" stroke="#ECED06" stroke-width="3"/></g>
+                                    <line id="Line 6_2" x1="671" y1="279.5" x2="748" y2="279.5" stroke="#ECED06" stroke-width="3"/>
+                                    <line id="Line 7" x1="671" y1="329.5" x2="748" y2="329.5" stroke="#ECED06" stroke-width="3"/>
+                                    <line id="Line 3" x1="746" y1="345.5" x2="786" y2="345.5" stroke="#ECED06" stroke-width="3"/>
                                 </g>
-                                <path id="Vector 27" d="M243 599V667" stroke="#FCFCFF" stroke-width="4"/>
-                                <g id="Line 5"><line id="Line 5_2" x1="745" y1="264.5" x2="787" y2="264.5" stroke="#ECED06" stroke-width="3"/></g>
-                                <line id="Line 6_2" x1="671" y1="279.5" x2="748" y2="279.5" stroke="#ECED06" stroke-width="3"/>
-                                <line id="Line 7" x1="671" y1="329.5" x2="748" y2="329.5" stroke="#ECED06" stroke-width="3"/>
-                                <line id="Line 3" x1="746" y1="345.5" x2="786" y2="345.5" stroke="#ECED06" stroke-width="3"/>
-                            </g>
-                            <defs>
-                                <clipPath id="clip0_1_2890"><rect width="787" height="695" fill="white"/></clipPath>
-                                <clipPath id="tensReelClip"><rect x="732" y="269" width="50" height="75"/></clipPath>
-                                <clipPath id="headingClip"><rect x="243" y="620" width="326" height="45"/></clipPath>
-                            </defs>
-                            </svg>
+                                <defs>
+                                    <clipPath id="clip0_1_2890"><rect width="787" height="695" fill="white"/></clipPath>
+                                    <clipPath id="tensReelClip"><rect x="732" y="269" width="50" height="75"/></clipPath>
+                                    <clipPath id="headingClip"><rect x="243" y="620" width="326" height="45"/></clipPath>
+                                </defs>
+                                </svg>
+                            </div>
                         </div>
                         <div id="nd-container" style="background: transparent; overflow: hidden; display: flex; justify-content: center; height: 380px; margin-top: 0px;">
                             <iframe id="nav-display-frame" src="nav.html" style="width: 320px; height: 100%; border: none;" scrolling="no"></iframe>
