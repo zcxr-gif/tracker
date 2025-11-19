@@ -58,20 +58,20 @@
 
         /* --- Display Unit (The Monitor Bezel) --- */
         .display-bezel {
-            position: relative;
-            background-color: var(--bg-bezel);
-            padding: 0.75rem; 
-            border-radius: 1rem;
-            border: 4px solid var(--border-main);
-            box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.5); 
-            
-            /* STRICT DIMENSIONS */
-            width: 300px;
-            height: 242px;
-            
-            display: flex;
-            flex-direction: column;
-        }
+    position: relative;
+    background-color: var(--bg-bezel);
+    padding: 0.75rem; 
+    border-radius: 1rem;
+    border: 4px solid var(--border-main);
+    box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.5); 
+    
+    /* --- CHANGED DIMENSIONS TO MATCH PFD --- */
+    width: 300px;
+    height: 305px; /* Increased from 242px to match PFD ratio */
+    
+    display: flex;
+    flex-direction: column;
+}
 
         /* Decorative Screws */
         .screw {
@@ -382,36 +382,40 @@
         }
 
         function draw() {
-            const w = canvas.width;
-            const h = canvas.height;
-            
-            ctx.fillStyle = COLORS.bg;
-            ctx.fillRect(0, 0, w, h);
+    const w = canvas.width;
+    const h = canvas.height;
+    
+    ctx.fillStyle = COLORS.bg;
+    ctx.fillRect(0, 0, w, h);
 
-            // Center origin
-            ctx.save();
-            ctx.translate(w/2, h/2); 
-            ctx.scale(GLOBAL_SCALE, GLOBAL_SCALE);
+    // Center origin
+    ctx.save();
+    ctx.translate(w/2, h/2); 
+    ctx.scale(GLOBAL_SCALE, GLOBAL_SCALE);
 
-            const scaledH = h / GLOBAL_SCALE;
-            const scaledW = w / GLOBAL_SCALE;
-            
-            const isRoseMode = (state.mode === 'ROSE');
+    const scaledH = h / GLOBAL_SCALE;
+    const scaledW = w / GLOBAL_SCALE;
+    
+    const isRoseMode = (state.mode === 'ROSE');
 
-            let arcCenterY, arcCenterX, arcRadius;
+    let arcCenterY, arcCenterX, arcRadius;
 
-            if (isRoseMode) {
-                arcCenterX = 0;
-                arcCenterY = 0; 
-                arcRadius = scaledH * 0.42; 
-            } else {
-                arcCenterX = 0;
-                arcCenterY = (scaledH / 2) - 60; 
-                arcRadius = scaledH * 0.72; 
-            }
+    // --- UPDATED LOGIC FOR TALLER SCREEN ---
+    if (isRoseMode) {
+        arcCenterX = 0;
+        arcCenterY = 0; 
+        // Use the smaller dimension to prevent cutting off
+        arcRadius = Math.min(scaledW, scaledH) * 0.42; 
+    } else {
+        arcCenterX = 0;
+        // Moved center down slightly (was -60, now -30) to fit taller aspect
+        arcCenterY = (scaledH / 2) - 30; 
+        // Reduced multiplier slightly (was 0.72) to fit within width
+        arcRadius = Math.min(scaledW, scaledH) * 0.80; 
+    }
 
-            // Rotating Map Area
-            ctx.save();
+    // Rotating Map Area
+    ctx.save();
             ctx.translate(arcCenterX, arcCenterY);
             ctx.rotate(-state.heading * Math.PI / 180);
             
