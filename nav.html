@@ -385,40 +385,40 @@
         }
 
         function draw() {
-    const w = canvas.width;
-    const h = canvas.height;
-    
-    ctx.fillStyle = COLORS.bg;
-    ctx.fillRect(0, 0, w, h);
+            const w = canvas.width;
+            const h = canvas.height;
+            
+            ctx.fillStyle = COLORS.bg;
+            ctx.fillRect(0, 0, w, h);
 
-    // Center origin
-    ctx.save();
-    ctx.translate(w/2, h/2); 
-    ctx.scale(GLOBAL_SCALE, GLOBAL_SCALE);
+            // Center origin
+            ctx.save();
+            ctx.translate(w/2, h/2); 
+            ctx.scale(GLOBAL_SCALE, GLOBAL_SCALE);
 
-    const scaledH = h / GLOBAL_SCALE;
-    const scaledW = w / GLOBAL_SCALE;
-    
-    const isRoseMode = (state.mode === 'ROSE');
+            const scaledH = h / GLOBAL_SCALE;
+            const scaledW = w / GLOBAL_SCALE;
+            
+            const isRoseMode = (state.mode === 'ROSE');
 
-    let arcCenterY, arcCenterX, arcRadius;
+            let arcCenterY, arcCenterX, arcRadius;
 
-    // --- UPDATED LOGIC FOR TALLER SCREEN ---
-    if (isRoseMode) {
-        arcCenterX = 0;
-        arcCenterY = 0; 
-        // Use the smaller dimension to prevent cutting off
-        arcRadius = Math.min(scaledW, scaledH) * 0.42; 
-    } else {
-        arcCenterX = 0;
-        // Moved center down slightly (was -60, now -30) to fit taller aspect
-        arcCenterY = (scaledH / 2) - 30; 
-        // Reduced multiplier slightly (was 0.72) to fit within width
-        arcRadius = Math.min(scaledW, scaledH) * 0.80; 
-    }
+            if (isRoseMode) {
+                // ROSE: Dead center
+                arcCenterX = 0;
+                arcCenterY = 0; 
+                arcRadius = Math.min(scaledW, scaledH) * 0.42; 
+            } else {
+                // ARC: Move origin down, but not as far down as before
+                arcCenterX = 0;
+                // CHANGED: Increased offset from 30 to 85 to move the plane UP
+                arcCenterY = (scaledH / 2) - 85; 
+                
+                arcRadius = Math.min(scaledW, scaledH) * 0.80; 
+            }
 
-    // Rotating Map Area
-    ctx.save();
+            // Rotating Map Area
+            ctx.save();
             ctx.translate(arcCenterX, arcCenterY);
             ctx.rotate(-state.heading * Math.PI / 180);
             
@@ -437,6 +437,7 @@
             
             ctx.restore();
         }
+
 
         function drawFlightPlan(radius) {
             if (!state.flightPlan || state.flightPlan.length === 0) return;
@@ -588,11 +589,10 @@
             ctx.lineWidth = 3;
             ctx.beginPath();
             
-            // Check mode to determine scale
-            // If ARC, scale is 1.5 (50% bigger). If ROSE, scale is 1.0.
-            const scale = (state.mode === 'ARC') ? 1.5 : 1.0;
+            // CHANGED: Logic to make plane bigger in ARC mode
+            // 1.6 scale for ARC, 1.0 (normal) for ROSE
+            const scale = (state.mode === 'ARC') ? 1.6 : 1.0;
 
-            // Apply scale to dimensions
             const size = 15 * scale;
             const tailOffset = 12 * scale;
             const tailWidth = 6 * scale;
@@ -755,7 +755,7 @@
             ctx.font = `bold ${fontSize * 0.9}px 'Inconsolata', monospace`;
             ctx.fillText("", 0, h / 2 - 20); 
         }
-        
+
         document.getElementById('hdgInput').addEventListener('input', (e) => {
             state.heading = parseInt(e.target.value);
             state.track = parseInt(e.target.value);
