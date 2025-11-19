@@ -385,50 +385,53 @@
         }
 
         function draw() {
-            const w = canvas.width;
-            const h = canvas.height;
-            
-            ctx.fillStyle = COLORS.bg;
-            ctx.fillRect(0, 0, w, h);
+    const w = canvas.width;
+    const h = canvas.height;
+    
+    ctx.fillStyle = COLORS.bg;
+    ctx.fillRect(0, 0, w, h);
 
-            // Center origin
-            ctx.save();
-            ctx.translate(w/2, h/2); 
-            ctx.scale(GLOBAL_SCALE, GLOBAL_SCALE);
+    // Center origin
+    ctx.save();
+    ctx.translate(w/2, h/2); 
+    ctx.scale(GLOBAL_SCALE, GLOBAL_SCALE);
 
-            const scaledH = h / GLOBAL_SCALE;
-            const scaledW = w / GLOBAL_SCALE;
-            
-            const isRoseMode = (state.mode === 'ROSE');
+    const scaledH = h / GLOBAL_SCALE;
+    const scaledW = w / GLOBAL_SCALE;
+    
+    const isRoseMode = (state.mode === 'ROSE');
 
-            let arcCenterY, arcCenterX, arcRadius;
+    let arcCenterY, arcCenterX, arcRadius;
 
-            if (isRoseMode) {
-                // ROSE: Dead center
-                arcCenterX = 0;
-                arcCenterY = 0; 
-                arcRadius = Math.min(scaledW, scaledH) * 0.42; 
-            } else {
-                // ARC: Move origin down, but not as far down as before
-                arcCenterX = 0;
-                // CHANGED: Increased offset from 30 to 85 to move the plane UP
-                arcCenterY = (scaledH / 2) - 85; 
-                
-                arcRadius = Math.min(scaledW, scaledH) * 0.80; 
-            }
+    // --- UPDATED LOGIC ---
+    if (isRoseMode) {
+        arcCenterX = 0;
+        arcCenterY = 0; 
+        arcRadius = Math.min(scaledW, scaledH) * 0.42; 
+    } else {
+        arcCenterX = 0;
+        // Keep plane pushed up (-85) as requested
+        arcCenterY = (scaledH / 2) - 85; 
+        
+        // Increased radius to 0.70 (was 0.60)
+        arcRadius = Math.min(scaledW, scaledH) * 0.70; 
+    }
 
-            // Rotating Map Area
-            ctx.save();
+    // Rotating Map Area (Ticks and Map Items)
+    ctx.save();
             ctx.translate(arcCenterX, arcCenterY);
             ctx.rotate(-state.heading * Math.PI / 180);
             
-            drawCompassRose(arcRadius, isRoseMode);
+            drawCompassRose(arcRadius, isRoseMode); // Now only draws ticks/labels
             drawFlightPlan(arcRadius);
             drawTraffic(arcRadius);
             
             ctx.restore();
 
-            // Static Overlays
+            // Static Overlays (Fixed on screen)
+            // Draw the white boundary line separately so it doesn't rotate
+            drawCompassArcBoundary(arcCenterX, arcCenterY, arcRadius, isRoseMode);
+            
             drawRangeRings(arcCenterX, arcCenterY, arcRadius, isRoseMode);
             drawAircraftSymbol(arcCenterX, arcCenterY);
             drawHeadingPointers(arcCenterX, arcCenterY, arcRadius);
@@ -437,7 +440,6 @@
             
             ctx.restore();
         }
-
 
         function drawFlightPlan(radius) {
             if (!state.flightPlan || state.flightPlan.length === 0) return;
@@ -507,15 +509,15 @@
             ctx.lineWidth = 2; 
             ctx.font = `bold ${outerRadius * 0.09}px 'Inconsolata', monospace`;
 
-            ctx.beginPath();
-            ctx.arc(0, 0, innerRadius, 0, 2 * Math.PI);
-            ctx.stroke();
+            // Removed the full circle stroke from here to prevent spinning arc effect in ARC mode.
+            // It is now handled by drawCompassArcBoundary()
 
             for (let d = 0; d < 360; d += 5) {
                 if (!isRoseMode) {
                     let rel = Math.abs(d - state.heading);
                     if (rel > 180) rel = 360 - rel;
-                    if (rel > 130) continue; 
+                    // Ticks visibility window
+                    if (rel > 110) continue; 
                 }
 
                 const rad = d * Math.PI / 180;
@@ -550,6 +552,28 @@
             }
         }
 
+        function drawCompassArcBoundary(cx, cy, radius, isRoseMode) {
+            const tickLenLong = radius * 0.08;
+            const innerRadius = radius - tickLenLong;
+            
+            ctx.strokeStyle = COLORS.white;
+            ctx.lineWidth = 2;
+            ctx.beginPath();
+
+            if (isRoseMode) {
+                // Full circle for Rose
+                ctx.arc(cx, cy, innerRadius, 0, 2 * Math.PI);
+            } else {
+                // Fixed Arc Segment for ARC mode
+                // Spanning approx +/- 55 degrees from top (1.5 PI)
+                // 1.5 PI = 4.71 rad. 
+                // Start = 4.71 - 0.95 = 3.76
+                // End = 4.71 + 0.95 = 5.66
+                ctx.arc(cx, cy, innerRadius, Math.PI * 1.2, Math.PI * 1.8);
+            }
+            ctx.stroke();
+        }
+
         function drawRangeRings(cx, cy, radius, isRoseMode) {
             ctx.strokeStyle = COLORS.white;
             ctx.setLineDash([5, 5]); 
@@ -560,11 +584,15 @@
                 ctx.arc(cx, cy, radius * 0.5, 0, Math.PI * 2);
                 ctx.stroke();
             } else {
+                // Matches the arc boundary span roughly
                 ctx.beginPath();
-                ctx.arc(cx, cy, radius * 0.5, Math.PI + 0.6, 2 * Math.PI - 0.6);
+                ctx.arc(cx, cy, radius * 0.5, Math.PI * 1.2, Math.PI * 1.8);
                 ctx.stroke();
+                
+                // Don't draw the 0.75 ring in ARC mode if radius is small, 
+                // or keep it if you prefer density. I'll keep it but clamp angles.
                 ctx.beginPath();
-                ctx.arc(cx, cy, radius * 0.75, Math.PI + 0.4, 2 * Math.PI - 0.4); 
+                ctx.arc(cx, cy, radius * 0.75, Math.PI * 1.25, Math.PI * 1.75); 
                 ctx.stroke();
             }
             ctx.setLineDash([]); 
@@ -589,10 +617,11 @@
             ctx.lineWidth = 3;
             ctx.beginPath();
             
-            // CHANGED: Logic to make plane bigger in ARC mode
-            // 1.6 scale for ARC, 1.0 (normal) for ROSE
-            const scale = (state.mode === 'ARC') ? 1.6 : 1.0;
+            // Check mode to determine scale
+            // IF ARC: Scale is 2.3 (Bigger plane).
+            const scale = (state.mode === 'ARC') ? 2.3 : 1.0;
 
+            // Apply scale to dimensions
             const size = 15 * scale;
             const tailOffset = 12 * scale;
             const tailWidth = 6 * scale;
@@ -755,7 +784,7 @@
             ctx.font = `bold ${fontSize * 0.9}px 'Inconsolata', monospace`;
             ctx.fillText("", 0, h / 2 - 20); 
         }
-
+        
         document.getElementById('hdgInput').addEventListener('input', (e) => {
             state.heading = parseInt(e.target.value);
             state.track = parseInt(e.target.value);
