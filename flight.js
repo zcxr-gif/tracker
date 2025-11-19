@@ -6600,7 +6600,7 @@ function populateAircraftInfoWindow(baseProps, plan, sortedRoutePoints) { // <--
                     </div>
                     
                     <!-- NEW: Navigation Display Iframe -->
-                    <div id="nd-container" style="background: #000; border-radius: 12px; overflow: hidden; border: 1px solid rgba(255,255,255,0.1); aspect-ratio: 1/1; width: 100%; max-width: 300px; margin: 0 auto;">
+                    <div id="nd-container" style="background: #000; border-radius: 12px; overflow: hidden; border: 1px solid rgba(255,255,255,0.1); aspect-ratio: 1/1; min-height: 300px;">
                         <iframe id="nav-display-frame" src="nav.html" style="width: 100%; height: 100%; border: none;" scrolling="no"></iframe>
                     </div>
                     
