@@ -2643,82 +2643,83 @@ function getNearestRunway(aircraftPos, airportIcao, maxDistanceNM = 2.0) {
             fmaGroup.setAttribute('id', 'fma_group');
             
             // Background Box (Top of PFD)
-            // y=30 is where the SVG viewBox starts visible content
+            // UPDATED: y=0 to use the new gap. Height=80 to fill it.
             const fmaBg = document.createElementNS(SVG_NS, 'rect');
             fmaBg.setAttribute('x', '0');
-            fmaBg.setAttribute('y', '30');
+            fmaBg.setAttribute('y', '0'); 
             fmaBg.setAttribute('width', '787');
-            fmaBg.setAttribute('height', '50');
-            fmaBg.setAttribute('fill', '#050505'); // Almost black
-            // fmaBg.setAttribute('fill-opacity', '0.9');
+            fmaBg.setAttribute('height', '80'); // Taller to match new gap
+            fmaBg.setAttribute('fill', '#101010'); // Dark background
+            // Optional: Add a bottom border line
+            fmaBg.setAttribute('stroke', '#555');
+            fmaBg.setAttribute('stroke-width', '0'); 
             fmaGroup.appendChild(fmaBg);
 
             // Separator Lines (5 Columns -> 4 lines)
-            // Width 787 / 5 ≈ 157.4
             const colWidth = 157.4;
             for (let i = 1; i < 5; i++) {
                 const x = i * colWidth;
                 const line = document.createElementNS(SVG_NS, 'line');
                 line.setAttribute('x1', x); line.setAttribute('x2', x);
-                line.setAttribute('y1', '30'); line.setAttribute('y2', '80');
-                line.setAttribute('stroke', '#555'); // Grey divider
+                // UPDATED: Line spans full FMA height (0 to 80)
+                line.setAttribute('y1', '0'); line.setAttribute('y2', '80');
+                line.setAttribute('stroke', '#555'); 
                 line.setAttribute('stroke-width', '1');
                 fmaGroup.appendChild(line);
             }
 
             // Text Placeholders
-            // Style: Green (#00FF00) for active modes, White for secondary/armed (not simulated here yet), Font size ~20-22
+            // UPDATED: Y positions centered in new 0-80 height (approx y=48)
             
-            // Col 1: Auto-Thrust (Center x ~ 78)
+            // Col 1: Auto-Thrust
             const textCol1 = document.createElementNS(SVG_NS, 'text');
             textCol1.setAttribute('id', 'fma_col1_text');
             textCol1.setAttribute('x', '78');
-            textCol1.setAttribute('y', '62'); // Center vertically approx
-            textCol1.setAttribute('fill', '#00FF00'); // Airbus Green
+            textCol1.setAttribute('y', '48'); 
+            textCol1.setAttribute('fill', '#00FF00'); 
             textCol1.setAttribute('font-family', 'monospace');
-            textCol1.setAttribute('font-size', '20');
+            textCol1.setAttribute('font-size', '22'); // Slightly larger
             textCol1.setAttribute('font-weight', 'bold');
             textCol1.setAttribute('text-anchor', 'middle');
-            textCol1.textContent = ""; // Init empty
+            textCol1.textContent = ""; 
             fmaGroup.appendChild(textCol1);
 
-            // Col 2: Vertical Mode (Center x ~ 235)
+            // Col 2: Vertical Mode
             const textCol2 = document.createElementNS(SVG_NS, 'text');
             textCol2.setAttribute('id', 'fma_col2_text');
             textCol2.setAttribute('x', '235');
-            textCol2.setAttribute('y', '62');
+            textCol2.setAttribute('y', '48');
             textCol2.setAttribute('fill', '#00FF00');
             textCol2.setAttribute('font-family', 'monospace');
-            textCol2.setAttribute('font-size', '20');
+            textCol2.setAttribute('font-size', '22');
             textCol2.setAttribute('font-weight', 'bold');
             textCol2.setAttribute('text-anchor', 'middle');
             textCol2.textContent = ""; 
             fmaGroup.appendChild(textCol2);
 
-            // Col 3: Lateral Mode (Center x ~ 392)
+            // Col 3: Lateral Mode
             const textCol3 = document.createElementNS(SVG_NS, 'text');
             textCol3.setAttribute('id', 'fma_col3_text');
             textCol3.setAttribute('x', '392');
-            textCol3.setAttribute('y', '62');
+            textCol3.setAttribute('y', '48');
             textCol3.setAttribute('fill', '#00FF00');
             textCol3.setAttribute('font-family', 'monospace');
-            textCol3.setAttribute('font-size', '20');
+            textCol3.setAttribute('font-size', '22');
             textCol3.setAttribute('font-weight', 'bold');
             textCol3.setAttribute('text-anchor', 'middle');
             textCol3.textContent = ""; 
             fmaGroup.appendChild(textCol3);
 
-            // Col 4: Approach Capability (Center x ~ 549) - Static for now
+            // Col 4: Approach Capability
             const textCol4 = document.createElementNS(SVG_NS, 'text');
             textCol4.setAttribute('id', 'fma_col4_text');
             textCol4.setAttribute('x', '549');
-            textCol4.setAttribute('y', '55');
-            textCol4.setAttribute('fill', '#FFFFFF'); // White for status
+            textCol4.setAttribute('y', '42'); // Slightly higher to account for 2 lines
+            textCol4.setAttribute('fill', '#FFFFFF'); 
             textCol4.setAttribute('font-family', 'monospace');
-            textCol4.setAttribute('font-size', '16');
+            textCol4.setAttribute('font-size', '18');
             textCol4.setAttribute('text-anchor', 'middle');
             
-            // We can initialize lines for CAT3 / DUAL
             const tspan1 = document.createElementNS(SVG_NS, 'tspan');
             tspan1.setAttribute('x', '549');
             tspan1.setAttribute('dy', '0');
@@ -2727,11 +2728,19 @@ function getNearestRunway(aircraftPos, airportIcao, maxDistanceNM = 2.0) {
             
             const tspan2 = document.createElementNS(SVG_NS, 'tspan');
             tspan2.setAttribute('x', '549');
-            tspan2.setAttribute('dy', '18');
+            tspan2.setAttribute('dy', '20');
             tspan2.textContent = ""; 
             textCol4.appendChild(tspan2);
             
             fmaGroup.appendChild(textCol4);
+            
+            // --- Add a divider line at the bottom of the FMA ---
+            const bottomBorder = document.createElementNS(SVG_NS, 'line');
+            bottomBorder.setAttribute('x1', '0'); bottomBorder.setAttribute('x2', '787');
+            bottomBorder.setAttribute('y1', '80'); bottomBorder.setAttribute('y2', '80');
+            bottomBorder.setAttribute('stroke', '#ffffff');
+            bottomBorder.setAttribute('stroke-width', '2');
+            fmaGroup.appendChild(bottomBorder);
 
             // Append FMA to PFD Group (Last = On Top)
             pfdGroup.appendChild(fmaGroup);
@@ -5188,10 +5197,10 @@ function populateAircraftInfoWindow(baseProps, plan, sortedRoutePoints) {
                             <div class="screw br"></div>
                             
                             <div class="crt-container scanlines" id="pfd-container">
-                                <svg width="787" height="635" viewBox="0 30 787 665" fill="none" xmlns="http://www.w3.org/2000/svg">
+                                <svg width="787" height="800" viewBox="0 0 787 800" fill="none" xmlns="http://www.w3.org/2000/svg">
                                 <g id="PFD" clip-path="url(#clip0_1_2890)">
                                     <g id="attitude_group">
-                                        <rect id="Sky" x="-186" y="-222" width="1121" height="532" fill="#0596FF"/>
+                                        <rect id="Sky" x="-186" y="-222" width="1121" height="600" fill="#0596FF"/>
                                         <rect id="Ground" x="-138" y="307" width="1024" height="527" fill="#9A4710"/>
                                         </g>
                                     <rect id="Rectangle 1" x="-6" y="5" width="191" height="566" fill="#030309"/>
@@ -5309,7 +5318,7 @@ function populateAircraftInfoWindow(baseProps, plan, sortedRoutePoints) {
                                     <line id="Line 3" x1="746" y1="345.5" x2="786" y2="345.5" stroke="#ECED06" stroke-width="3"/>
                                 </g>
                                 <defs>
-                                    <clipPath id="clip0_1_2890"><rect width="787" height="695" fill="white"/></clipPath>
+                                    <clipPath id="clip0_1_2890"><rect width="787" height="800" fill="white"/></clipPath>
                                     <clipPath id="tensReelClip"><rect x="732" y="269" width="50" height="75"/></clipPath>
                                     <clipPath id="headingClip"><rect x="243" y="620" width="326" height="45"/></clipPath>
                                     <clipPath id="speedTapeClip"><rect x="28" y="73" width="97" height="477"/></clipPath>
