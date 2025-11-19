@@ -867,12 +867,15 @@ function injectCustomStyles() {
             display: grid;
             place-items: center;
         }
+
+        /* --- [UPDATED] Scanlines - Less Dark --- */
         .scanlines::before {
             content: " ";
             display: block;
             position: absolute;
             top: 0; left: 0; bottom: 0; right: 0;
-            background: linear-gradient(rgba(18, 16, 16, 0) 50%, rgba(0, 0, 0, 0.25) 50%), 
+            /* Decreased opacity from 0.25 to 0.1 */
+            background: linear-gradient(rgba(18, 16, 16, 0) 50%, rgba(0, 0, 0, 0.1) 50%), 
                         linear-gradient(90deg, rgba(255, 0, 0, 0.06), rgba(0, 255, 0, 0.02), rgba(0, 0, 255, 0.06));
             z-index: 10;
             background-size: 100% 2px, 3px 100%;
@@ -885,11 +888,16 @@ function injectCustomStyles() {
             background: transparent;
             border-radius: 0;
         }
+        
+        /* --- [UPDATED] PFD SVG - Brighter with Glow --- */
         #pfd-container svg {
             width: 100%; height: auto; max-width: 300px;
             aspect-ratio: 787 / 635; background-color: #1a1a1a;
             font-family: monospace, sans-serif; color: white;
             overflow: hidden; position: relative; border-radius: 0; /* Remove inner radius */
+            
+            /* Increased brightness/contrast and added glow */
+            filter: brightness(1.3) contrast(1.2) drop-shadow(0 0 2px rgba(255, 255, 255, 0.3));
         }
 
         /* --- Pilot Stats --- */
@@ -899,7 +907,6 @@ function injectCustomStyles() {
         .kpi-label { font-size: 0.7rem; color: #c5cae9; margin-bottom: 6px; display: flex; align-items: center; justify-content: center; gap: 6px; }
         .kpi-value { font-size: 1.4rem; font-weight: 700; color: #fff; line-height: 1.2; }
         
-        /* ... (Rest of stats styles mostly fine, heavily truncated for brevity) ... */
         .accordion-item { background: rgba(10, 12, 26, 0.5); border: 1px solid rgba(255, 255, 255, 0.1); border-radius: 8px; overflow: hidden; }
         .accordion-header { width: 100%; background: none; border: none; padding: 16px; display: flex; justify-content: space-between; align-items: center; cursor: pointer; font-size: 1rem; font-weight: 600; color: #e8eaf6; text-align: left; }
         .accordion-content { max-height: 0; overflow: hidden; transition: max-height 0.3s ease-in-out, padding 0.3s ease-in-out; padding: 0 16px; }
