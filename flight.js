@@ -549,7 +549,7 @@ function injectCustomStyles() {
             position: absolute;
             top: 20px; 
             right: 20px;
-            width: 600px; /* Widened slightly for the new layout */
+            width: 600px; 
             max-width: 95vw;
             max-height: calc(100vh - 40px);
             background: rgba(18, 20, 38, 0.95); 
@@ -616,14 +616,12 @@ function injectCustomStyles() {
             background: #1C1E2A;
         }
 
-        /* --- [RE-DESIGN] Layout Grid for PFD/ND/Placeholder --- */
+        /* --- PFD/ND Layout --- */
         .pfd-and-location-grid { 
             display: grid; 
-            grid-template-columns: 2fr 1fr; /* PFD/ND gets 2/3, Placeholder gets 1/3 */
+            grid-template-columns: 2fr 1fr; 
             gap: 16px; 
         }
-
-        /* --- [RE-DESIGN] Right Side Placeholder --- */
         .right-side-placeholder {
             border: 2px dashed rgba(255, 255, 255, 0.15);
             border-radius: 12px;
@@ -636,107 +634,138 @@ function injectCustomStyles() {
             font-size: 0.9rem;
             text-transform: uppercase;
             letter-spacing: 2px;
-            height: 100%; /* Fills the grid cell height */
-            min-height: 380px; /* Matches approx height of PFD/ND column */
+            height: 100%; 
+            min-height: 380px; 
             box-sizing: border-box;
         }
 
-        /* --- [RE-DESIGN] Navigation Data Instrument Panel (Horizontal Strip) --- */
+        /* --- [REVAMPED] NAV DATA PANEL STYLES --- */
         #location-data-panel {
-            background: #0b0c10; /* Deep matte black */
+            background: #0f1115; /* Deep matte black */
             border-radius: 8px;
-            border: 2px solid #333;
-            box-shadow: inset 0 0 20px rgba(0,0,0,0.8);
+            border: 1px solid #333;
+            box-shadow: 0 4px 20px rgba(0,0,0,0.5);
             width: 100%;
-            margin-top: 16px; /* Spacing from PFD/ND */
+            margin-top: 16px; 
             display: flex;
             flex-direction: column;
-            font-family: 'Consolas', 'Monaco', monospace;
-            color: #eee;
-            position: relative;
+            overflow: hidden;
         }
 
-        /* Header */
         .nav-header {
-            background: linear-gradient(90deg, #1f2937 0%, #111827 100%);
-            padding: 6px 12px;
-            border-bottom: 2px solid #333;
+            background: #181b21;
+            padding: 8px 12px;
+            border-bottom: 1px solid #333;
             display: flex;
             justify-content: space-between;
             align-items: center;
         }
-        .nav-title { font-size: 0.75rem; font-weight: 700; color: #888; letter-spacing: 1px; }
+        .nav-title { 
+            font-size: 0.7rem; 
+            font-weight: 700; 
+            color: #6b7280; 
+            letter-spacing: 1px; 
+            font-family: 'Segoe UI', sans-serif;
+        }
         .nav-status-indicator {
             display: flex; align-items: center; gap: 6px;
-            font-size: 0.7rem; font-weight: 700; letter-spacing: 1px;
-            color: #28a745; text-transform: uppercase;
+            font-size: 0.65rem; font-weight: 700; letter-spacing: 0.5px;
+            color: #10b981; text-transform: uppercase;
         }
         .nav-blink {
-            width: 8px; height: 8px; border-radius: 50%; background: #28a745;
-            box-shadow: 0 0 8px #28a745;
+            width: 6px; height: 6px; border-radius: 50%; background: #10b981;
+            box-shadow: 0 0 6px #10b981;
             animation: navPulse 2s infinite;
         }
         @keyframes navPulse { 0% { opacity: 1; } 50% { opacity: 0.4; } 100% { opacity: 1; } }
 
-        /* Main Grid Container - Horizontal */
+        /* The Grid */
         .nav-grid-container {
             padding: 10px;
             display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); /* Responsive columns */
-            gap: 10px;
+            grid-template-columns: repeat(4, 1fr); /* Strictly 4 columns */
+            gap: 8px;
         }
 
-        /* Data Groups (The boxes) */
-        .data-group {
+        /* Individual Cells */
+        .nav-cell {
             background: rgba(255, 255, 255, 0.03);
-            border: 1px solid rgba(255, 255, 255, 0.1);
             border-radius: 4px;
-            padding: 8px;
+            padding: 6px 10px;
             display: flex;
             flex-direction: column;
-            justify-content: center;
-            min-height: 60px;
+            justify-content: space-between;
+            min-height: 45px;
+            border: 1px solid transparent;
+            transition: background 0.2s;
         }
-
-        .data-group.highlight {
-            border-color: rgba(0, 168, 255, 0.3);
-            background: rgba(0, 168, 255, 0.05);
+        .nav-cell:hover {
+            background: rgba(255, 255, 255, 0.06);
+            border-color: rgba(255, 255, 255, 0.1);
         }
+        
+        /* Spanning Utilities */
+        .nav-span-2 { grid-column: span 2; }
+        .nav-span-4 { grid-column: span 4; }
 
-        /* Labels */
-        .group-label {
+        /* Typography */
+        .nav-label {
             font-size: 0.6rem;
-            color: #00a8ff;
+            color: #00a8ff; /* Cyan for labels */
             text-transform: uppercase;
-            margin-bottom: 4px;
-            display: flex; align-items: center; gap: 5px;
-        }
-
-        /* Readouts */
-        .digital-readout {
-            font-size: 1.0rem;
+            margin-bottom: 2px;
             font-weight: 600;
+            letter-spacing: 0.5px;
+            display: flex;
+            align-items: center;
+            gap: 6px;
+        }
+        .nav-label i { opacity: 0.7; font-size: 0.7rem; }
+        
+        .nav-value {
+            font-family: 'Consolas', 'Monaco', monospace;
+            font-size: 1.05rem;
             color: #fff;
+            font-weight: 600;
             white-space: nowrap;
             overflow: hidden;
             text-overflow: ellipsis;
+            line-height: 1.2;
         }
-        .digital-readout.large { font-size: 1.4rem; color: #ff9900; text-shadow: 0 0 5px rgba(255, 153, 0, 0.3); }
-        .digital-readout.small { font-size: 0.8rem; color: #ccc; }
+        
+        /* Specific Value Styles */
+        .nav-value.large { font-size: 1.2rem; }
+        .nav-value.small { font-size: 0.85rem; color: #ccc; }
+        .nav-value.highlight { color: #4ade80; text-shadow: 0 0 5px rgba(74, 222, 128, 0.2); } /* Green */
+        .nav-value.accent { color: #f59e0b; } /* Amber */
 
-        /* Split Rows */
-        .split-row { display: flex; justify-content: space-between; gap: 10px; }
-        .split-item { display: flex; flex-direction: column; }
+        /* Split Row inside a cell */
+        .nav-row {
+            display: flex;
+            justify-content: space-between;
+            align-items: baseline;
+            width: 100%;
+        }
+        .nav-unit {
+            font-size: 0.7rem;
+            color: #6b7280;
+            margin-left: 2px;
+            font-family: 'Segoe UI', sans-serif;
+            font-weight: 400;
+        }
 
         /* Mobile Responsive */
         @media (max-width: 992px) {
             .info-window { width: 95vw; top: 10px; right: 2.5vw; left: 2.5vw; max-height: calc(100vh - 20px); }
-            .pfd-and-location-grid { grid-template-columns: 1fr; } /* Stack PFD and Placeholder */
-            .right-side-placeholder { display: none; } /* Hide placeholder on mobile to save space */
+            .pfd-and-location-grid { grid-template-columns: 1fr; } 
+            .right-side-placeholder { display: none; }
             #location-data-panel { min-height: auto; }
+            /* On mobile, drop to 2 columns */
+            .nav-grid-container { grid-template-columns: repeat(2, 1fr); }
+            .nav-span-2 { grid-column: span 2; } /* Still span full width on mobile */
         }
-
-        /* --- Other existing styles --- */
+        
+        /* --- Existing general styles below... --- */
         .aircraft-overview-panel { position: relative; height: 200px; background-size: cover; background-position: center; border-bottom-left-radius: 0; border-bottom-right-radius: 0; color: #fff; display: flex; flex-direction: column; justify-content: space-between; margin-bottom: -40px; }
         .aircraft-overview-panel::before { content: ''; position: absolute; inset: 0; z-index: 1; background: linear-gradient(180deg, rgba(0, 0, 0, 0.4) 0%, rgba(0, 0, 0, 0) 35%); }
         .overview-content { position: relative; z-index: 2; padding: 16px 20px 0 20px; display: flex; justify-content: space-between; align-items: flex-start; }
@@ -765,11 +794,6 @@ function injectCustomStyles() {
         .unified-display-main-content { padding: 16px; flex-grow: 1; display: flex; flex-direction: column; gap: 16px; }
         .ac-tab-pane { display: none; flex-direction: column; gap: 16px; animation: fadeIn 0.4s; }
         .ac-tab-pane.active { display: flex; }
-        .flight-data-bar { display: grid; grid-template-columns: repeat(auto-fit, minmax(100px, 1fr)); gap: 12px; background: rgba(10, 12, 26, 0.5); border-radius: 12px; border: 1px solid rgba(255, 255, 255, 0.05); padding: 16px; border-top: 3px solid #00a8ff; }
-        .data-bar-item { display: flex; flex-direction: column; text-align: center; gap: 4px; }
-        .data-bar-item .data-label { font-size: 0.7rem; color: #c5cae9; text-transform: uppercase; }
-        .data-bar-item .data-value { font-size: 1.5rem; color: #fff; font-weight: 600; font-family: 'Courier New', monospace; line-height: 1.1; }
-        .data-bar-item .data-value .unit { font-size: 0.8rem; font-weight: 400; color: #9fa8da; margin-left: 3px; font-family: 'Segoe UI', sans-serif; }
         .ac-profile-card-new { background: rgba(10, 12, 26, 0.5); border-radius: 12px; border: 1px solid rgba(255, 255, 255, 0.05); padding: 10px; border-top: 3px solid #a33ea3; display: flex; flex-direction: column; gap: 10px; }
         .ac-profile-header { display: flex; justify-content: space-between; align-items: center; padding: 0 5px; }
         .profile-toggle-buttons { display: flex; background: rgba(0,0,0,0.3); border-radius: 6px; }
@@ -5153,78 +5177,55 @@ function populateAircraftInfoWindow(baseProps, plan, sortedRoutePoints) {
                         <span class="nav-title">NAV DATA</span>
                         <span class="nav-status-indicator"><div class="nav-blink"></div> LIVE</span>
                     </div>
+                    
                     <div class="nav-grid-container">
-                        <div class="data-group">
-                            <span class="group-label"><i class="fa-solid fa-map-location-dot"></i> Region</span>
-                            <span class="digital-readout small" id="ac-location">
-                                <i class="fa-solid fa-spinner fa-spin"></i> Scanning...
-                            </span>
+                        <div class="nav-cell">
+                            <span class="nav-label"><i class="fa-solid fa-map-location-dot"></i> Region</span>
+                            <span class="nav-value small" id="ac-location">Scanning...</span>
                         </div>
-                        <div class="data-group">
-                            <span class="group-label"><i class="fa-solid fa-location-crosshairs"></i> Position</span>
-                            <div class="split-row">
-                                <div class="split-item">
-                                    <span style="font-size: 0.6rem; color:#666;">LAT</span>
-                                    <span class="digital-readout" id="ac-lat">---</span>
-                                </div>
-                                <div class="split-item">
-                                    <span style="font-size: 0.6rem; color:#666;">LON</span>
-                                    <span class="digital-readout" id="ac-lon">---</span>
-                                </div>
+                        <div class="nav-cell">
+                            <span class="nav-label"><i class="fa-solid fa-tower-control"></i> Nearest</span>
+                            <div class="nav-row">
+                                <span class="nav-value highlight" id="ac-nearest-apt">---</span>
+                                <span class="nav-value" id="ac-nearest-apt-dist">--.- <span class="nav-unit">NM</span></span>
                             </div>
                         </div>
-                        <div class="data-group highlight">
-                            <span class="group-label"><i class="fa-solid fa-tower-control"></i> Nearest Apt</span>
-                            <div class="split-row" style="align-items: baseline;">
-                                <span class="digital-readout large" id="ac-nearest-apt">---</span>
-                                <span class="digital-readout" id="ac-nearest-apt-dist" style="font-size: 0.9rem; color: #00a8ff;">--.- NM</span>
-                            </div>
+                        <div class="nav-cell">
+                            <span class="nav-label"><i class="fa-solid fa-wind"></i> Wind</span>
+                            <span class="nav-value" id="ac-env-wind">---/--</span>
                         </div>
-                        <div class="data-group">
-                            <span class="group-label"><i class="fa-solid fa-wind"></i> Environment</span>
-                            <div class="split-row">
-                                <div class="split-item">
-                                    <span style="font-size: 0.6rem; color:#666;">WIND / SPD</span>
-                                    <span class="digital-readout" id="ac-env-wind">---/--</span>
-                                </div>
-                                <div class="split-item">
-                                    <span style="font-size: 0.6rem; color:#666;">OAT</span>
-                                    <span class="digital-readout" id="ac-env-oat">--°C</span>
-                                </div>
-                            </div>
+                        <div class="nav-cell">
+                            <span class="nav-label"><i class="fa-solid fa-temperature-half"></i> OAT</span>
+                            <span class="nav-value" id="ac-env-oat">--°C</span>
                         </div>
 
-                        <div class="data-group">
-                            <span class="group-label"><i class="fa-solid fa-location-arrow"></i> Next WPT</span>
-                            <div class="split-row">
-                                <div class="split-item">
-                                    <span style="font-size: 0.6rem; color:#666;">ID</span>
-                                    <span class="digital-readout" id="ac-next-wp">---</span>
-                                </div>
-                                <div class="split-item">
-                                    <span style="font-size: 0.6rem; color:#666;">DIST</span>
-                                    <span class="digital-readout" id="ac-next-wp-dist">--.-</span>
-                                </div>
+                        <div class="nav-cell nav-span-2">
+                            <span class="nav-label"><i class="fa-solid fa-location-crosshairs"></i> Position</span>
+                            <div class="nav-row">
+                                <div><span class="nav-unit">LAT</span> <span class="nav-value" id="ac-lat">---</span></div>
+                                <div><span class="nav-unit">LON</span> <span class="nav-value" id="ac-lon">---</span></div>
                             </div>
                         </div>
-                        <div class="data-group">
-                            <span class="group-label"><i class="fa-solid fa-flag-checkered"></i> Destination</span>
-                            <div class="split-row">
-                                <div class="split-item">
-                                    <span style="font-size: 0.6rem; color:#666;">DIST</span>
-                                    <span class="digital-readout" id="ac-dist">---</span>
-                                </div>
-                                <div class="split-item">
-                                    <span style="font-size: 0.6rem; color:#666;">ETE</span>
-                                    <span class="digital-readout" id="ac-ete">--:--</span>
-                                </div>
+                        <div class="nav-cell nav-span-2">
+                             <span class="nav-label"><i class="fa-solid fa-arrow-up-right-dots"></i> Vertical Speed</span>
+                             <span class="nav-value large highlight" id="ac-vs">--- <span class="nav-unit">fpm</span></span>
+                        </div>
+
+                        <div class="nav-cell nav-span-2">
+                            <span class="nav-label"><i class="fa-solid fa-location-arrow"></i> Next Waypoint</span>
+                            <div class="nav-row">
+                                <span class="nav-value accent" id="ac-next-wp">---</span>
+                                <span class="nav-value" id="ac-next-wp-dist">--.- <span class="nav-unit">NM</span></span>
                             </div>
                         </div>
-                        <div class="data-group">
-                            <span class="group-label"><i class="fa-solid fa-arrow-up-right-dots"></i> Vertical Spd</span>
-                            <span class="digital-readout large" id="ac-vs" style="font-size: 1.2rem;">--- fpm</span>
+                        <div class="nav-cell nav-span-2">
+                            <span class="nav-label"><i class="fa-solid fa-flag-checkered"></i> Destination</span>
+                            <div class="nav-row">
+                                <div><span class="nav-unit">DIST</span> <span class="nav-value" id="ac-dist">---</span></div>
+                                <div><span class="nav-unit">ETE</span> <span class="nav-value" id="ac-ete">--:--</span></div>
+                            </div>
                         </div>
-                        </div>
+                    </div>
                 </div>
                 
                 <div class="ac-profile-card-new">
