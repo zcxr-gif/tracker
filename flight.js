@@ -616,30 +616,17 @@ function injectCustomStyles() {
             background: #1C1E2A;
         }
 
-        /* --- NEW: Flight Display Grid Layout --- */
-        .flight-display-layout {
-            display: flex;
-            flex-direction: column;
-            gap: 16px;
-        }
-
-        .nd-fms-grid { 
+        /* --- PFD/ND Layout --- */
+        .pfd-and-location-grid { 
             display: grid; 
-            grid-template-columns: 1fr 1fr; 
+            grid-template-columns: 2fr 1fr; 
             gap: 16px; 
-            height: 350px; /* Fixed height for the bottom row */
-        }
-
-        .fms-wrapper {
-            display: flex;
-            flex-direction: column;
-            gap: 10px;
-            height: 100%;
         }
         
         /* --- FMS MODULE STYLES --- */
         .fms-module-container {
-            flex-grow: 1;
+            height: 380px; 
+            max-height: 380px;
             background: #000;
             color: #00e600; 
             font-family: 'Consolas', 'Monaco', 'Courier New', monospace;
@@ -835,9 +822,8 @@ function injectCustomStyles() {
         /* Mobile Responsive */
         @media (max-width: 992px) {
             .info-window { width: 95vw; top: 10px; right: 2.5vw; left: 2.5vw; max-height: calc(100vh - 20px); }
-            .nd-fms-grid { grid-template-columns: 1fr; height: auto; } /* Stack vertically on mobile */
-            .fms-module-container { min-height: 250px; }
-            #nd-container { height: 300px; }
+            .pfd-and-location-grid { grid-template-columns: 1fr; } 
+            #fms-legs-module { display: none; }
             #location-data-panel { min-height: auto; }
             .nav-grid-container { grid-template-columns: repeat(2, 1fr); }
             .nav-span-2 { grid-column: span 2; }
@@ -887,19 +873,27 @@ function injectCustomStyles() {
             display: flex; 
             flex-direction: column; 
             width: 100%; 
-            align-items: center; 
-            gap: 16px; 
+            align-items: center; /* Align bezel to center/stretch */
+            gap: 16px; /* Add gap between PFD and ND */
         }
 
         .display-bezel { 
             position: relative; 
+            
+            /* Matched Colors from nav.html */
             background-color: #1f2937; /* var(--bg-bezel) */
             border: 4px solid #374151; /* var(--border-main) */
+            
+            /* Matched Spacing/Radius */
             padding: 12px; /* Approx 0.75rem */
             border-radius: 1rem; 
+            
+            /* Matched Shadow */
             box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.5); 
+            
             width: 100%; 
             box-sizing: border-box; 
+            
             display: flex;
             flex-direction: column;
         }
@@ -923,12 +917,19 @@ function injectCustomStyles() {
         .crt-container { 
             width: 100%; 
             position: relative; 
+            
+            /* Matched Border & Background */
             border: 2px solid #111827; /* var(--border-dark) */
             background: #000; 
+            
+            /* Matched Radius */
             border-radius: 12px; 
             overflow: hidden; 
+            
+            /* Matched Inset Shadow */
             box-shadow: inset 0 0 20px rgba(0,0,0,0.8); 
-            display: flex; 
+            
+            display: flex; /* Ensure SVG fills it */
         }
         
         /* Scanlines - Matched to ND */
@@ -946,6 +947,7 @@ function injectCustomStyles() {
         
         #pfd-container { 
             width: 100%; 
+            /* Height is automatic based on content/flex */
         }
         
         /* Ensure SVG fills the hole completely like the Canvas does in ND */
@@ -954,6 +956,7 @@ function injectCustomStyles() {
             height: auto; 
             display: block;
             margin: 0; 
+            
             max-width: none; 
             aspect-ratio: 787 / 800; 
             background-color: #1a1a1a; 
@@ -963,13 +966,21 @@ function injectCustomStyles() {
         }
         
         /* --- ND CONTAINER FIX --- */
+        /* This container holds the iframe. It must match PFD dimensions. */
         #nd-container { 
             width: 100%;
-            height: 100%; /* Fill the grid cell */
+            /* PFD SVG dimensions are 787x800. */
+            aspect-ratio: 787 / 800; 
+            
             background: transparent; 
             overflow: hidden; 
             display: flex; 
             justify-content: center; 
+            
+            /* Remove fixed height, let aspect-ratio drive it */
+            height: auto; 
+            /* We don't add border/shadow here because nav.html draws the bezel */
+            /* Just ensure it takes up the correct space */
         }
         
         #nav-display-frame {
@@ -5138,7 +5149,7 @@ function populateAircraftInfoWindow(baseProps, plan, sortedRoutePoints) {
                 data-departure="${departureIcao}" 
                 data-arrival="${arrivalIcao}" 
                 data-aircraft="${simbriefAircraftValue}"
-                style="width: 100%;">
+                style="margin-bottom: 16px;">
             <i class="fa-solid fa-file-invoice"></i> Plan This Flight
         </button>`;
     }
@@ -5206,8 +5217,9 @@ function populateAircraftInfoWindow(baseProps, plan, sortedRoutePoints) {
 
         <div class="unified-display-main-content">
             <div id="ac-tab-flight-data" class="ac-tab-pane active">
+                ${planButtonHtml} 
                 
-                <div class="flight-display-layout">
+                <div class="pfd-and-location-grid">
                     <div class="pfd-main-panel">
                         <div class="display-bezel">
                             <div class="screw tl"></div><div class="screw tr"></div><div class="screw bl"></div><div class="screw br"></div>
@@ -5338,42 +5350,37 @@ function populateAircraftInfoWindow(baseProps, plan, sortedRoutePoints) {
                                 </svg>
                             </div>
                         </div>
-                    </div>
-                    
-                    <div class="nd-fms-grid">
+                        
                         <div id="nd-container">
                             <iframe id="nav-display-frame" src="nav.html" scrolling="no"></iframe>
                         </div>
+                    </div>
+                    
+                    <div id="fms-legs-module" class="fms-module-container">
+                        <div class="fms-header">
+                            <span class="fms-title">ACTIVE FLIGHT PLAN</span>
+                            <span class="fms-page-count">1/1</span>
+                        </div>
+                        
+                        <div class="fms-columns">
+                            <span class="col-wpt">LEGS</span>
+                            <span class="col-data text-center">CRS</span>
+                            <span class="col-data text-right">DIST</span>
+                        </div>
 
-                        <div class="fms-wrapper">
-                            <div id="fms-legs-module" class="fms-module-container">
-                                <div class="fms-header">
-                                    <span class="fms-title">ACTIVE FLIGHT PLAN</span>
-                                    <span class="fms-page-count">1/1</span>
-                                </div>
-                                
-                                <div class="fms-columns">
-                                    <span class="col-wpt">LEGS</span>
-                                    <span class="col-data text-center">CRS</span>
-                                    <span class="col-data text-right">DIST</span>
-                                </div>
-
-                                <div id="fms-legs-list" class="fms-list-scrollarea">
-                                    <div class="fms-empty-state">NO ROUTE LOADED</div>
-                                </div>
-                                
-                                <div class="fms-footer">
-                                    <div class="fms-stat">
-                                        <span class="stat-label">DTG</span>
-                                        <span id="fms-total-dist" class="stat-value">---- NM</span>
-                                    </div>
-                                    <div class="fms-stat">
-                                        <span class="stat-label">ETE</span>
-                                        <span id="fms-total-ete" class="stat-value">--:--</span>
-                                    </div>
-                                </div>
+                        <div id="fms-legs-list" class="fms-list-scrollarea">
+                            <div class="fms-empty-state">NO ROUTE LOADED</div>
+                        </div>
+                        
+                        <div class="fms-footer">
+                            <div class="fms-stat">
+                                <span class="stat-label">DTG</span>
+                                <span id="fms-total-dist" class="stat-value">---- NM</span>
                             </div>
-                            ${planButtonHtml} 
+                            <div class="fms-stat">
+                                <span class="stat-label">ETE</span>
+                                <span id="fms-total-ete" class="stat-value">--:--</span>
+                            </div>
                         </div>
                     </div>
                 </div>
