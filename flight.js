@@ -6418,12 +6418,11 @@ function updateFmsLegsModule(plan, currentPos) {
         return;
     }
 
-    // --- FIX START: Capture current scroll position before update ---
+    // --- Capture current scroll position ---
     const previousScrollTop = listContainer.scrollTop;
-    // --- FIX END ---
 
     let html = '';
-    let globalLeafIndex = 0; // Tracks index of actual flyable waypoints (for active highlighting)
+    let globalLeafIndex = 0; // Tracks index of actual flyable waypoints
     
     // Find the "Active" waypoint index
     const flatWaypoints = getFlatWaypointObjects(plan.flightPlanItems);
@@ -6449,26 +6448,39 @@ function updateFmsLegsModule(plan, currentPos) {
     plan.flightPlanItems.forEach((item, index) => {
         const hasChildren = Array.isArray(item.children) && item.children.length > 0;
         
-        // --- 2. HEADER LOGIC (SID/STAR detection) ---
+        // --- 2. HEADER LOGIC (SID/STAR/APPR detection) ---
         if (hasChildren) {
-            let typeTag = 'PROC'; // Default
+            let typeTag = 'PROC'; 
             let typeClass = '';
+            const ident = (item.identifier || item.name || '').toUpperCase();
             
-            // [FIX] Corrected Logic: SID at start, STAR at end
-            if (index <= 2) { 
+            // A. SID Logic (Usually the first procedure in the list)
+            if (index <= 1) { 
                 typeTag = 'SID'; 
                 typeClass = 'sid';
             } 
-            else if (index >= plan.flightPlanItems.length - 3) {
-                typeTag = 'STAR'; 
-                typeClass = 'star';
+            // B. Check for Approach or STAR (Everything else with children)
+            else {
+                // Regex: Starts with exactly 1 Letter [A-Z], followed by 2 digits \d{2}, 
+                // optionally followed by L, R, or C.
+                // Examples: I27L, R09, D18C, V36
+                const isApproachPattern = /^[A-Z]\d{2}[LRC]?$/.test(ident);
+
+                if (isApproachPattern) {
+                    typeTag = 'APPR';
+                    typeClass = 'appr';
+                } else {
+                    // If it has children but doesn't match the runway pattern, it's likely a STAR
+                    typeTag = 'STAR'; 
+                    typeClass = 'star';
+                }
             }
 
             // Render The Header Row
             html += `
                 <div class="fms-proc-header">
                     <span class="proc-tag ${typeClass}">${typeTag}</span>
-                    <span>${item.identifier || 'PROCEDURE'}</span>
+                    <span>${ident}</span>
                 </div>
             `;
 
@@ -6492,12 +6504,11 @@ function updateFmsLegsModule(plan, currentPos) {
         const distNM = distKm / 1.852;
         const bearing = getBearing(prevLat, prevLon, wp.location.latitude, wp.location.longitude);
 
-        // Determine Row State (Passed, Active, Future)
+        // Determine Row State
         let rowClass = '';
         if (globalLeafIndex < activeWpIndex) rowClass = 'passed-leg';
         else if (globalLeafIndex === activeWpIndex) rowClass = 'active-leg';
         
-        // formatting
         const ident = wp.identifier || wp.name || 'WPT';
         const crsDisplay = Math.round(bearing).toString().padStart(3, '0') + '°';
         const distDisplay = distNM.toFixed(1);
@@ -6506,7 +6517,7 @@ function updateFmsLegsModule(plan, currentPos) {
         prevLat = wp.location.latitude;
         prevLon = wp.location.longitude;
 
-        globalLeafIndex++; // Increment leaf counter
+        globalLeafIndex++;
 
         return `
             <div class="fms-row ${rowClass} ${isChild ? 'is-child' : ''}" id="leg-${globalLeafIndex}">
@@ -6519,14 +6530,12 @@ function updateFmsLegsModule(plan, currentPos) {
 
     listContainer.innerHTML = html;
 
-    // --- FIX START: Restore scroll position immediately ---
-    // This ensures smooth updates without jumping if user is manually scrolling
+    // --- Restore scroll position ---
     if (previousScrollTop > 0) {
         listContainer.scrollTop = previousScrollTop;
     }
-    // --- FIX END ---
 
-    // --- FIX START: Scroll Active Leg into View (ONCE ONLY) ---
+    // --- Scroll Active Leg into View (ONCE) ---
     if (listContainer.dataset.initialScrollComplete !== 'true') {
         setTimeout(() => {
             const activeRow = listContainer.querySelector('.active-leg');
@@ -6536,9 +6545,8 @@ function updateFmsLegsModule(plan, currentPos) {
             }
         }, 100);
     }
-    // --- FIX END ---
 
-    // --- 6. Footer Stats (Totals) ---
+    // --- Footer Stats ---
     if(totalDistEl && document.getElementById('ac-dist')) {
         totalDistEl.innerHTML = document.getElementById('ac-dist').innerHTML;
     }
