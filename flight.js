@@ -522,339 +522,279 @@ function injectCustomStyles() {
     if (document.getElementById(styleId)) return;
 
     const css = `
-        /* =========================================
-           1. GLOBAL LAYOUT & MAP CONTAINERS
-           ========================================= */
+        /* --- [FIX] Sector Ops View Layout --- */
         #view-rosters.active {
-            position: absolute; inset: 0; width: 100%; height: 100%;
-            padding: 0; overflow: hidden;
-            display: grid; grid-template-columns: 1fr; grid-template-rows: 1fr;
+            position: absolute;
+            inset: 0;
+            width: 100%;
+            height: 100%;
+            padding: 0;
+            overflow: hidden;
+            display: grid;
+            grid-template-columns: 1fr;
+            grid-template-rows: 1fr;
         }
         #sector-ops-map-fullscreen {
-            grid-column: 1 / -1; grid-row: 1 / -1;
+            grid-column: 1 / -1;
+            grid-row: 1 / -1;
         }
         .main-content:has(#view-rosters.active) {
-            padding: 0; height: 100dvh; overflow: hidden;
+            padding: 0; 
+            height: 100dvh; 
+            overflow: hidden; 
         }
-
-        /* =========================================
-           2. INFO WINDOW CONTAINER (Glassmorphism)
-           ========================================= */
+        
+        /* --- Base Info Window Styles --- */
         .info-window {
-            position: absolute; top: 20px; right: 20px;
-            width: 620px; /* Slightly wider for new layout */
-            max-width: 95vw;
+            position: absolute;
+            top: 20px; 
+            right: 20px;
+            width: 540px; 
+            max-width: 90vw;
             max-height: calc(100vh - 40px);
-            background: rgba(13, 15, 20, 0.95); /* Deep dark blue-black */
-            backdrop-filter: blur(20px);
-            -webkit-backdrop-filter: blur(20px);
-            border-radius: 12px;
-            border: 1px solid rgba(255, 255, 255, 0.08);
-            box-shadow: 0 25px 60px rgba(0,0,0,0.6);
-            z-index: 1060;
-            display: flex; flex-direction: column;
+            background: rgba(18, 20, 38, 0.85); /* Darker, more opaque */
+            backdrop-filter: blur(20px) saturate(180%);
+            -webkit-backdrop-filter: blur(20px) saturate(180%);
+            border-radius: 16px;
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            box-shadow: 0 20px 50px rgba(0,0,0,0.8); /* Deeper shadow */
+            z-index: 1060; 
+            display: flex;
+            flex-direction: column;
             overflow: hidden;
             color: #e8eaf6;
             transition: opacity 0.3s ease, transform 0.3s ease;
-            opacity: 0; transform: translateX(20px); pointer-events: none;
+            opacity: 0;
+            transform: translateX(20px);
+            pointer-events: none; 
         }
-        .info-window.visible {
-            opacity: 1; transform: translateX(0); pointer-events: auto;
+        .info-window.visible { 
+            opacity: 1;
+            transform: translateX(0);
+            pointer-events: auto;
         }
         .info-window-header {
-            display: flex; justify-content: space-between; align-items: center;
-            padding: 12px 16px;
-            background: rgba(255,255,255,0.03);
-            border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 16px 20px;
+            background: rgba(10, 12, 26, 0.6);
+            border-bottom: 1px solid rgba(255, 255, 255, 0.1);
             flex-shrink: 0;
         }
         .info-window-header h3 {
-            margin: 0; font-size: 1rem; color: #fff; font-weight: 700; letter-spacing: 0.5px; text-transform: uppercase;
+            margin: 0; 
+            font-size: 1.3rem; 
+            color: #fff;
+            font-weight: 600;
+            text-shadow: 0 2px 5px rgba(0,0,0,0.4);
         }
         .info-window-actions button {
-            background: transparent; border: none; color: #7a8195;
-            cursor: pointer; font-size: 1rem; width: 28px; height: 28px;
-            display: grid; place-items: center; border-radius: 4px;
-            transition: all 0.2s;
+            background: rgba(255,255,255,0.05); 
+            border: 1px solid rgba(255,255,255,0.1);
+            color: #c5cae9; 
+            cursor: pointer;
+            font-size: 1rem; 
+            width: 32px; height: 32px;
+            border-radius: 50%;
+            margin-left: 8px;
+            line-height: 1; 
+            display: grid;
+            place-items: center;
+            transition: all 0.2s ease-in-out;
         }
-        .info-window-actions button:hover { color: #fff; background: rgba(255,255,255,0.1); }
-        .info-window-content {
-            overflow-y: auto; flex-grow: 1; padding: 0; background: #0d0f14;
+        .info-window-actions button:hover { 
+            background: #00a8ff;
+            color: #fff; 
+            transform: scale(1.1) rotate(90deg);
+            border-color: #00a8ff;
+        }
+        .info-window-content { 
+            overflow-y: auto; 
+            flex-grow: 1; 
+            padding: 0;
+            background: #1C1E2A;
         }
 
-        /* =========================================
-           3. AIRCRAFT HEADER & TABS
-           ========================================= */
-        .aircraft-overview-panel {
-            position: relative; height: 140px;
-            background-size: cover; background-position: center;
-            display: flex; flex-direction: column; justify-content: space-between;
+        /* --- [DESIGN UPGRADE] Navigation Data Panel --- */
+        #location-data-panel {
+            /* Match PFD Height and Style */
+            background: linear-gradient(180deg, rgba(15, 17, 30, 0.95) 0%, rgba(10, 12, 26, 0.98) 100%);
+            border-radius: 12px;
+            border: 1px solid rgba(255, 255, 255, 0.08);
+            box-shadow: inset 0 0 20px rgba(0,0,0,0.5);
+            
+            /* Layout */
+            height: 100%; 
+            min-height: 380px;
+            box-sizing: border-box;
+            display: flex;
+            flex-direction: column;
+            overflow: hidden;
+            position: relative;
         }
-        .aircraft-overview-panel::before {
-            content: ''; position: absolute; inset: 0;
-            background: linear-gradient(to bottom, rgba(13,15,20,0.2) 0%, rgba(13,15,20,1) 100%);
-        }
-        .overview-content {
-            position: relative; z-index: 2; padding: 16px 20px;
-            display: flex; justify-content: space-between; align-items: flex-start;
-        }
-        .overview-col-left h3 {
-            margin: 0; font-size: 1.5rem; font-weight: 700; color: #fff;
-            display: flex; align-items: center; gap: 10px;
-            text-shadow: 0 2px 4px rgba(0,0,0,0.8);
-        }
-        .ac-header-logo { height: 24px; width: auto; filter: drop-shadow(0 2px 2px rgba(0,0,0,0.5)); }
-        .ac-header-subtext { font-size: 0.9rem; color: #bdc3c7; font-weight: 500; text-shadow: 0 1px 3px rgba(0,0,0,0.8); }
-        .overview-col-right { text-align: right; }
-        .route-icao { font-family: 'Courier New', monospace; font-size: 1.5rem; font-weight: 700; color: #00a8ff; text-shadow: 0 0 10px rgba(0, 168, 255, 0.4); margin-left: 8px; }
 
-        .route-summary-overlay {
-            position: relative; padding: 10px 20px 15px 20px;
-            background: rgba(13,15,20,1);
-            display: grid; grid-template-columns: auto 1fr auto;
-            align-items: center; gap: 16px;
+        /* Top "Status" Bar of Nav Panel */
+        .nav-header {
+            background: rgba(255,255,255,0.03);
+            padding: 8px 16px;
             border-bottom: 1px solid rgba(255,255,255,0.05);
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
         }
-        .route-summary-airport { display: flex; flex-direction: column; }
-        #route-summary-dep { text-align: left; } #route-summary-arr { text-align: right; align-items: flex-end; }
-        .airport-line { display: flex; align-items: center; gap: 6px; }
-        .icao { font-weight: 700; color: #fff; font-size: 1.1rem; }
-        .time { font-size: 0.8rem; color: #7a8195; font-family: 'Courier New', monospace; }
-        .country-flag { width: 18px; border-radius: 2px; }
-        
-        .route-progress-container { position: relative; height: 20px; display: grid; place-items: center; }
-        .route-progress-bar-container { width: 100%; height: 4px; background: #1f232b; border-radius: 2px; overflow: hidden; }
-        .progress-bar-fill { height: 100%; background: #00a8ff; width: 0%; transition: width 0.5s; }
-        .flight-phase-indicator {
-            position: absolute; padding: 2px 8px; border-radius: 4px;
-            font-size: 0.65rem; font-weight: 700; color: #fff;
-            background: #1f232b; border: 1px solid rgba(255,255,255,0.1);
-            top: 50%; transform: translateY(-50%);
+        .nav-status-indicator {
+            display: flex; align-items: center; gap: 6px;
+            font-size: 0.7rem; font-weight: 700; letter-spacing: 1px;
+            color: #28a745; text-transform: uppercase;
         }
-        .phase-climb { background: #28a745; } .phase-descent { background: #ff9900; }
-        .phase-cruise { background: #007bff; } .phase-approach { background: #6f42c1; }
+        .nav-blink {
+            width: 8px; height: 8px; border-radius: 50%; background: #28a745;
+            box-shadow: 0 0 8px #28a745;
+            animation: navPulse 2s infinite;
+        }
+        @keyframes navPulse { 0% { opacity: 1; } 50% { opacity: 0.4; } 100% { opacity: 1; } }
 
-        .ac-info-window-tabs {
-            display: flex; background: #13161c; border-bottom: 1px solid #2a2e38;
-            padding: 0 10px;
+        /* Rows */
+        .nav-data-row {
+            padding: 16px;
+            border-bottom: 1px solid rgba(255,255,255,0.05);
+            display: flex;
+            flex-direction: column;
+            position: relative;
+            transition: background 0.2s;
         }
-        .ac-info-tab-btn {
-            padding: 12px 16px; background: none; border: none;
-            color: #7a8195; font-size: 0.85rem; font-weight: 600;
-            border-bottom: 2px solid transparent; cursor: pointer;
-            transition: all 0.2s;
+        .nav-data-row:hover { background: rgba(255,255,255,0.02); }
+        .nav-data-row.grow { flex-grow: 1; justify-content: center; } /* Push Nearest Apt to center space */
+        .nav-data-row:last-child { border-bottom: none; }
+
+        /* Typography */
+        .nav-label {
+            font-size: 0.7rem;
+            color: #89f7fe; /* Cyan accent */
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            margin-bottom: 6px;
+            display: flex; align-items: center; gap: 6px;
         }
+        .nav-value-main {
+            font-family: 'Courier New', monospace;
+            font-size: 1.0rem;
+            color: #fff;
+            font-weight: 700;
+            text-shadow: 0 0 5px rgba(255,255,255,0.2);
+            line-height: 1.3;
+        }
+        .nav-value-sub {
+            font-family: 'Segoe UI', sans-serif;
+            font-size: 0.85rem;
+            color: #9fa8da;
+            margin-top: 3px;
+        }
+        .coord-grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 8px;
+            margin-top: 4px;
+        }
+        .coord-box {
+            background: rgba(0,0,0,0.3);
+            padding: 6px;
+            border-radius: 4px;
+            border: 1px solid rgba(255,255,255,0.05);
+            text-align: center;
+        }
+
+        /* Special styling for Nearest Airport */
+        .nearest-apt-container {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+        }
+        .apt-icao-big {
+            font-size: 2.2rem;
+            font-weight: 800;
+            color: #ff9900; /* Orange accent */
+            font-family: 'Courier New', monospace;
+            letter-spacing: -1px;
+            line-height: 1;
+        }
+        .apt-dist-pill {
+            background: rgba(255, 153, 0, 0.15);
+            color: #ff9900;
+            padding: 4px 10px;
+            border-radius: 20px;
+            font-size: 0.9rem;
+            font-weight: 700;
+            border: 1px solid rgba(255, 153, 0, 0.3);
+        }
+
+        /* Mobile Responsive */
+        @media (max-width: 992px) {
+            .info-window { width: 95vw; top: 10px; right: 2.5vw; left: 2.5vw; max-height: calc(100vh - 20px); }
+            .pfd-and-location-grid { grid-template-columns: 1fr; }
+            #location-data-panel { min-height: auto; }
+        }
+
+        /* --- Other existing styles --- */
+        .aircraft-overview-panel { position: relative; height: 200px; background-size: cover; background-position: center; border-bottom-left-radius: 0; border-bottom-right-radius: 0; color: #fff; display: flex; flex-direction: column; justify-content: space-between; margin-bottom: -40px; }
+        .aircraft-overview-panel::before { content: ''; position: absolute; inset: 0; z-index: 1; background: linear-gradient(180deg, rgba(0, 0, 0, 0.4) 0%, rgba(0, 0, 0, 0) 35%); }
+        .overview-content { position: relative; z-index: 2; padding: 16px 20px 0 20px; display: flex; justify-content: space-between; align-items: flex-start; }
+        .overview-col-left h3 { margin: 0; font-size: 1.6rem; font-weight: 700; text-shadow: 0 4px 10px rgba(0, 0, 0, 0.7); display: flex; align-items: center; gap: 12px; }
+        .ac-header-logo { height: 1.8rem; width: auto; max-width: 100px; object-fit: contain; filter: drop-shadow(0 2px 4px rgba(0,0,0,0.7)); }
+        .overview-col-left p { position: relative; margin: 0; font-size: 1.0rem; color: #e8eaf6; font-weight: 400; text-shadow: 0 2px 5px rgba(0, 0, 0, 0.6); min-height: 1.2em; margin-top: 4px; }
+        .ac-header-subtext { position: absolute; top: 0; left: 0; width: 100%; opacity: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+        @keyframes primarySubtextAnimation { 0% { opacity: 1; transform: translateY(0); } 40% { opacity: 1; transform: translateY(0); } 50% { opacity: 0; transform: translateY(10px); } 51% { opacity: 0; transform: translateY(-10px); } 90% { opacity: 0; transform: translateY(-10px); } 100% { opacity: 1; transform: translateY(0); } }
+        @keyframes secondarySubtextAnimation { 0% { opacity: 0; transform: translateY(-10px); } 40% { opacity: 0; transform: translateY(-10px); } 50% { opacity: 1; transform: translateY(0); } 90% { opacity: 1; transform: translateY(0); } 100% { opacity: 0; transform: translateY(10px); } }
+        #ac-header-livery { animation: primarySubtextAnimation 8s infinite ease-in-out; }
+        #ac-header-actype { animation: secondarySubtextAnimation 8s infinite ease-in-out; }
+        .overview-actions { position: absolute; top: 16px; right: 16px; z-index: 3; display: flex; gap: 8px; }
+        .route-summary-overlay { position: relative; padding: 25px 20px 12px 20px; background: linear-gradient(180deg, transparent 0%, rgba(0, 168, 255, 0.15) 30%, rgba(18, 20, 38, 0.8) 50%, #1C1E2A 70%); display: grid; grid-template-columns: auto 1fr auto; align-items: center; gap: 16px; width: 100%; }
+        .route-summary-airport { display: flex; flex-direction: column; }
+        #route-summary-dep { text-align: left; align-items: center; }
+        #route-summary-arr { text-align: right; align-items: center; }
+        .route-summary-airport .airport-line { display: flex; align-items: center; gap: 8px; }
+        .route-summary-airport .icao { font-family: 'Courier New', monospace; font-size: 1.2rem; font-weight: 700; color: #fff; text-shadow: 0 1px 3px rgba(0,0,0,0.5); }
+        .route-summary-airport .time { font-size: 0.85rem; font-weight: 600; color: #c5cae9; margin-top: 4px; text-align: center; }
+        .country-flag { width: 20px; height: auto; border-radius: 3px; border: 1px solid rgba(255, 255, 255, 0.2); display: none; }
+        .route-progress-container { display: grid; grid-template-columns: 1fr; grid-template-rows: 1fr; align-items: center; justify-items: center; position: relative; min-height: 28px; }
+        .route-progress-bar-container { width: 100%; height: 6px; background: rgba(10, 12, 26, 0.7); border-radius: 3px; overflow: hidden; grid-row: 1; grid-column: 1; z-index: 1; }
+        .progress-bar-fill { height: 100%; width: 0%; background: linear-gradient(90deg, #00a8ff, #89f7fe); transition: width 0.5s ease-out; border-radius: 3px; }
+        .flight-phase-indicator { padding: 4px 12px; border-radius: 20px; font-size: 0.75rem; font-weight: 700; color: #fff; border: 1px solid rgba(255, 255, 255, 0.1); grid-row: 1; grid-column: 1; z-index: 2; box-shadow: 0 4px 15px rgba(0, 0, 0, 0.5); }
+        .phase-climb { background: rgba(34, 139, 34, 0.9); } .phase-cruise { background: rgba(0, 119, 255, 0.9); } .phase-descent { background: rgba(255, 140, 0, 0.9); } .phase-approach { background: rgba(138, 43, 226, 0.9); } .phase-enroute { background: rgba(100, 110, 130, 0.9); }
+        .unified-display-main-content { padding: 16px; flex-grow: 1; display: flex; flex-direction: column; gap: 16px; }
+        .ac-tab-pane { display: none; flex-direction: column; gap: 16px; animation: fadeIn 0.4s; }
+        .ac-tab-pane.active { display: flex; }
+        .flight-data-bar { display: grid; grid-template-columns: repeat(auto-fit, minmax(100px, 1fr)); gap: 12px; background: rgba(10, 12, 26, 0.5); border-radius: 12px; border: 1px solid rgba(255, 255, 255, 0.05); padding: 16px; border-top: 3px solid #00a8ff; }
+        .data-bar-item { display: flex; flex-direction: column; text-align: center; gap: 4px; }
+        .data-bar-item .data-label { font-size: 0.7rem; color: #c5cae9; text-transform: uppercase; }
+        .data-bar-item .data-value { font-size: 1.5rem; color: #fff; font-weight: 600; font-family: 'Courier New', monospace; line-height: 1.1; }
+        .data-bar-item .data-value .unit { font-size: 0.8rem; font-weight: 400; color: #9fa8da; margin-left: 3px; font-family: 'Segoe UI', sans-serif; }
+        .ac-profile-card-new { background: rgba(10, 12, 26, 0.5); border-radius: 12px; border: 1px solid rgba(255, 255, 255, 0.05); padding: 10px; border-top: 3px solid #a33ea3; display: flex; flex-direction: column; gap: 10px; }
+        .ac-profile-header { display: flex; justify-content: space-between; align-items: center; padding: 0 5px; }
+        .profile-toggle-buttons { display: flex; background: rgba(0,0,0,0.3); border-radius: 6px; }
+        .profile-toggle-btn { background: transparent; border: none; color: #9fa8da; padding: 6px 10px; font-size: 0.75rem; font-weight: 600; cursor: pointer; border-radius: 6px; transition: all 0.2s; }
+        .profile-toggle-btn:hover { color: #fff; }
+        .profile-toggle-btn.active { background: #00a8ff; color: #fff; box-shadow: 0 2px 5px rgba(0, 168, 255, 0.3); }
+        .pfd-and-location-grid { display: grid; grid-template-columns: 2fr 1fr; gap: 16px; }
+        .pfd-main-panel { display: flex; flex-direction: column; width: 100%; }
+        .display-bezel { position: relative; background-color: #1f2937; padding: 0.75rem; border-radius: 1rem; border: 4px solid #374151; box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.5); width: 100%; box-sizing: border-box; }
+        .screw { position: absolute; width: 0.5rem; height: 0.5rem; background-color: #4b5563; border-radius: 50%; box-shadow: inset 1px 1px 2px rgba(0,0,0,0.5); z-index: 5; }
+        .screw.tl { top: 0.35rem; left: 0.35rem; } .screw.tr { top: 0.35rem; right: 0.35rem; } .screw.bl { bottom: 0.35rem; left: 0.35rem; } .screw.br { bottom: 0.35rem; right: 0.35rem; }
+        .crt-container { width: 100%; position: relative; border: 2px solid #111827; background: #000; border-radius: 4px; overflow: hidden; box-shadow: inset 0 0 20px rgba(0,0,0,0.8); display: grid; place-items: center; }
+        .scanlines::before { content: " "; display: block; position: absolute; top: 0; left: 0; bottom: 0; right: 0; background: linear-gradient(rgba(18, 16, 16, 0) 50%, rgba(0, 0, 0, 0.1) 50%), linear-gradient(90deg, rgba(255, 0, 0, 0.06), rgba(0, 255, 0, 0.02), rgba(0, 0, 255, 0.06)); z-index: 10; background-size: 100% 2px, 3px 100%; pointer-events: none; }
+        #pfd-container { width: 100%; background: transparent; border-radius: 0; }
+        #pfd-container svg { width: 100%; height: auto; max-width: 300px; aspect-ratio: 787 / 800; background-color: #1a1a1a; overflow: hidden; border-radius: 0; filter: brightness(1.3) contrast(1.2) drop-shadow(0 0 2px rgba(255, 255, 255, 0.3)); }
+        .vsd-panel, .ssd-panel { display: none; flex-direction: column; background: transparent; border-radius: 12px; min-height: 240px; max-height: 240px; overflow: hidden; width: 100%; }
+        .vsd-panel.active, .ssd-panel.active { display: flex; }
+        .vsd-graph-window, .ssd-graph-window { position: relative; width: 100%; flex-grow: 1; overflow: hidden; border-radius: 12px; padding-left: 35px; box-sizing: border-box; }
+        .ac-info-window-tabs { display: flex; justify-content: space-between; align-items: center; background: rgba(10, 12, 26, 0.4); padding: 5px 15px 0 15px; }
+        .ac-tabs-wrapper { display: flex; }
+        .ac-info-tab-logo { height: 48px; width: auto; object-fit: contain; opacity: 0.7; }
+        .ac-info-tab-btn { padding: 14px 18px; border: none; background: none; color: #c5cae9; cursor: pointer; font-size: 0.9rem; font-weight: 600; border-bottom: 3px solid transparent; transition: all 0.25s; display: flex; align-items: center; gap: 8px; }
         .ac-info-tab-btn:hover { color: #fff; }
         .ac-info-tab-btn.active { color: #00a8ff; border-bottom-color: #00a8ff; }
-        .ac-info-tab-logo { margin-left: auto; height: 30px; align-self: center; opacity: 0.5; }
-
-        .unified-display-main-content { padding: 16px; display: flex; flex-direction: column; gap: 16px; }
-        .ac-tab-pane { display: none; animation: fadeIn 0.3s; }
-        .ac-tab-pane.active { display: block; }
-
-        /* =========================================
-           4. GRID LAYOUT (PFD + RIGHT PANEL)
-           ========================================= */
-        .pfd-and-location-grid {
-            display: grid;
-            grid-template-columns: 2.2fr 1fr; /* PFD gets more width */
-            gap: 12px;
-            height: 360px; /* Fixed height for alignment */
-        }
-
-        /* =========================================
-           5. LEFT COLUMN: PFD & NAV DISPLAY
-           ========================================= */
-        .pfd-main-panel {
-            display: flex; flex-direction: column; height: 100%;
-            gap: 0; /* PFD and ND touch */
-        }
-        .display-bezel {
-            background-color: #1f232b;
-            padding: 8px;
-            border-radius: 6px;
-            box-shadow: inset 0 0 20px rgba(0,0,0,0.8);
-            border: 1px solid #2a2e38;
-            height: 100%;
-            display: flex; flex-direction: column;
-        }
-        /* Screws for bezel aesthetics */
-        .screw { position: absolute; width: 6px; height: 6px; background: #3e4654; border-radius: 50%; box-shadow: inset 1px 1px 1px rgba(0,0,0,0.5); z-index: 5; }
-        .screw.tl { top: 6px; left: 6px; } .screw.tr { top: 6px; right: 6px; }
-        .screw.bl { bottom: 6px; left: 6px; } .screw.br { bottom: 6px; right: 6px; }
-
-        .crt-container {
-            flex: 1; /* Fill available space */
-            background: #000; border-radius: 2px; overflow: hidden; position: relative;
-        }
-        /* Scanlines effect */
-        .scanlines::before {
-            content: " "; display: block; position: absolute; inset: 0;
-            background: linear-gradient(rgba(18, 16, 16, 0) 50%, rgba(0, 0, 0, 0.1) 50%), linear-gradient(90deg, rgba(255, 0, 0, 0.06), rgba(0, 255, 0, 0.02), rgba(0, 0, 255, 0.06));
-            z-index: 10; background-size: 100% 2px, 3px 100%; pointer-events: none;
-        }
-        #pfd-container svg { width: 100%; height: 100%; object-fit: contain; }
-        #nd-container { display: none; /* Hidden by default or managed via JS if you toggle */ } 
-
-        /* =========================================
-           6. RIGHT COLUMN: LOCATION & RADIO STACK (REDESIGNED)
-           ========================================= */
-        #location-data-panel {
-            /* Glass Cockpit / Metal Bezel Look */
-            background: #1f232b;
-            border-radius: 6px;
-            border: 1px solid #2a2e38;
-            padding: 8px;
-            display: flex; flex-direction: column; gap: 8px;
-            height: 100%; box-sizing: border-box;
-            box-shadow: inset 0 0 20px rgba(0,0,0,0.8);
-        }
-
-        /* Location Cards */
-        .loc-card {
-            background: #13161c;
-            border: 1px solid #2a2e38;
-            border-radius: 4px;
-            padding: 10px;
-            display: flex; flex-direction: column;
-        }
-        .loc-label {
-            font-size: 0.65rem; color: #7a8195; font-weight: 700; letter-spacing: 1px;
-            text-transform: uppercase; margin-bottom: 4px; display: flex; align-items: center; gap: 5px;
-        }
-        .loc-value-lg {
-            font-family: 'Segoe UI', sans-serif; font-size: 1.1rem; color: #fff;
-            font-weight: 600; line-height: 1.2; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
-        }
-        
-        /* Lat/Lon Grid */
-        .loc-coords-grid { display: grid; grid-template-columns: 1fr; gap: 4px; }
-        .coord-row {
-            display: flex; justify-content: space-between; align-items: center;
-            background: rgba(255,255,255,0.02); padding: 6px 8px; border-radius: 3px;
-            border-left: 2px solid #00a8ff;
-        }
-        .coord-label { font-size: 0.65rem; color: #5d6475; font-weight: 700; }
-        .coord-val { font-family: 'Courier New', monospace; font-size: 0.9rem; color: #00a8ff; font-weight: 700; }
-
-        /* Radio Stack (The filler content) */
-        .radio-stack {
-            flex-grow: 1;
-            background: #08090c; /* Black avionics background */
-            border: 2px solid #2a2e38; /* Bezel */
-            border-radius: 4px;
-            padding: 12px;
-            display: flex; flex-direction: column; justify-content: space-between;
-            box-shadow: inset 0 0 10px rgba(0,0,0,0.5);
-        }
-        .radio-row {
-            display: flex; justify-content: space-between; align-items: center;
-            border-bottom: 1px dashed #2a2e38; padding-bottom: 8px;
-        }
-        .radio-row:last-child { border-bottom: none; padding-bottom: 0; }
-        .radio-title { font-size: 0.7rem; color: #7a8195; font-weight: 700; }
-        .radio-digit {
-            font-family: 'Courier New', monospace; font-size: 1.2rem; font-weight: 700;
-            color: #ff9900; /* Amber LED color */
-            text-shadow: 0 0 5px rgba(255, 153, 0, 0.4);
-        }
-
-        /* =========================================
-           7. PROFILE GRAPHS (VSD/SSD)
-           ========================================= */
-        .ac-profile-card-new {
-            background: #13161c; border: 1px solid #2a2e38;
-            border-radius: 6px; padding: 12px; margin-top: 16px;
-            min-height: 200px; display: flex; flex-direction: column;
-        }
-        .ac-profile-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px; }
-        .ac-profile-header h4 { margin: 0; font-size: 0.85rem; color: #fff; font-weight: 600; }
-        .profile-toggle-buttons { background: #08090c; padding: 2px; border-radius: 4px; display: flex; }
-        .profile-toggle-btn {
-            padding: 4px 10px; border: none; background: none; color: #5d6475;
-            font-size: 0.7rem; font-weight: 700; cursor: pointer; border-radius: 3px;
-        }
-        .profile-toggle-btn.active { background: #2a2e38; color: #fff; }
-        
-        .vsd-panel, .ssd-panel {
-            display: none; height: 180px; width: 100%; position: relative;
-        }
-        .vsd-panel.active, .ssd-panel.active { display: flex; }
-        .vsd-graph-window, .ssd-graph-window { width: 100%; height: 100%; overflow: hidden; position: relative; border-left: 1px solid #2a2e38; border-bottom: 1px solid #2a2e38; }
-        
-        /* Graph Internal Elements */
-        #vsd-aircraft-icon, #ssd-aircraft-icon {
-            position: absolute; width: 14px; height: 14px;
-            background: #00a8ff; border: 2px solid #fff; border-radius: 50%;
-            transform: translate(-50%, -50%); z-index: 10; box-shadow: 0 0 5px #00a8ff;
-        }
-        svg path { fill: none; stroke-width: 2; stroke-linecap: round; }
-        #vsd-profile-path { stroke: #333; stroke-dasharray: 4; }
-        #vsd-flown-path { stroke: #00ff00; stroke-width: 3; opacity: 0.8; }
-        #ssd-flown-path { stroke: #00ff00; stroke-width: 3; opacity: 0.8; }
-        .vsd-wp-label, .ssd-wp-label {
-            position: absolute; font-family: monospace; font-size: 0.65rem; color: #7a8195;
-            transform: translateX(-50%); white-space: nowrap;
-        }
-        .y-axis-label { position: absolute; left: 2px; font-size: 0.6rem; color: #444; transform: translateY(-50%); }
-        .vsd-disclaimer {
-            margin-top: 8px; padding: 8px; background: rgba(40, 167, 69, 0.1);
-            border: 1px solid rgba(40, 167, 69, 0.2); border-radius: 4px;
-            font-size: 0.7rem; color: #28a745; display: flex; align-items: center; gap: 6px;
-        }
-
-        /* =========================================
-           8. EXPANDED FLIGHT DATA BAR (Bottom)
-           ========================================= */
-        .flight-data-bar {
-            display: grid;
-            /* Responsive grid: fit as many as possible, min width 85px per item */
-            grid-template-columns: repeat(auto-fit, minmax(85px, 1fr));
-            gap: 1px; /* Gap creates the border lines */
-            background: #2a2e38; /* Border color */
-            border: 1px solid #2a2e38;
-            border-radius: 6px;
-            margin-top: 16px;
-            overflow: hidden;
-        }
-        .data-bar-item {
-            background: #13161c; /* Cell background */
-            padding: 10px 4px;
-            display: flex; flex-direction: column; align-items: center; justify-content: center;
-            text-align: center; gap: 2px;
-        }
-        .data-bar-item .data-label {
-            font-size: 0.6rem; color: #5d6475; text-transform: uppercase;
-            font-weight: 700; letter-spacing: 0.5px;
-        }
-        .data-bar-item .data-value {
-            font-family: 'Saira', sans-serif; font-size: 1rem; color: #fff; font-weight: 600;
-            white-space: nowrap;
-        }
-        .data-bar-item .data-value .unit { font-size: 0.65rem; color: #7a8195; margin-left: 2px; }
-        
-        /* Accent Colors for New Items */
-        #ac-nearest-apt, #ac-env-wind, #ac-env-oat { color: #00a8ff; }
-
-        /* =========================================
-           9. PILOT STATS TAB
-           ========================================= */
-        .stats-rehaul-container { padding: 10px; }
-        .stats-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px; border-bottom: 1px solid #333; padding-bottom: 10px; }
-        .kpi-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 10px; margin-bottom: 20px; }
-        .kpi-card { background: #1a1d26; padding: 15px; border-radius: 8px; text-align: center; border: 1px solid #333; }
-        .kpi-label { font-size: 0.75rem; color: #888; margin-bottom: 5px; }
-        .kpi-value { font-size: 1.2rem; font-weight: bold; color: #fff; }
-        
-        /* Mobile adjustments */
-        @media (max-width: 992px) {
-            .info-window { top: 0; right: 0; left: 0; width: 100%; max-width: 100%; height: 100%; border-radius: 0; }
-            .pfd-and-location-grid { grid-template-columns: 1fr; height: auto; }
-            #location-data-panel { height: auto; min-height: auto; }
-            .radio-stack { flex-direction: row; flex-wrap: wrap; gap: 10px; }
-            .radio-row { flex: 1 1 45%; border-bottom: none; border-right: 1px dashed #2a2e38; padding-right: 5px; }
-            .radio-row:last-child { border-right: none; }
-        }
+        .vsd-disclaimer { background: rgba(10, 12, 26, 0.5); border: 1px solid rgba(255, 255, 255, 0.05); border-radius: 8px; padding: 10px 14px; margin-top: 0; }
     `;
 
     const style = document.createElement('style');
@@ -5043,10 +4983,6 @@ function populateAircraftInfoWindow(baseProps, plan, sortedRoutePoints) {
     const pilotUsername = baseProps.username || 'N/A';
     const pilotReportTabText = (pilotUsername !== 'N/A' && pilotUsername) ? pilotUsername : 'Pilot Report';
 
-    // --- Get UTC Time for Clock ---
-    const now = new Date();
-    const utcTimeStr = now.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit', timeZone: 'UTC' });
-
     // --- HTML Injection ---
     windowEl.innerHTML = `
     <div class="info-window-content">
@@ -5130,7 +5066,9 @@ function populateAircraftInfoWindow(baseProps, plan, sortedRoutePoints) {
                             <div class="crt-container scanlines" id="pfd-container">
                                 <svg width="787" height="800" viewBox="0 0 787 800" fill="none" xmlns="http://www.w3.org/2000/svg">
                                 <g id="PFD" clip-path="url(#clip0_1_2890)">
+                                    
                                     <g transform="translate(0, 100)">
+                                    
                                         <g id="attitude_group">
                                             <rect id="Sky" x="-186" y="-222" width="1121" height="600" fill="#0596FF"/>
                                             <rect id="Ground" x="-138" y="307" width="1024" height="527" fill="#9A4710"/>
@@ -5174,8 +5112,13 @@ function populateAircraftInfoWindow(baseProps, plan, sortedRoutePoints) {
                                         <path id="Vector 18" d="M610 199.5L619 194" stroke="#029705" stroke-width="3"/>
                                         <line id="Line 1" x1="184" y1="211" x2="184" y2="184" stroke="#DBDBDC" stroke-width="2"/>
                                         <line id="Line 2" x1="610" y1="211" x2="610" y2="184" stroke="#DBDBDC" stroke-width="2"/>
+                                        
                                         <rect id="altitude_bg" x="675" y="73" width="72" height="476" fill="#76767A"/>
-                                        <g clip-path="url(#altTapeClip)"><svg x="675" y="73" width="72" height="476"><g id="altitude_tape_group"></g></svg></g>
+                                        
+                                        <g clip-path="url(#altTapeClip)">
+                                            <svg x="675" y="73" width="72" height="476"><g id="altitude_tape_group"></g></svg>
+                                        </g>
+
                                         <g id="altitude_indicator_static">
                                             <rect id="altitude_1" x="675" y="280" width="73" height="49" fill="#030309"/>
                                             <text id="altitude_readout_hundreds" x="740" y="316" fill="#00FF00" font-size="32" text-anchor="end" font-weight="bold">0</text>
@@ -5194,8 +5137,13 @@ function populateAircraftInfoWindow(baseProps, plan, sortedRoutePoints) {
                                             <path d="M636 229C636 232.866 632.866 236 629 236C625.134 236 622 232.866 622 229C622 225.134 625.134 222 629 222C632.866 222 636 225.134 636 229Z" fill="#D9D9D9"/>
                                             <path d="M636 395C636 398.866 632.866 402 629 402C625.134 402 622 398.866 622 395C622 391.134 625.134 388 629 388C632.866 388 636 391.134 636 395Z" fill="#D9D9D9"/>
                                         </g>
+                                        
                                         <rect id="speed" x="28" y="73" width="97" height="477" fill="#76767A"/>
-                                        <g clip-path="url(#speedTapeClip)"><svg x="28" y="73" width="97" height="477"><g id="speed_tape_group"></g></svg></g>
+                                        
+                                        <g clip-path="url(#speedTapeClip)">
+                                            <svg x="28" y="73" width="97" height="477"><g id="speed_tape_group"></g></svg>
+                                        </g>
+
                                         <g id="speed_indicator_static">
                                             <path id="Polygon 9" d="M128.036 311.591L150.451 301.561L150.513 321.482L128.036 311.591Z" fill="#FDFD03"/>
                                             <path id="Vector 20" d="M137 311H96.5" stroke="#FDFD03" stroke-width="4"/>
@@ -5238,7 +5186,9 @@ function populateAircraftInfoWindow(baseProps, plan, sortedRoutePoints) {
                                         <line id="Line 6_2" x1="671" y1="279.5" x2="748" y2="279.5" stroke="#ECED06" stroke-width="3"/>
                                         <line id="Line 7" x1="671" y1="329.5" x2="748" y2="329.5" stroke="#ECED06" stroke-width="3"/>
                                         <line id="Line 3" x1="746" y1="345.5" x2="786" y2="345.5" stroke="#ECED06" stroke-width="3"/>
+                                    
                                     </g> 
+                                    
                                 </g>
                                 <defs>
                                     <clipPath id="clip0_1_2890"><rect width="787" height="800" fill="white"/></clipPath>
@@ -5256,44 +5206,49 @@ function populateAircraftInfoWindow(baseProps, plan, sortedRoutePoints) {
                         </div>
                     
                     <div id="location-data-panel">
-                        
-                        <div class="loc-card">
-                            <span class="loc-label"><i class="fa-solid fa-map-location-dot"></i> Region</span>
-                            <span class="loc-value-lg" id="ac-location">
+                        <div class="nav-header">
+                            <span class="nav-status-indicator"><div class="nav-blink"></div> LIVE</span>
+                            <i class="fa-solid fa-crosshairs" style="color: #89f7fe;"></i>
+                        </div>
+
+                        <!-- Region Name -->
+                        <div class="nav-data-row">
+                            <span class="nav-label"><i class="fa-solid fa-map-location-dot"></i> Current Region</span>
+                            <span class="nav-value-main" id="ac-location" style="font-size: 0.9rem; color: #fff; font-family: 'Segoe UI', sans-serif;">
                                 <i class="fa-solid fa-spinner fa-spin"></i> Scanning...
                             </span>
                         </div>
 
-                        <div class="loc-card">
-                            <span class="loc-label"><i class="fa-solid fa-location-crosshairs"></i> Position</span>
-                            <div class="loc-coords-grid">
-                                <div class="coord-row">
-                                    <span class="coord-label">LAT</span>
-                                    <span class="coord-val" id="ac-lat">---</span>
-                                </div>
-                                <div class="coord-row">
-                                    <span class="coord-label">LON</span>
-                                    <span class="coord-val" id="ac-lon">---</span>
-                                </div>
+                        <!-- Coordinates -->
+                        <div class="nav-data-row">
+                            <span class="nav-label"><i class="fa-solid fa-location-crosshairs"></i> Position</span>
+                            <div class="coord-grid">
+                                <div class="coord-box" id="ac-lat">---</div>
+                                <div class="coord-box" id="ac-lon">---</div>
                             </div>
                         </div>
 
-                        <div class="radio-stack">
-                            <div class="radio-row">
-                                <span class="radio-title">COMM 1</span>
-                                <span class="radio-digit">122.80</span>
+                        <!-- Nearest Airport (Takes up remaining space) -->
+                        <div class="nav-data-row grow">
+                            <span class="nav-label"><i class="fa-solid fa-tower-control"></i> Nearest Airport</span>
+                            <div class="nearest-apt-container">
+                                <span class="apt-icao-big" id="ac-nearest-apt">---</span>
+                                <span class="apt-dist-pill" id="ac-nearest-apt-dist">--.- NM</span>
                             </div>
-                            <div class="radio-row">
-                                <span class="radio-title">COMM 2</span>
-                                <span class="radio-digit">121.50</span>
-                            </div>
-                            <div class="radio-row">
-                                <span class="radio-title">XPDR</span>
-                                <span class="radio-digit">${baseProps.squawkCode || '2000'}</span>
-                            </div>
-                            <div class="radio-row">
-                                <span class="radio-title">UTC</span>
-                                <span class="radio-digit" id="sim-utc-clock">${utcTimeStr}</span>
+                        </div>
+
+                        <!-- Weather -->
+                        <div class="nav-data-row">
+                            <span class="nav-label"><i class="fa-solid fa-wind"></i> Environment</span>
+                            <div style="display: flex; justify-content: space-between; align-items: flex-end;">
+                                <div>
+                                    <span class="nav-value-main" id="ac-env-wind" style="color: #89f7fe;">---/--</span>
+                                    <div class="nav-value-sub">Wind Direction/Speed</div>
+                                </div>
+                                <div style="text-align: right;">
+                                    <span class="nav-value-main" id="ac-env-oat">--°C</span>
+                                    <div class="nav-value-sub">OAT</div>
+                                </div>
                             </div>
                         </div>
 
@@ -5334,42 +5289,30 @@ function populateAircraftInfoWindow(baseProps, plan, sortedRoutePoints) {
                             </div>
                         </div>
                     </div>
-                </div>
+                    </div>
 
-                <div class="flight-data-bar">
+                    <div class="flight-data-bar">
                     <div class="data-bar-item">
                         <span class="data-label">NEXT WP</span>
                         <span class="data-value" id="ac-next-wp">---</span>
                     </div>
                     <div class="data-bar-item">
-                        <span class="data-label">DIST</span>
+                        <span class="data-label">DIST. TO WP</span>
                         <span class="data-value" id="ac-next-wp-dist">--.-<span class="unit">NM</span></span>
                     </div>
                     <div class="data-bar-item">
-                        <span class="data-label">REMAINING</span>
+                        <span class="data-label">DIST. TO DEST.</span>
                         <span class="data-value" id="ac-dist">---<span class="unit">NM</span></span>
                     </div>
                     <div class="data-bar-item">
-                        <span class="data-label">ETE</span>
+                        <span class="data-label">ETE TO DEST.</span>
                         <span class="data-value" id="ac-ete">--:--</span>
                     </div>
                     <div class="data-bar-item">
-                        <span class="data-label">V/S</span>
+                        <span class="data-label">VERTICAL SPEED</span>
                         <span class="data-value" id="ac-vs">---<span class="unit">fpm</span></span>
                     </div>
-                    <div class="data-bar-item">
-                        <span class="data-label">NEAREST</span>
-                        <span class="data-value data-value-accent" id="ac-nearest-apt">---</span>
                     </div>
-                    <div class="data-bar-item">
-                        <span class="data-label">WIND</span>
-                        <span class="data-value data-value-accent" id="ac-env-wind">---/--</span>
-                    </div>
-                    <div class="data-bar-item">
-                        <span class="data-label">OAT</span>
-                        <span class="data-value data-value-accent" id="ac-env-oat">--°C</span>
-                    </div>
-                </div>
 
                 <div class="vsd-disclaimer">
                     <div class="disclaimer-legend">
@@ -5380,10 +5323,11 @@ function populateAircraftInfoWindow(baseProps, plan, sortedRoutePoints) {
                     <p><i class="fa-solid fa-circle-info"></i> The vertical profile may be inaccurate if your filed flight plan altitudes are incomplete or incorrect.</p>
                 </div>
 
-            </div> 
+                </div> 
             
             <div id="ac-tab-pilot-report" class="ac-tab-pane">
-                <div id="pilot-stats-display"></div>
+                <div id="pilot-stats-display">
+                    </div>
             </div>
 
         </div> 
