@@ -874,6 +874,7 @@ function injectCustomStyles() {
             flex-direction: column; 
             width: 100%; 
             align-items: center; /* Align bezel to center/stretch */
+            gap: 16px; /* Add gap between PFD and ND */
         }
 
         .display-bezel { 
@@ -962,6 +963,31 @@ function injectCustomStyles() {
             overflow: hidden; 
             border-radius: 0; 
             filter: brightness(1.3) contrast(1.2) drop-shadow(0 0 2px rgba(255, 255, 255, 0.3)); 
+        }
+        
+        /* --- ND CONTAINER FIX --- */
+        /* This container holds the iframe. It must match PFD dimensions. */
+        #nd-container { 
+            width: 100%;
+            /* PFD SVG dimensions are 787x800. */
+            aspect-ratio: 787 / 800; 
+            
+            background: transparent; 
+            overflow: hidden; 
+            display: flex; 
+            justify-content: center; 
+            
+            /* Remove fixed height, let aspect-ratio drive it */
+            height: auto; 
+            /* We don't add border/shadow here because nav.html draws the bezel */
+            /* Just ensure it takes up the correct space */
+        }
+        
+        #nav-display-frame {
+            width: 100%; 
+            height: 100%; 
+            border: none;
+            display: block;
         }
         
         /* ======================================================== */
@@ -5324,8 +5350,9 @@ function populateAircraftInfoWindow(baseProps, plan, sortedRoutePoints) {
                                 </svg>
                             </div>
                         </div>
-                        <div id="nd-container" style="background: transparent; overflow: hidden; display: flex; justify-content: center; height: 480px;">
-                            <iframe id="nav-display-frame" src="nav.html" style="width: 320px; height: 100%; border: none;" scrolling="no"></iframe>
+                        
+                        <div id="nd-container">
+                            <iframe id="nav-display-frame" src="nav.html" scrolling="no"></iframe>
                         </div>
                     </div>
                     

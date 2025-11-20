@@ -9,7 +9,7 @@
         @import url('https://fonts.googleapis.com/css2?family=Inconsolata:wght@400;700&display=swap');
         
         :root {
-            --bg-body: #1a1a1a;
+            --bg-body: transparent; /* Transparent for iframe usage */
             --bg-panel: #111827;   /* gray-900 */
             --bg-bezel: #1f2937;   /* gray-800 */
             --border-main: #374151; /* gray-700 */
@@ -38,13 +38,13 @@
             font-family: var(--font-mono);
             color: var(--text-main);
             height: 100vh;
-            width: 100%;
+            width: 100vw;
+            overflow: hidden; /* No scrollbars */
             display: flex;
             flex-direction: column;
             align-items: center;
             justify-content: center;
-            padding: 1rem;
-            overflow: hidden; 
+            padding: 0; /* Remove padding to fill iframe completely */
         }
 
         /* --- Layout Components --- */
@@ -52,22 +52,28 @@
             display: flex;
             flex-direction: column;
             align-items: center;
-            width: fit-content;
-            gap: 0.5rem; /* Reduced gap for tighter look */
+            width: 100%;
+            height: 100%;
         }
 
         /* --- Display Unit (The Monitor Bezel) --- */
         .display-bezel {
             position: relative;
             background-color: var(--bg-bezel);
-            padding: 0.75rem; 
+            
+            /* Matched Padding to PFD (approx 12px) */
+            padding: 12px; 
+            
             border-radius: 1rem;
             border: 4px solid var(--border-main);
+            
+            /* Matched Shadow */
             box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.5); 
             
-            /* --- CHANGED DIMENSIONS TO MATCH PFD --- */
-            width: 335px;
-            height: 335px; /* Increased from 242px to match PFD ratio */
+            /* --- RESPONSIVE SIZING --- */
+            /* Use 100% so it fills the parent container defined in flight.js */
+            width: 100%;
+            height: 100%;
             
             display: flex;
             flex-direction: column;
@@ -81,6 +87,7 @@
             background-color: var(--screw-color);
             border-radius: 50%;
             box-shadow: inset 1px 1px 2px rgba(0,0,0,0.5);
+            z-index: 20; /* Ensure above CRT */
         }
         .screw.tl { top: 0.35rem; left: 0.35rem; }
         .screw.tr { top: 0.35rem; right: 0.35rem; }
@@ -118,9 +125,9 @@
             pointer-events: none;
         }
 
-        /* --- Control Panel --- */
+        /* --- Control Panel (Only visible in Standalone) --- */
         .control-panel {
-            width: 300px; /* Match the bezel width */
+            width: 300px;
             background-color: var(--bg-panel);
             padding: 1rem;
             border-radius: 0.75rem;
@@ -129,6 +136,7 @@
             display: flex;
             flex-direction: column; 
             gap: 1rem;
+            margin-top: 1rem;
         }
 
         .control-group {
@@ -215,49 +223,18 @@
         /* ========================================= */
         /* === STYLES FOR EMBEDDED MODE (FLIGHT.JS) === */
         /* ========================================= */
-        body.embedded {
-            background-color: transparent !important;
-            padding: 0 !important;
-            justify-content: flex-start;
-        }
-
-        body.embedded .cockpit-container {
-            transform: scale(0.90); /* MODIFIED: 0.95 -> 0.90 for better fit */
-            transform-origin: top center;
-        }
-
-        /* 1. Keep the bezel visible, but remove shadow for flatter look */
-        body.embedded .display-bezel {
-            box-shadow: 0 10px 20px rgba(0,0,0,0.3);
-            margin-bottom: 0;
-        }
-
-        /* 2. Style the control panel to merge with the UI */
-        body.embedded .control-panel {
-            background: transparent;
-            border: none;
-            box-shadow: none;
-            padding: 0;
-            gap: 0.5rem;
-        }
-
-        /* 3. HIDE the manual sliders specifically */
-        body.embedded #manual-controls-hdg,
-        body.embedded #manual-controls-spd,
+        
+        /* When running inside the iframe, we hide the manual controls and remove shadows/margins
+           that might conflict with the PFD styling */
+        body.embedded .control-panel,
         body.embedded .footer-text {
             display: none !important;
         }
 
-        /* 4. Style the buttons to look nice under the bezel */
-        body.embedded .label-text {
-            color: #9fa8da; /* Match flight.js theme */
-            margin-bottom: 4px;
-        }
-        
-        body.embedded .button-group,
-        body.embedded .mode-group {
-            background-color: rgba(255, 255, 255, 0.05);
-            border: 1px solid rgba(255, 255, 255, 0.1);
+        body.embedded .display-bezel {
+            /* Remove shadow in embedded mode if you prefer a flatter look, 
+               OR keep it to match PFD exactly. I'll keep it to match PFD logic. */
+            margin: 0;
         }
     </style>
 </head>
@@ -370,12 +347,16 @@
 
         function resize() {
             const rect = canvas.getBoundingClientRect();
-            const width = rect.width || 300;
-            const height = rect.height || 242;
+            // Use whatever size CSS gave us
+            const width = rect.width;
+            const height = rect.height;
+            
+            // Set internal resolution to match CSS size (x2 for retina sharpness)
             canvas.width = width * 2;
             canvas.height = height * 2;
         }
         window.addEventListener('resize', resize);
+        // Initial resize
         setTimeout(resize, 0);
 
         function updatePhysics() {
