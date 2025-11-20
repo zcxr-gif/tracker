@@ -795,6 +795,113 @@ function injectCustomStyles() {
         .ac-info-tab-btn:hover { color: #fff; }
         .ac-info-tab-btn.active { color: #00a8ff; border-bottom-color: #00a8ff; }
         .vsd-disclaimer { background: rgba(10, 12, 26, 0.5); border: 1px solid rgba(255, 255, 255, 0.05); border-radius: 8px; padding: 10px 14px; margin-top: 0; }
+        /* --- [RE-DESIGN] Navigation Data Instrument Panel --- */
+#location-data-panel {
+    background: #0b0c10; /* Deep matte black */
+    border-radius: 8px;
+    border: 2px solid #333;
+    box-shadow: inset 0 0 20px rgba(0,0,0,0.8);
+    height: 100%;
+    min-height: 380px;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+    font-family: 'Consolas', 'Monaco', monospace; /* Technical font */
+    color: #eee;
+}
+
+/* Header */
+.nav-header {
+    background: linear-gradient(90deg, #1f2937 0%, #111827 100%);
+    padding: 8px 12px;
+    border-bottom: 2px solid #333;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+}
+.nav-title {
+    font-size: 0.8rem;
+    font-weight: 700;
+    color: #aaa;
+    text-transform: uppercase;
+    letter-spacing: 1px;
+}
+
+/* Main Grid Container */
+.nav-grid-container {
+    padding: 10px;
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    flex-grow: 1;
+}
+
+/* Data Groups (The boxes) */
+.data-group {
+    background: rgba(255, 255, 255, 0.03);
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    border-radius: 4px;
+    padding: 8px;
+    display: flex;
+    flex-direction: column;
+}
+
+.data-group.highlight {
+    border-color: rgba(0, 168, 255, 0.3);
+    background: rgba(0, 168, 255, 0.05);
+}
+
+/* Labels */
+.group-label {
+    font-size: 0.65rem;
+    color: #00a8ff; /* Cyan for labels */
+    text-transform: uppercase;
+    margin-bottom: 4px;
+    display: flex;
+    align-items: center;
+    gap: 5px;
+}
+
+/* Readouts (The actual data) */
+.digital-readout {
+    font-size: 1.1rem;
+    font-weight: 600;
+    color: #fff;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis; /* Prevents letters falling out */
+}
+
+.digital-readout.large {
+    font-size: 1.6rem;
+    color: #ff9900; /* Orange for Airport */
+    text-shadow: 0 0 5px rgba(255, 153, 0, 0.3);
+}
+
+.digital-readout.small {
+    font-size: 0.85rem;
+    color: #ccc;
+}
+
+/* Split Rows (Two items side by side) */
+.split-row {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 8px;
+}
+
+.split-item {
+    display: flex;
+    flex-direction: column;
+}
+
+/* Region specific */
+#ac-location {
+    font-size: 0.8rem;
+    color: #b0c4de;
+    white-space: normal; /* Allow wrapping for region */
+    line-height: 1.2;
+}
     `;
 
     const style = document.createElement('style');
@@ -5207,51 +5314,56 @@ function populateAircraftInfoWindow(baseProps, plan, sortedRoutePoints) {
                     
                     <div id="location-data-panel">
                         <div class="nav-header">
+                            <span class="nav-title">NAV DATA</span>
                             <span class="nav-status-indicator"><div class="nav-blink"></div> LIVE</span>
-                            <i class="fa-solid fa-crosshairs" style="color: #89f7fe;"></i>
                         </div>
 
-                        <!-- Region Name -->
-                        <div class="nav-data-row">
-                            <span class="nav-label"><i class="fa-solid fa-map-location-dot"></i> Current Region</span>
-                            <span class="nav-value-main" id="ac-location" style="font-size: 0.9rem; color: #fff; font-family: 'Segoe UI', sans-serif;">
-                                <i class="fa-solid fa-spinner fa-spin"></i> Scanning...
-                            </span>
-                        </div>
-
-                        <!-- Coordinates -->
-                        <div class="nav-data-row">
-                            <span class="nav-label"><i class="fa-solid fa-location-crosshairs"></i> Position</span>
-                            <div class="coord-grid">
-                                <div class="coord-box" id="ac-lat">---</div>
-                                <div class="coord-box" id="ac-lon">---</div>
+                        <div class="nav-grid-container">
+                            
+                            <div class="data-group">
+                                <span class="group-label"><i class="fa-solid fa-map-location-dot"></i> Region</span>
+                                <span class="digital-readout small" id="ac-location">
+                                    <i class="fa-solid fa-spinner fa-spin"></i> Scanning...
+                                </span>
                             </div>
-                        </div>
 
-                        <!-- Nearest Airport (Takes up remaining space) -->
-                        <div class="nav-data-row grow">
-                            <span class="nav-label"><i class="fa-solid fa-tower-control"></i> Nearest Airport</span>
-                            <div class="nearest-apt-container">
-                                <span class="apt-icao-big" id="ac-nearest-apt">---</span>
-                                <span class="apt-dist-pill" id="ac-nearest-apt-dist">--.- NM</span>
-                            </div>
-                        </div>
-
-                        <!-- Weather -->
-                        <div class="nav-data-row">
-                            <span class="nav-label"><i class="fa-solid fa-wind"></i> Environment</span>
-                            <div style="display: flex; justify-content: space-between; align-items: flex-end;">
-                                <div>
-                                    <span class="nav-value-main" id="ac-env-wind" style="color: #89f7fe;">---/--</span>
-                                    <div class="nav-value-sub">Wind Direction/Speed</div>
-                                </div>
-                                <div style="text-align: right;">
-                                    <span class="nav-value-main" id="ac-env-oat">--°C</span>
-                                    <div class="nav-value-sub">OAT</div>
+                            <div class="data-group">
+                                <span class="group-label"><i class="fa-solid fa-location-crosshairs"></i> Position</span>
+                                <div class="split-row">
+                                    <div class="split-item">
+                                        <span style="font-size: 0.6rem; color:#666;">LAT</span>
+                                        <span class="digital-readout" id="ac-lat">---</span>
+                                    </div>
+                                    <div class="split-item">
+                                        <span style="font-size: 0.6rem; color:#666;">LON</span>
+                                        <span class="digital-readout" id="ac-lon">---</span>
+                                    </div>
                                 </div>
                             </div>
-                        </div>
 
+                            <div class="data-group highlight" style="flex-grow: 1; justify-content: center;">
+                                <span class="group-label"><i class="fa-solid fa-tower-control"></i> Nearest Apt</span>
+                                <div style="display: flex; justify-content: space-between; align-items: baseline;">
+                                    <span class="digital-readout large" id="ac-nearest-apt">---</span>
+                                    <span class="digital-readout" id="ac-nearest-apt-dist" style="font-size: 0.9rem; color: #00a8ff;">--.- NM</span>
+                                </div>
+                            </div>
+
+                            <div class="data-group">
+                                <span class="group-label"><i class="fa-solid fa-wind"></i> Environment</span>
+                                <div class="split-row">
+                                    <div class="split-item">
+                                        <span style="font-size: 0.6rem; color:#666;">WIND / SPD</span>
+                                        <span class="digital-readout" id="ac-env-wind">---/--</span>
+                                    </div>
+                                    <div class="split-item" style="align-items: flex-end;">
+                                        <span style="font-size: 0.6rem; color:#666;">OAT</span>
+                                        <span class="digital-readout" id="ac-env-oat">--°C</span>
+                                    </div>
+                                </div>
+                            </div>
+
+                        </div>
                     </div>
                 
                 </div>
@@ -5340,34 +5452,31 @@ function populateAircraftInfoWindow(baseProps, plan, sortedRoutePoints) {
 }
 
 /**
- * --- [NEW] Updates the Navigation Data Panel with coordinates, wind, and nearest airport.
+ * --- [UPDATED] Updates the Navigation Data Panel ---
  */
 function updateNavPanelData(lat, lon, heading, oat, windDir, windSpd) {
-    // 1. Update Coordinates (Split for Grid)
-    const latDir = lat >= 0 ? 'N' : 'S';
-    const lonDir = lon >= 0 ? 'E' : 'W';
-    
+    // 1. Update Coordinates (Clean formatting)
     const latEl = document.getElementById('ac-lat');
     const lonEl = document.getElementById('ac-lon');
     
-    if (latEl) latEl.textContent = `${latDir} ${Math.abs(lat).toFixed(4)}`;
-    if (lonEl) lonEl.textContent = `${lonDir} ${Math.abs(lon).toFixed(4)}`;
+    // Use toFixed(3) to save space and prevent "falling out"
+    if (latEl) latEl.textContent = lat.toFixed(3);
+    if (lonEl) lonEl.textContent = lon.toFixed(3);
 
-    // 2. Update Environment (Wind/OAT)
+    // 2. Update Environment
     const windEl = document.getElementById('ac-env-wind');
     const oatEl = document.getElementById('ac-env-oat');
     
-    if (windEl) windEl.textContent = `${String(windDir).padStart(3, '0')}° / ${windSpd}kts`;
+    // Format: 270 / 15
+    if (windEl) windEl.textContent = `${String(windDir).padStart(3, '0')}° / ${windSpd}`;
     if (oatEl) oatEl.textContent = `${oat}°C`;
 
-    // 3. Find Nearest Airport
-    // Only run this if we have airport data loaded
+    // 3. Nearest Airport Logic (Unchanged, just targets)
     if (airportsData && Object.keys(airportsData).length > 0) {
         let nearestICAO = '---';
         let minDist = Infinity;
         
-        // Optimization: Only check airports within ~2 degrees lat/lon to avoid massive loop
-        // This makes the loop run over ~50 airports instead of 40,000
+        // Optimization: Only check airports within ~2 degrees lat/lon
         for (const icao in airportsData) {
             const apt = airportsData[icao];
             if (!apt || apt.lat == null || apt.lon == null) continue;
@@ -5375,7 +5484,6 @@ function updateNavPanelData(lat, lon, heading, oat, windDir, windSpd) {
             const latDiff = Math.abs(apt.lat - lat);
             const lonDiff = Math.abs(apt.lon - lon);
 
-            // Rough box check (approx 120nm box)
             if (latDiff > 2 || lonDiff > 2) continue;
 
             const dist = getDistanceKm(lat, lon, apt.lat, apt.lon);
