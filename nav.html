@@ -54,6 +54,7 @@
             align-items: center;
             width: 100%;
             height: 100%;
+            position: relative; /* Needed for absolute positioning of overlay */
         }
 
         /* --- Display Unit (The Monitor Bezel) --- */
@@ -125,7 +126,7 @@
             pointer-events: none;
         }
 
-        /* --- Control Panel (Only visible in Standalone) --- */
+        /* --- Control Panel (Standard Mode) --- */
         .control-panel {
             width: 300px;
             background-color: var(--bg-panel);
@@ -137,6 +138,7 @@
             flex-direction: column; 
             gap: 1rem;
             margin-top: 1rem;
+            transition: all 0.3s ease;
         }
 
         .control-group {
@@ -224,18 +226,86 @@
         /* === STYLES FOR EMBEDDED MODE (FLIGHT.JS) === */
         /* ========================================= */
         
-        /* When running inside the iframe, we hide the manual controls and remove shadows/margins
-           that might conflict with the PFD styling */
-        body.embedded .control-panel,
+        /* When running in flight.js (iframe), we must:
+           1. Overlay the controls on top of the screen (since iframe height is fixed).
+           2. Hide the manual inputs (Heading/Speed) as they are data-driven.
+           3. Style the buttons to fit horizontally at the bottom.
+        */
+
         body.embedded .footer-text {
             display: none !important;
         }
-
+        
         body.embedded .display-bezel {
-            /* Remove shadow in embedded mode if you prefer a flatter look, 
-               OR keep it to match PFD exactly. I'll keep it to match PFD logic. */
-            margin: 0;
+            margin: 0; /* Remove margins to fill iframe */
         }
+
+        /* Transform the panel into an Overlay */
+        body.embedded .control-panel {
+            display: flex !important; /* Override any hiding */
+            position: absolute;
+            bottom: 20px; /* Sit just above the bottom screw */
+            left: 50%;
+            transform: translateX(-50%);
+            
+            width: 92%;
+            background: rgba(17, 24, 39, 0.85); /* Dark semi-transparent */
+            backdrop-filter: blur(4px);
+            border: 1px solid rgba(255,255,255,0.1);
+            padding: 6px 10px;
+            margin: 0;
+            
+            flex-direction: row; /* Horizontal layout */
+            justify-content: space-between;
+            align-items: center;
+            gap: 8px;
+            z-index: 100; /* Sit above canvas */
+        }
+
+        /* HIDE manual sliders in embedded mode */
+        body.embedded #manual-controls-hdg,
+        body.embedded #manual-controls-spd {
+            display: none;
+        }
+
+        /* Adjust button containers for horizontal fit */
+        body.embedded .control-group {
+            width: auto;
+            flex-grow: 1;
+            gap: 0;
+        }
+        
+        /* Hide labels to save space */
+        body.embedded .label-text {
+            display: none;
+        }
+
+        /* Make Range buttons a single horizontal row */
+        body.embedded .button-group {
+            grid-template-columns: repeat(6, 1fr);
+            gap: 2px;
+            background: transparent;
+            padding: 0;
+        }
+        
+        /* Make Mode buttons horizontal */
+        body.embedded .mode-group {
+            background: transparent;
+            padding: 0;
+            gap: 2px;
+        }
+
+        /* Make buttons smaller/denser */
+        body.embedded .range-btn {
+            font-size: 0.65rem;
+            padding: 4px 2px;
+            border: 1px solid rgba(255,255,255,0.1);
+            background: rgba(0,0,0,0.3);
+        }
+        body.embedded .btn-active {
+            border-color: var(--accent-green);
+        }
+
     </style>
 </head>
 <body>
@@ -257,8 +327,8 @@
             <div class="control-group">
                 <label class="label-text">ND Mode</label>
                 <div class="mode-group">
-                    <button onclick="setMode('ROSE')" class="range-btn btn-inactive" id="mode-ROSE" style="width: 50%;">ROSE</button>
-                    <button onclick="setMode('ARC')" class="range-btn btn-active" id="mode-ARC" style="width: 50%;">ARC</button>
+                    <button onclick="setMode('ROSE')" class="range-btn btn-inactive" id="mode-ROSE">ROSE</button>
+                    <button onclick="setMode('ARC')" class="range-btn btn-active" id="mode-ARC">ARC</button>
                 </div>
             </div>
 
@@ -366,40 +436,40 @@
         }
 
         function draw() {
-    const w = canvas.width;
-    const h = canvas.height;
-    
-    ctx.fillStyle = COLORS.bg;
-    ctx.fillRect(0, 0, w, h);
+            const w = canvas.width;
+            const h = canvas.height;
+            
+            ctx.fillStyle = COLORS.bg;
+            ctx.fillRect(0, 0, w, h);
 
-    // Center origin
-    ctx.save();
-    ctx.translate(w/2, h/2); 
-    ctx.scale(GLOBAL_SCALE, GLOBAL_SCALE);
+            // Center origin
+            ctx.save();
+            ctx.translate(w/2, h/2); 
+            ctx.scale(GLOBAL_SCALE, GLOBAL_SCALE);
 
-    const scaledH = h / GLOBAL_SCALE;
-    const scaledW = w / GLOBAL_SCALE;
-    
-    const isRoseMode = (state.mode === 'ROSE');
+            const scaledH = h / GLOBAL_SCALE;
+            const scaledW = w / GLOBAL_SCALE;
+            
+            const isRoseMode = (state.mode === 'ROSE');
 
-    let arcCenterY, arcCenterX, arcRadius;
+            let arcCenterY, arcCenterX, arcRadius;
 
-    // --- UPDATED LOGIC ---
-    if (isRoseMode) {
-        arcCenterX = 0;
-        arcCenterY = 0; 
-        arcRadius = Math.min(scaledW, scaledH) * 0.42; 
-    } else {
-        arcCenterX = 0;
-        // Keep plane pushed up (-85) as requested
-        arcCenterY = (scaledH / 2) - 85; 
-        
-        // Increased radius to 0.70 (was 0.60)
-        arcRadius = Math.min(scaledW, scaledH) * 0.70; 
-    }
+            // --- UPDATED LOGIC ---
+            if (isRoseMode) {
+                arcCenterX = 0;
+                arcCenterY = 0; 
+                arcRadius = Math.min(scaledW, scaledH) * 0.42; 
+            } else {
+                arcCenterX = 0;
+                // Keep plane pushed up (-85) as requested
+                arcCenterY = (scaledH / 2) - 85; 
+                
+                // Increased radius to 0.70 (was 0.60)
+                arcRadius = Math.min(scaledW, scaledH) * 0.70; 
+            }
 
-    // Rotating Map Area (Ticks and Map Items)
-    ctx.save();
+            // Rotating Map Area (Ticks and Map Items)
+            ctx.save();
             ctx.translate(arcCenterX, arcCenterY);
             ctx.rotate(-state.heading * Math.PI / 180);
             
@@ -854,26 +924,26 @@
         animate();
 
         window.addEventListener('message', (event) => {
-    const data = event.data;
-    if (data.heading !== undefined) state.heading = data.heading;
-    if (data.track !== undefined) state.track = data.track;
-    if (data.tas !== undefined) state.tas = data.tas;
-    if (data.gs !== undefined) state.gs = data.gs;
-    if (data.windDir !== undefined) state.windDir = data.windDir;
-    if (data.windSpd !== undefined) state.windSpd = data.windSpd;
-    
-    // --- NEW DATA HANDLERS ---
-    if (data.nextWp !== undefined) state.nextWp = data.nextWp;
-    if (data.nextWpDist !== undefined) state.nextWpDist = data.nextWpDist;
-    if (data.nextWpEte !== undefined) state.nextWpEte = data.nextWpEte;
-    
-    if (data.traffic && Array.isArray(data.traffic)) {
-        traffic = data.traffic;
-    }
-    if (data.flightPlan && Array.isArray(data.flightPlan)) {
-        state.flightPlan = data.flightPlan;
-    }
-});
+            const data = event.data;
+            if (data.heading !== undefined) state.heading = data.heading;
+            if (data.track !== undefined) state.track = data.track;
+            if (data.tas !== undefined) state.tas = data.tas;
+            if (data.gs !== undefined) state.gs = data.gs;
+            if (data.windDir !== undefined) state.windDir = data.windDir;
+            if (data.windSpd !== undefined) state.windSpd = data.windSpd;
+            
+            // --- NEW DATA HANDLERS ---
+            if (data.nextWp !== undefined) state.nextWp = data.nextWp;
+            if (data.nextWpDist !== undefined) state.nextWpDist = data.nextWpDist;
+            if (data.nextWpEte !== undefined) state.nextWpEte = data.nextWpEte;
+            
+            if (data.traffic && Array.isArray(data.traffic)) {
+                traffic = data.traffic;
+            }
+            if (data.flightPlan && Array.isArray(data.flightPlan)) {
+                state.flightPlan = data.flightPlan;
+            }
+        });
     </script>
 </body>
 </html>
