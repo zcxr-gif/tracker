@@ -925,8 +925,8 @@ function injectCustomStyles() {
             position: relative; 
             background-color: #1f2937; 
             
-            /* [FIX] Reduced padding from 0.75rem to 0.25rem to close the gap */
-            padding: 0.25rem; 
+            /* [FIX] Increased padding to 12px to create a visible 'casing' lip */
+            padding: 12px; 
             
             border-radius: 1rem; 
             border: 4px solid #374151; 
@@ -936,17 +936,32 @@ function injectCustomStyles() {
         }
         .screw { position: absolute; width: 0.5rem; height: 0.5rem; background-color: #4b5563; border-radius: 50%; box-shadow: inset 1px 1px 2px rgba(0,0,0,0.5); z-index: 5; }
         .screw.tl { top: 0.35rem; left: 0.35rem; } .screw.tr { top: 0.35rem; right: 0.35rem; } .screw.bl { bottom: 0.35rem; left: 0.35rem; } .screw.br { bottom: 0.35rem; right: 0.35rem; }
-        .crt-container { width: 100%; position: relative; border: 2px solid #111827; background: #000; border-radius: 4px; overflow: hidden; box-shadow: inset 0 0 20px rgba(0,0,0,0.8); display: grid; place-items: center; }
+        
+        .crt-container { 
+            width: 100%; 
+            position: relative; 
+            border: 2px solid #111827; 
+            background: #000; 
+            border-radius: 4px; 
+            overflow: hidden; 
+            box-shadow: inset 0 0 20px rgba(0,0,0,0.8); 
+            display: grid; 
+            place-items: center; 
+            
+            /* [FIX] Add padding inside the glass to further inset the screen content */
+            padding: 2px;
+        }
+        
         .scanlines::before { content: " "; display: block; position: absolute; top: 0; left: 0; bottom: 0; right: 0; background: linear-gradient(rgba(18, 16, 16, 0) 50%, rgba(0, 0, 0, 0.1) 50%), linear-gradient(90deg, rgba(255, 0, 0, 0.06), rgba(0, 255, 0, 0.02), rgba(0, 0, 255, 0.06)); z-index: 10; background-size: 100% 2px, 3px 100%; pointer-events: none; }
         #pfd-container { width: 100%; background: transparent; border-radius: 0; }
         
         #pfd-container svg { 
-            width: 100%; 
+            /* [FIX] Size down to 96% to fit within the casing without touching edges */
+            width: 96%; 
             height: auto; 
+            margin: 0 auto; /* Center the reduced SVG */
             
-            /* [FIX] Removed max-width: 300px so it fills the casing */
             max-width: none; 
-            
             aspect-ratio: 787 / 800; 
             background-color: #1a1a1a; 
             overflow: hidden; 
