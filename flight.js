@@ -918,15 +918,42 @@ function injectCustomStyles() {
         .profile-toggle-btn { background: transparent; border: none; color: #9fa8da; padding: 6px 10px; font-size: 0.75rem; font-weight: 600; cursor: pointer; border-radius: 6px; transition: all 0.2s; }
         .profile-toggle-btn:hover { color: #fff; }
         .profile-toggle-btn.active { background: #00a8ff; color: #fff; box-shadow: 0 2px 5px rgba(0, 168, 255, 0.3); }
+        
+        /* --- [FIXED] PFD CASING STYLES --- */
         .pfd-main-panel { display: flex; flex-direction: column; width: 100%; }
-        .display-bezel { position: relative; background-color: #1f2937; padding: 0.75rem; border-radius: 1rem; border: 4px solid #374151; box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.5); width: 100%; box-sizing: border-box; }
+        .display-bezel { 
+            position: relative; 
+            background-color: #1f2937; 
+            
+            /* [FIX] Reduced padding from 0.75rem to 0.25rem to close the gap */
+            padding: 0.25rem; 
+            
+            border-radius: 1rem; 
+            border: 4px solid #374151; 
+            box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.5); 
+            width: 100%; 
+            box-sizing: border-box; 
+        }
         .screw { position: absolute; width: 0.5rem; height: 0.5rem; background-color: #4b5563; border-radius: 50%; box-shadow: inset 1px 1px 2px rgba(0,0,0,0.5); z-index: 5; }
         .screw.tl { top: 0.35rem; left: 0.35rem; } .screw.tr { top: 0.35rem; right: 0.35rem; } .screw.bl { bottom: 0.35rem; left: 0.35rem; } .screw.br { bottom: 0.35rem; right: 0.35rem; }
         .crt-container { width: 100%; position: relative; border: 2px solid #111827; background: #000; border-radius: 4px; overflow: hidden; box-shadow: inset 0 0 20px rgba(0,0,0,0.8); display: grid; place-items: center; }
         .scanlines::before { content: " "; display: block; position: absolute; top: 0; left: 0; bottom: 0; right: 0; background: linear-gradient(rgba(18, 16, 16, 0) 50%, rgba(0, 0, 0, 0.1) 50%), linear-gradient(90deg, rgba(255, 0, 0, 0.06), rgba(0, 255, 0, 0.02), rgba(0, 0, 255, 0.06)); z-index: 10; background-size: 100% 2px, 3px 100%; pointer-events: none; }
         #pfd-container { width: 100%; background: transparent; border-radius: 0; }
-        /* --- [UPDATED] Adjusted aspect ratio to match new cropped viewBox (737 / 800) --- */
-        #pfd-container svg { width: 100%; height: auto; max-width: 300px; aspect-ratio: 737 / 800; background-color: #1a1a1a; overflow: hidden; border-radius: 0; filter: brightness(1.3) contrast(1.2) drop-shadow(0 0 2px rgba(255, 255, 255, 0.3)); }
+        
+        #pfd-container svg { 
+            width: 100%; 
+            height: auto; 
+            
+            /* [FIX] Removed max-width: 300px so it fills the casing */
+            max-width: none; 
+            
+            aspect-ratio: 787 / 800; 
+            background-color: #1a1a1a; 
+            overflow: hidden; 
+            border-radius: 0; 
+            filter: brightness(1.3) contrast(1.2) drop-shadow(0 0 2px rgba(255, 255, 255, 0.3)); 
+        }
+        
         .vsd-panel, .ssd-panel { display: none; flex-direction: column; background: transparent; border-radius: 12px; min-height: 240px; max-height: 240px; overflow: hidden; width: 100%; }
         .vsd-panel.active, .ssd-panel.active { display: flex; }
         .vsd-graph-window, .ssd-graph-window { position: relative; width: 100%; flex-grow: 1; overflow: hidden; border-radius: 12px; padding-left: 35px; box-sizing: border-box; }
@@ -5157,7 +5184,7 @@ function populateAircraftInfoWindow(baseProps, plan, sortedRoutePoints) {
                         <div class="display-bezel">
                             <div class="screw tl"></div><div class="screw tr"></div><div class="screw bl"></div><div class="screw br"></div>
                             <div class="crt-container scanlines" id="pfd-container">
-                                <svg width="787" height="800" viewBox="25 0 737 800" fill="none" xmlns="http://www.w3.org/2000/svg">
+                                <svg width="787" height="800" viewBox="0 0 787 800" fill="none" xmlns="http://www.w3.org/2000/svg">
                                     <g id="PFD" clip-path="url(#clip0_1_2890)">
                                     <g transform="translate(0, 100)">
                                         <g id="attitude_group">
