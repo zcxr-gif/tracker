@@ -5193,7 +5193,38 @@ function populateAircraftInfoWindow(baseProps, plan, sortedRoutePoints) {
                                 </div>
                             </div>
                         </div>
-                    </div>
+
+                        <div class="data-group">
+                            <span class="group-label"><i class="fa-solid fa-location-arrow"></i> Next WPT</span>
+                            <div class="split-row">
+                                <div class="split-item">
+                                    <span style="font-size: 0.6rem; color:#666;">ID</span>
+                                    <span class="digital-readout" id="ac-next-wp">---</span>
+                                </div>
+                                <div class="split-item">
+                                    <span style="font-size: 0.6rem; color:#666;">DIST</span>
+                                    <span class="digital-readout" id="ac-next-wp-dist">--.-</span>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="data-group">
+                            <span class="group-label"><i class="fa-solid fa-flag-checkered"></i> Destination</span>
+                            <div class="split-row">
+                                <div class="split-item">
+                                    <span style="font-size: 0.6rem; color:#666;">DIST</span>
+                                    <span class="digital-readout" id="ac-dist">---</span>
+                                </div>
+                                <div class="split-item">
+                                    <span style="font-size: 0.6rem; color:#666;">ETE</span>
+                                    <span class="digital-readout" id="ac-ete">--:--</span>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="data-group">
+                            <span class="group-label"><i class="fa-solid fa-arrow-up-right-dots"></i> Vertical Spd</span>
+                            <span class="digital-readout large" id="ac-vs" style="font-size: 1.2rem;">--- fpm</span>
+                        </div>
+                        </div>
                 </div>
                 
                 <div class="ac-profile-card-new">
@@ -5226,29 +5257,6 @@ function populateAircraftInfoWindow(baseProps, plan, sortedRoutePoints) {
                                 <div id="ssd-waypoint-labels"></div>
                             </div>
                         </div>
-                    </div>
-                </div>
-
-                <div class="flight-data-bar">
-                    <div class="data-bar-item">
-                        <span class="data-label">NEXT WP</span>
-                        <span class="data-value" id="ac-next-wp">---</span>
-                    </div>
-                    <div class="data-bar-item">
-                        <span class="data-label">DIST. TO WP</span>
-                        <span class="data-value" id="ac-next-wp-dist">--.-<span class="unit">NM</span></span>
-                    </div>
-                    <div class="data-bar-item">
-                        <span class="data-label">DIST. TO DEST.</span>
-                        <span class="data-value" id="ac-dist">---<span class="unit">NM</span></span>
-                    </div>
-                    <div class="data-bar-item">
-                        <span class="data-label">ETE TO DEST.</span>
-                        <span class="data-value" id="ac-ete">--:--</span>
-                    </div>
-                    <div class="data-bar-item">
-                        <span class="data-label">VERTICAL SPEED</span>
-                        <span class="data-value" id="ac-vs">---<span class="unit">fpm</span></span>
                     </div>
                 </div>
 
