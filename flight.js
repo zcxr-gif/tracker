@@ -5173,13 +5173,6 @@ function populateAircraftInfoWindow(baseProps, plan, sortedRoutePoints) {
                                 </div>
                             </div>
                         </div>
-                        <div class="data-group highlight">
-                            <span class="group-label"><i class="fa-solid fa-tower-control"></i> Nearest Apt</span>
-                            <div class="split-row" style="align-items: baseline;">
-                                <span class="digital-readout large" id="ac-nearest-apt">---</span>
-                                <span class="digital-readout" id="ac-nearest-apt-dist" style="font-size: 0.9rem; color: #00a8ff;">--.- NM</span>
-                            </div>
-                        </div>
                         <div class="data-group">
                             <span class="group-label"><i class="fa-solid fa-wind"></i> Environment</span>
                             <div class="split-row">
@@ -5191,6 +5184,37 @@ function populateAircraftInfoWindow(baseProps, plan, sortedRoutePoints) {
                                     <span style="font-size: 0.6rem; color:#666;">OAT</span>
                                     <span class="digital-readout" id="ac-env-oat">--°C</span>
                                 </div>
+                            </div>
+                        </div>
+                        <div class="data-group">
+                            <span class="group-label"><i class="fa-solid fa-arrow-trend-up"></i> Vertical Spd</span>
+                            <span class="digital-readout large" id="ac-vs" style="color: #e0e0e0;">---<span class="unit" style="font-size:0.6rem;">fpm</span></span>
+                        </div>
+                        <div class="data-group">
+                             <span class="group-label"><i class="fa-solid fa-location-arrow"></i> Next Wpt</span>
+                             <div class="split-row" style="align-items: baseline;">
+                                <span class="digital-readout" id="ac-next-wp">---</span>
+                                <span class="digital-readout small" id="ac-next-wp-dist">--.- NM</span>
+                             </div>
+                        </div>
+                        <div class="data-group">
+                             <span class="group-label"><i class="fa-solid fa-flag-checkered"></i> Destination</span>
+                             <div class="split-row">
+                                <div class="split-item">
+                                    <span style="font-size: 0.6rem; color:#666;">DIST</span>
+                                    <span class="digital-readout" id="ac-dist">---</span>
+                                </div>
+                                <div class="split-item">
+                                    <span style="font-size: 0.6rem; color:#666;">ETE</span>
+                                    <span class="digital-readout" id="ac-ete">--:--</span>
+                                </div>
+                             </div>
+                        </div>
+                        <div class="data-group highlight">
+                            <span class="group-label"><i class="fa-solid fa-tower-control"></i> Nearest Apt</span>
+                            <div class="split-row" style="align-items: baseline;">
+                                <span class="digital-readout large" id="ac-nearest-apt">---</span>
+                                <span class="digital-readout" id="ac-nearest-apt-dist" style="font-size: 0.9rem; color: #00a8ff;">--.- NM</span>
                             </div>
                         </div>
                     </div>
@@ -5226,29 +5250,6 @@ function populateAircraftInfoWindow(baseProps, plan, sortedRoutePoints) {
                                 <div id="ssd-waypoint-labels"></div>
                             </div>
                         </div>
-                    </div>
-                </div>
-
-                <div class="flight-data-bar">
-                    <div class="data-bar-item">
-                        <span class="data-label">NEXT WP</span>
-                        <span class="data-value" id="ac-next-wp">---</span>
-                    </div>
-                    <div class="data-bar-item">
-                        <span class="data-label">DIST. TO WP</span>
-                        <span class="data-value" id="ac-next-wp-dist">--.-<span class="unit">NM</span></span>
-                    </div>
-                    <div class="data-bar-item">
-                        <span class="data-label">DIST. TO DEST.</span>
-                        <span class="data-value" id="ac-dist">---<span class="unit">NM</span></span>
-                    </div>
-                    <div class="data-bar-item">
-                        <span class="data-label">ETE TO DEST.</span>
-                        <span class="data-value" id="ac-ete">--:--</span>
-                    </div>
-                    <div class="data-bar-item">
-                        <span class="data-label">VERTICAL SPEED</span>
-                        <span class="data-value" id="ac-vs">---<span class="unit">fpm</span></span>
                     </div>
                 </div>
 
@@ -5526,7 +5527,6 @@ function updateAircraftInfoWindow(baseProps, plan, sortedRoutePoints) {
     let totalDistanceNM = 0;
 
     if (hasPlan) {
-        // ... (calculation logic for progress, ete, etc. is unchanged) ...
         let totalDistanceKm = 0;
         for (let i = 0; i < originalFlatWaypoints.length - 1; i++) {
             const [lon1, lat1] = originalFlatWaypoints[i];
@@ -5579,7 +5579,6 @@ function updateAircraftInfoWindow(baseProps, plan, sortedRoutePoints) {
     let bestWpIndex = -1;
     let minScore = Infinity;
     if (plan) { 
-        // ... (logic for finding next waypoint is unchanged) ...
         const currentPos = baseProps.position;
         const currentTrack = currentPos.heading_deg;
         
@@ -5618,7 +5617,6 @@ function updateAircraftInfoWindow(baseProps, plan, sortedRoutePoints) {
     // --- Calculate accurate progress along the planned route ---
     let progressAlongRouteNM = 0;
     if (hasPlan && bestWpIndex > 0) {
-        // ... (progressAlongRouteNM logic is unchanged) ...
         const prevWp = originalFlatWaypointObjects[bestWpIndex - 1];
         const nextWp = originalFlatWaypointObjects[bestWpIndex];
         
@@ -5641,20 +5639,16 @@ function updateAircraftInfoWindow(baseProps, plan, sortedRoutePoints) {
         progressAlongRouteNM = totalDistanceNM;
     }
 
-
-    // --- [MODIFIED] Update New Data Bar (using helper) ---
+    // --- Update Nav Data Bar Elements ---
     const nextWpDisplay = nextWpName;
     const nextWpDistDisplay = (nextWpDistNM === '---' || isNaN(parseFloat(nextWpDistNM))) ? '--.-' : Number(nextWpDistNM).toFixed(1);
 
     updateAll('#ac-next-wp', nextWpDisplay);
-    updateAll('#ac-next-wp-dist', `${nextWpDistDisplay}<span class="unit">NM</span>`, true);
-    updateAll('#ac-dist', `${Math.round(distanceToDestNM)}<span class="unit">NM</span>`, true);
+    updateAll('#ac-next-wp-dist', `${nextWpDistDisplay} NM`);
+    updateAll('#ac-dist', `${Math.round(distanceToDestNM)} NM`);
     updateAll('#ac-ete', ete);
-    // --- [END MODIFIED] ---
 
-
-    // --- Flight Phase State Machine (Unchanged) ---
-    // ... (This entire section is unchanged) ...
+    // --- Flight Phase State Machine ---
     let flightPhase = 'ENROUTE';
     let phaseClass = 'phase-enroute';
     let phaseIcon = 'fa-route';
@@ -5692,6 +5686,7 @@ function updateAircraftInfoWindow(baseProps, plan, sortedRoutePoints) {
     const fallbackGroundCheck = altitudeAGL === null && gs < 35 && Math.abs(vs) < 150;
     const isOnGround = aglCheck || fallbackGroundCheck;
     const isLinedUpForLanding = nearestRunwayInfo && nearestRunwayInfo.airport === arrivalIcao && nearestRunwayInfo.headingDiff < 10;
+    
     if (isOnGround) {
         if (gs > 35) {
             if (progress > 90) { flightPhase = 'LANDING ROLLOUT'; phaseClass = 'phase-approach'; phaseIcon = 'fa-plane-arrival';
@@ -5735,54 +5730,39 @@ function updateAircraftInfoWindow(baseProps, plan, sortedRoutePoints) {
         }
     }
 
-
-    // --- [MODIFIED] VSD & SSD LOGIC (using querySelectorAll) ---
-    // This logic is now safe because it queries *within* its parent.
+    // --- VSD & SSD LOGIC ---
     const vsdPanels = document.querySelectorAll('#vsd-panel');
-    
-    // ##### MODIFICATION START #####
     const ssdPanels = document.querySelectorAll('#ssd-panel');
     const planId = (plan && (plan.flightPlanId || plan.id)) || 'unknown';
-    // ##### MODIFICATION END #####
 
-    // --- VSD Panel Logic ---
     vsdPanels.forEach(vsdPanel => {
         if (!hasPlan) return;
-        
-        // Find elements *relative* to this specific vsdPanel
         const vsdAircraftIcon = vsdPanel.querySelector('#vsd-aircraft-icon');
         const vsdGraphWindow = vsdPanel.querySelector('#vsd-graph-window');
         const vsdGraphContent = vsdPanel.querySelector('#vsd-graph-content');
         const vsdProfilePath = vsdPanel.querySelector('#vsd-profile-path');
         const vsdFlownPath = vsdPanel.querySelector('#vsd-flown-path');
         const vsdWpLabels = vsdPanel.querySelector('#vsd-waypoint-labels');
-
         if (!vsdGraphContent || !vsdAircraftIcon) return;
 
-        // --- 1. Define VSD scales ---
         const VSD_HEIGHT_PX = vsdGraphContent.clientHeight || 240;
         const MAX_ALT_FT = 45000;
         const Y_SCALE_PX_PER_FT = VSD_HEIGHT_PX / MAX_ALT_FT;
         const FIXED_X_SCALE_PX_PER_NM = 4;
         
-        // --- 2. Build the Profile (Only once) ---
+        // 1. Build Profile (Static)
         if (vsdPanel.dataset.profileBuilt !== 'true' || vsdPanel.dataset.planId !== planId) {
-            // ... (VSD profile, label, and Y-axis generation logic is unchanged) ...
             let flatWaypointObjects = JSON.parse(JSON.stringify(originalFlatWaypointObjects));
             if (flatWaypointObjects.length > 0) {
                 const lastIdx = flatWaypointObjects.length - 1;
-                if (flatWaypointObjects[0].altitude == null) {
-                    flatWaypointObjects[0].altitude = plan?.origin?.elevation_ft || 0;
-                }
+                if (flatWaypointObjects[0].altitude == null) flatWaypointObjects[0].altitude = plan?.origin?.elevation_ft || 0;
                 if (flatWaypointObjects[lastIdx].altitude == null) {
                     const prevAlt = (lastIdx > 0) ? flatWaypointObjects[lastIdx - 1]?.altitude : null;
                     flatWaypointObjects[lastIdx].altitude = (prevAlt != null) ? prevAlt : (plan?.destination?.elevation_ft || 0);
                 }
                 for (let i = 1; i < lastIdx; i++) {
                     const wp = flatWaypointObjects[i];
-                    if (wp.altitude == null || (typeof wp.altitude === 'number' && wp.altitude <= 0)) {
-                        wp.altitude = null;
-                    }
+                    if (wp.altitude == null || (typeof wp.altitude === 'number' && wp.altitude <= 0)) wp.altitude = null;
                 }
                 let lastValidAltIndex = 0; 
                 for (let i = 1; i < flatWaypointObjects.length; i++) {
@@ -5794,7 +5774,6 @@ function updateAircraftInfoWindow(baseProps, plan, sortedRoutePoints) {
                             const startAlt = flatWaypointObjects[gapStartIndex].altitude;
                             const endAlt = flatWaypointObjects[gapEndIndex].altitude;
                             const numStepsInGap = gapEndIndex - gapStartIndex;
-
                             for (let j = 1; j < numStepsInGap; j++) {
                                 const stepIndex = gapStartIndex + j;
                                 const fraction = j / numStepsInGap;
@@ -5832,13 +5811,11 @@ function updateAircraftInfoWindow(baseProps, plan, sortedRoutePoints) {
                 const wpAltFt = wp.altitude; 
                 const wpAltPx = VSD_HEIGHT_PX - (wpAltFt * Y_SCALE_PX_PER_FT);
                 current_x_px = wp.cumulativeNM * FIXED_X_SCALE_PX_PER_NM;
-
                 if (i === 0) {
                     path_d = `M ${current_x_px} ${wpAltPx}`;
                 } else {
                     path_d += ` L ${current_x_px} ${wpAltPx}`;
                 }
-
                 let label_top_px;
                 let label_class = '';
                 if (current_x_px - last_label_x_px < MIN_LABEL_SPACING_PX) {
@@ -5854,12 +5831,7 @@ function updateAircraftInfoWindow(baseProps, plan, sortedRoutePoints) {
                     label_top_px = wpAltPx - 42;
                 }
                 last_label_x_px = current_x_px;
-
-                labels_html += `
-                    <div class="vsd-wp-label ${label_class}" style="left: ${current_x_px}px; top: ${label_top_px}px;">
-                        <span class="wp-name">${wp.identifier}</span>
-                        <span class="wp-alt">${Math.round(wpAltFt)}ft</span>
-                    </div>`;
+                labels_html += `<div class="vsd-wp-label ${label_class}" style="left: ${current_x_px}px; top: ${label_top_px}px;"><span class="wp-name">${wp.identifier}</span><span class="wp-alt">${Math.round(wpAltFt)}ft</span></div>`;
             }
             
             vsdGraphContent.style.width = `${current_x_px + 100}px`;
@@ -5870,9 +5842,8 @@ function updateAircraftInfoWindow(baseProps, plan, sortedRoutePoints) {
             vsdPanel.dataset.planId = planId;
         }
         
-        // --- 3. Build/Update Flown Altitude Path ---
+        // 2. Build Flown Path (Dynamic)
         if (vsdFlownPath && hasPlan && originalFlatWaypointObjects.length > 0) {
-            // ... (VSD flown path logic is unchanged) ...
             let flown_path_d = "";
             let lastFlownLat, lastFlownLon;
             let currentFlightRoutePoints = [...sortedRoutePoints]; 
@@ -5903,7 +5874,7 @@ function updateAircraftInfoWindow(baseProps, plan, sortedRoutePoints) {
                 latitude: baseProps.position.lat,
                 longitude: baseProps.position.lon,
                 altitude: baseProps.position.alt_ft,
-                groundSpeed: baseProps.position.gs_kt // <-- Pass speed
+                groundSpeed: baseProps.position.gs_kt
             });
             const flownPathPoints = [];
             let totalActualFlownNM = 0;
@@ -5925,76 +5896,59 @@ function updateAircraftInfoWindow(baseProps, plan, sortedRoutePoints) {
                         segmentDistNM = getDistanceKm(lastFlownLat, lastFlownLon, wpLat, wpLon) / 1.852;
                     }
                     totalActualFlownNM += segmentDistNM;
-                    
-                    // Store Altitude AND Speed
                     flownPathPoints.push({ 
                         x_nm: totalActualFlownNM, 
                         y_px_alt: wpAltPx,
                         y_kts: point.groundSpeed || 0
                     });
-
                     lastFlownLat = wpLat;
                     lastFlownLon = wpLon;
                 }
                 const plannedProgressNM = progressAlongRouteNM;
                 const scaleFactor = (totalActualFlownNM > 0.1 && plannedProgressNM > 0.01) ? (plannedProgressNM / totalActualFlownNM) : 1;
                 
-                // ##### MODIFICATION START #####
-                // We must define the speed scale here to draw the path
-                const SSD_HEIGHT_PX = VSD_HEIGHT_PX; // Same height
-                const MAX_SPEED_KTS = 600; // 0-600 kts
+                // SSD Constants
+                const SSD_HEIGHT_PX = VSD_HEIGHT_PX;
+                const MAX_SPEED_KTS = 600;
                 const Y_SCALE_PX_PER_KT = SSD_HEIGHT_PX / MAX_SPEED_KTS;
                 
-                let flown_speed_path_d = ""; // [NEW] Path for speed
+                let flown_speed_path_d = "";
                 const startSpeedKts = flownPathPoints[0]?.y_kts || 0;
                 const startSpeedPx = SSD_HEIGHT_PX - (startSpeedKts * Y_SCALE_PX_PER_KT);
-                // ##### MODIFICATION END #####
 
                 for (let i = 0; i < flownPathPoints.length; i++) {
                     const point = flownPathPoints[i];
                     const scaled_x_px = point.x_nm * scaleFactor * FIXED_X_SCALE_PX_PER_NM; 
                     
-                    // VSD Altitude Path (Unchanged)
+                    // VSD Altitude
                     if (i === 0) {
                         flown_path_d = `M 0 ${startAltPx}`;
-                        if (flownPathPoints.length === 1) {
-                            flown_path_d += ` L ${scaled_x_px} ${point.y_px_alt}`;
-                        }
+                        if (flownPathPoints.length === 1) flown_path_d += ` L ${scaled_x_px} ${point.y_px_alt}`;
                     } else {
                         flown_path_d += ` L ${scaled_x_px} ${point.y_px_alt}`;
                     }
                     
-                    // ##### MODIFICATION START #####
-                    // [NEW] SSD Speed Path
+                    // SSD Speed
                     const wpSpeedPx = SSD_HEIGHT_PX - (point.y_kts * Y_SCALE_PX_PER_KT);
                     if (i === 0) {
                         flown_speed_path_d = `M 0 ${startSpeedPx}`;
-                         if (flownPathPoints.length === 1) {
-                            flown_speed_path_d += ` L ${scaled_x_px} ${wpSpeedPx}`;
-                        }
+                         if (flownPathPoints.length === 1) flown_speed_path_d += ` L ${scaled_x_px} ${wpSpeedPx}`;
                     } else {
                         flown_speed_path_d += ` L ${scaled_x_px} ${wpSpeedPx}`;
                     }
-                    // ##### MODIFICATION END #####
                 }
-                
                 vsdFlownPath.setAttribute('d', flown_path_d);
                 
-                // ##### MODIFICATION START #####
-                // [NEW] Set the speed path on the SSD panel
+                // Set SSD Path
                 const ssdFlownPath = document.querySelector(`#ssd-panel[data-plan-id="${planId}"] #ssd-flown-path`);
-                if (ssdFlownPath) {
-                    ssdFlownPath.setAttribute('d', flown_speed_path_d);
-                }
-                // ##### MODIFICATION END #####
+                if (ssdFlownPath) ssdFlownPath.setAttribute('d', flown_speed_path_d);
             }
         }
 
-        // --- 4. Update Aircraft Icon Position (Vertical) ---
+        // 3. Update Icon Position & Scrolling
         const currentAltPx = VSD_HEIGHT_PX - (altitude * Y_SCALE_PX_PER_FT);
         vsdAircraftIcon.style.top = `${currentAltPx}px`;
 
-        // --- 5. Scroll the Graph (Horizontal) ---
         if (vsdGraphWindow && vsdGraphWindow.clientWidth > 0) {
             const distanceFlownNM = progressAlongRouteNM; 
             const scrollOffsetPx = (distanceFlownNM * FIXED_X_SCALE_PX_PER_NM);
@@ -6015,44 +5969,27 @@ function updateAircraftInfoWindow(baseProps, plan, sortedRoutePoints) {
             vsdGraphContent.style.transform = `translateX(${translateX - 35}px)`;
             vsdAircraftIcon.style.left = `75px`;
         }
-        
-        // --- 6. [MODIFIED] Update Data Bar's V/S (using querySelector) ---
-        const vsdSummaryVS = vsdPanel.closest('.ac-tab-pane').querySelector('#ac-vs');
-        if (vsdSummaryVS) {
-            vsdSummaryVS.innerHTML = `<i class="fa-solid ${vs > 100 ? 'fa-arrow-up' : vs < -100 ? 'fa-arrow-down' : 'fa-minus'}"></i> ${Math.round(vs)}<span class="unit">fpm</span>`;
-        }
     });
-    // --- [END VSD LOGIC] ---
 
-
-    // ##### MODIFICATION START #####
-    // --- [NEW] SSD Panel Logic ---
+    // SSD Logic
     ssdPanels.forEach(ssdPanel => {
         if (!hasPlan) return;
-        
-        // Find elements *relative* to this specific ssdPanel
         const ssdAircraftIcon = ssdPanel.querySelector('#ssd-aircraft-icon');
         const ssdGraphWindow = ssdPanel.querySelector('#ssd-graph-window');
         const ssdGraphContent = ssdPanel.querySelector('#ssd-graph-content');
         const ssdFlownPath = ssdPanel.querySelector('#ssd-flown-path');
         const ssdWpLabels = ssdPanel.querySelector('#ssd-waypoint-labels');
-
         if (!ssdGraphContent || !ssdAircraftIcon) return;
 
-        // --- 1. Define SSD scales ---
         const SSD_HEIGHT_PX = ssdGraphContent.clientHeight || 240;
-        const MAX_SPEED_KTS = 600; // 0-600 kts
+        const MAX_SPEED_KTS = 600;
         const Y_SCALE_PX_PER_KT = SSD_HEIGHT_PX / MAX_SPEED_KTS;
-        const FIXED_X_SCALE_PX_PER_NM = 4; // Must match VSD
+        const FIXED_X_SCALE_PX_PER_NM = 4;
         
-        // --- 2. Build the Profile (Only once) ---
         if (ssdPanel.dataset.profileBuilt !== 'true' || ssdPanel.dataset.planId !== planId) {
             let flatWaypointObjects = JSON.parse(JSON.stringify(originalFlatWaypointObjects));
-
-            // Build Y-Axis for Speed
             if (ssdGraphWindow && !ssdGraphWindow.querySelector('#ssd-y-axis')) {
                 let yAxisHtml = '<div id="ssd-y-axis">';
-                // Labels every 100kts, lines every 50kts
                 const speedLabels = [100, 200, 300, 400, 500]; 
                 for (const spd of speedLabels) {
                     const yPos = SSD_HEIGHT_PX - (spd * Y_SCALE_PX_PER_KT);
@@ -6062,7 +5999,6 @@ function updateAircraftInfoWindow(baseProps, plan, sortedRoutePoints) {
                 ssdGraphWindow.insertAdjacentHTML('afterbegin', yAxisHtml);
             }
             
-            // Build Waypoint Labels (simpler, just name)
             let labels_html = "";
             let current_x_px = 0;
             let last_label_x_px = -1000;
@@ -6070,28 +6006,19 @@ function updateAircraftInfoWindow(baseProps, plan, sortedRoutePoints) {
             const MIN_LABEL_SPACING_PX = 80;
             
             if (flatWaypointObjects.length === 0) return;
-
             for (let i = 0; i < flatWaypointObjects.length; i++) {
                 const wp = flatWaypointObjects[i];
                 current_x_px = wp.cumulativeNM * FIXED_X_SCALE_PX_PER_NM;
-
                 let label_y_pos_class = '';
                 if (current_x_px - last_label_x_px < MIN_LABEL_SPACING_PX) {
-                    stagger_level = 1 - stagger_level; // Toggle 0 and 1
+                    stagger_level = 1 - stagger_level;
                 } else {
                     stagger_level = 0;
                 }
-                
                 label_y_pos_class = (stagger_level === 1) ? 'low-label' : 'high-label';
                 last_label_x_px = current_x_px;
-
-                labels_html += `
-                    <div class="ssd-wp-label ${label_y_pos_class}" style="left: ${current_x_px}px;">
-                        ${wp.identifier}
-                    </div>`;
+                labels_html += `<div class="ssd-wp-label ${label_y_pos_class}" style="left: ${current_x_px}px;">${wp.identifier}</div>`;
             }
-            
-            // Set width of content
             ssdGraphContent.style.width = `${current_x_px + 100}px`;
             ssdFlownPath.closest('svg').style.width = `${current_x_px + 100}px`;
             ssdWpLabels.innerHTML = labels_html;
@@ -6099,17 +6026,10 @@ function updateAircraftInfoWindow(baseProps, plan, sortedRoutePoints) {
             ssdPanel.dataset.planId = planId;
         }
         
-        // --- 3. Build/Update Flown Speed Path ---
-        // This is now handled inside the VSD loop (search for 'flown_speed_path_d')
-        // to avoid duplicating the path calculation.
-        
-        // --- 4. Update Aircraft Icon Position (Vertical) ---
         const currentSpeedKts = gs || 0;
         const currentSpeedPx = SSD_HEIGHT_PX - (currentSpeedKts * Y_SCALE_PX_PER_KT);
         ssdAircraftIcon.style.top = `${currentSpeedPx}px`;
 
-        // --- 5. Scroll the Graph (Horizontal) ---
-        // This MUST be identical to the VSD scrolling logic
         if (ssdGraphWindow && ssdGraphWindow.clientWidth > 0) {
             const distanceFlownNM = progressAlongRouteNM; 
             const scrollOffsetPx = (distanceFlownNM * FIXED_X_SCALE_PX_PER_NM);
@@ -6124,7 +6044,6 @@ function updateAircraftInfoWindow(baseProps, plan, sortedRoutePoints) {
             const iconLeftPx = scrollOffsetPx + finalTranslateX;
             ssdAircraftIcon.style.left = `${iconLeftPx}px`;
         } else {
-            // Fallback for when clientWidth is 0
             const distanceFlownNM = progressAlongRouteNM;
             const scrollOffsetPx = (distanceFlownNM * FIXED_X_SCALE_PX_PER_NM);
             const translateX = 75 - scrollOffsetPx; 
@@ -6132,52 +6051,25 @@ function updateAircraftInfoWindow(baseProps, plan, sortedRoutePoints) {
             ssdAircraftIcon.style.left = `75px`;
         }
     });
-    // --- [END SSD LOGIC] ---
-    // ##### MODIFICATION END #####
 
-
-    // --- [MODIFIED] Update Other DOM Elements (using helpers) ---
+    // --- Global Updates ---
     styleAll('#ac-progress-bar', 'width', `${progress.toFixed(1)}%`);
     updateAll('#ac-phase-indicator', `<i class="fa-solid ${phaseIcon}"></i> ${flightPhase}`, true);
-    
-    // Set the class separately as it's a list
-    const phaseIndicators = document.querySelectorAll('#ac-phase-indicator');
-    phaseIndicators.forEach(el => {
-        el.className = `flight-phase-indicator ${phaseClass}`;
-    });
-
-    // --- Update Times and Flags ---
-    const atdTimestamp = (sortedRoutePoints && sortedRoutePoints.length > 0) ? sortedRoutePoints[0].date : null;
-    const atdTime = atdTimestamp ? formatTimeFromTimestamp(atdTimestamp) : '--:--';
-    let etaTime = '--:--';
-    if (baseProps.position.gs_kt > 50 && totalDistanceNM > 0) {
-        const eteHours = distanceToDestNM / baseProps.position.gs_kt;
-        if (eteHours > 0 && eteHours < 48) { 
-            const eteMs = eteHours * 3600 * 1000;
-            const etaTimestamp = new Date(Date.now() + eteMs);
-            etaTime = formatTimeFromTimestamp(etaTimestamp);
-        }
-    }
-    const depCountryCode = airportsData[departureIcao]?.country ? airportsData[departureIcao].country.toLowerCase() : '';
-    const arrCountryCode = airportsData[arrivalIcao]?.country ? airportsData[arrivalIcao].country.toLowerCase() : '';
-    const depFlagSrc = depCountryCode ? `https://flagcdn.com/w20/${depCountryCode}.png` : '';
-    const arrFlagSrc = arrCountryCode ? `https://flagcdn.com/w20/${arrCountryCode}.png` : '';
-
+    document.querySelectorAll('#ac-phase-indicator').forEach(el => el.className = `flight-phase-indicator ${phaseClass}`);
     updateAll('#ac-bar-atd', `${atdTime} Z`);
     updateAll('#ac-bar-eta', `${etaTime} Z`);
     
     document.querySelectorAll('#ac-bar-dep-flag').forEach(el => {
-        el.src = depFlagSrc; 
-        el.alt = depCountryCode; 
-        el.style.display = depCountryCode ? 'block' : 'none'; 
+        el.src = depFlagSrc; el.alt = depCountryCode; el.style.display = depCountryCode ? 'block' : 'none'; 
     });
     document.querySelectorAll('#ac-bar-arr-flag').forEach(el => {
-        el.src = arrFlagSrc; 
-        el.alt = arrCountryCode; 
-        el.style.display = arrCountryCode ? 'block' : 'none'; 
+        el.src = arrFlagSrc; el.alt = arrCountryCode; el.style.display = arrCountryCode ? 'block' : 'none'; 
     });
+    
+    // Update Vertical Speed in the new Nav Data panel (Moved from VSD section)
+    updateAll('#ac-vs', `<i class="fa-solid ${vs > 100 ? 'fa-arrow-up' : vs < -100 ? 'fa-arrow-down' : 'fa-minus'}"></i> ${Math.round(vs)}<span class="unit" style="font-size:0.6rem; margin-left:2px;">fpm</span>`, true);
 
-    // --- Update Aircraft Image (using querySelectorAll) ---
+    // Update Images
     const overviewPanels = document.querySelectorAll('#ac-overview-panel');
     overviewPanels.forEach(overviewPanel => {
         const sanitizeFilename = (name) => {
