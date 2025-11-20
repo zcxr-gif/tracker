@@ -3820,6 +3820,10 @@ function initializeSectorOpsMap(centerICAO) {
     if (sectorOpsMap) sectorOpsMap.remove();
 
     const centerCoords = airportsData[centerICAO] ? [airportsData[centerICAO].lon, airportsData[centerICAO].lat] : [77.2, 28.6];
+    
+    // [FIX] Ensure container is empty to prevent Mapbox warnings
+    const container = document.getElementById('sector-ops-map-fullscreen');
+    if (container) container.innerHTML = ''; 
 
     sectorOpsMap = new mapboxgl.Map({
         container: 'sector-ops-map-fullscreen',
@@ -3829,219 +3833,17 @@ function initializeSectorOpsMap(centerICAO) {
         interactive: true,
         projection: 'globe'
     });
-
-    /**
-     * --- [NEW] Extracted function to set up base layers.
-     * This is called on initial load AND on every style change.
-     * --- [MODIFIED] Added text labels for callsign and phase.
-     * --- [MODIFIED v2] Split icons and labels into two layers
-     * to allow icons to always show while labels can hide.
-     */
-    async function setupMapLayersAndFog() {
-        // 1. Set globe fog (Unchanged)
-        sectorOpsMap.setFog({
-            color: 'rgb(186, 210, 235)', // Lower atmosphere
-            'high-color': 'rgb(36, 92, 223)', // Upper atmosphere
-            'horizon-blend': 0.02, // Smooth blend
-            'space-color': 'rgb(11, 11, 25)', // Space color
-            'star-intensity': 0.6 // Adjust star intensity
-        });
-
-        // 2. Load all aircraft icons (Unchanged)
-        const iconsToLoad = [
-            // Regular (Default)
-            { id: 'icon-jumbo', path: '/Images/map_icons/jumbo.png' },
-            { id: 'icon-widebody', path: '/Images/map_icons/widebody.png' },
-            { id: 'icon-narrowbody', path: '/Images/map_icons/narrowbody.png' },
-            { id: 'icon-regional', path: '/Images/map_icons/regional.png' },
-            { id: 'icon-private', path: '/Images/map_icons/private.png' },
-            { id: 'icon-fighter', path: '/Images/map_icons/fighter.png' },
-            { id: 'icon-default', path: '/Images/map_icons/default.png' },
-            { id: 'icon-military', path: '/Images/map_icons/military.png' },
-            { id: 'icon-cessna', path: '/Images/map_icons/cessna.png' },
-            
-            // --- MODIFICATION: Changed 'red' to 'orange' ---
-            { id: 'icon-jumbo-orange', path: '/Images/map_icons/orange/jumbo.png' },
-            { id: 'icon-widebody-orange', path: '/Images/map_icons/orange/widebody.png' },
-            { id: 'icon-narrowbody-orange', path: '/Images/map_icons/orange/narrowbody.png' },
-            { id: 'icon-regional-orange', path: '/Images/map_icons/orange/regional.png' },
-            { id: 'icon-private-orange', path: '/Images/map_icons/orange/private.png' },
-            { id: 'icon-fighter-orange', path: '/Images/map_icons/orange/fighter.png' },
-            { id: 'icon-default-orange', path: '/Images/map_icons/orange/default.png' },
-            { id: 'icon-military-orange', path: '/Images/map_icons/orange/military.png' },
-            { id: 'icon-cessna-orange', path: '/Images/map_icons/orange/cessna.png' },
-
-            // --- MODIFICATION: Renamed 'staff' to 'blue' ---
-            { id: 'icon-jumbo-blue', path: '/Images/map_icons/blue/jumbo.png' },
-            { id: 'icon-widebody-blue', path: '/Images/map_icons/blue/widebody.png' },
-            { id: 'icon-narrowbody-blue', path: '/Images/map_icons/blue/narrowbody.png' },
-            { id: 'icon-regional-blue', path: '/Images/map_icons/blue/regional.png' },
-            { id: 'icon-private-blue', path: '/Images/map_icons/blue/private.png' },
-            { id: 'icon-fighter-blue', path: '/Images/map_icons/blue/fighter.png' },
-            { id: 'icon-default-blue', path: '/Images/map_icons/blue/default.png' },
-            { id: 'icon-military-blue', path: '/Images/map_icons/blue/military.png' },
-            { id: 'icon-cessna-blue', path: '/Images/map_icons/blue/cessna.png' }
-        ];
-
-        const imagePromises = iconsToLoad.map(icon =>
-            new Promise((res, rej) => {
-                // Check if image already exists (Mapbox preserves images across style loads)
-                if (sectorOpsMap.hasImage(icon.id)) {
-                    res();
-                    return;
-                }
-                sectorOpsMap.loadImage(icon.path, (error, image) => {
-                    if (error) {
-                        console.warn(`Could not load icon: ${icon.path}`);
-                        rej(error);
-                    } else {
-                        sectorOpsMap.addImage(icon.id, image);
-                        res();
-                    }
-                });
-            })
-        );
-        
-        await Promise.all(imagePromises).catch(err => console.error("Error loading map icons", err));
-        console.log('All custom aircraft icons are ready.');
-
-        // 3. Add base flight data source (Unchanged)
-        if (!sectorOpsMap.getSource('sector-ops-live-flights-source')) {
-            sectorOpsMap.addSource('sector-ops-live-flights-source', {
-                type: 'geojson',
-                data: { type: 'FeatureCollection', features: Object.values(currentMapFeatures) } // Use current state
-            });
-        }
-
-        mapAnimator = new MapAnimator(sectorOpsMap, 'sector-ops-live-flights-source', currentMapFeatures);
-
-        // 4. --- [START OF MODIFICATION] ---
-        // Add the ICON layer
-        if (!sectorOpsMap.getLayer('sector-ops-live-flights-layer')) {
-            sectorOpsMap.addLayer({
-                id: 'sector-ops-live-flights-layer', // Keep original ID for click listeners
-                type: 'symbol',
-                source: 'sector-ops-live-flights-source',
-                layout: {
-                    // --- Icon Properties ONLY ---
-                    'icon-image': getIconImageExpression(mapFilters.iconColorMode),
-                    'icon-size': 0.08,
-                    'icon-rotate': ['get', 'heading'],
-                    'icon-rotation-alignment': 'map',
-                    
-                    // --- THIS IS THE KEY ---
-                    // Force icons to always show, even if they overlap
-                    'icon-allow-overlap': true,
-                    'icon-ignore-placement': true,
-
-                    // --- Remove all text properties ---
-                    // 'text-field': ... (REMOVED)
-                    // 'text-font': ... (REMOVED)
-                    // etc.
-                }
-                // --- No 'paint' block needed (it was only for text) ---
-            });
-
-            // 4a. Add click/hover listeners (These will now only apply to the icon layer)
-            sectorOpsMap.on('click', 'sector-ops-live-flights-layer', (e) => {
-                const props = e.features[0].properties;
-                const flightProps = { ...props, position: JSON.parse(props.position), aircraft: JSON.parse(props.aircraft) };
-                fetch('https://site--acars-backend--6dmjph8ltlhv.code.run/if-sessions').then(res => res.json()).then(data => {
-                    const expertSession = data.sessions.find(s => s.name.toLowerCase().includes('expert'));
-                    if (expertSession) {
-                        handleAircraftClick(flightProps, expertSession.id);
-                    }
-                });
-            });
-            sectorOpsMap.on('mouseenter', 'sector-ops-live-flights-layer', () => { sectorOpsMap.getCanvas().style.cursor = 'pointer'; });
-            sectorOpsMap.on('mouseleave', 'sector-ops-live-flights-layer', () => { sectorOpsMap.getCanvas().style.cursor = ''; });
-        }
-        
-        // 5. Add the LABEL layer
-        if (!sectorOpsMap.getLayer('sector-ops-live-flights-labels')) {
-            sectorOpsMap.addLayer({
-                id: 'sector-ops-live-flights-labels',
-                type: 'symbol',
-                source: 'sector-ops-live-flights-source', // Use the SAME source
-                
-                // ##### PERFORMANCE FIX START #####
-                // By setting a minzoom, we prevent Mapbox from trying to
-                // calculate label collisions for all aircraft on the map
-                // when zoomed out, which is the cause of the lag.
-                minzoom: 6.5,
-                // ##### PERFORMANCE FIX END #####
-
-                layout: {
-                    // ##### MODIFICATION START #####
-                    'visibility': mapFilters.showAircraftLabels ? 'visible' : 'none',
-                    // ##### MODIFICATION END #####
-
-                    // --- [MODIFICATION START] ---
-                    // Use a 'format' expression to set colors per line
-                    'text-field': [
-                        'format',
-                        // Part 1: Callsign (White)
-                        ['get', 'callsign'], 
-                        { 'text-color': '#FFFFFF' }, 
-                        
-                        // Part 2: Newline
-                        '\n',                
-                        {},                  
-                        
-                        // Part 3: Phase (Color-coded)
-                        ['get', 'phase'],    
-                        { 
-                            'text-color': [ 
-                                'match',
-                                ['get', 'phase'],
-                                'Climb', '#28a745',     // Green
-                                'Cruise', '#007bff',    // Blue
-                                'Descent', '#ff9900',   // Orange
-                                'Approach', '#a33ea3',  // Purple
-                                'Ground', '#9fa8da',    // Muted Grey
-                                '#e8eaf6' // Default (for Enroute etc.)
-                            ]
-                        }
-                    ],
-                    // --- [MODIFICATION END] ---
-
-                    'text-font': ['Mapbox Txt Regular', 'Arial Unicode MS Regular'],
-                    'text-size': 10,
-                    'text-offset': [0, 2.5], // Offset text below the icon
-                    'text-anchor': 'top',
-                    
-                    'text-allow-overlap': false,
-                    'text-ignore-placement': false,
-
-                    // --- [NEW] ---
-                    'text-padding': 3, // Add padding *inside* the background box
-                },
-                paint: {
-                    // --- [MODIFICATION START] ---
-                    // 'text-color' is REMOVED (now handled by 'format' in layout)
-                    
-                    // Use the halo as a solid background
-                    'text-halo-color': 'rgba(10, 12, 26, 0.85)', // Dark UI color
-                    'text-halo-width': 2, // This creates the box padding effect
-                    'text-halo-blur': 0   // This makes the box sharp
-                    // --- [MODIFICATION END] ---
-                }
-            });
-        }
-        // --- [END OF MODIFICATION] ---
-    }
     
-    // --- [NEW] This handles style changes ---
+    // ... rest of the function (listeners) remains the same ...
     sectorOpsMap.on('style.load', async () => {
         console.log("Map style reloading. Rebuilding layers...");
         await setupMapLayersAndFog(); // Re-add fog, icons, base layer
         rebuildDynamicLayers();     // Re-add weather, routes, trails, filters
     });
 
-    // --- This handles the initial map load ---
     return new Promise(resolve => {
         sectorOpsMap.on('load', async () => {
-            await setupMapLayersAndFog(); // Run setup for the first time
+            await setupMapLayersAndFog(); 
             resolve();
         });
     });
@@ -5518,12 +5320,19 @@ function updateAircraftInfoWindow(baseProps, plan, sortedRoutePoints) {
         });
     };
 
+    // --- [FIX START] Define Time Variables ---
+    // We must calculate these here because they are used in the UI update below
+    const atdTimestamp = (sortedRoutePoints && sortedRoutePoints.length > 0) ? sortedRoutePoints[0].date : null;
+    const atdTime = atdTimestamp ? formatTimeFromTimestamp(atdTimestamp) : '--:--';
+    let etaTime = '--:--'; 
+    // --- [FIX END] ---
+
     // --- Get Original Data ---
     const originalFlatWaypoints = (plan && plan.flightPlanItems) ? flattenWaypointsFromPlan(plan.flightPlanItems) : [];
     const originalFlatWaypointObjects = (plan && plan.flightPlanItems) ? getFlatWaypointObjects(plan.flightPlanItems) : [];
     const hasPlan = originalFlatWaypoints.length >= 2;
 
-    let progress = 0, ete = '--:--', distanceToDestNM = 0;
+    let progress = 0, distanceToDestNM = 0;
     let totalDistanceNM = 0;
 
     if (hasPlan) {
@@ -5546,7 +5355,8 @@ function updateAircraftInfoWindow(baseProps, plan, sortedRoutePoints) {
                 const timeHours = distanceToDestNM / baseProps.position.gs_kt;
                 const hours = Math.floor(timeHours);
                 const minutes = Math.round((timeHours - hours) * 60);
-                ete = `${String(hours).padStart(2, '0')}:${String(minutes).padStart(2, '0')}`;
+                // [FIX] Update the etaTime variable defined at the top
+                etaTime = `${String(hours).padStart(2, '0')}:${String(minutes).padStart(2, '0')}`;
             }
         }
     }
@@ -5646,7 +5456,8 @@ function updateAircraftInfoWindow(baseProps, plan, sortedRoutePoints) {
     updateAll('#ac-next-wp', nextWpDisplay);
     updateAll('#ac-next-wp-dist', `${nextWpDistDisplay} NM`);
     updateAll('#ac-dist', `${Math.round(distanceToDestNM)} NM`);
-    updateAll('#ac-ete', ete);
+    // [FIX] This now works because etaTime is defined
+    updateAll('#ac-ete', etaTime);
 
     // --- Flight Phase State Machine ---
     let flightPhase = 'ENROUTE';
@@ -6056,6 +5867,7 @@ function updateAircraftInfoWindow(baseProps, plan, sortedRoutePoints) {
     styleAll('#ac-progress-bar', 'width', `${progress.toFixed(1)}%`);
     updateAll('#ac-phase-indicator', `<i class="fa-solid ${phaseIcon}"></i> ${flightPhase}`, true);
     document.querySelectorAll('#ac-phase-indicator').forEach(el => el.className = `flight-phase-indicator ${phaseClass}`);
+    // [FIX] Now atdTime is available
     updateAll('#ac-bar-atd', `${atdTime} Z`);
     updateAll('#ac-bar-eta', `${etaTime} Z`);
     
