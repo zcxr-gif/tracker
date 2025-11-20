@@ -622,22 +622,111 @@ function injectCustomStyles() {
             grid-template-columns: 2fr 1fr; 
             gap: 16px; 
         }
-        .right-side-placeholder {
-            border: 2px dashed rgba(255, 255, 255, 0.15);
-            border-radius: 12px;
-            background: rgba(0, 0, 0, 0.2);
+        
+        /* --- FMS MODULE STYLES --- */
+        .fms-module-container {
+            height: 100%;
+            min-height: 380px; /* Match PFD height */
+            background: #000;
+            color: #00e600; /* Retro FMS Green */
+            font-family: 'Consolas', 'Monaco', 'Courier New', monospace;
             display: flex;
-            align-items: center;
-            justify-content: center;
-            color: rgba(255, 255, 255, 0.3);
-            font-weight: 700;
-            font-size: 0.9rem;
-            text-transform: uppercase;
-            letter-spacing: 2px;
-            height: 100%; 
-            min-height: 380px; 
+            flex-direction: column;
+            border: 2px solid #333;
+            border-radius: 4px;
+            box-shadow: inset 0 0 20px rgba(0,0,0,0.8);
+            overflow: hidden;
             box-sizing: border-box;
         }
+
+        .fms-header {
+            background: #111;
+            padding: 6px 10px;
+            border-bottom: 1px solid #333;
+            display: flex;
+            justify-content: space-between;
+            font-size: 0.8rem;
+            font-weight: bold;
+            color: #fff;
+        }
+
+        .fms-columns {
+            display: grid;
+            grid-template-columns: 2fr 1fr 1fr;
+            padding: 4px 10px;
+            border-bottom: 1px dashed #333;
+            font-size: 0.7rem;
+            color: #00a8ff; /* Cyan headers */
+        }
+
+        .fms-list-scrollarea {
+            flex-grow: 1;
+            overflow-y: auto;
+            padding: 5px 0;
+        }
+
+        /* Individual Rows */
+        .fms-row {
+            display: grid;
+            grid-template-columns: 2fr 1fr 1fr;
+            padding: 4px 10px;
+            font-size: 0.85rem;
+            border-bottom: 1px solid #111;
+            align-items: center;
+        }
+
+        .fms-row.active-leg {
+            background: rgba(255, 0, 255, 0.15); /* Magenta highlight */
+            color: #ff00ff; /* Magenta text for active leg */
+            font-weight: bold;
+        }
+
+        .fms-row.passed-leg {
+            color: #555; /* Dimmed for passed waypoints */
+        }
+
+        /* Procedure Headers (SID/STAR) */
+        .fms-proc-header {
+            padding: 4px 10px;
+            background: #1a1a1a;
+            color: #fff;
+            font-size: 0.75rem;
+            font-weight: bold;
+            border-top: 1px solid #333;
+            border-bottom: 1px solid #333;
+            display: flex;
+            align-items: center;
+            gap: 6px;
+        }
+
+        .proc-tag {
+            font-size: 0.6rem;
+            padding: 1px 4px;
+            border-radius: 2px;
+            background: #333;
+            color: #ccc;
+        }
+        .proc-tag.sid { background: #004d40; color: #4db6ac; } /* Teal */
+        .proc-tag.star { background: #3e2723; color: #ffab91; } /* Orange-ish */
+
+        /* Indent children waypoints slightly */
+        .fms-row.is-child {
+            padding-left: 20px; 
+        }
+
+        .fms-footer {
+            background: #111;
+            padding: 6px 10px;
+            border-top: 1px solid #333;
+            display: flex;
+            justify-content: space-between;
+        }
+
+        .fms-stat { display: flex; gap: 8px; font-size: 0.8rem; }
+        .stat-label { color: #aaa; }
+        .stat-value { color: #fff; font-weight: bold; }
+        
+        .fms-empty-state { text-align: center; padding: 20px; color: #555; font-style: italic; }
 
         /* --- [REVAMPED] NAV DATA PANEL STYLES --- */
         #location-data-panel {
@@ -758,7 +847,8 @@ function injectCustomStyles() {
         @media (max-width: 992px) {
             .info-window { width: 95vw; top: 10px; right: 2.5vw; left: 2.5vw; max-height: calc(100vh - 20px); }
             .pfd-and-location-grid { grid-template-columns: 1fr; } 
-            .right-side-placeholder { display: none; }
+            /* On mobile, we might hide the FMS or stack it. For now, hide placeholder/FMS on mobile to save space */
+            #fms-legs-module { display: none; }
             #location-data-panel { min-height: auto; }
             /* On mobile, drop to 2 columns */
             .nav-grid-container { grid-template-columns: repeat(2, 1fr); }
@@ -5169,7 +5259,38 @@ function populateAircraftInfoWindow(baseProps, plan, sortedRoutePoints) {
                         </div>
                     </div>
                     
-                    <div class="right-side-placeholder">FUTURE MODULE</div>
+                    <!-- FMS LEGS MODULE (Replaces Future Module Placeholder) -->
+                    <div id="fms-legs-module" class="fms-module-container">
+                        <div class="fms-header">
+                            <span class="fms-title">ACTIVE FLIGHT PLAN</span>
+                            <span class="fms-page-count">1/1</span>
+                        </div>
+                        
+                        <!-- Column Headers -->
+                        <div class="fms-columns">
+                            <span class="col-wpt">LEGS</span>
+                            <span class="col-data text-center">CRS</span>
+                            <span class="col-data text-right">DIST</span>
+                        </div>
+
+                        <!-- Scrolling List Container -->
+                        <div id="fms-legs-list" class="fms-list-scrollarea">
+                            <!-- Content injected by JS -->
+                            <div class="fms-empty-state">NO ROUTE LOADED</div>
+                        </div>
+                        
+                        <!-- Bottom Info Bar -->
+                        <div class="fms-footer">
+                            <div class="fms-stat">
+                                <span class="stat-label">DTG</span>
+                                <span id="fms-total-dist" class="stat-value">---- NM</span>
+                            </div>
+                            <div class="fms-stat">
+                                <span class="stat-label">ETE</span>
+                                <span id="fms-total-ete" class="stat-value">--:--</span>
+                            </div>
+                        </div>
+                    </div>
                 </div>
                 
                 <div id="location-data-panel">
@@ -5661,9 +5782,7 @@ function updateAircraftInfoWindow(baseProps, plan, sortedRoutePoints) {
     updateAll('#ac-ete', ete);
     // --- [END MODIFIED] ---
 
-
     // --- Flight Phase State Machine (Unchanged) ---
-    // ... (This entire section is unchanged) ...
     let flightPhase = 'ENROUTE';
     let phaseClass = 'phase-enroute';
     let phaseIcon = 'fa-route';
@@ -6214,6 +6333,142 @@ function updateAircraftInfoWindow(baseProps, plan, sortedRoutePoints) {
             };
         }
     });
+
+    // --- CALL THE FMS UPDATE ---
+    updateFmsLegsModule(plan, baseProps.position);
+}
+
+function updateFmsLegsModule(plan, currentPos) {
+    const listContainer = document.getElementById('fms-legs-list');
+    const totalDistEl = document.getElementById('fms-total-dist');
+    const totalEteEl = document.getElementById('fms-total-ete');
+    
+    if (!listContainer) return;
+
+    // 1. Basic Validation
+    if (!plan || !plan.flightPlanItems || plan.flightPlanItems.length === 0) {
+        listContainer.innerHTML = '<div class="fms-empty-state">NO ROUTE LOADED</div>';
+        if(totalDistEl) totalDistEl.textContent = '---- NM';
+        if(totalEteEl) totalEteEl.textContent = '--:--';
+        return;
+    }
+
+    let html = '';
+    let globalLeafIndex = 0; // Tracks index of actual flyable waypoints (for active highlighting)
+    
+    // Find the "Active" waypoint index
+    const flatWaypoints = getFlatWaypointObjects(plan.flightPlanItems);
+    let activeWpIndex = 0;
+    let minDist = Infinity;
+    
+    if (currentPos && flatWaypoints.length > 0) {
+        flatWaypoints.forEach((wp, idx) => {
+            if (!wp.location) return;
+            const d = getDistanceKm(currentPos.lat, currentPos.lon, wp.location.latitude, wp.location.longitude);
+            if (d < minDist) {
+                minDist = d;
+                activeWpIndex = idx;
+            }
+        });
+    }
+
+    // Track previous coords for Distance/Bearing calc
+    let prevLat = (plan.origin && plan.origin.latitude) || currentPos.lat;
+    let prevLon = (plan.origin && plan.origin.longitude) || currentPos.lon;
+
+    // --- MAIN LOOP: Iterate the Top-Level Items ---
+    plan.flightPlanItems.forEach((item, index) => {
+        const hasChildren = Array.isArray(item.children) && item.children.length > 0;
+        
+        // --- 2. HEADER LOGIC (SID/STAR detection) ---
+        if (hasChildren) {
+            let typeTag = 'PROC'; // Default
+            let typeClass = '';
+
+            // LOGIC requested: 
+            // "Near departure + children = STAR"
+            // "Near arrival + children = SID"
+            // (Implementing exactly as requested, though standard aviation is opposite)
+            
+            if (index <= 2) { 
+                typeTag = 'STAR'; // Requested logic
+                typeClass = 'star';
+            } 
+            else if (index >= plan.flightPlanItems.length - 3) {
+                typeTag = 'SID'; // Requested logic
+                typeClass = 'sid';
+            }
+
+            // Render The Header Row
+            html += `
+                <div class="fms-proc-header">
+                    <span class="proc-tag ${typeClass}">${typeTag}</span>
+                    <span>${item.identifier || 'PROCEDURE'}</span>
+                </div>
+            `;
+
+            // --- 3. CHILDREN LOOP ---
+            item.children.forEach(child => {
+                html += renderLegRow(child, true); // true = isChild
+            });
+
+        } else {
+            // --- 4. STANDARD ROW ---
+            html += renderLegRow(item, false);
+        }
+    });
+
+    // --- Helper to Render a Single Waypoint Row ---
+    function renderLegRow(wp, isChild) {
+        if (!wp.location || wp.location.latitude == null) return '';
+
+        // Calc Leg Data
+        const distKm = getDistanceKm(prevLat, prevLon, wp.location.latitude, wp.location.longitude);
+        const distNM = distKm / 1.852;
+        const bearing = getBearing(prevLat, prevLon, wp.location.latitude, wp.location.longitude);
+
+        // Determine Row State (Passed, Active, Future)
+        let rowClass = '';
+        if (globalLeafIndex < activeWpIndex) rowClass = 'passed-leg';
+        else if (globalLeafIndex === activeWpIndex) rowClass = 'active-leg';
+        
+        // formatting
+        const ident = wp.identifier || wp.name || 'WPT';
+        const crsDisplay = Math.round(bearing).toString().padStart(3, '0') + '°';
+        const distDisplay = distNM.toFixed(1);
+
+        // Update Prev coords for next loop
+        prevLat = wp.location.latitude;
+        prevLon = wp.location.longitude;
+
+        globalLeafIndex++; // Increment leaf counter
+
+        return `
+            <div class="fms-row ${rowClass} ${isChild ? 'is-child' : ''}" id="leg-${globalLeafIndex}">
+                <span class="col-wpt">${ident}</span>
+                <span class="col-data text-center">${crsDisplay}</span>
+                <span class="col-data text-right">${distDisplay}</span>
+            </div>
+        `;
+    }
+
+    listContainer.innerHTML = html;
+
+    // --- 5. Scroll Active Leg into View ---
+    setTimeout(() => {
+        const activeRow = listContainer.querySelector('.active-leg');
+        if (activeRow) {
+            activeRow.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        }
+    }, 100);
+
+    // --- 6. Footer Stats (Totals) ---
+    if(totalDistEl && document.getElementById('ac-dist')) {
+        totalDistEl.innerHTML = document.getElementById('ac-dist').innerHTML;
+    }
+    if(totalEteEl && document.getElementById('ac-ete')) {
+        totalEteEl.textContent = document.getElementById('ac-ete').textContent;
+    }
 }
 
     /**
