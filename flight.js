@@ -6454,23 +6454,21 @@ function updateFmsLegsModule(plan, currentPos) {
             let typeClass = '';
             const ident = (item.identifier || item.name || '').toUpperCase();
             
-            // A. SID Logic (Usually the first procedure in the list)
+            // A. SID Logic (Start of plan)
             if (index <= 1) { 
                 typeTag = 'SID'; 
                 typeClass = 'sid';
             } 
-            // B. Check for Approach or STAR (Everything else with children)
+            // B. Approach Logic (Pattern match or explicit type)
             else {
                 // Regex: Starts with exactly 1 Letter [A-Z], followed by 2 digits \d{2}, 
                 // optionally followed by L, R, or C.
-                // Examples: I27L, R09, D18C, V36
                 const isApproachPattern = /^[A-Z]\d{2}[LRC]?$/.test(ident);
 
                 if (isApproachPattern) {
                     typeTag = 'APPR';
                     typeClass = 'appr';
                 } else {
-                    // If it has children but doesn't match the runway pattern, it's likely a STAR
                     typeTag = 'STAR'; 
                     typeClass = 'star';
                 }
@@ -6484,19 +6482,20 @@ function updateFmsLegsModule(plan, currentPos) {
                 </div>
             `;
 
-            // --- 3. CHILDREN LOOP ---
-            item.children.forEach(child => {
-                html += renderLegRow(child, true); // true = isChild
+            // --- 3. CHILDREN LOOP (With isLast detection) ---
+            item.children.forEach((child, cIdx) => {
+                const isLast = cIdx === item.children.length - 1;
+                html += renderLegRow(child, true, isLast); 
             });
 
         } else {
             // --- 4. STANDARD ROW ---
-            html += renderLegRow(item, false);
+            html += renderLegRow(item, false, false);
         }
     });
 
     // --- Helper to Render a Single Waypoint Row ---
-    function renderLegRow(wp, isChild) {
+    function renderLegRow(wp, isChild, isLastChild) {
         if (!wp.location || wp.location.latitude == null) return '';
 
         // Calc Leg Data
@@ -6518,9 +6517,12 @@ function updateFmsLegsModule(plan, currentPos) {
         prevLon = wp.location.longitude;
 
         globalLeafIndex++;
+        
+        // --- NEW: Add is-last-child class if applicable ---
+        const childClasses = isChild ? `is-child ${isLastChild ? 'is-last-child' : ''}` : '';
 
         return `
-            <div class="fms-row ${rowClass} ${isChild ? 'is-child' : ''}" id="leg-${globalLeafIndex}">
+            <div class="fms-row ${rowClass} ${childClasses}" id="leg-${globalLeafIndex}">
                 <span class="col-wpt">${ident}</span>
                 <span class="col-data text-center">${crsDisplay}</span>
                 <span class="col-data text-right">${distDisplay}</span>
