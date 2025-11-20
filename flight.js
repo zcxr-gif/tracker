@@ -618,17 +618,9 @@ function injectCustomStyles() {
 
         /* --- PFD/ND Layout --- */
         .pfd-and-location-grid { 
-            display: flex; 
-            flex-direction: column;
+            display: grid; 
+            grid-template-columns: 2fr 1fr; 
             gap: 16px; 
-        }
-        
-        /* --- [NEW] Side-by-side wrapper for ND and FMS --- */
-        .nd-fms-wrapper {
-            display: grid;
-            grid-template-columns: 1fr 1fr;
-            gap: 16px;
-            width: 100%;
         }
         
         /* --- FMS MODULE STYLES --- */
@@ -830,8 +822,7 @@ function injectCustomStyles() {
         /* Mobile Responsive */
         @media (max-width: 992px) {
             .info-window { width: 95vw; top: 10px; right: 2.5vw; left: 2.5vw; max-height: calc(100vh - 20px); }
-            .pfd-and-location-grid { flex-direction: column; }
-            .nd-fms-wrapper { grid-template-columns: 1fr; }
+            .pfd-and-location-grid { grid-template-columns: 1fr; } 
             #fms-legs-module { display: none; }
             #location-data-panel { min-height: auto; }
             .nav-grid-container { grid-template-columns: repeat(2, 1fr); }
@@ -5360,37 +5351,35 @@ function populateAircraftInfoWindow(baseProps, plan, sortedRoutePoints) {
                             </div>
                         </div>
                         
-                        <div class="nd-fms-wrapper">
-                            <div id="nd-container">
-                                <iframe id="nav-display-frame" src="nav.html" scrolling="no"></iframe>
-                            </div>
-                            
-                            <div id="fms-legs-module" class="fms-module-container">
-                                <div class="fms-header">
-                                    <span class="fms-title">ACTIVE FLIGHT PLAN</span>
-                                    <span class="fms-page-count">1/1</span>
-                                </div>
-                                
-                                <div class="fms-columns">
-                                    <span class="col-wpt">LEGS</span>
-                                    <span class="col-data text-center">CRS</span>
-                                    <span class="col-data text-right">DIST</span>
-                                </div>
+                        <div id="nd-container">
+                            <iframe id="nav-display-frame" src="nav.html" scrolling="no"></iframe>
+                        </div>
+                    </div>
+                    
+                    <div id="fms-legs-module" class="fms-module-container">
+                        <div class="fms-header">
+                            <span class="fms-title">ACTIVE FLIGHT PLAN</span>
+                            <span class="fms-page-count">1/1</span>
+                        </div>
+                        
+                        <div class="fms-columns">
+                            <span class="col-wpt">LEGS</span>
+                            <span class="col-data text-center">CRS</span>
+                            <span class="col-data text-right">DIST</span>
+                        </div>
 
-                                <div id="fms-legs-list" class="fms-list-scrollarea">
-                                    <div class="fms-empty-state">NO ROUTE LOADED</div>
-                                </div>
-                                
-                                <div class="fms-footer">
-                                    <div class="fms-stat">
-                                        <span class="stat-label">DTG</span>
-                                        <span id="fms-total-dist" class="stat-value">---- NM</span>
-                                    </div>
-                                    <div class="fms-stat">
-                                        <span class="stat-label">ETE</span>
-                                        <span id="fms-total-ete" class="stat-value">--:--</span>
-                                    </div>
-                                </div>
+                        <div id="fms-legs-list" class="fms-list-scrollarea">
+                            <div class="fms-empty-state">NO ROUTE LOADED</div>
+                        </div>
+                        
+                        <div class="fms-footer">
+                            <div class="fms-stat">
+                                <span class="stat-label">DTG</span>
+                                <span id="fms-total-dist" class="stat-value">---- NM</span>
+                            </div>
+                            <div class="fms-stat">
+                                <span class="stat-label">ETE</span>
+                                <span id="fms-total-ete" class="stat-value">--:--</span>
                             </div>
                         </div>
                     </div>
