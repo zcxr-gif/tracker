@@ -9,7 +9,7 @@
         @import url('https://fonts.googleapis.com/css2?family=Inconsolata:wght@400;700&display=swap');
         
         :root {
-            --bg-body: transparent; /* Transparent for iframe usage */
+            --bg-body: transparent;
             --bg-panel: #111827;   /* gray-900 */
             --bg-bezel: #1f2937;   /* gray-800 */
             --border-main: #374151; /* gray-700 */
@@ -39,12 +39,11 @@
             color: var(--text-main);
             height: 100vh;
             width: 100vw;
-            overflow: hidden; /* No scrollbars */
+            overflow: hidden;
             display: flex;
             flex-direction: column;
             align-items: center;
             justify-content: center;
-            padding: 0; /* Remove padding to fill iframe completely */
         }
 
         /* --- Layout Components --- */
@@ -54,30 +53,21 @@
             align-items: center;
             width: 100%;
             height: 100%;
-            position: relative; /* Needed for absolute positioning of overlay */
         }
 
         /* --- Display Unit (The Monitor Bezel) --- */
         .display-bezel {
             position: relative;
             background-color: var(--bg-bezel);
-            
-            /* Matched Padding to PFD (approx 12px) */
             padding: 12px; 
-            
             border-radius: 1rem;
             border: 4px solid var(--border-main);
-            
-            /* Matched Shadow */
             box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.5); 
-            
-            /* --- RESPONSIVE SIZING --- */
-            /* Use 100% so it fills the parent container defined in flight.js */
             width: 100%;
             height: 100%;
-            
             display: flex;
             flex-direction: column;
+            transition: all 0.3s ease;
         }
 
         /* Decorative Screws */
@@ -88,7 +78,7 @@
             background-color: var(--screw-color);
             border-radius: 50%;
             box-shadow: inset 1px 1px 2px rgba(0,0,0,0.5);
-            z-index: 20; /* Ensure above CRT */
+            z-index: 20;
         }
         .screw.tl { top: 0.35rem; left: 0.35rem; }
         .screw.tr { top: 0.35rem; right: 0.35rem; }
@@ -113,7 +103,6 @@
             height: 100%;
         }
 
-        /* Scanline Overlay */
         .scanlines::before {
             content: " ";
             display: block;
@@ -126,7 +115,7 @@
             pointer-events: none;
         }
 
-        /* --- Control Panel (Standard Mode) --- */
+        /* --- Control Panel (Default / Standalone) --- */
         .control-panel {
             width: 300px;
             background-color: var(--bg-panel);
@@ -138,13 +127,13 @@
             flex-direction: column; 
             gap: 1rem;
             margin-top: 1rem;
-            transition: all 0.3s ease;
         }
 
         .control-group {
             display: flex;
             flex-direction: column;
             gap: 0.25rem;
+            width: 100%;
         }
 
         .label-text {
@@ -169,7 +158,6 @@
         .value-display.green { color: var(--accent-green); }
         .value-display.cyan { color: var(--accent-cyan); }
 
-        /* --- Buttons --- */
         .button-group {
             display: grid;
             grid-template-columns: repeat(3, 1fr);
@@ -198,7 +186,7 @@
             padding: 0.25rem 0.5rem;
             border-radius: 0.25rem;
             color: var(--text-dim);
-            transition: color 0.2s;
+            transition: all 0.2s;
             text-align: center;
         }
 
@@ -222,88 +210,111 @@
         input[type=range]::-webkit-slider-thumb { -webkit-appearance: none; height: 14px; width: 14px; border-radius: 50%; background: var(--accent-green); margin-top: -5px; cursor: pointer; box-shadow: 0 0 5px rgba(74, 222, 128, 0.5); }
         input[type=range]::-webkit-slider-runnable-track { width: 100%; height: 4px; cursor: pointer; background: #4b5563; border-radius: 2px; }
 
-        /* ========================================= */
-        /* === STYLES FOR EMBEDDED MODE (FLIGHT.JS) === */
-        /* ========================================= */
+        /* ================================================= */
+        /* === TRANSFORMED LAYOUT FOR EMBEDDED MODE === */
+        /* ================================================= */
         
-        /* When running in flight.js (iframe), we must:
-           1. Overlay the controls on top of the screen (since iframe height is fixed).
-           2. Hide the manual inputs (Heading/Speed) as they are data-driven.
-           3. Style the buttons to fit horizontally at the bottom.
-        */
-
-        body.embedded .footer-text {
-            display: none !important;
+        /* When embedded, we split the view: Map on top, Buttons on bottom */
+        
+        body.embedded .cockpit-container {
+            /* Ensure container fills height */
+            height: 100%; 
+            justify-content: flex-start;
         }
-        
+
         body.embedded .display-bezel {
-            margin: 0; /* Remove margins to fill iframe */
+            /* The map takes all available remaining space */
+            flex: 1;
+            min-height: 0; /* Important for flex shrinking */
+            width: 100%;
+            border-radius: 0; /* Flush edges */
+            border: none;     /* Remove thick border to maximize space */
+            border-bottom: 1px solid #000;
+            padding: 0;       /* Remove padding to maximize CRT size */
         }
+        
+        body.embedded .crt-container {
+            border-radius: 0;
+            border: none;
+        }
+        
+        /* Hide screws in embedded mode to save space */
+        body.embedded .screw { display: none; }
 
-        /* Transform the panel into an Overlay */
+        /* The Control Panel becomes the bottom bar */
         body.embedded .control-panel {
-            display: flex !important; /* Override any hiding */
-            position: absolute;
-            bottom: 20px; /* Sit just above the bottom screw */
-            left: 50%;
-            transform: translateX(-50%);
-            
-            width: 92%;
-            background: rgba(17, 24, 39, 0.85); /* Dark semi-transparent */
-            backdrop-filter: blur(4px);
-            border: 1px solid rgba(255,255,255,0.1);
-            padding: 6px 10px;
+            display: flex !important; /* Unhide it */
+            width: 100%;
+            height: auto; /* Let it grow based on buttons */
             margin: 0;
+            border-radius: 0;
+            box-shadow: none;
+            border: none;
+            border-top: 2px solid var(--border-main);
+            background: #111; /* Darker background for contrast */
             
-            flex-direction: row; /* Horizontal layout */
-            justify-content: space-between;
-            align-items: center;
+            /* Grid Layout for controls */
+            display: grid !important;
+            grid-template-columns: 1fr 2.5fr; /* Mode (left) vs Range (right) */
             gap: 8px;
-            z-index: 100; /* Sit above canvas */
+            padding: 12px;
         }
 
-        /* HIDE manual sliders in embedded mode */
+        /* Hide Labels & Manual Controls */
+        body.embedded .label-text,
+        body.embedded .footer-text,
         body.embedded #manual-controls-hdg,
         body.embedded #manual-controls-spd {
-            display: none;
+            display: none !important;
         }
 
-        /* Adjust button containers for horizontal fit */
+        /* Bigger Buttons Styling */
         body.embedded .control-group {
-            width: auto;
-            flex-grow: 1;
-            gap: 0;
+            gap: 0; /* Remove gap between label (hidden) and buttons */
+            height: 100%;
         }
         
-        /* Hide labels to save space */
-        body.embedded .label-text {
-            display: none;
-        }
-
-        /* Make Range buttons a single horizontal row */
+        body.embedded .mode-group,
         body.embedded .button-group {
-            grid-template-columns: repeat(6, 1fr);
-            gap: 2px;
+            height: 100%;
             background: transparent;
             padding: 0;
+            gap: 4px;
         }
         
-        /* Make Mode buttons horizontal */
         body.embedded .mode-group {
-            background: transparent;
-            padding: 0;
-            gap: 2px;
+            flex-direction: column; /* Stack ROSE/ARC vertically? Or horizontal? Let's do vertical for big targets */
         }
 
-        /* Make buttons smaller/denser */
-        body.embedded .range-btn {
-            font-size: 0.65rem;
-            padding: 4px 2px;
-            border: 1px solid rgba(255,255,255,0.1);
-            background: rgba(0,0,0,0.3);
+        /* Range buttons: 2 rows of 3 */
+        body.embedded .button-group {
+            grid-template-columns: repeat(3, 1fr);
+            grid-template-rows: repeat(2, 1fr);
         }
+
+        body.embedded .range-btn {
+            background: #1f2937;
+            border: 1px solid #374151;
+            color: #9ca3af;
+            font-size: 0.9rem; /* Much bigger font */
+            font-weight: 700;
+            border-radius: 6px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            min-height: 36px; /* Taller touch target */
+        }
+
+        body.embedded .range-btn:hover {
+            background: #374151;
+            color: #fff;
+        }
+
         body.embedded .btn-active {
+            background: var(--accent-green) !important;
+            color: #000 !important;
             border-color: var(--accent-green);
+            box-shadow: 0 0 10px rgba(74, 222, 128, 0.3);
         }
 
     </style>
@@ -325,7 +336,7 @@
         <div class="control-panel">
             
             <div class="control-group">
-                <label class="label-text">ND Mode</label>
+                <label class="label-text">Mode</label>
                 <div class="mode-group">
                     <button onclick="setMode('ROSE')" class="range-btn btn-inactive" id="mode-ROSE">ROSE</button>
                     <button onclick="setMode('ARC')" class="range-btn btn-active" id="mode-ARC">ARC</button>
@@ -333,15 +344,14 @@
             </div>
 
             <div class="control-group" id="manual-controls-hdg">
-                <label class="label-text">Heading (HDG)</label>
+                <label class="label-text">Heading</label>
                 <div class="input-row">
                     <span class="value-display green" id="hdgVal">270°</span>
                     <input type="range" id="hdgInput" min="0" max="359" value="270">
                 </div>
             </div>
-
             <div class="control-group" id="manual-controls-spd">
-                <label class="label-text">Speed (TAS)</label>
+                <label class="label-text">Speed</label>
                 <div class="input-row">
                     <span class="value-display cyan" id="tasVal">0</span>
                     <input type="range" id="tasInput" min="0" max="450" value="0">
@@ -349,7 +359,7 @@
             </div>
 
             <div class="control-group">
-                <label class="label-text">Range (NM)</label>
+                <label class="label-text">Range</label>
                 <div class="button-group">
                     <button onclick="setRange(10)" class="range-btn btn-inactive" id="btn-10">10</button>
                     <button onclick="setRange(20)" class="range-btn btn-inactive" id="btn-20">20</button>
@@ -370,7 +380,8 @@
         const canvas = document.getElementById('ndCanvas');
         const ctx = canvas.getContext('2d');
         
-        const GLOBAL_SCALE = 0.85; 
+        // Use slightly smaller scale for embedded mode to fit better
+        const GLOBAL_SCALE = window.self !== window.top ? 0.95 : 0.85; 
 
         let state = {
             mode: 'ARC',
@@ -454,17 +465,14 @@
 
             let arcCenterY, arcCenterX, arcRadius;
 
-            // --- UPDATED LOGIC ---
             if (isRoseMode) {
                 arcCenterX = 0;
                 arcCenterY = 0; 
                 arcRadius = Math.min(scaledW, scaledH) * 0.42; 
             } else {
                 arcCenterX = 0;
-                // Keep plane pushed up (-85) as requested
+                // Adjusted for the new frameless layout
                 arcCenterY = (scaledH / 2) - 85; 
-                
-                // Increased radius to 0.70 (was 0.60)
                 arcRadius = Math.min(scaledW, scaledH) * 0.70; 
             }
 
@@ -473,16 +481,14 @@
             ctx.translate(arcCenterX, arcCenterY);
             ctx.rotate(-state.heading * Math.PI / 180);
             
-            drawCompassRose(arcRadius, isRoseMode); // Now only draws ticks/labels
+            drawCompassRose(arcRadius, isRoseMode); 
             drawFlightPlan(arcRadius);
             drawTraffic(arcRadius);
             
             ctx.restore();
 
-            // Static Overlays (Fixed on screen)
-            // Draw the white boundary line separately so it doesn't rotate
+            // Static Overlays
             drawCompassArcBoundary(arcCenterX, arcCenterY, arcRadius, isRoseMode);
-            
             drawRangeRings(arcCenterX, arcCenterY, arcRadius, isRoseMode);
             drawAircraftSymbol(arcCenterX, arcCenterY);
             drawHeadingPointers(arcCenterX, arcCenterY, arcRadius);
@@ -500,12 +506,10 @@
 
             ctx.save(); 
             
-            // Clip to compass area
             ctx.beginPath();
             ctx.arc(0, 0, clipRadius, 0, 2 * Math.PI);
             ctx.clip();
 
-            // Draw connecting lines
             ctx.strokeStyle = COLORS.green;
             ctx.lineWidth = 3;
             ctx.lineJoin = 'round';
@@ -523,7 +527,6 @@
             });
             ctx.stroke();
 
-            // Draw Waypoints
             state.flightPlan.forEach(wpt => {
                 const px = wpt.x * pxPerNM;
                 const py = -wpt.y * pxPerNM; 
@@ -531,7 +534,6 @@
                 const dist = Math.sqrt(wpt.x*wpt.x + wpt.y*wpt.y);
                 if (dist > state.range + 80) return; 
 
-                // Draw Hollow Diamond (Green Line, Empty Inside)
                 const dSize = 5;
                 ctx.lineWidth = 2;
                 ctx.strokeStyle = COLORS.green;
@@ -544,28 +546,23 @@
                 ctx.closePath();
                 ctx.stroke(); 
                 
-                // Draw Text (Un-rotated, Smaller, Green)
                 ctx.fillStyle = COLORS.green; 
                 const fontSize = radius * 0.055;
                 ctx.font = `bold ${fontSize}px 'Inconsolata'`;
                 
                 ctx.save();
                 ctx.translate(px, py);
-                // Rotate opposite to the map heading so text stays upright
                 ctx.rotate(state.heading * Math.PI / 180);
                 ctx.textAlign = "left"; 
-                ctx.textBaseline = "middle"; // Ensure vertical centering base
+                ctx.textBaseline = "middle"; 
 
-                const textOffset = 15; // Offset to the right of the diamond
+                const textOffset = 15; 
                 
                 if (wpt.alt) {
-                    // If altitude exists, stack them.
-                    // We shift the name up by half a line, and altitude down by half a line
                     const halfLine = fontSize * 0.6; 
                     ctx.fillText(wpt.name, textOffset, -halfLine); 
                     ctx.fillText(wpt.alt, textOffset, halfLine);
                 } else {
-                    // Centered if no altitude
                     ctx.fillText(wpt.name, textOffset, 0); 
                 }
                 
@@ -587,14 +584,10 @@
             ctx.lineWidth = 2; 
             ctx.font = `bold ${outerRadius * 0.09}px 'Inconsolata', monospace`;
 
-            // Removed the full circle stroke from here to prevent spinning arc effect in ARC mode.
-            // It is now handled by drawCompassArcBoundary()
-
             for (let d = 0; d < 360; d += 5) {
                 if (!isRoseMode) {
                     let rel = Math.abs(d - state.heading);
                     if (rel > 180) rel = 360 - rel;
-                    // Ticks visibility window
                     if (rel > 110) continue; 
                 }
 
@@ -639,14 +632,8 @@
             ctx.beginPath();
 
             if (isRoseMode) {
-                // Full circle for Rose
                 ctx.arc(cx, cy, innerRadius, 0, 2 * Math.PI);
             } else {
-                // Fixed Arc Segment for ARC mode
-                // Spanning approx +/- 55 degrees from top (1.5 PI)
-                // 1.5 PI = 4.71 rad. 
-                // Start = 4.71 - 0.95 = 3.76
-                // End = 4.71 + 0.95 = 5.66
                 ctx.arc(cx, cy, innerRadius, Math.PI * 1.2, Math.PI * 1.8);
             }
             ctx.stroke();
@@ -662,13 +649,10 @@
                 ctx.arc(cx, cy, radius * 0.5, 0, Math.PI * 2);
                 ctx.stroke();
             } else {
-                // Matches the arc boundary span roughly
                 ctx.beginPath();
                 ctx.arc(cx, cy, radius * 0.5, Math.PI * 1.2, Math.PI * 1.8);
                 ctx.stroke();
                 
-                // Don't draw the 0.75 ring in ARC mode if radius is small, 
-                // or keep it if you prefer density. I'll keep it but clamp angles.
                 ctx.beginPath();
                 ctx.arc(cx, cy, radius * 0.75, Math.PI * 1.25, Math.PI * 1.75); 
                 ctx.stroke();
@@ -695,11 +679,8 @@
             ctx.lineWidth = 3;
             ctx.beginPath();
             
-            // Check mode to determine scale
-            // IF ARC: Scale is 2.3 (Bigger plane).
             const scale = (state.mode === 'ARC') ? 2.3 : 1.0;
 
-            // Apply scale to dimensions
             const size = 15 * scale;
             const tailOffset = 12 * scale;
             const tailWidth = 6 * scale;
@@ -784,7 +765,6 @@
         }
 
         function drawOverlays(w, h) {
-            // Reduced from 0.06 to 0.045 to size down the letters
             const fontSize = h * 0.045; 
             ctx.font = `bold ${fontSize}px 'Inconsolata', monospace`;
             
@@ -823,7 +803,7 @@
                     ctx.strokeStyle = COLORS.green;
                     ctx.lineWidth = 2;
                     
-                    const halfLine = 10; // You can scale this if you want the arrow smaller too: 10 * (fontSize/oldSize)
+                    const halfLine = 10; 
                     const headSize = 5;
                     
                     ctx.beginPath();
@@ -837,7 +817,6 @@
             // --- RIGHT SIDE (Waypoint Info) ---
             ctx.textAlign = "right";
             
-            // Check if we have a valid next waypoint (not default PPOS)
             const hasNextWp = (state.nextWp && state.nextWp !== "PPOS");
 
             // 1. Top Line: Waypoint Name (Green)
@@ -845,13 +824,11 @@
             ctx.fillText(state.nextWp, rightM, topM);
             
             // 2. Middle Line: ETE (White)
-            // Shows ETE to waypoint if active, otherwise shows System Time
             ctx.fillStyle = COLORS.white;
             const middleText = hasNextWp ? state.nextWpEte : state.time;
             ctx.fillText(middleText, rightM, topM + lineSpacing);
 
             // 3. Bottom Line: Distance (Cyan)
-            // Shows Dist to waypoint if active, otherwise shows Map Range
             ctx.fillStyle = COLORS.cyan; 
             const bottomText = hasNextWp ? state.nextWpDist : state.range;
             ctx.fillText(bottomText + " NM", rightM, topM + lineSpacing * 2); 
@@ -932,7 +909,6 @@
             if (data.windDir !== undefined) state.windDir = data.windDir;
             if (data.windSpd !== undefined) state.windSpd = data.windSpd;
             
-            // --- NEW DATA HANDLERS ---
             if (data.nextWp !== undefined) state.nextWp = data.nextWp;
             if (data.nextWpDist !== undefined) state.nextWpDist = data.nextWpDist;
             if (data.nextWpEte !== undefined) state.nextWpEte = data.nextWpEte;
