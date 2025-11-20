@@ -522,7 +522,7 @@ function injectCustomStyles() {
     if (document.getElementById(styleId)) return;
 
     const css = `
-        /* --- [FIX] Sector Ops View Layout --- */
+        /* --- Sector Ops View Layout --- */
         #view-rosters.active {
             position: absolute;
             inset: 0;
@@ -623,14 +623,12 @@ function injectCustomStyles() {
             gap: 16px; 
         }
         
-        /* --- FMS MODULE STYLES (FIXED HEIGHT) --- */
+        /* --- FMS MODULE STYLES --- */
         .fms-module-container {
-            /* [FIX] Fixed height to match PFD, preventing expansion */
             height: 380px; 
             max-height: 380px;
-            
             background: #000;
-            color: #00e600; /* Retro FMS Green */
+            color: #00e600; 
             font-family: 'Consolas', 'Monaco', 'Courier New', monospace;
             display: flex;
             flex-direction: column;
@@ -638,10 +636,8 @@ function injectCustomStyles() {
             border-radius: 4px;
             box-shadow: inset 0 0 20px rgba(0,0,0,0.8);
             box-sizing: border-box;
-            /* No overflow here, the scrollarea handles it */
             overflow: hidden; 
         }
-
         .fms-header {
             background: #111;
             padding: 6px 10px;
@@ -651,47 +647,28 @@ function injectCustomStyles() {
             font-size: 0.8rem;
             font-weight: bold;
             color: #fff;
-            flex-shrink: 0; /* Prevent header from shrinking */
+            flex-shrink: 0;
         }
-
         .fms-columns {
             display: grid;
             grid-template-columns: 2fr 1fr 1fr;
             padding: 4px 10px;
             border-bottom: 1px dashed #333;
             font-size: 0.7rem;
-            color: #00a8ff; /* Cyan headers */
-            flex-shrink: 0; /* Prevent header from shrinking */
+            color: #00a8ff;
+            flex-shrink: 0;
         }
-
-        /* --- [FIX] SCROLL AREA WITH CUSTOM SCROLLBAR --- */
         .fms-list-scrollarea {
             flex-grow: 1;
             overflow-y: auto;
             padding: 5px 0;
-            
-            /* Firefox Scrollbar */
             scrollbar-width: thin;
             scrollbar-color: #333 #000;
         }
-
-        /* Webkit (Chrome/Safari/Edge) Custom Scrollbar */
-        .fms-list-scrollarea::-webkit-scrollbar {
-            width: 6px;
-        }
-        .fms-list-scrollarea::-webkit-scrollbar-track {
-            background: #000;
-        }
-        .fms-list-scrollarea::-webkit-scrollbar-thumb {
-            background-color: #333;
-            border-radius: 3px;
-            border: 1px solid #111;
-        }
-        .fms-list-scrollarea::-webkit-scrollbar-thumb:hover {
-            background-color: #555;
-        }
-
-        /* Individual Rows */
+        .fms-list-scrollarea::-webkit-scrollbar { width: 6px; }
+        .fms-list-scrollarea::-webkit-scrollbar-track { background: #000; }
+        .fms-list-scrollarea::-webkit-scrollbar-thumb { background-color: #333; border-radius: 3px; border: 1px solid #111; }
+        .fms-list-scrollarea::-webkit-scrollbar-thumb:hover { background-color: #555; }
         .fms-row {
             display: grid;
             grid-template-columns: 2fr 1fr 1fr;
@@ -700,18 +677,12 @@ function injectCustomStyles() {
             border-bottom: 1px solid #111;
             align-items: center;
         }
-
         .fms-row.active-leg {
-            background: rgba(255, 0, 255, 0.15); /* Magenta highlight */
-            color: #ff00ff; /* Magenta text for active leg */
+            background: rgba(255, 0, 255, 0.15);
+            color: #ff00ff;
             font-weight: bold;
         }
-
-        .fms-row.passed-leg {
-            color: #555; /* Dimmed for passed waypoints */
-        }
-
-        /* Procedure Headers (SID/STAR) */
+        .fms-row.passed-leg { color: #555; }
         .fms-proc-header {
             padding: 4px 10px;
             background: #1a1a1a;
@@ -724,7 +695,6 @@ function injectCustomStyles() {
             align-items: center;
             gap: 6px;
         }
-
         .proc-tag {
             font-size: 0.6rem;
             padding: 1px 4px;
@@ -732,33 +702,25 @@ function injectCustomStyles() {
             background: #333;
             color: #ccc;
         }
-        .proc-tag.sid { background: #004d40; color: #4db6ac; } /* Teal */
-        .proc-tag.star { background: #3e2723; color: #ffab91; } /* Orange-ish */
-
-        /* Indent children waypoints slightly */
-        .fms-row.is-child {
-            padding-left: 20px; 
-        }
-
+        .proc-tag.sid { background: #004d40; color: #4db6ac; }
+        .proc-tag.star { background: #3e2723; color: #ffab91; }
+        .fms-row.is-child { padding-left: 20px; }
         .fms-footer {
             background: #111;
             padding: 6px 10px;
             border-top: 1px solid #333;
             display: flex;
             justify-content: space-between;
-            flex-shrink: 0; /* Prevent footer from shrinking */
+            flex-shrink: 0;
         }
-
         .fms-stat { display: flex; gap: 8px; font-size: 0.8rem; }
         .stat-label { color: #aaa; }
         .stat-value { color: #fff; font-weight: bold; }
-        
         .fms-empty-state { text-align: center; padding: 20px; color: #555; font-style: italic; }
 
-        /* ... (Rest of your styles for Nav Data Panel, Aircraft Overview, etc. remain unchanged) ... */
-        /* --- [REVAMPED] NAV DATA PANEL STYLES --- */
+        /* --- NAV DATA PANEL STYLES --- */
         #location-data-panel {
-            background: #0f1115; /* Deep matte black */
+            background: #0f1115;
             border-radius: 8px;
             border: 1px solid #333;
             box-shadow: 0 4px 20px rgba(0,0,0,0.5);
@@ -768,7 +730,6 @@ function injectCustomStyles() {
             flex-direction: column;
             overflow: hidden;
         }
-
         .nav-header {
             background: #181b21;
             padding: 8px 12px;
@@ -795,16 +756,12 @@ function injectCustomStyles() {
             animation: navPulse 2s infinite;
         }
         @keyframes navPulse { 0% { opacity: 1; } 50% { opacity: 0.4; } 100% { opacity: 1; } }
-
-        /* The Grid */
         .nav-grid-container {
             padding: 10px;
             display: grid;
-            grid-template-columns: repeat(4, 1fr); /* Strictly 4 columns */
+            grid-template-columns: repeat(4, 1fr);
             gap: 8px;
         }
-
-        /* Individual Cells */
         .nav-cell {
             background: rgba(255, 255, 255, 0.03);
             border-radius: 4px;
@@ -820,15 +777,11 @@ function injectCustomStyles() {
             background: rgba(255, 255, 255, 0.06);
             border-color: rgba(255, 255, 255, 0.1);
         }
-        
-        /* Spanning Utilities */
         .nav-span-2 { grid-column: span 2; }
         .nav-span-4 { grid-column: span 4; }
-
-        /* Typography */
         .nav-label {
             font-size: 0.6rem;
-            color: #00a8ff; /* Cyan for labels */
+            color: #00a8ff;
             text-transform: uppercase;
             margin-bottom: 2px;
             font-weight: 600;
@@ -838,7 +791,6 @@ function injectCustomStyles() {
             gap: 6px;
         }
         .nav-label i { opacity: 0.7; font-size: 0.7rem; }
-        
         .nav-value {
             font-family: 'Consolas', 'Monaco', monospace;
             font-size: 1.05rem;
@@ -849,14 +801,10 @@ function injectCustomStyles() {
             text-overflow: ellipsis;
             line-height: 1.2;
         }
-        
-        /* Specific Value Styles */
         .nav-value.large { font-size: 1.2rem; }
         .nav-value.small { font-size: 0.85rem; color: #ccc; }
-        .nav-value.highlight { color: #4ade80; text-shadow: 0 0 5px rgba(74, 222, 128, 0.2); } /* Green */
-        .nav-value.accent { color: #f59e0b; } /* Amber */
-
-        /* Split Row inside a cell */
+        .nav-value.highlight { color: #4ade80; text-shadow: 0 0 5px rgba(74, 222, 128, 0.2); }
+        .nav-value.accent { color: #f59e0b; }
         .nav-row {
             display: flex;
             justify-content: space-between;
@@ -875,15 +823,13 @@ function injectCustomStyles() {
         @media (max-width: 992px) {
             .info-window { width: 95vw; top: 10px; right: 2.5vw; left: 2.5vw; max-height: calc(100vh - 20px); }
             .pfd-and-location-grid { grid-template-columns: 1fr; } 
-            /* On mobile, we might hide the FMS or stack it. For now, hide placeholder/FMS on mobile to save space */
             #fms-legs-module { display: none; }
             #location-data-panel { min-height: auto; }
-            /* On mobile, drop to 2 columns */
             .nav-grid-container { grid-template-columns: repeat(2, 1fr); }
-            .nav-span-2 { grid-column: span 2; } /* Still span full width on mobile */
+            .nav-span-2 { grid-column: span 2; }
         }
         
-        /* --- Existing general styles below... --- */
+        /* --- General Layout Styles --- */
         .aircraft-overview-panel { position: relative; height: 200px; background-size: cover; background-position: center; border-bottom-left-radius: 0; border-bottom-right-radius: 0; color: #fff; display: flex; flex-direction: column; justify-content: space-between; margin-bottom: -40px; }
         .aircraft-overview-panel::before { content: ''; position: absolute; inset: 0; z-index: 1; background: linear-gradient(180deg, rgba(0, 0, 0, 0.4) 0%, rgba(0, 0, 0, 0) 35%); }
         .overview-content { position: relative; z-index: 2; padding: 16px 20px 0 20px; display: flex; justify-content: space-between; align-items: flex-start; }
@@ -919,47 +865,96 @@ function injectCustomStyles() {
         .profile-toggle-btn:hover { color: #fff; }
         .profile-toggle-btn.active { background: #00a8ff; color: #fff; box-shadow: 0 2px 5px rgba(0, 168, 255, 0.3); }
         
-        /* --- [FIXED] PFD CASING STYLES --- */
-        .pfd-main-panel { display: flex; flex-direction: column; width: 100%; }
+        /* ======================================================== */
+        /* === [FIXED] PFD CASING STYLES (Matched to ND) === */
+        /* ======================================================== */
+        
+        .pfd-main-panel { 
+            display: flex; 
+            flex-direction: column; 
+            width: 100%; 
+            align-items: center; /* Align bezel to center/stretch */
+        }
+
         .display-bezel { 
             position: relative; 
-            background-color: #1f2937; 
             
-            /* [FIX] Increased padding to 12px to create a visible 'casing' lip */
-            padding: 12px; 
+            /* Matched Colors from nav.html */
+            background-color: #1f2937; /* var(--bg-bezel) */
+            border: 4px solid #374151; /* var(--border-main) */
             
+            /* Matched Spacing/Radius */
+            padding: 12px; /* Approx 0.75rem */
             border-radius: 1rem; 
-            border: 4px solid #374151; 
+            
+            /* Matched Shadow */
             box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.5); 
+            
             width: 100%; 
             box-sizing: border-box; 
+            
+            display: flex;
+            flex-direction: column;
         }
-        .screw { position: absolute; width: 0.5rem; height: 0.5rem; background-color: #4b5563; border-radius: 50%; box-shadow: inset 1px 1px 2px rgba(0,0,0,0.5); z-index: 5; }
-        .screw.tl { top: 0.35rem; left: 0.35rem; } .screw.tr { top: 0.35rem; right: 0.35rem; } .screw.bl { bottom: 0.35rem; left: 0.35rem; } .screw.br { bottom: 0.35rem; right: 0.35rem; }
         
+        /* Screws - Matched to ND */
+        .screw { 
+            position: absolute; 
+            width: 0.5rem; 
+            height: 0.5rem; 
+            background-color: #4b5563; /* var(--screw-color) */
+            border-radius: 50%; 
+            box-shadow: inset 1px 1px 2px rgba(0,0,0,0.5); 
+            z-index: 5; 
+        }
+        .screw.tl { top: 0.35rem; left: 0.35rem; } 
+        .screw.tr { top: 0.35rem; right: 0.35rem; } 
+        .screw.bl { bottom: 0.35rem; left: 0.35rem; } 
+        .screw.br { bottom: 0.35rem; right: 0.35rem; }
+        
+        /* CRT Container - Matched to ND */
         .crt-container { 
             width: 100%; 
             position: relative; 
-            border: 2px solid #111827; 
-            background: #000; 
-            border-radius: 4px; 
-            overflow: hidden; 
-            box-shadow: inset 0 0 20px rgba(0,0,0,0.8); 
-            display: grid; 
-            place-items: center; 
             
-            /* [FIX] Add padding inside the glass to further inset the screen content */
-            padding: 2px;
+            /* Matched Border & Background */
+            border: 2px solid #111827; /* var(--border-dark) */
+            background: #000; 
+            
+            /* Matched Radius */
+            border-radius: 12px; 
+            overflow: hidden; 
+            
+            /* Matched Inset Shadow */
+            box-shadow: inset 0 0 20px rgba(0,0,0,0.8); 
+            
+            display: flex; /* Ensure SVG fills it */
         }
         
-        .scanlines::before { content: " "; display: block; position: absolute; top: 0; left: 0; bottom: 0; right: 0; background: linear-gradient(rgba(18, 16, 16, 0) 50%, rgba(0, 0, 0, 0.1) 50%), linear-gradient(90deg, rgba(255, 0, 0, 0.06), rgba(0, 255, 0, 0.02), rgba(0, 0, 255, 0.06)); z-index: 10; background-size: 100% 2px, 3px 100%; pointer-events: none; }
-        #pfd-container { width: 100%; background: transparent; border-radius: 0; }
+        /* Scanlines - Matched to ND */
+        .scanlines::before { 
+            content: " "; 
+            display: block; 
+            position: absolute; 
+            top: 0; left: 0; bottom: 0; right: 0; 
+            background: linear-gradient(rgba(18, 16, 16, 0) 50%, rgba(0, 0, 0, 0.25) 50%), 
+                        linear-gradient(90deg, rgba(255, 0, 0, 0.06), rgba(0, 255, 0, 0.02), rgba(0, 0, 255, 0.06)); 
+            z-index: 10; 
+            background-size: 100% 2px, 3px 100%; 
+            pointer-events: none; 
+        }
         
+        #pfd-container { 
+            width: 100%; 
+            /* Height is automatic based on content/flex */
+        }
+        
+        /* Ensure SVG fills the hole completely like the Canvas does in ND */
         #pfd-container svg { 
-            /* [FIX] Size down to 96% to fit within the casing without touching edges */
-            width: 96%; 
+            width: 100%; 
             height: auto; 
-            margin: 0 auto; /* Center the reduced SVG */
+            display: block;
+            margin: 0; 
             
             max-width: none; 
             aspect-ratio: 787 / 800; 
@@ -969,6 +964,10 @@ function injectCustomStyles() {
             filter: brightness(1.3) contrast(1.2) drop-shadow(0 0 2px rgba(255, 255, 255, 0.3)); 
         }
         
+        /* ======================================================== */
+        /* === END FIXED PFD CASING STYLES === */
+        /* ======================================================== */
+
         .vsd-panel, .ssd-panel { display: none; flex-direction: column; background: transparent; border-radius: 12px; min-height: 240px; max-height: 240px; overflow: hidden; width: 100%; }
         .vsd-panel.active, .ssd-panel.active { display: flex; }
         .vsd-graph-window, .ssd-graph-window { position: relative; width: 100%; flex-grow: 1; overflow: hidden; border-radius: 12px; padding-left: 35px; box-sizing: border-box; }
@@ -6455,13 +6454,14 @@ function updateFmsLegsModule(plan, currentPos) {
             let typeTag = 'PROC'; // Default
             let typeClass = '';
             
+            // [FIX] Corrected Logic: SID at start, STAR at end
             if (index <= 2) { 
-                typeTag = 'STAR'; // Requested logic
-                typeClass = 'star';
+                typeTag = 'SID'; 
+                typeClass = 'sid';
             } 
             else if (index >= plan.flightPlanItems.length - 3) {
-                typeTag = 'SID'; // Requested logic
-                typeClass = 'sid';
+                typeTag = 'STAR'; 
+                typeClass = 'star';
             }
 
             // Render The Header Row
@@ -6527,16 +6527,11 @@ function updateFmsLegsModule(plan, currentPos) {
     // --- FIX END ---
 
     // --- FIX START: Scroll Active Leg into View (ONCE ONLY) ---
-    // This logic runs based on the 'dataset' attribute.
-    // Since the FMS container HTML is destroyed/recreated every time a NEW aircraft is selected,
-    // the 'dataset.initialScrollComplete' is naturally wiped clean for new aircraft.
-    // It persists only during the live updates of the CURRENT aircraft.
     if (listContainer.dataset.initialScrollComplete !== 'true') {
         setTimeout(() => {
             const activeRow = listContainer.querySelector('.active-leg');
             if (activeRow) {
                 activeRow.scrollIntoView({ behavior: 'smooth', block: 'center' });
-                // Mark as done so we don't hijack the user's scroll on the next update
                 listContainer.dataset.initialScrollComplete = 'true';
             }
         }, 100);
