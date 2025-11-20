@@ -549,7 +549,7 @@ function injectCustomStyles() {
             position: absolute;
             top: 20px; 
             right: 20px;
-            width: 600px; 
+            width: 700px; /* Wider for 2x2 Layout */
             max-width: 95vw;
             max-height: calc(100vh - 40px);
             background: rgba(18, 20, 38, 0.95); 
@@ -616,17 +616,33 @@ function injectCustomStyles() {
             background: #1C1E2A;
         }
 
-        /* --- PFD/ND Layout --- */
-        .pfd-and-location-grid { 
-            display: grid; 
-            grid-template-columns: 2fr 1fr; 
-            gap: 16px; 
+        /* --- [NEW] 2x2 COCKPIT GRID --- */
+        .cockpit-grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 16px;
+            align-items: stretch;
+            margin-bottom: 16px;
         }
-        
+
+        /* PFD specific wrapper to keep aspect ratio sane */
+        .pfd-wrapper {
+            display: flex;
+            flex-direction: column;
+            width: 100%;
+        }
+
+        /* ND specific wrapper */
+        .nd-wrapper {
+            display: flex;
+            flex-direction: column;
+            width: 100%;
+        }
+
         /* --- FMS MODULE STYLES --- */
         .fms-module-container {
-            height: 380px; 
-            max-height: 380px;
+            height: 100%; /* Fill the grid cell */
+            min-height: 320px; /* Ensure minimum height matching ND roughly */
             background: #000;
             color: #00e600; 
             font-family: 'Consolas', 'Monaco', 'Courier New', monospace;
@@ -725,7 +741,7 @@ function injectCustomStyles() {
             border: 1px solid #333;
             box-shadow: 0 4px 20px rgba(0,0,0,0.5);
             width: 100%;
-            margin-top: 16px; 
+            height: 100%; /* Fill the grid cell */
             display: flex;
             flex-direction: column;
             overflow: hidden;
@@ -756,10 +772,12 @@ function injectCustomStyles() {
             animation: navPulse 2s infinite;
         }
         @keyframes navPulse { 0% { opacity: 1; } 50% { opacity: 0.4; } 100% { opacity: 1; } }
+        
+        /* [MODIFIED] Grid for Nav Data - Now 2 columns because it's in a half-width container */
         .nav-grid-container {
             padding: 10px;
             display: grid;
-            grid-template-columns: repeat(4, 1fr);
+            grid-template-columns: repeat(2, 1fr); 
             gap: 8px;
         }
         .nav-cell {
@@ -777,8 +795,9 @@ function injectCustomStyles() {
             background: rgba(255, 255, 255, 0.06);
             border-color: rgba(255, 255, 255, 0.1);
         }
-        .nav-span-2 { grid-column: span 2; }
-        .nav-span-4 { grid-column: span 4; }
+        .nav-span-2 { grid-column: span 2; } /* Still useful */
+        .nav-span-4 { grid-column: span 2; } /* Adjust to span 2 (full width in 2-col grid) */
+        
         .nav-label {
             font-size: 0.6rem;
             color: #00a8ff;
@@ -822,11 +841,10 @@ function injectCustomStyles() {
         /* Mobile Responsive */
         @media (max-width: 992px) {
             .info-window { width: 95vw; top: 10px; right: 2.5vw; left: 2.5vw; max-height: calc(100vh - 20px); }
-            .pfd-and-location-grid { grid-template-columns: 1fr; } 
-            #fms-legs-module { display: none; }
-            #location-data-panel { min-height: auto; }
+            .cockpit-grid { grid-template-columns: 1fr; } /* Stack vertically on mobile */
+            #fms-legs-module { display: none; } /* Hide FMS on mobile to save space */
+            #location-data-panel { min-height: auto; margin-top: 0; }
             .nav-grid-container { grid-template-columns: repeat(2, 1fr); }
-            .nav-span-2 { grid-column: span 2; }
         }
         
         /* --- General Layout Styles --- */
@@ -869,14 +887,6 @@ function injectCustomStyles() {
         /* === [FIXED] PFD CASING STYLES (Matched to ND) === */
         /* ======================================================== */
         
-        .pfd-main-panel { 
-            display: flex; 
-            flex-direction: column; 
-            width: 100%; 
-            align-items: center; /* Align bezel to center/stretch */
-            gap: 16px; /* Add gap between PFD and ND */
-        }
-
         .display-bezel { 
             position: relative; 
             
@@ -5219,8 +5229,8 @@ function populateAircraftInfoWindow(baseProps, plan, sortedRoutePoints) {
             <div id="ac-tab-flight-data" class="ac-tab-pane active">
                 ${planButtonHtml} 
                 
-                <div class="pfd-and-location-grid">
-                    <div class="pfd-main-panel">
+                <div class="cockpit-grid">
+                    <div class="pfd-wrapper">
                         <div class="display-bezel">
                             <div class="screw tl"></div><div class="screw tr"></div><div class="screw bl"></div><div class="screw br"></div>
                             <div class="crt-container scanlines" id="pfd-container">
@@ -5290,7 +5300,7 @@ function populateAircraftInfoWindow(baseProps, plan, sortedRoutePoints) {
                                         <path id="Ellipse 4" d="M636 147C636 150.866 632.866 154 629 154C625.134 154 622 150.866 622 147C622 143.134 625.134 140 629 140C632.866 140 636 143.134 636 147Z" fill="#D9D9D9"/>
                                         <g id="Ellipse 3">
                                             <path d="M636 229C636 232.866 632.866 236 629 236C625.134 236 622 232.866 622 229C622 225.134 625.134 222 629 222C632.866 222 636 225.134 636 229Z" fill="#D9D9D9"/>
-                                            <path d="M636 395C636 398.866 632.866 402 629 402C625.134 402 622 398.866 622 395C622 391.134 625.134 388 629 388C632.866 388 636 391.134 636 395Z" fill="#D9D9D9"/>
+                                            <path d="M636 395C636 398.866 632.866 402 629 402C625.134 402 622 398.866 622 391.134 625.134 388 629 388C632.866 388 636 391.134 636 395Z" fill="#D9D9D9"/>
                                         </g>
                                         <rect id="speed" x="28" y="73" width="97" height="477" fill="#76767A"/>
                                         <g clip-path="url(#speedTapeClip)">
@@ -5350,92 +5360,96 @@ function populateAircraftInfoWindow(baseProps, plan, sortedRoutePoints) {
                                 </svg>
                             </div>
                         </div>
+                    </div>
+
+                    <div id="location-data-panel">
+                        <div class="nav-header">
+                            <span class="nav-title">NAV DATA</span>
+                            <span class="nav-status-indicator"><div class="nav-blink"></div> LIVE</span>
+                        </div>
                         
-                        <div id="nd-container">
+                        <div class="nav-grid-container">
+                            <div class="nav-cell">
+                                <span class="nav-label"><i class="fa-solid fa-map-location-dot"></i> Region</span>
+                                <span class="nav-value small" id="ac-location">Scanning...</span>
+                            </div>
+                            <div class="nav-cell">
+                                <span class="nav-label"><i class="fa-solid fa-tower-control"></i> Nearest</span>
+                                <div class="nav-row">
+                                    <span class="nav-value highlight" id="ac-nearest-apt">---</span>
+                                    <span class="nav-value" id="ac-nearest-apt-dist">--.- <span class="nav-unit">NM</span></span>
+                                </div>
+                            </div>
+                            <div class="nav-cell">
+                                <span class="nav-label"><i class="fa-solid fa-wind"></i> Wind</span>
+                                <span class="nav-value" id="ac-env-wind">---/--</span>
+                            </div>
+                            <div class="nav-cell">
+                                <span class="nav-label"><i class="fa-solid fa-temperature-half"></i> OAT</span>
+                                <span class="nav-value" id="ac-env-oat">--°C</span>
+                            </div>
+
+                            <div class="nav-cell nav-span-2">
+                                <span class="nav-label"><i class="fa-solid fa-location-crosshairs"></i> Position</span>
+                                <div class="nav-row">
+                                    <div><span class="nav-unit">LAT</span> <span class="nav-value" id="ac-lat">---</span></div>
+                                    <div><span class="nav-unit">LON</span> <span class="nav-value" id="ac-lon">---</span></div>
+                                </div>
+                            </div>
+                            <div class="nav-cell nav-span-2">
+                                    <span class="nav-label"><i class="fa-solid fa-arrow-up-right-dots"></i> Vertical Speed</span>
+                                    <span class="nav-value large highlight" id="ac-vs">--- <span class="nav-unit">fpm</span></span>
+                            </div>
+
+                            <div class="nav-cell nav-span-2">
+                                <span class="nav-label"><i class="fa-solid fa-location-arrow"></i> Next Waypoint</span>
+                                <div class="nav-row">
+                                    <span class="nav-value accent" id="ac-next-wp">---</span>
+                                    <span class="nav-value" id="ac-next-wp-dist">--.- <span class="nav-unit">NM</span></span>
+                                </div>
+                            </div>
+                            <div class="nav-cell nav-span-2">
+                                <span class="nav-label"><i class="fa-solid fa-flag-checkered"></i> Destination</span>
+                                <div class="nav-row">
+                                    <div><span class="nav-unit">DIST</span> <span class="nav-value" id="ac-dist">---</span></div>
+                                    <div><span class="nav-unit">ETE</span> <span class="nav-value" id="ac-ete">--:--</span></div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="nd-wrapper">
+                         <div id="nd-container">
                             <iframe id="nav-display-frame" src="nav.html" scrolling="no"></iframe>
                         </div>
                     </div>
-                    
-                    <div id="fms-legs-module" class="fms-module-container">
-                        <div class="fms-header">
-                            <span class="fms-title">ACTIVE FLIGHT PLAN</span>
-                            <span class="fms-page-count">1/1</span>
-                        </div>
-                        
-                        <div class="fms-columns">
-                            <span class="col-wpt">LEGS</span>
-                            <span class="col-data text-center">CRS</span>
-                            <span class="col-data text-right">DIST</span>
-                        </div>
 
-                        <div id="fms-legs-list" class="fms-list-scrollarea">
-                            <div class="fms-empty-state">NO ROUTE LOADED</div>
-                        </div>
-                        
-                        <div class="fms-footer">
-                            <div class="fms-stat">
-                                <span class="stat-label">DTG</span>
-                                <span id="fms-total-dist" class="stat-value">---- NM</span>
+                    <div class="fms-wrapper">
+                        <div id="fms-legs-module" class="fms-module-container">
+                            <div class="fms-header">
+                                <span class="fms-title">ACTIVE FLIGHT PLAN</span>
+                                <span class="fms-page-count">1/1</span>
                             </div>
-                            <div class="fms-stat">
-                                <span class="stat-label">ETE</span>
-                                <span id="fms-total-ete" class="stat-value">--:--</span>
+                            
+                            <div class="fms-columns">
+                                <span class="col-wpt">LEGS</span>
+                                <span class="col-data text-center">CRS</span>
+                                <span class="col-data text-right">DIST</span>
                             </div>
-                        </div>
-                    </div>
-                </div>
-                
-                <div id="location-data-panel">
-                    <div class="nav-header">
-                        <span class="nav-title">NAV DATA</span>
-                        <span class="nav-status-indicator"><div class="nav-blink"></div> LIVE</span>
-                    </div>
-                    
-                    <div class="nav-grid-container">
-                        <div class="nav-cell">
-                            <span class="nav-label"><i class="fa-solid fa-map-location-dot"></i> Region</span>
-                            <span class="nav-value small" id="ac-location">Scanning...</span>
-                        </div>
-                        <div class="nav-cell">
-                            <span class="nav-label"><i class="fa-solid fa-tower-control"></i> Nearest</span>
-                            <div class="nav-row">
-                                <span class="nav-value highlight" id="ac-nearest-apt">---</span>
-                                <span class="nav-value" id="ac-nearest-apt-dist">--.- <span class="nav-unit">NM</span></span>
-                            </div>
-                        </div>
-                        <div class="nav-cell">
-                            <span class="nav-label"><i class="fa-solid fa-wind"></i> Wind</span>
-                            <span class="nav-value" id="ac-env-wind">---/--</span>
-                        </div>
-                        <div class="nav-cell">
-                            <span class="nav-label"><i class="fa-solid fa-temperature-half"></i> OAT</span>
-                            <span class="nav-value" id="ac-env-oat">--°C</span>
-                        </div>
 
-                        <div class="nav-cell nav-span-2">
-                            <span class="nav-label"><i class="fa-solid fa-location-crosshairs"></i> Position</span>
-                            <div class="nav-row">
-                                <div><span class="nav-unit">LAT</span> <span class="nav-value" id="ac-lat">---</span></div>
-                                <div><span class="nav-unit">LON</span> <span class="nav-value" id="ac-lon">---</span></div>
+                            <div id="fms-legs-list" class="fms-list-scrollarea">
+                                <div class="fms-empty-state">NO ROUTE LOADED</div>
                             </div>
-                        </div>
-                        <div class="nav-cell nav-span-2">
-                             <span class="nav-label"><i class="fa-solid fa-arrow-up-right-dots"></i> Vertical Speed</span>
-                             <span class="nav-value large highlight" id="ac-vs">--- <span class="nav-unit">fpm</span></span>
-                        </div>
-
-                        <div class="nav-cell nav-span-2">
-                            <span class="nav-label"><i class="fa-solid fa-location-arrow"></i> Next Waypoint</span>
-                            <div class="nav-row">
-                                <span class="nav-value accent" id="ac-next-wp">---</span>
-                                <span class="nav-value" id="ac-next-wp-dist">--.- <span class="nav-unit">NM</span></span>
-                            </div>
-                        </div>
-                        <div class="nav-cell nav-span-2">
-                            <span class="nav-label"><i class="fa-solid fa-flag-checkered"></i> Destination</span>
-                            <div class="nav-row">
-                                <div><span class="nav-unit">DIST</span> <span class="nav-value" id="ac-dist">---</span></div>
-                                <div><span class="nav-unit">ETE</span> <span class="nav-value" id="ac-ete">--:--</span></div>
+                            
+                            <div class="fms-footer">
+                                <div class="fms-stat">
+                                    <span class="stat-label">DTG</span>
+                                    <span id="fms-total-dist" class="stat-value">---- NM</span>
+                                </div>
+                                <div class="fms-stat">
+                                    <span class="stat-label">ETE</span>
+                                    <span id="fms-total-ete" class="stat-value">--:--</span>
+                                </div>
                             </div>
                         </div>
                     </div>
