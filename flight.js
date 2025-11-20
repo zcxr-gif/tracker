@@ -3820,10 +3820,6 @@ function initializeSectorOpsMap(centerICAO) {
     if (sectorOpsMap) sectorOpsMap.remove();
 
     const centerCoords = airportsData[centerICAO] ? [airportsData[centerICAO].lon, airportsData[centerICAO].lat] : [77.2, 28.6];
-    
-    // [FIX] Ensure container is empty to prevent Mapbox warnings
-    const container = document.getElementById('sector-ops-map-fullscreen');
-    if (container) container.innerHTML = ''; 
 
     sectorOpsMap = new mapboxgl.Map({
         container: 'sector-ops-map-fullscreen',
@@ -3833,17 +3829,219 @@ function initializeSectorOpsMap(centerICAO) {
         interactive: true,
         projection: 'globe'
     });
+
+    /**
+     * --- [NEW] Extracted function to set up base layers.
+     * This is called on initial load AND on every style change.
+     * --- [MODIFIED] Added text labels for callsign and phase.
+     * --- [MODIFIED v2] Split icons and labels into two layers
+     * to allow icons to always show while labels can hide.
+     */
+    async function setupMapLayersAndFog() {
+        // 1. Set globe fog (Unchanged)
+        sectorOpsMap.setFog({
+            color: 'rgb(186, 210, 235)', // Lower atmosphere
+            'high-color': 'rgb(36, 92, 223)', // Upper atmosphere
+            'horizon-blend': 0.02, // Smooth blend
+            'space-color': 'rgb(11, 11, 25)', // Space color
+            'star-intensity': 0.6 // Adjust star intensity
+        });
+
+        // 2. Load all aircraft icons (Unchanged)
+        const iconsToLoad = [
+            // Regular (Default)
+            { id: 'icon-jumbo', path: '/Images/map_icons/jumbo.png' },
+            { id: 'icon-widebody', path: '/Images/map_icons/widebody.png' },
+            { id: 'icon-narrowbody', path: '/Images/map_icons/narrowbody.png' },
+            { id: 'icon-regional', path: '/Images/map_icons/regional.png' },
+            { id: 'icon-private', path: '/Images/map_icons/private.png' },
+            { id: 'icon-fighter', path: '/Images/map_icons/fighter.png' },
+            { id: 'icon-default', path: '/Images/map_icons/default.png' },
+            { id: 'icon-military', path: '/Images/map_icons/military.png' },
+            { id: 'icon-cessna', path: '/Images/map_icons/cessna.png' },
+            
+            // --- MODIFICATION: Changed 'red' to 'orange' ---
+            { id: 'icon-jumbo-orange', path: '/Images/map_icons/orange/jumbo.png' },
+            { id: 'icon-widebody-orange', path: '/Images/map_icons/orange/widebody.png' },
+            { id: 'icon-narrowbody-orange', path: '/Images/map_icons/orange/narrowbody.png' },
+            { id: 'icon-regional-orange', path: '/Images/map_icons/orange/regional.png' },
+            { id: 'icon-private-orange', path: '/Images/map_icons/orange/private.png' },
+            { id: 'icon-fighter-orange', path: '/Images/map_icons/orange/fighter.png' },
+            { id: 'icon-default-orange', path: '/Images/map_icons/orange/default.png' },
+            { id: 'icon-military-orange', path: '/Images/map_icons/orange/military.png' },
+            { id: 'icon-cessna-orange', path: '/Images/map_icons/orange/cessna.png' },
+
+            // --- MODIFICATION: Renamed 'staff' to 'blue' ---
+            { id: 'icon-jumbo-blue', path: '/Images/map_icons/blue/jumbo.png' },
+            { id: 'icon-widebody-blue', path: '/Images/map_icons/blue/widebody.png' },
+            { id: 'icon-narrowbody-blue', path: '/Images/map_icons/blue/narrowbody.png' },
+            { id: 'icon-regional-blue', path: '/Images/map_icons/blue/regional.png' },
+            { id: 'icon-private-blue', path: '/Images/map_icons/blue/private.png' },
+            { id: 'icon-fighter-blue', path: '/Images/map_icons/blue/fighter.png' },
+            { id: 'icon-default-blue', path: '/Images/map_icons/blue/default.png' },
+            { id: 'icon-military-blue', path: '/Images/map_icons/blue/military.png' },
+            { id: 'icon-cessna-blue', path: '/Images/map_icons/blue/cessna.png' }
+        ];
+
+        const imagePromises = iconsToLoad.map(icon =>
+            new Promise((res, rej) => {
+                // Check if image already exists (Mapbox preserves images across style loads)
+                if (sectorOpsMap.hasImage(icon.id)) {
+                    res();
+                    return;
+                }
+                sectorOpsMap.loadImage(icon.path, (error, image) => {
+                    if (error) {
+                        console.warn(`Could not load icon: ${icon.path}`);
+                        rej(error);
+                    } else {
+                        sectorOpsMap.addImage(icon.id, image);
+                        res();
+                    }
+                });
+            })
+        );
+        
+        await Promise.all(imagePromises).catch(err => console.error("Error loading map icons", err));
+        console.log('All custom aircraft icons are ready.');
+
+        // 3. Add base flight data source (Unchanged)
+        if (!sectorOpsMap.getSource('sector-ops-live-flights-source')) {
+            sectorOpsMap.addSource('sector-ops-live-flights-source', {
+                type: 'geojson',
+                data: { type: 'FeatureCollection', features: Object.values(currentMapFeatures) } // Use current state
+            });
+        }
+
+        mapAnimator = new MapAnimator(sectorOpsMap, 'sector-ops-live-flights-source', currentMapFeatures);
+
+        // 4. --- [START OF MODIFICATION] ---
+        // Add the ICON layer
+        if (!sectorOpsMap.getLayer('sector-ops-live-flights-layer')) {
+            sectorOpsMap.addLayer({
+                id: 'sector-ops-live-flights-layer', // Keep original ID for click listeners
+                type: 'symbol',
+                source: 'sector-ops-live-flights-source',
+                layout: {
+                    // --- Icon Properties ONLY ---
+                    'icon-image': getIconImageExpression(mapFilters.iconColorMode),
+                    'icon-size': 0.08,
+                    'icon-rotate': ['get', 'heading'],
+                    'icon-rotation-alignment': 'map',
+                    
+                    // --- THIS IS THE KEY ---
+                    // Force icons to always show, even if they overlap
+                    'icon-allow-overlap': true,
+                    'icon-ignore-placement': true,
+
+                    // --- Remove all text properties ---
+                    // 'text-field': ... (REMOVED)
+                    // 'text-font': ... (REMOVED)
+                    // etc.
+                }
+                // --- No 'paint' block needed (it was only for text) ---
+            });
+
+            // 4a. Add click/hover listeners (These will now only apply to the icon layer)
+            sectorOpsMap.on('click', 'sector-ops-live-flights-layer', (e) => {
+                const props = e.features[0].properties;
+                const flightProps = { ...props, position: JSON.parse(props.position), aircraft: JSON.parse(props.aircraft) };
+                fetch('https://site--acars-backend--6dmjph8ltlhv.code.run/if-sessions').then(res => res.json()).then(data => {
+                    const expertSession = data.sessions.find(s => s.name.toLowerCase().includes('expert'));
+                    if (expertSession) {
+                        handleAircraftClick(flightProps, expertSession.id);
+                    }
+                });
+            });
+            sectorOpsMap.on('mouseenter', 'sector-ops-live-flights-layer', () => { sectorOpsMap.getCanvas().style.cursor = 'pointer'; });
+            sectorOpsMap.on('mouseleave', 'sector-ops-live-flights-layer', () => { sectorOpsMap.getCanvas().style.cursor = ''; });
+        }
+        
+        // 5. Add the LABEL layer
+        if (!sectorOpsMap.getLayer('sector-ops-live-flights-labels')) {
+            sectorOpsMap.addLayer({
+                id: 'sector-ops-live-flights-labels',
+                type: 'symbol',
+                source: 'sector-ops-live-flights-source', // Use the SAME source
+                
+                // ##### PERFORMANCE FIX START #####
+                // By setting a minzoom, we prevent Mapbox from trying to
+                // calculate label collisions for all aircraft on the map
+                // when zoomed out, which is the cause of the lag.
+                minzoom: 6.5,
+                // ##### PERFORMANCE FIX END #####
+
+                layout: {
+                    // ##### MODIFICATION START #####
+                    'visibility': mapFilters.showAircraftLabels ? 'visible' : 'none',
+                    // ##### MODIFICATION END #####
+
+                    // --- [MODIFICATION START] ---
+                    // Use a 'format' expression to set colors per line
+                    'text-field': [
+                        'format',
+                        // Part 1: Callsign (White)
+                        ['get', 'callsign'], 
+                        { 'text-color': '#FFFFFF' }, 
+                        
+                        // Part 2: Newline
+                        '\n',                
+                        {},                  
+                        
+                        // Part 3: Phase (Color-coded)
+                        ['get', 'phase'],    
+                        { 
+                            'text-color': [ 
+                                'match',
+                                ['get', 'phase'],
+                                'Climb', '#28a745',     // Green
+                                'Cruise', '#007bff',    // Blue
+                                'Descent', '#ff9900',   // Orange
+                                'Approach', '#a33ea3',  // Purple
+                                'Ground', '#9fa8da',    // Muted Grey
+                                '#e8eaf6' // Default (for Enroute etc.)
+                            ]
+                        }
+                    ],
+                    // --- [MODIFICATION END] ---
+
+                    'text-font': ['Mapbox Txt Regular', 'Arial Unicode MS Regular'],
+                    'text-size': 10,
+                    'text-offset': [0, 2.5], // Offset text below the icon
+                    'text-anchor': 'top',
+                    
+                    'text-allow-overlap': false,
+                    'text-ignore-placement': false,
+
+                    // --- [NEW] ---
+                    'text-padding': 3, // Add padding *inside* the background box
+                },
+                paint: {
+                    // --- [MODIFICATION START] ---
+                    // 'text-color' is REMOVED (now handled by 'format' in layout)
+                    
+                    // Use the halo as a solid background
+                    'text-halo-color': 'rgba(10, 12, 26, 0.85)', // Dark UI color
+                    'text-halo-width': 2, // This creates the box padding effect
+                    'text-halo-blur': 0   // This makes the box sharp
+                    // --- [MODIFICATION END] ---
+                }
+            });
+        }
+        // --- [END OF MODIFICATION] ---
+    }
     
-    // ... rest of the function (listeners) remains the same ...
+    // --- [NEW] This handles style changes ---
     sectorOpsMap.on('style.load', async () => {
         console.log("Map style reloading. Rebuilding layers...");
         await setupMapLayersAndFog(); // Re-add fog, icons, base layer
         rebuildDynamicLayers();     // Re-add weather, routes, trails, filters
     });
 
+    // --- This handles the initial map load ---
     return new Promise(resolve => {
         sectorOpsMap.on('load', async () => {
-            await setupMapLayersAndFog(); 
+            await setupMapLayersAndFog(); // Run setup for the first time
             resolve();
         });
     });
@@ -4975,6 +5173,13 @@ function populateAircraftInfoWindow(baseProps, plan, sortedRoutePoints) {
                                 </div>
                             </div>
                         </div>
+                        <div class="data-group highlight">
+                            <span class="group-label"><i class="fa-solid fa-tower-control"></i> Nearest Apt</span>
+                            <div class="split-row" style="align-items: baseline;">
+                                <span class="digital-readout large" id="ac-nearest-apt">---</span>
+                                <span class="digital-readout" id="ac-nearest-apt-dist" style="font-size: 0.9rem; color: #00a8ff;">--.- NM</span>
+                            </div>
+                        </div>
                         <div class="data-group">
                             <span class="group-label"><i class="fa-solid fa-wind"></i> Environment</span>
                             <div class="split-row">
@@ -4986,37 +5191,6 @@ function populateAircraftInfoWindow(baseProps, plan, sortedRoutePoints) {
                                     <span style="font-size: 0.6rem; color:#666;">OAT</span>
                                     <span class="digital-readout" id="ac-env-oat">--°C</span>
                                 </div>
-                            </div>
-                        </div>
-                        <div class="data-group">
-                            <span class="group-label"><i class="fa-solid fa-arrow-trend-up"></i> Vertical Spd</span>
-                            <span class="digital-readout large" id="ac-vs" style="color: #e0e0e0;">---<span class="unit" style="font-size:0.6rem;">fpm</span></span>
-                        </div>
-                        <div class="data-group">
-                             <span class="group-label"><i class="fa-solid fa-location-arrow"></i> Next Wpt</span>
-                             <div class="split-row" style="align-items: baseline;">
-                                <span class="digital-readout" id="ac-next-wp">---</span>
-                                <span class="digital-readout small" id="ac-next-wp-dist">--.- NM</span>
-                             </div>
-                        </div>
-                        <div class="data-group">
-                             <span class="group-label"><i class="fa-solid fa-flag-checkered"></i> Destination</span>
-                             <div class="split-row">
-                                <div class="split-item">
-                                    <span style="font-size: 0.6rem; color:#666;">DIST</span>
-                                    <span class="digital-readout" id="ac-dist">---</span>
-                                </div>
-                                <div class="split-item">
-                                    <span style="font-size: 0.6rem; color:#666;">ETE</span>
-                                    <span class="digital-readout" id="ac-ete">--:--</span>
-                                </div>
-                             </div>
-                        </div>
-                        <div class="data-group highlight">
-                            <span class="group-label"><i class="fa-solid fa-tower-control"></i> Nearest Apt</span>
-                            <div class="split-row" style="align-items: baseline;">
-                                <span class="digital-readout large" id="ac-nearest-apt">---</span>
-                                <span class="digital-readout" id="ac-nearest-apt-dist" style="font-size: 0.9rem; color: #00a8ff;">--.- NM</span>
                             </div>
                         </div>
                     </div>
@@ -5052,6 +5226,29 @@ function populateAircraftInfoWindow(baseProps, plan, sortedRoutePoints) {
                                 <div id="ssd-waypoint-labels"></div>
                             </div>
                         </div>
+                    </div>
+                </div>
+
+                <div class="flight-data-bar">
+                    <div class="data-bar-item">
+                        <span class="data-label">NEXT WP</span>
+                        <span class="data-value" id="ac-next-wp">---</span>
+                    </div>
+                    <div class="data-bar-item">
+                        <span class="data-label">DIST. TO WP</span>
+                        <span class="data-value" id="ac-next-wp-dist">--.-<span class="unit">NM</span></span>
+                    </div>
+                    <div class="data-bar-item">
+                        <span class="data-label">DIST. TO DEST.</span>
+                        <span class="data-value" id="ac-dist">---<span class="unit">NM</span></span>
+                    </div>
+                    <div class="data-bar-item">
+                        <span class="data-label">ETE TO DEST.</span>
+                        <span class="data-value" id="ac-ete">--:--</span>
+                    </div>
+                    <div class="data-bar-item">
+                        <span class="data-label">VERTICAL SPEED</span>
+                        <span class="data-value" id="ac-vs">---<span class="unit">fpm</span></span>
                     </div>
                 </div>
 
@@ -5320,22 +5517,16 @@ function updateAircraftInfoWindow(baseProps, plan, sortedRoutePoints) {
         });
     };
 
-    // --- [FIX START] Define Time Variables ---
-    // We must calculate these here because they are used in the UI update below
-    const atdTimestamp = (sortedRoutePoints && sortedRoutePoints.length > 0) ? sortedRoutePoints[0].date : null;
-    const atdTime = atdTimestamp ? formatTimeFromTimestamp(atdTimestamp) : '--:--';
-    let etaTime = '--:--'; 
-    // --- [FIX END] ---
-
     // --- Get Original Data ---
     const originalFlatWaypoints = (plan && plan.flightPlanItems) ? flattenWaypointsFromPlan(plan.flightPlanItems) : [];
     const originalFlatWaypointObjects = (plan && plan.flightPlanItems) ? getFlatWaypointObjects(plan.flightPlanItems) : [];
     const hasPlan = originalFlatWaypoints.length >= 2;
 
-    let progress = 0, distanceToDestNM = 0;
+    let progress = 0, ete = '--:--', distanceToDestNM = 0;
     let totalDistanceNM = 0;
 
     if (hasPlan) {
+        // ... (calculation logic for progress, ete, etc. is unchanged) ...
         let totalDistanceKm = 0;
         for (let i = 0; i < originalFlatWaypoints.length - 1; i++) {
             const [lon1, lat1] = originalFlatWaypoints[i];
@@ -5355,8 +5546,7 @@ function updateAircraftInfoWindow(baseProps, plan, sortedRoutePoints) {
                 const timeHours = distanceToDestNM / baseProps.position.gs_kt;
                 const hours = Math.floor(timeHours);
                 const minutes = Math.round((timeHours - hours) * 60);
-                // [FIX] Update the etaTime variable defined at the top
-                etaTime = `${String(hours).padStart(2, '0')}:${String(minutes).padStart(2, '0')}`;
+                ete = `${String(hours).padStart(2, '0')}:${String(minutes).padStart(2, '0')}`;
             }
         }
     }
@@ -5389,6 +5579,7 @@ function updateAircraftInfoWindow(baseProps, plan, sortedRoutePoints) {
     let bestWpIndex = -1;
     let minScore = Infinity;
     if (plan) { 
+        // ... (logic for finding next waypoint is unchanged) ...
         const currentPos = baseProps.position;
         const currentTrack = currentPos.heading_deg;
         
@@ -5427,6 +5618,7 @@ function updateAircraftInfoWindow(baseProps, plan, sortedRoutePoints) {
     // --- Calculate accurate progress along the planned route ---
     let progressAlongRouteNM = 0;
     if (hasPlan && bestWpIndex > 0) {
+        // ... (progressAlongRouteNM logic is unchanged) ...
         const prevWp = originalFlatWaypointObjects[bestWpIndex - 1];
         const nextWp = originalFlatWaypointObjects[bestWpIndex];
         
@@ -5449,17 +5641,20 @@ function updateAircraftInfoWindow(baseProps, plan, sortedRoutePoints) {
         progressAlongRouteNM = totalDistanceNM;
     }
 
-    // --- Update Nav Data Bar Elements ---
+
+    // --- [MODIFIED] Update New Data Bar (using helper) ---
     const nextWpDisplay = nextWpName;
     const nextWpDistDisplay = (nextWpDistNM === '---' || isNaN(parseFloat(nextWpDistNM))) ? '--.-' : Number(nextWpDistNM).toFixed(1);
 
     updateAll('#ac-next-wp', nextWpDisplay);
-    updateAll('#ac-next-wp-dist', `${nextWpDistDisplay} NM`);
-    updateAll('#ac-dist', `${Math.round(distanceToDestNM)} NM`);
-    // [FIX] This now works because etaTime is defined
-    updateAll('#ac-ete', etaTime);
+    updateAll('#ac-next-wp-dist', `${nextWpDistDisplay}<span class="unit">NM</span>`, true);
+    updateAll('#ac-dist', `${Math.round(distanceToDestNM)}<span class="unit">NM</span>`, true);
+    updateAll('#ac-ete', ete);
+    // --- [END MODIFIED] ---
 
-    // --- Flight Phase State Machine ---
+
+    // --- Flight Phase State Machine (Unchanged) ---
+    // ... (This entire section is unchanged) ...
     let flightPhase = 'ENROUTE';
     let phaseClass = 'phase-enroute';
     let phaseIcon = 'fa-route';
@@ -5497,7 +5692,6 @@ function updateAircraftInfoWindow(baseProps, plan, sortedRoutePoints) {
     const fallbackGroundCheck = altitudeAGL === null && gs < 35 && Math.abs(vs) < 150;
     const isOnGround = aglCheck || fallbackGroundCheck;
     const isLinedUpForLanding = nearestRunwayInfo && nearestRunwayInfo.airport === arrivalIcao && nearestRunwayInfo.headingDiff < 10;
-    
     if (isOnGround) {
         if (gs > 35) {
             if (progress > 90) { flightPhase = 'LANDING ROLLOUT'; phaseClass = 'phase-approach'; phaseIcon = 'fa-plane-arrival';
@@ -5541,39 +5735,54 @@ function updateAircraftInfoWindow(baseProps, plan, sortedRoutePoints) {
         }
     }
 
-    // --- VSD & SSD LOGIC ---
+
+    // --- [MODIFIED] VSD & SSD LOGIC (using querySelectorAll) ---
+    // This logic is now safe because it queries *within* its parent.
     const vsdPanels = document.querySelectorAll('#vsd-panel');
+    
+    // ##### MODIFICATION START #####
     const ssdPanels = document.querySelectorAll('#ssd-panel');
     const planId = (plan && (plan.flightPlanId || plan.id)) || 'unknown';
+    // ##### MODIFICATION END #####
 
+    // --- VSD Panel Logic ---
     vsdPanels.forEach(vsdPanel => {
         if (!hasPlan) return;
+        
+        // Find elements *relative* to this specific vsdPanel
         const vsdAircraftIcon = vsdPanel.querySelector('#vsd-aircraft-icon');
         const vsdGraphWindow = vsdPanel.querySelector('#vsd-graph-window');
         const vsdGraphContent = vsdPanel.querySelector('#vsd-graph-content');
         const vsdProfilePath = vsdPanel.querySelector('#vsd-profile-path');
         const vsdFlownPath = vsdPanel.querySelector('#vsd-flown-path');
         const vsdWpLabels = vsdPanel.querySelector('#vsd-waypoint-labels');
+
         if (!vsdGraphContent || !vsdAircraftIcon) return;
 
+        // --- 1. Define VSD scales ---
         const VSD_HEIGHT_PX = vsdGraphContent.clientHeight || 240;
         const MAX_ALT_FT = 45000;
         const Y_SCALE_PX_PER_FT = VSD_HEIGHT_PX / MAX_ALT_FT;
         const FIXED_X_SCALE_PX_PER_NM = 4;
         
-        // 1. Build Profile (Static)
+        // --- 2. Build the Profile (Only once) ---
         if (vsdPanel.dataset.profileBuilt !== 'true' || vsdPanel.dataset.planId !== planId) {
+            // ... (VSD profile, label, and Y-axis generation logic is unchanged) ...
             let flatWaypointObjects = JSON.parse(JSON.stringify(originalFlatWaypointObjects));
             if (flatWaypointObjects.length > 0) {
                 const lastIdx = flatWaypointObjects.length - 1;
-                if (flatWaypointObjects[0].altitude == null) flatWaypointObjects[0].altitude = plan?.origin?.elevation_ft || 0;
+                if (flatWaypointObjects[0].altitude == null) {
+                    flatWaypointObjects[0].altitude = plan?.origin?.elevation_ft || 0;
+                }
                 if (flatWaypointObjects[lastIdx].altitude == null) {
                     const prevAlt = (lastIdx > 0) ? flatWaypointObjects[lastIdx - 1]?.altitude : null;
                     flatWaypointObjects[lastIdx].altitude = (prevAlt != null) ? prevAlt : (plan?.destination?.elevation_ft || 0);
                 }
                 for (let i = 1; i < lastIdx; i++) {
                     const wp = flatWaypointObjects[i];
-                    if (wp.altitude == null || (typeof wp.altitude === 'number' && wp.altitude <= 0)) wp.altitude = null;
+                    if (wp.altitude == null || (typeof wp.altitude === 'number' && wp.altitude <= 0)) {
+                        wp.altitude = null;
+                    }
                 }
                 let lastValidAltIndex = 0; 
                 for (let i = 1; i < flatWaypointObjects.length; i++) {
@@ -5585,6 +5794,7 @@ function updateAircraftInfoWindow(baseProps, plan, sortedRoutePoints) {
                             const startAlt = flatWaypointObjects[gapStartIndex].altitude;
                             const endAlt = flatWaypointObjects[gapEndIndex].altitude;
                             const numStepsInGap = gapEndIndex - gapStartIndex;
+
                             for (let j = 1; j < numStepsInGap; j++) {
                                 const stepIndex = gapStartIndex + j;
                                 const fraction = j / numStepsInGap;
@@ -5622,11 +5832,13 @@ function updateAircraftInfoWindow(baseProps, plan, sortedRoutePoints) {
                 const wpAltFt = wp.altitude; 
                 const wpAltPx = VSD_HEIGHT_PX - (wpAltFt * Y_SCALE_PX_PER_FT);
                 current_x_px = wp.cumulativeNM * FIXED_X_SCALE_PX_PER_NM;
+
                 if (i === 0) {
                     path_d = `M ${current_x_px} ${wpAltPx}`;
                 } else {
                     path_d += ` L ${current_x_px} ${wpAltPx}`;
                 }
+
                 let label_top_px;
                 let label_class = '';
                 if (current_x_px - last_label_x_px < MIN_LABEL_SPACING_PX) {
@@ -5642,7 +5854,12 @@ function updateAircraftInfoWindow(baseProps, plan, sortedRoutePoints) {
                     label_top_px = wpAltPx - 42;
                 }
                 last_label_x_px = current_x_px;
-                labels_html += `<div class="vsd-wp-label ${label_class}" style="left: ${current_x_px}px; top: ${label_top_px}px;"><span class="wp-name">${wp.identifier}</span><span class="wp-alt">${Math.round(wpAltFt)}ft</span></div>`;
+
+                labels_html += `
+                    <div class="vsd-wp-label ${label_class}" style="left: ${current_x_px}px; top: ${label_top_px}px;">
+                        <span class="wp-name">${wp.identifier}</span>
+                        <span class="wp-alt">${Math.round(wpAltFt)}ft</span>
+                    </div>`;
             }
             
             vsdGraphContent.style.width = `${current_x_px + 100}px`;
@@ -5653,8 +5870,9 @@ function updateAircraftInfoWindow(baseProps, plan, sortedRoutePoints) {
             vsdPanel.dataset.planId = planId;
         }
         
-        // 2. Build Flown Path (Dynamic)
+        // --- 3. Build/Update Flown Altitude Path ---
         if (vsdFlownPath && hasPlan && originalFlatWaypointObjects.length > 0) {
+            // ... (VSD flown path logic is unchanged) ...
             let flown_path_d = "";
             let lastFlownLat, lastFlownLon;
             let currentFlightRoutePoints = [...sortedRoutePoints]; 
@@ -5685,7 +5903,7 @@ function updateAircraftInfoWindow(baseProps, plan, sortedRoutePoints) {
                 latitude: baseProps.position.lat,
                 longitude: baseProps.position.lon,
                 altitude: baseProps.position.alt_ft,
-                groundSpeed: baseProps.position.gs_kt
+                groundSpeed: baseProps.position.gs_kt // <-- Pass speed
             });
             const flownPathPoints = [];
             let totalActualFlownNM = 0;
@@ -5707,59 +5925,76 @@ function updateAircraftInfoWindow(baseProps, plan, sortedRoutePoints) {
                         segmentDistNM = getDistanceKm(lastFlownLat, lastFlownLon, wpLat, wpLon) / 1.852;
                     }
                     totalActualFlownNM += segmentDistNM;
+                    
+                    // Store Altitude AND Speed
                     flownPathPoints.push({ 
                         x_nm: totalActualFlownNM, 
                         y_px_alt: wpAltPx,
                         y_kts: point.groundSpeed || 0
                     });
+
                     lastFlownLat = wpLat;
                     lastFlownLon = wpLon;
                 }
                 const plannedProgressNM = progressAlongRouteNM;
                 const scaleFactor = (totalActualFlownNM > 0.1 && plannedProgressNM > 0.01) ? (plannedProgressNM / totalActualFlownNM) : 1;
                 
-                // SSD Constants
-                const SSD_HEIGHT_PX = VSD_HEIGHT_PX;
-                const MAX_SPEED_KTS = 600;
+                // ##### MODIFICATION START #####
+                // We must define the speed scale here to draw the path
+                const SSD_HEIGHT_PX = VSD_HEIGHT_PX; // Same height
+                const MAX_SPEED_KTS = 600; // 0-600 kts
                 const Y_SCALE_PX_PER_KT = SSD_HEIGHT_PX / MAX_SPEED_KTS;
                 
-                let flown_speed_path_d = "";
+                let flown_speed_path_d = ""; // [NEW] Path for speed
                 const startSpeedKts = flownPathPoints[0]?.y_kts || 0;
                 const startSpeedPx = SSD_HEIGHT_PX - (startSpeedKts * Y_SCALE_PX_PER_KT);
+                // ##### MODIFICATION END #####
 
                 for (let i = 0; i < flownPathPoints.length; i++) {
                     const point = flownPathPoints[i];
                     const scaled_x_px = point.x_nm * scaleFactor * FIXED_X_SCALE_PX_PER_NM; 
                     
-                    // VSD Altitude
+                    // VSD Altitude Path (Unchanged)
                     if (i === 0) {
                         flown_path_d = `M 0 ${startAltPx}`;
-                        if (flownPathPoints.length === 1) flown_path_d += ` L ${scaled_x_px} ${point.y_px_alt}`;
+                        if (flownPathPoints.length === 1) {
+                            flown_path_d += ` L ${scaled_x_px} ${point.y_px_alt}`;
+                        }
                     } else {
                         flown_path_d += ` L ${scaled_x_px} ${point.y_px_alt}`;
                     }
                     
-                    // SSD Speed
+                    // ##### MODIFICATION START #####
+                    // [NEW] SSD Speed Path
                     const wpSpeedPx = SSD_HEIGHT_PX - (point.y_kts * Y_SCALE_PX_PER_KT);
                     if (i === 0) {
                         flown_speed_path_d = `M 0 ${startSpeedPx}`;
-                         if (flownPathPoints.length === 1) flown_speed_path_d += ` L ${scaled_x_px} ${wpSpeedPx}`;
+                         if (flownPathPoints.length === 1) {
+                            flown_speed_path_d += ` L ${scaled_x_px} ${wpSpeedPx}`;
+                        }
                     } else {
                         flown_speed_path_d += ` L ${scaled_x_px} ${wpSpeedPx}`;
                     }
+                    // ##### MODIFICATION END #####
                 }
+                
                 vsdFlownPath.setAttribute('d', flown_path_d);
                 
-                // Set SSD Path
+                // ##### MODIFICATION START #####
+                // [NEW] Set the speed path on the SSD panel
                 const ssdFlownPath = document.querySelector(`#ssd-panel[data-plan-id="${planId}"] #ssd-flown-path`);
-                if (ssdFlownPath) ssdFlownPath.setAttribute('d', flown_speed_path_d);
+                if (ssdFlownPath) {
+                    ssdFlownPath.setAttribute('d', flown_speed_path_d);
+                }
+                // ##### MODIFICATION END #####
             }
         }
 
-        // 3. Update Icon Position & Scrolling
+        // --- 4. Update Aircraft Icon Position (Vertical) ---
         const currentAltPx = VSD_HEIGHT_PX - (altitude * Y_SCALE_PX_PER_FT);
         vsdAircraftIcon.style.top = `${currentAltPx}px`;
 
+        // --- 5. Scroll the Graph (Horizontal) ---
         if (vsdGraphWindow && vsdGraphWindow.clientWidth > 0) {
             const distanceFlownNM = progressAlongRouteNM; 
             const scrollOffsetPx = (distanceFlownNM * FIXED_X_SCALE_PX_PER_NM);
@@ -5780,27 +6015,44 @@ function updateAircraftInfoWindow(baseProps, plan, sortedRoutePoints) {
             vsdGraphContent.style.transform = `translateX(${translateX - 35}px)`;
             vsdAircraftIcon.style.left = `75px`;
         }
+        
+        // --- 6. [MODIFIED] Update Data Bar's V/S (using querySelector) ---
+        const vsdSummaryVS = vsdPanel.closest('.ac-tab-pane').querySelector('#ac-vs');
+        if (vsdSummaryVS) {
+            vsdSummaryVS.innerHTML = `<i class="fa-solid ${vs > 100 ? 'fa-arrow-up' : vs < -100 ? 'fa-arrow-down' : 'fa-minus'}"></i> ${Math.round(vs)}<span class="unit">fpm</span>`;
+        }
     });
+    // --- [END VSD LOGIC] ---
 
-    // SSD Logic
+
+    // ##### MODIFICATION START #####
+    // --- [NEW] SSD Panel Logic ---
     ssdPanels.forEach(ssdPanel => {
         if (!hasPlan) return;
+        
+        // Find elements *relative* to this specific ssdPanel
         const ssdAircraftIcon = ssdPanel.querySelector('#ssd-aircraft-icon');
         const ssdGraphWindow = ssdPanel.querySelector('#ssd-graph-window');
         const ssdGraphContent = ssdPanel.querySelector('#ssd-graph-content');
         const ssdFlownPath = ssdPanel.querySelector('#ssd-flown-path');
         const ssdWpLabels = ssdPanel.querySelector('#ssd-waypoint-labels');
+
         if (!ssdGraphContent || !ssdAircraftIcon) return;
 
+        // --- 1. Define SSD scales ---
         const SSD_HEIGHT_PX = ssdGraphContent.clientHeight || 240;
-        const MAX_SPEED_KTS = 600;
+        const MAX_SPEED_KTS = 600; // 0-600 kts
         const Y_SCALE_PX_PER_KT = SSD_HEIGHT_PX / MAX_SPEED_KTS;
-        const FIXED_X_SCALE_PX_PER_NM = 4;
+        const FIXED_X_SCALE_PX_PER_NM = 4; // Must match VSD
         
+        // --- 2. Build the Profile (Only once) ---
         if (ssdPanel.dataset.profileBuilt !== 'true' || ssdPanel.dataset.planId !== planId) {
             let flatWaypointObjects = JSON.parse(JSON.stringify(originalFlatWaypointObjects));
+
+            // Build Y-Axis for Speed
             if (ssdGraphWindow && !ssdGraphWindow.querySelector('#ssd-y-axis')) {
                 let yAxisHtml = '<div id="ssd-y-axis">';
+                // Labels every 100kts, lines every 50kts
                 const speedLabels = [100, 200, 300, 400, 500]; 
                 for (const spd of speedLabels) {
                     const yPos = SSD_HEIGHT_PX - (spd * Y_SCALE_PX_PER_KT);
@@ -5810,6 +6062,7 @@ function updateAircraftInfoWindow(baseProps, plan, sortedRoutePoints) {
                 ssdGraphWindow.insertAdjacentHTML('afterbegin', yAxisHtml);
             }
             
+            // Build Waypoint Labels (simpler, just name)
             let labels_html = "";
             let current_x_px = 0;
             let last_label_x_px = -1000;
@@ -5817,19 +6070,28 @@ function updateAircraftInfoWindow(baseProps, plan, sortedRoutePoints) {
             const MIN_LABEL_SPACING_PX = 80;
             
             if (flatWaypointObjects.length === 0) return;
+
             for (let i = 0; i < flatWaypointObjects.length; i++) {
                 const wp = flatWaypointObjects[i];
                 current_x_px = wp.cumulativeNM * FIXED_X_SCALE_PX_PER_NM;
+
                 let label_y_pos_class = '';
                 if (current_x_px - last_label_x_px < MIN_LABEL_SPACING_PX) {
-                    stagger_level = 1 - stagger_level;
+                    stagger_level = 1 - stagger_level; // Toggle 0 and 1
                 } else {
                     stagger_level = 0;
                 }
+                
                 label_y_pos_class = (stagger_level === 1) ? 'low-label' : 'high-label';
                 last_label_x_px = current_x_px;
-                labels_html += `<div class="ssd-wp-label ${label_y_pos_class}" style="left: ${current_x_px}px;">${wp.identifier}</div>`;
+
+                labels_html += `
+                    <div class="ssd-wp-label ${label_y_pos_class}" style="left: ${current_x_px}px;">
+                        ${wp.identifier}
+                    </div>`;
             }
+            
+            // Set width of content
             ssdGraphContent.style.width = `${current_x_px + 100}px`;
             ssdFlownPath.closest('svg').style.width = `${current_x_px + 100}px`;
             ssdWpLabels.innerHTML = labels_html;
@@ -5837,10 +6099,17 @@ function updateAircraftInfoWindow(baseProps, plan, sortedRoutePoints) {
             ssdPanel.dataset.planId = planId;
         }
         
+        // --- 3. Build/Update Flown Speed Path ---
+        // This is now handled inside the VSD loop (search for 'flown_speed_path_d')
+        // to avoid duplicating the path calculation.
+        
+        // --- 4. Update Aircraft Icon Position (Vertical) ---
         const currentSpeedKts = gs || 0;
         const currentSpeedPx = SSD_HEIGHT_PX - (currentSpeedKts * Y_SCALE_PX_PER_KT);
         ssdAircraftIcon.style.top = `${currentSpeedPx}px`;
 
+        // --- 5. Scroll the Graph (Horizontal) ---
+        // This MUST be identical to the VSD scrolling logic
         if (ssdGraphWindow && ssdGraphWindow.clientWidth > 0) {
             const distanceFlownNM = progressAlongRouteNM; 
             const scrollOffsetPx = (distanceFlownNM * FIXED_X_SCALE_PX_PER_NM);
@@ -5855,6 +6124,7 @@ function updateAircraftInfoWindow(baseProps, plan, sortedRoutePoints) {
             const iconLeftPx = scrollOffsetPx + finalTranslateX;
             ssdAircraftIcon.style.left = `${iconLeftPx}px`;
         } else {
+            // Fallback for when clientWidth is 0
             const distanceFlownNM = progressAlongRouteNM;
             const scrollOffsetPx = (distanceFlownNM * FIXED_X_SCALE_PX_PER_NM);
             const translateX = 75 - scrollOffsetPx; 
@@ -5862,26 +6132,52 @@ function updateAircraftInfoWindow(baseProps, plan, sortedRoutePoints) {
             ssdAircraftIcon.style.left = `75px`;
         }
     });
+    // --- [END SSD LOGIC] ---
+    // ##### MODIFICATION END #####
 
-    // --- Global Updates ---
+
+    // --- [MODIFIED] Update Other DOM Elements (using helpers) ---
     styleAll('#ac-progress-bar', 'width', `${progress.toFixed(1)}%`);
     updateAll('#ac-phase-indicator', `<i class="fa-solid ${phaseIcon}"></i> ${flightPhase}`, true);
-    document.querySelectorAll('#ac-phase-indicator').forEach(el => el.className = `flight-phase-indicator ${phaseClass}`);
-    // [FIX] Now atdTime is available
+    
+    // Set the class separately as it's a list
+    const phaseIndicators = document.querySelectorAll('#ac-phase-indicator');
+    phaseIndicators.forEach(el => {
+        el.className = `flight-phase-indicator ${phaseClass}`;
+    });
+
+    // --- Update Times and Flags ---
+    const atdTimestamp = (sortedRoutePoints && sortedRoutePoints.length > 0) ? sortedRoutePoints[0].date : null;
+    const atdTime = atdTimestamp ? formatTimeFromTimestamp(atdTimestamp) : '--:--';
+    let etaTime = '--:--';
+    if (baseProps.position.gs_kt > 50 && totalDistanceNM > 0) {
+        const eteHours = distanceToDestNM / baseProps.position.gs_kt;
+        if (eteHours > 0 && eteHours < 48) { 
+            const eteMs = eteHours * 3600 * 1000;
+            const etaTimestamp = new Date(Date.now() + eteMs);
+            etaTime = formatTimeFromTimestamp(etaTimestamp);
+        }
+    }
+    const depCountryCode = airportsData[departureIcao]?.country ? airportsData[departureIcao].country.toLowerCase() : '';
+    const arrCountryCode = airportsData[arrivalIcao]?.country ? airportsData[arrivalIcao].country.toLowerCase() : '';
+    const depFlagSrc = depCountryCode ? `https://flagcdn.com/w20/${depCountryCode}.png` : '';
+    const arrFlagSrc = arrCountryCode ? `https://flagcdn.com/w20/${arrCountryCode}.png` : '';
+
     updateAll('#ac-bar-atd', `${atdTime} Z`);
     updateAll('#ac-bar-eta', `${etaTime} Z`);
     
     document.querySelectorAll('#ac-bar-dep-flag').forEach(el => {
-        el.src = depFlagSrc; el.alt = depCountryCode; el.style.display = depCountryCode ? 'block' : 'none'; 
+        el.src = depFlagSrc; 
+        el.alt = depCountryCode; 
+        el.style.display = depCountryCode ? 'block' : 'none'; 
     });
     document.querySelectorAll('#ac-bar-arr-flag').forEach(el => {
-        el.src = arrFlagSrc; el.alt = arrCountryCode; el.style.display = arrCountryCode ? 'block' : 'none'; 
+        el.src = arrFlagSrc; 
+        el.alt = arrCountryCode; 
+        el.style.display = arrCountryCode ? 'block' : 'none'; 
     });
-    
-    // Update Vertical Speed in the new Nav Data panel (Moved from VSD section)
-    updateAll('#ac-vs', `<i class="fa-solid ${vs > 100 ? 'fa-arrow-up' : vs < -100 ? 'fa-arrow-down' : 'fa-minus'}"></i> ${Math.round(vs)}<span class="unit" style="font-size:0.6rem; margin-left:2px;">fpm</span>`, true);
 
-    // Update Images
+    // --- Update Aircraft Image (using querySelectorAll) ---
     const overviewPanels = document.querySelectorAll('#ac-overview-panel');
     overviewPanels.forEach(overviewPanel => {
         const sanitizeFilename = (name) => {
