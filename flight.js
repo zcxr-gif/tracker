@@ -5254,32 +5254,27 @@ function populateAircraftInfoWindow(baseProps, plan, sortedRoutePoints) {
                                 </svg>
                             </div>
                         </div>
-                        <div id="nd-container" style="background: transparent; overflow: hidden; display: flex; justify-content: center; height: 380px;">
+                        <div id="nd-container" style="background: transparent; overflow: hidden; display: flex; justify-content: center; height: 480px;">
                             <iframe id="nav-display-frame" src="nav.html" style="width: 320px; height: 100%; border: none;" scrolling="no"></iframe>
                         </div>
                     </div>
                     
-                    <!-- FMS LEGS MODULE (Replaces Future Module Placeholder) -->
                     <div id="fms-legs-module" class="fms-module-container">
                         <div class="fms-header">
                             <span class="fms-title">ACTIVE FLIGHT PLAN</span>
                             <span class="fms-page-count">1/1</span>
                         </div>
                         
-                        <!-- Column Headers -->
                         <div class="fms-columns">
                             <span class="col-wpt">LEGS</span>
                             <span class="col-data text-center">CRS</span>
                             <span class="col-data text-right">DIST</span>
                         </div>
 
-                        <!-- Scrolling List Container -->
                         <div id="fms-legs-list" class="fms-list-scrollarea">
-                            <!-- Content injected by JS -->
                             <div class="fms-empty-state">NO ROUTE LOADED</div>
                         </div>
                         
-                        <!-- Bottom Info Bar -->
                         <div class="fms-footer">
                             <div class="fms-stat">
                                 <span class="stat-label">DTG</span>
