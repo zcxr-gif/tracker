@@ -623,10 +623,12 @@ function injectCustomStyles() {
             gap: 16px; 
         }
         
-        /* --- FMS MODULE STYLES --- */
+        /* --- FMS MODULE STYLES (FIXED HEIGHT) --- */
         .fms-module-container {
-            height: 100%;
-            min-height: 380px; /* Match PFD height */
+            /* [FIX] Fixed height to match PFD, preventing expansion */
+            height: 380px; 
+            max-height: 380px;
+            
             background: #000;
             color: #00e600; /* Retro FMS Green */
             font-family: 'Consolas', 'Monaco', 'Courier New', monospace;
@@ -635,8 +637,9 @@ function injectCustomStyles() {
             border: 2px solid #333;
             border-radius: 4px;
             box-shadow: inset 0 0 20px rgba(0,0,0,0.8);
-            overflow: hidden;
             box-sizing: border-box;
+            /* No overflow here, the scrollarea handles it */
+            overflow: hidden; 
         }
 
         .fms-header {
@@ -648,6 +651,7 @@ function injectCustomStyles() {
             font-size: 0.8rem;
             font-weight: bold;
             color: #fff;
+            flex-shrink: 0; /* Prevent header from shrinking */
         }
 
         .fms-columns {
@@ -657,12 +661,34 @@ function injectCustomStyles() {
             border-bottom: 1px dashed #333;
             font-size: 0.7rem;
             color: #00a8ff; /* Cyan headers */
+            flex-shrink: 0; /* Prevent header from shrinking */
         }
 
+        /* --- [FIX] SCROLL AREA WITH CUSTOM SCROLLBAR --- */
         .fms-list-scrollarea {
             flex-grow: 1;
             overflow-y: auto;
             padding: 5px 0;
+            
+            /* Firefox Scrollbar */
+            scrollbar-width: thin;
+            scrollbar-color: #333 #000;
+        }
+
+        /* Webkit (Chrome/Safari/Edge) Custom Scrollbar */
+        .fms-list-scrollarea::-webkit-scrollbar {
+            width: 6px;
+        }
+        .fms-list-scrollarea::-webkit-scrollbar-track {
+            background: #000;
+        }
+        .fms-list-scrollarea::-webkit-scrollbar-thumb {
+            background-color: #333;
+            border-radius: 3px;
+            border: 1px solid #111;
+        }
+        .fms-list-scrollarea::-webkit-scrollbar-thumb:hover {
+            background-color: #555;
         }
 
         /* Individual Rows */
@@ -720,6 +746,7 @@ function injectCustomStyles() {
             border-top: 1px solid #333;
             display: flex;
             justify-content: space-between;
+            flex-shrink: 0; /* Prevent footer from shrinking */
         }
 
         .fms-stat { display: flex; gap: 8px; font-size: 0.8rem; }
@@ -728,6 +755,7 @@ function injectCustomStyles() {
         
         .fms-empty-state { text-align: center; padding: 20px; color: #555; font-style: italic; }
 
+        /* ... (Rest of your styles for Nav Data Panel, Aircraft Overview, etc. remain unchanged) ... */
         /* --- [REVAMPED] NAV DATA PANEL STYLES --- */
         #location-data-panel {
             background: #0f1115; /* Deep matte black */
@@ -6348,6 +6376,10 @@ function updateFmsLegsModule(plan, currentPos) {
         return;
     }
 
+    // --- FIX START: Capture current scroll position before update ---
+    const previousScrollTop = listContainer.scrollTop;
+    // --- FIX END ---
+
     let html = '';
     let globalLeafIndex = 0; // Tracks index of actual flyable waypoints (for active highlighting)
     
@@ -6379,11 +6411,6 @@ function updateFmsLegsModule(plan, currentPos) {
         if (hasChildren) {
             let typeTag = 'PROC'; // Default
             let typeClass = '';
-
-            // LOGIC requested: 
-            // "Near departure + children = STAR"
-            // "Near arrival + children = SID"
-            // (Implementing exactly as requested, though standard aviation is opposite)
             
             if (index <= 2) { 
                 typeTag = 'STAR'; // Requested logic
@@ -6449,13 +6476,29 @@ function updateFmsLegsModule(plan, currentPos) {
 
     listContainer.innerHTML = html;
 
-    // --- 5. Scroll Active Leg into View ---
-    setTimeout(() => {
-        const activeRow = listContainer.querySelector('.active-leg');
-        if (activeRow) {
-            activeRow.scrollIntoView({ behavior: 'smooth', block: 'center' });
-        }
-    }, 100);
+    // --- FIX START: Restore scroll position immediately ---
+    // This ensures smooth updates without jumping if user is manually scrolling
+    if (previousScrollTop > 0) {
+        listContainer.scrollTop = previousScrollTop;
+    }
+    // --- FIX END ---
+
+    // --- FIX START: Scroll Active Leg into View (ONCE ONLY) ---
+    // This logic runs based on the 'dataset' attribute.
+    // Since the FMS container HTML is destroyed/recreated every time a NEW aircraft is selected,
+    // the 'dataset.initialScrollComplete' is naturally wiped clean for new aircraft.
+    // It persists only during the live updates of the CURRENT aircraft.
+    if (listContainer.dataset.initialScrollComplete !== 'true') {
+        setTimeout(() => {
+            const activeRow = listContainer.querySelector('.active-leg');
+            if (activeRow) {
+                activeRow.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                // Mark as done so we don't hijack the user's scroll on the next update
+                listContainer.dataset.initialScrollComplete = 'true';
+            }
+        }, 100);
+    }
+    // --- FIX END ---
 
     // --- 6. Footer Stats (Totals) ---
     if(totalDistEl && document.getElementById('ac-dist')) {
