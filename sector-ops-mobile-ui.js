@@ -78,6 +78,7 @@ const MobileUIHandler = {
 
     /**
      * [MODIFIED] Injects all the CSS for the new HUD-themed floating islands.
+     * Includes improved styling for the mobile search bar.
      */
     injectMobileStyles() {
         const styleId = 'mobile-sector-ops-styles';
@@ -108,51 +109,140 @@ const MobileUIHandler = {
             }
 
             /* ====================================================================
-            --- [START] Search Bar Mobile Positioning Fix (High Top Edge) ---
+            --- [START] UPDATED: Search Bar Mobile Positioning (Glass Pill) ---
             ==================================================================== */
             @media (max-width: ${this.CONFIG.breakpoint}px) {
                 #sector-ops-search-container {
                     position: absolute !important;
-                    /* Aligns with the very top edge / safe area, matching HUD Top Window */
-                    top: env(safe-area-inset-top, 10px) !important; 
+                    /* Sits lower to clear the notch/status bar gracefully */
+                    top: calc(env(safe-area-inset-top, 20px) + 10px) !important; 
                     left: 50% !important;
                     transform: translateX(-50%) !important;
-                    /* Match the width/margins of the HUD islands (10px side margin) */
-                    width: calc(100% - 20px) !important; 
-                    max-width: 500px !important;
+                    /* Slightly narrower than full width for the floating look */
+                    width: calc(100% - 32px) !important; 
+                    max-width: 450px !important;
                     z-index: 1030 !important;
+                    pointer-events: auto !important;
                 }
 
                 #sector-ops-search-container .search-bar-container {
-                    background: var(--hud-bg) !important;
-                    backdrop-filter: blur(var(--hud-blur)) !important;
-                    -webkit-backdrop-filter: blur(var(--hud-blur)) !important;
-                    border: 1px solid var(--hud-border) !important;
-                    border-radius: 12px !important; /* Matches HUD island radius */
-                    box-shadow: 0 4px 20px rgba(0,0,0,0.4) !important;
-                    padding: 8px 16px !important;
-                }
-
-                #sector-ops-search-input {
-                    font-size: 16px !important; /* Prevents iOS zoom on focus */
+                    display: flex !important;
+                    align-items: center !important;
+                    /* Darker, richer background for better contrast */
+                    background: rgba(15, 20, 35, 0.90) !important;
+                    backdrop-filter: blur(20px) !important;
+                    -webkit-backdrop-filter: blur(20px) !important;
+                    
+                    border: 1px solid rgba(255, 255, 255, 0.1) !important;
+                    /* Full pill shape */
+                    border-radius: 50px !important; 
+                    
+                    box-shadow: 0 8px 32px rgba(0, 0, 0, 0.5) !important;
+                    padding: 0 6px !important; /* Padding for the icons */
+                    height: 50px !important;
+                    transition: all 0.3s ease !important;
                 }
                 
-                /* Dropdown positioning fix */
+                /* Focus state glow */
+                #sector-ops-search-container:focus-within .search-bar-container {
+                    border-color: var(--hud-accent) !important;
+                    box-shadow: 0 8px 32px rgba(0, 0, 0, 0.6), 0 0 15px rgba(0, 168, 255, 0.2) !important;
+                }
+
+                /* Search Icon */
+                #sector-ops-search-container .search-icon-label {
+                    display: flex !important;
+                    align-items: center !important;
+                    justify-content: center !important;
+                    width: 40px !important;
+                    height: 40px !important;
+                    margin: 0 !important;
+                    color: var(--hud-accent) !important;
+                    opacity: 0.8;
+                }
+
+                /* Input Field */
+                #sector-ops-search-input {
+                    flex-grow: 1 !important;
+                    height: 100% !important;
+                    background: transparent !important;
+                    border: none !important;
+                    color: #fff !important;
+                    font-family: 'Segoe UI', sans-serif !important;
+                    font-weight: 500 !important;
+                    font-size: 16px !important; /* Prevents iOS zoom */
+                    padding: 0 8px !important;
+                    outline: none !important;
+                    border-radius: 0 !important;
+                    -webkit-appearance: none !important;
+                }
+                
+                #sector-ops-search-input::placeholder {
+                    color: rgba(255, 255, 255, 0.4) !important;
+                }
+
+                /* Clear Button */
+                #sector-ops-search-clear {
+                    background: rgba(255, 255, 255, 0.1) !important;
+                    color: #fff !important;
+                    border: none !important;
+                    border-radius: 50% !important;
+                    width: 28px !important;
+                    height: 28px !important;
+                    display: flex !important;
+                    align-items: center !important;
+                    justify-content: center !important;
+                    margin-right: 6px !important;
+                    cursor: pointer !important;
+                    font-size: 0.9rem !important;
+                }
+                
+                /* Results Dropdown - Floating Card Style */
                 #search-results-dropdown {
-                    top: 105% !important;
-                    left: 0 !important;
-                    right: 0 !important;
+                    margin-top: 12px !important; /* Gap between bar and results */
                     width: 100% !important;
-                    border-radius: 12px !important;
-                    background: rgba(10, 15, 28, 0.95) !important;
-                    backdrop-filter: blur(15px) !important;
-                    border: 1px solid rgba(255,255,255,0.1) !important;
+                    background: rgba(15, 20, 35, 0.95) !important;
+                    backdrop-filter: blur(25px) !important;
+                    -webkit-backdrop-filter: blur(25px) !important;
+                    border: 1px solid rgba(255, 255, 255, 0.08) !important;
+                    border-radius: 16px !important;
                     overflow: hidden !important;
-                    box-shadow: 0 10px 30px rgba(0,0,0,0.5) !important;
+                    box-shadow: 0 15px 50px rgba(0, 0, 0, 0.6) !important;
+                    max-height: 60vh !important;
+                    overflow-y: auto !important;
+                }
+                
+                /* Result Items */
+                .search-result-item {
+                    padding: 14px 20px !important;
+                    border-bottom: 1px solid rgba(255, 255, 255, 0.05) !important;
+                    display: flex !important;
+                    align-items: center !important;
+                    gap: 15px !important;
+                }
+                
+                .search-result-item i {
+                    color: var(--hud-accent) !important;
+                    font-size: 1.1rem !important;
+                    opacity: 0.8;
+                }
+                
+                .search-result-info strong {
+                    font-size: 1rem !important;
+                    color: #fff !important;
+                }
+                
+                .search-result-info small {
+                    font-size: 0.85rem !important;
+                    color: #9fa8da !important;
+                }
+                
+                .search-result-item:active {
+                    background: rgba(0, 168, 255, 0.15) !important;
                 }
             }
             /* ====================================================================
-            --- [END] Search Bar Mobile Positioning Fix ---
+            --- [END] Search Bar Mobile Positioning ---
             ==================================================================== */
 
             /* --- [MODIFIED] Overlay (now shared) --- */
