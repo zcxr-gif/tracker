@@ -214,23 +214,19 @@
         /* === TRANSFORMED LAYOUT FOR EMBEDDED MODE === */
         /* ================================================= */
         
-        /* When embedded, we split the view: Map on top, Buttons on bottom */
-        
         body.embedded .cockpit-container {
-            /* Ensure container fills height */
             height: 100%; 
             justify-content: flex-start;
         }
 
         body.embedded .display-bezel {
-            /* The map takes all available remaining space */
             flex: 1;
-            min-height: 0; /* Important for flex shrinking */
+            min-height: 0; 
             width: 100%;
-            border-radius: 0; /* Flush edges */
-            border: none;     /* Remove thick border to maximize space */
+            border-radius: 0; 
+            border: none;     
             border-bottom: 1px solid #000;
-            padding: 0;       /* Remove padding to maximize CRT size */
+            padding: 0;       
         }
         
         body.embedded .crt-container {
@@ -238,29 +234,23 @@
             border: none;
         }
         
-        /* Hide screws in embedded mode to save space */
         body.embedded .screw { display: none; }
 
-        /* The Control Panel becomes the bottom bar */
         body.embedded .control-panel {
-            display: flex !important; /* Unhide it */
+            display: grid !important;
             width: 100%;
-            height: auto; /* Let it grow based on buttons */
+            height: auto; 
             margin: 0;
             border-radius: 0;
             box-shadow: none;
             border: none;
             border-top: 2px solid var(--border-main);
-            background: #111; /* Darker background for contrast */
-            
-            /* Grid Layout for controls */
-            display: grid !important;
-            grid-template-columns: 1fr 2.5fr; /* Mode (left) vs Range (right) */
+            background: #111; 
+            grid-template-columns: 1fr 2.5fr; 
             gap: 8px;
             padding: 12px;
         }
 
-        /* Hide Labels & Manual Controls */
         body.embedded .label-text,
         body.embedded .footer-text,
         body.embedded #manual-controls-hdg,
@@ -268,9 +258,8 @@
             display: none !important;
         }
 
-        /* Bigger Buttons Styling */
         body.embedded .control-group {
-            gap: 0; /* Remove gap between label (hidden) and buttons */
+            gap: 0; 
             height: 100%;
         }
         
@@ -283,10 +272,9 @@
         }
         
         body.embedded .mode-group {
-            flex-direction: column; /* Stack ROSE/ARC vertically? Or horizontal? Let's do vertical for big targets */
+            flex-direction: column; 
         }
 
-        /* Range buttons: 2 rows of 3 */
         body.embedded .button-group {
             grid-template-columns: repeat(3, 1fr);
             grid-template-rows: repeat(2, 1fr);
@@ -296,13 +284,13 @@
             background: #1f2937;
             border: 1px solid #374151;
             color: #9ca3af;
-            font-size: 0.9rem; /* Much bigger font */
+            font-size: 0.9rem; 
             font-weight: 700;
             border-radius: 6px;
             display: flex;
             align-items: center;
             justify-content: center;
-            min-height: 36px; /* Taller touch target */
+            min-height: 36px; 
         }
 
         body.embedded .range-btn:hover {
@@ -380,8 +368,14 @@
         const canvas = document.getElementById('ndCanvas');
         const ctx = canvas.getContext('2d');
         
-        // Use slightly smaller scale for embedded mode to fit better
         const GLOBAL_SCALE = window.self !== window.top ? 0.95 : 0.85; 
+        
+        // CONSTANTS FOR ARC GEOMETRY
+        // 1.2 PI = 216 deg (Left), 1.8 PI = 324 deg (Right). Center is 270 (Top).
+        // Total spread = 108 degrees (+/- 54 from center).
+        const ARC_START_ANGLE = Math.PI * 1.2;
+        const ARC_END_ANGLE = Math.PI * 1.8;
+        const ARC_FOV_DEGREES = 54; // Used for tick clipping
 
         let state = {
             mode: 'ARC',
@@ -404,7 +398,6 @@
         if (window.self !== window.top) {
             document.body.classList.add('embedded');
         } else {
-            // ONLY load dummy data if we are running Standalone
             state.flightPlan = [
                 { name: "WPT01", x: -12, y: 0, alt: "FL120" },   
                 { name: "WPT02", x: -30, y: -10, alt: "2500" }, 
@@ -428,16 +421,12 @@
 
         function resize() {
             const rect = canvas.getBoundingClientRect();
-            // Use whatever size CSS gave us
             const width = rect.width;
             const height = rect.height;
-            
-            // Set internal resolution to match CSS size (x2 for retina sharpness)
             canvas.width = width * 2;
             canvas.height = height * 2;
         }
         window.addEventListener('resize', resize);
-        // Initial resize
         setTimeout(resize, 0);
 
         function updatePhysics() {
@@ -453,7 +442,6 @@
             ctx.fillStyle = COLORS.bg;
             ctx.fillRect(0, 0, w, h);
 
-            // Center origin
             ctx.save();
             ctx.translate(w/2, h/2); 
             ctx.scale(GLOBAL_SCALE, GLOBAL_SCALE);
@@ -471,12 +459,12 @@
                 arcRadius = Math.min(scaledW, scaledH) * 0.42; 
             } else {
                 arcCenterX = 0;
-                // Adjusted for the new frameless layout
+                // Push aircraft symbol slightly down to maximize arc area
                 arcCenterY = (scaledH / 2) - 85; 
                 arcRadius = Math.min(scaledW, scaledH) * 0.70; 
             }
 
-            // Rotating Map Area (Ticks and Map Items)
+            // Rotating Map Area
             ctx.save();
             ctx.translate(arcCenterX, arcCenterY);
             ctx.rotate(-state.heading * Math.PI / 180);
@@ -588,8 +576,8 @@
                 if (!isRoseMode) {
                     let rel = Math.abs(d - state.heading);
                     if (rel > 180) rel = 360 - rel;
-                    // FIX: Reduced from 110 to 55 to match the drawn Arc Boundary width
-                    if (rel > 55) continue; 
+                    // Fix: Ensure ticks clip strictly at the same angle as the arc boundary
+                    if (rel > ARC_FOV_DEGREES + 1) continue; 
                 }
 
                 const rad = d * Math.PI / 180;
@@ -635,7 +623,8 @@
             if (isRoseMode) {
                 ctx.arc(cx, cy, innerRadius, 0, 2 * Math.PI);
             } else {
-                ctx.arc(cx, cy, innerRadius, Math.PI * 1.2, Math.PI * 1.8);
+                // Use standardized angles
+                ctx.arc(cx, cy, innerRadius, ARC_START_ANGLE, ARC_END_ANGLE);
             }
             ctx.stroke();
         }
@@ -644,35 +633,70 @@
             ctx.strokeStyle = COLORS.white;
             ctx.setLineDash([5, 5]); 
             ctx.lineWidth = 1; 
+            ctx.fillStyle = COLORS.cyan;
+            ctx.font = `${radius * 0.06}px 'Inconsolata'`;
             
             if (isRoseMode) {
                 ctx.beginPath();
                 ctx.arc(cx, cy, radius * 0.5, 0, Math.PI * 2);
                 ctx.stroke();
+                
+                const midVal = state.range / 2;
+                ctx.textAlign = "right";
+                ctx.fillText(midVal.toString(), cx - (radius*0.5) - 5, cy - 5); 
+
             } else {
+                // --- ARC MODE RINGS ---
+                // Use the EXACT same angles as the Compass Arc for consistency (Corner to Corner)
+                
+                const midRadius = radius * 0.5;
+                const threeQuartersRadius = radius * 0.75;
+                
+                // 1. Middle Ring (Half Range)
                 ctx.beginPath();
-                ctx.arc(cx, cy, radius * 0.5, Math.PI * 1.2, Math.PI * 1.8);
+                ctx.arc(cx, cy, midRadius, ARC_START_ANGLE, ARC_END_ANGLE);
                 ctx.stroke();
                 
+                // 2. Outer Ring (3/4 Range)
                 ctx.beginPath();
-                ctx.arc(cx, cy, radius * 0.75, Math.PI * 1.25, Math.PI * 1.75); 
+                ctx.arc(cx, cy, threeQuartersRadius, ARC_START_ANGLE, ARC_END_ANGLE);
                 ctx.stroke();
-            }
-            ctx.setLineDash([]); 
-            ctx.fillStyle = COLORS.cyan;
-            ctx.font = `${radius * 0.06}px 'Inconsolata'`;
-            ctx.textAlign = "right";
-            
-            const midVal = state.range / 2;
-            const offset = 5;
+                
+                // --- TEXT PLACEMENT ---
+                // Calculate exact coordinates at the END of the arcs to place text like the real aircraft
+                
+                ctx.setLineDash([]); // Reset for text
+                ctx.textAlign = "right";
+                ctx.textBaseline = "middle";
 
-            if (isRoseMode) {
-                 ctx.fillText(midVal.toString(), cx - (radius*0.5) - offset, cy - offset); 
-            } else {
-                 const threeQuarterVal = state.range * 0.75;
-                 ctx.fillText(midVal.toString(), cx - (radius*0.5) - offset, cy - offset); 
-                 ctx.fillText(threeQuarterVal.toString(), cx - (radius*0.75) - offset, cy - offset);
+                const midVal = state.range / 2;
+                const threeQuarterVal = state.range * 0.75;
+                
+                // Helper to get position on the arc
+                const getArcPos = (r, angle) => {
+                    return {
+                        x: cx + r * Math.cos(angle),
+                        y: cy + r * Math.sin(angle)
+                    };
+                };
+
+                // Left side labels (at ARC_START_ANGLE)
+                const pMidLeft = getArcPos(midRadius, ARC_START_ANGLE);
+                const pOuterLeft = getArcPos(threeQuartersRadius, ARC_START_ANGLE);
+                
+                ctx.fillText(midVal.toString(), pMidLeft.x - 8, pMidLeft.y);
+                ctx.fillText(threeQuarterVal.toString(), pOuterLeft.x - 8, pOuterLeft.y);
+
+                // Right side labels (at ARC_END_ANGLE)
+                ctx.textAlign = "left";
+                const pMidRight = getArcPos(midRadius, ARC_END_ANGLE);
+                const pOuterRight = getArcPos(threeQuartersRadius, ARC_END_ANGLE);
+                
+                ctx.fillText(midVal.toString(), pMidRight.x + 8, pMidRight.y);
+                ctx.fillText(threeQuarterVal.toString(), pOuterRight.x + 8, pOuterRight.y);
             }
+            
+            ctx.setLineDash([]); 
         }
 
         function drawAircraftSymbol(cx, cy) {
