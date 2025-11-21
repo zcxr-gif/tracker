@@ -527,7 +527,7 @@ function injectCustomStyles() {
             background: #000; /* Match FMS background */
             border: 2px solid #333; /* Match FMS border */
             border-radius: 4px; /* Match FMS radius */
-            margin-top: 16px;
+            /* MARGIN REMOVED - Handled by parent gap */
             display: flex;
             flex-direction: column;
             box-shadow: inset 0 0 20px rgba(0,0,0,0.8);
@@ -778,11 +778,18 @@ function injectCustomStyles() {
             background: #1C1E2A;
         }
 
-        /* --- PFD/ND Layout --- */
+        /* --- PFD/ND Layout (UPDATED for tighter spacing) --- */
         .pfd-and-location-grid { 
             display: grid; 
             grid-template-columns: 2fr 1fr; 
-            gap: 16px; 
+            gap: 8px; /* REDUCED from 16px */
+        }
+
+        /* New class for the right column wrapper to stack modules tightly */
+        .info-right-col {
+            display: flex;
+            flex-direction: column;
+            gap: 8px; /* This controls the vertical spacing between modules */
         }
         
         /* --- FMS MODULE STYLES --- */
@@ -799,6 +806,7 @@ function injectCustomStyles() {
             box-shadow: inset 0 0 20px rgba(0,0,0,0.8);
             box-sizing: border-box;
             overflow: hidden; 
+            /* MARGIN REMOVED - Handled by parent gap */
         }
         .fms-header {
             background: #111;
@@ -887,7 +895,7 @@ function injectCustomStyles() {
             border: 1px solid #333;
             box-shadow: 0 4px 20px rgba(0,0,0,0.5);
             width: 100%;
-            margin-top: 16px; 
+            /* MARGIN REMOVED - Handled by parent gap */
             display: flex;
             flex-direction: column;
             overflow: hidden;
@@ -1161,7 +1169,7 @@ function injectCustomStyles() {
             background: #000;
             border: 2px solid #333;
             border-radius: 4px;
-            margin-top: 16px;
+            /* MARGIN REMOVED - Handled by parent gap */
             display: flex;
             flex-direction: column;
             box-shadow: inset 0 0 20px rgba(0,0,0,0.8);
@@ -5683,7 +5691,7 @@ function populateAircraftInfoWindow(baseProps, plan, sortedRoutePoints) {
                     </div>
                     
                     <div class="info-right-col">
-                        <div class="seat-sensor-wrapper" id="cockpit-seat-sensor" style="margin-top: 0;">
+                        <div class="seat-sensor-wrapper" id="cockpit-seat-sensor">
                             <div class="sensor-header">
                                 <span class="fms-title">COCKPIT STATE</span>
                                 <span class="fms-page-count"><i class="fa-solid fa-satellite-dish"></i></span>
@@ -5718,7 +5726,7 @@ function populateAircraftInfoWindow(baseProps, plan, sortedRoutePoints) {
                             </div>
                         </div>
 
-                        <div id="fms-legs-module" class="fms-module-container" style="margin-top: 16px; height: 400px; max-height: 400px;">
+                        <div id="fms-legs-module" class="fms-module-container" style="height: 400px; max-height: 400px;">
                             <div class="fms-header">
                                 <span class="fms-title">ACTIVE FLIGHT PLAN</span>
                                 <span class="fms-page-count">1/1</span>
