@@ -1008,12 +1008,13 @@ function injectCustomStyles() {
             position: absolute; 
             inset: 0; 
             z-index: 1; 
+            /* --- MODIFIED: Use Theme Variable for seamless blending --- */
             background: linear-gradient(
                 to bottom,
                 rgba(0, 0, 0, 0.7) 0%, 
                 rgba(0, 0, 0, 0) 35%, 
-                rgba(28, 30, 42, 0.5) 80%, 
-                #1C1E2A 100%
+                rgba(0, 0, 0, 0.2) 80%, 
+                var(--iw-bg-start) 100%
             ); 
         }
         
@@ -1031,10 +1032,11 @@ function injectCustomStyles() {
         .route-summary-overlay { 
             position: relative; 
             padding: 15px 20px 12px 20px; 
+            /* --- MODIFIED: Use Theme Variable --- */
             background: linear-gradient(180deg, 
                 transparent 0%, 
-                rgba(28, 30, 42, 0.9) 40%, 
-                #1C1E2A 100%
+                rgba(0, 0, 0, 0.2) 40%, 
+                var(--iw-bg-start) 100%
             ); 
             display: grid; 
             grid-template-columns: auto 1fr auto; 
@@ -1058,7 +1060,10 @@ function injectCustomStyles() {
         .unified-display-main-content { padding: 16px; flex-grow: 1; display: flex; flex-direction: column; gap: 16px; }
         .ac-tab-pane { display: none; flex-direction: column; gap: 16px; animation: fadeIn 0.4s; }
         .ac-tab-pane.active { display: flex; }
-        .ac-profile-card-new { background: rgba(10, 12, 26, 0.5); border-radius: 12px; border: 1px solid rgba(255, 255, 255, 0.05); padding: 10px; border-top: 3px solid #a33ea3; display: flex; flex-direction: column; gap: 10px; }
+        .ac-profile-card-new { 
+            background: rgba(0, 0, 0, 0.2); /* Neutral / Transparent so theme shows */
+            border-radius: 12px; border: 1px solid rgba(255, 255, 255, 0.05); padding: 10px; border-top: 3px solid #a33ea3; display: flex; flex-direction: column; gap: 10px; 
+        }
         .ac-profile-header { display: flex; justify-content: space-between; align-items: center; padding: 0 5px; }
         .profile-toggle-buttons { display: flex; background: rgba(0,0,0,0.3); border-radius: 6px; }
         .profile-toggle-btn { background: transparent; border: none; color: #9fa8da; padding: 6px 10px; font-size: 0.75rem; font-weight: 600; cursor: pointer; border-radius: 6px; transition: all 0.2s; }
@@ -1354,7 +1359,8 @@ function injectCustomStyles() {
             display: flex;
             justify-content: space-between;
             align-items: center;
-            background: rgba(12, 14, 20, 0.95); 
+            /* --- MODIFIED: Use Theme Variable for tabs to match window --- */
+            background: var(--iw-bg-start);
             border-bottom: 1px solid rgba(255, 255, 255, 0.1);
             padding: 0 20px;
             height: 60px;
