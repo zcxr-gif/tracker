@@ -4602,16 +4602,24 @@ function initializeSectorOpsMap(centerICAO) {
     function clearLiveFlightPath(flightId) {
         if (!sectorOpsMap || !flightId) return;
 
-        // --- [START MODIFICATION] ---
         // Get all layers associated with this flight
-        const layers = sectorOpsLiveFlightPathLayers[flightId];
-        if (!layers) return;
+        const layersObj = sectorOpsLiveFlightPathLayers[flightId];
+        if (!layersObj) return;
 
-        // Loop over all layer types (flown, planDirect, planFull) and remove them
-        Object.values(layers).forEach(layerId => {
-            if (layerId) {
-                if (sectorOpsMap.getLayer(layerId)) sectorOpsMap.removeLayer(layerId);
-                if (sectorOpsMap.getSource(layerId)) sectorOpsMap.removeSource(layerId);
+        const ids = Object.values(layersObj);
+
+        // --- PASS 1: Remove ALL Layers first ---
+        ids.forEach(layerId => {
+            if (layerId && sectorOpsMap.getLayer(layerId)) {
+                sectorOpsMap.removeLayer(layerId);
+            }
+        });
+
+        // --- PASS 2: Remove Sources ---
+        // We do this only after all layers are gone to prevent "Source in use" errors.
+        ids.forEach(sourceId => {
+            if (sourceId && sectorOpsMap.getSource(sourceId)) {
+                sectorOpsMap.removeSource(sourceId);
             }
         });
         
