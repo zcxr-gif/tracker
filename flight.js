@@ -522,6 +522,132 @@ function injectCustomStyles() {
     if (document.getElementById(styleId)) return;
 
     const css = `
+        /* --- VIRTUAL COCKPIT SEAT SENSOR --- */
+.seat-sensor-wrapper {
+    background: #0f1115;
+    border: 1px solid #333;
+    border-radius: 8px;
+    margin-top: 16px; /* Spacing from FMS */
+    padding: 10px;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    box-shadow: inset 0 0 20px rgba(0,0,0,0.8);
+}
+
+.cockpit-view {
+    position: relative;
+    width: 140px;
+    height: 80px;
+    background: #1a1a1a;
+    border-radius: 40px 40px 10px 10px; /* Nose shape */
+    border: 2px solid #444;
+    display: flex;
+    justify-content: space-between;
+    padding: 10px 20px;
+    box-sizing: border-box;
+}
+
+/* The Center Console */
+.cockpit-view::after {
+    content: '';
+    position: absolute;
+    left: 50%;
+    bottom: 10px;
+    transform: translateX(-50%);
+    width: 14px;
+    height: 40px;
+    background: #333;
+    border-radius: 4px;
+    border: 1px solid #555;
+}
+
+.seat {
+    width: 35px;
+    height: 40px;
+    background: #222;
+    border-radius: 6px;
+    border: 2px solid #444;
+    transition: all 0.5s ease;
+    position: relative;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+}
+
+/* Headrest */
+.seat::before {
+    content: '';
+    position: absolute;
+    top: -8px;
+    width: 25px;
+    height: 8px;
+    background: inherit;
+    border-radius: 4px;
+    border: 2px solid #444;
+}
+
+/* --- STATE COLORS & GLOWS --- */
+
+/* State 0: Active Captain (Left Seat) */
+.seat.cpt.active {
+    background: rgba(0, 255, 0, 0.1);
+    border-color: #00ff00;
+    box-shadow: 0 0 15px rgba(0, 255, 0, 0.4);
+}
+.seat.cpt.active::before {
+    border-color: #00ff00;
+    background: #003300;
+}
+
+/* State 3: Relief Pilot/Background (Right Seat) */
+.seat.fo.active {
+    background: rgba(0, 168, 255, 0.1);
+    border-color: #00a8ff;
+    box-shadow: 0 0 15px rgba(0, 168, 255, 0.4);
+}
+.seat.fo.active::before {
+    border-color: #00a8ff;
+    background: #002244;
+}
+
+/* Seat Labels (CPT / FO) */
+.seat::after {
+    content: attr(data-role);
+    font-size: 0.6rem;
+    font-weight: bold;
+    color: #555;
+    margin-top: 2px;
+}
+.seat.active::after {
+    color: #fff;
+    text-shadow: 0 0 5px currentColor;
+}
+
+/* Status Text Below */
+.seat-status-display {
+    margin-top: 8px;
+    font-family: 'Consolas', monospace;
+    font-size: 0.75rem;
+    text-align: center;
+    width: 100%;
+    display: flex;
+    justify-content: space-between;
+    color: #888;
+}
+
+.status-pill {
+    padding: 2px 8px;
+    border-radius: 4px;
+    background: #222;
+    border: 1px solid #333;
+}
+
+.status-pill.active {
+    font-weight: bold;
+}
+.status-pill.cpt-active { color: #00ff00; border-color: #00ff00; }
+.status-pill.fo-active { color: #00a8ff; border-color: #00a8ff; }
         /* --- Sector Ops View Layout --- */
         #view-rosters.active {
             position: absolute;
@@ -2131,6 +2257,8 @@ function handleSocketFlightUpdate(data) {
             isStaff: flight.isStaff,
             isVAMember: flight.isVAMember,
             phase: litePhase,
+            // --- NEW: Capture the simulator state (0=Active, 3=Background) ---
+            state: flight.state, 
             last_update: flight.position.lastReport || data.timestamp
         };
 
@@ -5385,6 +5513,20 @@ function populateAircraftInfoWindow(baseProps, plan, sortedRoutePoints) {
                     </div>
                 </div>
                 
+                <div class="seat-sensor-wrapper" id="cockpit-seat-sensor">
+                    <div class="cockpit-view">
+                        <div id="seat-cpt" class="seat cpt" data-role="CPT"></div>
+                        <div id="seat-fo" class="seat fo" data-role="FO"></div>
+                    </div>
+                    <div class="seat-status-display">
+                        <span id="status-cpt-text" class="status-pill">CMD: ACTIVE</span>
+                        <span id="status-fo-text" class="status-pill">FO: MONITOR</span>
+                    </div>
+                    <div style="font-size: 0.65rem; color: #666; margin-top: 4px; width:100%; text-align:center;" id="seat-narrative-text">
+                        Wait for update...
+                    </div>
+                </div>
+
                 <div id="location-data-panel">
                     <div class="nav-header">
                         <span class="nav-title">NAV DATA</span>
@@ -5546,6 +5688,65 @@ function updateNavPanelData(lat, lon, heading, oat, windDir, windSpd) {
             const distNM = (minDist / 1.852).toFixed(1);
             nearestDistEl.textContent = `${distNM} NM`;
         }
+    }
+}
+
+/**
+ * Updates the Virtual Cockpit visuals based on connection state.
+ * State 0 = Active (Captain). State 3 = Background (FO).
+ */
+function updateSeatSensor(flightProps) {
+    const seatCpt = document.getElementById('seat-cpt');
+    const seatFo = document.getElementById('seat-fo');
+    const statusCpt = document.getElementById('status-cpt-text');
+    const statusFo = document.getElementById('status-fo-text');
+    const narrative = document.getElementById('seat-narrative-text');
+
+    if (!seatCpt || !seatFo) return;
+
+    // 1. DETERMINE STATE
+    // If your backend provides 'state' (0 or 3), use it. 
+    // Otherwise, we infer based on your existing properties.
+    let state = flightProps.state; 
+    
+    // Fallback logic if state is undefined in your feed
+    if (state === undefined) {
+        // Default to 0 (Active) unless explicit.
+        state = 0; 
+    }
+
+    // 2. RESET VISUALS
+    seatCpt.classList.remove('active');
+    seatFo.classList.remove('active');
+    statusCpt.className = 'status-pill';
+    statusFo.className = 'status-pill';
+
+    // 3. APPLY LOGIC
+    if (state === 0) {
+        // --- STATE 0: ACTIVE (Captain) ---
+        seatCpt.classList.add('active');
+        statusCpt.classList.add('cpt-active');
+        statusCpt.innerHTML = '<i class="fa-solid fa-user"></i> CMD: PILOT';
+        statusFo.innerHTML = 'FO: IDLE';
+        
+        if (flightProps.speed < 30) {
+             narrative.textContent = "Captain performing ground ops.";
+        } else {
+             narrative.textContent = "Captain has controls. Manual/AP inputs detected.";
+        }
+
+    } else if (state === 3) {
+        // --- STATE 3: BACKGROUND (Relief/FO) ---
+        seatFo.classList.add('active');
+        statusFo.classList.add('fo-active');
+        statusCpt.innerHTML = 'CMD: REST';
+        statusFo.innerHTML = '<i class="fa-solid fa-robot"></i> FO: FLYING';
+        
+        narrative.textContent = "Captain is away (Background). Relief Pilot monitoring systems.";
+
+    } else {
+        // --- UNKNOWN / DISCONNECTED ---
+        narrative.textContent = "No telemetry. Cockpit dark.";
     }
 }
 
@@ -6428,6 +6629,9 @@ function updateAircraftInfoWindow(baseProps, plan, sortedRoutePoints) {
 
     // --- CALL THE FMS UPDATE ---
     updateFmsLegsModule(plan, baseProps.position);
+
+    // --- NEW: Update Cockpit Seat Sensor ---
+    updateSeatSensor(baseProps);
 }
 
 function updateFmsLegsModule(plan, currentPos) {
