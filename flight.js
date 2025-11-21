@@ -7324,12 +7324,22 @@ function updateFmsLegsModule(plan, currentPos) {
         listContainer.scrollTop = previousScrollTop;
     }
 
-    // --- Scroll Active Leg into View (ONCE) ---
+    // --- [FIXED] Scroll Active Leg into View (ONCE) without scrolling parent window ---
     if (listContainer.dataset.initialScrollComplete !== 'true') {
         setTimeout(() => {
             const activeRow = listContainer.querySelector('.active-leg');
             if (activeRow) {
-                activeRow.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                // Calculate position manually to avoid 'scrollIntoView' bubbling up to the main window
+                const rowTop = activeRow.offsetTop;
+                const rowHeight = activeRow.offsetHeight;
+                const containerHeight = listContainer.clientHeight;
+                
+                // Center the row: Row Top - Half Container + Half Row
+                listContainer.scrollTo({
+                    top: rowTop - (containerHeight / 2) + (rowHeight / 2),
+                    behavior: 'smooth'
+                });
+
                 listContainer.dataset.initialScrollComplete = 'true';
             }
         }, 100);
