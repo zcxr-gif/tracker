@@ -75,7 +75,10 @@ document.addEventListener('DOMContentLoaded', async () => {
         hideNoAtcMarkers: false,
         planDisplayMode: 'none',
         iconColorMode: 'default',
-        showAircraftLabels: false 
+        showAircraftLabels: false,
+        themeStartColor: '#121426', // Default Dark Blue/Black
+        themeEndColor: '#121426',   // Default Dark Blue/Black
+        themeOpacity: 95            // Default 95% opacity
     };
 
     const departureHubs = []; // Empty array
@@ -522,12 +525,17 @@ function injectCustomStyles() {
     if (document.getElementById(styleId)) return;
 
     const css = `
-        /* --- VIRTUAL COCKPIT SEAT SENSOR (Updated for Module Consistency) --- */
+        /* --- CSS VARIABLES FOR THEMING --- */
+        :root {
+            --iw-bg-start: rgba(18, 20, 38, 0.95);
+            --iw-bg-end: rgba(18, 20, 38, 0.95);
+        }
+
+        /* --- VIRTUAL COCKPIT SEAT SENSOR --- */
         .seat-sensor-wrapper {
-            background: #000; /* Match FMS background */
-            border: 2px solid #333; /* Match FMS border */
-            border-radius: 4px; /* Match FMS radius */
-            /* MARGIN REMOVED - Handled by parent gap */
+            background: #000; 
+            border: 2px solid #333; 
+            border-radius: 4px; 
             display: flex;
             flex-direction: column;
             box-shadow: inset 0 0 20px rgba(0,0,0,0.8);
@@ -535,7 +543,6 @@ function injectCustomStyles() {
             position: relative;
         }
 
-        /* New Header to match FMS */
         .sensor-header {
             background: #111;
             padding: 6px 10px;
@@ -563,7 +570,7 @@ function injectCustomStyles() {
             width: 140px;
             height: 80px;
             background: #1a1a1a;
-            border-radius: 40px 40px 10px 10px; /* Nose shape */
+            border-radius: 40px 40px 10px 10px;
             border: 2px solid #444;
             display: flex;
             justify-content: space-between;
@@ -572,7 +579,6 @@ function injectCustomStyles() {
             margin-bottom: 10px;
         }
 
-        /* The Center Console */
         .cockpit-view::after {
             content: '';
             position: absolute;
@@ -599,7 +605,6 @@ function injectCustomStyles() {
             align-items: center;
         }
 
-        /* Headrest */
         .seat::before {
             content: '';
             position: absolute;
@@ -611,7 +616,6 @@ function injectCustomStyles() {
             border: 2px solid #444;
         }
 
-        /* --- STATUS OVERLAYS --- */
         .cockpit-overlay-icon {
             position: absolute;
             top: 50%;
@@ -630,30 +634,22 @@ function injectCustomStyles() {
             transform: translate(-50%, -50%) scale(1);
         }
 
-        /* Specific Overlay Styles */
         .icon-parking { color: #ff3333; border: 3px solid #ff3333; border-radius: 50%; width: 45px; height: 45px; display: flex; align-items: center; justify-content: center; font-weight: bold; background: rgba(0,0,0,0.6); font-family: sans-serif; }
         .icon-coffee { color: #ffaa00; }
         .icon-cloud { color: #00a8ff; }
 
-        /* --- SEAT STATES --- */
-        
-        /* State 0: Active (Green) */
         .seat.active-green { background: rgba(0, 255, 0, 0.1); border-color: #00ff00; box-shadow: 0 0 15px rgba(0, 255, 0, 0.4); }
         .seat.active-green::before { border-color: #00ff00; background: #003300; }
 
-        /* State 1: Monitor (Amber) */
         .seat.active-amber { background: rgba(255, 170, 0, 0.1); border-color: #ffaa00; box-shadow: 0 0 15px rgba(255, 170, 0, 0.4); }
         .seat.active-amber::before { border-color: #ffaa00; background: #442200; }
 
-        /* State 3: Background (Blue) */
         .seat.active-blue { background: rgba(0, 168, 255, 0.1); border-color: #00a8ff; box-shadow: 0 0 15px rgba(0, 168, 255, 0.4); }
         .seat.active-blue::before { border-color: #00a8ff; background: #002244; }
 
-        /* Seat Labels */
         .seat::after { content: attr(data-role); font-size: 0.6rem; font-weight: bold; color: #555; margin-top: 2px; }
         .seat.active-green::after, .seat.active-amber::after, .seat.active-blue::after { color: #fff; text-shadow: 0 0 5px currentColor; }
 
-        /* Status Text */
         .seat-status-display {
             margin-top: 8px;
             font-family: 'Consolas', monospace;
@@ -671,7 +667,6 @@ function injectCustomStyles() {
         .status-pill.blue { color: #00a8ff; border-color: #00a8ff; }
         .status-pill.red { color: #ff3333; border-color: #ff3333; }
 
-        /* Narrative Text */
         #seat-narrative-text {
             font-family: 'Segoe UI', sans-serif;
             font-size: 0.7rem;
@@ -684,7 +679,6 @@ function injectCustomStyles() {
             font-style: italic;
         }
         
-        /* --- Sector Ops View Layout --- */
         #view-rosters.active {
             position: absolute;
             inset: 0;
@@ -706,7 +700,7 @@ function injectCustomStyles() {
             overflow: hidden; 
         }
         
-        /* --- Base Info Window Styles --- */
+        /* --- INFO WINDOW STYLES (UPDATED FOR THEMING) --- */
         .info-window {
             position: absolute;
             top: 20px; 
@@ -714,7 +708,10 @@ function injectCustomStyles() {
             width: 600px; 
             max-width: 95vw;
             max-height: calc(100vh - 40px);
-            background: rgba(18, 20, 38, 0.95); 
+            
+            /* --- THEMED BACKGROUND --- */
+            background: linear-gradient(160deg, var(--iw-bg-start), var(--iw-bg-end));
+            
             backdrop-filter: blur(20px) saturate(180%);
             -webkit-backdrop-filter: blur(20px) saturate(180%);
             border-radius: 16px;
@@ -740,7 +737,7 @@ function injectCustomStyles() {
             justify-content: space-between;
             align-items: center;
             padding: 16px 20px;
-            background: rgba(10, 12, 26, 0.6);
+            background: rgba(10, 12, 26, 0.4); /* More transparent to show gradient */
             border-bottom: 1px solid rgba(255, 255, 255, 0.1);
             flex-shrink: 0;
         }
@@ -775,24 +772,21 @@ function injectCustomStyles() {
             overflow-y: auto; 
             flex-grow: 1; 
             padding: 0;
-            background: #1C1E2A;
+            background: transparent; /* Transparent to show gradient */
         }
 
-        /* --- PFD/ND Layout (UPDATED for tighter spacing) --- */
         .pfd-and-location-grid { 
             display: grid; 
             grid-template-columns: 2fr 1fr; 
-            gap: 8px; /* REDUCED from 16px */
+            gap: 8px;
         }
 
-        /* New class for the right column wrapper to stack modules tightly */
         .info-right-col {
             display: flex;
             flex-direction: column;
-            gap: 8px; /* This controls the vertical spacing between modules */
+            gap: 8px;
         }
         
-        /* --- FMS MODULE STYLES --- */
         .fms-module-container {
             height: 380px; 
             max-height: 380px;
@@ -806,7 +800,6 @@ function injectCustomStyles() {
             box-shadow: inset 0 0 20px rgba(0,0,0,0.8);
             box-sizing: border-box;
             overflow: hidden; 
-            /* MARGIN REMOVED - Handled by parent gap */
         }
         .fms-header {
             background: #111;
@@ -888,14 +881,12 @@ function injectCustomStyles() {
         .stat-value { color: #fff; font-weight: bold; }
         .fms-empty-state { text-align: center; padding: 20px; color: #555; font-style: italic; }
 
-        /* --- NAV DATA PANEL STYLES --- */
         #location-data-panel {
             background: #0f1115;
             border-radius: 8px;
             border: 1px solid #333;
             box-shadow: 0 4px 20px rgba(0,0,0,0.5);
             width: 100%;
-            /* MARGIN REMOVED - Handled by parent gap */
             display: flex;
             flex-direction: column;
             overflow: hidden;
@@ -989,7 +980,6 @@ function injectCustomStyles() {
             font-weight: 400;
         }
 
-        /* Mobile Responsive */
         @media (max-width: 992px) {
             .info-window { width: 95vw; top: 10px; right: 2.5vw; left: 2.5vw; max-height: calc(100vh - 20px); }
             .pfd-and-location-grid { grid-template-columns: 1fr; } 
@@ -999,7 +989,6 @@ function injectCustomStyles() {
             .nav-span-2 { grid-column: span 2; }
         }
         
-        /* --- General Layout Styles --- */
         .aircraft-overview-panel { 
             position: relative; 
             height: 200px; 
@@ -1014,7 +1003,6 @@ function injectCustomStyles() {
             margin-bottom: -40px; 
         }
         
-        /* UPDATED: Improved Blending Gradient */
         .aircraft-overview-panel::before { 
             content: ''; 
             position: absolute; 
@@ -1040,7 +1028,6 @@ function injectCustomStyles() {
         #ac-header-actype { animation: secondarySubtextAnimation 8s infinite ease-in-out; }
         .overview-actions { position: absolute; top: 16px; right: 16px; z-index: 3; display: flex; gap: 8px; }
         
-        /* UPDATED: Route Summary Overlay for Seamless Blend */
         .route-summary-overlay { 
             position: relative; 
             padding: 15px 20px 12px 20px; 
@@ -1078,45 +1065,32 @@ function injectCustomStyles() {
         .profile-toggle-btn:hover { color: #fff; }
         .profile-toggle-btn.active { background: #00a8ff; color: #fff; box-shadow: 0 2px 5px rgba(0, 168, 255, 0.3); }
         
-        /* ======================================================== */
-        /* === [FIXED] PFD CASING STYLES (Matched to ND) === */
-        /* ======================================================== */
-        
         .pfd-main-panel { 
             display: flex; 
             flex-direction: column; 
             width: 100%; 
-            align-items: center; /* Align bezel to center/stretch */
-            gap: 16px; /* Add gap between PFD and ND */
+            align-items: center; 
+            gap: 16px; 
         }
 
         .display-bezel { 
             position: relative; 
-            
-            /* Matched Colors from nav.html */
-            background-color: #1f2937; /* var(--bg-bezel) */
-            border: 4px solid #374151; /* var(--border-main) */
-            
-            /* Matched Spacing/Radius */
-            padding: 12px; /* Approx 0.75rem */
+            background-color: #1f2937; 
+            border: 4px solid #374151; 
+            padding: 12px; 
             border-radius: 1rem; 
-            
-            /* Matched Shadow */
             box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.5); 
-            
             width: 100%; 
             box-sizing: border-box; 
-            
             display: flex;
             flex-direction: column;
         }
         
-        /* Screws - Matched to ND */
         .screw { 
             position: absolute; 
             width: 0.5rem; 
             height: 0.5rem; 
-            background-color: #4b5563; /* var(--screw-color) */
+            background-color: #4b5563; 
             border-radius: 50%; 
             box-shadow: inset 1px 1px 2px rgba(0,0,0,0.5); 
             z-index: 5; 
@@ -1126,26 +1100,17 @@ function injectCustomStyles() {
         .screw.bl { bottom: 0.35rem; left: 0.35rem; } 
         .screw.br { bottom: 0.35rem; right: 0.35rem; }
         
-        /* CRT Container - Matched to ND */
         .crt-container { 
             width: 100%; 
             position: relative; 
-            
-            /* Matched Border & Background */
-            border: 2px solid #111827; /* var(--border-dark) */
+            border: 2px solid #111827; 
             background: #000; 
-            
-            /* Matched Radius */
             border-radius: 12px; 
             overflow: hidden; 
-            
-            /* Matched Inset Shadow */
             box-shadow: inset 0 0 20px rgba(0,0,0,0.8); 
-            
-            display: flex; /* Ensure SVG fills it */
+            display: flex; 
         }
         
-        /* Scanlines - Matched to ND */
         .scanlines::before { 
             content: " "; 
             display: block; 
@@ -1158,18 +1123,13 @@ function injectCustomStyles() {
             pointer-events: none; 
         }
         
-        #pfd-container { 
-            width: 100%; 
-            /* Height is automatic based on content/flex */
-        }
+        #pfd-container { width: 100%; }
         
-        /* Ensure SVG fills the hole completely like the Canvas does in ND */
         #pfd-container svg { 
             width: 100%; 
             height: auto; 
             display: block;
             margin: 0; 
-            
             max-width: none; 
             aspect-ratio: 787 / 800; 
             background-color: #1a1a1a; 
@@ -1178,22 +1138,14 @@ function injectCustomStyles() {
             filter: brightness(1.3) contrast(1.2) drop-shadow(0 0 2px rgba(255, 255, 255, 0.3)); 
         }
         
-        /* --- ND CONTAINER FIX --- */
-        /* This container holds the iframe. It must match PFD dimensions. */
         #nd-container { 
             width: 100%;
-            /* PFD SVG dimensions are 787x800. */
             aspect-ratio: 787 / 800; 
-            
             background: transparent; 
             overflow: hidden; 
             display: flex; 
             justify-content: center; 
-            
-            /* Remove fixed height, let aspect-ratio drive it */
             height: auto; 
-            /* We don't add border/shadow here because nav.html draws the bezel */
-            /* Just ensure it takes up the correct space */
         }
         
         #nav-display-frame {
@@ -1202,17 +1154,11 @@ function injectCustomStyles() {
             border: none;
             display: block;
         }
-        
-        /* ======================================================== */
-        /* === END FIXED PFD CASING STYLES === */
-        /* ======================================================== */
 
-        /* --- FLIGHT RULES MODULE --- */
         .rules-module-container {
             background: #000;
             border: 2px solid #333;
             border-radius: 4px;
-            /* MARGIN REMOVED - Handled by parent gap */
             display: flex;
             flex-direction: column;
             box-shadow: inset 0 0 20px rgba(0,0,0,0.8);
@@ -1274,7 +1220,6 @@ function injectCustomStyles() {
             border-color: #ffc107;
         }
         
-        /* --- VSD PANEL STYLES (Matched to Nav/FMS) --- */
         .vsd-module-container {
             height: 260px; 
             max-height: 260px;
@@ -1286,13 +1231,13 @@ function injectCustomStyles() {
             box-shadow: inset 0 0 20px rgba(0,0,0,0.8);
             box-sizing: border-box;
             overflow: hidden;
-            margin-bottom: 16px; /* Spacing below */
+            margin-bottom: 16px; 
         }
 
         .vsd-panel { 
             display: flex; 
             flex-direction: column; 
-            background: #0f1115; /* Match Nav Body */
+            background: #0f1115; 
             flex-grow: 1;
             position: relative;
             overflow: hidden; 
@@ -1304,11 +1249,10 @@ function injectCustomStyles() {
             width: 100%; 
             height: 100%; 
             overflow: hidden; 
-            padding-left: 35px; /* Space for Y-Axis */
+            padding-left: 35px; 
             box-sizing: border-box; 
         }
 
-        /* Y-Axis Labels (Left side) */
         #vsd-y-axis {
             position: absolute;
             top: 0;
@@ -1328,14 +1272,11 @@ function injectCustomStyles() {
             transform: translateY(-50%);
         }
 
-        /* Graph Content */
         #vsd-graph-content {
             position: relative;
             height: 100%;
-            /* Width set dynamically via JS */
         }
 
-        /* SVG Styling */
         #vsd-profile-svg {
             position: absolute;
             top: 0;
@@ -1347,19 +1288,18 @@ function injectCustomStyles() {
 
         #vsd-profile-path {
             fill: none;
-            stroke: #444; /* Terrain/Planned Gray */
+            stroke: #444; 
             stroke-width: 2;
             stroke-dasharray: 4, 2;
         }
 
         #vsd-flown-path {
             fill: none;
-            stroke: #00e600; /* Active Green */
+            stroke: #00e600; 
             stroke-width: 3;
             filter: drop-shadow(0 0 4px rgba(0, 230, 0, 0.5));
         }
 
-        /* Aircraft Icon on Graph */
         #vsd-aircraft-icon {
             position: absolute;
             width: 14px;
@@ -1371,7 +1311,6 @@ function injectCustomStyles() {
             z-index: 20;
         }
 
-        /* Waypoint Labels on Graph */
         .vsd-wp-label {
             position: absolute;
             transform: translateX(-50%);
@@ -1396,7 +1335,6 @@ function injectCustomStyles() {
             margin-top: 1px;
         }
         
-        /* VSD Footer/Legend */
         .vsd-footer {
             background: #111;
             padding: 4px 10px;
@@ -1412,12 +1350,11 @@ function injectCustomStyles() {
         .dot-plan { width: 6px; height: 6px; background: #444; border-radius: 50%; }
         .dot-flown { width: 6px; height: 6px; background: #00e600; border-radius: 50%; box-shadow: 0 0 4px #00e600; }
         
-        /* --- NEW: Improved Tab Bar --- */
         .ac-info-window-tabs {
             display: flex;
             justify-content: space-between;
             align-items: center;
-            background: rgba(12, 14, 20, 0.95); /* Darker, more solid background */
+            background: rgba(12, 14, 20, 0.95); 
             border-bottom: 1px solid rgba(255, 255, 255, 0.1);
             padding: 0 20px;
             height: 60px;
@@ -1430,13 +1367,12 @@ function injectCustomStyles() {
         }
 
         .ac-info-tab-logo {
-            height: 32px; /* Adjusted size */
+            height: 32px; 
             width: auto;
             object-fit: contain;
             opacity: 0.8;
         }
 
-        /* Tab Buttons */
         .ac-info-tab-btn {
             padding: 0 10px;
             height: 100%;
@@ -1459,7 +1395,6 @@ function injectCustomStyles() {
             color: #fff;
         }
 
-        /* Active State - Standard */
         .ac-info-tab-btn.active {
             color: #fff;
             border-bottom-color: #00a8ff;
@@ -1469,22 +1404,20 @@ function injectCustomStyles() {
             color: #00a8ff;
         }
 
-        /* --- NEW: Pilot Name Emphasis --- */
         .ac-info-tab-btn.pilot-tab-btn {
             color: #e0e0e0;
             font-weight: 700;
             letter-spacing: 0.5px;
         }
         .ac-info-tab-btn.pilot-tab-btn i {
-            color: #ffb74d; /* Orange/Gold icon */
+            color: #ffb74d; 
         }
         .ac-info-tab-btn.pilot-tab-btn.active {
             color: #fff;
-            border-bottom-color: #ffb74d; /* Orange underline */
+            border-bottom-color: #ffb74d; 
             text-shadow: 0 0 10px rgba(255, 183, 77, 0.5);
         }
 
-        /* Mobile Responsive Logo Hiding */
         @media (max-width: 768px) {
             .ac-info-tab-logo {
                 display: none !important;
@@ -4499,20 +4432,17 @@ function getIconImageExpression(colorMode = 'default') {
     }
 
     async function initializeSectorOpsView() {
-        // const selector = document.getElementById('departure-hub-selector'); // <-- REMOVED
         const mapContainer = document.getElementById('sector-ops-map-fullscreen');
-        // const viewContainer = document.getElementById('view-rosters'); // <-- REMOVED
+        // Use the correct ID from your HTML for the view container if needed
+        const viewContainer = document.getElementById('standalone-map-view'); 
         
-        // --- [FIX] Changed viewContainer to mapContainer and removed !selector check ---
-        const viewContainer = document.getElementById('standalone-map-view'); // Use the correct ID from your HTML
-        if (!viewContainer || !mapContainer) return; // Modified check
+        if (!viewContainer || !mapContainer) return;
         
         mainContentLoader.classList.add('active');
 
         try {
-            // --- [NEW] Inject the Search Bar ---
+            // --- 1. Inject the Search Bar (if missing) ---
             if (!document.getElementById('sector-ops-search-container')) {
-                // ... (search bar HTML unchanged) ...
                 const searchHtml = `
                     <div id="sector-ops-search-container" class="sector-ops-search">
                         <div class="search-bar-container">
@@ -4527,11 +4457,10 @@ function getIconImageExpression(colorMode = 'default') {
                         <div id="search-results-dropdown" class="search-results-dropdown"></div>
                     </div>
                 `;
-                // --- [FIX] Changed viewContainer to mapContainer ---
                 mapContainer.insertAdjacentHTML('beforeend', searchHtml);
             }
 
-            // ... (Airport & Aircraft window HTML unchanged) ...
+            // --- 2. Inject Airport Info Window (if missing) ---
             if (!document.getElementById('airport-info-window')) {
                  const windowHtml = `
                     <div id="airport-info-window" class="info-window">
@@ -4545,20 +4474,21 @@ function getIconImageExpression(colorMode = 'default') {
                         <div id="airport-window-content" class="info-window-content"></div>
                     </div>
                 `;
-                // --- [FIX] Changed viewContainer to mapContainer ---
                 mapContainer.insertAdjacentHTML('beforeend', windowHtml);
             }
+
+            // --- 3. Inject Aircraft Info Window (if missing) ---
             if (!document.getElementById('aircraft-info-window')) {
                  const windowHtml = `
                     <div id="aircraft-info-window" class="info-window">
                         
                     </div>
                 `;
-                // --- [FIX] Changed viewContainer to mapContainer ---
                 mapContainer.insertAdjacentHTML('beforeend', windowHtml);
             }
+
+            // --- 4. Inject Weather Settings Window (if missing) ---
             if (!document.getElementById('weather-settings-window')) {
-                // ... (Weather window HTML unchanged) ...
                 const windowHtml = `
                     <div id="weather-settings-window" class="info-window">
                         <div class="info-window-header">
@@ -4599,11 +4529,10 @@ function getIconImageExpression(colorMode = 'default') {
                         </div>
                     </div>
                 `;
-                // --- [FIX] Changed viewContainer to mapContainer ---
                 mapContainer.insertAdjacentHTML('beforeend', windowHtml);
             }
 
-            // --- [MODIFIED FILTER WINDOW INJECTION] ---
+            // --- 5. Inject Filter Settings Window (UPDATED WITH THEME CONTROLS) ---
             if (!document.getElementById('filter-settings-window')) {
                 const windowHtml = `
                     <div id="filter-settings-window" class="info-window">
@@ -4639,7 +4568,7 @@ function getIconImageExpression(colorMode = 'default') {
                                         <span class="toggle-slider"></span>
                                     </label>
                                 </li>
-                                </ul>
+                            </ul>
 
                             <div class="filter-section-divider">
                                 <span class="filter-section-title">Aircraft Icon Color</span>
@@ -4658,6 +4587,7 @@ function getIconImageExpression(colorMode = 'default') {
                                     <label for="icon-color-orange"><i class="fa-solid fa-plane" style="color: #ff9900;"></i> Orange</label>
                                 </li>
                             </ul>
+                            
                             <div class="filter-section-divider">
                                 <span class="filter-section-title">Active Flight Plan Display</span>
                             </div>
@@ -4691,15 +4621,30 @@ function getIconImageExpression(colorMode = 'default') {
                                     </li>
                                 </ul>
                             </div>
+
+                            <div class="filter-section-divider">
+                                <span class="filter-section-title">Window Appearance</span>
                             </div>
+                            <div class="filter-appearance-controls" style="padding: 10px; display: flex; flex-direction: column; gap: 10px;">
+                                <div style="display: flex; justify-content: space-between; align-items: center;">
+                                    <span style="color: #ccc; font-size: 0.9rem;">Gradient Start Color</span>
+                                    <input type="color" id="theme-color-start" value="#121426" style="background: none; border: none; width: 50px; height: 30px; cursor: pointer;">
+                                </div>
+                                <div style="display: flex; justify-content: space-between; align-items: center;">
+                                    <span style="color: #ccc; font-size: 0.9rem;">Gradient End Color</span>
+                                    <input type="color" id="theme-color-end" value="#121426" style="background: none; border: none; width: 50px; height: 30px; cursor: pointer;">
+                                </div>
+                                <div style="display: flex; gap: 10px;">
+                                     <button id="theme-reset-btn" class="cta-button" style="width: 100%; padding: 8px; font-size: 0.85rem; border-radius: 4px; background: rgba(255,255,255,0.1); border: 1px solid #444; color: #fff; cursor: pointer;">Reset Default Theme</button>
+                                </div>
+                            </div>
+                        </div>
                     </div>
                 `;
-                // --- [FIX] Changed viewContainer to mapContainer ---
                 mapContainer.insertAdjacentHTML('beforeend', windowHtml);
             }
-            // --- [END MODIFIED FILTER WINDOW INJECTION] ---
             
-            // ... (Rest of the function is unchanged) ...
+            // --- 6. Inject Toolbar Buttons (if missing) ---
             const toolbarToggleBtn = document.getElementById('toolbar-toggle-panel-btn');
             if (toolbarToggleBtn) {
                  if (!document.getElementById('airport-recall-btn')) {
@@ -4732,6 +4677,7 @@ function getIconImageExpression(colorMode = 'default') {
                  }
             }
             
+            // --- 7. Assign Global Variables ---
             airportInfoWindow = document.getElementById('airport-info-window');
             airportInfoWindowRecallBtn = document.getElementById('airport-recall-btn');
             aircraftInfoWindow = document.getElementById('aircraft-info-window');
@@ -4739,37 +4685,32 @@ function getIconImageExpression(colorMode = 'default') {
             weatherSettingsWindow = document.getElementById('weather-settings-window');
             filterSettingsWindow = document.getElementById('filter-settings-window');
 
-            // 2. [REMOVED] Hub selector population ---
-            const selectedHub = "VIDP"; // <-- Hard-coded a default hub for the map
-
-            // 3. Initialize the Mapbox map
+            // --- 8. Initialize Map and Load Content ---
+            const selectedHub = "VIDP"; 
             await initializeSectorOpsMap(selectedHub);
-
-            // 4. [MODIFIED] Fetch panel content instead of routes/rosters ---
             await loadExternalPanelContent();
 
-            // 5. Set up all event listeners
+            // --- 9. Set Up Event Listeners ---
             setupSectorOpsEventListeners();
             setupAirportWindowEvents();
             setupAircraftWindowEvents();
             setupWeatherSettingsWindowEvents();
-            setupFilterSettingsWindowEvents(); 
+            setupFilterSettingsWindowEvents(); // Now handles the new theme inputs
             setupSearchEventListeners();
 
-            // --- [NEW LISTENER] Listen for ND_READY signal from the iframe ---
+            // --- 10. Listen for ND_READY signal ---
             window.addEventListener('message', (event) => {
                 if (event.data && event.data.type === 'ND_READY') {
                     refreshNavDisplayFromCache();
                 }
             });
 
-            // 6. Start the live data loop.
+            // --- 11. Start Live Loop ---
             startSectorOpsLiveLoop();
 
         } catch (error) {
             console.error("Error initializing Sector Ops view:", error);
             showNotification(error.message, 'error');
-            // Handle error display in the new panel if needed
             const panelContentWrapper = document.querySelector('#sector-ops-floating-panel .panel-content-wrapper');
             if (panelContentWrapper) {
                 panelContentWrapper.innerHTML = `<p class="error-text" style="padding: 20px;">${error.message}</p>`;
@@ -7559,19 +7500,45 @@ function setupFilterSettingsWindowEvents() {
         return;
     }
 
-    // --- [NEW] Helper to set the UI state from mapFilters ---
+    // --- Helper: Convert Hex to RGBA ---
+    const hexToRgba = (hex, alpha) => {
+        const r = parseInt(hex.slice(1, 3), 16);
+        const g = parseInt(hex.slice(3, 5), 16);
+        const b = parseInt(hex.slice(5, 7), 16);
+        return `rgba(${r}, ${g}, ${b}, ${alpha})`;
+    };
+
+    // --- Helper: Apply Theme to CSS Vars ---
+    const applyWindowTheme = (startHex, endHex) => {
+        const root = document.documentElement;
+        const opacity = (mapFilters.themeOpacity || 95) / 100;
+        
+        root.style.setProperty('--iw-bg-start', hexToRgba(startHex, opacity));
+        root.style.setProperty('--iw-bg-end', hexToRgba(endHex, opacity));
+    };
+
+    // --- Helper: Set UI from State ---
     const setUIFromState = () => {
         // Toggles
         document.getElementById('filter-toggle-atc').checked = mapFilters.hideAtcMarkers;
         document.getElementById('filter-toggle-satellite-mode').checked = (currentMapStyle === MAP_STYLE_SATELLITE);
-        // --- [NEW] Set the new label toggle ---
         document.getElementById('filter-toggle-aircraft-labels').checked = mapFilters.showAircraftLabels;
 
         // Radios
-        document.querySelector(`input[name="icon-color-mode"][value="${mapFilters.iconColorMode}"]`).checked = true;
-        document.querySelector(`input[name="plan-display-mode"][value="${mapFilters.planDisplayMode}"]`).checked = true;
+        const colorRadio = document.querySelector(`input[name="icon-color-mode"][value="${mapFilters.iconColorMode}"]`);
+        if (colorRadio) colorRadio.checked = true;
         
-        // Mobile-specific (no change, this was correct)
+        const planRadio = document.querySelector(`input[name="plan-display-mode"][value="${mapFilters.planDisplayMode}"]`);
+        if (planRadio) planRadio.checked = true;
+
+        // Colors
+        document.getElementById('theme-color-start').value = mapFilters.themeStartColor || '#121426';
+        document.getElementById('theme-color-end').value = mapFilters.themeEndColor || '#121426';
+        
+        // Apply immediately on load
+        applyWindowTheme(mapFilters.themeStartColor, mapFilters.themeEndColor);
+
+        // Mobile-specific
         const currentMobileMode = localStorage.getItem('mobileDisplayMode') || 'hud';
         const mobileModeHud = document.getElementById('mobile-mode-hud');
         const mobileModeLegacy = document.getElementById('mobile-mode-legacy');
@@ -7584,12 +7551,43 @@ function setupFilterSettingsWindowEvents() {
         }
     };
     
-    // --- [NEW] Set the UI when the window is first set up ---
+    // --- Set the UI when the window is first set up ---
     setUIFromState();
+
+    // --- Event Listener: Color Inputs (Input = Realtime Preview) ---
+    const startPicker = document.getElementById('theme-color-start');
+    const endPicker = document.getElementById('theme-color-end');
+    const resetBtn = document.getElementById('theme-reset-btn');
+
+    const handleColorChange = () => {
+        const s = startPicker.value;
+        const e = endPicker.value;
+        applyWindowTheme(s, e);
+        // Update state
+        mapFilters.themeStartColor = s;
+        mapFilters.themeEndColor = e;
+        saveFiltersToLocalStorage();
+    };
+
+    if (startPicker) startPicker.addEventListener('input', handleColorChange);
+    if (endPicker) endPicker.addEventListener('input', handleColorChange);
+
+    if (resetBtn) {
+        resetBtn.addEventListener('click', () => {
+            const defColor = '#121426';
+            startPicker.value = defColor;
+            endPicker.value = defColor;
+            applyWindowTheme(defColor, defColor);
+            
+            mapFilters.themeStartColor = defColor;
+            mapFilters.themeEndColor = defColor;
+            saveFiltersToLocalStorage();
+            showNotification("Window theme reset to default.", "success");
+        });
+    }
 
     // Use a single listener on the window for better performance
     filterSettingsWindow.addEventListener('click', (e) => {
-        // ... (close button logic unchanged) ...
         const target = e.target;
         if (target.closest('.filter-window-close-btn') || target.closest('.filter-window-hide-btn')) {
             filterSettingsWindow.classList.remove('visible');
@@ -7601,10 +7599,10 @@ function setupFilterSettingsWindowEvents() {
     filterSettingsWindow.addEventListener('change', (e) => {
         const target = e.target;
         
-        // --- Handle Flight Plan Radio Logic ---
+        // Handle Flight Plan Radio Logic
         if (target.name === 'plan-display-mode') {
             mapFilters.planDisplayMode = target.value;
-            saveFiltersToLocalStorage(); // <-- SAVE
+            saveFiltersToLocalStorage(); 
             if (currentFlightInWindow && cachedFlightDataForStatsView.plan) {
                 const { flightProps, plan } = cachedFlightDataForStatsView;
                 const position = currentAircraftPositionForGeocode || flightProps.position;
@@ -7616,9 +7614,8 @@ function setupFilterSettingsWindowEvents() {
         // Handle Icon Color Radio Logic
         if (target.name === 'icon-color-mode') {
             mapFilters.iconColorMode = target.value;
-            saveFiltersToLocalStorage(); // <-- SAVE
+            saveFiltersToLocalStorage(); 
             const newExpression = getIconImageExpression(mapFilters.iconColorMode);
-            
             if (sectorOpsMap && sectorOpsMap.getLayer('sector-ops-live-flights-layer')) {
                 sectorOpsMap.setLayoutProperty('sector-ops-live-flights-layer', 'icon-image', newExpression);
             }
@@ -7627,7 +7624,6 @@ function setupFilterSettingsWindowEvents() {
         
         // Handle Mobile Display Mode Radio Logic
         if (target.name === 'mobile-display-mode') {
-            // (This was already saving to its own local storage item, which is fine)
             const newMode = target.value;
             localStorage.setItem('mobileDisplayMode', newMode);
             if (!document.getElementById('mobile-mode-note')) {
@@ -7641,52 +7637,43 @@ function setupFilterSettingsWindowEvents() {
 
         if (target.type !== 'checkbox') return;
 
-        // --- [NEW] Handle Aircraft Label Toggle ---
+        // Handle Aircraft Label Toggle
         if (target.id === 'filter-toggle-aircraft-labels') {
             mapFilters.showAircraftLabels = target.checked;
-            saveFiltersToLocalStorage(); // <-- SAVE
-            updateAircraftLabelVisibility(); // Apply the change
-            // No need to update other filters, so we can return
+            saveFiltersToLocalStorage(); 
+            updateAircraftLabelVisibility(); 
             return;
         }
 
-        // --- Handle Map Style Logic ---
+        // Handle Map Style Logic
         const satelliteModeToggle = document.getElementById('filter-toggle-satellite-mode');
-        // --- [REMOVED] lightModeToggle ---
         let styleChanged = false;
         let newMapStyle = currentMapStyle;
 
-        // --- [MODIFIED] Simplified style logic ---
         if (target.id === 'filter-toggle-satellite-mode') {
             if (target.checked) {
                 newMapStyle = MAP_STYLE_SATELLITE;
             } else {
-                newMapStyle = MAP_STYLE_DARK; // Revert to dark
+                newMapStyle = MAP_STYLE_DARK; 
             }
             styleChanged = true;
         }
-        // --- [END MODIFIED] ---
 
-        // 1. Update the global mapFilters state object from the DOM
+        // Update mapFilters state
         mapFilters.showVaOnly = document.getElementById('filter-toggle-members-only')?.checked || false;
         mapFilters.hideAtcMarkers = document.getElementById('filter-toggle-atc')?.checked || false;
         mapFilters.hideNoAtcMarkers = document.getElementById('filter-toggle-no-atc')?.checked || false;
         
-        // 2. Decide whether to change style or just filters
         if (styleChanged && newMapStyle !== currentMapStyle) {
             console.log(`Changing map style to: ${newMapStyle}`);
             currentMapStyle = newMapStyle;
             sectorOpsMap.setStyle(currentMapStyle);
-            // Don't save style to local storage, but filters will be re-applied on 'style.load'
         } else if (!styleChanged) {
-            // If just a regular filter (like hideAtc) changed
-            saveFiltersToLocalStorage(); // <-- SAVE
+            saveFiltersToLocalStorage(); 
             updateMapFilters();
         }
 
-        // 3. Update toolbar button state (always)
-        // (This is now called by updateMapFilters, but we call it again for safety)
-        updateToolbarButtonStates(); // <-- MODIFIED: Renamed function
+        updateToolbarButtonStates(); 
     });
 
     filterSettingsWindow.dataset.eventsAttached = 'true';
