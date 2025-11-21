@@ -1368,12 +1368,95 @@ function injectCustomStyles() {
         .vsd-legend-item { display: flex; align-items: center; gap: 5px; }
         .dot-plan { width: 6px; height: 6px; background: #444; border-radius: 50%; }
         .dot-flown { width: 6px; height: 6px; background: #00e600; border-radius: 50%; box-shadow: 0 0 4px #00e600; }
-        .ac-info-window-tabs { display: flex; justify-content: space-between; align-items: center; background: rgba(10, 12, 26, 0.4); padding: 5px 15px 0 15px; }
-        .ac-tabs-wrapper { display: flex; }
-        .ac-info-tab-logo { height: 48px; width: auto; object-fit: contain; opacity: 0.7; }
-        .ac-info-tab-btn { padding: 14px 18px; border: none; background: none; color: #c5cae9; cursor: pointer; font-size: 0.9rem; font-weight: 600; border-bottom: 3px solid transparent; transition: all 0.25s; display: flex; align-items: center; gap: 8px; }
-        .ac-info-tab-btn:hover { color: #fff; }
-        .ac-info-tab-btn.active { color: #00a8ff; border-bottom-color: #00a8ff; }
+        
+        /* --- NEW: Improved Tab Bar --- */
+        .ac-info-window-tabs {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            background: rgba(12, 14, 20, 0.95); /* Darker, more solid background */
+            border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+            padding: 0 20px;
+            height: 60px;
+        }
+
+        .ac-tabs-wrapper {
+            display: flex;
+            gap: 20px;
+            height: 100%;
+        }
+
+        .ac-info-tab-logo {
+            height: 32px; /* Adjusted size */
+            width: auto;
+            object-fit: contain;
+            opacity: 0.8;
+        }
+
+        /* Tab Buttons */
+        .ac-info-tab-btn {
+            padding: 0 10px;
+            height: 100%;
+            border: none;
+            background: transparent;
+            color: #9fa8da;
+            cursor: pointer;
+            font-size: 0.95rem;
+            font-family: 'Segoe UI', sans-serif;
+            font-weight: 600;
+            position: relative;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            transition: all 0.3s ease;
+            border-bottom: 3px solid transparent;
+        }
+
+        .ac-info-tab-btn:hover {
+            color: #fff;
+        }
+
+        /* Active State - Standard */
+        .ac-info-tab-btn.active {
+            color: #fff;
+            border-bottom-color: #00a8ff;
+            text-shadow: 0 0 10px rgba(0, 168, 255, 0.5);
+        }
+        .ac-info-tab-btn.active i {
+            color: #00a8ff;
+        }
+
+        /* --- NEW: Pilot Name Emphasis --- */
+        .ac-info-tab-btn.pilot-tab-btn {
+            color: #e0e0e0;
+            font-weight: 700;
+            letter-spacing: 0.5px;
+        }
+        .ac-info-tab-btn.pilot-tab-btn i {
+            color: #ffb74d; /* Orange/Gold icon */
+        }
+        .ac-info-tab-btn.pilot-tab-btn.active {
+            color: #fff;
+            border-bottom-color: #ffb74d; /* Orange underline */
+            text-shadow: 0 0 10px rgba(255, 183, 77, 0.5);
+        }
+
+        /* Mobile Responsive Logo Hiding */
+        @media (max-width: 768px) {
+            .ac-info-tab-logo {
+                display: none !important;
+            }
+            .ac-info-window-tabs {
+                justify-content: center;
+                padding: 0 10px;
+            }
+            .ac-tabs-wrapper {
+                width: 100%;
+                justify-content: space-around;
+                gap: 0;
+            }
+        }
+
         .vsd-disclaimer { background: rgba(10, 12, 26, 0.5); border: 1px solid rgba(255, 255, 255, 0.05); border-radius: 8px; padding: 10px 14px; margin-top: 0; }
     `;
 
@@ -5626,6 +5709,7 @@ function populateAircraftInfoWindow(baseProps, plan, sortedRoutePoints) {
     const pilotReportTabText = (pilotUsername !== 'N/A' && pilotUsername) ? pilotUsername : 'Pilot Report';
 
     // --- HTML Construction ---
+    // --- [UPDATED] Added pilot-tab-btn class to the second button ---
     windowEl.innerHTML = `
     <div class="info-window-content">
         <div class="aircraft-overview-panel" id="ac-overview-panel">
@@ -5676,7 +5760,7 @@ function populateAircraftInfoWindow(baseProps, plan, sortedRoutePoints) {
                 <button class="ac-info-tab-btn active" data-tab="ac-tab-flight-data">
                     <i class="fa-solid fa-gauge-high"></i> Flight Display
                 </button>
-                <button class="ac-info-tab-btn" data-tab="ac-tab-pilot-report" data-user-id="${baseProps.userId}" data-username="${pilotUsername}">
+                <button class="ac-info-tab-btn pilot-tab-btn" data-tab="ac-tab-pilot-report" data-user-id="${baseProps.userId}" data-username="${pilotUsername}">
                     <i class="fa-solid fa-chart-simple"></i> ${pilotReportTabText}
                 </button>
             </div>
