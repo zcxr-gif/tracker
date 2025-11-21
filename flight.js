@@ -5469,7 +5469,7 @@ function populateAircraftInfoWindow(baseProps, plan, sortedRoutePoints) {
                 data-departure="${departureIcao}" 
                 data-arrival="${arrivalIcao}" 
                 data-aircraft="${simbriefAircraftValue}"
-                style="margin-bottom: 16px;">
+                style="width: 100%; margin-top: 16px;">
             <i class="fa-solid fa-file-invoice"></i> Plan This Flight
         </button>`;
     }
@@ -5537,7 +5537,6 @@ function populateAircraftInfoWindow(baseProps, plan, sortedRoutePoints) {
 
         <div class="unified-display-main-content">
             <div id="ac-tab-flight-data" class="ac-tab-pane active">
-                ${planButtonHtml} 
                 
                 <div class="pfd-and-location-grid">
                     <div class="pfd-main-panel">
@@ -5747,7 +5746,7 @@ function populateAircraftInfoWindow(baseProps, plan, sortedRoutePoints) {
                             </div>
                         </div>
 
-                    </div>
+                        ${planButtonHtml} </div>
                 </div>
                 
                 <div id="location-data-panel">
