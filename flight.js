@@ -1156,6 +1156,75 @@ function injectCustomStyles() {
         /* === END FIXED PFD CASING STYLES === */
         /* ======================================================== */
 
+        /* --- FLIGHT RULES MODULE --- */
+        .rules-module-container {
+            background: #000;
+            border: 2px solid #333;
+            border-radius: 4px;
+            margin-top: 16px;
+            display: flex;
+            flex-direction: column;
+            box-shadow: inset 0 0 20px rgba(0,0,0,0.8);
+            overflow: hidden;
+        }
+
+        .rules-header {
+            background: #111;
+            padding: 6px 10px;
+            border-bottom: 1px solid #333;
+            display: flex;
+            justify-content: space-between;
+            font-size: 0.8rem;
+            font-weight: bold;
+            color: #fff;
+            font-family: 'Consolas', monospace;
+        }
+
+        .rules-body {
+            padding: 12px;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            background: #0f1115; 
+        }
+
+        .flight-rules-badge {
+            padding: 6px 16px;
+            border-radius: 4px;
+            font-family: 'Consolas', monospace;
+            font-weight: bold;
+            font-size: 1.1rem;
+            text-align: center;
+            width: 100%;
+            border: 1px solid rgba(255,255,255,0.1);
+            box-shadow: 0 4px 15px rgba(0,0,0,0.5);
+            text-shadow: 0 1px 2px rgba(0,0,0,0.8);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 10px;
+        }
+
+        .badge-ifr {
+            background: linear-gradient(180deg, rgba(0, 119, 255, 0.2) 0%, rgba(0, 60, 130, 0.4) 100%);
+            color: #00a8ff;
+            border-color: #0077ff;
+        }
+
+        .badge-vfr {
+            background: linear-gradient(180deg, rgba(40, 167, 69, 0.2) 0%, rgba(20, 80, 35, 0.4) 100%);
+            color: #28a745;
+            border-color: #28a745;
+        }
+
+        .badge-svfr {
+            background: linear-gradient(180deg, rgba(255, 193, 7, 0.2) 0%, rgba(130, 100, 5, 0.4) 100%);
+            color: #ffc107;
+            border-color: #ffc107;
+        }
+        
+        /* --- VSD/SSD PANEL STYLES --- */
+
         .vsd-panel, .ssd-panel { display: none; flex-direction: column; background: transparent; border-radius: 12px; min-height: 240px; max-height: 240px; overflow: hidden; width: 100%; }
         .vsd-panel.active, .ssd-panel.active { display: flex; }
         .vsd-graph-window, .ssd-graph-window { position: relative; width: 100%; flex-grow: 1; overflow: hidden; border-radius: 12px; padding-left: 35px; box-sizing: border-box; }
@@ -2071,6 +2140,93 @@ function getAircraftCategory(aircraftName) {
     }
     
     return 'default';
+}
+
+/**
+ * Determines Flight Rules (IFR/VFR) based on aircraft state, equipment, and flight plan.
+ */
+function determineFlightRules(flightProps, plan) {
+    const altitude = flightProps.position.alt_ft;
+    const vs = flightProps.position.vs_fpm;
+    const category = flightProps.category; // 'jumbo', 'widebody', 'narrowbody', 'cessna', etc.
+    const hasPlan = plan && plan.flightPlanItems && plan.flightPlanItems.length > 1;
+    
+    // --- 1. DEFINE STATES ---
+    const IFR = { type: 'IFR', label: 'IFR', class: 'badge-ifr', icon: 'fa-cloud' };
+    const VFR = { type: 'VFR', label: 'VFR', class: 'badge-vfr', icon: 'fa-sun' };
+    const VFR_FPL = { type: 'VFR', label: 'VFR + FPL', class: 'badge-vfr', icon: 'fa-map' };
+    
+    // --- 2. GROUND LOGIC (Intent-Based) ---
+    // Detect if on ground (low altitude, low speed)
+    if (altitude < 2000 && flightProps.position.gs_kt < 50) {
+        
+        // Rule: Heavy Metal is always IFR
+        if (['jumbo', 'widebody', 'fighter'].includes(category)) {
+            return IFR;
+        }
+
+        // Rule: No Flight Plan = VFR (Pattern work or just spawned)
+        if (!hasPlan) {
+            return VFR;
+        }
+
+        // Rule: Check for Procedures (SIDs/STARs) in Plan
+        // If plan has items that are NOT simple coords, likely IFR
+        // (Simple heuristic: IFR plans usually have many waypoints)
+        if (hasPlan && plan.flightPlanItems.length > 5) {
+            return IFR;
+        }
+
+        // Rule: GA with Plan = VFR + FPL (Flight Following assumption)
+        if (['cessna', 'general', 'private'].includes(category) && hasPlan) {
+            return VFR_FPL;
+        }
+
+        // Default Ground for Airliners with Plan
+        if (['narrowbody', 'regional'].includes(category) && hasPlan) {
+            return IFR;
+        }
+
+        return VFR; // Fallback
+    }
+
+    // --- 3. IN-AIR LOGIC (Behavior-Based) ---
+
+    // Rule: Class A Airspace (Hard limit)
+    if (altitude > 18000) {
+        return IFR;
+    }
+
+    // Rule: No Plan in Air = VFR
+    if (!hasPlan) {
+        return VFR;
+    }
+
+    // Rule: "Hemispheric Rule" (The modulo check)
+    // Only apply if in relatively stable cruise (VS < 500)
+    if (Math.abs(vs) < 500) {
+        const remainder = altitude % 1000;
+        
+        // VFR is usually X,500 (remainder ~500)
+        // Allow buffer of +/- 200ft (300 to 700)
+        if (remainder > 300 && remainder < 700) {
+            return VFR_FPL;
+        }
+        
+        // IFR is usually X,000 (remainder near 0 or 1000)
+        // (e.g. 0-200 or 800-1000)
+        if (remainder < 200 || remainder > 800) {
+            return IFR;
+        }
+    }
+
+    // --- 4. CLIMB/DESCENT TRANSITION (Fallback) ---
+    // If we are climbing/descending < 18k, fallback to Category
+    if (['jumbo', 'widebody', 'narrowbody', 'regional'].includes(category)) {
+        return IFR;
+    }
+
+    return VFR_FPL; // Default for GA in the air with a plan
 }
 
 /**
@@ -6717,7 +6873,26 @@ function updateAircraftInfoWindow(baseProps, plan, sortedRoutePoints) {
 
     // --- NEW: Update Cockpit Seat Sensor ---
     updateSeatSensor(baseProps);
+
+    const rulesDisplay = document.getElementById('flight-rules-display');
+    if (rulesDisplay) {
+        // Ensure helper function exists
+        if (typeof determineFlightRules === 'function') {
+            const rule = determineFlightRules(baseProps, plan);
+            
+            // Update Class
+            rulesDisplay.className = `flight-rules-badge ${rule.class}`;
+            
+            // Update Text/Icon
+            rulesDisplay.innerHTML = `<i class="fa-solid ${rule.icon}"></i> ${rule.label}`;
+        } else {
+            // Fallback if helper is missing
+            console.warn("determineFlightRules helper missing.");
+            rulesDisplay.textContent = "RULES UNKNOWN";
+        }
+    }
 }
+
 
 function updateFmsLegsModule(plan, currentPos) {
     const listContainer = document.getElementById('fms-legs-list');
