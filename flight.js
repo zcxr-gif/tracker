@@ -4353,279 +4353,431 @@ function getIconImageExpression(colorMode = 'default') {
 
 
 
-async function initializeSectorOpsView() {
-    // const selector = document.getElementById('departure-hub-selector'); // <-- REMOVED
-    const mapContainer = document.getElementById('sector-ops-map-fullscreen');
-    // const viewContainer = document.getElementById('view-rosters'); // <-- REMOVED
-    
-    // --- [FIX] Changed viewContainer to mapContainer and removed !selector check ---
-    const viewContainer = document.getElementById('standalone-map-view'); // Use the correct ID from your HTML
-    if (!viewContainer || !mapContainer) return; // Modified check
-    
-    mainContentLoader.classList.add('active');
+/**
+     * --- [NEW FUNCTION] ---
+     * Immediately calculates and sends flight data to the ND iframe.
+     * This is called when the iframe signals it is 'ready' via postMessage.
+     */
+    function refreshNavDisplayFromCache() {
+        if (!currentFlightInWindow) return;
 
-    try {
-        // --- [NEW] Inject the Search Bar ---
-        if (!document.getElementById('sector-ops-search-container')) {
-            // ... (search bar HTML unchanged) ...
-            const searchHtml = `
-                <div id="sector-ops-search-container" class="sector-ops-search">
-                    <div class="search-bar-container">
-                        <label for="sector-ops-search-input" class="search-icon-label">
-                            <i class="fa-solid fa-magnifying-glass search-icon"></i>
-                        </label>
-                        <input type="text" id="sector-ops-search-input" placeholder="Search callsign or username..." aria-label="Search callsign or username" autocomplete="off">
-                        <button id="sector-ops-search-clear" class="search-clear-btn" aria-label="Clear search" style="display: none;">
-                            <i class="fa-solid fa-xmark"></i>
-                        </button>
-                    </div>
-                    <div id="search-results-dropdown" class="search-results-dropdown"></div>
-                </div>
-            `;
-            // --- [FIX] Changed viewContainer to mapContainer ---
-            mapContainer.insertAdjacentHTML('beforeend', searchHtml);
-        }
+        // 1. Get the current flight's feature from the cache
+        const myFeature = currentMapFeatures[currentFlightInWindow];
+        if (!myFeature || !myFeature.properties) return;
 
-        // ... (Airport & Aircraft window HTML unchanged) ...
-        if (!document.getElementById('airport-info-window')) {
-             const windowHtml = `
-                <div id="airport-info-window" class="info-window">
-                    <div class="info-window-header">
-                        <h3 id="airport-window-title"></h3>
-                        <div class="info-window-actions">
-                            <button id="airport-window-hide-btn" title="Hide"><i class="fa-solid fa-compress"></i></button>
-                            <button id="airport-window-close-btn" title="Close"><i class="fa-solid fa-xmark"></i></button>
-                        </div>
-                    </div>
-                    <div id="airport-window-content" class="info-window-content"></div>
-                </div>
-            `;
-            // --- [FIX] Changed viewContainer to mapContainer ---
-            mapContainer.insertAdjacentHTML('beforeend', windowHtml);
-        }
-        if (!document.getElementById('aircraft-info-window')) {
-             const windowHtml = `
-                <div id="aircraft-info-window" class="info-window">
+        const flightId = currentFlightInWindow;
+        const flightProps = { ...myFeature.properties };
+        
+        // Parse position string back to object
+        let position;
+        try {
+            position = JSON.parse(flightProps.position);
+        } catch (e) { return; }
+
+        // 2. Calculate TAS using the helper and cached OAT
+        const cachedOat = currentAircraftPositionForGeocode ? (currentAircraftPositionForGeocode.oat_c || 15) : 15;
+        const calculatedTas = calculateTas(position.alt_ft || 0, cachedOat, position.gs_kt || 0);
+        const cachedWindDir = (currentAircraftPositionForGeocode && currentAircraftPositionForGeocode.wind_dir) || 0;
+        const cachedWindSpd = (currentAircraftPositionForGeocode && currentAircraftPositionForGeocode.wind_spd_kts) || 0;
+
+        // 3. Calculate Traffic
+        const ndTraffic = [];
+        const myLat = position.lat;
+        const myLon = position.lon;
+        const myAlt = position.alt_ft;
+
+        Object.values(currentMapFeatures).forEach(feature => {
+            const otherProps = feature.properties;
+            if (otherProps.flightId === flightId) return;
+
+            let otherPos;
+            try {
+                otherPos = JSON.parse(otherProps.position);
+            } catch(e) { return; }
+
+            const latDiff = Math.abs(otherPos.lat - myLat);
+            const lonDiff = Math.abs(otherPos.lon - myLon);
+            if (latDiff > 1 || lonDiff > 1) return; 
+
+            const distKm = getDistanceKm(myLat, myLon, otherPos.lat, otherPos.lon);
+            const distNM = distKm / 1.852;
+
+            if (distNM < 45) {
+                const bearingTo = getBearing(myLat, myLon, otherPos.lat, otherPos.lon);
+                let relBearing = bearingTo - position.heading_deg;
+                if (relBearing > 180) relBearing -= 360;
+                if (relBearing < -180) relBearing += 360;
+                const altDiffFt = otherPos.alt_ft - myAlt;
+                const altDiff100 = Math.round(altDiffFt / 100);
+
+                ndTraffic.push({
+                    id: otherProps.flightId,
+                    bearing: relBearing,
+                    dist: distNM,
+                    altDiff: altDiff100,
+                    vs: otherPos.vs_fpm
+                });
+            }
+        });
+
+        // 4. Calculate Flight Plan (Logic copied from handleSocketFlightUpdate)
+        let ndFlightPlan = [];
+        let ndNextWp = "WYPT";
+        let ndDist = 0;
+        let ndEte = "00:00";
+
+        if (cachedFlightDataForStatsView && cachedFlightDataForStatsView.plan) {
+            const planItems = cachedFlightDataForStatsView.plan.flightPlanItems;
+            const flatWaypoints = getFlatWaypointObjects(planItems);
+            
+            ndFlightPlan = flatWaypoints.map(wp => {
+                if (!wp.location || wp.location.latitude == null || wp.location.longitude == null) return null;
+                const distKm = getDistanceKm(myLat, myLon, wp.location.latitude, wp.location.longitude);
+                const distNM = distKm / 1.852;
+                const bearingTo = getBearing(myLat, myLon, wp.location.latitude, wp.location.longitude);
+                const rad = bearingTo * Math.PI / 180;
+                return {
+                    name: wp.identifier || wp.name || 'WP',
+                    x: Math.sin(rad) * distNM, 
+                    y: Math.cos(rad) * distNM 
+                };
+            }).filter(Boolean);
+
+            const currentTrack = position.heading_deg;
+            let bestIndex = -1;
+            let minDist = Infinity;
+
+            if (flatWaypoints.length > 1) {
+                for (let i = 1; i < flatWaypoints.length; i++) {
+                    const wp = flatWaypoints[i];
+                    if (!wp.location) continue;
                     
-                </div>
-            `;
-            // --- [FIX] Changed viewContainer to mapContainer ---
-            mapContainer.insertAdjacentHTML('beforeend', windowHtml);
-        }
-        if (!document.getElementById('weather-settings-window')) {
-            // ... (Weather window HTML unchanged) ...
-            const windowHtml = `
-                <div id="weather-settings-window" class="info-window">
-                    <div class="info-window-header">
-                        <h3><i class="fa-solid fa-cloud-sun" style="margin-right: 10px;"></i> Weather Settings</h3>
-                        <div class="info-window-actions">
-                            <button class="weather-window-hide-btn" title="Hide"><i class="fa-solid fa-compress"></i></button>
-                            <button class="weather-window-close-btn" title="Close"><i class="fa-solid fa-xmark"></i></button>
-                        </div>
-                    </div>
-                    <div id="weather-window-content" class="info-window-content">
-                        <ul class="weather-toggle-list">
-                            <li class="weather-toggle-item">
-                                <span class="weather-toggle-label"><i class="fa-solid fa-cloud-rain"></i> Precipitation</span>
-                                <label class="toggle-switch">
-                                    <input type="checkbox" id="weather-toggle-precip">
-                                    <span class="toggle-slider"></span>
-                                </label>
-                            </li>
-                            <li class="weather-toggle-item">
-                                <span class="weather-toggle-label"><i class="fa-solid fa-cloud"></i> Cloud Cover</span>
-                                <label class="toggle-switch">
-                                    <input type="checkbox" id="weather-toggle-clouds">
-                                    <span class="toggle-slider"></span>
-                                </label>
-                            </li>
-                            <li class="weather-toggle-item">
-                                <span class="weather-toggle-label"><i class="fa-solid fa-wind"></i> Wind Speed</span>
-                                <label class="toggle-switch">
-                                    <input type="checkbox" id="weather-toggle-wind">
-                                    <span class="toggle-slider"></span>
-                                </label>
-                            </li>
-                        </ul>
-                        <div class="weather-disclaimer-note">
-                            <i class="fa-solid fa-server"></i>
-                            <strong>Note:</strong> These layers are provided by a free service. Please use them gently as resources are limited.
-                        </div>
-                    </div>
-                </div>
-            `;
-            // --- [FIX] Changed viewContainer to mapContainer ---
-            mapContainer.insertAdjacentHTML('beforeend', windowHtml);
+                    const dKm = getDistanceKm(myLat, myLon, wp.location.latitude, wp.location.longitude);
+                    const b = getBearing(myLat, myLon, wp.location.latitude, wp.location.longitude);
+                    const bDiff = Math.abs(normalizeBearingDiff(currentTrack - b));
+                    
+                    if (bDiff <= 100 && dKm < minDist) {
+                        minDist = dKm;
+                        bestIndex = i;
+                    }
+                }
+            }
+
+            if (bestIndex !== -1) {
+                const wp = flatWaypoints[bestIndex];
+                const distNM = minDist / 1.852;
+                const gs = Math.max(1, position.gs_kt || 0);
+                
+                ndNextWp = wp.identifier || wp.name || "WPT";
+                ndDist = Math.round(distNM);
+                
+                const totalMinutes = (distNM / gs) * 60;
+                const h = Math.floor(totalMinutes / 60);
+                const m = Math.floor(totalMinutes % 60);
+                ndEte = `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}`;
+            }
         }
 
-        // --- [MODIFIED FILTER WINDOW INJECTION] ---
-        if (!document.getElementById('filter-settings-window')) {
-            const windowHtml = `
-                <div id="filter-settings-window" class="info-window">
-                    <div class="info-window-header">
-                        <h3><i class="fa-solid fa-filter" style="margin-right: 10px;"></i> Map Filters</h3>
-                        <div class="info-window-actions">
-                            <button class="filter-window-hide-btn" title="Hide"><i class="fa-solid fa-compress"></i></button>
-                            <button class="filter-window-close-btn" title="Close"><i class="fa-solid fa-xmark"></i></button>
-                        </div>
-                    </div>
-                    <div id="filter-window-content" class="info-window-content">
-                        <ul class="filter-toggle-list">
-                            <li class="filter-toggle-item">
-                                <span class="filter-toggle-label"><i class="fa-solid fa-tower-broadcast"></i> Hide Staffed Airports</span>
-                                <label class="toggle-switch">
-                                    <input type="checkbox" id="filter-toggle-atc">
-                                    <span class="toggle-slider"></span>
-                                </label>
-                            </li>
-
-                            <li class="filter-toggle-item">
-                                <span class="filter-toggle-label"><i class="fa-solid fa-satellite"></i> Satellite Mode</span>
-                                <label class="toggle-switch">
-                                    <input type="checkbox" id="filter-toggle-satellite-mode">
-                                    <span class="toggle-slider"></span>
-                                </label>
-                            </li>
-                            
-                            <li class="filter-toggle-item">
-                                <span class="filter-toggle-label"><i class="fa-solid fa-tags"></i> Show Aircraft Labels</span>
-                                <label class="toggle-switch">
-                                    <input type="checkbox" id="filter-toggle-aircraft-labels">
-                                    <span class="toggle-slider"></span>
-                                </label>
-                            </li>
-                            </ul>
-
-                        <div class="filter-section-divider">
-                            <span class="filter-section-title">Aircraft Icon Color</span>
-                        </div>
-                        <ul class="filter-toggle-list" id="icon-color-filter-group" style="padding-top: 8px;">
-                            <li class="filter-radio-item">
-                                <input type="radio" id="icon-color-default" name="icon-color-mode" value="default" checked>
-                                <label for="icon-color-default"><i class="fa-solid fa-plane" style="color: #fff;"></i> Default (White)</label>
-                            </li>
-                            <li class="filter-radio-item">
-                                <input type="radio" id="icon-color-blue" name="icon-color-mode" value="blue">
-                                <label for="icon-color-blue"><i class="fa-solid fa-plane" style="color: #00a8ff;"></i> Blue</label>
-                            </li>
-                            <li class="filter-radio-item">
-                                <input type="radio" id="icon-color-orange" name="icon-color-mode" value="orange">
-                                <label for="icon-color-orange"><i class="fa-solid fa-plane" style="color: #ff9900;"></i> Orange</label>
-                            </li>
-                        </ul>
-                        <div class="filter-section-divider">
-                            <span class="filter-section-title">Active Flight Plan Display</span>
-                        </div>
-                        <ul class="filter-toggle-list" id="plan-filter-group" style="padding-top: 8px;">
-                            <li class="filter-radio-item">
-                                <input type="radio" id="plan-filter-none" name="plan-display-mode" value="none" checked>
-                                <label for="plan-filter-none"><i class="fa-solid fa-eye-slash"></i> Hide Plan</label>
-                            </li>
-                            <li class="filter-radio-item">
-                                <input type="radio" id="plan-filter-direct" name="plan-display-mode" value="direct">
-                                <label for="plan-filter-direct"><i class="fa-solid fa-route"></i> Direct to Destination</label>
-                            </li>
-                            <li class="filter-radio-item">
-                                <input type="radio" id="plan-filter-full" name="plan-display-mode" value="full">
-                                <label for="plan-filter-full"><i class="fa-solid fa-diagram-project"></i> Full Filed Plan</label>
-                            </li>
-                        </ul>
-
-                        <div class="mobile-only-filter-section">
-                            <div class="filter-section-divider">
-                                <span class="filter-section-title">Mobile Display Mode</span>
-                            </div>
-                            <ul class="filter-toggle-list" id="mobile-mode-filter-group" style="padding-top: 8px;">
-                                <li class="filter-radio-item">
-                                    <input type="radio" id="mobile-mode-hud" name="mobile-display-mode" value="hud" checked>
-                                    <label for="mobile-mode-hud"><i class="fa-solid fa-rocket"></i> HUD View</label>
-                                </li>
-                                <li class="filter-radio-item">
-                                    <input type="radio" id="mobile-mode-legacy" name="mobile-display-mode" value="legacy">
-                                    <label for="mobile-mode-legacy"><i class="fa-solid fa-layer-group"></i> Legacy Sheet</label>
-                                </li>
-                            </ul>
-                        </div>
-                        </div>
-                </div>
-            `;
-            // --- [FIX] Changed viewContainer to mapContainer ---
-            mapContainer.insertAdjacentHTML('beforeend', windowHtml);
+        // 5. Send to Iframe
+        const navIframe = document.getElementById('nav-display-frame');
+        if (navIframe && navIframe.contentWindow) {
+            navIframe.contentWindow.postMessage({
+                heading: position.heading_deg,
+                track: position.heading_deg,
+                gs: Math.round(position.gs_kt),
+                tas: calculatedTas, 
+                windDir: cachedWindDir, 
+                windSpd: cachedWindSpd,
+                traffic: ndTraffic,
+                flightPlan: ndFlightPlan,
+                nextWp: ndNextWp,
+                nextWpDist: ndDist,
+                nextWpEte: ndEte
+            }, '*');
+            console.log(`ND Iframe Handshake successful. Data pushed for ${flightId}`);
         }
-        // --- [END MODIFIED FILTER WINDOW INJECTION] ---
-        
-        // ... (Rest of the function is unchanged) ...
-        const toolbarToggleBtn = document.getElementById('toolbar-toggle-panel-btn');
-        if (toolbarToggleBtn) {
-             if (!document.getElementById('airport-recall-btn')) {
-                toolbarToggleBtn.parentElement.insertAdjacentHTML('beforeend', `
-                    <button id="airport-recall-btn" class="toolbar-btn" title="Show Airport Info">
-                        <i class="fa-solid fa-location-dot"></i>
-                    </button>
-                `);
-             }
-             if (!document.getElementById('aircraft-recall-btn')) {
-                  toolbarToggleBtn.parentElement.insertAdjacentHTML('beforeend', `
-                    <button id="aircraft-recall-btn" class="toolbar-btn" title="Show Aircraft Info">
-                        <i class="fa-solid fa-plane-up"></i>
-                    </button>
-                `);
-             }
-             if (!document.getElementById('open-weather-settings-btn')) {
-                toolbarToggleBtn.parentElement.insertAdjacentHTML('beforeend', `
-                    <button id="open-weather-settings-btn" class="toolbar-btn" title="Weather Settings">
-                        <i class="fa-solid fa-cloud-sun"></i>
-                    </button>
-                `);
-             }
-             if (!document.getElementById('open-filter-settings-btn')) {
-                toolbarToggleBtn.parentElement.insertAdjacentHTML('beforeend', `
-                    <button id="open-filter-settings-btn" class="toolbar-btn" title="Map Filters">
-                        <i class="fa-solid fa-filter"></i>
-                    </button>
-                `);
-             }
-        }
-        
-        airportInfoWindow = document.getElementById('airport-info-window');
-        airportInfoWindowRecallBtn = document.getElementById('airport-recall-btn');
-        aircraftInfoWindow = document.getElementById('aircraft-info-window');
-        aircraftInfoWindowRecallBtn = document.getElementById('aircraft-recall-btn');
-        weatherSettingsWindow = document.getElementById('weather-settings-window');
-        filterSettingsWindow = document.getElementById('filter-settings-window');
-
-        // 2. [REMOVED] Hub selector population ---
-        const selectedHub = "VIDP"; // <-- Hard-coded a default hub for the map
-
-        // 3. Initialize the Mapbox map
-        await initializeSectorOpsMap(selectedHub);
-
-        // 4. [MODIFIED] Fetch panel content instead of routes/rosters ---
-        await loadExternalPanelContent();
-
-        // 5. Set up all event listeners
-        setupSectorOpsEventListeners();
-        setupAirportWindowEvents();
-        setupAircraftWindowEvents();
-        setupWeatherSettingsWindowEvents();
-        setupFilterSettingsWindowEvents(); 
-        setupSearchEventListeners();
-
-        // 6. Start the live data loop.
-        startSectorOpsLiveLoop();
-
-    } catch (error) {
-        console.error("Error initializing Sector Ops view:", error);
-        showNotification(error.message, 'error');
-        // Handle error display in the new panel if needed
-        const panelContentWrapper = document.querySelector('#sector-ops-floating-panel .panel-content-wrapper');
-        if (panelContentWrapper) {
-            panelContentWrapper.innerHTML = `<p class="error-text" style="padding: 20px;">${error.message}</p>`;
-        }
-    } finally {
-        mainContentLoader.classList.remove('active');
     }
-}
+
+    async function initializeSectorOpsView() {
+        // const selector = document.getElementById('departure-hub-selector'); // <-- REMOVED
+        const mapContainer = document.getElementById('sector-ops-map-fullscreen');
+        // const viewContainer = document.getElementById('view-rosters'); // <-- REMOVED
+        
+        // --- [FIX] Changed viewContainer to mapContainer and removed !selector check ---
+        const viewContainer = document.getElementById('standalone-map-view'); // Use the correct ID from your HTML
+        if (!viewContainer || !mapContainer) return; // Modified check
+        
+        mainContentLoader.classList.add('active');
+
+        try {
+            // --- [NEW] Inject the Search Bar ---
+            if (!document.getElementById('sector-ops-search-container')) {
+                // ... (search bar HTML unchanged) ...
+                const searchHtml = `
+                    <div id="sector-ops-search-container" class="sector-ops-search">
+                        <div class="search-bar-container">
+                            <label for="sector-ops-search-input" class="search-icon-label">
+                                <i class="fa-solid fa-magnifying-glass search-icon"></i>
+                            </label>
+                            <input type="text" id="sector-ops-search-input" placeholder="Search callsign or username..." aria-label="Search callsign or username" autocomplete="off">
+                            <button id="sector-ops-search-clear" class="search-clear-btn" aria-label="Clear search" style="display: none;">
+                                <i class="fa-solid fa-xmark"></i>
+                            </button>
+                        </div>
+                        <div id="search-results-dropdown" class="search-results-dropdown"></div>
+                    </div>
+                `;
+                // --- [FIX] Changed viewContainer to mapContainer ---
+                mapContainer.insertAdjacentHTML('beforeend', searchHtml);
+            }
+
+            // ... (Airport & Aircraft window HTML unchanged) ...
+            if (!document.getElementById('airport-info-window')) {
+                 const windowHtml = `
+                    <div id="airport-info-window" class="info-window">
+                        <div class="info-window-header">
+                            <h3 id="airport-window-title"></h3>
+                            <div class="info-window-actions">
+                                <button id="airport-window-hide-btn" title="Hide"><i class="fa-solid fa-compress"></i></button>
+                                <button id="airport-window-close-btn" title="Close"><i class="fa-solid fa-xmark"></i></button>
+                            </div>
+                        </div>
+                        <div id="airport-window-content" class="info-window-content"></div>
+                    </div>
+                `;
+                // --- [FIX] Changed viewContainer to mapContainer ---
+                mapContainer.insertAdjacentHTML('beforeend', windowHtml);
+            }
+            if (!document.getElementById('aircraft-info-window')) {
+                 const windowHtml = `
+                    <div id="aircraft-info-window" class="info-window">
+                        
+                    </div>
+                `;
+                // --- [FIX] Changed viewContainer to mapContainer ---
+                mapContainer.insertAdjacentHTML('beforeend', windowHtml);
+            }
+            if (!document.getElementById('weather-settings-window')) {
+                // ... (Weather window HTML unchanged) ...
+                const windowHtml = `
+                    <div id="weather-settings-window" class="info-window">
+                        <div class="info-window-header">
+                            <h3><i class="fa-solid fa-cloud-sun" style="margin-right: 10px;"></i> Weather Settings</h3>
+                            <div class="info-window-actions">
+                                <button class="weather-window-hide-btn" title="Hide"><i class="fa-solid fa-compress"></i></button>
+                                <button class="weather-window-close-btn" title="Close"><i class="fa-solid fa-xmark"></i></button>
+                            </div>
+                        </div>
+                        <div id="weather-window-content" class="info-window-content">
+                            <ul class="weather-toggle-list">
+                                <li class="weather-toggle-item">
+                                    <span class="weather-toggle-label"><i class="fa-solid fa-cloud-rain"></i> Precipitation</span>
+                                    <label class="toggle-switch">
+                                        <input type="checkbox" id="weather-toggle-precip">
+                                        <span class="toggle-slider"></span>
+                                    </label>
+                                </li>
+                                <li class="weather-toggle-item">
+                                    <span class="weather-toggle-label"><i class="fa-solid fa-cloud"></i> Cloud Cover</span>
+                                    <label class="toggle-switch">
+                                        <input type="checkbox" id="weather-toggle-clouds">
+                                        <span class="toggle-slider"></span>
+                                    </label>
+                                </li>
+                                <li class="weather-toggle-item">
+                                    <span class="weather-toggle-label"><i class="fa-solid fa-wind"></i> Wind Speed</span>
+                                    <label class="toggle-switch">
+                                        <input type="checkbox" id="weather-toggle-wind">
+                                        <span class="toggle-slider"></span>
+                                    </label>
+                                </li>
+                            </ul>
+                            <div class="weather-disclaimer-note">
+                                <i class="fa-solid fa-server"></i>
+                                <strong>Note:</strong> These layers are provided by a free service. Please use them gently as resources are limited.
+                            </div>
+                        </div>
+                    </div>
+                `;
+                // --- [FIX] Changed viewContainer to mapContainer ---
+                mapContainer.insertAdjacentHTML('beforeend', windowHtml);
+            }
+
+            // --- [MODIFIED FILTER WINDOW INJECTION] ---
+            if (!document.getElementById('filter-settings-window')) {
+                const windowHtml = `
+                    <div id="filter-settings-window" class="info-window">
+                        <div class="info-window-header">
+                            <h3><i class="fa-solid fa-filter" style="margin-right: 10px;"></i> Map Filters</h3>
+                            <div class="info-window-actions">
+                                <button class="filter-window-hide-btn" title="Hide"><i class="fa-solid fa-compress"></i></button>
+                                <button class="filter-window-close-btn" title="Close"><i class="fa-solid fa-xmark"></i></button>
+                            </div>
+                        </div>
+                        <div id="filter-window-content" class="info-window-content">
+                            <ul class="filter-toggle-list">
+                                <li class="filter-toggle-item">
+                                    <span class="filter-toggle-label"><i class="fa-solid fa-tower-broadcast"></i> Hide Staffed Airports</span>
+                                    <label class="toggle-switch">
+                                        <input type="checkbox" id="filter-toggle-atc">
+                                        <span class="toggle-slider"></span>
+                                    </label>
+                                </li>
+
+                                <li class="filter-toggle-item">
+                                    <span class="filter-toggle-label"><i class="fa-solid fa-satellite"></i> Satellite Mode</span>
+                                    <label class="toggle-switch">
+                                        <input type="checkbox" id="filter-toggle-satellite-mode">
+                                        <span class="toggle-slider"></span>
+                                    </label>
+                                </li>
+                                
+                                <li class="filter-toggle-item">
+                                    <span class="filter-toggle-label"><i class="fa-solid fa-tags"></i> Show Aircraft Labels</span>
+                                    <label class="toggle-switch">
+                                        <input type="checkbox" id="filter-toggle-aircraft-labels">
+                                        <span class="toggle-slider"></span>
+                                    </label>
+                                </li>
+                                </ul>
+
+                            <div class="filter-section-divider">
+                                <span class="filter-section-title">Aircraft Icon Color</span>
+                            </div>
+                            <ul class="filter-toggle-list" id="icon-color-filter-group" style="padding-top: 8px;">
+                                <li class="filter-radio-item">
+                                    <input type="radio" id="icon-color-default" name="icon-color-mode" value="default" checked>
+                                    <label for="icon-color-default"><i class="fa-solid fa-plane" style="color: #fff;"></i> Default (White)</label>
+                                </li>
+                                <li class="filter-radio-item">
+                                    <input type="radio" id="icon-color-blue" name="icon-color-mode" value="blue">
+                                    <label for="icon-color-blue"><i class="fa-solid fa-plane" style="color: #00a8ff;"></i> Blue</label>
+                                </li>
+                                <li class="filter-radio-item">
+                                    <input type="radio" id="icon-color-orange" name="icon-color-mode" value="orange">
+                                    <label for="icon-color-orange"><i class="fa-solid fa-plane" style="color: #ff9900;"></i> Orange</label>
+                                </li>
+                            </ul>
+                            <div class="filter-section-divider">
+                                <span class="filter-section-title">Active Flight Plan Display</span>
+                            </div>
+                            <ul class="filter-toggle-list" id="plan-filter-group" style="padding-top: 8px;">
+                                <li class="filter-radio-item">
+                                    <input type="radio" id="plan-filter-none" name="plan-display-mode" value="none" checked>
+                                    <label for="plan-filter-none"><i class="fa-solid fa-eye-slash"></i> Hide Plan</label>
+                                </li>
+                                <li class="filter-radio-item">
+                                    <input type="radio" id="plan-filter-direct" name="plan-display-mode" value="direct">
+                                    <label for="plan-filter-direct"><i class="fa-solid fa-route"></i> Direct to Destination</label>
+                                </li>
+                                <li class="filter-radio-item">
+                                    <input type="radio" id="plan-filter-full" name="plan-display-mode" value="full">
+                                    <label for="plan-filter-full"><i class="fa-solid fa-diagram-project"></i> Full Filed Plan</label>
+                                </li>
+                            </ul>
+
+                            <div class="mobile-only-filter-section">
+                                <div class="filter-section-divider">
+                                    <span class="filter-section-title">Mobile Display Mode</span>
+                                </div>
+                                <ul class="filter-toggle-list" id="mobile-mode-filter-group" style="padding-top: 8px;">
+                                    <li class="filter-radio-item">
+                                        <input type="radio" id="mobile-mode-hud" name="mobile-display-mode" value="hud" checked>
+                                        <label for="mobile-mode-hud"><i class="fa-solid fa-rocket"></i> HUD View</label>
+                                    </li>
+                                    <li class="filter-radio-item">
+                                        <input type="radio" id="mobile-mode-legacy" name="mobile-display-mode" value="legacy">
+                                        <label for="mobile-mode-legacy"><i class="fa-solid fa-layer-group"></i> Legacy Sheet</label>
+                                    </li>
+                                </ul>
+                            </div>
+                            </div>
+                    </div>
+                `;
+                // --- [FIX] Changed viewContainer to mapContainer ---
+                mapContainer.insertAdjacentHTML('beforeend', windowHtml);
+            }
+            // --- [END MODIFIED FILTER WINDOW INJECTION] ---
+            
+            // ... (Rest of the function is unchanged) ...
+            const toolbarToggleBtn = document.getElementById('toolbar-toggle-panel-btn');
+            if (toolbarToggleBtn) {
+                 if (!document.getElementById('airport-recall-btn')) {
+                    toolbarToggleBtn.parentElement.insertAdjacentHTML('beforeend', `
+                        <button id="airport-recall-btn" class="toolbar-btn" title="Show Airport Info">
+                            <i class="fa-solid fa-location-dot"></i>
+                        </button>
+                    `);
+                 }
+                 if (!document.getElementById('aircraft-recall-btn')) {
+                      toolbarToggleBtn.parentElement.insertAdjacentHTML('beforeend', `
+                        <button id="aircraft-recall-btn" class="toolbar-btn" title="Show Aircraft Info">
+                            <i class="fa-solid fa-plane-up"></i>
+                        </button>
+                    `);
+                 }
+                 if (!document.getElementById('open-weather-settings-btn')) {
+                    toolbarToggleBtn.parentElement.insertAdjacentHTML('beforeend', `
+                        <button id="open-weather-settings-btn" class="toolbar-btn" title="Weather Settings">
+                            <i class="fa-solid fa-cloud-sun"></i>
+                        </button>
+                    `);
+                 }
+                 if (!document.getElementById('open-filter-settings-btn')) {
+                    toolbarToggleBtn.parentElement.insertAdjacentHTML('beforeend', `
+                        <button id="open-filter-settings-btn" class="toolbar-btn" title="Map Filters">
+                            <i class="fa-solid fa-filter"></i>
+                        </button>
+                    `);
+                 }
+            }
+            
+            airportInfoWindow = document.getElementById('airport-info-window');
+            airportInfoWindowRecallBtn = document.getElementById('airport-recall-btn');
+            aircraftInfoWindow = document.getElementById('aircraft-info-window');
+            aircraftInfoWindowRecallBtn = document.getElementById('aircraft-recall-btn');
+            weatherSettingsWindow = document.getElementById('weather-settings-window');
+            filterSettingsWindow = document.getElementById('filter-settings-window');
+
+            // 2. [REMOVED] Hub selector population ---
+            const selectedHub = "VIDP"; // <-- Hard-coded a default hub for the map
+
+            // 3. Initialize the Mapbox map
+            await initializeSectorOpsMap(selectedHub);
+
+            // 4. [MODIFIED] Fetch panel content instead of routes/rosters ---
+            await loadExternalPanelContent();
+
+            // 5. Set up all event listeners
+            setupSectorOpsEventListeners();
+            setupAirportWindowEvents();
+            setupAircraftWindowEvents();
+            setupWeatherSettingsWindowEvents();
+            setupFilterSettingsWindowEvents(); 
+            setupSearchEventListeners();
+
+            // --- [NEW LISTENER] Listen for ND_READY signal from the iframe ---
+            window.addEventListener('message', (event) => {
+                if (event.data && event.data.type === 'ND_READY') {
+                    refreshNavDisplayFromCache();
+                }
+            });
+
+            // 6. Start the live data loop.
+            startSectorOpsLiveLoop();
+
+        } catch (error) {
+            console.error("Error initializing Sector Ops view:", error);
+            showNotification(error.message, 'error');
+            // Handle error display in the new panel if needed
+            const panelContentWrapper = document.querySelector('#sector-ops-floating-panel .panel-content-wrapper');
+            if (panelContentWrapper) {
+                panelContentWrapper.innerHTML = `<p class="error-text" style="padding: 20px;">${error.message}</p>`;
+            }
+        } finally {
+            mainContentLoader.classList.remove('active');
+        }
+    }
 
 
 function initializeSectorOpsMap(centerICAO) {

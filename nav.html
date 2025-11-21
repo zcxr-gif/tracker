@@ -956,6 +956,12 @@
                 state.flightPlan = data.flightPlan;
             }
         });
+
+        // --- NEW: SIGNAL READY TO PARENT ---
+        // This notifies the parent that the iframe is loaded and ready for data.
+        if (window.parent) {
+            window.parent.postMessage({ type: 'ND_READY' }, '*');
+        }
     </script>
 </body>
 </html>
