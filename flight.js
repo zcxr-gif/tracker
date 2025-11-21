@@ -522,132 +522,168 @@ function injectCustomStyles() {
     if (document.getElementById(styleId)) return;
 
     const css = `
-        /* --- VIRTUAL COCKPIT SEAT SENSOR --- */
-.seat-sensor-wrapper {
-    background: #0f1115;
-    border: 1px solid #333;
-    border-radius: 8px;
-    margin-top: 16px; /* Spacing from FMS */
-    padding: 10px;
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    box-shadow: inset 0 0 20px rgba(0,0,0,0.8);
-}
+        /* --- VIRTUAL COCKPIT SEAT SENSOR (Updated for Module Consistency) --- */
+        .seat-sensor-wrapper {
+            background: #000; /* Match FMS background */
+            border: 2px solid #333; /* Match FMS border */
+            border-radius: 4px; /* Match FMS radius */
+            margin-top: 16px;
+            display: flex;
+            flex-direction: column;
+            box-shadow: inset 0 0 20px rgba(0,0,0,0.8);
+            overflow: hidden;
+            position: relative;
+        }
 
-.cockpit-view {
-    position: relative;
-    width: 140px;
-    height: 80px;
-    background: #1a1a1a;
-    border-radius: 40px 40px 10px 10px; /* Nose shape */
-    border: 2px solid #444;
-    display: flex;
-    justify-content: space-between;
-    padding: 10px 20px;
-    box-sizing: border-box;
-}
+        /* New Header to match FMS */
+        .sensor-header {
+            background: #111;
+            padding: 6px 10px;
+            border-bottom: 1px solid #333;
+            display: flex;
+            justify-content: space-between;
+            font-size: 0.8rem;
+            font-weight: bold;
+            color: #fff;
+            flex-shrink: 0;
+            font-family: 'Consolas', monospace;
+        }
 
-/* The Center Console */
-.cockpit-view::after {
-    content: '';
-    position: absolute;
-    left: 50%;
-    bottom: 10px;
-    transform: translateX(-50%);
-    width: 14px;
-    height: 40px;
-    background: #333;
-    border-radius: 4px;
-    border: 1px solid #555;
-}
+        .sensor-body {
+            padding: 15px;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            position: relative;
+            background: #0f1115; 
+        }
 
-.seat {
-    width: 35px;
-    height: 40px;
-    background: #222;
-    border-radius: 6px;
-    border: 2px solid #444;
-    transition: all 0.5s ease;
-    position: relative;
-    display: flex;
-    justify-content: center;
-    align-items: center;
-}
+        .cockpit-view {
+            position: relative;
+            width: 140px;
+            height: 80px;
+            background: #1a1a1a;
+            border-radius: 40px 40px 10px 10px; /* Nose shape */
+            border: 2px solid #444;
+            display: flex;
+            justify-content: space-between;
+            padding: 10px 20px;
+            box-sizing: border-box;
+            margin-bottom: 10px;
+        }
 
-/* Headrest */
-.seat::before {
-    content: '';
-    position: absolute;
-    top: -8px;
-    width: 25px;
-    height: 8px;
-    background: inherit;
-    border-radius: 4px;
-    border: 2px solid #444;
-}
+        /* The Center Console */
+        .cockpit-view::after {
+            content: '';
+            position: absolute;
+            left: 50%;
+            bottom: 10px;
+            transform: translateX(-50%);
+            width: 14px;
+            height: 40px;
+            background: #333;
+            border-radius: 4px;
+            border: 1px solid #555;
+        }
 
-/* --- STATE COLORS & GLOWS --- */
+        .seat {
+            width: 35px;
+            height: 40px;
+            background: #222;
+            border-radius: 6px;
+            border: 2px solid #444;
+            transition: all 0.5s ease;
+            position: relative;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+        }
 
-/* State 0: Active Captain (Left Seat) */
-.seat.cpt.active {
-    background: rgba(0, 255, 0, 0.1);
-    border-color: #00ff00;
-    box-shadow: 0 0 15px rgba(0, 255, 0, 0.4);
-}
-.seat.cpt.active::before {
-    border-color: #00ff00;
-    background: #003300;
-}
+        /* Headrest */
+        .seat::before {
+            content: '';
+            position: absolute;
+            top: -8px;
+            width: 25px;
+            height: 8px;
+            background: inherit;
+            border-radius: 4px;
+            border: 2px solid #444;
+        }
 
-/* State 3: Relief Pilot/Background (Right Seat) */
-.seat.fo.active {
-    background: rgba(0, 168, 255, 0.1);
-    border-color: #00a8ff;
-    box-shadow: 0 0 15px rgba(0, 168, 255, 0.4);
-}
-.seat.fo.active::before {
-    border-color: #00a8ff;
-    background: #002244;
-}
+        /* --- STATUS OVERLAYS --- */
+        .cockpit-overlay-icon {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            font-size: 2.5rem;
+            z-index: 10;
+            opacity: 0;
+            transition: opacity 0.3s ease, transform 0.3s ease;
+            pointer-events: none;
+            text-shadow: 0 2px 10px rgba(0,0,0,0.8);
+        }
 
-/* Seat Labels (CPT / FO) */
-.seat::after {
-    content: attr(data-role);
-    font-size: 0.6rem;
-    font-weight: bold;
-    color: #555;
-    margin-top: 2px;
-}
-.seat.active::after {
-    color: #fff;
-    text-shadow: 0 0 5px currentColor;
-}
+        .cockpit-overlay-icon.visible {
+            opacity: 1;
+            transform: translate(-50%, -50%) scale(1);
+        }
 
-/* Status Text Below */
-.seat-status-display {
-    margin-top: 8px;
-    font-family: 'Consolas', monospace;
-    font-size: 0.75rem;
-    text-align: center;
-    width: 100%;
-    display: flex;
-    justify-content: space-between;
-    color: #888;
-}
+        /* Specific Overlay Styles */
+        .icon-parking { color: #ff3333; border: 3px solid #ff3333; border-radius: 50%; width: 45px; height: 45px; display: flex; align-items: center; justify-content: center; font-weight: bold; background: rgba(0,0,0,0.6); font-family: sans-serif; }
+        .icon-coffee { color: #ffaa00; }
+        .icon-cloud { color: #00a8ff; }
 
-.status-pill {
-    padding: 2px 8px;
-    border-radius: 4px;
-    background: #222;
-    border: 1px solid #333;
-}
+        /* --- SEAT STATES --- */
+        
+        /* State 0: Active (Green) */
+        .seat.active-green { background: rgba(0, 255, 0, 0.1); border-color: #00ff00; box-shadow: 0 0 15px rgba(0, 255, 0, 0.4); }
+        .seat.active-green::before { border-color: #00ff00; background: #003300; }
 
-.status-pill.active {
-    font-weight: bold;
-}
-.status-pill.cpt-active { color: #00ff00; border-color: #00ff00; }
-.status-pill.fo-active { color: #00a8ff; border-color: #00a8ff; }
+        /* State 1: Monitor (Amber) */
+        .seat.active-amber { background: rgba(255, 170, 0, 0.1); border-color: #ffaa00; box-shadow: 0 0 15px rgba(255, 170, 0, 0.4); }
+        .seat.active-amber::before { border-color: #ffaa00; background: #442200; }
+
+        /* State 3: Background (Blue) */
+        .seat.active-blue { background: rgba(0, 168, 255, 0.1); border-color: #00a8ff; box-shadow: 0 0 15px rgba(0, 168, 255, 0.4); }
+        .seat.active-blue::before { border-color: #00a8ff; background: #002244; }
+
+        /* Seat Labels */
+        .seat::after { content: attr(data-role); font-size: 0.6rem; font-weight: bold; color: #555; margin-top: 2px; }
+        .seat.active-green::after, .seat.active-amber::after, .seat.active-blue::after { color: #fff; text-shadow: 0 0 5px currentColor; }
+
+        /* Status Text */
+        .seat-status-display {
+            margin-top: 8px;
+            font-family: 'Consolas', monospace;
+            font-size: 0.75rem;
+            text-align: center;
+            width: 100%;
+            display: flex;
+            justify-content: space-between;
+            color: #888;
+        }
+
+        .status-pill { padding: 2px 8px; border-radius: 4px; background: #222; border: 1px solid #333; }
+        .status-pill.green { color: #00ff00; border-color: #00ff00; }
+        .status-pill.amber { color: #ffaa00; border-color: #ffaa00; }
+        .status-pill.blue { color: #00a8ff; border-color: #00a8ff; }
+        .status-pill.red { color: #ff3333; border-color: #ff3333; }
+
+        /* Narrative Text */
+        #seat-narrative-text {
+            font-family: 'Segoe UI', sans-serif;
+            font-size: 0.7rem;
+            color: #aaa;
+            margin-top: 8px;
+            text-align: center;
+            border-top: 1px solid #333;
+            padding-top: 6px;
+            width: 100%;
+            font-style: italic;
+        }
+        
         /* --- Sector Ops View Layout --- */
         #view-rosters.active {
             position: absolute;
@@ -5514,16 +5550,26 @@ function populateAircraftInfoWindow(baseProps, plan, sortedRoutePoints) {
                         </div>
 
                         <div class="seat-sensor-wrapper" id="cockpit-seat-sensor">
-                            <div class="cockpit-view">
-                                <div id="seat-cpt" class="seat cpt" data-role="CPT"></div>
-                                <div id="seat-fo" class="seat fo" data-role="FO"></div>
+                            <div class="sensor-header">
+                                <span class="fms-title">COCKPIT STATE</span>
+                                <span class="fms-page-count"><i class="fa-solid fa-satellite-dish"></i></span>
                             </div>
-                            <div class="seat-status-display">
-                                <span id="status-cpt-text" class="status-pill">CMD: ACTIVE</span>
-                                <span id="status-fo-text" class="status-pill">FO: MONITOR</span>
-                            </div>
-                            <div style="font-size: 0.65rem; color: #666; margin-top: 4px; width:100%; text-align:center;" id="seat-narrative-text">
-                                Wait for update...
+                            <div class="sensor-body">
+                                <div class="cockpit-view">
+                                    <div id="seat-cpt" class="seat" data-role="CPT"></div>
+                                    <div id="seat-fo" class="seat" data-role="FO"></div>
+                                    
+                                    <div id="icon-parking-overlay" class="cockpit-overlay-icon icon-parking">P</div>
+                                    <div id="icon-coffee-overlay" class="cockpit-overlay-icon icon-coffee"><i class="fa-solid fa-mug-hot"></i></div>
+                                    <div id="icon-cloud-overlay" class="cockpit-overlay-icon icon-cloud"><i class="fa-solid fa-cloud"></i></div>
+                                </div>
+                                <div class="seat-status-display">
+                                    <span id="status-cpt-text" class="status-pill">CMD: ---</span>
+                                    <span id="status-fo-text" class="status-pill">FO: ---</span>
+                                </div>
+                                <div id="seat-narrative-text">
+                                    Initializing...
+                                </div>
                             </div>
                         </div>
                     </div>
@@ -5693,62 +5739,99 @@ function updateNavPanelData(lat, lon, heading, oat, windDir, windSpd) {
     }
 }
 
-/**
- * Updates the Virtual Cockpit visuals based on connection state.
- * State 0 = Active (Captain). State 3 = Background (FO).
- */
 function updateSeatSensor(flightProps) {
     const seatCpt = document.getElementById('seat-cpt');
     const seatFo = document.getElementById('seat-fo');
     const statusCpt = document.getElementById('status-cpt-text');
     const statusFo = document.getElementById('status-fo-text');
     const narrative = document.getElementById('seat-narrative-text');
+    
+    // Overlays
+    const parkingOverlay = document.getElementById('icon-parking-overlay');
+    const coffeeOverlay = document.getElementById('icon-coffee-overlay');
+    const cloudOverlay = document.getElementById('icon-cloud-overlay');
 
     if (!seatCpt || !seatFo) return;
 
     // 1. DETERMINE STATE
-    // If your backend provides 'state' (0 or 3), use it. 
-    // Otherwise, we infer based on your existing properties.
-    let state = flightProps.pilotState;
-    
-    // Fallback logic if state is undefined in your feed
-    if (state === undefined) {
-        // Default to 0 (Active) unless explicit.
-        state = 0; 
-    }
+    // Default to 0 (Active) if undefined
+    let state = flightProps.pilotState !== undefined ? flightProps.pilotState : 0;
 
     // 2. RESET VISUALS
-    seatCpt.classList.remove('active');
-    seatFo.classList.remove('active');
+    // Remove all active color classes
+    seatCpt.classList.remove('active-green', 'active-amber', 'active-blue');
+    seatFo.classList.remove('active-green', 'active-amber', 'active-blue');
+    
+    // Reset pills
     statusCpt.className = 'status-pill';
     statusFo.className = 'status-pill';
+    
+    // Hide all overlays
+    if(parkingOverlay) parkingOverlay.classList.remove('visible');
+    if(coffeeOverlay) coffeeOverlay.classList.remove('visible');
+    if(cloudOverlay) cloudOverlay.classList.remove('visible');
 
     // 3. APPLY LOGIC
-    if (state === 0) {
-        // --- STATE 0: ACTIVE (Captain) ---
-        seatCpt.classList.add('active');
-        statusCpt.classList.add('cpt-active');
-        statusCpt.innerHTML = '<i class="fa-solid fa-user"></i> CMD: PILOT';
-        statusFo.innerHTML = 'FO: IDLE';
-        
-        if (flightProps.speed < 30) {
-             narrative.textContent = "Captain performing ground ops.";
-        } else {
-             narrative.textContent = "Captain has controls. Manual/AP inputs detected.";
-        }
+    switch (state) {
+        case 0: // ACTIVE
+            seatCpt.classList.add('active-green');
+            
+            statusCpt.classList.add('green');
+            statusCpt.textContent = 'CMD: PILOT';
+            
+            statusFo.textContent = 'FO: MONITOR';
+            
+            narrative.textContent = "Manual inputs detected. Pilot has controls.";
+            break;
 
-    } else if (state === 3) {
-        // --- STATE 3: BACKGROUND (Relief/FO) ---
-        seatFo.classList.add('active');
-        statusFo.classList.add('fo-active');
-        statusCpt.innerHTML = 'CMD: REST';
-        statusFo.innerHTML = '<i class="fa-solid fa-robot"></i> FO: FLYING';
-        
-        narrative.textContent = "Captain is away (Background). Relief Pilot monitoring systems.";
+        case 1: // AWAY (IN FLIGHT) - Monitoring
+            seatCpt.classList.add('active-amber');
+            
+            statusCpt.classList.add('amber');
+            statusCpt.textContent = 'CMD: AUTO';
+            
+            statusFo.textContent = 'FO: MONITOR';
+            
+            if(coffeeOverlay) coffeeOverlay.classList.add('visible');
+            narrative.textContent = "No recent inputs. Pilot is monitoring cruise systems.";
+            break;
 
-    } else {
-        // --- UNKNOWN / DISCONNECTED ---
-        narrative.textContent = "No telemetry. Cockpit dark.";
+        case 2: // AWAY (PARKED) - Secured
+            // Seats remain dark/grey (no active class)
+            
+            statusCpt.classList.add('red'); // Use red border/text for park brake
+            statusCpt.textContent = 'PARK BRK: SET';
+            statusCpt.style.width = '100%'; // Span full width
+            statusCpt.style.textAlign = 'center';
+            
+            statusFo.style.display = 'none'; // Hide FO pill in this specific state
+            
+            if(parkingOverlay) parkingOverlay.classList.add('visible');
+            narrative.textContent = "Cockpit secured. Parking brake set.";
+            break;
+
+        case 3: // BACKGROUND - Relief Pilot / Rest
+            seatFo.classList.add('active-blue');
+            
+            statusCpt.textContent = 'CMD: REST';
+            
+            statusFo.classList.add('blue');
+            statusFo.textContent = 'FO: ACTIVE';
+            
+            if(cloudOverlay) cloudOverlay.classList.add('visible');
+            narrative.textContent = "Captain is resting (App Backgrounded). Relief Pilot has controls.";
+            break;
+
+        default:
+            narrative.textContent = "No telemetry data available.";
+            break;
+    }
+
+    // Restore FO display if not in state 2
+    if (state !== 2) {
+        statusFo.style.display = 'block';
+        statusCpt.style.width = 'auto';
+        statusCpt.style.textAlign = 'left';
     }
 }
 
