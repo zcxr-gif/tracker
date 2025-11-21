@@ -1057,7 +1057,18 @@ function injectCustomStyles() {
         .progress-bar-fill { height: 100%; width: 0%; background: linear-gradient(90deg, #00a8ff, #89f7fe); transition: width 0.5s ease-out; border-radius: 3px; }
         .flight-phase-indicator { padding: 4px 12px; border-radius: 20px; font-size: 0.75rem; font-weight: 700; color: #fff; border: 1px solid rgba(255, 255, 255, 0.1); grid-row: 1; grid-column: 1; z-index: 2; box-shadow: 0 4px 15px rgba(0, 0, 0, 0.5); }
         .phase-climb { background: rgba(34, 139, 34, 0.9); } .phase-cruise { background: rgba(0, 119, 255, 0.9); } .phase-descent { background: rgba(255, 140, 0, 0.9); } .phase-approach { background: rgba(138, 43, 226, 0.9); } .phase-enroute { background: rgba(100, 110, 130, 0.9); }
-        .unified-display-main-content { padding: 16px; flex-grow: 1; display: flex; flex-direction: column; gap: 16px; }
+        
+        .unified-display-main-content { 
+            padding: 16px; 
+            flex-grow: 1; 
+            display: flex; 
+            flex-direction: column; 
+            gap: 16px; 
+            /* --- MODIFIED: Background uses theme variables --- */
+            background: linear-gradient(180deg, var(--iw-bg-start), var(--iw-bg-end));
+            border-top: 1px solid rgba(255, 255, 255, 0.05);
+        }
+
         .ac-tab-pane { display: none; flex-direction: column; gap: 16px; animation: fadeIn 0.4s; }
         .ac-tab-pane.active { display: flex; }
         .ac-profile-card-new { 
