@@ -1000,8 +1000,35 @@ function injectCustomStyles() {
         }
         
         /* --- General Layout Styles --- */
-        .aircraft-overview-panel { position: relative; height: 200px; background-size: cover; background-position: center; border-bottom-left-radius: 0; border-bottom-right-radius: 0; color: #fff; display: flex; flex-direction: column; justify-content: space-between; margin-bottom: -40px; }
-        .aircraft-overview-panel::before { content: ''; position: absolute; inset: 0; z-index: 1; background: linear-gradient(180deg, rgba(0, 0, 0, 0.4) 0%, rgba(0, 0, 0, 0) 35%); }
+        .aircraft-overview-panel { 
+            position: relative; 
+            height: 200px; 
+            background-size: cover; 
+            background-position: center; 
+            border-bottom-left-radius: 0; 
+            border-bottom-right-radius: 0; 
+            color: #fff; 
+            display: flex; 
+            flex-direction: column; 
+            justify-content: space-between; 
+            margin-bottom: -40px; 
+        }
+        
+        /* UPDATED: Improved Blending Gradient */
+        .aircraft-overview-panel::before { 
+            content: ''; 
+            position: absolute; 
+            inset: 0; 
+            z-index: 1; 
+            background: linear-gradient(
+                to bottom,
+                rgba(0, 0, 0, 0.7) 0%, 
+                rgba(0, 0, 0, 0) 35%, 
+                rgba(28, 30, 42, 0.5) 80%, 
+                #1C1E2A 100%
+            ); 
+        }
+        
         .overview-content { position: relative; z-index: 2; padding: 16px 20px 0 20px; display: flex; justify-content: space-between; align-items: flex-start; }
         .overview-col-left h3 { margin: 0; font-size: 1.6rem; font-weight: 700; text-shadow: 0 4px 10px rgba(0, 0, 0, 0.7); display: flex; align-items: center; gap: 12px; }
         .ac-header-logo { height: 1.8rem; width: auto; max-width: 100px; object-fit: contain; filter: drop-shadow(0 2px 4px rgba(0,0,0,0.7)); }
@@ -1012,7 +1039,23 @@ function injectCustomStyles() {
         #ac-header-livery { animation: primarySubtextAnimation 8s infinite ease-in-out; }
         #ac-header-actype { animation: secondarySubtextAnimation 8s infinite ease-in-out; }
         .overview-actions { position: absolute; top: 16px; right: 16px; z-index: 3; display: flex; gap: 8px; }
-        .route-summary-overlay { position: relative; padding: 25px 20px 12px 20px; background: linear-gradient(180deg, transparent 0%, rgba(0, 168, 255, 0.15) 30%, rgba(18, 20, 38, 0.8) 50%, #1C1E2A 70%); display: grid; grid-template-columns: auto 1fr auto; align-items: center; gap: 16px; width: 100%; }
+        
+        /* UPDATED: Route Summary Overlay for Seamless Blend */
+        .route-summary-overlay { 
+            position: relative; 
+            padding: 15px 20px 12px 20px; 
+            background: linear-gradient(180deg, 
+                transparent 0%, 
+                rgba(28, 30, 42, 0.9) 40%, 
+                #1C1E2A 100%
+            ); 
+            display: grid; 
+            grid-template-columns: auto 1fr auto; 
+            align-items: center; 
+            gap: 16px; 
+            width: 100%; 
+        }
+        
         .route-summary-airport { display: flex; flex-direction: column; }
         #route-summary-dep { text-align: left; align-items: center; }
         #route-summary-arr { text-align: right; align-items: center; }
