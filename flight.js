@@ -5728,7 +5728,18 @@ function populateAircraftInfoWindow(baseProps, plan, sortedRoutePoints) {
                                 </div>
                             </div>
                         </div>
-                    </div>
+
+                        <div class="rules-module-container">
+                            <div class="rules-header">
+                                <span class="fms-title">FLIGHT RULES</span>
+                            </div>
+                            <div class="rules-body">
+                                <div id="flight-rules-display" class="flight-rules-badge">
+                                    <i class="fa-solid fa-spinner fa-spin"></i>
+                                </div>
+                            </div>
+                        </div>
+                        </div>
                 </div>
                 
                 <div id="location-data-panel">
@@ -6229,6 +6240,7 @@ function updateAircraftInfoWindow(baseProps, plan, sortedRoutePoints) {
             
             const segmentDistNM = (i === 0) ? 0 : getDistanceKm(lastLat, lastLon, wpLat, wpLon) / 1.852;
             cumulativeDistNM += segmentDistNM;
+            
             wp.cumulativeNM = cumulativeDistNM;
             
             lastLat = wpLat;
@@ -6874,6 +6886,8 @@ function updateAircraftInfoWindow(baseProps, plan, sortedRoutePoints) {
     // --- NEW: Update Cockpit Seat Sensor ---
     updateSeatSensor(baseProps);
 
+    // --- [FIX START] UPDATE FLIGHT RULES ---
+    // This logic now correctly targets the 'flight-rules-display' div we just added
     const rulesDisplay = document.getElementById('flight-rules-display');
     if (rulesDisplay) {
         // Ensure helper function exists
@@ -6891,6 +6905,7 @@ function updateAircraftInfoWindow(baseProps, plan, sortedRoutePoints) {
             rulesDisplay.textContent = "RULES UNKNOWN";
         }
     }
+    // --- [FIX END] ---
 }
 
 
