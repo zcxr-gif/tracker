@@ -2258,7 +2258,7 @@ function handleSocketFlightUpdate(data) {
             isVAMember: flight.isVAMember,
             phase: litePhase,
             // --- NEW: Capture the simulator state (0=Active, 3=Background) ---
-            state: flight.state, 
+            pilotState: flight.pilotState,
             last_update: flight.position.lastReport || data.timestamp
         };
 
@@ -5707,7 +5707,7 @@ function updateSeatSensor(flightProps) {
     // 1. DETERMINE STATE
     // If your backend provides 'state' (0 or 3), use it. 
     // Otherwise, we infer based on your existing properties.
-    let state = flightProps.state; 
+    let state = flightProps.pilotState;
     
     // Fallback logic if state is undefined in your feed
     if (state === undefined) {
