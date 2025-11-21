@@ -700,7 +700,7 @@ function injectCustomStyles() {
             overflow: hidden; 
         }
         
-        /* --- INFO WINDOW STYLES (UPDATED FOR THEMING) --- */
+        /* --- INFO WINDOW STYLES (UPDATED) --- */
         .info-window {
             position: absolute;
             top: 20px; 
@@ -709,13 +709,16 @@ function injectCustomStyles() {
             max-width: 95vw;
             max-height: calc(100vh - 40px);
             
-            /* --- THEMED BACKGROUND --- */
+            /* Dynamic Background */
             background: linear-gradient(160deg, var(--iw-bg-start), var(--iw-bg-end));
             
             backdrop-filter: blur(20px) saturate(180%);
             -webkit-backdrop-filter: blur(20px) saturate(180%);
             border-radius: 16px;
-            border: 1px solid rgba(255, 255, 255, 0.1);
+            
+            /* --- FIX: Use a much subtler border that blends with any color --- */
+            border: 1px solid rgba(255, 255, 255, 0.08);
+            
             box-shadow: 0 20px 50px rgba(0,0,0,0.8); 
             z-index: 1060; 
             display: flex;
@@ -737,8 +740,13 @@ function injectCustomStyles() {
             justify-content: space-between;
             align-items: center;
             padding: 16px 20px;
-            background: rgba(10, 12, 26, 0.4); /* More transparent to show gradient */
-            border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+            
+            /* --- FIX: Make background transparent so it takes the user's theme color --- */
+            background: rgba(0, 0, 0, 0.1); 
+            
+            /* Optional: Make the separator line subtler or remove it to blend fully */
+            border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+            
             flex-shrink: 0;
         }
         .info-window-header h3 {
