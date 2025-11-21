@@ -588,7 +588,8 @@
                 if (!isRoseMode) {
                     let rel = Math.abs(d - state.heading);
                     if (rel > 180) rel = 360 - rel;
-                    if (rel > 110) continue; 
+                    // FIX: Reduced from 110 to 55 to match the drawn Arc Boundary width
+                    if (rel > 55) continue; 
                 }
 
                 const rad = d * Math.PI / 180;
