@@ -80,7 +80,6 @@ const MobileUIHandler = {
      * [MODIFIED] Injects all the CSS for the new HUD-themed floating islands.
      */
     injectMobileStyles() {
-        // ... (CSS is unchanged, keeping it collapsed for clarity) ...
         const styleId = 'mobile-sector-ops-styles';
         if (document.getElementById(styleId)) document.getElementById(styleId).remove();
 
@@ -107,6 +106,54 @@ const MobileUIHandler = {
                 position: relative;
                 overflow: hidden;
             }
+
+            /* ====================================================================
+            --- [START] Search Bar Mobile Positioning Fix (High Top Edge) ---
+            ==================================================================== */
+            @media (max-width: ${this.CONFIG.breakpoint}px) {
+                #sector-ops-search-container {
+                    position: absolute !important;
+                    /* Aligns with the very top edge / safe area, matching HUD Top Window */
+                    top: env(safe-area-inset-top, 10px) !important; 
+                    left: 50% !important;
+                    transform: translateX(-50%) !important;
+                    /* Match the width/margins of the HUD islands (10px side margin) */
+                    width: calc(100% - 20px) !important; 
+                    max-width: 500px !important;
+                    z-index: 1030 !important;
+                }
+
+                #sector-ops-search-container .search-bar-container {
+                    background: var(--hud-bg) !important;
+                    backdrop-filter: blur(var(--hud-blur)) !important;
+                    -webkit-backdrop-filter: blur(var(--hud-blur)) !important;
+                    border: 1px solid var(--hud-border) !important;
+                    border-radius: 12px !important; /* Matches HUD island radius */
+                    box-shadow: 0 4px 20px rgba(0,0,0,0.4) !important;
+                    padding: 8px 16px !important;
+                }
+
+                #sector-ops-search-input {
+                    font-size: 16px !important; /* Prevents iOS zoom on focus */
+                }
+                
+                /* Dropdown positioning fix */
+                #search-results-dropdown {
+                    top: 105% !important;
+                    left: 0 !important;
+                    right: 0 !important;
+                    width: 100% !important;
+                    border-radius: 12px !important;
+                    background: rgba(10, 15, 28, 0.95) !important;
+                    backdrop-filter: blur(15px) !important;
+                    border: 1px solid rgba(255,255,255,0.1) !important;
+                    overflow: hidden !important;
+                    box-shadow: 0 10px 30px rgba(0,0,0,0.5) !important;
+                }
+            }
+            /* ====================================================================
+            --- [END] Search Bar Mobile Positioning Fix ---
+            ==================================================================== */
 
             /* --- [MODIFIED] Overlay (now shared) --- */
             #mobile-window-overlay {
@@ -468,20 +515,6 @@ const MobileUIHandler = {
             .mobile-legacy-sheet .route-summary-overlay {
                 /* The handle will wrap this */
             }
-            
-            /* --- [MODIFIED] Hide desktop close/hide buttons --- */
-            /*
-            .mobile-legacy-sheet .overview-actions {
-                display: none !important;
-            }
-            */
-            /* ^^^ Rule removed to show buttons ^^^ */
-
-
-            /* ====================================================================
-            --- [END] NEW CSS for "Legacy Sheet" Mode ---
-            ==================================================================== */
-
 
             @media (max-width: ${this.CONFIG.breakpoint}px) {
                 #aircraft-info-window:not(.mobile-legacy-sheet), 
