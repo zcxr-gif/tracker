@@ -502,10 +502,17 @@
             if (isRoseMode) {
                 ctx.arc(0, 0, clipRadius, 0, 2 * Math.PI);
             } else {
+                // [FIXED] Counter-rotate the clipping region so it stays fixed to the "Screen" (Up)
+                // while the map rotates underneath it.
+                ctx.rotate(state.heading * Math.PI / 180);
+
                 // Clip to the fan shape in ARC mode
                 ctx.moveTo(0, 0);
                 ctx.arc(0, 0, clipRadius, ARC_START_ANGLE, ARC_END_ANGLE);
                 ctx.closePath();
+
+                // Rotate back to map coordinates to draw the actual lines
+                ctx.rotate(-state.heading * Math.PI / 180);
             }
             ctx.clip();
 
