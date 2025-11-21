@@ -5484,49 +5484,51 @@ function populateAircraftInfoWindow(baseProps, plan, sortedRoutePoints) {
                         </div>
                     </div>
                     
-                    <div id="fms-legs-module" class="fms-module-container">
-                        <div class="fms-header">
-                            <span class="fms-title">ACTIVE FLIGHT PLAN</span>
-                            <span class="fms-page-count">1/1</span>
-                        </div>
-                        
-                        <div class="fms-columns">
-                            <span class="col-wpt">LEGS</span>
-                            <span class="col-data text-center">CRS</span>
-                            <span class="col-data text-right">DIST</span>
+                    <div class="info-right-col">
+                        <div id="fms-legs-module" class="fms-module-container">
+                            <div class="fms-header">
+                                <span class="fms-title">ACTIVE FLIGHT PLAN</span>
+                                <span class="fms-page-count">1/1</span>
+                            </div>
+                            
+                            <div class="fms-columns">
+                                <span class="col-wpt">LEGS</span>
+                                <span class="col-data text-center">CRS</span>
+                                <span class="col-data text-right">DIST</span>
+                            </div>
+
+                            <div id="fms-legs-list" class="fms-list-scrollarea">
+                                <div class="fms-empty-state">NO ROUTE LOADED</div>
+                            </div>
+                            
+                            <div class="fms-footer">
+                                <div class="fms-stat">
+                                    <span class="stat-label">DTG</span>
+                                    <span id="fms-total-dist" class="stat-value">---- NM</span>
+                                </div>
+                                <div class="fms-stat">
+                                    <span class="stat-label">ETE</span>
+                                    <span id="fms-total-ete" class="stat-value">--:--</span>
+                                </div>
+                            </div>
                         </div>
 
-                        <div id="fms-legs-list" class="fms-list-scrollarea">
-                            <div class="fms-empty-state">NO ROUTE LOADED</div>
-                        </div>
-                        
-                        <div class="fms-footer">
-                            <div class="fms-stat">
-                                <span class="stat-label">DTG</span>
-                                <span id="fms-total-dist" class="stat-value">---- NM</span>
+                        <div class="seat-sensor-wrapper" id="cockpit-seat-sensor">
+                            <div class="cockpit-view">
+                                <div id="seat-cpt" class="seat cpt" data-role="CPT"></div>
+                                <div id="seat-fo" class="seat fo" data-role="FO"></div>
                             </div>
-                            <div class="fms-stat">
-                                <span class="stat-label">ETE</span>
-                                <span id="fms-total-ete" class="stat-value">--:--</span>
+                            <div class="seat-status-display">
+                                <span id="status-cpt-text" class="status-pill">CMD: ACTIVE</span>
+                                <span id="status-fo-text" class="status-pill">FO: MONITOR</span>
+                            </div>
+                            <div style="font-size: 0.65rem; color: #666; margin-top: 4px; width:100%; text-align:center;" id="seat-narrative-text">
+                                Wait for update...
                             </div>
                         </div>
                     </div>
                 </div>
                 
-                <div class="seat-sensor-wrapper" id="cockpit-seat-sensor">
-                    <div class="cockpit-view">
-                        <div id="seat-cpt" class="seat cpt" data-role="CPT"></div>
-                        <div id="seat-fo" class="seat fo" data-role="FO"></div>
-                    </div>
-                    <div class="seat-status-display">
-                        <span id="status-cpt-text" class="status-pill">CMD: ACTIVE</span>
-                        <span id="status-fo-text" class="status-pill">FO: MONITOR</span>
-                    </div>
-                    <div style="font-size: 0.65rem; color: #666; margin-top: 4px; width:100%; text-align:center;" id="seat-narrative-text">
-                        Wait for update...
-                    </div>
-                </div>
-
                 <div id="location-data-panel">
                     <div class="nav-header">
                         <span class="nav-title">NAV DATA</span>
