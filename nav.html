@@ -371,11 +371,14 @@
         const GLOBAL_SCALE = window.self !== window.top ? 0.95 : 0.85; 
         
         // CONSTANTS FOR ARC GEOMETRY
-        // 1.2 PI = 216 deg (Left), 1.8 PI = 324 deg (Right). Center is 270 (Top).
-        // Total spread = 108 degrees (+/- 54 from center).
-        const ARC_START_ANGLE = Math.PI * 1.2;
-        const ARC_END_ANGLE = Math.PI * 1.8;
-        const ARC_FOV_DEGREES = 54; // Used for tick clipping
+        // Updated to match the wide Airbus display (Corner-to-corner)
+        // Center is 270 degrees (1.5 PI). 
+        // We span approx +/- 81 degrees (0.45 PI) to fill the corners.
+        // Start = 1.5 - 0.45 = 1.05 PI
+        // End = 1.5 + 0.45 = 1.95 PI
+        const ARC_START_ANGLE = Math.PI * 1.05;
+        const ARC_END_ANGLE = Math.PI * 1.95;
+        const ARC_FOV_DEGREES = 81; // Used for tick clipping logic
 
         let state = {
             mode: 'ARC',
@@ -470,7 +473,7 @@
             ctx.rotate(-state.heading * Math.PI / 180);
             
             drawCompassRose(arcRadius, isRoseMode); 
-            drawFlightPlan(arcRadius);
+            drawFlightPlan(arcRadius, isRoseMode);
             drawTraffic(arcRadius);
             
             ctx.restore();
@@ -486,7 +489,7 @@
             ctx.restore();
         }
 
-        function drawFlightPlan(radius) {
+        function drawFlightPlan(radius, isRoseMode) {
             if (!state.flightPlan || state.flightPlan.length === 0) return;
 
             const pxPerNM = radius / state.range;
@@ -494,8 +497,16 @@
 
             ctx.save(); 
             
+            // Create specific clipping region
             ctx.beginPath();
-            ctx.arc(0, 0, clipRadius, 0, 2 * Math.PI);
+            if (isRoseMode) {
+                ctx.arc(0, 0, clipRadius, 0, 2 * Math.PI);
+            } else {
+                // Clip to the fan shape in ARC mode
+                ctx.moveTo(0, 0);
+                ctx.arc(0, 0, clipRadius, ARC_START_ANGLE, ARC_END_ANGLE);
+                ctx.closePath();
+            }
             ctx.clip();
 
             ctx.strokeStyle = COLORS.green;
@@ -576,7 +587,7 @@
                 if (!isRoseMode) {
                     let rel = Math.abs(d - state.heading);
                     if (rel > 180) rel = 360 - rel;
-                    // Fix: Ensure ticks clip strictly at the same angle as the arc boundary
+                    // Clip strictly to the new wider FOV angle
                     if (rel > ARC_FOV_DEGREES + 1) continue; 
                 }
 
