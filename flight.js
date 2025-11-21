@@ -522,11 +522,12 @@ function injectCustomStyles() {
     if (document.getElementById(styleId)) return;
 
     const css = `
-        /* --- VIRTUAL COCKPIT SEAT SENSOR --- */
+        /* --- VIRTUAL COCKPIT SEAT SENSOR (Updated for Module Consistency) --- */
         .seat-sensor-wrapper {
-            background: #000;
-            border: 2px solid #333;
-            border-radius: 4px;
+            background: #000; /* Match FMS background */
+            border: 2px solid #333; /* Match FMS border */
+            border-radius: 4px; /* Match FMS radius */
+            /* MARGIN REMOVED - Handled by parent gap */
             display: flex;
             flex-direction: column;
             box-shadow: inset 0 0 20px rgba(0,0,0,0.8);
@@ -534,6 +535,7 @@ function injectCustomStyles() {
             position: relative;
         }
 
+        /* New Header to match FMS */
         .sensor-header {
             background: #111;
             padding: 6px 10px;
@@ -561,7 +563,7 @@ function injectCustomStyles() {
             width: 140px;
             height: 80px;
             background: #1a1a1a;
-            border-radius: 40px 40px 10px 10px;
+            border-radius: 40px 40px 10px 10px; /* Nose shape */
             border: 2px solid #444;
             display: flex;
             justify-content: space-between;
@@ -570,6 +572,7 @@ function injectCustomStyles() {
             margin-bottom: 10px;
         }
 
+        /* The Center Console */
         .cockpit-view::after {
             content: '';
             position: absolute;
@@ -596,6 +599,7 @@ function injectCustomStyles() {
             align-items: center;
         }
 
+        /* Headrest */
         .seat::before {
             content: '';
             position: absolute;
@@ -626,23 +630,30 @@ function injectCustomStyles() {
             transform: translate(-50%, -50%) scale(1);
         }
 
+        /* Specific Overlay Styles */
         .icon-parking { color: #ff3333; border: 3px solid #ff3333; border-radius: 50%; width: 45px; height: 45px; display: flex; align-items: center; justify-content: center; font-weight: bold; background: rgba(0,0,0,0.6); font-family: sans-serif; }
         .icon-coffee { color: #ffaa00; }
         .icon-cloud { color: #00a8ff; }
 
         /* --- SEAT STATES --- */
+        
+        /* State 0: Active (Green) */
         .seat.active-green { background: rgba(0, 255, 0, 0.1); border-color: #00ff00; box-shadow: 0 0 15px rgba(0, 255, 0, 0.4); }
         .seat.active-green::before { border-color: #00ff00; background: #003300; }
 
+        /* State 1: Monitor (Amber) */
         .seat.active-amber { background: rgba(255, 170, 0, 0.1); border-color: #ffaa00; box-shadow: 0 0 15px rgba(255, 170, 0, 0.4); }
         .seat.active-amber::before { border-color: #ffaa00; background: #442200; }
 
+        /* State 3: Background (Blue) */
         .seat.active-blue { background: rgba(0, 168, 255, 0.1); border-color: #00a8ff; box-shadow: 0 0 15px rgba(0, 168, 255, 0.4); }
         .seat.active-blue::before { border-color: #00a8ff; background: #002244; }
 
+        /* Seat Labels */
         .seat::after { content: attr(data-role); font-size: 0.6rem; font-weight: bold; color: #555; margin-top: 2px; }
         .seat.active-green::after, .seat.active-amber::after, .seat.active-blue::after { color: #fff; text-shadow: 0 0 5px currentColor; }
 
+        /* Status Text */
         .seat-status-display {
             margin-top: 8px;
             font-family: 'Consolas', monospace;
@@ -660,6 +671,7 @@ function injectCustomStyles() {
         .status-pill.blue { color: #00a8ff; border-color: #00a8ff; }
         .status-pill.red { color: #ff3333; border-color: #ff3333; }
 
+        /* Narrative Text */
         #seat-narrative-text {
             font-family: 'Segoe UI', sans-serif;
             font-size: 0.7rem;
@@ -766,17 +778,18 @@ function injectCustomStyles() {
             background: #1C1E2A;
         }
 
-        /* --- PFD/ND Layout --- */
+        /* --- PFD/ND Layout (UPDATED for tighter spacing) --- */
         .pfd-and-location-grid { 
             display: grid; 
             grid-template-columns: 2fr 1fr; 
-            gap: 8px;
+            gap: 8px; /* REDUCED from 16px */
         }
 
+        /* New class for the right column wrapper to stack modules tightly */
         .info-right-col {
             display: flex;
             flex-direction: column;
-            gap: 8px;
+            gap: 8px; /* This controls the vertical spacing between modules */
         }
         
         /* --- FMS MODULE STYLES --- */
@@ -793,6 +806,7 @@ function injectCustomStyles() {
             box-shadow: inset 0 0 20px rgba(0,0,0,0.8);
             box-sizing: border-box;
             overflow: hidden; 
+            /* MARGIN REMOVED - Handled by parent gap */
         }
         .fms-header {
             background: #111;
@@ -881,6 +895,7 @@ function injectCustomStyles() {
             border: 1px solid #333;
             box-shadow: 0 4px 20px rgba(0,0,0,0.5);
             width: 100%;
+            /* MARGIN REMOVED - Handled by parent gap */
             display: flex;
             flex-direction: column;
             overflow: hidden;
@@ -1020,38 +1035,359 @@ function injectCustomStyles() {
         .profile-toggle-btn:hover { color: #fff; }
         .profile-toggle-btn.active { background: #00a8ff; color: #fff; box-shadow: 0 2px 5px rgba(0, 168, 255, 0.3); }
         
-        /* --- PFD/ND & VSD Styles are omitted for brevity (they remain unchanged) --- */
-        /* ... (Previous PFD, VSD, FMA styles) ... */
+        /* ======================================================== */
+        /* === [FIXED] PFD CASING STYLES (Matched to ND) === */
+        /* ======================================================== */
+        
+        .pfd-main-panel { 
+            display: flex; 
+            flex-direction: column; 
+            width: 100%; 
+            align-items: center; /* Align bezel to center/stretch */
+            gap: 16px; /* Add gap between PFD and ND */
+        }
 
-        /* --- NEW: Improved Tab Bar with Blending --- */
+        .display-bezel { 
+            position: relative; 
+            
+            /* Matched Colors from nav.html */
+            background-color: #1f2937; /* var(--bg-bezel) */
+            border: 4px solid #374151; /* var(--border-main) */
+            
+            /* Matched Spacing/Radius */
+            padding: 12px; /* Approx 0.75rem */
+            border-radius: 1rem; 
+            
+            /* Matched Shadow */
+            box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.5); 
+            
+            width: 100%; 
+            box-sizing: border-box; 
+            
+            display: flex;
+            flex-direction: column;
+        }
+        
+        /* Screws - Matched to ND */
+        .screw { 
+            position: absolute; 
+            width: 0.5rem; 
+            height: 0.5rem; 
+            background-color: #4b5563; /* var(--screw-color) */
+            border-radius: 50%; 
+            box-shadow: inset 1px 1px 2px rgba(0,0,0,0.5); 
+            z-index: 5; 
+        }
+        .screw.tl { top: 0.35rem; left: 0.35rem; } 
+        .screw.tr { top: 0.35rem; right: 0.35rem; } 
+        .screw.bl { bottom: 0.35rem; left: 0.35rem; } 
+        .screw.br { bottom: 0.35rem; right: 0.35rem; }
+        
+        /* CRT Container - Matched to ND */
+        .crt-container { 
+            width: 100%; 
+            position: relative; 
+            
+            /* Matched Border & Background */
+            border: 2px solid #111827; /* var(--border-dark) */
+            background: #000; 
+            
+            /* Matched Radius */
+            border-radius: 12px; 
+            overflow: hidden; 
+            
+            /* Matched Inset Shadow */
+            box-shadow: inset 0 0 20px rgba(0,0,0,0.8); 
+            
+            display: flex; /* Ensure SVG fills it */
+        }
+        
+        /* Scanlines - Matched to ND */
+        .scanlines::before { 
+            content: " "; 
+            display: block; 
+            position: absolute; 
+            top: 0; left: 0; bottom: 0; right: 0; 
+            background: linear-gradient(rgba(18, 16, 16, 0) 50%, rgba(0, 0, 0, 0.25) 50%), 
+                        linear-gradient(90deg, rgba(255, 0, 0, 0.06), rgba(0, 255, 0, 0.02), rgba(0, 0, 255, 0.06)); 
+            z-index: 10; 
+            background-size: 100% 2px, 3px 100%; 
+            pointer-events: none; 
+        }
+        
+        #pfd-container { 
+            width: 100%; 
+            /* Height is automatic based on content/flex */
+        }
+        
+        /* Ensure SVG fills the hole completely like the Canvas does in ND */
+        #pfd-container svg { 
+            width: 100%; 
+            height: auto; 
+            display: block;
+            margin: 0; 
+            
+            max-width: none; 
+            aspect-ratio: 787 / 800; 
+            background-color: #1a1a1a; 
+            overflow: hidden; 
+            border-radius: 0; 
+            filter: brightness(1.3) contrast(1.2) drop-shadow(0 0 2px rgba(255, 255, 255, 0.3)); 
+        }
+        
+        /* --- ND CONTAINER FIX --- */
+        /* This container holds the iframe. It must match PFD dimensions. */
+        #nd-container { 
+            width: 100%;
+            /* PFD SVG dimensions are 787x800. */
+            aspect-ratio: 787 / 800; 
+            
+            background: transparent; 
+            overflow: hidden; 
+            display: flex; 
+            justify-content: center; 
+            
+            /* Remove fixed height, let aspect-ratio drive it */
+            height: auto; 
+            /* We don't add border/shadow here because nav.html draws the bezel */
+            /* Just ensure it takes up the correct space */
+        }
+        
+        #nav-display-frame {
+            width: 100%; 
+            height: 100%; 
+            border: none;
+            display: block;
+        }
+        
+        /* ======================================================== */
+        /* === END FIXED PFD CASING STYLES === */
+        /* ======================================================== */
+
+        /* --- FLIGHT RULES MODULE --- */
+        .rules-module-container {
+            background: #000;
+            border: 2px solid #333;
+            border-radius: 4px;
+            /* MARGIN REMOVED - Handled by parent gap */
+            display: flex;
+            flex-direction: column;
+            box-shadow: inset 0 0 20px rgba(0,0,0,0.8);
+            overflow: hidden;
+        }
+
+        .rules-header {
+            background: #111;
+            padding: 6px 10px;
+            border-bottom: 1px solid #333;
+            display: flex;
+            justify-content: space-between;
+            font-size: 0.8rem;
+            font-weight: bold;
+            color: #fff;
+            font-family: 'Consolas', monospace;
+        }
+
+        .rules-body {
+            padding: 12px;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            background: #0f1115; 
+        }
+
+        .flight-rules-badge {
+            padding: 6px 16px;
+            border-radius: 4px;
+            font-family: 'Consolas', monospace;
+            font-weight: bold;
+            font-size: 1.1rem;
+            text-align: center;
+            width: 100%;
+            border: 1px solid rgba(255,255,255,0.1);
+            box-shadow: 0 4px 15px rgba(0,0,0,0.5);
+            text-shadow: 0 1px 2px rgba(0,0,0,0.8);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 10px;
+        }
+
+        .badge-ifr {
+            background: linear-gradient(180deg, rgba(0, 119, 255, 0.2) 0%, rgba(0, 60, 130, 0.4) 100%);
+            color: #00a8ff;
+            border-color: #0077ff;
+        }
+
+        .badge-vfr {
+            background: linear-gradient(180deg, rgba(40, 167, 69, 0.2) 0%, rgba(20, 80, 35, 0.4) 100%);
+            color: #28a745;
+            border-color: #28a745;
+        }
+
+        .badge-svfr {
+            background: linear-gradient(180deg, rgba(255, 193, 7, 0.2) 0%, rgba(130, 100, 5, 0.4) 100%);
+            color: #ffc107;
+            border-color: #ffc107;
+        }
+        
+        /* --- VSD PANEL STYLES (Matched to Nav/FMS) --- */
+        .vsd-module-container {
+            height: 260px; 
+            max-height: 260px;
+            background: #000;
+            border: 2px solid #333;
+            border-radius: 4px;
+            display: flex;
+            flex-direction: column;
+            box-shadow: inset 0 0 20px rgba(0,0,0,0.8);
+            box-sizing: border-box;
+            overflow: hidden;
+            margin-bottom: 16px; /* Spacing below */
+        }
+
+        .vsd-panel { 
+            display: flex; 
+            flex-direction: column; 
+            background: #0f1115; /* Match Nav Body */
+            flex-grow: 1;
+            position: relative;
+            overflow: hidden; 
+            width: 100%; 
+        }
+
+        .vsd-graph-window { 
+            position: relative; 
+            width: 100%; 
+            height: 100%; 
+            overflow: hidden; 
+            padding-left: 35px; /* Space for Y-Axis */
+            box-sizing: border-box; 
+        }
+
+        /* Y-Axis Labels (Left side) */
+        #vsd-y-axis {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 35px;
+            height: 100%;
+            background: #111;
+            border-right: 1px solid #333;
+            z-index: 10;
+        }
+        .y-axis-label {
+            position: absolute;
+            right: 4px;
+            font-family: 'Consolas', monospace;
+            font-size: 0.65rem;
+            color: #666;
+            transform: translateY(-50%);
+        }
+
+        /* Graph Content */
+        #vsd-graph-content {
+            position: relative;
+            height: 100%;
+            /* Width set dynamically via JS */
+        }
+
+        /* SVG Styling */
+        #vsd-profile-svg {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            overflow: visible;
+        }
+
+        #vsd-profile-path {
+            fill: none;
+            stroke: #444; /* Terrain/Planned Gray */
+            stroke-width: 2;
+            stroke-dasharray: 4, 2;
+        }
+
+        #vsd-flown-path {
+            fill: none;
+            stroke: #00e600; /* Active Green */
+            stroke-width: 3;
+            filter: drop-shadow(0 0 4px rgba(0, 230, 0, 0.5));
+        }
+
+        /* Aircraft Icon on Graph */
+        #vsd-aircraft-icon {
+            position: absolute;
+            width: 14px;
+            height: 14px;
+            background-image: url('data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><path fill="%2300a8ff" d="M488 256l-112-80v-96l-80 48-80-48v96L104 256 24 288v64l192-48v96l-32 32v32l72-24 72 24v-32l-32-32v-96l192 48v-64l-80-32z"/></svg>');
+            background-size: contain;
+            background-repeat: no-repeat;
+            transform: translate(-50%, -50%);
+            z-index: 20;
+        }
+
+        /* Waypoint Labels on Graph */
+        .vsd-wp-label {
+            position: absolute;
+            transform: translateX(-50%);
+            font-family: 'Consolas', monospace;
+            text-align: center;
+            width: 60px;
+            pointer-events: none;
+        }
+        .vsd-wp-label .wp-name {
+            display: block;
+            font-size: 0.7rem;
+            color: #00a8ff;
+            font-weight: bold;
+            background: rgba(0,0,0,0.7);
+            padding: 1px 3px;
+            border-radius: 2px;
+        }
+        .vsd-wp-label .wp-alt {
+            display: block;
+            font-size: 0.6rem;
+            color: #888;
+            margin-top: 1px;
+        }
+        
+        /* VSD Footer/Legend */
+        .vsd-footer {
+            background: #111;
+            padding: 4px 10px;
+            border-top: 1px solid #333;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            font-size: 0.7rem;
+            color: #888;
+            flex-shrink: 0;
+        }
+        .vsd-legend-item { display: flex; align-items: center; gap: 5px; }
+        .dot-plan { width: 6px; height: 6px; background: #444; border-radius: 50%; }
+        .dot-flown { width: 6px; height: 6px; background: #00e600; border-radius: 50%; box-shadow: 0 0 4px #00e600; }
+        
+        /* --- NEW: Improved Tab Bar --- */
         .ac-info-window-tabs {
             display: flex;
             justify-content: space-between;
             align-items: center;
-            
-            /* Smooth gradient that blends from semi-transparent to dark */
-            background: linear-gradient(180deg, rgba(18, 20, 38, 0.6) 0%, rgba(10, 12, 26, 1) 100%);
-            
-            /* Glass effect to blur the map beneath it */
-            backdrop-filter: blur(15px);
-            -webkit-backdrop-filter: blur(15px);
-
-            /* Subtle borders to define edges without harsh lines */
-            border-top: 1px solid rgba(255, 255, 255, 0.05);
+            background: rgba(12, 14, 20, 0.95); /* Darker, more solid background */
             border-bottom: 1px solid rgba(255, 255, 255, 0.1);
-            
             padding: 0 20px;
             height: 60px;
         }
 
         .ac-tabs-wrapper {
             display: flex;
-            gap: 25px;
+            gap: 20px;
             height: 100%;
         }
 
         .ac-info-tab-logo {
-            height: 32px;
+            height: 32px; /* Adjusted size */
             width: auto;
             object-fit: contain;
             opacity: 0.8;
@@ -1059,57 +1395,50 @@ function injectCustomStyles() {
 
         /* Tab Buttons */
         .ac-info-tab-btn {
-            padding: 0 5px;
+            padding: 0 10px;
             height: 100%;
             border: none;
             background: transparent;
-            color: #b0bec5; /* Softer grey */
+            color: #9fa8da;
             cursor: pointer;
-            font-size: 0.9rem;
+            font-size: 0.95rem;
             font-family: 'Segoe UI', sans-serif;
-            font-weight: 500;
+            font-weight: 600;
             position: relative;
             display: flex;
             align-items: center;
-            gap: 8px;
+            gap: 10px;
             transition: all 0.3s ease;
             border-bottom: 3px solid transparent;
         }
 
         .ac-info-tab-btn:hover {
             color: #fff;
-            text-shadow: 0 0 8px rgba(255,255,255,0.3);
         }
 
-        /* Active State - Matching the Screenshot's Cyan/Blue */
+        /* Active State - Standard */
         .ac-info-tab-btn.active {
             color: #fff;
-            border-bottom-color: #00a8ff; /* Cyan match */
-            font-weight: 600;
-            text-shadow: 0 0 12px rgba(0, 168, 255, 0.6);
+            border-bottom-color: #00a8ff;
+            text-shadow: 0 0 10px rgba(0, 168, 255, 0.5);
         }
         .ac-info-tab-btn.active i {
             color: #00a8ff;
         }
 
-        /* --- Pilot Name Emphasis --- */
+        /* --- NEW: Pilot Name Emphasis --- */
         .ac-info-tab-btn.pilot-tab-btn {
             color: #e0e0e0;
             font-weight: 700;
             letter-spacing: 0.5px;
-            text-transform: uppercase;
         }
-        
-        /* Active state for the pilot tab specifically */
+        .ac-info-tab-btn.pilot-tab-btn i {
+            color: #ffb74d; /* Orange/Gold icon */
+        }
         .ac-info-tab-btn.pilot-tab-btn.active {
             color: #fff;
-            border-bottom-color: #ffb74d; /* Orange/Gold underline */
-            background: linear-gradient(to top, rgba(255, 183, 77, 0.1), transparent); /* Subtle glow upward */
+            border-bottom-color: #ffb74d; /* Orange underline */
             text-shadow: 0 0 10px rgba(255, 183, 77, 0.5);
-        }
-        
-        .ac-info-tab-btn.pilot-tab-btn i {
-            color: #ffb74d; /* Icon always orange/gold */
         }
 
         /* Mobile Responsive Logo Hiding */
@@ -1125,9 +1454,6 @@ function injectCustomStyles() {
                 width: 100%;
                 justify-content: space-around;
                 gap: 0;
-            }
-            .ac-info-tab-btn {
-                font-size: 0.8rem; /* Smaller text on mobile */
             }
         }
 
