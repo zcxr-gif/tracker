@@ -2682,9 +2682,11 @@ function handleSocketFlightUpdate(data) {
     
     lastSocketUpdateTimestamp = new Date(data.timestamp).getTime();
 
-    if (!sectorOpsMap || !sectorOpsMap.isStyleLoaded() || !mapAnimator) {
-        return; // Map or Animator not ready
-    }
+    // --- [FIX START] --- 
+    // Removed the early return. We allow data processing even if the map isn't ready yet,
+    // so the Search Bar works immediately.
+    const isMapReady = (sectorOpsMap && sectorOpsMap.isStyleLoaded() && mapAnimator);
+    // --- [FIX END] ---
 
     const flights = data.flights;
     const updatedFlightIds = new Set();
@@ -2715,26 +2717,43 @@ function handleSocketFlightUpdate(data) {
             isStaff: flight.isStaff,
             isVAMember: flight.isVAMember,
             phase: litePhase,
-            // --- NEW: Capture the simulator state (0=Active, 3=Background) ---
             pilotState: flight.pilotState,
             last_update: flight.position.lastReport || data.timestamp
         };
+
+        // --- [FIX START] ---
+        // Manually update the data cache (currentMapFeatures) immediately.
+        // This ensures the search bar finds flights even if the map is still loading.
+        if (!currentMapFeatures[flightId]) {
+            currentMapFeatures[flightId] = {
+                type: 'Feature',
+                geometry: {
+                    type: 'Point',
+                    coordinates: [flight.position.lon, flight.position.lat]
+                },
+                properties: newProperties
+            };
+        } else {
+            // Update existing entry
+            currentMapFeatures[flightId].properties = newProperties;
+            currentMapFeatures[flightId].geometry.coordinates = [flight.position.lon, flight.position.lat];
+        }
+        // --- [FIX END] ---
 
         // ================================================================
         // === SELECTED AIRCRAFT UPDATE LOGIC ===
         // ================================================================
         if (flightId === currentFlightInWindow) {
             
-            // 1. Update the shared position object (used by Geocoder & Weather Fetcher)
+            // 1. Update the shared position object
             currentAircraftPositionForGeocode = flight.position;
             
-            // 2. Retrieve Cached Weather Data (from the 5-min interval fetch)
-            // Default to Standard Day (15C, 0 wind) if not yet fetched
+            // 2. Retrieve Cached Weather Data
             const cachedOat = currentAircraftPositionForGeocode.oat_c ?? 15; 
             const cachedWindDir = currentAircraftPositionForGeocode.wind_dir || 0;
             const cachedWindSpd = currentAircraftPositionForGeocode.wind_spd_kts || 0;
 
-            // 3. Calculate TAS using the helper function
+            // 3. Calculate TAS
             let calculatedTas = 0;
             if (flight.position.alt_ft != null) {
                 calculatedTas = calculateTas(
@@ -2763,7 +2782,7 @@ function handleSocketFlightUpdate(data) {
                 // 5. Update PFD Display
                 updatePfdDisplay(flight.position);
 
-                // --- [FIX] UPDATE RIGHT-SIDE NAV PANEL ---
+                // Update Nav Panel
                 updateNavPanelData(
                     flight.position.lat,
                     flight.position.lon,
@@ -2772,13 +2791,12 @@ function handleSocketFlightUpdate(data) {
                     cachedWindDir,
                     cachedWindSpd
                 );
-                // -----------------------------------------
                 
                 // 6. Update Navigation Display Iframe
                 const navIframe = document.getElementById('nav-display-frame');
                 if (navIframe && navIframe.contentWindow) {
                     
-                    // A. Process Traffic (unchanged)
+                    // A. Process Traffic
                     const ndTraffic = [];
                     const myLat = flight.position.lat;
                     const myLon = flight.position.lon;
@@ -2813,7 +2831,6 @@ function handleSocketFlightUpdate(data) {
 
                     // B. Process Flight Plan for ND
                     let ndFlightPlan = [];
-                    // Default values for the ND Overlay
                     let ndNextWp = "WYPT";
                     let ndDist = 0;
                     let ndEte = "00:00";
@@ -2822,7 +2839,6 @@ function handleSocketFlightUpdate(data) {
                         const planItems = cachedFlightDataForStatsView.plan.flightPlanItems;
                         const flatWaypoints = getFlatWaypointObjects(planItems);
                         
-                        // 1. Generate ND Lines (Existing Logic)
                         ndFlightPlan = flatWaypoints.map(wp => {
                             if (!wp.location || wp.location.latitude == null || wp.location.longitude == null) return null;
                             const distKm = getDistanceKm(myLat, myLon, wp.location.latitude, wp.location.longitude);
@@ -2836,7 +2852,6 @@ function handleSocketFlightUpdate(data) {
                             };
                         }).filter(Boolean);
 
-                        // 2. Calculate Next Waypoint Info for ND Overlay (NEW LOGIC)
                         const currentTrack = flight.position.heading_deg;
                         let bestIndex = -1;
                         let minDist = Infinity;
@@ -2850,7 +2865,6 @@ function handleSocketFlightUpdate(data) {
                                 const b = getBearing(myLat, myLon, wp.location.latitude, wp.location.longitude);
                                 const bDiff = Math.abs(normalizeBearingDiff(currentTrack - b));
                                 
-                                // Simple logic: Closest waypoint roughly in front of us
                                 if (bDiff <= 100 && dKm < minDist) {
                                     minDist = dKm;
                                     bestIndex = i;
@@ -2858,16 +2872,14 @@ function handleSocketFlightUpdate(data) {
                             }
                         }
 
-                        // If we found a valid next waypoint
                         if (bestIndex !== -1) {
                             const wp = flatWaypoints[bestIndex];
                             const distNM = minDist / 1.852;
-                            const gs = Math.max(1, flight.position.gs_kt || 0); // Prevent div by 0
+                            const gs = Math.max(1, flight.position.gs_kt || 0);
                             
                             ndNextWp = wp.identifier || wp.name || "WPT";
                             ndDist = Math.round(distNM);
                             
-                            // Calculate ETE (Hours:Minutes)
                             const totalMinutes = (distNM / gs) * 60;
                             const h = Math.floor(totalMinutes / 60);
                             const m = Math.floor(totalMinutes % 60);
@@ -2875,7 +2887,6 @@ function handleSocketFlightUpdate(data) {
                         }
                     }
 
-                    // C. Post Message to Iframe (Updated)
                     navIframe.contentWindow.postMessage({
                         heading: flight.position.heading_deg,
                         track: flight.position.heading_deg,
@@ -2885,7 +2896,6 @@ function handleSocketFlightUpdate(data) {
                         windSpd: cachedWindSpd,
                         traffic: ndTraffic,
                         flightPlan: ndFlightPlan,
-                        // --- PASS NEW DATA ---
                         nextWp: ndNextWp,
                         nextWpDist: ndDist,
                         nextWpEte: ndEte
@@ -2896,28 +2906,38 @@ function handleSocketFlightUpdate(data) {
                 updateAircraftInfoWindow(fullFlightProps, cachedFlightDataForStatsView.plan, localTrail);
 
                 // 8. Update Map Trail
-                const layerId = sectorOpsLiveFlightPathLayers[flightId]?.flown;
-                const source = layerId ? sectorOpsMap.getSource(layerId) : null;
-                if (source) {
-                    const newRouteData = generateAltitudeColoredRoute(localTrail, flight.position);
-                    source.setData(newRouteData);
+                if (isMapReady) {
+                    const layerId = sectorOpsLiveFlightPathLayers[flightId]?.flown;
+                    const source = layerId ? sectorOpsMap.getSource(layerId) : null;
+                    if (source) {
+                        const newRouteData = generateAltitudeColoredRoute(localTrail, flight.position);
+                        source.setData(newRouteData);
+                    }
                 }
             }
 
             // 9. Update Planned Route Line
-            if (cachedFlightDataForStatsView.plan && mapFilters.planDisplayMode === 'direct') {
+            if (cachedFlightDataForStatsView.plan && mapFilters.planDisplayMode === 'direct' && isMapReady) {
                 updateFlightPlanLayer(flightId, cachedFlightDataForStatsView.plan, flight.position);
             }
         }
 
-        // Update Map Icon Position
-        mapAnimator.updateFlight(flight.position, newProperties);
+        // --- [FIX START] ---
+        // Only update the Map Animation/Icons if the map is actually ready.
+        if (isMapReady) {
+            mapAnimator.updateFlight(flight.position, newProperties);
+        }
+        // --- [FIX END] ---
     });
 
     // Clean up old flights
     for (const flightId in currentMapFeatures) {
         if (!updatedFlightIds.has(String(flightId))) {
-            mapAnimator.removeFlight(flightId);
+            delete currentMapFeatures[flightId]; // Clean data cache
+            // Only clean visual if map is ready
+            if (isMapReady) {
+                mapAnimator.removeFlight(flightId);
+            }
         }
     }
 }
