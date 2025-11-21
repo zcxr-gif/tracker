@@ -1368,6 +1368,13 @@ function injectCustomStyles() {
         .vsd-legend-item { display: flex; align-items: center; gap: 5px; }
         .dot-plan { width: 6px; height: 6px; background: #444; border-radius: 50%; }
         .dot-flown { width: 6px; height: 6px; background: #00e600; border-radius: 50%; box-shadow: 0 0 4px #00e600; }
+        .ac-info-window-tabs { display: flex; justify-content: space-between; align-items: center; background: rgba(10, 12, 26, 0.4); padding: 5px 15px 0 15px; }
+        .ac-tabs-wrapper { display: flex; }
+        .ac-info-tab-logo { height: 48px; width: auto; object-fit: contain; opacity: 0.7; }
+        .ac-info-tab-btn { padding: 14px 18px; border: none; background: none; color: #c5cae9; cursor: pointer; font-size: 0.9rem; font-weight: 600; border-bottom: 3px solid transparent; transition: all 0.25s; display: flex; align-items: center; gap: 8px; }
+        .ac-info-tab-btn:hover { color: #fff; }
+        .ac-info-tab-btn.active { color: #00a8ff; border-bottom-color: #00a8ff; }
+        .vsd-disclaimer { background: rgba(10, 12, 26, 0.5); border: 1px solid rgba(255, 255, 255, 0.05); border-radius: 8px; padding: 10px 14px; margin-top: 0; }
     `;
 
     const style = document.createElement('style');
