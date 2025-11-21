@@ -5541,6 +5541,7 @@ function populateAircraftInfoWindow(baseProps, plan, sortedRoutePoints) {
                 
                 <div class="pfd-and-location-grid">
                     <div class="pfd-main-panel">
+                        
                         <div class="display-bezel">
                             <div class="screw tl"></div><div class="screw tr"></div><div class="screw bl"></div><div class="screw br"></div>
                             <div class="crt-container scanlines" id="pfd-container">
@@ -5671,9 +5672,15 @@ function populateAircraftInfoWindow(baseProps, plan, sortedRoutePoints) {
                             </div>
                         </div>
                         
-                        <div id="nd-container">
-                            <iframe id="nav-display-frame" src="nav.html" scrolling="no"></iframe>
+                        <div class="display-bezel">
+                            <div class="screw tl"></div><div class="screw tr"></div><div class="screw bl"></div><div class="screw br"></div>
+                            <div class="crt-container scanlines">
+                                <div id="nd-container">
+                                    <iframe id="nav-display-frame" src="nav.html" scrolling="no"></iframe>
+                                </div>
+                            </div>
                         </div>
+
                     </div>
                     
                     <div class="info-right-col">
