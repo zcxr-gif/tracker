@@ -5684,35 +5684,7 @@ function populateAircraftInfoWindow(baseProps, plan, sortedRoutePoints) {
                     </div>
                     
                     <div class="info-right-col">
-                        <div id="fms-legs-module" class="fms-module-container">
-                            <div class="fms-header">
-                                <span class="fms-title">ACTIVE FLIGHT PLAN</span>
-                                <span class="fms-page-count">1/1</span>
-                            </div>
-                            
-                            <div class="fms-columns">
-                                <span class="col-wpt">LEGS</span>
-                                <span class="col-data text-center">CRS</span>
-                                <span class="col-data text-right">DIST</span>
-                            </div>
-
-                            <div id="fms-legs-list" class="fms-list-scrollarea">
-                                <div class="fms-empty-state">NO ROUTE LOADED</div>
-                            </div>
-                            
-                            <div class="fms-footer">
-                                <div class="fms-stat">
-                                    <span class="stat-label">DTG</span>
-                                    <span id="fms-total-dist" class="stat-value">---- NM</span>
-                                </div>
-                                <div class="fms-stat">
-                                    <span class="stat-label">ETE</span>
-                                    <span id="fms-total-ete" class="stat-value">--:--</span>
-                                </div>
-                            </div>
-                        </div>
-
-                        <div class="seat-sensor-wrapper" id="cockpit-seat-sensor">
+                        <div class="seat-sensor-wrapper" id="cockpit-seat-sensor" style="margin-top: 0;">
                             <div class="sensor-header">
                                 <span class="fms-title">COCKPIT STATE</span>
                                 <span class="fms-page-count"><i class="fa-solid fa-satellite-dish"></i></span>
@@ -5746,7 +5718,36 @@ function populateAircraftInfoWindow(baseProps, plan, sortedRoutePoints) {
                                 </div>
                             </div>
                         </div>
+
+                        <div id="fms-legs-module" class="fms-module-container" style="margin-top: 16px;">
+                            <div class="fms-header">
+                                <span class="fms-title">ACTIVE FLIGHT PLAN</span>
+                                <span class="fms-page-count">1/1</span>
+                            </div>
+                            
+                            <div class="fms-columns">
+                                <span class="col-wpt">LEGS</span>
+                                <span class="col-data text-center">CRS</span>
+                                <span class="col-data text-right">DIST</span>
+                            </div>
+
+                            <div id="fms-legs-list" class="fms-list-scrollarea">
+                                <div class="fms-empty-state">NO ROUTE LOADED</div>
+                            </div>
+                            
+                            <div class="fms-footer">
+                                <div class="fms-stat">
+                                    <span class="stat-label">DTG</span>
+                                    <span id="fms-total-dist" class="stat-value">---- NM</span>
+                                </div>
+                                <div class="fms-stat">
+                                    <span class="stat-label">ETE</span>
+                                    <span id="fms-total-ete" class="stat-value">--:--</span>
+                                </div>
+                            </div>
                         </div>
+
+                    </div>
                 </div>
                 
                 <div id="location-data-panel">
