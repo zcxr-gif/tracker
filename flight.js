@@ -5819,7 +5819,6 @@ function rebuildDynamicLayers() {
 
 /**
  * --- [REHAULED] Populates the aircraft info window with the new Tech Card UI.
- * --- [UPDATED] Moves Nav Data into the right column to close layout gaps.
  */
 function populateAircraftInfoWindow(baseProps, plan, sortedRoutePoints) {
     // --- Helper functions ---
@@ -5903,8 +5902,9 @@ function populateAircraftInfoWindow(baseProps, plan, sortedRoutePoints) {
             flex-direction: column;
         }
 
+        /* Replaces the old .sensor-header, .fms-header, etc. */
         .tech-module-header {
-            background: rgba(30, 41, 59, 0.5);
+            background: rgba(30, 41, 59, 0.5); /* Slightly lighter header */
             padding: 8px 12px;
             border-bottom: 1px solid rgba(255, 255, 255, 0.05);
             display: flex;
@@ -5915,7 +5915,7 @@ function populateAircraftInfoWindow(baseProps, plan, sortedRoutePoints) {
         .tech-module-title {
             font-size: 0.75rem;
             font-weight: 700;
-            color: #94a3b8;
+            color: #94a3b8; /* Muted text */
             text-transform: uppercase;
             letter-spacing: 0.05em;
             display: flex;
@@ -5929,21 +5929,7 @@ function populateAircraftInfoWindow(baseProps, plan, sortedRoutePoints) {
             position: relative;
         }
 
-        /* --- Nav Data Fixes --- */
-        /* Force 2 columns when inside the right sidebar to save vertical space */
-        .info-right-col .nav-grid-container {
-            grid-template-columns: repeat(2, 1fr) !important;
-            gap: 8px;
-            padding: 0;
-        }
-        /* Ensure cells look good in narrow column */
-        .info-right-col .nav-cell {
-            background: rgba(30, 41, 59, 0.5);
-            border: 1px solid rgba(255, 255, 255, 0.05);
-            min-height: 50px; 
-        }
-
-        /* --- Tech Card Specifics --- */
+        /* --- Tech Card Specifics (Existing) --- */
         .tech-card {
             background: #0f172a; 
             border: 1px solid rgba(255, 255, 255, 0.1);
@@ -6152,7 +6138,24 @@ function populateAircraftInfoWindow(baseProps, plan, sortedRoutePoints) {
             background: rgba(30, 41, 59, 0.3);
             border-top: 1px solid rgba(255, 255, 255, 0.1);
         }
-        
+
+        /* --- Nav Data Overrides --- */
+        .nav-header {
+             display: none; /* We use the tech-module-header now */
+        }
+        #location-data-panel {
+            background: transparent;
+            border: none;
+            box-shadow: none;
+        }
+        .nav-grid-container {
+            padding: 0; /* Remove internal padding as body handles it */
+        }
+        .nav-cell {
+            background: rgba(30, 41, 59, 0.5); /* Match tech-stat-card */
+            border: 1px solid rgba(255, 255, 255, 0.05);
+        }
+
         /* --- VSD Overrides --- */
         .vsd-module-container {
              background: transparent; 
@@ -6164,7 +6167,7 @@ function populateAircraftInfoWindow(baseProps, plan, sortedRoutePoints) {
             border-top: 1px solid rgba(255, 255, 255, 0.1);
         }
         .vsd-graph-window {
-            background: #0f172a; 
+            background: #0f172a; /* Match background */
         }
         #vsd-y-axis {
             background: #0f172a;
@@ -6438,68 +6441,68 @@ function populateAircraftInfoWindow(baseProps, plan, sortedRoutePoints) {
                                 </div>
                             </div>
                         </div>
-                        
-                        <div class="tech-module" id="location-data-panel">
-                            <div class="tech-module-header">
-                                <span class="tech-module-title"><i class="fa-solid fa-location-crosshairs"></i> NAV DATA</span>
-                                <span class="nav-status-indicator"><div class="nav-blink"></div> LIVE</span>
-                            </div>
-                            
-                            <div class="tech-module-body" style="padding: 8px;">
-                                <div class="nav-grid-container">
-                                    <div class="nav-cell">
-                                        <span class="nav-label"><i class="fa-solid fa-map-location-dot"></i> Region</span>
-                                        <span class="nav-value small" id="ac-location">Scanning...</span>
-                                    </div>
-                                    <div class="nav-cell">
-                                        <span class="nav-label"><i class="fa-solid fa-tower-control"></i> Nearest</span>
-                                        <div class="nav-row">
-                                            <span class="nav-value highlight" id="ac-nearest-apt">---</span>
-                                            <span class="nav-value" id="ac-nearest-apt-dist">--.- <span class="nav-unit">NM</span></span>
-                                        </div>
-                                    </div>
-                                    <div class="nav-cell">
-                                        <span class="nav-label"><i class="fa-solid fa-wind"></i> Wind</span>
-                                        <span class="nav-value" id="ac-env-wind">---/--</span>
-                                    </div>
-                                    <div class="nav-cell">
-                                        <span class="nav-label"><i class="fa-solid fa-temperature-half"></i> OAT</span>
-                                        <span class="nav-value" id="ac-env-oat">--°C</span>
-                                    </div>
-
-                                    <div class="nav-cell nav-span-2">
-                                        <span class="nav-label"><i class="fa-solid fa-location-crosshairs"></i> Position</span>
-                                        <div class="nav-row">
-                                            <div><span class="nav-unit">LAT</span> <span class="nav-value" id="ac-lat">---</span></div>
-                                            <div><span class="nav-unit">LON</span> <span class="nav-value" id="ac-lon">---</span></div>
-                                        </div>
-                                    </div>
-                                    <div class="nav-cell nav-span-2">
-                                         <span class="nav-label"><i class="fa-solid fa-arrow-up-right-dots"></i> Vertical Speed</span>
-                                         <span class="nav-value large highlight" id="ac-vs">--- <span class="nav-unit">fpm</span></span>
-                                    </div>
-
-                                    <div class="nav-cell nav-span-2">
-                                        <span class="nav-label"><i class="fa-solid fa-location-arrow"></i> Next Waypoint</span>
-                                        <div class="nav-row">
-                                            <span class="nav-value accent" id="ac-next-wp">---</span>
-                                            <span class="nav-value" id="ac-next-wp-dist">--.- <span class="nav-unit">NM</span></span>
-                                        </div>
-                                    </div>
-                                    <div class="nav-cell nav-span-2">
-                                        <span class="nav-label"><i class="fa-solid fa-flag-checkered"></i> Destination</span>
-                                        <div class="nav-row">
-                                            <div><span class="nav-unit">DIST</span> <span class="nav-value" id="ac-dist">---</span></div>
-                                            <div><span class="nav-unit">ETE</span> <span class="nav-value" id="ac-ete">--:--</span></div>
-                                        </div>
-                                    </div>
-                                </div>
-                            </div>
-                        </div>
 
                         ${planButtonHtml} </div>
                 </div>
                 
+                <div class="tech-module" id="location-data-panel">
+                    <div class="tech-module-header">
+                        <span class="tech-module-title"><i class="fa-solid fa-location-crosshairs"></i> NAV DATA</span>
+                        <span class="nav-status-indicator"><div class="nav-blink"></div> LIVE</span>
+                    </div>
+                    
+                    <div class="tech-module-body" style="padding: 8px;">
+                        <div class="nav-grid-container">
+                            <div class="nav-cell">
+                                <span class="nav-label"><i class="fa-solid fa-map-location-dot"></i> Region</span>
+                                <span class="nav-value small" id="ac-location">Scanning...</span>
+                            </div>
+                            <div class="nav-cell">
+                                <span class="nav-label"><i class="fa-solid fa-tower-control"></i> Nearest</span>
+                                <div class="nav-row">
+                                    <span class="nav-value highlight" id="ac-nearest-apt">---</span>
+                                    <span class="nav-value" id="ac-nearest-apt-dist">--.- <span class="nav-unit">NM</span></span>
+                                </div>
+                            </div>
+                            <div class="nav-cell">
+                                <span class="nav-label"><i class="fa-solid fa-wind"></i> Wind</span>
+                                <span class="nav-value" id="ac-env-wind">---/--</span>
+                            </div>
+                            <div class="nav-cell">
+                                <span class="nav-label"><i class="fa-solid fa-temperature-half"></i> OAT</span>
+                                <span class="nav-value" id="ac-env-oat">--°C</span>
+                            </div>
+
+                            <div class="nav-cell nav-span-2">
+                                <span class="nav-label"><i class="fa-solid fa-location-crosshairs"></i> Position</span>
+                                <div class="nav-row">
+                                    <div><span class="nav-unit">LAT</span> <span class="nav-value" id="ac-lat">---</span></div>
+                                    <div><span class="nav-unit">LON</span> <span class="nav-value" id="ac-lon">---</span></div>
+                                </div>
+                            </div>
+                            <div class="nav-cell nav-span-2">
+                                 <span class="nav-label"><i class="fa-solid fa-arrow-up-right-dots"></i> Vertical Speed</span>
+                                 <span class="nav-value large highlight" id="ac-vs">--- <span class="nav-unit">fpm</span></span>
+                            </div>
+
+                            <div class="nav-cell nav-span-2">
+                                <span class="nav-label"><i class="fa-solid fa-location-arrow"></i> Next Waypoint</span>
+                                <div class="nav-row">
+                                    <span class="nav-value accent" id="ac-next-wp">---</span>
+                                    <span class="nav-value" id="ac-next-wp-dist">--.- <span class="nav-unit">NM</span></span>
+                                </div>
+                            </div>
+                            <div class="nav-cell nav-span-2">
+                                <span class="nav-label"><i class="fa-solid fa-flag-checkered"></i> Destination</span>
+                                <div class="nav-row">
+                                    <div><span class="nav-unit">DIST</span> <span class="nav-value" id="ac-dist">---</span></div>
+                                    <div><span class="nav-unit">ETE</span> <span class="nav-value" id="ac-ete">--:--</span></div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
                 <div class="tech-card">
                     <div class="tech-card-header">
                         <div>
