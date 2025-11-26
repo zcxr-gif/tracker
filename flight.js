@@ -5897,6 +5897,109 @@ function populateAircraftInfoWindow(baseProps, plan, sortedRoutePoints) {
     const techCardImagePath = `/CommunityPlanes/${sanitizedAircraft}/${sanitizedLivery}.png`;
     const techCardFallbackPath = '/CommunityPlanes/default.png';
 
+    // --- Distance Calc for TOD Logic ---
+    let distanceToDestNM = 0;
+    if (hasPlan) {
+        let totalDistanceKm = 0;
+        for (let i = 0; i < originalFlatWaypoints.length - 1; i++) {
+            const [lon1, lat1] = originalFlatWaypoints[i];
+            const [lon2, lat2] = originalFlatWaypoints[i + 1];
+            totalDistanceKm += getDistanceKm(lat1, lon1, lat2, lon2);
+        }
+        const totalDistanceNM = totalDistanceKm / 1.852;
+        if (totalDistanceNM > 0) {
+            const [destLon, destLat] = originalFlatWaypoints[originalFlatWaypoints.length - 1];
+            const remainingDistanceKm = getDistanceKm(baseProps.position.lat, baseProps.position.lon, destLat, destLon);
+            distanceToDestNM = remainingDistanceKm / 1.852;
+        }
+    }
+
+    // --- NEW: TOD Calculator Logic ---
+    let todHtml = '';
+    
+    // We need a destination and valid physics to calculate TOD
+    if (hasPlan && baseProps.position.alt_ft > 5000 && distanceToDestNM > 20) {
+        // 1. Get Altitudes
+        const currentAlt = baseProps.position.alt_ft;
+        // Try to get destination elevation from plan, default to 0 (Sea Level) if missing
+        const destElev = (plan.destination && plan.destination.elevation_ft) ? parseInt(plan.destination.elevation_ft) : 0;
+        
+        // 2. Calculate Descent
+        const altToLose = currentAlt - destElev;
+        // 3:1 Rule: 3nm distance for every 1000ft height
+        const descentDistanceNM = (altToLose / 1000) * 3;
+        
+        // 3. Calculate TOD location relative to us
+        const distToTodNM = distanceToDestNM - descentDistanceNM;
+        
+        // 4. Calculate Time to TOD (based on current GS)
+        let timeToTodStr = '--:--';
+        if (baseProps.position.gs_kt > 50) {
+            const timeHours = distToTodNM / baseProps.position.gs_kt;
+            const minutes = Math.floor(timeHours * 60);
+            const seconds = Math.floor((timeHours * 60 - minutes) * 60);
+            
+            // Format nicely
+            if (distToTodNM > 0) {
+                 timeToTodStr = `${String(minutes).padStart(2, '0')}:${String(seconds).padStart(2, '0')}`;
+            } else {
+                 timeToTodStr = 'NOW';
+            }
+        }
+
+        // 5. Determine State (Cruise vs Descent)
+        const isPastTod = distToTodNM <= 0;
+        const statusColor = isPastTod ? '#ef4444' : '#34d399'; // Red if past, Green if pending
+        const statusText = isPastTod ? 'DESCEND NOW' : 'CRUISING';
+        const distDisplay = isPastTod ? `+${Math.abs(distToTodNM).toFixed(1)} NM` : `${distToTodNM.toFixed(1)} NM`;
+
+        // 6. Build the HTML Module
+        todHtml = `
+        <div class="tech-module" id="tod-calculator-module">
+            <div class="tech-module-header">
+                <span class="tech-module-title"><i class="fa-solid fa-calculator"></i> DESCENT CALCULATOR (3:1)</span>
+                <span class="tech-badge" style="background: rgba(16, 185, 129, 0.1); color: ${statusColor}; border-color: ${statusColor};">
+                    ${statusText}
+                </span>
+            </div>
+            <div class="tech-module-body" style="padding: 12px; display: flex; gap: 12px; align-items: center;">
+                
+                <div style="flex: 1; display: flex; flex-direction: column; align-items: center; background: rgba(255,255,255,0.03); border-radius: 6px; padding: 8px;">
+                    <span class="tech-stat-label" style="font-size: 9px; color: #94a3b8; margin-bottom: 2px;">DIST TO TOD</span>
+                    <span class="tech-stat-value" style="font-size: 1.1rem;">${distDisplay}</span>
+                </div>
+
+                <div style="flex: 1; display: flex; flex-direction: column; align-items: center; background: rgba(255,255,255,0.03); border-radius: 6px; padding: 8px;">
+                    <span class="tech-stat-label" style="font-size: 9px; color: #94a3b8; margin-bottom: 2px;">TIME TO TOD</span>
+                    <span class="tech-stat-value" style="font-size: 1.1rem; color: #38bdf8;">${timeToTodStr}</span>
+                </div>
+
+                <div style="flex: 1; display: flex; flex-direction: column; align-items: center; background: rgba(255,255,255,0.03); border-radius: 6px; padding: 8px;">
+                    <span class="tech-stat-label" style="font-size: 9px; color: #94a3b8; margin-bottom: 2px;">REQ. RATE</span>
+                    <span class="tech-stat-value" style="font-size: 1.1rem; color: #fbbf24;">-${Math.round(baseProps.position.gs_kt * 5)}<small style="font-size: 0.6rem;">fpm</small></span>
+                </div>
+
+            </div>
+            <div style="padding: 0 12px 8px 12px; display: flex; justify-content: space-between; align-items: center;">
+                 <span style="font-size: 10px; color: #64748b;">Target Alt: ${destElev} ft</span>
+                 <span style="font-size: 10px; color: #64748b;">Prof: 3.0°</span>
+            </div>
+        </div>
+        `;
+    } else if (hasPlan && baseProps.position.alt_ft <= 5000) {
+        // Optional: Simplified view if already low/landing
+         todHtml = `
+        <div class="tech-module">
+            <div class="tech-module-header">
+                <span class="tech-module-title"><i class="fa-solid fa-calculator"></i> DESCENT PHASE</span>
+                <span class="tech-badge" style="color: #38bdf8; border-color: #38bdf8;">ACTIVE</span>
+            </div>
+            <div class="tech-module-body" style="padding: 12px; text-align: center; color: #94a3b8; font-size: 0.8rem;">
+                Aircraft is in terminal phase. Monitor approach.
+            </div>
+        </div>`;
+    }
+
     // --- HTML Construction ---
     windowEl.innerHTML = `
     <style>
@@ -6413,7 +6516,9 @@ function populateAircraftInfoWindow(baseProps, plan, sortedRoutePoints) {
                             </div>
                         </div>
 
-                        <div id="fms-legs-module" class="tech-module" style="height: 400px; max-height: 400px; display: flex; flex-direction: column; margin-top: 100px;">
+                        ${todHtml}
+
+                        <div id="fms-legs-module" class="tech-module" style="height: 380px; max-height: 380px; display: flex; flex-direction: column; margin-top: 12px;">
                             <div class="tech-module-header">
                                 <span class="tech-module-title"><i class="fa-solid fa-route"></i> ACTIVE FLIGHT PLAN</span>
                                 <span class="fms-page-count">1/1</span>
