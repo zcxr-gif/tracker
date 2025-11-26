@@ -6430,8 +6430,7 @@ function populateAircraftInfoWindow(baseProps, plan, sortedRoutePoints) {
                                 </div>
                             </div>
                         </div>
-
-                        ${planButtonHtml} </div>
+                    </div>
                 </div>
                 
                 <div class="tech-module" id="location-data-panel">
@@ -6587,7 +6586,7 @@ function populateAircraftInfoWindow(baseProps, plan, sortedRoutePoints) {
                                 </svg>
                                 <div id="vsd-waypoint-labels"></div>
                             </div>
-                        </div>
+                        ${planButtonHtml} </div>
                     </div>
 
                     <div class="vsd-footer">
