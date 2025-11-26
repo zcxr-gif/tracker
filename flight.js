@@ -527,158 +527,151 @@ function injectCustomStyles() {
     const css = `
         /* --- CSS VARIABLES FOR THEMING --- */
         :root {
-            /* [MODIFIED] Ensure defaults are set for the new dynamic panel system */
             --iw-bg-start: rgba(18, 20, 38, 0.95);
             --iw-bg-end: rgba(18, 20, 38, 0.95);
         }
 
-        /* --- VIRTUAL COCKPIT SEAT SENSOR --- */
+        /* --- TELEMETRY STATUS MONITOR (REMASTERED) --- */
         .seat-sensor-wrapper {
-            background: #000; 
-            border: 2px solid #333; 
-            border-radius: 4px; 
+            background: #0f172a; 
             display: flex;
             flex-direction: column;
-            box-shadow: inset 0 0 20px rgba(0,0,0,0.8);
-            overflow: hidden;
+            border-radius: 0 0 12px 12px;
+        }
+
+        /* Visualization Container */
+        .telemetry-visualizer {
             position: relative;
-        }
-
-        .sensor-header {
-            background: #111;
-            padding: 6px 10px;
-            border-bottom: 1px solid #333;
+            height: 100px;
+            background: radial-gradient(circle at center, rgba(30, 41, 59, 0.4) 0%, rgba(15, 23, 42, 1) 80%);
             display: flex;
-            justify-content: space-between;
-            font-size: 0.8rem;
-            font-weight: bold;
-            color: #fff;
-            flex-shrink: 0;
-            font-family: 'Consolas', monospace;
-        }
-
-        .sensor-body {
-            padding: 15px;
-            display: flex;
-            flex-direction: column;
             align-items: center;
-            position: relative;
-            background: #0f1115; 
-        }
-
-        .cockpit-view {
-            position: relative;
-            width: 140px;
-            height: 80px;
-            background: #1a1a1a;
-            border-radius: 40px 40px 10px 10px;
-            border: 2px solid #444;
-            display: flex;
-            justify-content: space-between;
-            padding: 10px 20px;
-            box-sizing: border-box;
-            margin-bottom: 10px;
-        }
-
-        .cockpit-view::after {
-            content: '';
-            position: absolute;
-            left: 50%;
-            bottom: 10px;
-            transform: translateX(-50%);
-            width: 14px;
-            height: 40px;
-            background: #333;
-            border-radius: 4px;
-            border: 1px solid #555;
-        }
-
-        .seat {
-            width: 35px;
-            height: 40px;
-            background: #222;
-            border-radius: 6px;
-            border: 2px solid #444;
-            transition: all 0.5s ease;
-            position: relative;
-            display: flex;
             justify-content: center;
-            align-items: center;
+            overflow: hidden;
+            border-bottom: 1px solid rgba(255, 255, 255, 0.05);
         }
 
-        .seat::before {
-            content: '';
-            position: absolute;
-            top: -8px;
-            width: 25px;
-            height: 8px;
-            background: inherit;
-            border-radius: 4px;
-            border: 2px solid #444;
-        }
-
-        .cockpit-overlay-icon {
+        /* Connection Line Animation */
+        .connection-line {
             position: absolute;
             top: 50%;
-            left: 50%;
-            transform: translate(-50%, -50%);
-            font-size: 2.5rem;
-            z-index: 10;
-            opacity: 0;
-            transition: opacity 0.3s ease, transform 0.3s ease;
-            pointer-events: none;
-            text-shadow: 0 2px 10px rgba(0,0,0,0.8);
+            left: 20%;
+            right: 20%;
+            height: 2px;
+            background: rgba(255, 255, 255, 0.1);
+            z-index: 1;
+            transform: translateY(-50%);
         }
 
-        .cockpit-overlay-icon.visible {
-            opacity: 1;
-            transform: translate(-50%, -50%) scale(1);
+        .connection-line.flowing {
+            background: linear-gradient(90deg, transparent 0%, #3b82f6 50%, transparent 100%);
+            background-size: 200% 100%;
+            animation: dataFlow 1.5s infinite linear;
+        }
+        .connection-line.flowing-green {
+            background: linear-gradient(90deg, transparent 0%, #10b981 50%, transparent 100%);
+            background-size: 200% 100%;
+            animation: dataFlow 1s infinite linear;
         }
 
-        .icon-parking { color: #ff3333; border: 3px solid #ff3333; border-radius: 50%; width: 45px; height: 45px; display: flex; align-items: center; justify-content: center; font-weight: bold; background: rgba(0,0,0,0.6); font-family: sans-serif; }
-        .icon-coffee { color: #ffaa00; }
-        .icon-cloud { color: #00a8ff; }
+        @keyframes dataFlow {
+            0% { background-position: 100% 0; }
+            100% { background-position: -100% 0; }
+        }
 
-        .seat.active-green { background: rgba(0, 255, 0, 0.1); border-color: #00ff00; box-shadow: 0 0 15px rgba(0, 255, 0, 0.4); }
-        .seat.active-green::before { border-color: #00ff00; background: #003300; }
+        /* Nodes */
+        .node-container {
+            position: relative;
+            z-index: 2;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            gap: 6px;
+            width: 60px;
+        }
+        .node-pilot  { position: absolute; left: 15%; }
+        .node-server { position: absolute; right: 15%; }
 
-        .seat.active-amber { background: rgba(255, 170, 0, 0.1); border-color: #ffaa00; box-shadow: 0 0 15px rgba(255, 170, 0, 0.4); }
-        .seat.active-amber::before { border-color: #ffaa00; background: #442200; }
+        /* Icons */
+        .node-icon {
+            width: 40px;
+            height: 40px;
+            border-radius: 50%;
+            background: #1e293b;
+            border: 2px solid #334155;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            color: #64748b;
+            font-size: 1rem;
+            transition: all 0.3s ease;
+            box-shadow: 0 4px 10px rgba(0,0,0,0.3);
+            position: relative;
+        }
 
-        .seat.active-blue { background: rgba(0, 168, 255, 0.1); border-color: #00a8ff; box-shadow: 0 0 15px rgba(0, 168, 255, 0.4); }
-        .seat.active-blue::before { border-color: #00a8ff; background: #002244; }
+        /* State: 0 - Active (Green, Pulsing) */
+        .state-0 .node-icon {
+            background: rgba(16, 185, 129, 0.2);
+            border-color: #10b981;
+            color: #10b981;
+            box-shadow: 0 0 15px rgba(16, 185, 129, 0.4);
+            animation: pulseGreen 2s infinite;
+        }
 
-        .seat::after { content: attr(data-role); font-size: 0.6rem; font-weight: bold; color: #555; margin-top: 2px; }
-        .seat.active-green::after, .seat.active-amber::after, .seat.active-blue::after { color: #fff; text-shadow: 0 0 5px currentColor; }
+        /* State: 1 - AwayInFlight (Amber, Steady) */
+        .state-1 .node-icon {
+            background: rgba(245, 158, 11, 0.2);
+            border-color: #f59e0b;
+            color: #f59e0b;
+            box-shadow: 0 0 10px rgba(245, 158, 11, 0.2);
+        }
 
-        .seat-status-display {
-            margin-top: 8px;
-            font-family: 'Consolas', monospace;
-            font-size: 0.75rem;
-            text-align: center;
-            width: 100%;
+        /* State: 2 - AwayParked (Red, Dim) */
+        .state-2 .node-icon {
+            background: rgba(239, 68, 68, 0.1);
+            border-color: #ef4444;
+            color: #ef4444;
+        }
+
+        /* State: 3 - InBackground (Blue, Ghostly) */
+        .state-3 .node-icon {
+            background: rgba(59, 130, 246, 0.1);
+            border-color: #3b82f6;
+            color: #3b82f6;
+            opacity: 0.8;
+        }
+
+        @keyframes pulseGreen {
+            0% { box-shadow: 0 0 0 0 rgba(16, 185, 129, 0.4); }
+            70% { box-shadow: 0 0 0 10px rgba(16, 185, 129, 0); }
+            100% { box-shadow: 0 0 0 0 rgba(16, 185, 129, 0); }
+        }
+
+        /* Labels */
+        .node-label {
+            font-size: 0.6rem;
+            font-weight: 700;
+            text-transform: uppercase;
+            color: #64748b;
+            letter-spacing: 0.05em;
+            background: rgba(15, 23, 42, 0.9);
+            padding: 2px 5px;
+            border-radius: 3px;
+            border: 1px solid rgba(255,255,255,0.05);
+        }
+
+        /* Footer Status Text */
+        .telemetry-footer {
             display: flex;
             justify-content: space-between;
-            color: #888;
+            padding: 8px 12px;
+            background: #0f172a;
+            font-family: 'Consolas', monospace;
+            font-size: 0.75rem;
+            border-top: 1px solid rgba(255, 255, 255, 0.05);
         }
-
-        .status-pill { padding: 2px 8px; border-radius: 4px; background: #222; border: 1px solid #333; }
-        .status-pill.green { color: #00ff00; border-color: #00ff00; }
-        .status-pill.amber { color: #ffaa00; border-color: #ffaa00; }
-        .status-pill.blue { color: #00a8ff; border-color: #00a8ff; }
-        .status-pill.red { color: #ff3333; border-color: #ff3333; }
-
-        #seat-narrative-text {
-            font-family: 'Segoe UI', sans-serif;
-            font-size: 0.7rem;
-            color: #aaa;
-            margin-top: 8px;
-            text-align: center;
-            border-top: 1px solid #333;
-            padding-top: 6px;
-            width: 100%;
-            font-style: italic;
-        }
+        .t-label { color: #64748b; font-size: 0.65rem; display: block; margin-bottom: 2px;}
+        .t-value { color: #e2e8f0; font-weight: 600; }
         
         #view-rosters.active {
             position: absolute;
@@ -5731,10 +5724,6 @@ function rebuildDynamicLayers() {
 
 
 
-/**
- * --- [REHAULED] Populates the aircraft info window with the new Tech Card UI.
- * --- [MODIFIED] Removed Flight Rules Module
- */
 function populateAircraftInfoWindow(baseProps, plan, sortedRoutePoints) {
     // --- Helper functions ---
     const updateAll = (selector, value, isHTML = false) => {
@@ -6296,22 +6285,41 @@ function populateAircraftInfoWindow(baseProps, plan, sortedRoutePoints) {
                         
                         <div class="tech-module" id="cockpit-seat-sensor">
                             <div class="tech-module-header">
-                                <span class="tech-module-title"><i class="fa-solid fa-satellite-dish"></i> TELEMETRY LINK</span>
+                                <span class="tech-module-title"><i class="fa-solid fa-signal"></i> TELEMETRY LINK</span>
                                 <span class="fms-page-count">LIVE</span>
                             </div>
-                            <div class="tech-module-body">
-                                <div class="cockpit-view">
-                                    <div id="seat-cpt" class="seat" data-role="PILOT"></div>
-                                    
-                                    <div id="seat-fo" class="seat" data-role="SERVER"></div>
-                                    
-                                    <div id="icon-parking-overlay" class="cockpit-overlay-icon icon-parking">P</div>
-                                    <div id="icon-coffee-overlay" class="cockpit-overlay-icon icon-coffee"><i class="fa-solid fa-mug-hot"></i></div>
-                                    <div id="icon-cloud-overlay" class="cockpit-overlay-icon icon-cloud"><i class="fa-solid fa-mobile-screen"></i></div>
+                            
+                            <div class="seat-sensor-wrapper">
+                                <div class="telemetry-visualizer">
+                                    <div id="telemetry-line" class="connection-line"></div>
+
+                                    <div id="node-pilot" class="node-container node-pilot">
+                                        <div class="node-icon">
+                                            <i id="pilot-icon" class="fa-solid fa-user"></i>
+                                        </div>
+                                        <div class="node-label">USER</div>
+                                    </div>
+
+                                    <div style="position: absolute; background: #0f172a; padding: 2px 8px; border-radius: 10px; border: 1px solid #334155; font-size: 0.6rem; color: #94a3b8; z-index: 3;">
+                                        <i class="fa-solid fa-wifi"></i> LINK
+                                    </div>
+
+                                    <div class="node-container node-server state-0"> <div class="node-icon">
+                                            <i class="fa-solid fa-server"></i>
+                                        </div>
+                                        <div class="node-label">SERVER</div>
+                                    </div>
                                 </div>
-                                <div class="seat-status-display">
-                                    <span id="status-cpt-text" class="status-pill">STATE: ---</span>
-                                    <span id="status-fo-text" class="status-pill">API: ---</span>
+
+                                <div class="telemetry-footer">
+                                    <div>
+                                        <span class="t-label">CURRENT STATE</span>
+                                        <span id="telemetry-state-text" class="t-value">SCANNING...</span>
+                                    </div>
+                                    <div style="text-align: right;">
+                                        <span class="t-label">DATA FEED</span>
+                                        <span id="telemetry-feed-text" class="t-value" style="color: #64748b;">WAITING</span>
+                                    </div>
                                 </div>
                             </div>
                         </div>
@@ -6577,80 +6585,69 @@ function updateNavPanelData(lat, lon, heading, oat, windDir, windSpd) {
 }
 
 function updateSeatSensor(flightProps) {
-    const seatCpt = document.getElementById('seat-cpt');
-    const seatFo = document.getElementById('seat-fo'); // Represents Server Link
-    const statusCpt = document.getElementById('status-cpt-text');
-    const statusFo = document.getElementById('status-fo-text');
+    const nodePilot = document.getElementById('node-pilot');
+    const pilotIcon = document.getElementById('pilot-icon');
+    const line = document.getElementById('telemetry-line');
     
-    // Overlays
-    const parkingOverlay = document.getElementById('icon-parking-overlay');
-    const coffeeOverlay = document.getElementById('icon-coffee-overlay');
-    const cloudOverlay = document.getElementById('icon-cloud-overlay'); // Re-purposed for "Background"
+    const stateText = document.getElementById('telemetry-state-text');
+    const feedText = document.getElementById('telemetry-feed-text');
 
-    if (!seatCpt || !seatFo) return;
+    if (!nodePilot || !pilotIcon) return;
 
-    // 1. DETERMINE PILOT STATE (Raw Data)
-    // Enum: "Active = 0", "AwayInFlight = 1", "AwayParked = 2", "InBackground = 3"
+    // Reset base classes
+    nodePilot.className = 'node-container node-pilot';
+    line.className = 'connection-line'; // Stop animation by default
+
+    // 1. GET STATE (Default to -1 if missing)
     let state = flightProps.pilotState !== undefined ? flightProps.pilotState : -1;
 
-    // 2. RESET VISUALS
-    seatCpt.className = 'seat'; 
-    seatFo.className = 'seat';
-    statusCpt.className = 'status-pill';
-    statusFo.className = 'status-pill';
-    
-    // Reset Text
-    statusCpt.textContent = 'STATE: ---';
-    statusFo.textContent = 'API: LINKED'; 
-
-    // Hide overlays
-    if(parkingOverlay) parkingOverlay.classList.remove('visible');
-    if(coffeeOverlay) coffeeOverlay.classList.remove('visible');
-    if(cloudOverlay) cloudOverlay.classList.remove('visible');
-
-    // 3. SERVER SEAT LOGIC (Right Seat)
-    // If we are running this function, we have data, so Server is ONLINE (Green)
-    seatFo.classList.add('active-green'); 
-    statusFo.classList.add('green');
-    statusFo.textContent = 'API: ONLINE';
-
-    // 4. PILOT SEAT LOGIC (Left Seat)
-    if (state === -1) {
-        // Fallback for missing data
-        statusCpt.textContent = 'STATE: NO DATA';
-        // Server seat goes red if data is actually missing/undefined
-        seatFo.className = 'seat'; 
-        statusFo.className = 'status-pill red';
-        statusFo.textContent = 'API: NO DATA';
+    // 2. SERVER CONNECTION CHECK
+    // If state is valid, we assume server connection is good
+    if (state !== -1) {
+        feedText.innerHTML = '<span style="color: #10b981;">SYNCED</span>';
+    } else {
+        feedText.innerHTML = '<span style="color: #ef4444;">NO SIGNAL</span>';
+        stateText.textContent = "---";
         return;
     }
 
+    // 3. APPLY STATE LOGIC
     switch (state) {
-        case 0: // Active (User is interacting)
-            seatCpt.classList.add('active-green');
-            statusCpt.classList.add('green');
-            statusCpt.textContent = 'PILOT: ACTIVE';
+        case 0: // Active (User touching screen/yoke)
+            nodePilot.classList.add('state-0');
+            pilotIcon.className = 'fa-solid fa-gamepad';
+            stateText.textContent = 'ACTIVE INPUT';
+            stateText.style.color = '#10b981'; // Green
+            line.classList.add('flowing-green'); // Fast green flow
             break;
 
-        case 1: // AwayInFlight (Autopilot / Long haul cruise)
-            seatCpt.classList.add('active-amber');
-            statusCpt.classList.add('amber');
-            statusCpt.textContent = 'PILOT: AWAY (FLT)';
-            if(coffeeOverlay) coffeeOverlay.classList.add('visible'); // Coffee icon for cruise
+        case 1: // AwayInFlight (Autopilot engaged, no touch)
+            nodePilot.classList.add('state-1');
+            pilotIcon.className = 'fa-solid fa-plane-circle-check'; 
+            stateText.textContent = 'AUTO-FLIGHT / AWAY';
+            stateText.style.color = '#f59e0b'; // Amber
+            line.classList.add('flowing'); // Normal blue flow
             break;
 
-        case 2: // AwayParked (Sitting at gate)
-            // We use Red here to signify "Stopped/Secured"
-            statusCpt.classList.add('red');
-            statusCpt.textContent = 'PILOT: PARKED';
-            if(parkingOverlay) parkingOverlay.classList.add('visible'); // P icon
+        case 2: // AwayParked (Sitting at gate/apron)
+            nodePilot.classList.add('state-2');
+            pilotIcon.className = 'fa-solid fa-square-parking'; 
+            stateText.textContent = 'PARKED / IDLE';
+            stateText.style.color = '#ef4444'; // Red
+            // No flow class added = Line stops moving
+            break;
+
+        case 3: // InBackground (App minimized/Ghost)
+            nodePilot.classList.add('state-3');
+            pilotIcon.className = 'fa-solid fa-ghost'; 
+            stateText.textContent = 'APP BACKGROUND';
+            stateText.style.color = '#3b82f6'; // Blue
+            line.classList.add('flowing'); // Normal blue flow
             break;
             
-        case 3: // InBackground (App minimized)
-            seatCpt.classList.add('active-blue');
-            statusCpt.classList.add('blue');
-            statusCpt.textContent = 'APP: BACKGROUND';
-            if(cloudOverlay) cloudOverlay.classList.add('visible'); // Mobile icon
+        default:
+            stateText.textContent = 'UNKNOWN STATE';
+            stateText.style.color = '#64748b';
             break;
     }
 }
