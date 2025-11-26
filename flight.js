@@ -5891,7 +5891,6 @@ function populateAircraftInfoWindow(baseProps, plan, sortedRoutePoints) {
     const pilotReportTabText = (pilotUsername !== 'N/A' && pilotUsername) ? pilotUsername : 'Pilot Report';
 
     // --- HTML Construction ---
-    // --- [UPDATED] Added pilot-tab-btn class to the second button ---
     windowEl.innerHTML = `
     <div class="info-window-content">
         <div class="aircraft-overview-panel" id="ac-overview-panel">
@@ -6242,6 +6241,30 @@ function populateAircraftInfoWindow(baseProps, plan, sortedRoutePoints) {
                         <div class="vsd-legend-item"><div class="dot-plan"></div> PLANNED</div>
                         <div class="vsd-legend-item"><div class="dot-flown"></div> FLOWN</div>
                         <div>ALTITUDE PROFILE</div>
+                    </div>
+                </div>
+
+                <div class="aircraft-identity-container" style="background: #000; border: 2px solid #333; border-radius: 4px; display: flex; flex-direction: column; box-shadow: inset 0 0 20px rgba(0,0,0,0.8); overflow: hidden; margin-top: 16px;">
+                    <div class="fms-header">
+                        <span class="fms-title">AIRCRAFT IDENTITY</span>
+                        <span class="fms-page-count">ID</span>
+                    </div>
+                    <div style="padding: 12px; display: flex; flex-direction: row; gap: 15px; align-items: center; background: #0f1115;">
+                        <div style="width: 140px; height: 90px; flex-shrink: 0; background: #222; border: 1px solid #444; border-radius: 4px; overflow: hidden;">
+                             <img src="https://placehold.co/140x90/1a1a1a/FFF?text=Aircraft+Img" style="width: 100%; height: 100%; object-fit: cover;" alt="Aircraft Identity">
+                        </div>
+                        
+                        <div style="display: flex; flex-direction: column; justify-content: center; gap: 8px; flex-grow: 1;">
+                            <div style="display: flex; flex-direction: column;">
+                                <span style="font-size: 0.7rem; color: #888; text-transform: uppercase; letter-spacing: 0.5px;">Livery</span>
+                                <span style="font-size: 0.95rem; color: #fff; font-weight: 600;">Placeholder Livery Name</span>
+                            </div>
+                            
+                            <div style="display: flex; flex-direction: column;">
+                                <span style="font-size: 0.7rem; color: #888; text-transform: uppercase; letter-spacing: 0.5px;">Tail Number</span>
+                                <span style="font-size: 1.1rem; color: #00a8ff; font-family: 'Consolas', monospace; font-weight: 700;">XX-999</span>
+                            </div>
+                        </div>
                     </div>
                 </div>
                 </div> 
