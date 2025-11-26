@@ -6232,7 +6232,7 @@ function populateAircraftInfoWindow(baseProps, plan, sortedRoutePoints) {
         </div>
 
         <div class="unified-display-main-content">
-            <div id="ac-tab-flight-data" class="ac-tab-pane active">
+            <div id="ac-tab-flight-data" class="ac-tab-pane active" style="gap: 6px;">
                 
                 <div class="pfd-and-location-grid">
                     <div class="pfd-main-panel">
@@ -6399,17 +6399,6 @@ function populateAircraftInfoWindow(baseProps, plan, sortedRoutePoints) {
                                 </div>
                                 <div id="seat-narrative-text">
                                     Initializing...
-                                </div>
-                            </div>
-                        </div>
-
-                        <div class="tech-module">
-                            <div class="tech-module-header">
-                                <span class="tech-module-title"><i class="fa-solid fa-book"></i> FLIGHT RULES</span>
-                            </div>
-                            <div class="tech-module-body" style="padding: 8px;">
-                                <div id="flight-rules-display" class="flight-rules-badge">
-                                    <i class="fa-solid fa-spinner fa-spin"></i>
                                 </div>
                             </div>
                         </div>
