@@ -5897,12 +5897,10 @@ function populateAircraftInfoWindow(baseProps, plan, sortedRoutePoints) {
             border-radius: 12px;
             overflow: hidden;
             box-shadow: 0 4px 15px rgba(0, 0, 0, 0.5);
-            margin-bottom: 12px;
             display: flex;
             flex-direction: column;
         }
 
-        /* Replaces the old .sensor-header, .fms-header, etc. */
         .tech-module-header {
             background: rgba(30, 41, 59, 0.5); /* Slightly lighter header */
             padding: 8px 12px;
@@ -5929,7 +5927,7 @@ function populateAircraftInfoWindow(baseProps, plan, sortedRoutePoints) {
             position: relative;
         }
 
-        /* --- Tech Card Specifics (Existing) --- */
+        /* --- Tech Card Specifics --- */
         .tech-card {
             background: #0f172a; 
             border: 1px solid rgba(255, 255, 255, 0.1);
@@ -6140,19 +6138,16 @@ function populateAircraftInfoWindow(baseProps, plan, sortedRoutePoints) {
         }
 
         /* --- Nav Data Overrides --- */
-        .nav-header {
-             display: none; /* We use the tech-module-header now */
-        }
         #location-data-panel {
             background: transparent;
             border: none;
             box-shadow: none;
         }
         .nav-grid-container {
-            padding: 0; /* Remove internal padding as body handles it */
+            padding: 0;
         }
         .nav-cell {
-            background: rgba(30, 41, 59, 0.5); /* Match tech-stat-card */
+            background: rgba(30, 41, 59, 0.5);
             border: 1px solid rgba(255, 255, 255, 0.05);
         }
 
@@ -6167,11 +6162,24 @@ function populateAircraftInfoWindow(baseProps, plan, sortedRoutePoints) {
             border-top: 1px solid rgba(255, 255, 255, 0.1);
         }
         .vsd-graph-window {
-            background: #0f172a; /* Match background */
+            background: #0f172a;
         }
         #vsd-y-axis {
             background: #0f172a;
             border-right: 1px solid rgba(255, 255, 255, 0.1);
+        }
+        
+        /* Grid Alignment Fixes */
+        .display-row {
+            display: grid; 
+            grid-template-columns: 2fr 1fr; 
+            gap: 8px;
+            margin-bottom: 8px;
+        }
+        .right-col-stack {
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
         }
     </style>
 
@@ -6232,152 +6240,143 @@ function populateAircraftInfoWindow(baseProps, plan, sortedRoutePoints) {
         </div>
 
         <div class="unified-display-main-content">
-            <div id="ac-tab-flight-data" class="ac-tab-pane active" style="gap: 6px;">
+            <div id="ac-tab-flight-data" class="ac-tab-pane active" style="gap: 8px;">
                 
-                <div class="pfd-and-location-grid">
-                    <div class="pfd-main-panel">
-                        <div class="display-bezel">
-                            <div class="screw tl"></div><div class="screw tr"></div><div class="screw bl"></div><div class="screw br"></div>
-                            <div class="crt-container scanlines" id="pfd-container">
-                                <svg width="787" height="800" viewBox="0 0 787 800" fill="none" xmlns="http://www.w3.org/2000/svg">
-                                    <g id="PFD" clip-path="url(#clip0_1_2890)">
-                                    <g transform="translate(0, 100)">
-                                        <g id="attitude_group">
-                                            <rect id="Sky" x="-186" y="-222" width="1121" height="600" fill="#0596FF"/>
-                                            <rect id="Ground" x="-138" y="307" width="1024" height="527" fill="#9A4710"/>
-                                        </g>
-                                        <rect id="Rectangle 1" x="-6" y="5" width="191" height="566" fill="#030309"/>
-                                        <rect id="Rectangle 9" x="609" width="185" height="566" fill="#030309"/>
-                                        <path id="Rectangle 2" d="M273.905 84.9424L180.983 183.181L-23 -9.76114L69.9218 -108L273.905 84.9424Z" fill="#030309"/>
-                                        <path id="Rectangle 8" d="M303.215 77.0814L187.591 147.198L42 -92.8829L157.624 -163L303.215 77.0814Z" fill="#030309"/>
-                                        <path id="Rectangle 7" d="M372.606 54.0171L244.59 97.5721L154.152 -168.242L282.169 -211.796L372.606 54.0171Z" fill="#030309"/>
-                                        <rect id="Rectangle 10" x="25" y="487.905" width="168.696" height="262.947" transform="rotate(-31.8041 25 487.905)" fill="#030309"/>
-                                        <rect id="Rectangle 14" width="67.3639" height="53.5561" transform="matrix(-0.972506 0.23288 0.23288 0.972506 482.512 537)" fill="#030309"/>
-                                        <rect id="Rectangle 19" width="80.8905" height="53.5561" transform="matrix(-0.999899 0.0142423 0.0142423 0.999899 442.882 549.506)" fill="#030309"/>
-                                        <rect id="Rectangle 18" width="46.2297" height="53.5561" transform="matrix(-0.988103 -0.153795 -0.153795 0.988103 369.916 549.11)" fill="#030309"/>
-                                        <rect id="Rectangle 17" width="46.2297" height="53.5561" transform="matrix(-0.940186 -0.340662 -0.340662 0.940186 337.709 546.749)" fill="#030309"/>
-                                        <rect id="Rectangle 16" width="46.2297" height="53.5561" transform="matrix(-0.940186 -0.340662 -0.340662 0.940186 299.709 531.749)" fill="#030309"/>
-                                        <rect id="Rectangle 15" x="387" y="587.269" width="168.696" height="262.947" transform="rotate(-27.6434 387 587.269)" fill="#030309"/>
-                                        <rect id="Rectangle 13" x="86" y="584.104" width="168.696" height="262.947" transform="rotate(-46.8648 86 584.104)" fill="#030309"/>
-                                        <rect id="Rectangle 11" x="527" y="532.777" width="168.696" height="262.947" transform="rotate(-51.9135 527 532.777)" fill="#030309"/>
-                                        <rect id="Rectangle 12" x="503" y="527.247" width="168.696" height="262.947" transform="rotate(-31.9408 503 527.247)" fill="#030309"/>
-                                        <rect id="Rectangle 6" x="456.715" y="60.2651" width="131.991" height="278.153" transform="rotate(-177.303 456.715 60.2651)" fill="#030309"/>
-                                        <rect id="Rectangle 5" x="525.118" y="90.4898" width="131.991" height="274.627" transform="rotate(-158.368 525.118 90.4898)" fill="#030309"/>
-                                        <rect id="Rectangle 4" x="570.695" y="127.633" width="109.94" height="223.222" transform="rotate(-142.051 570.695 127.633)" fill="#030309"/>
-                                        <rect id="Rectangle 3" x="613.292" y="189.098" width="99.2768" height="223.222" transform="rotate(-128.125 613.292 189.098)" fill="#030309"/>
-                                        <path id="Vector 3" d="M609 183V422.5" stroke="#E7E6E8" stroke-width="4"/>
-                                        <path id="Vector 1" d="M185.5 425.5L185 180" stroke="#DBDBDC" stroke-width="4"/>
-                                        <path id="Vector 2" d="M185 181.502C185 181.502 269.8 52.0936 397 56.0907C524.2 60.0879 576.603 135.189 609 184" stroke="#DBDBDC" stroke-width="4"/>
-                                        <path id="Vector 4" d="M608.5 424.5C608.5 424.5 557 548 396 550.5C235 553 185 424.5 185 424.5" stroke="#DBDBDC" stroke-width="4"/>
-                                        <path id="Polygon 1" d="M396.252 65.2333L377.848 35.8138L414.647 35.8079L396.252 65.2333Z" fill="#E7F013"/>
-                                        <path id="Polygon 2" d="M407.919 38.9482L396.431 59.4193L384.446 38.7244L407.919 38.9482Z" fill="#030309"/>
-                                        <path id="Vector 6" d="M307 76L302 64.5L312 60.5L317 71" stroke="#E7E6E8" stroke-width="4"/>
-                                        <path id="Vector 7" d="M279.5 91L268.5 73.5L259 79L269.5 97.5" stroke="#E7E6E8" stroke-width="4"/>
-                                        <path id="Vector 8" d="M225 135L206.5 117" stroke="#E7E6E8" stroke-width="4"/>
-                                        <path id="Vector 9" d="M477.153 71.5794L479.366 59.3018L489.886 61.5697L488.226 73.0218" stroke="#E7E6E8" stroke-width="4"/>
-                                        <path id="Vector 10" d="M347.928 61.4888L346.352 49.0483L357.072 48.0112L358.929 59.4917" stroke="#E7E6E8" stroke-width="4"/>
-                                        <path id="Vector 11" d="M435.153 59.5794L437.366 47.3018L447.886 49.5697L446.226 61.0218" stroke="#E7E6E8" stroke-width="4"/>
-                                        <path id="Vector 12" d="M514.032 86.1754L522.756 72.2658L533.956 78.0405L525.5 93.5" stroke="#E7E6E8" stroke-width="4"/>
-                                        <path id="Vector 13" d="M569.5 131.5L585.5 116" stroke="#E7E6E8" stroke-width="4"/>
-                                        <path id="Vector 15" d="M183.5 193.5L173 187" stroke="#029705" stroke-width="4"/>
-                                        <path id="Vector 16" d="M184 203L173.5 196.5" stroke="#029705" stroke-width="4"/>
-                                        <path id="Vector 17" d="M610 193.5L619 188" stroke="#029705" stroke-width="3"/>
-                                        <path id="Vector 18" d="M610 199.5L619 194" stroke="#029705" stroke-width="3"/>
-                                        <line id="Line 1" x1="184" y1="211" x2="184" y2="184" stroke="#DBDBDC" stroke-width="2"/>
-                                        <line id="Line 2" x1="610" y1="211" x2="610" y2="184" stroke="#DBDBDC" stroke-width="2"/>
-                                        <rect id="altitude_bg" x="675" y="73" width="72" height="476" fill="#76767A"/>
-                                        <g clip-path="url(#altTapeClip)">
-                                            <svg x="675" y="73" width="72" height="476"><g id="altitude_tape_group"></g></svg>
-                                        </g>
-                                        <g id="altitude_indicator_static">
-                                            <rect id="altitude_1" x="675" y="280" width="73" height="49" fill="#030309"/>
-                                            <text id="altitude_readout_hundreds" x="740" y="316" fill="#00FF00" font-size="32" text-anchor="end" font-weight="bold">0</text>
-                                            <g id="altitude_tens_reel_container" clip-path="url(#tensReelClip)"><g id="altitude_tens_reel_group"></g></g>
-                                            <line id="Line 8" x1="669" y1="307" x2="618" y2="307" stroke="#DDDF07" stroke-width="8"/>
-                                        </g>
-                                        <path id="limit" d="M636 336.08L621.413 307.511L650.858 307.651L636 336.08Z" fill="#C477C6"/>
-                                        <path id="limit2" d="M636 279L650.722 307.5H621.278L636 279Z" fill="#C477C6"/>
-                                        <path id="limit3" d="M636 285L643.794 303H628.206L636 285Z" fill="#100010"/>
-                                        <path id="limit4" d="M636.191 329.14L628.276 311.242L643.534 310.999L636.191 329.14Z" fill="#030309"/>
-                                        <line id="Line 6" x1="746.5" y1="263" x2="746.5" y2="281" stroke="#ECED06" stroke-width="3"/>
-                                        <line id="Line 4" x1="746.5" y1="329" x2="746.5" y2="347" stroke="#ECED06" stroke-width="3"/>
-                                        <path id="Ellipse 1" d="M636 481C636 484.866 632.866 488 629 488C625.134 488 622 484.866 622 481C622 477.134 625.134 474 629 474C632.866 474 636 477.134 636 481Z" fill="#D9D9D9"/>
-                                        <path id="Ellipse 4" d="M636 147C636 150.866 632.866 154 629 154C625.134 154 622 150.866 622 147C622 143.134 625.134 140 629 140C632.866 140 636 143.134 636 147Z" fill="#D9D9D9"/>
-                                        <g id="Ellipse 3">
-                                            <path d="M636 229C636 232.866 632.866 236 629 236C625.134 236 622 232.866 622 229C622 225.134 625.134 222 629 222C632.866 222 636 225.134 636 229Z" fill="#D9D9D9"/>
-                                            <path d="M636 395C636 398.866 632.866 402 629 402C625.134 402 622 398.866 622 395C622 391.134 625.134 388 629 388C632.866 388 636 391.134 636 395Z" fill="#D9D9D9"/>
-                                        </g>
-                                        <rect id="speed" x="28" y="73" width="97" height="477" fill="#76767A"/>
-                                        <g clip-path="url(#speedTapeClip)">
-                                            <svg x="28" y="73" width="97" height="477"><g id="speed_tape_group"></g></svg>
-                                        </g>
-                                        <g id="speed_indicator_static">
-                                            <path id="Polygon 9" d="M128.036 311.591L150.451 301.561L150.513 321.482L128.036 311.591Z" fill="#FDFD03"/>
-                                            <path id="Vector 20" d="M137 311H96.5" stroke="#FDFD03" stroke-width="4"/>
-                                            <rect x="50" y="296" width="45" height="30" fill="black" stroke="#999" stroke-width="1"/>
-                                            <text id="speed_readout" x="72.5" y="318" fill="#00FF00" font-size="20" text-anchor="middle" font-weight="bold">0</text>
-                                        </g>
-                                        <path id="Vector 19" d="M19.5 311H31" stroke="#FDFD03" stroke-width="4"/>
-                                        <path id="Vector 21" d="M29 73H151.5" stroke="#E7E6E8" stroke-width="4"/>
-                                        <path id="Vector 22" d="M28 549H151.5" stroke="#E7E6E8" stroke-width="4"/>
-                                        <path id="Vector 23" d="M672.5 73H774" stroke="#E7E6E8" stroke-width="4"/>
-                                        <path id="Vector 24" d="M672 548.5H773" stroke="#E7E6E8" stroke-width="4"/>
-                                        <path id="Vector 25" d="M745 549.5L746 347" stroke="#E7E6E8" stroke-width="3"/>
-                                        <path id="Vector 26" d="M745 73V265" stroke="#E7E6E8" stroke-width="3"/>
-                                        <g id="wings">
-                                            <rect id="Rectangle 21" x="280" y="315" width="11" height="25" fill="#030309"/>
-                                            <rect id="Rectangle 23" x="522" y="304" width="71" height="12" fill="#030309"/>
-                                            <rect id="Rectangle 22" x="512" y="305" width="13" height="35" fill="#030309"/>
-                                            <rect id="Rectangle 20" x="208" y="304" width="83" height="13" fill="#030309"/>
-                                            <g id="wing">
-                                                <path d="M278.591 316.857H208V304H291.608V340H278.591V316.857Z" stroke="#FEFE03" stroke-width="3"/>
-                                                <path d="M511.392 340V304H595V316.857H524.409V340H511.392Z" stroke="#FEFE03" stroke-width="3"/>
-                                            </g>
-                                        </g>
-                                        <g id="middle">
-                                            <rect id="middle_2" x="393" y="304" width="17" height="17" fill="#0CC704"/>
-                                            <rect id="Rectangle 24" x="395" y="307" width="13" height="11" fill="#030309"/>
-                                        </g>
-                                        <rect id="Rectangle 25" y="571" width="787" height="140" fill="#030309"/>
-                                        <rect id="header" x="243" y="599" width="326" height="66" fill="#76767A"/>
-                                        <g id="heading_indicator">
-                                            <g id="heading_tape_container" clip-path="url(#headingClip)"><g id="heading_tape_group"></g></g>
-                                            <g id="heading_static_elements">
-                                                <line x1="406" y1="620" x2="406" y2="635" stroke="#FDFD03" stroke-width="3"/>
-                                                <rect x="381" y="599" width="50" height="20" fill="black" stroke="#FFFFFF" stroke-width="1"/>
-                                                <text id="heading_readout" x="406" y="615" fill="#00FF00" font-size="16" text-anchor="middle" font-weight="bold">000</text>
-                                            </g>
-                                        </g>
-                                        <path id="Vector 27" d="M243 599V667" stroke="#FCFCFF" stroke-width="4"/>
-                                        <g id="Line 5"><line id="Line 5_2" x1="745" y1="264.5" x2="787" y2="264.5" stroke="#ECED06" stroke-width="3"/></g>
-                                        <line id="Line 6_2" x1="671" y1="279.5" x2="748" y2="279.5" stroke="#ECED06" stroke-width="3"/>
-                                        <line id="Line 7" x1="671" y1="329.5" x2="748" y2="329.5" stroke="#ECED06" stroke-width="3"/>
-                                        <line id="Line 3" x1="746" y1="345.5" x2="786" y2="345.5" stroke="#ECED06" stroke-width="3"/>
-                                    </g> 
+                <!-- ROW 1: PFD (Left) + Seat Sensor & Nav Data (Right) -->
+                <div class="display-row">
+                    <!-- LEFT COLUMN: PFD -->
+                    <div class="display-bezel">
+                        <div class="screw tl"></div><div class="screw tr"></div><div class="screw bl"></div><div class="screw br"></div>
+                        <div class="crt-container scanlines" id="pfd-container">
+                            <svg width="787" height="800" viewBox="0 0 787 800" fill="none" xmlns="http://www.w3.org/2000/svg">
+                                <g id="PFD" clip-path="url(#clip0_1_2890)">
+                                <g transform="translate(0, 100)">
+                                    <g id="attitude_group">
+                                        <rect id="Sky" x="-186" y="-222" width="1121" height="600" fill="#0596FF"/>
+                                        <rect id="Ground" x="-138" y="307" width="1024" height="527" fill="#9A4710"/>
                                     </g>
-                                    <defs>
-                                        <clipPath id="clip0_1_2890"><rect width="787" height="800" fill="white"/></clipPath>
-                                        <clipPath id="tensReelClip"><rect x="732" y="269" width="50" height="75"/></clipPath>
-                                        <clipPath id="headingClip"><rect x="243" y="620" width="326" height="45"/></clipPath>
-                                        <clipPath id="speedTapeClip"><rect x="28" y="73" width="97" height="477"/></clipPath>
-                                        <clipPath id="altTapeClip"><rect x="675" y="73" width="72" height="476"/></clipPath>
-                                    </defs>
-                                </svg>
-                            </div>
+                                    <rect id="Rectangle 1" x="-6" y="5" width="191" height="566" fill="#030309"/>
+                                    <rect id="Rectangle 9" x="609" width="185" height="566" fill="#030309"/>
+                                    <path id="Rectangle 2" d="M273.905 84.9424L180.983 183.181L-23 -9.76114L69.9218 -108L273.905 84.9424Z" fill="#030309"/>
+                                    <path id="Rectangle 8" d="M303.215 77.0814L187.591 147.198L42 -92.8829L157.624 -163L303.215 77.0814Z" fill="#030309"/>
+                                    <path id="Rectangle 7" d="M372.606 54.0171L244.59 97.5721L154.152 -168.242L282.169 -211.796L372.606 54.0171Z" fill="#030309"/>
+                                    <rect id="Rectangle 10" x="25" y="487.905" width="168.696" height="262.947" transform="rotate(-31.8041 25 487.905)" fill="#030309"/>
+                                    <rect id="Rectangle 14" width="67.3639" height="53.5561" transform="matrix(-0.972506 0.23288 0.23288 0.972506 482.512 537)" fill="#030309"/>
+                                    <rect id="Rectangle 19" width="80.8905" height="53.5561" transform="matrix(-0.999899 0.0142423 0.0142423 0.999899 442.882 549.506)" fill="#030309"/>
+                                    <rect id="Rectangle 18" width="46.2297" height="53.5561" transform="matrix(-0.988103 -0.153795 -0.153795 0.988103 369.916 549.11)" fill="#030309"/>
+                                    <rect id="Rectangle 17" width="46.2297" height="53.5561" transform="matrix(-0.940186 -0.340662 -0.340662 0.940186 337.709 546.749)" fill="#030309"/>
+                                    <rect id="Rectangle 16" width="46.2297" height="53.5561" transform="matrix(-0.940186 -0.340662 -0.340662 0.940186 299.709 531.749)" fill="#030309"/>
+                                    <rect id="Rectangle 15" x="387" y="587.269" width="168.696" height="262.947" transform="rotate(-27.6434 387 587.269)" fill="#030309"/>
+                                    <rect id="Rectangle 13" x="86" y="584.104" width="168.696" height="262.947" transform="rotate(-46.8648 86 584.104)" fill="#030309"/>
+                                    <rect id="Rectangle 11" x="527" y="532.777" width="168.696" height="262.947" transform="rotate(-51.9135 527 532.777)" fill="#030309"/>
+                                    <rect id="Rectangle 12" x="503" y="527.247" width="168.696" height="262.947" transform="rotate(-31.9408 503 527.247)" fill="#030309"/>
+                                    <rect id="Rectangle 6" x="456.715" y="60.2651" width="131.991" height="278.153" transform="rotate(-177.303 456.715 60.2651)" fill="#030309"/>
+                                    <rect id="Rectangle 5" x="525.118" y="90.4898" width="131.991" height="274.627" transform="rotate(-158.368 525.118 90.4898)" fill="#030309"/>
+                                    <rect id="Rectangle 4" x="570.695" y="127.633" width="109.94" height="223.222" transform="rotate(-142.051 570.695 127.633)" fill="#030309"/>
+                                    <rect id="Rectangle 3" x="613.292" y="189.098" width="99.2768" height="223.222" transform="rotate(-128.125 613.292 189.098)" fill="#030309"/>
+                                    <path id="Vector 3" d="M609 183V422.5" stroke="#E7E6E8" stroke-width="4"/>
+                                    <path id="Vector 1" d="M185.5 425.5L185 180" stroke="#DBDBDC" stroke-width="4"/>
+                                    <path id="Vector 2" d="M185 181.502C185 181.502 269.8 52.0936 397 56.0907C524.2 60.0879 576.603 135.189 609 184" stroke="#DBDBDC" stroke-width="4"/>
+                                    <path id="Vector 4" d="M608.5 424.5C608.5 424.5 557 548 396 550.5C235 553 185 424.5 185 424.5" stroke="#DBDBDC" stroke-width="4"/>
+                                    <path id="Polygon 1" d="M396.252 65.2333L377.848 35.8138L414.647 35.8079L396.252 65.2333Z" fill="#E7F013"/>
+                                    <path id="Polygon 2" d="M407.919 38.9482L396.431 59.4193L384.446 38.7244L407.919 38.9482Z" fill="#030309"/>
+                                    <path id="Vector 6" d="M307 76L302 64.5L312 60.5L317 71" stroke="#E7E6E8" stroke-width="4"/>
+                                    <path id="Vector 7" d="M279.5 91L268.5 73.5L259 79L269.5 97.5" stroke="#E7E6E8" stroke-width="4"/>
+                                    <path id="Vector 8" d="M225 135L206.5 117" stroke="#E7E6E8" stroke-width="4"/>
+                                    <path id="Vector 9" d="M477.153 71.5794L479.366 59.3018L489.886 61.5697L488.226 73.0218" stroke="#E7E6E8" stroke-width="4"/>
+                                    <path id="Vector 10" d="M347.928 61.4888L346.352 49.0483L357.072 48.0112L358.929 59.4917" stroke="#E7E6E8" stroke-width="4"/>
+                                    <path id="Vector 11" d="M435.153 59.5794L437.366 47.3018L447.886 49.5697L446.226 61.0218" stroke="#E7E6E8" stroke-width="4"/>
+                                    <path id="Vector 12" d="M514.032 86.1754L522.756 72.2658L533.956 78.0405L525.5 93.5" stroke="#E7E6E8" stroke-width="4"/>
+                                    <path id="Vector 13" d="M569.5 131.5L585.5 116" stroke="#E7E6E8" stroke-width="4"/>
+                                    <path id="Vector 15" d="M183.5 193.5L173 187" stroke="#029705" stroke-width="4"/>
+                                    <path id="Vector 16" d="M184 203L173.5 196.5" stroke="#029705" stroke-width="4"/>
+                                    <path id="Vector 17" d="M610 193.5L619 188" stroke="#029705" stroke-width="3"/>
+                                    <path id="Vector 18" d="M610 199.5L619 194" stroke="#029705" stroke-width="3"/>
+                                    <line id="Line 1" x1="184" y1="211" x2="184" y2="184" stroke="#DBDBDC" stroke-width="2"/>
+                                    <line id="Line 2" x1="610" y1="211" x2="610" y2="184" stroke="#DBDBDC" stroke-width="2"/>
+                                    <rect id="altitude_bg" x="675" y="73" width="72" height="476" fill="#76767A"/>
+                                    <g clip-path="url(#altTapeClip)">
+                                        <svg x="675" y="73" width="72" height="476"><g id="altitude_tape_group"></g></svg>
+                                    </g>
+                                    <g id="altitude_indicator_static">
+                                        <rect id="altitude_1" x="675" y="280" width="73" height="49" fill="#030309"/>
+                                        <text id="altitude_readout_hundreds" x="740" y="316" fill="#00FF00" font-size="32" text-anchor="end" font-weight="bold">0</text>
+                                        <g id="altitude_tens_reel_container" clip-path="url(#tensReelClip)"><g id="altitude_tens_reel_group"></g></g>
+                                        <line id="Line 8" x1="669" y1="307" x2="618" y2="307" stroke="#DDDF07" stroke-width="8"/>
+                                    </g>
+                                    <path id="limit" d="M636 336.08L621.413 307.511L650.858 307.651L636 336.08Z" fill="#C477C6"/>
+                                    <path id="limit2" d="M636 279L650.722 307.5H621.278L636 279Z" fill="#C477C6"/>
+                                    <path id="limit3" d="M636 285L643.794 303H628.206L636 285Z" fill="#100010"/>
+                                    <path id="limit4" d="M636.191 329.14L628.276 311.242L643.534 310.999L636.191 329.14Z" fill="#030309"/>
+                                    <line id="Line 6" x1="746.5" y1="263" x2="746.5" y2="281" stroke="#ECED06" stroke-width="3"/>
+                                    <line id="Line 4" x1="746.5" y1="329" x2="746.5" y2="347" stroke="#ECED06" stroke-width="3"/>
+                                    <path id="Ellipse 1" d="M636 481C636 484.866 632.866 488 629 488C625.134 488 622 484.866 622 481C622 477.134 625.134 474 629 474C632.866 474 636 477.134 636 481Z" fill="#D9D9D9"/>
+                                    <path id="Ellipse 4" d="M636 147C636 150.866 632.866 154 629 154C625.134 154 622 150.866 622 147C622 143.134 625.134 140 629 140C632.866 140 636 143.134 636 147Z" fill="#D9D9D9"/>
+                                    <g id="Ellipse 3">
+                                        <path d="M636 229C636 232.866 632.866 236 629 236C625.134 236 622 232.866 622 229C622 225.134 625.134 222 629 222C632.866 222 636 225.134 636 229Z" fill="#D9D9D9"/>
+                                        <path d="M636 395C636 398.866 632.866 402 629 402C625.134 402 622 398.866 622 395C622 391.134 625.134 388 629 388C632.866 388 636 391.134 636 395Z" fill="#D9D9D9"/>
+                                    </g>
+                                    <rect id="speed" x="28" y="73" width="97" height="477" fill="#76767A"/>
+                                    <g clip-path="url(#speedTapeClip)">
+                                        <svg x="28" y="73" width="97" height="477"><g id="speed_tape_group"></g></svg>
+                                    </g>
+                                    <g id="speed_indicator_static">
+                                        <path id="Polygon 9" d="M128.036 311.591L150.451 301.561L150.513 321.482L128.036 311.591Z" fill="#FDFD03"/>
+                                        <path id="Vector 20" d="M137 311H96.5" stroke="#FDFD03" stroke-width="4"/>
+                                        <rect x="50" y="296" width="45" height="30" fill="black" stroke="#999" stroke-width="1"/>
+                                        <text id="speed_readout" x="72.5" y="318" fill="#00FF00" font-size="20" text-anchor="middle" font-weight="bold">0</text>
+                                    </g>
+                                    <path id="Vector 19" d="M19.5 311H31" stroke="#FDFD03" stroke-width="4"/>
+                                    <path id="Vector 21" d="M29 73H151.5" stroke="#E7E6E8" stroke-width="4"/>
+                                    <path id="Vector 22" d="M28 549H151.5" stroke="#E7E6E8" stroke-width="4"/>
+                                    <path id="Vector 23" d="M672.5 73H774" stroke="#E7E6E8" stroke-width="4"/>
+                                    <path id="Vector 24" d="M672 548.5H773" stroke="#E7E6E8" stroke-width="4"/>
+                                    <path id="Vector 25" d="M745 549.5L746 347" stroke="#E7E6E8" stroke-width="3"/>
+                                    <path id="Vector 26" d="M745 73V265" stroke="#E7E6E8" stroke-width="3"/>
+                                    <g id="wings">
+                                        <rect id="Rectangle 21" x="280" y="315" width="11" height="25" fill="#030309"/>
+                                        <rect id="Rectangle 23" x="522" y="304" width="71" height="12" fill="#030309"/>
+                                        <rect id="Rectangle 22" x="512" y="305" width="13" height="35" fill="#030309"/>
+                                        <rect id="Rectangle 20" x="208" y="304" width="83" height="13" fill="#030309"/>
+                                        <g id="wing">
+                                            <path d="M278.591 316.857H208V304H291.608V340H278.591V316.857Z" stroke="#FEFE03" stroke-width="3"/>
+                                            <path d="M511.392 340V304H595V316.857H524.409V340H511.392Z" stroke="#FEFE03" stroke-width="3"/>
+                                        </g>
+                                    </g>
+                                    <g id="middle">
+                                        <rect id="middle_2" x="393" y="304" width="17" height="17" fill="#0CC704"/>
+                                        <rect id="Rectangle 24" x="395" y="307" width="13" height="11" fill="#030309"/>
+                                    </g>
+                                    <rect id="Rectangle 25" y="571" width="787" height="140" fill="#030309"/>
+                                    <rect id="header" x="243" y="599" width="326" height="66" fill="#76767A"/>
+                                    <g id="heading_indicator">
+                                        <g id="heading_tape_container" clip-path="url(#headingClip)"><g id="heading_tape_group"></g></g>
+                                        <g id="heading_static_elements">
+                                            <line x1="406" y1="620" x2="406" y2="635" stroke="#FDFD03" stroke-width="3"/>
+                                            <rect x="381" y="599" width="50" height="20" fill="black" stroke="#FFFFFF" stroke-width="1"/>
+                                            <text id="heading_readout" x="406" y="615" fill="#00FF00" font-size="16" text-anchor="middle" font-weight="bold">000</text>
+                                        </g>
+                                    </g>
+                                    <path id="Vector 27" d="M243 599V667" stroke="#FCFCFF" stroke-width="4"/>
+                                    <g id="Line 5"><line id="Line 5_2" x1="745" y1="264.5" x2="787" y2="264.5" stroke="#ECED06" stroke-width="3"/></g>
+                                    <line id="Line 6_2" x1="671" y1="279.5" x2="748" y2="279.5" stroke="#ECED06" stroke-width="3"/>
+                                    <line id="Line 7" x1="671" y1="329.5" x2="748" y2="329.5" stroke="#ECED06" stroke-width="3"/>
+                                    <line id="Line 3" x1="746" y1="345.5" x2="786" y2="345.5" stroke="#ECED06" stroke-width="3"/>
+                                </g> 
+                                </g>
+                                <defs>
+                                    <clipPath id="clip0_1_2890"><rect width="787" height="800" fill="white"/></clipPath>
+                                    <clipPath id="tensReelClip"><rect x="732" y="269" width="50" height="75"/></clipPath>
+                                    <clipPath id="headingClip"><rect x="243" y="620" width="326" height="45"/></clipPath>
+                                    <clipPath id="speedTapeClip"><rect x="28" y="73" width="97" height="477"/></clipPath>
+                                    <clipPath id="altTapeClip"><rect x="675" y="73" width="72" height="476"/></clipPath>
+                                </defs>
+                            </svg>
                         </div>
-                        
-                        <div class="display-bezel">
-                            <div class="screw tl"></div><div class="screw tr"></div><div class="screw bl"></div><div class="screw br"></div>
-                            <div class="crt-container scanlines">
-                                <div id="nd-container">
-                                    <iframe id="nav-display-frame" src="nav.html" scrolling="no"></iframe>
-                                </div>
-                            </div>
-                        </div>
-
                     </div>
-                    
-                    <div class="info-right-col">
+
+                    <!-- RIGHT COLUMN: Stacked Seat Sensor + Nav Data -->
+                    <div class="right-col-stack">
                         
                         <div class="tech-module" id="cockpit-seat-sensor">
                             <div class="tech-module-header">
@@ -6403,89 +6402,104 @@ function populateAircraftInfoWindow(baseProps, plan, sortedRoutePoints) {
                             </div>
                         </div>
 
-                        <div id="fms-legs-module" class="tech-module" style="height: 400px; max-height: 400px; display: flex; flex-direction: column;">
+                        <div class="tech-module" id="location-data-panel">
                             <div class="tech-module-header">
-                                <span class="tech-module-title"><i class="fa-solid fa-route"></i> ACTIVE FLIGHT PLAN</span>
-                                <span class="fms-page-count">1/1</span>
+                                <span class="tech-module-title"><i class="fa-solid fa-location-crosshairs"></i> NAV DATA</span>
+                                <span class="nav-status-indicator"><div class="nav-blink"></div> LIVE</span>
                             </div>
                             
-                            <div class="fms-columns">
-                                <span class="col-wpt">LEGS</span>
-                                <span class="col-data text-center">CRS</span>
-                                <span class="col-data text-right">DIST</span>
-                            </div>
+                            <div class="tech-module-body" style="padding: 8px;">
+                                <div class="nav-grid-container">
+                                    <div class="nav-cell">
+                                        <span class="nav-label"><i class="fa-solid fa-map-location-dot"></i> Region</span>
+                                        <span class="nav-value small" id="ac-location">Scanning...</span>
+                                    </div>
+                                    <div class="nav-cell">
+                                        <span class="nav-label"><i class="fa-solid fa-tower-control"></i> Nearest</span>
+                                        <div class="nav-row">
+                                            <span class="nav-value highlight" id="ac-nearest-apt">---</span>
+                                            <span class="nav-value" id="ac-nearest-apt-dist">--.- <span class="nav-unit">NM</span></span>
+                                        </div>
+                                    </div>
+                                    <div class="nav-cell">
+                                        <span class="nav-label"><i class="fa-solid fa-wind"></i> Wind</span>
+                                        <span class="nav-value" id="ac-env-wind">---/--</span>
+                                    </div>
+                                    <div class="nav-cell">
+                                        <span class="nav-label"><i class="fa-solid fa-temperature-half"></i> OAT</span>
+                                        <span class="nav-value" id="ac-env-oat">--°C</span>
+                                    </div>
 
-                            <div id="fms-legs-list" class="fms-list-scrollarea">
-                                <div class="fms-empty-state">NO ROUTE LOADED</div>
-                            </div>
-                            
-                            <div class="fms-footer">
-                                <div class="fms-stat">
-                                    <span class="stat-label">DTG</span>
-                                    <span id="fms-total-dist" class="stat-value">---- NM</span>
-                                </div>
-                                <div class="fms-stat">
-                                    <span class="stat-label">ETE</span>
-                                    <span id="fms-total-ete" class="stat-value">--:--</span>
+                                    <div class="nav-cell nav-span-2">
+                                        <span class="nav-label"><i class="fa-solid fa-location-crosshairs"></i> Position</span>
+                                        <div class="nav-row">
+                                            <div><span class="nav-unit">LAT</span> <span class="nav-value" id="ac-lat">---</span></div>
+                                            <div><span class="nav-unit">LON</span> <span class="nav-value" id="ac-lon">---</span></div>
+                                        </div>
+                                    </div>
+                                    <div class="nav-cell nav-span-2">
+                                         <span class="nav-label"><i class="fa-solid fa-arrow-up-right-dots"></i> Vertical Speed</span>
+                                         <span class="nav-value large highlight" id="ac-vs">--- <span class="nav-unit">fpm</span></span>
+                                    </div>
+
+                                    <div class="nav-cell nav-span-2">
+                                        <span class="nav-label"><i class="fa-solid fa-location-arrow"></i> Next Waypoint</span>
+                                        <div class="nav-row">
+                                            <span class="nav-value accent" id="ac-next-wp">---</span>
+                                            <span class="nav-value" id="ac-next-wp-dist">--.- <span class="nav-unit">NM</span></span>
+                                        </div>
+                                    </div>
+                                    <div class="nav-cell nav-span-2">
+                                        <span class="nav-label"><i class="fa-solid fa-flag-checkered"></i> Destination</span>
+                                        <div class="nav-row">
+                                            <div><span class="nav-unit">DIST</span> <span class="nav-value" id="ac-dist">---</span></div>
+                                            <div><span class="nav-unit">ETE</span> <span class="nav-value" id="ac-ete">--:--</span></div>
+                                        </div>
+                                    </div>
                                 </div>
                             </div>
                         </div>
+
                     </div>
                 </div>
-                
-                <div class="tech-module" id="location-data-panel">
-                    <div class="tech-module-header">
-                        <span class="tech-module-title"><i class="fa-solid fa-location-crosshairs"></i> NAV DATA</span>
-                        <span class="nav-status-indicator"><div class="nav-blink"></div> LIVE</span>
+
+                <!-- ROW 2: ND (Left) + Active Flight Plan (Right) -->
+                <div class="display-row">
+                    <!-- LEFT: ND -->
+                    <div class="display-bezel">
+                        <div class="screw tl"></div><div class="screw tr"></div><div class="screw bl"></div><div class="screw br"></div>
+                        <div class="crt-container scanlines">
+                            <div id="nd-container">
+                                <iframe id="nav-display-frame" src="nav.html" scrolling="no"></iframe>
+                            </div>
+                        </div>
                     </div>
-                    
-                    <div class="tech-module-body" style="padding: 8px;">
-                        <div class="nav-grid-container">
-                            <div class="nav-cell">
-                                <span class="nav-label"><i class="fa-solid fa-map-location-dot"></i> Region</span>
-                                <span class="nav-value small" id="ac-location">Scanning...</span>
-                            </div>
-                            <div class="nav-cell">
-                                <span class="nav-label"><i class="fa-solid fa-tower-control"></i> Nearest</span>
-                                <div class="nav-row">
-                                    <span class="nav-value highlight" id="ac-nearest-apt">---</span>
-                                    <span class="nav-value" id="ac-nearest-apt-dist">--.- <span class="nav-unit">NM</span></span>
-                                </div>
-                            </div>
-                            <div class="nav-cell">
-                                <span class="nav-label"><i class="fa-solid fa-wind"></i> Wind</span>
-                                <span class="nav-value" id="ac-env-wind">---/--</span>
-                            </div>
-                            <div class="nav-cell">
-                                <span class="nav-label"><i class="fa-solid fa-temperature-half"></i> OAT</span>
-                                <span class="nav-value" id="ac-env-oat">--°C</span>
-                            </div>
 
-                            <div class="nav-cell nav-span-2">
-                                <span class="nav-label"><i class="fa-solid fa-location-crosshairs"></i> Position</span>
-                                <div class="nav-row">
-                                    <div><span class="nav-unit">LAT</span> <span class="nav-value" id="ac-lat">---</span></div>
-                                    <div><span class="nav-unit">LON</span> <span class="nav-value" id="ac-lon">---</span></div>
-                                </div>
-                            </div>
-                            <div class="nav-cell nav-span-2">
-                                 <span class="nav-label"><i class="fa-solid fa-arrow-up-right-dots"></i> Vertical Speed</span>
-                                 <span class="nav-value large highlight" id="ac-vs">--- <span class="nav-unit">fpm</span></span>
-                            </div>
+                    <!-- RIGHT: FMS Legs Module -->
+                    <div id="fms-legs-module" class="tech-module" style="height: 100%; min-height: 400px; display: flex; flex-direction: column;">
+                        <div class="tech-module-header">
+                            <span class="tech-module-title"><i class="fa-solid fa-route"></i> ACTIVE FLIGHT PLAN</span>
+                            <span class="fms-page-count">1/1</span>
+                        </div>
+                        
+                        <div class="fms-columns">
+                            <span class="col-wpt">LEGS</span>
+                            <span class="col-data text-center">CRS</span>
+                            <span class="col-data text-right">DIST</span>
+                        </div>
 
-                            <div class="nav-cell nav-span-2">
-                                <span class="nav-label"><i class="fa-solid fa-location-arrow"></i> Next Waypoint</span>
-                                <div class="nav-row">
-                                    <span class="nav-value accent" id="ac-next-wp">---</span>
-                                    <span class="nav-value" id="ac-next-wp-dist">--.- <span class="nav-unit">NM</span></span>
-                                </div>
+                        <div id="fms-legs-list" class="fms-list-scrollarea">
+                            <div class="fms-empty-state">NO ROUTE LOADED</div>
+                        </div>
+                        
+                        <div class="fms-footer">
+                            <div class="fms-stat">
+                                <span class="stat-label">DTG</span>
+                                <span id="fms-total-dist" class="stat-value">---- NM</span>
                             </div>
-                            <div class="nav-cell nav-span-2">
-                                <span class="nav-label"><i class="fa-solid fa-flag-checkered"></i> Destination</span>
-                                <div class="nav-row">
-                                    <div><span class="nav-unit">DIST</span> <span class="nav-value" id="ac-dist">---</span></div>
-                                    <div><span class="nav-unit">ETE</span> <span class="nav-value" id="ac-ete">--:--</span></div>
-                                </div>
+                            <div class="fms-stat">
+                                <span class="stat-label">ETE</span>
+                                <span id="fms-total-ete" class="stat-value">--:--</span>
                             </div>
                         </div>
                     </div>
