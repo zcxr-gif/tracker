@@ -699,20 +699,14 @@ function injectCustomStyles() {
             position: absolute;
             top: 20px; 
             right: 20px;
-            width: 600px; 
+            width: 600px; /* Reduced width slightly to look better */
             max-width: 95vw;
             max-height: calc(100vh - 40px);
-            
-            /* Dynamic Background */
             background: linear-gradient(160deg, var(--iw-bg-start), var(--iw-bg-end));
-            
             backdrop-filter: blur(20px) saturate(180%);
             -webkit-backdrop-filter: blur(20px) saturate(180%);
             border-radius: 16px;
-            
-            /* --- FIX: Use a much subtler border that blends with any color --- */
             border: 1px solid rgba(255, 255, 255, 0.08);
-            
             box-shadow: 0 20px 50px rgba(0,0,0,0.8); 
             z-index: 1060; 
             display: flex;
@@ -734,13 +728,8 @@ function injectCustomStyles() {
             justify-content: space-between;
             align-items: center;
             padding: 16px 20px;
-            
-            /* --- FIX: Make background transparent so it takes the user's theme color --- */
             background: rgba(0, 0, 0, 0.1); 
-            
-            /* Optional: Make the separator line subtler or remove it to blend fully */
             border-bottom: 1px solid rgba(255, 255, 255, 0.05);
-            
             flex-shrink: 0;
         }
         .info-window-header h3 {
@@ -774,13 +763,15 @@ function injectCustomStyles() {
             overflow-y: auto; 
             flex-grow: 1; 
             padding: 0;
-            background: transparent; /* Transparent to show gradient */
+            background: transparent;
         }
 
+        /* --- [MODIFIED] MAIN LAYOUT GRID --- */
+        /* Changed to 1 column so "right col" (now info-stack) sits below "pfd-main-panel" */
         .pfd-and-location-grid { 
             display: grid; 
-            grid-template-columns: 2fr 1fr; 
-            gap: 8px;
+            grid-template-columns: 1fr; /* Single column stack */
+            gap: 16px;
         }
 
         .info-right-col {
@@ -984,7 +975,7 @@ function injectCustomStyles() {
 
         @media (max-width: 992px) {
             .info-window { width: 95vw; top: 10px; right: 2.5vw; left: 2.5vw; max-height: calc(100vh - 20px); }
-            .pfd-and-location-grid { grid-template-columns: 1fr; } 
+            /* pfd-main-panel handles stacking via flex-wrap, no grid change needed here */
             #fms-legs-module { display: none; }
             #location-data-panel { min-height: auto; }
             .nav-grid-container { grid-template-columns: repeat(2, 1fr); }
@@ -1010,7 +1001,6 @@ function injectCustomStyles() {
             position: absolute; 
             inset: 0; 
             z-index: 1; 
-            /* --- MODIFIED: Use Theme Variable for seamless blending --- */
             background: linear-gradient(
                 to bottom,
                 rgba(0, 0, 0, 0.7) 0%, 
@@ -1034,7 +1024,6 @@ function injectCustomStyles() {
         .route-summary-overlay { 
             position: relative; 
             padding: 15px 20px 12px 20px; 
-            /* --- MODIFIED: Use Theme Variable --- */
             background: linear-gradient(180deg, 
                 transparent 0%, 
                 rgba(0, 0, 0, 0.2) 40%, 
@@ -1066,7 +1055,6 @@ function injectCustomStyles() {
             display: flex; 
             flex-direction: column; 
             gap: 16px; 
-            /* --- MODIFIED: Background uses theme variables --- */
             background: linear-gradient(180deg, var(--iw-bg-start), var(--iw-bg-end));
             border-top: 1px solid rgba(255, 255, 255, 0.05);
         }
@@ -1074,7 +1062,7 @@ function injectCustomStyles() {
         .ac-tab-pane { display: none; flex-direction: column; gap: 16px; animation: fadeIn 0.4s; }
         .ac-tab-pane.active { display: flex; }
         .ac-profile-card-new { 
-            background: rgba(0, 0, 0, 0.2); /* Neutral / Transparent so theme shows */
+            background: rgba(0, 0, 0, 0.2); 
             border-radius: 12px; border: 1px solid rgba(255, 255, 255, 0.05); padding: 10px; border-top: 3px solid #a33ea3; display: flex; flex-direction: column; gap: 10px; 
         }
         .ac-profile-header { display: flex; justify-content: space-between; align-items: center; padding: 0 5px; }
@@ -1083,22 +1071,30 @@ function injectCustomStyles() {
         .profile-toggle-btn:hover { color: #fff; }
         .profile-toggle-btn.active { background: #00a8ff; color: #fff; box-shadow: 0 2px 5px rgba(0, 168, 255, 0.3); }
         
+        /* --- [MODIFIED] PFD & ND CONTAINER (SIDE-BY-SIDE) --- */
         .pfd-main-panel { 
             display: flex; 
-            flex-direction: column; 
+            flex-direction: row; 
+            flex-wrap: wrap; /* Wraps on small screens */
             width: 100%; 
-            align-items: center; 
-            gap: 16px; 
+            align-items: flex-start;
+            justify-content: center; 
+            gap: 12px; 
         }
 
         .display-bezel { 
             position: relative; 
             background-color: #1f2937; 
             border: 4px solid #374151; 
-            padding: 12px; 
+            padding: 8px; /* Reduced padding slightly */
             border-radius: 1rem; 
             box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.5); 
-            width: 100%; 
+            
+            /* Sizing logic for Side-by-Side */
+            flex: 1 1 250px; /* Basis is small enough to fit two, but grows */
+            min-width: 250px;
+            max-width: 100%; /* Can take full width on mobile */
+            
             box-sizing: border-box; 
             display: flex;
             flex-direction: column;
@@ -1106,24 +1102,24 @@ function injectCustomStyles() {
         
         .screw { 
             position: absolute; 
-            width: 0.5rem; 
-            height: 0.5rem; 
+            width: 0.4rem; 
+            height: 0.4rem; 
             background-color: #4b5563; 
             border-radius: 50%; 
             box-shadow: inset 1px 1px 2px rgba(0,0,0,0.5); 
             z-index: 5; 
         }
-        .screw.tl { top: 0.35rem; left: 0.35rem; } 
-        .screw.tr { top: 0.35rem; right: 0.35rem; } 
-        .screw.bl { bottom: 0.35rem; left: 0.35rem; } 
-        .screw.br { bottom: 0.35rem; right: 0.35rem; }
+        .screw.tl { top: 0.25rem; left: 0.25rem; } 
+        .screw.tr { top: 0.25rem; right: 0.25rem; } 
+        .screw.bl { bottom: 0.25rem; left: 0.25rem; } 
+        .screw.br { bottom: 0.25rem; right: 0.25rem; }
         
         .crt-container { 
             width: 100%; 
             position: relative; 
             border: 2px solid #111827; 
             background: #000; 
-            border-radius: 12px; 
+            border-radius: 8px; 
             overflow: hidden; 
             box-shadow: inset 0 0 20px rgba(0,0,0,0.8); 
             display: flex; 
@@ -1372,7 +1368,6 @@ function injectCustomStyles() {
             display: flex;
             justify-content: space-between;
             align-items: center;
-            /* --- MODIFIED: Use Theme Variable for tabs to match window --- */
             background: var(--iw-bg-start);
             border-bottom: 1px solid rgba(255, 255, 255, 0.1);
             padding: 0 20px;
