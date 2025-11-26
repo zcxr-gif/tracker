@@ -5821,7 +5821,7 @@ function rebuildDynamicLayers() {
  * --- [REHAULED] Populates the aircraft info window with the new Tech Card UI.
  */
 function populateAircraftInfoWindow(baseProps, plan, sortedRoutePoints) {
-    // --- Helper function to update all elements matching a selector ---
+    // --- Helper functions ---
     const updateAll = (selector, value, isHTML = false) => {
         document.querySelectorAll(selector).forEach(el => {
             isHTML ? el.innerHTML = value : el.textContent = value;
@@ -5838,7 +5838,7 @@ function populateAircraftInfoWindow(baseProps, plan, sortedRoutePoints) {
     const aircraftName = baseProps.aircraft?.aircraftName || 'Unknown Type';
     const airlineName = baseProps.aircraft?.liveryName || 'Generic Livery';
     const liveryName = baseProps.aircraft?.liveryName || '';
-    const reg = baseProps.aircraft?.registration || 'N/A';
+    const reg = baseProps.aircraft?.registration || 'N/A'; // Assuming registration is available or placeholder
     
     // Logo Logic
     const words = liveryName.trim().split(/\s+/);
@@ -5879,20 +5879,218 @@ function populateAircraftInfoWindow(baseProps, plan, sortedRoutePoints) {
     const pilotUsername = baseProps.username || 'N/A';
     const pilotReportTabText = (pilotUsername !== 'N/A' && pilotUsername) ? pilotUsername : 'Pilot Report';
 
+    // --- [NEW] Aircraft Image Logic for Tech Card ---
+    // We try to find a specific image, otherwise fall back to the overview panel image logic
+    const sanitizeFilename = (name) => {
+        if (!name || typeof name !== 'string') return 'unknown';
+        return name.trim().toLowerCase().replace(/[^a-z0-j-9-]/g, '_');
+    };
+    const sanitizedAircraft = sanitizeFilename(aircraftName);
+    const sanitizedLivery = sanitizeFilename(liveryName);
+    const techCardImagePath = `/CommunityPlanes/${sanitizedAircraft}/${sanitizedLivery}.png`;
+    const techCardFallbackPath = '/CommunityPlanes/default.png';
+
     // --- HTML Construction ---
     windowEl.innerHTML = `
     <style>
-        /* Specific tweaks to ensure Flight Data matches Nav Data style perfectly */
-        .flight-data-panel {
-            background: #0f1115;
-            border-radius: 8px;
-            border: 1px solid #333;
-            box-shadow: 0 4px 20px rgba(0,0,0,0.5);
+        /* --- [UPDATED] Tech Card CSS Scoped (Compact & Solid) --- */
+        .tech-card {
+            background: #0f172a; /* Solid Dark Slate (No Glass) */
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            border-radius: 12px; /* Slightly tighter radius */
+            overflow: hidden;
+            box-shadow: 0 4px 15px rgba(0, 0, 0, 0.5);
+            position: relative;
+            font-family: 'Inter', sans-serif;
+            margin-bottom: 12px; /* Less spacing below */
+        }
+        .tech-card-header {
+            padding: 12px 16px 4px; /* Reduced padding */
+            display: flex;
+            justify-content: space-between;
+            align-items: flex-start;
+            position: relative;
+            z-index: 10;
+        }
+        .tech-badge {
+            display: inline-flex;
+            align-items: center;
+            gap: 4px;
+            padding: 1px 6px;
+            border-radius: 999px;
+            background: rgba(16, 185, 129, 0.1);
+            border: 1px solid rgba(16, 185, 129, 0.2);
+            font-size: 9px; /* Smaller font */
+            font-weight: 700;
+            color: #34d399;
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+        }
+        .tech-ping {
+            position: relative;
+            display: flex;
+            height: 5px; /* Smaller dot */
+            width: 5px;
+        }
+        .tech-ping span {
+            position: absolute;
+            display: inline-flex;
+            height: 100%;
             width: 100%;
+            border-radius: 50%;
+            background-color: #34d399;
+        }
+        .tech-ping .animate {
+            animation: ping 1s cubic-bezier(0, 0, 0.2, 1) infinite;
+            opacity: 0.75;
+        }
+        @keyframes ping {
+            75%, 100% { transform: scale(2); opacity: 0; }
+        }
+        .tech-title-group {
+            margin-top: 2px;
+        }
+        .tech-model {
+            font-size: 1.1rem; /* Reduced from 1.5rem */
+            font-weight: 700;
+            color: #fff;
+            letter-spacing: -0.025em;
+            margin: 0;
+            line-height: 1.2;
+        }
+        .tech-airline {
+            font-size: 0.75rem; /* Reduced from 0.875rem */
+            font-weight: 500;
+            color: rgba(56, 189, 248, 0.9); /* sky-400 */
+            margin-top: 0px;
+            display: flex;
+            align-items: center;
+            gap: 5px;
+        }
+        .tech-content {
+            padding: 12px; /* Reduced padding */
+            position: relative;
+            z-index: 10;
+        }
+        .tech-image-container {
+            position: relative;
+            width: 100%;
+            aspect-ratio: 21 / 9; /* Flatter aspect ratio to save height */
+            border-radius: 8px;
+            overflow: hidden;
+            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.2);
+            border: 1px solid rgba(255, 255, 255, 0.05);
+            background: #000;
+        }
+        .tech-image {
+            width: 100%;
+            height: 100%;
+            object-fit: cover;
+            transition: transform 0.7s ease-out;
+        }
+        .tech-image-container:hover .tech-image {
+            transform: scale(1.05);
+        }
+        .tech-image-overlay {
+            position: absolute;
+            inset: 0;
+            background: linear-gradient(to top, rgba(2, 6, 23, 0.9), transparent, transparent);
+            opacity: 0.8;
+        }
+        .tech-image-info {
+            position: absolute;
+            bottom: 8px; /* Tighter positioning */
+            left: 10px;
+            right: 10px;
+            display: flex;
+            justify-content: space-between;
+            align-items: flex-end;
+        }
+        .tech-photographer {
             display: flex;
             flex-direction: column;
-            overflow: hidden;
-            margin-bottom: 16px; /* Spacing above VSD */
+        }
+        .tech-photo-label {
+            font-size: 9px;
+            color: #cbd5e1;
+            font-weight: 500;
+            margin-bottom: 0px;
+            line-height: 1;
+        }
+        .tech-photo-name {
+            display: flex;
+            align-items: center;
+            gap: 4px;
+            font-size: 10px;
+            font-weight: 600;
+            color: #fff;
+        }
+        .tech-grid {
+            display: grid;
+            grid-template-columns: repeat(2, 1fr);
+            gap: 8px; /* Tighter gap */
+            margin-top: 12px;
+        }
+        .tech-stat-card {
+            background: rgba(30, 41, 59, 0.5);
+            border: 1px solid rgba(255, 255, 255, 0.05);
+            padding: 8px 10px; /* Much tighter padding */
+            border-radius: 6px;
+            transition: background 0.2s;
+        }
+        .tech-stat-card:hover {
+            background: rgba(30, 41, 59, 0.8);
+        }
+        .tech-stat-header {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            margin-bottom: 2px;
+        }
+        .tech-stat-label {
+            font-size: 9px; /* Smaller label */
+            font-weight: 600;
+            color: #94a3b8;
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+        }
+        .tech-stat-value {
+            font-family: 'Consolas', 'Monaco', monospace;
+            font-size: 0.95rem; /* Reduced from 1.125rem */
+            color: #fff;
+            font-weight: 600;
+            letter-spacing: -0.025em;
+        }
+        .tech-country-card {
+            grid-column: span 2;
+            background: rgba(30, 41, 59, 0.3);
+            border: 1px solid rgba(255, 255, 255, 0.05);
+            padding: 6px 10px; /* Tighter padding */
+            border-radius: 6px;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+        }
+        .tech-country-left {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+        .tech-country-icon {
+            width: 24px; /* Smaller icon box */
+            height: 24px;
+            border-radius: 4px;
+            background: rgba(51, 65, 85, 0.5);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            color: #94a3b8;
+        }
+        .tech-bottom-bar {
+            height: 3px; /* Thinner bar */
+            width: 100%;
+            background: linear-gradient(to right, #0ea5e9, #2563eb, #4f46e5);
+            opacity: 0.8;
         }
     </style>
 
@@ -6222,37 +6420,84 @@ function populateAircraftInfoWindow(baseProps, plan, sortedRoutePoints) {
                     </div>
                 </div>
 
-                <div class="flight-data-panel">
-                    <div class="nav-header">
-                        <span class="nav-title">FLIGHT DATA</span>
-                        <span class="nav-status-indicator"><div class="nav-blink"></div> ACTIVE</span>
+                <div class="tech-card">
+                    <div class="tech-card-header">
+                        <div>
+                            <div style="display: flex; align-items: center; gap: 8px; margin-bottom: 4px;">
+                                <div class="tech-badge">
+                                    <span class="tech-ping">
+                                      <span class="animate"></span>
+                                      <span></span>
+                                    </span>
+                                    Active
+                                </div>
+                                <span style="font-size: 10px; font-weight: 600; color: #94a3b8; text-transform: uppercase; letter-spacing: 0.1em;">Flight Data</span>
+                            </div>
+                            <h1 class="tech-model">${aircraftName}</h1>
+                            <p class="tech-airline">
+                                <i class="fa-solid fa-plane" style="font-size: 12px;"></i>
+                                <span>${airlineName}</span>
+                            </p>
+                        </div>
+                        <button style="padding: 8px; color: #94a3b8; background: transparent; border: none; cursor: pointer;">
+                            <i class="fa-solid fa-ellipsis" style="font-size: 16px;"></i>
+                        </button>
                     </div>
 
-                    <div class="nav-grid-container" style="grid-template-columns: repeat(4, 1fr);">
-                        <div class="nav-cell nav-span-2">
-                             <span class="nav-label"><i class="fa-solid fa-tag"></i> Callsign</span>
-                             <span class="nav-value large" style="color: #4ade80;">${baseProps.callsign}</span>
-                        </div>
-                        <div class="nav-cell nav-span-2">
-                             <span class="nav-label"><i class="fa-solid fa-hashtag"></i> Registration</span>
-                             <span class="nav-value">${reg}</span>
+                    <div class="tech-content">
+                        <div class="tech-image-container">
+                            <img src="${techCardImagePath}" onerror="this.src='${techCardFallbackPath}'" class="tech-image" alt="Aircraft">
+                            <div class="tech-image-overlay"></div>
+                            
+                            <div class="tech-image-info">
+                                <div class="tech-photographer">
+                                    <span class="tech-photo-label">Photographer</span>
+                                    <div class="tech-photo-name">
+                                        <i class="fa-solid fa-camera" style="color: #38bdf8; font-size: 12px;"></i>
+                                        <span>IF Community</span>
+                                    </div>
+                                </div>
+                                <a href="#" style="padding: 8px; background: rgba(255,255,255,0.1); border-radius: 8px; color: #fff; border: 1px solid rgba(255,255,255,0.1); display: flex;">
+                                    <i class="fa-solid fa-arrow-up-right-from-square" style="font-size: 14px;"></i>
+                                </a>
+                            </div>
                         </div>
 
-                        <div class="nav-cell nav-span-4">
-                             <span class="nav-label"><i class="fa-solid fa-plane"></i> Aircraft</span>
-                             <span class="nav-value highlight" style="font-size: 1.1rem;">${aircraftName}</span>
-                        </div>
+                        <div class="tech-grid">
+                            <div class="tech-stat-card">
+                                <div class="tech-stat-header">
+                                    <span class="tech-stat-label">Registration</span>
+                                    <i class="fa-solid fa-hashtag" style="font-size: 12px; color: #475569;"></i>
+                                </div>
+                                <span class="tech-stat-value">${reg}</span>
+                            </div>
 
-                        <div class="nav-cell nav-span-4">
-                             <span class="nav-label"><i class="fa-solid fa-earth-americas"></i> Airline / Livery</span>
-                             <div class="nav-row">
-                                <span class="nav-value small" style="color: #ccc;">${airlineName}</span>
-                                <img src="${depFlagSrc}" style="height: 14px; width: auto; opacity: 0.7; display: ${depFlagDisplay};" alt="${depCountryCode}">
-                             </div>
+                            <div class="tech-stat-card">
+                                <div class="tech-stat-header">
+                                    <span class="tech-stat-label">Callsign</span>
+                                    <i class="fa-solid fa-tag" style="font-size: 12px; color: #475569;"></i>
+                                </div>
+                                <span class="tech-stat-value">${baseProps.callsign}</span>
+                            </div>
+
+                            <div class="tech-country-card">
+                                <div class="tech-country-left">
+                                    <div class="tech-country-icon">
+                                        <i class="fa-solid fa-flag" style="font-size: 14px;"></i>
+                                    </div>
+                                    <div style="display: flex; flex-direction: column;">
+                                        <span class="tech-stat-label" style="font-size: 9px; margin-bottom: 2px;">Airline Origin</span>
+                                        <span style="font-size: 13px; font-weight: 600; color: #fff;">${depCountryCode ? airportsData[departureIcao]?.country : 'Unknown'}</span>
+                                    </div>
+                                </div>
+                                <div style="padding: 4px 8px; background: rgba(51, 65, 85, 0.5); border-radius: 4px; border: 1px solid rgba(255, 255, 255, 0.05);">
+                                    <span style="font-family: monospace; font-size: 10px; color: #cbd5e1;">${depCountryCode.toUpperCase()}</span>
+                                </div>
+                            </div>
                         </div>
                     </div>
+                    <div class="tech-bottom-bar"></div>
                 </div>
-
                 <div class="vsd-module-container">
                     <div class="fms-header">
                         <span class="fms-title">VERTICAL SITUATION DISPLAY</span>
