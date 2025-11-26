@@ -527,84 +527,11 @@ function injectCustomStyles() {
     const css = `
         /* --- CSS VARIABLES FOR THEMING --- */
         :root {
+            /* [MODIFIED] Ensure defaults are set for the new dynamic panel system */
             --iw-bg-start: rgba(18, 20, 38, 0.95);
             --iw-bg-end: rgba(18, 20, 38, 0.95);
         }
 
-        /* --- UTILITY --- */
-        .d-none { display: none !important; }
-
-        /* --- DISPLAY TOGGLE SWITCHER --- */
-        .display-toggle-container {
-            width: 100%;
-            display: flex;
-            justify-content: center;
-            margin-bottom: 10px;
-        }
-
-        .display-toggle-group {
-            background: #0f172a;
-            border: 1px solid rgba(255, 255, 255, 0.1);
-            border-radius: 6px;
-            display: flex;
-            padding: 4px;
-            gap: 4px;
-            box-shadow: 0 4px 10px rgba(0,0,0,0.3);
-        }
-
-        .display-toggle-btn {
-            background: transparent;
-            border: none;
-            color: #64748b;
-            padding: 6px 20px;
-            font-size: 0.8rem;
-            font-weight: 700;
-            cursor: pointer;
-            border-radius: 4px;
-            font-family: 'Inter', sans-serif;
-            transition: all 0.2s ease;
-        }
-
-        .display-toggle-btn:hover {
-            color: #cbd5e1;
-            background: rgba(255,255,255,0.05);
-        }
-
-        .display-toggle-btn.active {
-            background: #3b82f6; /* Bright Blue */
-            color: #fff;
-            box-shadow: 0 2px 5px rgba(0,0,0,0.2);
-            text-shadow: 0 1px 2px rgba(0,0,0,0.3);
-        }
-
-        /* --- PFD/ND SIZING ADJUSTMENTS --- */
-        /* Make the main panel slightly narrower to "catch the eye" better */
-        .pfd-main-panel { 
-            display: flex; 
-            flex-direction: column; 
-            width: 100%; 
-            max-width: 500px; /* Constrain width */
-            margin: 0 auto;   /* Center it */
-            align-items: center; 
-            gap: 8px; 
-        }
-
-        .display-bezel { 
-            position: relative; 
-            background-color: #1f2937; 
-            border: 4px solid #374151; 
-            padding: 8px; /* Slightly reduced padding */
-            border-radius: 0.75rem; 
-            box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.5); 
-            width: 100%; 
-            box-sizing: border-box; 
-            display: flex;
-            flex-direction: column;
-            transition: opacity 0.3s ease; /* Smooth fade when switching */
-        }
-        
-        /* ... (Keep rest of existing styles below this line) ... */
-        
         /* --- VIRTUAL COCKPIT SEAT SENSOR --- */
         .seat-sensor-wrapper {
             background: #000; 
@@ -1162,6 +1089,27 @@ function injectCustomStyles() {
         .profile-toggle-btn { background: transparent; border: none; color: #9fa8da; padding: 6px 10px; font-size: 0.75rem; font-weight: 600; cursor: pointer; border-radius: 6px; transition: all 0.2s; }
         .profile-toggle-btn:hover { color: #fff; }
         .profile-toggle-btn.active { background: #00a8ff; color: #fff; box-shadow: 0 2px 5px rgba(0, 168, 255, 0.3); }
+        
+        .pfd-main-panel { 
+            display: flex; 
+            flex-direction: column; 
+            width: 100%; 
+            align-items: center; 
+            gap: 16px; 
+        }
+
+        .display-bezel { 
+            position: relative; 
+            background-color: #1f2937; 
+            border: 4px solid #374151; 
+            padding: 12px; 
+            border-radius: 1rem; 
+            box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.5); 
+            width: 100%; 
+            box-sizing: border-box; 
+            display: flex;
+            flex-direction: column;
+        }
         
         .screw { 
             position: absolute; 
@@ -4171,30 +4119,6 @@ function setupAircraftWindowEvents() {
         const tabBtn = e.target.closest('.ac-info-tab-btn');
         const planBtn = e.target.closest('#plan-this-flight-btn');
         const profileToggleBtn = e.target.closest('.profile-toggle-btn');
-        const displayToggleBtn = e.target.closest('.display-toggle-btn'); // NEW HANDLER
-
-        // NEW: Handle Display Toggle (PFD/ND)
-        if (displayToggleBtn) {
-            e.preventDefault();
-            const targetViewId = displayToggleBtn.dataset.view;
-            const container = displayToggleBtn.closest('.pfd-main-panel');
-            
-            if (!container || !targetViewId) return;
-
-            // 1. Update Buttons
-            container.querySelectorAll('.display-toggle-btn').forEach(btn => btn.classList.remove('active'));
-            displayToggleBtn.classList.add('active');
-
-            // 2. Toggle Views
-            container.querySelectorAll('.display-bezel').forEach(view => {
-                if (view.id === targetViewId) {
-                    view.classList.remove('d-none');
-                } else {
-                    view.classList.add('d-none');
-                }
-            });
-            return;
-        }
 
         // 1. Handle VSD/SSD Toggle
         if (profileToggleBtn) {
@@ -5893,6 +5817,9 @@ function rebuildDynamicLayers() {
 
 
 
+/**
+ * --- [REHAULED] Populates the aircraft info window with the new Tech Card UI.
+ */
 function populateAircraftInfoWindow(baseProps, plan, sortedRoutePoints) {
     // --- Helper functions ---
     const updateAll = (selector, value, isHTML = false) => {
@@ -5965,7 +5892,7 @@ function populateAircraftInfoWindow(baseProps, plan, sortedRoutePoints) {
     <style>
         /* --- Shared Tech Style --- */
         .tech-module {
-            background: #0f172a;
+            background: #0f172a; /* Solid Dark Slate */
             border: 1px solid rgba(255, 255, 255, 0.1);
             border-radius: 12px;
             overflow: hidden;
@@ -5975,8 +5902,9 @@ function populateAircraftInfoWindow(baseProps, plan, sortedRoutePoints) {
             flex-direction: column;
         }
 
+        /* Replaces the old .sensor-header, .fms-header, etc. */
         .tech-module-header {
-            background: rgba(30, 41, 59, 0.5);
+            background: rgba(30, 41, 59, 0.5); /* Slightly lighter header */
             padding: 8px 12px;
             border-bottom: 1px solid rgba(255, 255, 255, 0.05);
             display: flex;
@@ -5987,7 +5915,7 @@ function populateAircraftInfoWindow(baseProps, plan, sortedRoutePoints) {
         .tech-module-title {
             font-size: 0.75rem;
             font-weight: 700;
-            color: #94a3b8;
+            color: #94a3b8; /* Muted text */
             text-transform: uppercase;
             letter-spacing: 0.05em;
             display: flex;
@@ -6001,7 +5929,7 @@ function populateAircraftInfoWindow(baseProps, plan, sortedRoutePoints) {
             position: relative;
         }
 
-        /* --- Tech Card Specifics --- */
+        /* --- Tech Card Specifics (Existing) --- */
         .tech-card {
             background: #0f172a; 
             border: 1px solid rgba(255, 255, 255, 0.1);
@@ -6213,7 +6141,7 @@ function populateAircraftInfoWindow(baseProps, plan, sortedRoutePoints) {
 
         /* --- Nav Data Overrides --- */
         .nav-header {
-             display: none; 
+             display: none; /* We use the tech-module-header now */
         }
         #location-data-panel {
             background: transparent;
@@ -6221,10 +6149,10 @@ function populateAircraftInfoWindow(baseProps, plan, sortedRoutePoints) {
             box-shadow: none;
         }
         .nav-grid-container {
-            padding: 0;
+            padding: 0; /* Remove internal padding as body handles it */
         }
         .nav-cell {
-            background: rgba(30, 41, 59, 0.5);
+            background: rgba(30, 41, 59, 0.5); /* Match tech-stat-card */
             border: 1px solid rgba(255, 255, 255, 0.05);
         }
 
@@ -6239,7 +6167,7 @@ function populateAircraftInfoWindow(baseProps, plan, sortedRoutePoints) {
             border-top: 1px solid rgba(255, 255, 255, 0.1);
         }
         .vsd-graph-window {
-            background: #0f172a;
+            background: #0f172a; /* Match background */
         }
         #vsd-y-axis {
             background: #0f172a;
@@ -6308,15 +6236,7 @@ function populateAircraftInfoWindow(baseProps, plan, sortedRoutePoints) {
                 
                 <div class="pfd-and-location-grid">
                     <div class="pfd-main-panel">
-                        
-                        <div class="display-toggle-container">
-                            <div class="display-toggle-group">
-                                <button class="display-toggle-btn active" data-view="view-pfd">PFD</button>
-                                <button class="display-toggle-btn" data-view="view-nd">NAV</button>
-                            </div>
-                        </div>
-
-                        <div id="view-pfd" class="display-bezel">
+                        <div class="display-bezel">
                             <div class="screw tl"></div><div class="screw tr"></div><div class="screw bl"></div><div class="screw br"></div>
                             <div class="crt-container scanlines" id="pfd-container">
                                 <svg width="787" height="800" viewBox="0 0 787 800" fill="none" xmlns="http://www.w3.org/2000/svg">
@@ -6446,7 +6366,7 @@ function populateAircraftInfoWindow(baseProps, plan, sortedRoutePoints) {
                             </div>
                         </div>
                         
-                        <div id="view-nd" class="display-bezel d-none">
+                        <div class="display-bezel">
                             <div class="screw tl"></div><div class="screw tr"></div><div class="screw bl"></div><div class="screw br"></div>
                             <div class="crt-container scanlines">
                                 <div id="nd-container">
@@ -6458,6 +6378,7 @@ function populateAircraftInfoWindow(baseProps, plan, sortedRoutePoints) {
                     </div>
                     
                     <div class="info-right-col">
+                        
                         <div class="tech-module" id="cockpit-seat-sensor">
                             <div class="tech-module-header">
                                 <span class="tech-module-title"><i class="fa-solid fa-chair"></i> COCKPIT STATE</span>
@@ -6478,6 +6399,17 @@ function populateAircraftInfoWindow(baseProps, plan, sortedRoutePoints) {
                                 </div>
                                 <div id="seat-narrative-text">
                                     Initializing...
+                                </div>
+                            </div>
+                        </div>
+
+                        <div class="tech-module">
+                            <div class="tech-module-header">
+                                <span class="tech-module-title"><i class="fa-solid fa-book"></i> FLIGHT RULES</span>
+                            </div>
+                            <div class="tech-module-body" style="padding: 8px;">
+                                <div id="flight-rules-display" class="flight-rules-badge">
+                                    <i class="fa-solid fa-spinner fa-spin"></i>
                                 </div>
                             </div>
                         </div>
@@ -6688,6 +6620,7 @@ function populateAircraftInfoWindow(baseProps, plan, sortedRoutePoints) {
     updatePfdDisplay(baseProps.position);
     updateAircraftInfoWindow(baseProps, plan, sortedRoutePoints);
 }
+
 /**
  * --- [UPDATED] Updates the Navigation Data Panel ---
  */
@@ -7153,7 +7086,7 @@ function updateAircraftInfoWindow(baseProps, plan, sortedRoutePoints) {
     }
 
 
-    // --- Update New Data Bar ---
+    // --- [MODIFIED] Update New Data Bar (using helper) ---
     const nextWpDisplay = nextWpName;
     const nextWpDistDisplay = (nextWpDistNM === '---' || isNaN(parseFloat(nextWpDistNM))) ? '--.-' : Number(nextWpDistNM).toFixed(1);
 
@@ -7161,6 +7094,7 @@ function updateAircraftInfoWindow(baseProps, plan, sortedRoutePoints) {
     updateAll('#ac-next-wp-dist', `${nextWpDistDisplay}<span class="unit">NM</span>`, true);
     updateAll('#ac-dist', `${Math.round(distanceToDestNM)}<span class="unit">NM</span>`, true);
     updateAll('#ac-ete', ete);
+    // --- [END MODIFIED] ---
 
     // --- Flight Phase State Machine (Unchanged) ---
     let flightPhase = 'ENROUTE';
@@ -7244,7 +7178,7 @@ function updateAircraftInfoWindow(baseProps, plan, sortedRoutePoints) {
     }
 
 
-    // --- VSD LOGIC ---
+    // --- [MODIFIED] VSD LOGIC (Fixed Height) ---
     const vsdPanels = document.querySelectorAll('#vsd-panel');
     const planId = (plan && (plan.flightPlanId || plan.id)) || 'unknown';
 
@@ -7570,7 +7504,19 @@ function updateAircraftInfoWindow(baseProps, plan, sortedRoutePoints) {
     // --- NEW: Update Cockpit Seat Sensor ---
     updateSeatSensor(baseProps);
 
-    // --- FLIGHT RULES UPDATE REMOVED FROM HERE ---
+    // --- UPDATE FLIGHT RULES ---
+    const rulesDisplay = document.getElementById('flight-rules-display');
+    if (rulesDisplay) {
+        // Ensure helper function exists
+        if (typeof determineFlightRules === 'function') {
+            const rule = determineFlightRules(baseProps, plan);
+            rulesDisplay.className = `flight-rules-badge ${rule.class}`;
+            rulesDisplay.innerHTML = `<i class="fa-solid ${rule.icon}"></i> ${rule.label}`;
+        } else {
+            console.warn("determineFlightRules helper missing.");
+            rulesDisplay.textContent = "RULES UNKNOWN";
+        }
+    }
 }
 
 
