@@ -5921,6 +5921,7 @@ function populateAircraftInfoWindow(baseProps, plan, sortedRoutePoints) {
     if (hasPlan && baseProps.position.alt_ft > 5000 && distanceToDestNM > 20) {
         // 1. Get Altitudes
         const currentAlt = baseProps.position.alt_ft;
+        // Try to get destination elevation from plan, default to 0 (Sea Level) if missing
         const destElev = (plan.destination && plan.destination.elevation_ft) ? parseInt(plan.destination.elevation_ft) : 0;
         
         // 2. Calculate Descent
@@ -6005,7 +6006,7 @@ function populateAircraftInfoWindow(baseProps, plan, sortedRoutePoints) {
             border-radius: 12px;
             overflow: hidden;
             box-shadow: 0 4px 15px rgba(0, 0, 0, 0.5);
-            margin-bottom: 8px; /* REDUCED from 12px for compaction */
+            margin-bottom: 8px; 
             display: flex;
             flex-direction: column;
         }
@@ -6513,7 +6514,7 @@ function populateAircraftInfoWindow(baseProps, plan, sortedRoutePoints) {
 
                         ${todHtml}
 
-                        <div id="fms-legs-module" class="tech-module" style="height: 285px; max-height: 285px; display: flex; flex-direction: column; margin-top: 8px;">
+                        <div id="fms-legs-module" class="tech-module" style="height: 380px; max-height: 380px; display: flex; flex-direction: column; margin-top: 12px;">
                             <div class="tech-module-header">
                                 <span class="tech-module-title"><i class="fa-solid fa-route"></i> ACTIVE FLIGHT PLAN</span>
                                 <span class="fms-page-count">1/1</span>
@@ -6804,6 +6805,9 @@ function updateSeatSensor(flightProps) {
     if(coffeeOverlay) coffeeOverlay.classList.remove('visible');
     if(cloudOverlay) cloudOverlay.classList.remove('visible');
 
+    // Reset Narrative Display
+    if(narrative) narrative.style.display = 'block';
+
     // 3. APPLY LOGIC
     switch (state) {
         case 0: // ACTIVE
@@ -6852,7 +6856,12 @@ function updateSeatSensor(flightProps) {
             statusFo.textContent = 'FO: ACTIVE';
             
             if(cloudOverlay) cloudOverlay.classList.add('visible');
-            narrative.textContent = "Captain is resting (App Backgrounded). Relief Pilot has controls.";
+            
+            // [MODIFIED] Removed the "Relief Pilot" text and hid the element to push content up
+            if(narrative) {
+                narrative.textContent = ""; 
+                narrative.style.display = 'none';
+            }
             break;
 
         default:
