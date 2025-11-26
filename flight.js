@@ -78,8 +78,7 @@ document.addEventListener('DOMContentLoaded', async () => {
         showAircraftLabels: false,
         themeStartColor: '#121426', // Default Dark Blue/Black
         themeEndColor: '#121426',   // Default Dark Blue/Black
-        themeOpacity: 95,           // Default 95% opacity
-        enableGlassMode: false
+        themeOpacity: 95            // Default 95% opacity
     };
 
     const departureHubs = []; // Empty array
@@ -1461,31 +1460,6 @@ function injectCustomStyles() {
         }
 
         .vsd-disclaimer { background: rgba(10, 12, 26, 0.5); border: 1px solid rgba(255, 255, 255, 0.05); border-radius: 8px; padding: 10px 14px; margin-top: 0; }
-
-        /* --- GLASS MODE OVERRIDES (Tech Card Style) --- */
-        .info-window.glass-mode {
-            /* Match .tech-card background and blur */
-            background: rgba(15, 23, 42, 0.6) !important; /* Slate-900 with 60% opacity */
-            backdrop-filter: blur(20px) saturate(150%) !important;
-            -webkit-backdrop-filter: blur(20px) saturate(150%) !important;
-            border: 1px solid rgba(255, 255, 255, 0.1) !important;
-            box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.5) !important;
-        }
-
-        /* Make internal containers transparent so the parent glass shows through */
-        .info-window.glass-mode .info-window-header,
-        .info-window.glass-mode .ac-info-window-tabs,
-        .info-window.glass-mode .unified-display-main-content,
-        .info-window.glass-mode .info-window-content {
-            background: transparent !important;
-            border-color: rgba(255, 255, 255, 0.05) !important;
-        }
-
-        /* Add a subtle tint to tabs in glass mode for separation */
-        .info-window.glass-mode .ac-info-window-tabs {
-            background: rgba(0, 0, 0, 0.2) !important;
-            border-bottom: 1px solid rgba(255, 255, 255, 0.1) !important;
-        }
     `;
 
     const style = document.createElement('style');
@@ -4584,7 +4558,7 @@ function getIconImageExpression(colorMode = 'default') {
                 mapContainer.insertAdjacentHTML('beforeend', windowHtml);
             }
 
-            // --- 5. Inject Filter Settings Window (UPDATED WITH GLASS MODE TOGGLE) ---
+            // --- 5. Inject Filter Settings Window (UPDATED WITH THEME CONTROLS) ---
             if (!document.getElementById('filter-settings-window')) {
                 const windowHtml = `
                     <div id="filter-settings-window" class="info-window">
@@ -4678,15 +4652,6 @@ function getIconImageExpression(colorMode = 'default') {
                                 <span class="filter-section-title">Window Appearance</span>
                             </div>
                             <div class="filter-appearance-controls" style="padding: 10px; display: flex; flex-direction: column; gap: 10px;">
-                                
-                                <div style="display: flex; justify-content: space-between; align-items: center;">
-                                    <span style="color: #ccc; font-size: 0.9rem;"><i class="fa-solid fa-droplet"></i> Glass Mode</span>
-                                    <label class="toggle-switch">
-                                        <input type="checkbox" id="filter-toggle-glass-mode">
-                                        <span class="toggle-slider"></span>
-                                    </label>
-                                </div>
-
                                 <div style="display: flex; justify-content: space-between; align-items: center;">
                                     <span style="color: #ccc; font-size: 0.9rem;">Gradient Start Color</span>
                                     <input type="color" id="theme-color-start" value="#121426" style="background: none; border: none; width: 50px; height: 30px; cursor: pointer;">
@@ -5856,7 +5821,7 @@ function rebuildDynamicLayers() {
  * --- [REHAULED] Populates the aircraft info window with the new Tech Card UI.
  */
 function populateAircraftInfoWindow(baseProps, plan, sortedRoutePoints) {
-    // --- Helper functions ---
+    // --- Helper function to update all elements matching a selector ---
     const updateAll = (selector, value, isHTML = false) => {
         document.querySelectorAll(selector).forEach(el => {
             isHTML ? el.innerHTML = value : el.textContent = value;
@@ -5873,7 +5838,7 @@ function populateAircraftInfoWindow(baseProps, plan, sortedRoutePoints) {
     const aircraftName = baseProps.aircraft?.aircraftName || 'Unknown Type';
     const airlineName = baseProps.aircraft?.liveryName || 'Generic Livery';
     const liveryName = baseProps.aircraft?.liveryName || '';
-    const reg = baseProps.aircraft?.registration || 'N/A'; // Assuming registration is available or placeholder
+    const reg = baseProps.aircraft?.registration || 'N/A';
     
     // Logo Logic
     const words = liveryName.trim().split(/\s+/);
@@ -5914,218 +5879,20 @@ function populateAircraftInfoWindow(baseProps, plan, sortedRoutePoints) {
     const pilotUsername = baseProps.username || 'N/A';
     const pilotReportTabText = (pilotUsername !== 'N/A' && pilotUsername) ? pilotUsername : 'Pilot Report';
 
-    // --- [NEW] Aircraft Image Logic for Tech Card ---
-    // We try to find a specific image, otherwise fall back to the overview panel image logic
-    const sanitizeFilename = (name) => {
-        if (!name || typeof name !== 'string') return 'unknown';
-        return name.trim().toLowerCase().replace(/[^a-z0-j-9-]/g, '_');
-    };
-    const sanitizedAircraft = sanitizeFilename(aircraftName);
-    const sanitizedLivery = sanitizeFilename(liveryName);
-    const techCardImagePath = `/CommunityPlanes/${sanitizedAircraft}/${sanitizedLivery}.png`;
-    const techCardFallbackPath = '/CommunityPlanes/default.png';
-
     // --- HTML Construction ---
     windowEl.innerHTML = `
     <style>
-        /* --- [NEW] Tech Card CSS Scoped --- */
-        .tech-card {
-            background: rgba(15, 23, 42, 0.4);
-            backdrop-filter: blur(20px);
-            border: 1px solid rgba(255, 255, 255, 0.1);
-            border-radius: 24px;
-            overflow: hidden;
-            box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.5);
-            position: relative;
-            font-family: 'Inter', sans-serif;
-            margin-bottom: 16px; /* Spacing above VSD */
-        }
-        .tech-card-header {
-            padding: 20px 24px 8px;
-            display: flex;
-            justify-content: space-between;
-            align-items: flex-start;
-            position: relative;
-            z-index: 10;
-        }
-        .tech-badge {
-            display: inline-flex;
-            align-items: center;
-            gap: 6px;
-            padding: 2px 8px;
-            border-radius: 999px;
-            background: rgba(16, 185, 129, 0.1);
-            border: 1px solid rgba(16, 185, 129, 0.2);
-            font-size: 10px;
-            font-weight: 700;
-            color: #34d399;
-            text-transform: uppercase;
-            letter-spacing: 0.05em;
-        }
-        .tech-ping {
-            position: relative;
-            display: flex;
-            height: 6px;
-            width: 6px;
-        }
-        .tech-ping span {
-            position: absolute;
-            display: inline-flex;
-            height: 100%;
+        /* Specific tweaks to ensure Flight Data matches Nav Data style perfectly */
+        .flight-data-panel {
+            background: #0f1115;
+            border-radius: 8px;
+            border: 1px solid #333;
+            box-shadow: 0 4px 20px rgba(0,0,0,0.5);
             width: 100%;
-            border-radius: 50%;
-            background-color: #34d399;
-        }
-        .tech-ping .animate {
-            animation: ping 1s cubic-bezier(0, 0, 0.2, 1) infinite;
-            opacity: 0.75;
-        }
-        @keyframes ping {
-            75%, 100% { transform: scale(2); opacity: 0; }
-        }
-        .tech-title-group {
-            margin-top: 4px;
-        }
-        .tech-model {
-            font-size: 1.5rem; /* 2xl */
-            font-weight: 700;
-            color: #fff;
-            letter-spacing: -0.025em;
-            margin: 0;
-            line-height: 1.2;
-        }
-        .tech-airline {
-            font-size: 0.875rem; /* sm */
-            font-weight: 500;
-            color: rgba(56, 189, 248, 0.9); /* sky-400 */
-            margin-top: 2px;
-            display: flex;
-            align-items: center;
-            gap: 6px;
-        }
-        .tech-content {
-            padding: 16px;
-            position: relative;
-            z-index: 10;
-        }
-        .tech-image-container {
-            position: relative;
-            width: 100%;
-            aspect-ratio: 16 / 10;
-            border-radius: 16px;
-            overflow: hidden;
-            box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1);
-            border: 1px solid rgba(255, 255, 255, 0.05);
-            background: #000;
-        }
-        .tech-image {
-            width: 100%;
-            height: 100%;
-            object-fit: cover;
-            transition: transform 0.7s ease-out;
-        }
-        .tech-image-container:hover .tech-image {
-            transform: scale(1.1);
-        }
-        .tech-image-overlay {
-            position: absolute;
-            inset: 0;
-            background: linear-gradient(to top, rgba(2, 6, 23, 0.9), transparent, transparent);
-            opacity: 0.8;
-        }
-        .tech-image-info {
-            position: absolute;
-            bottom: 16px;
-            left: 16px;
-            right: 16px;
-            display: flex;
-            justify-content: space-between;
-            align-items: flex-end;
-        }
-        .tech-photographer {
             display: flex;
             flex-direction: column;
-        }
-        .tech-photo-label {
-            font-size: 10px;
-            color: #cbd5e1; /* slate-300 */
-            font-weight: 500;
-            margin-bottom: 2px;
-        }
-        .tech-photo-name {
-            display: flex;
-            align-items: center;
-            gap: 6px;
-            font-size: 12px;
-            font-weight: 600;
-            color: #fff;
-        }
-        .tech-grid {
-            display: grid;
-            grid-template-columns: repeat(2, 1fr);
-            gap: 12px;
-            margin-top: 16px;
-        }
-        .tech-stat-card {
-            background: rgba(30, 41, 59, 0.5); /* slate-800/50 */
-            border: 1px solid rgba(255, 255, 255, 0.05);
-            padding: 14px;
-            border-radius: 12px;
-            transition: background 0.2s;
-        }
-        .tech-stat-card:hover {
-            background: rgba(30, 41, 59, 0.7);
-        }
-        .tech-stat-header {
-            display: flex;
-            align-items: center;
-            justify-content: space-between;
-            margin-bottom: 8px;
-        }
-        .tech-stat-label {
-            font-size: 11px;
-            font-weight: 500;
-            color: #94a3b8; /* slate-400 */
-            text-transform: uppercase;
-            letter-spacing: 0.05em;
-        }
-        .tech-stat-value {
-            font-family: 'Consolas', 'Monaco', monospace;
-            font-size: 1.125rem; /* lg */
-            color: #fff;
-            font-weight: 500;
-            letter-spacing: -0.025em;
-        }
-        .tech-country-card {
-            grid-column: span 2;
-            background: rgba(30, 41, 59, 0.3);
-            border: 1px solid rgba(255, 255, 255, 0.05);
-            padding: 12px;
-            border-radius: 12px;
-            display: flex;
-            align-items: center;
-            justify-content: space-between;
-        }
-        .tech-country-left {
-            display: flex;
-            align-items: center;
-            gap: 12px;
-        }
-        .tech-country-icon {
-            width: 32px;
-            height: 32px;
-            border-radius: 8px;
-            background: rgba(51, 65, 85, 0.5);
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            color: #94a3b8;
-        }
-        .tech-bottom-bar {
-            height: 4px;
-            width: 100%;
-            background: linear-gradient(to right, #0ea5e9, #2563eb, #4f46e5);
-            opacity: 0.8;
+            overflow: hidden;
+            margin-bottom: 16px; /* Spacing above VSD */
         }
     </style>
 
@@ -6455,84 +6222,37 @@ function populateAircraftInfoWindow(baseProps, plan, sortedRoutePoints) {
                     </div>
                 </div>
 
-                <div class="tech-card">
-                    <div class="tech-card-header">
-                        <div>
-                            <div style="display: flex; align-items: center; gap: 8px; margin-bottom: 4px;">
-                                <div class="tech-badge">
-                                    <span class="tech-ping">
-                                      <span class="animate"></span>
-                                      <span></span>
-                                    </span>
-                                    Active
-                                </div>
-                                <span style="font-size: 10px; font-weight: 600; color: #94a3b8; text-transform: uppercase; letter-spacing: 0.1em;">Flight Data</span>
-                            </div>
-                            <h1 class="tech-model">${aircraftName}</h1>
-                            <p class="tech-airline">
-                                <i class="fa-solid fa-plane" style="font-size: 12px;"></i>
-                                <span>${airlineName}</span>
-                            </p>
-                        </div>
-                        <button style="padding: 8px; color: #94a3b8; background: transparent; border: none; cursor: pointer;">
-                            <i class="fa-solid fa-ellipsis" style="font-size: 16px;"></i>
-                        </button>
+                <div class="flight-data-panel">
+                    <div class="nav-header">
+                        <span class="nav-title">FLIGHT DATA</span>
+                        <span class="nav-status-indicator"><div class="nav-blink"></div> ACTIVE</span>
                     </div>
 
-                    <div class="tech-content">
-                        <div class="tech-image-container">
-                            <img src="${techCardImagePath}" onerror="this.src='${techCardFallbackPath}'" class="tech-image" alt="Aircraft">
-                            <div class="tech-image-overlay"></div>
-                            
-                            <div class="tech-image-info">
-                                <div class="tech-photographer">
-                                    <span class="tech-photo-label">Photographer</span>
-                                    <div class="tech-photo-name">
-                                        <i class="fa-solid fa-camera" style="color: #38bdf8; font-size: 12px;"></i>
-                                        <span>IF Community</span>
-                                    </div>
-                                </div>
-                                <a href="#" style="padding: 8px; background: rgba(255,255,255,0.1); border-radius: 8px; color: #fff; border: 1px solid rgba(255,255,255,0.1); display: flex;">
-                                    <i class="fa-solid fa-arrow-up-right-from-square" style="font-size: 14px;"></i>
-                                </a>
-                            </div>
+                    <div class="nav-grid-container" style="grid-template-columns: repeat(4, 1fr);">
+                        <div class="nav-cell nav-span-2">
+                             <span class="nav-label"><i class="fa-solid fa-tag"></i> Callsign</span>
+                             <span class="nav-value large" style="color: #4ade80;">${baseProps.callsign}</span>
+                        </div>
+                        <div class="nav-cell nav-span-2">
+                             <span class="nav-label"><i class="fa-solid fa-hashtag"></i> Registration</span>
+                             <span class="nav-value">${reg}</span>
                         </div>
 
-                        <div class="tech-grid">
-                            <div class="tech-stat-card">
-                                <div class="tech-stat-header">
-                                    <span class="tech-stat-label">Registration</span>
-                                    <i class="fa-solid fa-hashtag" style="font-size: 12px; color: #475569;"></i>
-                                </div>
-                                <span class="tech-stat-value">${reg}</span>
-                            </div>
+                        <div class="nav-cell nav-span-4">
+                             <span class="nav-label"><i class="fa-solid fa-plane"></i> Aircraft</span>
+                             <span class="nav-value highlight" style="font-size: 1.1rem;">${aircraftName}</span>
+                        </div>
 
-                            <div class="tech-stat-card">
-                                <div class="tech-stat-header">
-                                    <span class="tech-stat-label">Callsign</span>
-                                    <i class="fa-solid fa-tag" style="font-size: 12px; color: #475569;"></i>
-                                </div>
-                                <span class="tech-stat-value">${baseProps.callsign}</span>
-                            </div>
-
-                            <div class="tech-country-card">
-                                <div class="tech-country-left">
-                                    <div class="tech-country-icon">
-                                        <i class="fa-solid fa-flag" style="font-size: 14px;"></i>
-                                    </div>
-                                    <div style="display: flex; flex-direction: column;">
-                                        <span class="tech-stat-label" style="font-size: 9px; margin-bottom: 2px;">Airline Origin</span>
-                                        <span style="font-size: 13px; font-weight: 600; color: #fff;">${depCountryCode ? airportsData[departureIcao]?.country : 'Unknown'}</span>
-                                    </div>
-                                </div>
-                                <div style="padding: 4px 8px; background: rgba(51, 65, 85, 0.5); border-radius: 4px; border: 1px solid rgba(255, 255, 255, 0.05);">
-                                    <span style="font-family: monospace; font-size: 10px; color: #cbd5e1;">${depCountryCode.toUpperCase()}</span>
-                                </div>
-                            </div>
+                        <div class="nav-cell nav-span-4">
+                             <span class="nav-label"><i class="fa-solid fa-earth-americas"></i> Airline / Livery</span>
+                             <div class="nav-row">
+                                <span class="nav-value small" style="color: #ccc;">${airlineName}</span>
+                                <img src="${depFlagSrc}" style="height: 14px; width: auto; opacity: 0.7; display: ${depFlagDisplay};" alt="${depCountryCode}">
+                             </div>
                         </div>
                     </div>
-                    <div class="tech-bottom-bar"></div>
                 </div>
+
                 <div class="vsd-module-container">
                     <div class="fms-header">
                         <span class="fms-title">VERTICAL SITUATION DISPLAY</span>
@@ -7696,72 +7416,78 @@ function updateFmsLegsModule(plan, currentPos) {
 
    
 function setupSectorOpsEventListeners() {
-    const panel = document.getElementById('sector-ops-floating-panel');
-    if (!panel || panel.dataset.listenersAttached === 'true') return;
-    panel.dataset.listenersAttached = 'true';
+        const panel = document.getElementById('sector-ops-floating-panel');
+        if (!panel || panel.dataset.listenersAttached === 'true') return;
+        panel.dataset.listenersAttached = 'true';
 
-    // --- Panel Toggle Logic ---
-    const internalToggleBtn = document.getElementById('sector-ops-toggle-btn');
-    const toolbarToggleBtn = document.getElementById('toolbar-toggle-panel-btn');
+        // --- START: REFACTORED for Toolbar and Panel Toggle ---
+        const internalToggleBtn = document.getElementById('sector-ops-toggle-btn');
+        const toolbarToggleBtn = document.getElementById('toolbar-toggle-panel-btn');
 
-    const togglePanel = () => {
-        const isNowCollapsed = panel.classList.toggle('panel-collapsed');
-        
-        // Update UI state for both buttons
+        const togglePanel = () => {
+            const isNowCollapsed = panel.classList.toggle('panel-collapsed');
+            
+            // Update UI state for both buttons
+            if (internalToggleBtn) {
+                internalToggleBtn.setAttribute('aria-expanded', !isNowCollapsed);
+            }
+            if (toolbarToggleBtn) {
+                toolbarToggleBtn.classList.toggle('active', !isNowCollapsed);
+            }
+
+            // Resize the map
+            if (sectorOpsMap) {
+                setTimeout(() => {
+                    sectorOpsMap.resize();
+                }, 400); // Match CSS transition duration
+            }
+        };
+
         if (internalToggleBtn) {
-            internalToggleBtn.setAttribute('aria-expanded', !isNowCollapsed);
+            internalToggleBtn.addEventListener('click', togglePanel);
         }
         if (toolbarToggleBtn) {
-            toolbarToggleBtn.classList.toggle('active', !isNowCollapsed);
+            toolbarToggleBtn.addEventListener('click', togglePanel);
+        }
+        // --- END: REFACTORED for Toolbar and Panel Toggle ---
+
+        // --- [REMOVED] Tab switching logic ---
+        // --- [REMOVED] Hub selector logic ---
+        // --- [REMOVED] Route search/filter logic ---
+
+        // --- [MODIFIED] Add listener for the NEW single weather button ---
+        const openWeatherBtn = document.getElementById('open-weather-settings-btn');
+        if (openWeatherBtn) {
+            openWeatherBtn.addEventListener('click', () => {
+                // Toggle visibility of the new window
+                if (weatherSettingsWindow) {
+                    const isVisible = weatherSettingsWindow.classList.toggle('visible');
+                    if (isVisible) {
+                        MobileUIHandler.openWindow(weatherSettingsWindow);
+                    } else {
+                        MobileUIHandler.closeActiveWindow();
+                    }
+                }
+            });
         }
 
-        // Resize the map to fit the new container size
-        if (sectorOpsMap) {
-            setTimeout(() => {
-                sectorOpsMap.resize();
-            }, 400); // Match CSS transition duration
+        // --- [START NEW FILTER BUTTON LISTENER] ---
+        const openFilterBtn = document.getElementById('open-filter-settings-btn');
+        if (openFilterBtn) {
+            openFilterBtn.addEventListener('click', () => {
+                // Toggle visibility of the new window
+                if (filterSettingsWindow) {
+                    const isVisible = filterSettingsWindow.classList.toggle('visible');
+                    if (isVisible) {
+                        MobileUIHandler.openWindow(filterSettingsWindow);
+                    } else {
+                        MobileUIHandler.closeActiveWindow();
+                    }
+                }
+            });
         }
-    };
-
-    if (internalToggleBtn) {
-        internalToggleBtn.addEventListener('click', togglePanel);
+        // --- [END NEW FILTER BUTTON LISTENER] ---
     }
-    if (toolbarToggleBtn) {
-        toolbarToggleBtn.addEventListener('click', togglePanel);
-    }
-
-    // --- Weather Button Listener ---
-    const openWeatherBtn = document.getElementById('open-weather-settings-btn');
-    if (openWeatherBtn) {
-        openWeatherBtn.addEventListener('click', () => {
-            // Toggle visibility of the weather window
-            if (weatherSettingsWindow) {
-                const isVisible = weatherSettingsWindow.classList.toggle('visible');
-                if (isVisible) {
-                    if (window.MobileUIHandler) MobileUIHandler.openWindow(weatherSettingsWindow);
-                } else {
-                    if (window.MobileUIHandler) MobileUIHandler.closeActiveWindow();
-                }
-            }
-        });
-    }
-
-    // --- [NEW] Filter Settings Button Listener ---
-    const openFilterBtn = document.getElementById('open-filter-settings-btn');
-    if (openFilterBtn) {
-        openFilterBtn.addEventListener('click', () => {
-            // Toggle visibility of the filter window
-            if (filterSettingsWindow) {
-                const isVisible = filterSettingsWindow.classList.toggle('visible');
-                if (isVisible) {
-                    if (window.MobileUIHandler) MobileUIHandler.openWindow(filterSettingsWindow);
-                } else {
-                    if (window.MobileUIHandler) MobileUIHandler.closeActiveWindow();
-                }
-            }
-        });
-    }
-}
 
     /**
      * Updates the main weather toolbar button to show if any layers are active.
@@ -7851,33 +7577,12 @@ function setupFilterSettingsWindowEvents() {
         root.style.setProperty('--iw-bg-end', hexToRgba(endHex, opacity));
     };
 
-    // --- [NEW HELPER] Apply Glass Mode ---
-    const applyGlassMode = (isEnabled) => {
-        // We apply this to both the Aircraft and Airport info windows
-        const aircraftWindow = document.getElementById('aircraft-info-window');
-        const airportWindow = document.getElementById('airport-info-window');
-        // Optional: Apply to filter window too if desired
-        // const filterWindow = document.getElementById('filter-settings-window'); 
-        
-        const toggleClass = (el) => {
-            if (el) isEnabled ? el.classList.add('glass-mode') : el.classList.remove('glass-mode');
-        };
-
-        toggleClass(aircraftWindow);
-        toggleClass(airportWindow);
-        // toggleClass(filterWindow);
-    };
-
     // --- Helper: Set UI from State ---
     const setUIFromState = () => {
         // Toggles
         document.getElementById('filter-toggle-atc').checked = mapFilters.hideAtcMarkers;
         document.getElementById('filter-toggle-satellite-mode').checked = (currentMapStyle === MAP_STYLE_SATELLITE);
         document.getElementById('filter-toggle-aircraft-labels').checked = mapFilters.showAircraftLabels;
-        
-        // [NEW] Glass Mode Toggle
-        const glassToggle = document.getElementById('filter-toggle-glass-mode');
-        if (glassToggle) glassToggle.checked = mapFilters.enableGlassMode;
 
         // Radios
         const colorRadio = document.querySelector(`input[name="icon-color-mode"][value="${mapFilters.iconColorMode}"]`);
@@ -7890,9 +7595,8 @@ function setupFilterSettingsWindowEvents() {
         document.getElementById('theme-color-start').value = mapFilters.themeStartColor || '#121426';
         document.getElementById('theme-color-end').value = mapFilters.themeEndColor || '#121426';
         
-        // Apply visual states immediately
+        // Apply immediately on load
         applyWindowTheme(mapFilters.themeStartColor, mapFilters.themeEndColor);
-        applyGlassMode(mapFilters.enableGlassMode);
 
         // Mobile-specific
         const currentMobileMode = localStorage.getItem('mobileDisplayMode') || 'hud';
@@ -7993,14 +7697,6 @@ function setupFilterSettingsWindowEvents() {
 
         if (target.type !== 'checkbox') return;
 
-        // [NEW] Handle Glass Mode Toggle
-        if (target.id === 'filter-toggle-glass-mode') {
-            mapFilters.enableGlassMode = target.checked;
-            saveFiltersToLocalStorage();
-            applyGlassMode(mapFilters.enableGlassMode);
-            return;
-        }
-
         // Handle Aircraft Label Toggle
         if (target.id === 'filter-toggle-aircraft-labels') {
             mapFilters.showAircraftLabels = target.checked;
@@ -8042,6 +7738,7 @@ function setupFilterSettingsWindowEvents() {
 
     filterSettingsWindow.dataset.eventsAttached = 'true';
 }
+
 
    /**
      * --- [MODIFIED] Sets up event listeners for the map search bar.
