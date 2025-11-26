@@ -5828,13 +5828,6 @@ function populateAircraftInfoWindow(baseProps, plan, sortedRoutePoints) {
         });
     };
 
-    // --- Helper for styling ---
-    const styleAll = (selector, property, value) => {
-        document.querySelectorAll(selector).forEach(el => {
-            el.style[property] = value;
-        });
-    };
-
     // --- Data Extraction ---
     const originalFlatWaypoints = (plan && plan.flightPlanItems) ? flattenWaypointsFromPlan(plan.flightPlanItems) : [];
     const originalFlatWaypointObjects = (plan && plan.flightPlanItems) ? getFlatWaypointObjects(plan.flightPlanItems) : [];
@@ -5909,6 +5902,7 @@ function populateAircraftInfoWindow(baseProps, plan, sortedRoutePoints) {
             flex-direction: column;
         }
 
+        /* Replaces the old .sensor-header, .fms-header, etc. */
         .tech-module-header {
             background: rgba(30, 41, 59, 0.5); /* Slightly lighter header */
             padding: 8px 12px;
@@ -5935,7 +5929,7 @@ function populateAircraftInfoWindow(baseProps, plan, sortedRoutePoints) {
             position: relative;
         }
 
-        /* --- Tech Card Specifics --- */
+        /* --- Tech Card Specifics (Existing) --- */
         .tech-card {
             background: #0f172a; 
             border: 1px solid rgba(255, 255, 255, 0.1);
@@ -6147,7 +6141,7 @@ function populateAircraftInfoWindow(baseProps, plan, sortedRoutePoints) {
 
         /* --- Nav Data Overrides --- */
         .nav-header {
-             display: none; 
+             display: none; /* We use the tech-module-header now */
         }
         #location-data-panel {
             background: transparent;
@@ -6155,10 +6149,10 @@ function populateAircraftInfoWindow(baseProps, plan, sortedRoutePoints) {
             box-shadow: none;
         }
         .nav-grid-container {
-            padding: 0; 
+            padding: 0; /* Remove internal padding as body handles it */
         }
         .nav-cell {
-            background: rgba(30, 41, 59, 0.5); 
+            background: rgba(30, 41, 59, 0.5); /* Match tech-stat-card */
             border: 1px solid rgba(255, 255, 255, 0.05);
         }
 
@@ -6173,7 +6167,7 @@ function populateAircraftInfoWindow(baseProps, plan, sortedRoutePoints) {
             border-top: 1px solid rgba(255, 255, 255, 0.1);
         }
         .vsd-graph-window {
-            background: #0f172a; 
+            background: #0f172a; /* Match background */
         }
         #vsd-y-axis {
             background: #0f172a;
@@ -6372,41 +6366,11 @@ function populateAircraftInfoWindow(baseProps, plan, sortedRoutePoints) {
                             </div>
                         </div>
                         
-                        <div style="display: grid; grid-template-columns: 1.5fr 1fr; gap: 12px; width: 100%;">
-                            <div class="display-bezel" style="width: 100%; box-sizing: border-box;">
-                                <div class="screw tl"></div><div class="screw tr"></div><div class="screw bl"></div><div class="screw br"></div>
-                                <div class="crt-container scanlines">
-                                    <div id="nd-container">
-                                        <iframe id="nav-display-frame" src="nav.html" scrolling="no"></iframe>
-                                    </div>
-                                </div>
-                            </div>
-
-                            <div id="fms-legs-module" class="tech-module" style="height: auto; display: flex; flex-direction: column; margin-bottom: 0;">
-                                <div class="tech-module-header">
-                                    <span class="tech-module-title"><i class="fa-solid fa-route"></i> ACTIVE FLIGHT PLAN</span>
-                                    <span class="fms-page-count">1/1</span>
-                                </div>
-                                
-                                <div class="fms-columns">
-                                    <span class="col-wpt">LEGS</span>
-                                    <span class="col-data text-center">CRS</span>
-                                    <span class="col-data text-right">DIST</span>
-                                </div>
-
-                                <div id="fms-legs-list" class="fms-list-scrollarea">
-                                    <div class="fms-empty-state">NO ROUTE LOADED</div>
-                                </div>
-                                
-                                <div class="fms-footer">
-                                    <div class="fms-stat">
-                                        <span class="stat-label">DTG</span>
-                                        <span id="fms-total-dist" class="stat-value">---- NM</span>
-                                    </div>
-                                    <div class="fms-stat">
-                                        <span class="stat-label">ETE</span>
-                                        <span id="fms-total-ete" class="stat-value">--:--</span>
-                                    </div>
+                        <div class="display-bezel">
+                            <div class="screw tl"></div><div class="screw tr"></div><div class="screw bl"></div><div class="screw br"></div>
+                            <div class="crt-container scanlines">
+                                <div id="nd-container">
+                                    <iframe id="nav-display-frame" src="nav.html" scrolling="no"></iframe>
                                 </div>
                             </div>
                         </div>
@@ -6439,6 +6403,33 @@ function populateAircraftInfoWindow(baseProps, plan, sortedRoutePoints) {
                             </div>
                         </div>
 
+                        <div id="fms-legs-module" class="tech-module" style="height: 400px; max-height: 400px; display: flex; flex-direction: column;">
+                            <div class="tech-module-header">
+                                <span class="tech-module-title"><i class="fa-solid fa-route"></i> ACTIVE FLIGHT PLAN</span>
+                                <span class="fms-page-count">1/1</span>
+                            </div>
+                            
+                            <div class="fms-columns">
+                                <span class="col-wpt">LEGS</span>
+                                <span class="col-data text-center">CRS</span>
+                                <span class="col-data text-right">DIST</span>
+                            </div>
+
+                            <div id="fms-legs-list" class="fms-list-scrollarea">
+                                <div class="fms-empty-state">NO ROUTE LOADED</div>
+                            </div>
+                            
+                            <div class="fms-footer">
+                                <div class="fms-stat">
+                                    <span class="stat-label">DTG</span>
+                                    <span id="fms-total-dist" class="stat-value">---- NM</span>
+                                </div>
+                                <div class="fms-stat">
+                                    <span class="stat-label">ETE</span>
+                                    <span id="fms-total-ete" class="stat-value">--:--</span>
+                                </div>
+                            </div>
+                        </div>
                     </div>
                 </div>
                 
@@ -6595,7 +6586,7 @@ function populateAircraftInfoWindow(baseProps, plan, sortedRoutePoints) {
                                 </svg>
                                 <div id="vsd-waypoint-labels"></div>
                             </div>
-                        </div>
+                        ${planButtonHtml} </div>
                     </div>
 
                     <div class="vsd-footer">
@@ -6604,7 +6595,6 @@ function populateAircraftInfoWindow(baseProps, plan, sortedRoutePoints) {
                         <div>ALTITUDE PROFILE</div>
                     </div>
                 </div>
-                ${planButtonHtml}
                 </div> 
             
             <div id="ac-tab-pilot-report" class="ac-tab-pane">
