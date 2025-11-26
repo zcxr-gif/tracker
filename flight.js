@@ -1557,16 +1557,24 @@ function injectLayoutStyles() {
 
         /* 3. The "Drag" - The element following your mouse */
         .sortable-drag {
-            opacity: 1 !important;
-            background: #0f172a !important; /* Ensure background isn't transparent */
+            opacity: 0.95 !important; /* Slight transparency to see behind */
+            background: #0f172a !important; /* Solid background */
             box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.5), 0 8px 10px -6px rgba(0, 0, 0, 0.5);
             transform: scale(1.02); /* Slight pop effect */
-            z-index: 9999;
+            z-index: 10000 !important; /* Ensure it is ALWAYS on top */
+            cursor: grabbing !important;
+            overflow: hidden; /* deeply important to prevent SVG bleed */
+        }
+        
+        /* 4. Fix for the "Fallback" mode to prevent text selection/interaction while dragging */
+        .sortable-fallback {
+            pointer-events: none;
         }
 
-        /* 4. Edit Mode Animations */
+        /* 5. Edit Mode Animations */
         .layout-edit-mode .tech-module-wrapper {
             transition: transform 0.2s, box-shadow 0.2s;
+            cursor: grab; /* Show grab cursor when hovering in edit mode */
         }
         
         .layout-edit-mode .tech-module-wrapper:hover {
@@ -1574,7 +1582,7 @@ function injectLayoutStyles() {
             box-shadow: 0 4px 12px rgba(255, 255, 0, 0.1);
         }
         
-        /* 5. Prevent text selection while arranging */
+        /* 6. Prevent text selection while arranging */
         .layout-edit-mode {
             user-select: none;
         }
@@ -6512,12 +6520,33 @@ function populateAircraftInfoWindow(baseProps, plan, sortedRoutePoints) {
                 group: 'shared', // Allow dragging between columns
                 animation: 150,
                 ghostClass: 'sortable-ghost',
+                dragClass: 'sortable-drag',
                 handle: '.tech-module-wrapper', // Drag whole wrapper
+                
+                // --- FIX START: FORCE STABLE DRAGGING ---
+                forceFallback: true,  // Disables HTML5 DnD (fixes 'breaking' issues)
+                fallbackOnBody: true, // Appends clone to body (prevents overflow clipping)
+                swapThreshold: 0.65,
+                
+                onStart: function (evt) {
+                    // FIX: Lock width to prevent "10x size" explosion
+                    // We grab the width of the original item and force the drag-ghost to match it.
+                    const originalWidth = evt.item.getBoundingClientRect().width;
+                    const dragGhost = document.querySelector('.sortable-drag');
+                    if (dragGhost) {
+                        dragGhost.style.width = `${originalWidth}px`;
+                        // Force height too to prevent collapse
+                        dragGhost.style.height = `${evt.item.getBoundingClientRect().height}px`;
+                    }
+                },
+                
                 onEnd: () => {
-                    // Refresh iframe if moved (browser behavior workaround)
+                    // Refresh iframe if moved (browser behavior workaround for Nav Display)
                     refreshNavDisplayFromCache();
                 }
+                // --- FIX END ---
             };
+            
             leftSortable = Sortable.create(leftCol, opts);
             rightSortable = Sortable.create(rightCol, opts);
         }
