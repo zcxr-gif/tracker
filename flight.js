@@ -2367,92 +2367,6 @@ function getAircraftCategory(aircraftName) {
     return 'default';
 }
 
-/**
- * Determines Flight Rules (IFR/VFR) based on aircraft state, equipment, and flight plan.
- */
-function determineFlightRules(flightProps, plan) {
-    const altitude = flightProps.position.alt_ft;
-    const vs = flightProps.position.vs_fpm;
-    const category = flightProps.category; // 'jumbo', 'widebody', 'narrowbody', 'cessna', etc.
-    const hasPlan = plan && plan.flightPlanItems && plan.flightPlanItems.length > 1;
-    
-    // --- 1. DEFINE STATES ---
-    const IFR = { type: 'IFR', label: 'IFR', class: 'badge-ifr', icon: 'fa-cloud' };
-    const VFR = { type: 'VFR', label: 'VFR', class: 'badge-vfr', icon: 'fa-sun' };
-    const VFR_FPL = { type: 'VFR', label: 'VFR + FPL', class: 'badge-vfr', icon: 'fa-map' };
-    
-    // --- 2. GROUND LOGIC (Intent-Based) ---
-    // Detect if on ground (low altitude, low speed)
-    if (altitude < 2000 && flightProps.position.gs_kt < 50) {
-        
-        // Rule: Heavy Metal is always IFR
-        if (['jumbo', 'widebody', 'fighter'].includes(category)) {
-            return IFR;
-        }
-
-        // Rule: No Flight Plan = VFR (Pattern work or just spawned)
-        if (!hasPlan) {
-            return VFR;
-        }
-
-        // Rule: Check for Procedures (SIDs/STARs) in Plan
-        // If plan has items that are NOT simple coords, likely IFR
-        // (Simple heuristic: IFR plans usually have many waypoints)
-        if (hasPlan && plan.flightPlanItems.length > 5) {
-            return IFR;
-        }
-
-        // Rule: GA with Plan = VFR + FPL (Flight Following assumption)
-        if (['cessna', 'general', 'private'].includes(category) && hasPlan) {
-            return VFR_FPL;
-        }
-
-        // Default Ground for Airliners with Plan
-        if (['narrowbody', 'regional'].includes(category) && hasPlan) {
-            return IFR;
-        }
-
-        return VFR; // Fallback
-    }
-
-    // --- 3. IN-AIR LOGIC (Behavior-Based) ---
-
-    // Rule: Class A Airspace (Hard limit)
-    if (altitude > 18000) {
-        return IFR;
-    }
-
-    // Rule: No Plan in Air = VFR
-    if (!hasPlan) {
-        return VFR;
-    }
-
-    // Rule: "Hemispheric Rule" (The modulo check)
-    // Only apply if in relatively stable cruise (VS < 500)
-    if (Math.abs(vs) < 500) {
-        const remainder = altitude % 1000;
-        
-        // VFR is usually X,500 (remainder ~500)
-        // Allow buffer of +/- 200ft (300 to 700)
-        if (remainder > 300 && remainder < 700) {
-            return VFR_FPL;
-        }
-        
-        // IFR is usually X,000 (remainder near 0 or 1000)
-        // (e.g. 0-200 or 800-1000)
-        if (remainder < 200 || remainder > 800) {
-            return IFR;
-        }
-    }
-
-    // --- 4. CLIMB/DESCENT TRANSITION (Fallback) ---
-    // If we are climbing/descending < 18k, fallback to Category
-    if (['jumbo', 'widebody', 'narrowbody', 'regional'].includes(category)) {
-        return IFR;
-    }
-
-    return VFR_FPL; // Default for GA in the air with a plan
-}
 
 /**
  * Fetches OAT and Wind data from OpenMeteo and stores it in the flight state.
@@ -5819,6 +5733,7 @@ function rebuildDynamicLayers() {
 
 /**
  * --- [REHAULED] Populates the aircraft info window with the new Tech Card UI.
+ * --- [MODIFIED] Removed Flight Rules Module
  */
 function populateAircraftInfoWindow(baseProps, plan, sortedRoutePoints) {
     // --- Helper functions ---
@@ -6399,17 +6314,6 @@ function populateAircraftInfoWindow(baseProps, plan, sortedRoutePoints) {
                                 </div>
                                 <div id="seat-narrative-text">
                                     Initializing...
-                                </div>
-                            </div>
-                        </div>
-
-                        <div class="tech-module">
-                            <div class="tech-module-header">
-                                <span class="tech-module-title"><i class="fa-solid fa-book"></i> FLIGHT RULES</span>
-                            </div>
-                            <div class="tech-module-body" style="padding: 8px;">
-                                <div id="flight-rules-display" class="flight-rules-badge">
-                                    <i class="fa-solid fa-spinner fa-spin"></i>
                                 </div>
                             </div>
                         </div>
@@ -7503,20 +7407,9 @@ function updateAircraftInfoWindow(baseProps, plan, sortedRoutePoints) {
 
     // --- NEW: Update Cockpit Seat Sensor ---
     updateSeatSensor(baseProps);
-
-    // --- UPDATE FLIGHT RULES ---
-    const rulesDisplay = document.getElementById('flight-rules-display');
-    if (rulesDisplay) {
-        // Ensure helper function exists
-        if (typeof determineFlightRules === 'function') {
-            const rule = determineFlightRules(baseProps, plan);
-            rulesDisplay.className = `flight-rules-badge ${rule.class}`;
-            rulesDisplay.innerHTML = `<i class="fa-solid ${rule.icon}"></i> ${rule.label}`;
-        } else {
-            console.warn("determineFlightRules helper missing.");
-            rulesDisplay.textContent = "RULES UNKNOWN";
-        }
-    }
+    
+    // --- [REMOVED] Flight Rules Module Logic ---
+    // The determineFlightRules call and update logic has been removed.
 }
 
 
