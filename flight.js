@@ -5921,7 +5921,6 @@ function populateAircraftInfoWindow(baseProps, plan, sortedRoutePoints) {
     if (hasPlan && baseProps.position.alt_ft > 5000 && distanceToDestNM > 20) {
         // 1. Get Altitudes
         const currentAlt = baseProps.position.alt_ft;
-        // Try to get destination elevation from plan, default to 0 (Sea Level) if missing
         const destElev = (plan.destination && plan.destination.elevation_ft) ? parseInt(plan.destination.elevation_ft) : 0;
         
         // 2. Calculate Descent
@@ -5957,32 +5956,28 @@ function populateAircraftInfoWindow(baseProps, plan, sortedRoutePoints) {
         todHtml = `
         <div class="tech-module" id="tod-calculator-module">
             <div class="tech-module-header">
-                <span class="tech-module-title"><i class="fa-solid fa-calculator"></i> DESCENT CALCULATOR (3:1)</span>
+                <span class="tech-module-title"><i class="fa-solid fa-calculator"></i> DESCENT (3:1)</span>
                 <span class="tech-badge" style="background: rgba(16, 185, 129, 0.1); color: ${statusColor}; border-color: ${statusColor};">
                     ${statusText}
                 </span>
             </div>
-            <div class="tech-module-body" style="padding: 12px; display: flex; gap: 12px; align-items: center;">
+            <div class="tech-module-body" style="padding: 8px; display: flex; gap: 8px; align-items: center;">
                 
-                <div style="flex: 1; display: flex; flex-direction: column; align-items: center; background: rgba(255,255,255,0.03); border-radius: 6px; padding: 8px;">
-                    <span class="tech-stat-label" style="font-size: 9px; color: #94a3b8; margin-bottom: 2px;">DIST TO TOD</span>
-                    <span class="tech-stat-value" style="font-size: 1.1rem;">${distDisplay}</span>
+                <div style="flex: 1; display: flex; flex-direction: column; align-items: center; background: rgba(255,255,255,0.03); border-radius: 6px; padding: 6px;">
+                    <span class="tech-stat-label" style="font-size: 8px; color: #94a3b8; margin-bottom: 2px;">DIST TO TOD</span>
+                    <span class="tech-stat-value" style="font-size: 1.0rem;">${distDisplay}</span>
                 </div>
 
-                <div style="flex: 1; display: flex; flex-direction: column; align-items: center; background: rgba(255,255,255,0.03); border-radius: 6px; padding: 8px;">
-                    <span class="tech-stat-label" style="font-size: 9px; color: #94a3b8; margin-bottom: 2px;">TIME TO TOD</span>
-                    <span class="tech-stat-value" style="font-size: 1.1rem; color: #38bdf8;">${timeToTodStr}</span>
+                <div style="flex: 1; display: flex; flex-direction: column; align-items: center; background: rgba(255,255,255,0.03); border-radius: 6px; padding: 6px;">
+                    <span class="tech-stat-label" style="font-size: 8px; color: #94a3b8; margin-bottom: 2px;">TIME TO TOD</span>
+                    <span class="tech-stat-value" style="font-size: 1.0rem; color: #38bdf8;">${timeToTodStr}</span>
                 </div>
 
-                <div style="flex: 1; display: flex; flex-direction: column; align-items: center; background: rgba(255,255,255,0.03); border-radius: 6px; padding: 8px;">
-                    <span class="tech-stat-label" style="font-size: 9px; color: #94a3b8; margin-bottom: 2px;">REQ. RATE</span>
-                    <span class="tech-stat-value" style="font-size: 1.1rem; color: #fbbf24;">-${Math.round(baseProps.position.gs_kt * 5)}<small style="font-size: 0.6rem;">fpm</small></span>
+                <div style="flex: 1; display: flex; flex-direction: column; align-items: center; background: rgba(255,255,255,0.03); border-radius: 6px; padding: 6px;">
+                    <span class="tech-stat-label" style="font-size: 8px; color: #94a3b8; margin-bottom: 2px;">REQ. RATE</span>
+                    <span class="tech-stat-value" style="font-size: 1.0rem; color: #fbbf24;">-${Math.round(baseProps.position.gs_kt * 5)}</span>
                 </div>
 
-            </div>
-            <div style="padding: 0 12px 8px 12px; display: flex; justify-content: space-between; align-items: center;">
-                 <span style="font-size: 10px; color: #64748b;">Target Alt: ${destElev} ft</span>
-                 <span style="font-size: 10px; color: #64748b;">Prof: 3.0°</span>
             </div>
         </div>
         `;
@@ -5995,7 +5990,7 @@ function populateAircraftInfoWindow(baseProps, plan, sortedRoutePoints) {
                 <span class="tech-badge" style="color: #38bdf8; border-color: #38bdf8;">ACTIVE</span>
             </div>
             <div class="tech-module-body" style="padding: 12px; text-align: center; color: #94a3b8; font-size: 0.8rem;">
-                Aircraft is in terminal phase. Monitor approach.
+                Aircraft is in terminal phase.
             </div>
         </div>`;
     }
@@ -6010,7 +6005,7 @@ function populateAircraftInfoWindow(baseProps, plan, sortedRoutePoints) {
             border-radius: 12px;
             overflow: hidden;
             box-shadow: 0 4px 15px rgba(0, 0, 0, 0.5);
-            margin-bottom: 12px;
+            margin-bottom: 8px; /* REDUCED from 12px for compaction */
             display: flex;
             flex-direction: column;
         }
@@ -6518,7 +6513,7 @@ function populateAircraftInfoWindow(baseProps, plan, sortedRoutePoints) {
 
                         ${todHtml}
 
-                        <div id="fms-legs-module" class="tech-module" style="height: 380px; max-height: 380px; display: flex; flex-direction: column; margin-top: 12px;">
+                        <div id="fms-legs-module" class="tech-module" style="height: 285px; max-height: 285px; display: flex; flex-direction: column; margin-top: 8px;">
                             <div class="tech-module-header">
                                 <span class="tech-module-title"><i class="fa-solid fa-route"></i> ACTIVE FLIGHT PLAN</span>
                                 <span class="fms-page-count">1/1</span>
