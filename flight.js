@@ -78,7 +78,8 @@ document.addEventListener('DOMContentLoaded', async () => {
         showAircraftLabels: false,
         themeStartColor: '#121426', // Default Dark Blue/Black
         themeEndColor: '#121426',   // Default Dark Blue/Black
-        themeOpacity: 95            // Default 95% opacity
+        themeOpacity: 95,           // Default 95% opacity
+        enableGlassMode: false
     };
 
     const departureHubs = []; // Empty array
@@ -1460,6 +1461,31 @@ function injectCustomStyles() {
         }
 
         .vsd-disclaimer { background: rgba(10, 12, 26, 0.5); border: 1px solid rgba(255, 255, 255, 0.05); border-radius: 8px; padding: 10px 14px; margin-top: 0; }
+
+        /* --- GLASS MODE OVERRIDES (Tech Card Style) --- */
+        .info-window.glass-mode {
+            /* Match .tech-card background and blur */
+            background: rgba(15, 23, 42, 0.6) !important; /* Slate-900 with 60% opacity */
+            backdrop-filter: blur(20px) saturate(150%) !important;
+            -webkit-backdrop-filter: blur(20px) saturate(150%) !important;
+            border: 1px solid rgba(255, 255, 255, 0.1) !important;
+            box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.5) !important;
+        }
+
+        /* Make internal containers transparent so the parent glass shows through */
+        .info-window.glass-mode .info-window-header,
+        .info-window.glass-mode .ac-info-window-tabs,
+        .info-window.glass-mode .unified-display-main-content,
+        .info-window.glass-mode .info-window-content {
+            background: transparent !important;
+            border-color: rgba(255, 255, 255, 0.05) !important;
+        }
+
+        /* Add a subtle tint to tabs in glass mode for separation */
+        .info-window.glass-mode .ac-info-window-tabs {
+            background: rgba(0, 0, 0, 0.2) !important;
+            border-bottom: 1px solid rgba(255, 255, 255, 0.1) !important;
+        }
     `;
 
     const style = document.createElement('style');
@@ -4558,7 +4584,7 @@ function getIconImageExpression(colorMode = 'default') {
                 mapContainer.insertAdjacentHTML('beforeend', windowHtml);
             }
 
-            // --- 5. Inject Filter Settings Window (UPDATED WITH THEME CONTROLS) ---
+            // --- 5. Inject Filter Settings Window (UPDATED WITH GLASS MODE TOGGLE) ---
             if (!document.getElementById('filter-settings-window')) {
                 const windowHtml = `
                     <div id="filter-settings-window" class="info-window">
@@ -4652,6 +4678,15 @@ function getIconImageExpression(colorMode = 'default') {
                                 <span class="filter-section-title">Window Appearance</span>
                             </div>
                             <div class="filter-appearance-controls" style="padding: 10px; display: flex; flex-direction: column; gap: 10px;">
+                                
+                                <div style="display: flex; justify-content: space-between; align-items: center;">
+                                    <span style="color: #ccc; font-size: 0.9rem;"><i class="fa-solid fa-droplet"></i> Glass Mode</span>
+                                    <label class="toggle-switch">
+                                        <input type="checkbox" id="filter-toggle-glass-mode">
+                                        <span class="toggle-slider"></span>
+                                    </label>
+                                </div>
+
                                 <div style="display: flex; justify-content: space-between; align-items: center;">
                                     <span style="color: #ccc; font-size: 0.9rem;">Gradient Start Color</span>
                                     <input type="color" id="theme-color-start" value="#121426" style="background: none; border: none; width: 50px; height: 30px; cursor: pointer;">
@@ -7661,78 +7696,72 @@ function updateFmsLegsModule(plan, currentPos) {
 
    
 function setupSectorOpsEventListeners() {
-        const panel = document.getElementById('sector-ops-floating-panel');
-        if (!panel || panel.dataset.listenersAttached === 'true') return;
-        panel.dataset.listenersAttached = 'true';
+    const panel = document.getElementById('sector-ops-floating-panel');
+    if (!panel || panel.dataset.listenersAttached === 'true') return;
+    panel.dataset.listenersAttached = 'true';
 
-        // --- START: REFACTORED for Toolbar and Panel Toggle ---
-        const internalToggleBtn = document.getElementById('sector-ops-toggle-btn');
-        const toolbarToggleBtn = document.getElementById('toolbar-toggle-panel-btn');
+    // --- Panel Toggle Logic ---
+    const internalToggleBtn = document.getElementById('sector-ops-toggle-btn');
+    const toolbarToggleBtn = document.getElementById('toolbar-toggle-panel-btn');
 
-        const togglePanel = () => {
-            const isNowCollapsed = panel.classList.toggle('panel-collapsed');
-            
-            // Update UI state for both buttons
-            if (internalToggleBtn) {
-                internalToggleBtn.setAttribute('aria-expanded', !isNowCollapsed);
-            }
-            if (toolbarToggleBtn) {
-                toolbarToggleBtn.classList.toggle('active', !isNowCollapsed);
-            }
-
-            // Resize the map
-            if (sectorOpsMap) {
-                setTimeout(() => {
-                    sectorOpsMap.resize();
-                }, 400); // Match CSS transition duration
-            }
-        };
-
+    const togglePanel = () => {
+        const isNowCollapsed = panel.classList.toggle('panel-collapsed');
+        
+        // Update UI state for both buttons
         if (internalToggleBtn) {
-            internalToggleBtn.addEventListener('click', togglePanel);
+            internalToggleBtn.setAttribute('aria-expanded', !isNowCollapsed);
         }
         if (toolbarToggleBtn) {
-            toolbarToggleBtn.addEventListener('click', togglePanel);
-        }
-        // --- END: REFACTORED for Toolbar and Panel Toggle ---
-
-        // --- [REMOVED] Tab switching logic ---
-        // --- [REMOVED] Hub selector logic ---
-        // --- [REMOVED] Route search/filter logic ---
-
-        // --- [MODIFIED] Add listener for the NEW single weather button ---
-        const openWeatherBtn = document.getElementById('open-weather-settings-btn');
-        if (openWeatherBtn) {
-            openWeatherBtn.addEventListener('click', () => {
-                // Toggle visibility of the new window
-                if (weatherSettingsWindow) {
-                    const isVisible = weatherSettingsWindow.classList.toggle('visible');
-                    if (isVisible) {
-                        MobileUIHandler.openWindow(weatherSettingsWindow);
-                    } else {
-                        MobileUIHandler.closeActiveWindow();
-                    }
-                }
-            });
+            toolbarToggleBtn.classList.toggle('active', !isNowCollapsed);
         }
 
-        // --- [START NEW FILTER BUTTON LISTENER] ---
-        const openFilterBtn = document.getElementById('open-filter-settings-btn');
-        if (openFilterBtn) {
-            openFilterBtn.addEventListener('click', () => {
-                // Toggle visibility of the new window
-                if (filterSettingsWindow) {
-                    const isVisible = filterSettingsWindow.classList.toggle('visible');
-                    if (isVisible) {
-                        MobileUIHandler.openWindow(filterSettingsWindow);
-                    } else {
-                        MobileUIHandler.closeActiveWindow();
-                    }
-                }
-            });
+        // Resize the map to fit the new container size
+        if (sectorOpsMap) {
+            setTimeout(() => {
+                sectorOpsMap.resize();
+            }, 400); // Match CSS transition duration
         }
-        // --- [END NEW FILTER BUTTON LISTENER] ---
+    };
+
+    if (internalToggleBtn) {
+        internalToggleBtn.addEventListener('click', togglePanel);
     }
+    if (toolbarToggleBtn) {
+        toolbarToggleBtn.addEventListener('click', togglePanel);
+    }
+
+    // --- Weather Button Listener ---
+    const openWeatherBtn = document.getElementById('open-weather-settings-btn');
+    if (openWeatherBtn) {
+        openWeatherBtn.addEventListener('click', () => {
+            // Toggle visibility of the weather window
+            if (weatherSettingsWindow) {
+                const isVisible = weatherSettingsWindow.classList.toggle('visible');
+                if (isVisible) {
+                    if (window.MobileUIHandler) MobileUIHandler.openWindow(weatherSettingsWindow);
+                } else {
+                    if (window.MobileUIHandler) MobileUIHandler.closeActiveWindow();
+                }
+            }
+        });
+    }
+
+    // --- [NEW] Filter Settings Button Listener ---
+    const openFilterBtn = document.getElementById('open-filter-settings-btn');
+    if (openFilterBtn) {
+        openFilterBtn.addEventListener('click', () => {
+            // Toggle visibility of the filter window
+            if (filterSettingsWindow) {
+                const isVisible = filterSettingsWindow.classList.toggle('visible');
+                if (isVisible) {
+                    if (window.MobileUIHandler) MobileUIHandler.openWindow(filterSettingsWindow);
+                } else {
+                    if (window.MobileUIHandler) MobileUIHandler.closeActiveWindow();
+                }
+            }
+        });
+    }
+}
 
     /**
      * Updates the main weather toolbar button to show if any layers are active.
@@ -7822,12 +7851,33 @@ function setupFilterSettingsWindowEvents() {
         root.style.setProperty('--iw-bg-end', hexToRgba(endHex, opacity));
     };
 
+    // --- [NEW HELPER] Apply Glass Mode ---
+    const applyGlassMode = (isEnabled) => {
+        // We apply this to both the Aircraft and Airport info windows
+        const aircraftWindow = document.getElementById('aircraft-info-window');
+        const airportWindow = document.getElementById('airport-info-window');
+        // Optional: Apply to filter window too if desired
+        // const filterWindow = document.getElementById('filter-settings-window'); 
+        
+        const toggleClass = (el) => {
+            if (el) isEnabled ? el.classList.add('glass-mode') : el.classList.remove('glass-mode');
+        };
+
+        toggleClass(aircraftWindow);
+        toggleClass(airportWindow);
+        // toggleClass(filterWindow);
+    };
+
     // --- Helper: Set UI from State ---
     const setUIFromState = () => {
         // Toggles
         document.getElementById('filter-toggle-atc').checked = mapFilters.hideAtcMarkers;
         document.getElementById('filter-toggle-satellite-mode').checked = (currentMapStyle === MAP_STYLE_SATELLITE);
         document.getElementById('filter-toggle-aircraft-labels').checked = mapFilters.showAircraftLabels;
+        
+        // [NEW] Glass Mode Toggle
+        const glassToggle = document.getElementById('filter-toggle-glass-mode');
+        if (glassToggle) glassToggle.checked = mapFilters.enableGlassMode;
 
         // Radios
         const colorRadio = document.querySelector(`input[name="icon-color-mode"][value="${mapFilters.iconColorMode}"]`);
@@ -7840,8 +7890,9 @@ function setupFilterSettingsWindowEvents() {
         document.getElementById('theme-color-start').value = mapFilters.themeStartColor || '#121426';
         document.getElementById('theme-color-end').value = mapFilters.themeEndColor || '#121426';
         
-        // Apply immediately on load
+        // Apply visual states immediately
         applyWindowTheme(mapFilters.themeStartColor, mapFilters.themeEndColor);
+        applyGlassMode(mapFilters.enableGlassMode);
 
         // Mobile-specific
         const currentMobileMode = localStorage.getItem('mobileDisplayMode') || 'hud';
@@ -7942,6 +7993,14 @@ function setupFilterSettingsWindowEvents() {
 
         if (target.type !== 'checkbox') return;
 
+        // [NEW] Handle Glass Mode Toggle
+        if (target.id === 'filter-toggle-glass-mode') {
+            mapFilters.enableGlassMode = target.checked;
+            saveFiltersToLocalStorage();
+            applyGlassMode(mapFilters.enableGlassMode);
+            return;
+        }
+
         // Handle Aircraft Label Toggle
         if (target.id === 'filter-toggle-aircraft-labels') {
             mapFilters.showAircraftLabels = target.checked;
@@ -7983,7 +8042,6 @@ function setupFilterSettingsWindowEvents() {
 
     filterSettingsWindow.dataset.eventsAttached = 'true';
 }
-
 
    /**
      * --- [MODIFIED] Sets up event listeners for the map search bar.
