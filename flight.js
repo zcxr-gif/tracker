@@ -6413,7 +6413,7 @@ function populateAircraftInfoWindow(baseProps, plan, sortedRoutePoints) {
                             </div>
                         </div>
 
-                        <div id="fms-legs-module" class="tech-module" style="height: 400px; max-height: 400px; display: flex; flex-direction: column; margin-top: 335px;">
+                        <div id="fms-legs-module" class="tech-module" style="height: 400px; max-height: 400px; display: flex; flex-direction: column; margin-top: 200px;">
                             <div class="tech-module-header">
                                 <span class="tech-module-title"><i class="fa-solid fa-route"></i> ACTIVE FLIGHT PLAN</span>
                                 <span class="fms-page-count">1/1</span>
