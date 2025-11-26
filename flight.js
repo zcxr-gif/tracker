@@ -527,151 +527,158 @@ function injectCustomStyles() {
     const css = `
         /* --- CSS VARIABLES FOR THEMING --- */
         :root {
+            /* [MODIFIED] Ensure defaults are set for the new dynamic panel system */
             --iw-bg-start: rgba(18, 20, 38, 0.95);
             --iw-bg-end: rgba(18, 20, 38, 0.95);
         }
 
-        /* --- TELEMETRY STATUS MONITOR (REMASTERED) --- */
+        /* --- VIRTUAL COCKPIT SEAT SENSOR --- */
         .seat-sensor-wrapper {
-            background: #0f172a; 
+            background: #000; 
+            border: 2px solid #333; 
+            border-radius: 4px; 
             display: flex;
             flex-direction: column;
-            border-radius: 0 0 12px 12px;
-        }
-
-        /* Visualization Container */
-        .telemetry-visualizer {
-            position: relative;
-            height: 100px;
-            background: radial-gradient(circle at center, rgba(30, 41, 59, 0.4) 0%, rgba(15, 23, 42, 1) 80%);
-            display: flex;
-            align-items: center;
-            justify-content: center;
+            box-shadow: inset 0 0 20px rgba(0,0,0,0.8);
             overflow: hidden;
-            border-bottom: 1px solid rgba(255, 255, 255, 0.05);
-        }
-
-        /* Connection Line Animation */
-        .connection-line {
-            position: absolute;
-            top: 50%;
-            left: 20%;
-            right: 20%;
-            height: 2px;
-            background: rgba(255, 255, 255, 0.1);
-            z-index: 1;
-            transform: translateY(-50%);
-        }
-
-        .connection-line.flowing {
-            background: linear-gradient(90deg, transparent 0%, #3b82f6 50%, transparent 100%);
-            background-size: 200% 100%;
-            animation: dataFlow 1.5s infinite linear;
-        }
-        .connection-line.flowing-green {
-            background: linear-gradient(90deg, transparent 0%, #10b981 50%, transparent 100%);
-            background-size: 200% 100%;
-            animation: dataFlow 1s infinite linear;
-        }
-
-        @keyframes dataFlow {
-            0% { background-position: 100% 0; }
-            100% { background-position: -100% 0; }
-        }
-
-        /* Nodes */
-        .node-container {
-            position: relative;
-            z-index: 2;
-            display: flex;
-            flex-direction: column;
-            align-items: center;
-            gap: 6px;
-            width: 60px;
-        }
-        .node-pilot  { position: absolute; left: 15%; }
-        .node-server { position: absolute; right: 15%; }
-
-        /* Icons */
-        .node-icon {
-            width: 40px;
-            height: 40px;
-            border-radius: 50%;
-            background: #1e293b;
-            border: 2px solid #334155;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            color: #64748b;
-            font-size: 1rem;
-            transition: all 0.3s ease;
-            box-shadow: 0 4px 10px rgba(0,0,0,0.3);
             position: relative;
         }
 
-        /* State: 0 - Active (Green, Pulsing) */
-        .state-0 .node-icon {
-            background: rgba(16, 185, 129, 0.2);
-            border-color: #10b981;
-            color: #10b981;
-            box-shadow: 0 0 15px rgba(16, 185, 129, 0.4);
-            animation: pulseGreen 2s infinite;
-        }
-
-        /* State: 1 - AwayInFlight (Amber, Steady) */
-        .state-1 .node-icon {
-            background: rgba(245, 158, 11, 0.2);
-            border-color: #f59e0b;
-            color: #f59e0b;
-            box-shadow: 0 0 10px rgba(245, 158, 11, 0.2);
-        }
-
-        /* State: 2 - AwayParked (Red, Dim) */
-        .state-2 .node-icon {
-            background: rgba(239, 68, 68, 0.1);
-            border-color: #ef4444;
-            color: #ef4444;
-        }
-
-        /* State: 3 - InBackground (Blue, Ghostly) */
-        .state-3 .node-icon {
-            background: rgba(59, 130, 246, 0.1);
-            border-color: #3b82f6;
-            color: #3b82f6;
-            opacity: 0.8;
-        }
-
-        @keyframes pulseGreen {
-            0% { box-shadow: 0 0 0 0 rgba(16, 185, 129, 0.4); }
-            70% { box-shadow: 0 0 0 10px rgba(16, 185, 129, 0); }
-            100% { box-shadow: 0 0 0 0 rgba(16, 185, 129, 0); }
-        }
-
-        /* Labels */
-        .node-label {
-            font-size: 0.6rem;
-            font-weight: 700;
-            text-transform: uppercase;
-            color: #64748b;
-            letter-spacing: 0.05em;
-            background: rgba(15, 23, 42, 0.9);
-            padding: 2px 5px;
-            border-radius: 3px;
-            border: 1px solid rgba(255,255,255,0.05);
-        }
-
-        /* Footer Status Text */
-        .telemetry-footer {
+        .sensor-header {
+            background: #111;
+            padding: 6px 10px;
+            border-bottom: 1px solid #333;
             display: flex;
             justify-content: space-between;
-            padding: 8px 12px;
-            background: #0f172a;
+            font-size: 0.8rem;
+            font-weight: bold;
+            color: #fff;
+            flex-shrink: 0;
+            font-family: 'Consolas', monospace;
+        }
+
+        .sensor-body {
+            padding: 15px;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            position: relative;
+            background: #0f1115; 
+        }
+
+        .cockpit-view {
+            position: relative;
+            width: 140px;
+            height: 80px;
+            background: #1a1a1a;
+            border-radius: 40px 40px 10px 10px;
+            border: 2px solid #444;
+            display: flex;
+            justify-content: space-between;
+            padding: 10px 20px;
+            box-sizing: border-box;
+            margin-bottom: 10px;
+        }
+
+        .cockpit-view::after {
+            content: '';
+            position: absolute;
+            left: 50%;
+            bottom: 10px;
+            transform: translateX(-50%);
+            width: 14px;
+            height: 40px;
+            background: #333;
+            border-radius: 4px;
+            border: 1px solid #555;
+        }
+
+        .seat {
+            width: 35px;
+            height: 40px;
+            background: #222;
+            border-radius: 6px;
+            border: 2px solid #444;
+            transition: all 0.5s ease;
+            position: relative;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+        }
+
+        .seat::before {
+            content: '';
+            position: absolute;
+            top: -8px;
+            width: 25px;
+            height: 8px;
+            background: inherit;
+            border-radius: 4px;
+            border: 2px solid #444;
+        }
+
+        .cockpit-overlay-icon {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            font-size: 2.5rem;
+            z-index: 10;
+            opacity: 0;
+            transition: opacity 0.3s ease, transform 0.3s ease;
+            pointer-events: none;
+            text-shadow: 0 2px 10px rgba(0,0,0,0.8);
+        }
+
+        .cockpit-overlay-icon.visible {
+            opacity: 1;
+            transform: translate(-50%, -50%) scale(1);
+        }
+
+        .icon-parking { color: #ff3333; border: 3px solid #ff3333; border-radius: 50%; width: 45px; height: 45px; display: flex; align-items: center; justify-content: center; font-weight: bold; background: rgba(0,0,0,0.6); font-family: sans-serif; }
+        .icon-coffee { color: #ffaa00; }
+        .icon-cloud { color: #00a8ff; }
+
+        .seat.active-green { background: rgba(0, 255, 0, 0.1); border-color: #00ff00; box-shadow: 0 0 15px rgba(0, 255, 0, 0.4); }
+        .seat.active-green::before { border-color: #00ff00; background: #003300; }
+
+        .seat.active-amber { background: rgba(255, 170, 0, 0.1); border-color: #ffaa00; box-shadow: 0 0 15px rgba(255, 170, 0, 0.4); }
+        .seat.active-amber::before { border-color: #ffaa00; background: #442200; }
+
+        .seat.active-blue { background: rgba(0, 168, 255, 0.1); border-color: #00a8ff; box-shadow: 0 0 15px rgba(0, 168, 255, 0.4); }
+        .seat.active-blue::before { border-color: #00a8ff; background: #002244; }
+
+        .seat::after { content: attr(data-role); font-size: 0.6rem; font-weight: bold; color: #555; margin-top: 2px; }
+        .seat.active-green::after, .seat.active-amber::after, .seat.active-blue::after { color: #fff; text-shadow: 0 0 5px currentColor; }
+
+        .seat-status-display {
+            margin-top: 8px;
             font-family: 'Consolas', monospace;
             font-size: 0.75rem;
-            border-top: 1px solid rgba(255, 255, 255, 0.05);
+            text-align: center;
+            width: 100%;
+            display: flex;
+            justify-content: space-between;
+            color: #888;
         }
-        .t-label { color: #64748b; font-size: 0.65rem; display: block; margin-bottom: 2px;}
-        .t-value { color: #e2e8f0; font-weight: 600; }
+
+        .status-pill { padding: 2px 8px; border-radius: 4px; background: #222; border: 1px solid #333; }
+        .status-pill.green { color: #00ff00; border-color: #00ff00; }
+        .status-pill.amber { color: #ffaa00; border-color: #ffaa00; }
+        .status-pill.blue { color: #00a8ff; border-color: #00a8ff; }
+        .status-pill.red { color: #ff3333; border-color: #ff3333; }
+
+        #seat-narrative-text {
+            font-family: 'Segoe UI', sans-serif;
+            font-size: 0.7rem;
+            color: #aaa;
+            margin-top: 8px;
+            text-align: center;
+            border-top: 1px solid #333;
+            padding-top: 6px;
+            width: 100%;
+            font-style: italic;
+        }
         
         #view-rosters.active {
             position: absolute;
@@ -699,14 +706,20 @@ function injectCustomStyles() {
             position: absolute;
             top: 20px; 
             right: 20px;
-            width: 600px; /* Reduced width slightly to look better */
+            width: 600px; 
             max-width: 95vw;
             max-height: calc(100vh - 40px);
+            
+            /* Dynamic Background */
             background: linear-gradient(160deg, var(--iw-bg-start), var(--iw-bg-end));
+            
             backdrop-filter: blur(20px) saturate(180%);
             -webkit-backdrop-filter: blur(20px) saturate(180%);
             border-radius: 16px;
+            
+            /* --- FIX: Use a much subtler border that blends with any color --- */
             border: 1px solid rgba(255, 255, 255, 0.08);
+            
             box-shadow: 0 20px 50px rgba(0,0,0,0.8); 
             z-index: 1060; 
             display: flex;
@@ -728,8 +741,13 @@ function injectCustomStyles() {
             justify-content: space-between;
             align-items: center;
             padding: 16px 20px;
+            
+            /* --- FIX: Make background transparent so it takes the user's theme color --- */
             background: rgba(0, 0, 0, 0.1); 
+            
+            /* Optional: Make the separator line subtler or remove it to blend fully */
             border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+            
             flex-shrink: 0;
         }
         .info-window-header h3 {
@@ -763,15 +781,13 @@ function injectCustomStyles() {
             overflow-y: auto; 
             flex-grow: 1; 
             padding: 0;
-            background: transparent;
+            background: transparent; /* Transparent to show gradient */
         }
 
-        /* --- [MODIFIED] MAIN LAYOUT GRID --- */
-        /* Changed to 1 column so "right col" (now info-stack) sits below "pfd-main-panel" */
         .pfd-and-location-grid { 
             display: grid; 
-            grid-template-columns: 1fr; /* Single column stack */
-            gap: 16px;
+            grid-template-columns: 2fr 1fr; 
+            gap: 8px;
         }
 
         .info-right-col {
@@ -975,7 +991,7 @@ function injectCustomStyles() {
 
         @media (max-width: 992px) {
             .info-window { width: 95vw; top: 10px; right: 2.5vw; left: 2.5vw; max-height: calc(100vh - 20px); }
-            /* pfd-main-panel handles stacking via flex-wrap, no grid change needed here */
+            .pfd-and-location-grid { grid-template-columns: 1fr; } 
             #fms-legs-module { display: none; }
             #location-data-panel { min-height: auto; }
             .nav-grid-container { grid-template-columns: repeat(2, 1fr); }
@@ -1001,6 +1017,7 @@ function injectCustomStyles() {
             position: absolute; 
             inset: 0; 
             z-index: 1; 
+            /* --- MODIFIED: Use Theme Variable for seamless blending --- */
             background: linear-gradient(
                 to bottom,
                 rgba(0, 0, 0, 0.7) 0%, 
@@ -1024,6 +1041,7 @@ function injectCustomStyles() {
         .route-summary-overlay { 
             position: relative; 
             padding: 15px 20px 12px 20px; 
+            /* --- MODIFIED: Use Theme Variable --- */
             background: linear-gradient(180deg, 
                 transparent 0%, 
                 rgba(0, 0, 0, 0.2) 40%, 
@@ -1055,6 +1073,7 @@ function injectCustomStyles() {
             display: flex; 
             flex-direction: column; 
             gap: 16px; 
+            /* --- MODIFIED: Background uses theme variables --- */
             background: linear-gradient(180deg, var(--iw-bg-start), var(--iw-bg-end));
             border-top: 1px solid rgba(255, 255, 255, 0.05);
         }
@@ -1062,7 +1081,7 @@ function injectCustomStyles() {
         .ac-tab-pane { display: none; flex-direction: column; gap: 16px; animation: fadeIn 0.4s; }
         .ac-tab-pane.active { display: flex; }
         .ac-profile-card-new { 
-            background: rgba(0, 0, 0, 0.2); 
+            background: rgba(0, 0, 0, 0.2); /* Neutral / Transparent so theme shows */
             border-radius: 12px; border: 1px solid rgba(255, 255, 255, 0.05); padding: 10px; border-top: 3px solid #a33ea3; display: flex; flex-direction: column; gap: 10px; 
         }
         .ac-profile-header { display: flex; justify-content: space-between; align-items: center; padding: 0 5px; }
@@ -1071,30 +1090,22 @@ function injectCustomStyles() {
         .profile-toggle-btn:hover { color: #fff; }
         .profile-toggle-btn.active { background: #00a8ff; color: #fff; box-shadow: 0 2px 5px rgba(0, 168, 255, 0.3); }
         
-        /* --- [MODIFIED] PFD & ND CONTAINER (SIDE-BY-SIDE) --- */
         .pfd-main-panel { 
             display: flex; 
-            flex-direction: row; 
-            flex-wrap: wrap; /* Wraps on small screens */
+            flex-direction: column; 
             width: 100%; 
-            align-items: flex-start;
-            justify-content: center; 
-            gap: 12px; 
+            align-items: center; 
+            gap: 16px; 
         }
 
         .display-bezel { 
             position: relative; 
             background-color: #1f2937; 
             border: 4px solid #374151; 
-            padding: 8px; /* Reduced padding slightly */
+            padding: 12px; 
             border-radius: 1rem; 
             box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.5); 
-            
-            /* Sizing logic for Side-by-Side */
-            flex: 1 1 250px; /* Basis is small enough to fit two, but grows */
-            min-width: 250px;
-            max-width: 100%; /* Can take full width on mobile */
-            
+            width: 100%; 
             box-sizing: border-box; 
             display: flex;
             flex-direction: column;
@@ -1102,24 +1113,24 @@ function injectCustomStyles() {
         
         .screw { 
             position: absolute; 
-            width: 0.4rem; 
-            height: 0.4rem; 
+            width: 0.5rem; 
+            height: 0.5rem; 
             background-color: #4b5563; 
             border-radius: 50%; 
             box-shadow: inset 1px 1px 2px rgba(0,0,0,0.5); 
             z-index: 5; 
         }
-        .screw.tl { top: 0.25rem; left: 0.25rem; } 
-        .screw.tr { top: 0.25rem; right: 0.25rem; } 
-        .screw.bl { bottom: 0.25rem; left: 0.25rem; } 
-        .screw.br { bottom: 0.25rem; right: 0.25rem; }
+        .screw.tl { top: 0.35rem; left: 0.35rem; } 
+        .screw.tr { top: 0.35rem; right: 0.35rem; } 
+        .screw.bl { bottom: 0.35rem; left: 0.35rem; } 
+        .screw.br { bottom: 0.35rem; right: 0.35rem; }
         
         .crt-container { 
             width: 100%; 
             position: relative; 
             border: 2px solid #111827; 
             background: #000; 
-            border-radius: 8px; 
+            border-radius: 12px; 
             overflow: hidden; 
             box-shadow: inset 0 0 20px rgba(0,0,0,0.8); 
             display: flex; 
@@ -1368,6 +1379,7 @@ function injectCustomStyles() {
             display: flex;
             justify-content: space-between;
             align-items: center;
+            /* --- MODIFIED: Use Theme Variable for tabs to match window --- */
             background: var(--iw-bg-start);
             border-bottom: 1px solid rgba(255, 255, 255, 0.1);
             padding: 0 20px;
@@ -2355,6 +2367,92 @@ function getAircraftCategory(aircraftName) {
     return 'default';
 }
 
+/**
+ * Determines Flight Rules (IFR/VFR) based on aircraft state, equipment, and flight plan.
+ */
+function determineFlightRules(flightProps, plan) {
+    const altitude = flightProps.position.alt_ft;
+    const vs = flightProps.position.vs_fpm;
+    const category = flightProps.category; // 'jumbo', 'widebody', 'narrowbody', 'cessna', etc.
+    const hasPlan = plan && plan.flightPlanItems && plan.flightPlanItems.length > 1;
+    
+    // --- 1. DEFINE STATES ---
+    const IFR = { type: 'IFR', label: 'IFR', class: 'badge-ifr', icon: 'fa-cloud' };
+    const VFR = { type: 'VFR', label: 'VFR', class: 'badge-vfr', icon: 'fa-sun' };
+    const VFR_FPL = { type: 'VFR', label: 'VFR + FPL', class: 'badge-vfr', icon: 'fa-map' };
+    
+    // --- 2. GROUND LOGIC (Intent-Based) ---
+    // Detect if on ground (low altitude, low speed)
+    if (altitude < 2000 && flightProps.position.gs_kt < 50) {
+        
+        // Rule: Heavy Metal is always IFR
+        if (['jumbo', 'widebody', 'fighter'].includes(category)) {
+            return IFR;
+        }
+
+        // Rule: No Flight Plan = VFR (Pattern work or just spawned)
+        if (!hasPlan) {
+            return VFR;
+        }
+
+        // Rule: Check for Procedures (SIDs/STARs) in Plan
+        // If plan has items that are NOT simple coords, likely IFR
+        // (Simple heuristic: IFR plans usually have many waypoints)
+        if (hasPlan && plan.flightPlanItems.length > 5) {
+            return IFR;
+        }
+
+        // Rule: GA with Plan = VFR + FPL (Flight Following assumption)
+        if (['cessna', 'general', 'private'].includes(category) && hasPlan) {
+            return VFR_FPL;
+        }
+
+        // Default Ground for Airliners with Plan
+        if (['narrowbody', 'regional'].includes(category) && hasPlan) {
+            return IFR;
+        }
+
+        return VFR; // Fallback
+    }
+
+    // --- 3. IN-AIR LOGIC (Behavior-Based) ---
+
+    // Rule: Class A Airspace (Hard limit)
+    if (altitude > 18000) {
+        return IFR;
+    }
+
+    // Rule: No Plan in Air = VFR
+    if (!hasPlan) {
+        return VFR;
+    }
+
+    // Rule: "Hemispheric Rule" (The modulo check)
+    // Only apply if in relatively stable cruise (VS < 500)
+    if (Math.abs(vs) < 500) {
+        const remainder = altitude % 1000;
+        
+        // VFR is usually X,500 (remainder ~500)
+        // Allow buffer of +/- 200ft (300 to 700)
+        if (remainder > 300 && remainder < 700) {
+            return VFR_FPL;
+        }
+        
+        // IFR is usually X,000 (remainder near 0 or 1000)
+        // (e.g. 0-200 or 800-1000)
+        if (remainder < 200 || remainder > 800) {
+            return IFR;
+        }
+    }
+
+    // --- 4. CLIMB/DESCENT TRANSITION (Fallback) ---
+    // If we are climbing/descending < 18k, fallback to Category
+    if (['jumbo', 'widebody', 'narrowbody', 'regional'].includes(category)) {
+        return IFR;
+    }
+
+    return VFR_FPL; // Default for GA in the air with a plan
+}
 
 /**
  * Fetches OAT and Wind data from OpenMeteo and stores it in the flight state.
@@ -5719,6 +5817,9 @@ function rebuildDynamicLayers() {
 
 
 
+/**
+ * --- [REHAULED] Populates the aircraft info window with the new Tech Card UI.
+ */
 function populateAircraftInfoWindow(baseProps, plan, sortedRoutePoints) {
     // --- Helper functions ---
     const updateAll = (selector, value, isHTML = false) => {
@@ -6280,41 +6381,35 @@ function populateAircraftInfoWindow(baseProps, plan, sortedRoutePoints) {
                         
                         <div class="tech-module" id="cockpit-seat-sensor">
                             <div class="tech-module-header">
-                                <span class="tech-module-title"><i class="fa-solid fa-signal"></i> TELEMETRY LINK</span>
-                                <span class="fms-page-count">LIVE</span>
+                                <span class="tech-module-title"><i class="fa-solid fa-chair"></i> COCKPIT STATE</span>
+                                <span class="fms-page-count"><i class="fa-solid fa-satellite-dish"></i></span>
                             </div>
-                            
-                            <div class="seat-sensor-wrapper">
-                                <div class="telemetry-visualizer">
-                                    <div id="telemetry-line" class="connection-line"></div>
-
-                                    <div id="node-pilot" class="node-container node-pilot">
-                                        <div class="node-icon">
-                                            <i id="pilot-icon" class="fa-solid fa-user"></i>
-                                        </div>
-                                        <div class="node-label">USER</div>
-                                    </div>
-
-                                    <div style="position: absolute; background: #0f172a; padding: 2px 8px; border-radius: 10px; border: 1px solid #334155; font-size: 0.6rem; color: #94a3b8; z-index: 3;">
-                                        <i class="fa-solid fa-wifi"></i> LINK
-                                    </div>
-
-                                    <div class="node-container node-server state-0"> <div class="node-icon">
-                                            <i class="fa-solid fa-server"></i>
-                                        </div>
-                                        <div class="node-label">SERVER</div>
-                                    </div>
+                            <div class="tech-module-body">
+                                <div class="cockpit-view">
+                                    <div id="seat-cpt" class="seat" data-role="CPT"></div>
+                                    <div id="seat-fo" class="seat" data-role="FO"></div>
+                                    
+                                    <div id="icon-parking-overlay" class="cockpit-overlay-icon icon-parking">P</div>
+                                    <div id="icon-coffee-overlay" class="cockpit-overlay-icon icon-coffee"><i class="fa-solid fa-mug-hot"></i></div>
+                                    <div id="icon-cloud-overlay" class="cockpit-overlay-icon icon-cloud"><i class="fa-solid fa-cloud"></i></div>
                                 </div>
+                                <div class="seat-status-display">
+                                    <span id="status-cpt-text" class="status-pill">CMD: ---</span>
+                                    <span id="status-fo-text" class="status-pill">FO: ---</span>
+                                </div>
+                                <div id="seat-narrative-text">
+                                    Initializing...
+                                </div>
+                            </div>
+                        </div>
 
-                                <div class="telemetry-footer">
-                                    <div>
-                                        <span class="t-label">CURRENT STATE</span>
-                                        <span id="telemetry-state-text" class="t-value">SCANNING...</span>
-                                    </div>
-                                    <div style="text-align: right;">
-                                        <span class="t-label">DATA FEED</span>
-                                        <span id="telemetry-feed-text" class="t-value" style="color: #64748b;">WAITING</span>
-                                    </div>
+                        <div class="tech-module">
+                            <div class="tech-module-header">
+                                <span class="tech-module-title"><i class="fa-solid fa-book"></i> FLIGHT RULES</span>
+                            </div>
+                            <div class="tech-module-body" style="padding: 8px;">
+                                <div id="flight-rules-display" class="flight-rules-badge">
+                                    <i class="fa-solid fa-spinner fa-spin"></i>
                                 </div>
                             </div>
                         </div>
@@ -6580,70 +6675,98 @@ function updateNavPanelData(lat, lon, heading, oat, windDir, windSpd) {
 }
 
 function updateSeatSensor(flightProps) {
-    const nodePilot = document.getElementById('node-pilot');
-    const pilotIcon = document.getElementById('pilot-icon');
-    const line = document.getElementById('telemetry-line');
+    const seatCpt = document.getElementById('seat-cpt');
+    const seatFo = document.getElementById('seat-fo');
+    const statusCpt = document.getElementById('status-cpt-text');
+    const statusFo = document.getElementById('status-fo-text');
+    const narrative = document.getElementById('seat-narrative-text');
     
-    const stateText = document.getElementById('telemetry-state-text');
-    const feedText = document.getElementById('telemetry-feed-text');
+    // Overlays
+    const parkingOverlay = document.getElementById('icon-parking-overlay');
+    const coffeeOverlay = document.getElementById('icon-coffee-overlay');
+    const cloudOverlay = document.getElementById('icon-cloud-overlay');
 
-    if (!nodePilot || !pilotIcon) return;
+    if (!seatCpt || !seatFo) return;
 
-    // Reset base classes
-    nodePilot.className = 'node-container node-pilot';
-    line.className = 'connection-line'; // Stop animation by default
+    // 1. DETERMINE STATE
+    // Default to 0 (Active) if undefined
+    let state = flightProps.pilotState !== undefined ? flightProps.pilotState : 0;
 
-    // 1. GET STATE (Default to -1 if missing)
-    let state = flightProps.pilotState !== undefined ? flightProps.pilotState : -1;
+    // 2. RESET VISUALS
+    // Remove all active color classes
+    seatCpt.classList.remove('active-green', 'active-amber', 'active-blue');
+    seatFo.classList.remove('active-green', 'active-amber', 'active-blue');
+    
+    // Reset pills
+    statusCpt.className = 'status-pill';
+    statusFo.className = 'status-pill';
+    
+    // Hide all overlays
+    if(parkingOverlay) parkingOverlay.classList.remove('visible');
+    if(coffeeOverlay) coffeeOverlay.classList.remove('visible');
+    if(cloudOverlay) cloudOverlay.classList.remove('visible');
 
-    // 2. SERVER CONNECTION CHECK
-    // If state is valid, we assume server connection is good
-    if (state !== -1) {
-        feedText.innerHTML = '<span style="color: #10b981;">SYNCED</span>';
-    } else {
-        feedText.innerHTML = '<span style="color: #ef4444;">NO SIGNAL</span>';
-        stateText.textContent = "---";
-        return;
+    // 3. APPLY LOGIC
+    switch (state) {
+        case 0: // ACTIVE
+            seatCpt.classList.add('active-green');
+            
+            statusCpt.classList.add('green');
+            statusCpt.textContent = 'CMD: PILOT';
+            
+            statusFo.textContent = 'FO: MONITOR';
+            
+            narrative.textContent = "Manual inputs detected. Pilot has controls.";
+            break;
+
+        case 1: // AWAY (IN FLIGHT) - Monitoring
+            seatCpt.classList.add('active-amber');
+            
+            statusCpt.classList.add('amber');
+            statusCpt.textContent = 'CMD: AUTO';
+            
+            statusFo.textContent = 'FO: MONITOR';
+            
+            if(coffeeOverlay) coffeeOverlay.classList.add('visible');
+            narrative.textContent = "No recent inputs. Pilot is monitoring cruise systems.";
+            break;
+
+        case 2: // AWAY (PARKED) - Secured
+            // Seats remain dark/grey (no active class)
+            
+            statusCpt.classList.add('red'); // Use red border/text for park brake
+            statusCpt.textContent = 'PARK BRK: SET';
+            statusCpt.style.width = '100%'; // Span full width
+            statusCpt.style.textAlign = 'center';
+            
+            statusFo.style.display = 'none'; // Hide FO pill in this specific state
+            
+            if(parkingOverlay) parkingOverlay.classList.add('visible');
+            narrative.textContent = "Cockpit secured. Parking brake set.";
+            break;
+
+        case 3: // BACKGROUND - Relief Pilot / Rest
+            seatFo.classList.add('active-blue');
+            
+            statusCpt.textContent = 'CMD: REST';
+            
+            statusFo.classList.add('blue');
+            statusFo.textContent = 'FO: ACTIVE';
+            
+            if(cloudOverlay) cloudOverlay.classList.add('visible');
+            narrative.textContent = "Captain is resting (App Backgrounded). Relief Pilot has controls.";
+            break;
+
+        default:
+            narrative.textContent = "No telemetry data available.";
+            break;
     }
 
-    // 3. APPLY STATE LOGIC
-    switch (state) {
-        case 0: // Active (User touching screen/yoke)
-            nodePilot.classList.add('state-0');
-            pilotIcon.className = 'fa-solid fa-gamepad';
-            stateText.textContent = 'ACTIVE INPUT';
-            stateText.style.color = '#10b981'; // Green
-            line.classList.add('flowing-green'); // Fast green flow
-            break;
-
-        case 1: // AwayInFlight (Autopilot engaged, no touch)
-            nodePilot.classList.add('state-1');
-            pilotIcon.className = 'fa-solid fa-plane-circle-check'; 
-            stateText.textContent = 'AUTO-FLIGHT / AWAY';
-            stateText.style.color = '#f59e0b'; // Amber
-            line.classList.add('flowing'); // Normal blue flow
-            break;
-
-        case 2: // AwayParked (Sitting at gate/apron)
-            nodePilot.classList.add('state-2');
-            pilotIcon.className = 'fa-solid fa-square-parking'; 
-            stateText.textContent = 'PARKED / IDLE';
-            stateText.style.color = '#ef4444'; // Red
-            // No flow class added = Line stops moving
-            break;
-
-        case 3: // InBackground (App minimized/Ghost)
-            nodePilot.classList.add('state-3');
-            pilotIcon.className = 'fa-solid fa-ghost'; 
-            stateText.textContent = 'APP BACKGROUND';
-            stateText.style.color = '#3b82f6'; // Blue
-            line.classList.add('flowing'); // Normal blue flow
-            break;
-            
-        default:
-            stateText.textContent = 'UNKNOWN STATE';
-            stateText.style.color = '#64748b';
-            break;
+    // Restore FO display if not in state 2
+    if (state !== 2) {
+        statusFo.style.display = 'block';
+        statusCpt.style.width = 'auto';
+        statusCpt.style.textAlign = 'left';
     }
 }
 
@@ -7380,9 +7503,20 @@ function updateAircraftInfoWindow(baseProps, plan, sortedRoutePoints) {
 
     // --- NEW: Update Cockpit Seat Sensor ---
     updateSeatSensor(baseProps);
-    
-    // --- [REMOVED] Flight Rules Module Logic ---
-    // The determineFlightRules call and update logic has been removed.
+
+    // --- UPDATE FLIGHT RULES ---
+    const rulesDisplay = document.getElementById('flight-rules-display');
+    if (rulesDisplay) {
+        // Ensure helper function exists
+        if (typeof determineFlightRules === 'function') {
+            const rule = determineFlightRules(baseProps, plan);
+            rulesDisplay.className = `flight-rules-badge ${rule.class}`;
+            rulesDisplay.innerHTML = `<i class="fa-solid ${rule.icon}"></i> ${rule.label}`;
+        } else {
+            console.warn("determineFlightRules helper missing.");
+            rulesDisplay.textContent = "RULES UNKNOWN";
+        }
+    }
 }
 
 
