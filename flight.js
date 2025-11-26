@@ -5747,6 +5747,158 @@ async function handleAircraftClick(flightProps, sessionId) {
 
         // NEW: Cache data for stats view
         cachedFlightDataForStatsView = { flightProps, plan };
+
+        // =========================================================================
+        // [FIX START] INJECT HTML SKELETON BEFORE POPULATING
+        // =========================================================================
+        // This structure matches the IDs expected by populateAircraftInfoWindow
+        // and the styles defined in injectCustomStyles.
+        const userId = flightProps.userId || '';
+        const username = flightProps.username || 'Unknown';
+        
+        windowEl.innerHTML = `
+            <div id="ac-overview-panel" class="aircraft-overview-panel">
+                <div class="overview-content">
+                    <div class="overview-col-left">
+                        <h3 id="ac-header-livery">...</h3>
+                        <p id="ac-header-actype">...</p>
+                    </div>
+                    <div class="overview-actions">
+                        <button class="aircraft-window-hide-btn" title="Hide Window"><i class="fa-solid fa-minus"></i></button>
+                        <button class="aircraft-window-close-btn" title="Close Window"><i class="fa-solid fa-xmark"></i></button>
+                    </div>
+                </div>
+                
+                <div class="route-summary-overlay">
+                    <div class="route-summary-airport">
+                        <div class="airport-line">
+                            <img id="ac-bar-dep-flag" class="country-flag" style="display:none;">
+                            <span class="icao">${plan?.origin?.identifier || 'DEP'}</span>
+                        </div>
+                        <div class="time" id="ac-bar-atd">--:--</div>
+                    </div>
+                    
+                    <div class="route-progress-container">
+                        <span id="ac-phase-indicator" class="flight-phase-indicator phase-enroute">ENROUTE</span>
+                        <div class="route-progress-bar-container">
+                            <div id="ac-progress-bar" class="progress-bar-fill" style="width: 0%;"></div>
+                        </div>
+                    </div>
+                    
+                    <div class="route-summary-airport" style="align-items: flex-end;">
+                        <div class="airport-line">
+                            <span class="icao">${plan?.destination?.identifier || 'ARR'}</span>
+                            <img id="ac-bar-arr-flag" class="country-flag" style="display:none;">
+                        </div>
+                        <div class="time" id="ac-bar-eta">--:--</div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="ac-info-window-tabs">
+                <div class="ac-tabs-wrapper">
+                    <button class="ac-info-tab-btn active" data-tab="ac-tab-flight-data">
+                        <i class="fa-solid fa-plane-circle-check"></i> Data
+                    </button>
+                    <button class="ac-info-tab-btn pilot-tab-btn" data-tab="ac-tab-pilot-report" data-user-id="${userId}" data-username="${username}">
+                        <i class="fa-solid fa-user-pilot"></i> Pilot
+                    </button>
+                </div>
+            </div>
+
+            <div class="info-window-content" style="padding: 0;">
+                
+                <div id="ac-tab-flight-data" class="ac-tab-pane active unified-display-main-content">
+                    
+                    <div class="nav-grid-container" style="padding: 0;">
+                        <div class="nav-cell">
+                            <span class="nav-label">Next WPT</span>
+                            <span id="ac-next-wp" class="nav-value">---</span>
+                        </div>
+                        <div class="nav-cell">
+                            <span class="nav-label">Dist Next</span>
+                            <span id="ac-next-wp-dist" class="nav-value">---</span>
+                        </div>
+                        <div class="nav-cell">
+                            <span class="nav-label">Dist Dest</span>
+                            <span id="ac-dist" class="nav-value">---</span>
+                        </div>
+                        <div class="nav-cell">
+                            <span class="nav-label">ETE</span>
+                            <span id="ac-ete" class="nav-value">--:--</span>
+                        </div>
+                    </div>
+
+                    <div id="fms-legs-module" class="fms-module-container">
+                        <div class="fms-header">FMS LEGS</div>
+                        <div class="fms-columns">
+                            <span>IDENT</span>
+                            <span style="text-align:center;">CRS</span>
+                            <span style="text-align:right;">DIST</span>
+                        </div>
+                        <div id="fms-legs-list" class="fms-list-scrollarea">
+                            <div class="fms-empty-state">Loading route...</div>
+                        </div>
+                    </div>
+
+                    <div id="vsd-panel" class="vsd-module-container">
+                        <div class="fms-header" style="justify-content: space-between;">
+                            <span>VSD PROFILE</span>
+                            <span id="ac-vs" style="color: #00e600;">-- fpm</span>
+                        </div>
+                        <div class="vsd-panel">
+                            <div id="vsd-graph-window" class="vsd-graph-window">
+                                <div id="vsd-graph-content">
+                                    <svg id="vsd-profile-svg" xmlns="http://www.w3.org/2000/svg">
+                                        <path id="vsd-profile-path" d="" />
+                                        <path id="vsd-flown-path" d="" />
+                                    </svg>
+                                    <div id="vsd-aircraft-icon"></div>
+                                    <div id="vsd-waypoint-labels"></div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 10px;">
+                        <div class="rules-module-container">
+                            <div class="rules-header">FLIGHT RULES</div>
+                            <div class="rules-body">
+                                <div id="flight-rules-display" class="flight-rules-badge">CALCULATING...</div>
+                            </div>
+                        </div>
+
+                        <div class="seat-sensor-wrapper">
+                            <div class="sensor-header">COCKPIT SENSOR</div>
+                            <div class="sensor-body">
+                                <div class="cockpit-view">
+                                    <div id="seat-cpt" class="seat" data-role="CPT"></div>
+                                    <div id="seat-fo" class="seat" data-role="FO"></div>
+                                    
+                                    <div id="icon-parking-overlay" class="cockpit-overlay-icon icon-parking">P</div>
+                                    <div id="icon-coffee-overlay" class="cockpit-overlay-icon icon-coffee"><i class="fa-solid fa-mug-hot"></i></div>
+                                    <div id="icon-cloud-overlay" class="cockpit-overlay-icon icon-cloud"><i class="fa-solid fa-cloud"></i></div>
+                                </div>
+                                <div class="seat-status-display">
+                                    <span id="status-cpt-text" class="status-pill">--</span>
+                                    <span id="status-fo-text" class="status-pill">--</span>
+                                </div>
+                                <div id="seat-narrative-text">Initializing sensor...</div>
+                            </div>
+                        </div>
+                    </div>
+
+                </div>
+
+                <div id="ac-tab-pilot-report" class="ac-tab-pane" style="padding: 16px;">
+                    <div id="pilot-stats-display"></div>
+                </div>
+
+            </div>
+        `;
+        // =========================================================================
+        // [FIX END]
+        // =========================================================================
         
         // Pass the *initial* historical route data to the info window builder
         populateAircraftInfoWindow(flightProps, plan, sortedRoutePoints);
@@ -5791,19 +5943,11 @@ async function handleAircraftClick(flightProps, sessionId) {
                     ],
                     'line-width': 4,
                     'line-opacity': 0.9,
-                    
-                    // ##### FIX START #####
-                    // This is the fix for the "termites" / Z-fighting glitch.
-                    // It offsets the line 2 pixels "up" (toward the camera)
-                    // relative to the viewport, ensuring it always wins
-                    // the 3D rendering fight against the map's surface.
                     'line-translate': [0, -2],
                     'line-translate-anchor': 'viewport'
-                    // ##### FIX END #####
                 }
             }, 'sector-ops-live-flights-layer'); // Ensure it's drawn below aircraft
         } else {
-            // Source already exists, just update its data
              sectorOpsMap.getSource(flownLayerId).setData(routeFeatureCollection);
         }
 
@@ -5812,8 +5956,6 @@ async function handleAircraftClick(flightProps, sessionId) {
             flown: flownLayerId
         };
         
-        // --- [REMOVED] The automatic zoom-to-fit block (`fitBounds`) ---
-
         // --- [FIX 1 of 2] ---
         // Draw the planned route line (Direct, Full, or None) *immediately*
         // based on the current filter state, instead of waiting for a change.
@@ -5832,8 +5974,7 @@ async function handleAircraftClick(flightProps, sessionId) {
                     currentAircraftPositionForGeocode.lon
                 );
             }
-        }, FIVE_MINUTES_MS); // Call again every 5 minutes
-        let activeWeatherUpdateInterval = null; // Ensure this is defined outside if necessary
+        }, FIVE_MINUTES_MS); 
     
         // Run initial fetch immediately
         fetchAndDisplayWeather();
