@@ -6296,24 +6296,22 @@ function populateAircraftInfoWindow(baseProps, plan, sortedRoutePoints) {
                         
                         <div class="tech-module" id="cockpit-seat-sensor">
                             <div class="tech-module-header">
-                                <span class="tech-module-title"><i class="fa-solid fa-chair"></i> COCKPIT STATE</span>
-                                <span class="fms-page-count"><i class="fa-solid fa-satellite-dish"></i></span>
+                                <span class="tech-module-title"><i class="fa-solid fa-satellite-dish"></i> TELEMETRY LINK</span>
+                                <span class="fms-page-count">LIVE</span>
                             </div>
                             <div class="tech-module-body">
                                 <div class="cockpit-view">
-                                    <div id="seat-cpt" class="seat" data-role="CPT"></div>
-                                    <div id="seat-fo" class="seat" data-role="FO"></div>
+                                    <div id="seat-cpt" class="seat" data-role="PILOT"></div>
+                                    
+                                    <div id="seat-fo" class="seat" data-role="SERVER"></div>
                                     
                                     <div id="icon-parking-overlay" class="cockpit-overlay-icon icon-parking">P</div>
                                     <div id="icon-coffee-overlay" class="cockpit-overlay-icon icon-coffee"><i class="fa-solid fa-mug-hot"></i></div>
-                                    <div id="icon-cloud-overlay" class="cockpit-overlay-icon icon-cloud"><i class="fa-solid fa-cloud"></i></div>
+                                    <div id="icon-cloud-overlay" class="cockpit-overlay-icon icon-cloud"><i class="fa-solid fa-mobile-screen"></i></div>
                                 </div>
                                 <div class="seat-status-display">
-                                    <span id="status-cpt-text" class="status-pill">CMD: ---</span>
-                                    <span id="status-fo-text" class="status-pill">FO: ---</span>
-                                </div>
-                                <div id="seat-narrative-text">
-                                    Initializing...
+                                    <span id="status-cpt-text" class="status-pill">STATE: ---</span>
+                                    <span id="status-fo-text" class="status-pill">API: ---</span>
                                 </div>
                             </div>
                         </div>
@@ -6580,97 +6578,80 @@ function updateNavPanelData(lat, lon, heading, oat, windDir, windSpd) {
 
 function updateSeatSensor(flightProps) {
     const seatCpt = document.getElementById('seat-cpt');
-    const seatFo = document.getElementById('seat-fo');
+    const seatFo = document.getElementById('seat-fo'); // Represents Server Link
     const statusCpt = document.getElementById('status-cpt-text');
     const statusFo = document.getElementById('status-fo-text');
-    const narrative = document.getElementById('seat-narrative-text');
     
     // Overlays
     const parkingOverlay = document.getElementById('icon-parking-overlay');
     const coffeeOverlay = document.getElementById('icon-coffee-overlay');
-    const cloudOverlay = document.getElementById('icon-cloud-overlay');
+    const cloudOverlay = document.getElementById('icon-cloud-overlay'); // Re-purposed for "Background"
 
     if (!seatCpt || !seatFo) return;
 
-    // 1. DETERMINE STATE
-    // Default to 0 (Active) if undefined
-    let state = flightProps.pilotState !== undefined ? flightProps.pilotState : 0;
+    // 1. DETERMINE PILOT STATE (Raw Data)
+    // Enum: "Active = 0", "AwayInFlight = 1", "AwayParked = 2", "InBackground = 3"
+    let state = flightProps.pilotState !== undefined ? flightProps.pilotState : -1;
 
     // 2. RESET VISUALS
-    // Remove all active color classes
-    seatCpt.classList.remove('active-green', 'active-amber', 'active-blue');
-    seatFo.classList.remove('active-green', 'active-amber', 'active-blue');
-    
-    // Reset pills
+    seatCpt.className = 'seat'; 
+    seatFo.className = 'seat';
     statusCpt.className = 'status-pill';
     statusFo.className = 'status-pill';
     
-    // Hide all overlays
+    // Reset Text
+    statusCpt.textContent = 'STATE: ---';
+    statusFo.textContent = 'API: LINKED'; 
+
+    // Hide overlays
     if(parkingOverlay) parkingOverlay.classList.remove('visible');
     if(coffeeOverlay) coffeeOverlay.classList.remove('visible');
     if(cloudOverlay) cloudOverlay.classList.remove('visible');
 
-    // 3. APPLY LOGIC
-    switch (state) {
-        case 0: // ACTIVE
-            seatCpt.classList.add('active-green');
-            
-            statusCpt.classList.add('green');
-            statusCpt.textContent = 'CMD: PILOT';
-            
-            statusFo.textContent = 'FO: MONITOR';
-            
-            narrative.textContent = "Manual inputs detected. Pilot has controls.";
-            break;
+    // 3. SERVER SEAT LOGIC (Right Seat)
+    // If we are running this function, we have data, so Server is ONLINE (Green)
+    seatFo.classList.add('active-green'); 
+    statusFo.classList.add('green');
+    statusFo.textContent = 'API: ONLINE';
 
-        case 1: // AWAY (IN FLIGHT) - Monitoring
-            seatCpt.classList.add('active-amber');
-            
-            statusCpt.classList.add('amber');
-            statusCpt.textContent = 'CMD: AUTO';
-            
-            statusFo.textContent = 'FO: MONITOR';
-            
-            if(coffeeOverlay) coffeeOverlay.classList.add('visible');
-            narrative.textContent = "No recent inputs. Pilot is monitoring cruise systems.";
-            break;
-
-        case 2: // AWAY (PARKED) - Secured
-            // Seats remain dark/grey (no active class)
-            
-            statusCpt.classList.add('red'); // Use red border/text for park brake
-            statusCpt.textContent = 'PARK BRK: SET';
-            statusCpt.style.width = '100%'; // Span full width
-            statusCpt.style.textAlign = 'center';
-            
-            statusFo.style.display = 'none'; // Hide FO pill in this specific state
-            
-            if(parkingOverlay) parkingOverlay.classList.add('visible');
-            narrative.textContent = "Cockpit secured. Parking brake set.";
-            break;
-
-        case 3: // BACKGROUND - Relief Pilot / Rest
-            seatFo.classList.add('active-blue');
-            
-            statusCpt.textContent = 'CMD: REST';
-            
-            statusFo.classList.add('blue');
-            statusFo.textContent = 'FO: ACTIVE';
-            
-            if(cloudOverlay) cloudOverlay.classList.add('visible');
-            narrative.textContent = "Captain is resting (App Backgrounded). Relief Pilot has controls.";
-            break;
-
-        default:
-            narrative.textContent = "No telemetry data available.";
-            break;
+    // 4. PILOT SEAT LOGIC (Left Seat)
+    if (state === -1) {
+        // Fallback for missing data
+        statusCpt.textContent = 'STATE: NO DATA';
+        // Server seat goes red if data is actually missing/undefined
+        seatFo.className = 'seat'; 
+        statusFo.className = 'status-pill red';
+        statusFo.textContent = 'API: NO DATA';
+        return;
     }
 
-    // Restore FO display if not in state 2
-    if (state !== 2) {
-        statusFo.style.display = 'block';
-        statusCpt.style.width = 'auto';
-        statusCpt.style.textAlign = 'left';
+    switch (state) {
+        case 0: // Active (User is interacting)
+            seatCpt.classList.add('active-green');
+            statusCpt.classList.add('green');
+            statusCpt.textContent = 'PILOT: ACTIVE';
+            break;
+
+        case 1: // AwayInFlight (Autopilot / Long haul cruise)
+            seatCpt.classList.add('active-amber');
+            statusCpt.classList.add('amber');
+            statusCpt.textContent = 'PILOT: AWAY (FLT)';
+            if(coffeeOverlay) coffeeOverlay.classList.add('visible'); // Coffee icon for cruise
+            break;
+
+        case 2: // AwayParked (Sitting at gate)
+            // We use Red here to signify "Stopped/Secured"
+            statusCpt.classList.add('red');
+            statusCpt.textContent = 'PILOT: PARKED';
+            if(parkingOverlay) parkingOverlay.classList.add('visible'); // P icon
+            break;
+            
+        case 3: // InBackground (App minimized)
+            seatCpt.classList.add('active-blue');
+            statusCpt.classList.add('blue');
+            statusCpt.textContent = 'APP: BACKGROUND';
+            if(cloudOverlay) cloudOverlay.classList.add('visible'); // Mobile icon
+            break;
     }
 }
 
