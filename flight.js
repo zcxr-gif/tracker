@@ -6487,7 +6487,7 @@ function populateAircraftInfoWindow(baseProps, plan, sortedRoutePoints) {
         el.style.display = arrCountryCode ? 'block' : 'none'; 
     });
 
-    // --- Update Aircraft Image (using querySelectorAll) ---
+    // --- [MODIFIED] Update Aircraft Image & Placeholders ---
     const overviewPanels = document.querySelectorAll('#ac-overview-panel');
     overviewPanels.forEach(overviewPanel => {
         const sanitizeFilename = (name) => {
@@ -6502,6 +6502,7 @@ function populateAircraftInfoWindow(baseProps, plan, sortedRoutePoints) {
         const fallbackPath = '/CommunityPlanes/default.png';
         const newImageUrl = `url('${imagePath}')`;
 
+        // 1. Update Background Image
         if (overviewPanel.dataset.currentPath !== imagePath) {
             const img = new Image();
             img.src = imagePath;
@@ -6514,7 +6515,22 @@ function populateAircraftInfoWindow(baseProps, plan, sortedRoutePoints) {
                 overviewPanel.dataset.currentPath = fallbackPath;
             };
         }
+
+        // 2. Update Placeholders inside the panel
+        // Note: This targets the HTML structure assumed in panel-content.html
+        // If elements are missing, updateAll handles it gracefully.
+        
+        // Update Title (Livery Name)
+        updateAll('#ac-header-livery', liveryName);
+
+        // Update Subtext (Aircraft Type)
+        updateAll('#ac-header-actype', aircraftName);
+        
+        // Update any other placeholders if they exist in your HTML
+        // Example: If you had an element with ID 'ac-reg-placeholder'
+        // updateAll('#ac-reg-placeholder', 'N-XXXX'); 
     });
+    // --- [END MODIFIED] ---
 
     // --- CALL THE FMS UPDATE ---
     updateFmsLegsModule(plan, baseProps.position);
