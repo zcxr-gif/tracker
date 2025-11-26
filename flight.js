@@ -527,11 +527,84 @@ function injectCustomStyles() {
     const css = `
         /* --- CSS VARIABLES FOR THEMING --- */
         :root {
-            /* [MODIFIED] Ensure defaults are set for the new dynamic panel system */
             --iw-bg-start: rgba(18, 20, 38, 0.95);
             --iw-bg-end: rgba(18, 20, 38, 0.95);
         }
 
+        /* --- UTILITY --- */
+        .d-none { display: none !important; }
+
+        /* --- DISPLAY TOGGLE SWITCHER --- */
+        .display-toggle-container {
+            width: 100%;
+            display: flex;
+            justify-content: center;
+            margin-bottom: 10px;
+        }
+
+        .display-toggle-group {
+            background: #0f172a;
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            border-radius: 6px;
+            display: flex;
+            padding: 4px;
+            gap: 4px;
+            box-shadow: 0 4px 10px rgba(0,0,0,0.3);
+        }
+
+        .display-toggle-btn {
+            background: transparent;
+            border: none;
+            color: #64748b;
+            padding: 6px 20px;
+            font-size: 0.8rem;
+            font-weight: 700;
+            cursor: pointer;
+            border-radius: 4px;
+            font-family: 'Inter', sans-serif;
+            transition: all 0.2s ease;
+        }
+
+        .display-toggle-btn:hover {
+            color: #cbd5e1;
+            background: rgba(255,255,255,0.05);
+        }
+
+        .display-toggle-btn.active {
+            background: #3b82f6; /* Bright Blue */
+            color: #fff;
+            box-shadow: 0 2px 5px rgba(0,0,0,0.2);
+            text-shadow: 0 1px 2px rgba(0,0,0,0.3);
+        }
+
+        /* --- PFD/ND SIZING ADJUSTMENTS --- */
+        /* Make the main panel slightly narrower to "catch the eye" better */
+        .pfd-main-panel { 
+            display: flex; 
+            flex-direction: column; 
+            width: 100%; 
+            max-width: 500px; /* Constrain width */
+            margin: 0 auto;   /* Center it */
+            align-items: center; 
+            gap: 8px; 
+        }
+
+        .display-bezel { 
+            position: relative; 
+            background-color: #1f2937; 
+            border: 4px solid #374151; 
+            padding: 8px; /* Slightly reduced padding */
+            border-radius: 0.75rem; 
+            box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.5); 
+            width: 100%; 
+            box-sizing: border-box; 
+            display: flex;
+            flex-direction: column;
+            transition: opacity 0.3s ease; /* Smooth fade when switching */
+        }
+        
+        /* ... (Keep rest of existing styles below this line) ... */
+        
         /* --- VIRTUAL COCKPIT SEAT SENSOR --- */
         .seat-sensor-wrapper {
             background: #000; 
@@ -1089,27 +1162,6 @@ function injectCustomStyles() {
         .profile-toggle-btn { background: transparent; border: none; color: #9fa8da; padding: 6px 10px; font-size: 0.75rem; font-weight: 600; cursor: pointer; border-radius: 6px; transition: all 0.2s; }
         .profile-toggle-btn:hover { color: #fff; }
         .profile-toggle-btn.active { background: #00a8ff; color: #fff; box-shadow: 0 2px 5px rgba(0, 168, 255, 0.3); }
-        
-        .pfd-main-panel { 
-            display: flex; 
-            flex-direction: column; 
-            width: 100%; 
-            align-items: center; 
-            gap: 16px; 
-        }
-
-        .display-bezel { 
-            position: relative; 
-            background-color: #1f2937; 
-            border: 4px solid #374151; 
-            padding: 12px; 
-            border-radius: 1rem; 
-            box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.5); 
-            width: 100%; 
-            box-sizing: border-box; 
-            display: flex;
-            flex-direction: column;
-        }
         
         .screw { 
             position: absolute; 
@@ -3387,215 +3439,347 @@ function getNearestRunway(aircraftPos, airportIcao, maxDistanceNM = 2.0) {
     
 
 function updatePfdDisplay(pfdData) {
-    if (!pfdData) return;
+  if (!pfdData) return;
 
-    // --- 1. Robust Element Selection ---
-    // We use querySelectorAll to handle potential duplicates or missing elements gracefully
-    const attitudeGroups = document.querySelectorAll('#attitude_group');
-    const speedTapeGroups = document.querySelectorAll('#speed_tape_group');
-    const altitudeTapeGroups = document.querySelectorAll('#altitude_tape_group');
-    const tensReelGroups = document.querySelectorAll('#altitude_tens_reel_group');
-    const headingTapeGroups = document.querySelectorAll('#heading_tape_group');
-    
-    // Readouts
-    const speedReadouts = document.querySelectorAll('#speed_readout');
-    const altReadoutHunds = document.querySelectorAll('#altitude_readout_hundreds');
-    const headingReadouts = document.querySelectorAll('#heading_readout');
+  // ---- tolerate common key names ----
+  const gs_kt =
+    pfdData.gs_kt ??
+    pfdData.groundspeed_kts ??
+    pfdData.groundspeed ??
+    pfdData.gs ??
+    (pfdData.speed && (pfdData.speed.kt || pfdData.speed.kts)) ??
+    0;
 
-    // FMA Text Elements (Created by createPfdDisplay)
-    const fmaCol1 = document.getElementById('fma_col1_text');
-    const fmaCol2 = document.getElementById('fma_col2_text');
-    const fmaCol3 = document.getElementById('fma_col3_text');
-    const fmaCol4 = document.getElementById('fma_col4_text');
+  const track_deg =
+    pfdData.heading_deg ??
+    pfdData.track_deg ??
+    pfdData.track ??
+    pfdData.hdg ??
+    0;
 
-    // If the PFD SVG isn't in the DOM yet, stop.
-    if (attitudeGroups.length === 0) return;
+  const alt_ft = pfdData.alt_ft ?? pfdData.altitude_ft ?? pfdData.altitude ?? 0;
+  const vs_fpm = pfdData.vs_fpm ?? pfdData.vertical_speed_fpm ?? pfdData.vs ?? 0;
 
-    // --- 2. Data Normalization ---
-    // Handle various potential API property names
-    const gs_kt = pfdData.gs_kt ?? pfdData.groundspeed ?? 0;
-    const track_deg = pfdData.heading_deg ?? pfdData.track_deg ?? 0;
-    const alt_ft = pfdData.alt_ft ?? pfdData.altitude ?? 0;
-    const vs_fpm = pfdData.vs_fpm ?? pfdData.vertical_speed_fpm ?? 0;
+  // ---- [FIX] DOM elements are now selected via querySelectorAll ----
+  const attitudeGroups     = document.querySelectorAll('#attitude_group');
+  const speedTapeGroups    = document.querySelectorAll('#speed_tape_group');
+  const altitudeTapeGroups = document.querySelectorAll('#altitude_tape_group');
+  const tensReelGroups     = document.querySelectorAll('#altitude_tens_reel_group');
+  const headingTapeGroups  = document.querySelectorAll('#heading_tape_group');
+  const speedReadouts      = document.querySelectorAll('#speed_readout');
+  const altReadoutHunds    = document.querySelectorAll('#altitude_readout_hundreds');
+  const headingReadouts    = document.querySelectorAll('#heading_readout');
+  
+  if (attitudeGroups.length === 0) return; // No PFDs found, exit
+  
+  // ---- tunables ----
+  const WINDOW_SEC          = 2.4;   // regression window
+  const LATCH_ON_TURN       = 0.20;  // deg/s to latch "turning"
+  const LATCH_OFF_TURN      = 0.10;  // deg/s to unlatch
+  const LATCH_HOLD_MS       = 400;   // chatter guard
+  const MAX_BANK_DEG        = 35;
+  const MAX_ROLL_RATE       = 60;    // display slew (deg/s)
+  const MIN_GS_FOR_TURN     = 1;
+  const PITCH_LIMIT         = 25;
 
-    // --- 3. Physics & Smoothing Constants ---
-    const now = performance.now();
-    const PFD_PITCH_SCALE = 8;
-    const PFD_SPEED_SCALE = 7;
-    const PFD_SPEED_REF_VALUE = 120;
-    const PFD_ALTITUDE_SCALE = 0.7;
-    const PFD_REEL_SPACING = 30;
-    const PFD_HEADING_SCALE = 5;
-    const PFD_HEADING_REF_VALUE = 0;
+  const DATA_HOLD_MS        = 1400;  // hold last turn-rate after last fresh packet
+  const STALE_MS            = 4000;  // after this, allow full decay/unlatch
+  const HDG_EPS             = 0.4;   // unwrapped degrees to consider heading "changed"
+  const GS_EPS              = 0.5;   // kt change to consider GS "changed"
+  const DECAY_TO_LEVEL_DPS  = 12;    // decay when not turning
+  const MICRO_DECAY_FACTOR  = 0.25;  // softer decay before STALE_MS
 
-    // --- 4. State Management (Turn Coordinator Smoothing) ---
-    if (!window.lastPfdState || typeof window.lastPfdState !== 'object') {
-        window.lastPfdState = {
-            unwrapped: track_deg,
-            lastTime: now,
-            rollDisp: 0,
-            turning: false,
-            turnRateEma: 0,
-            rollSign: 0,
-            lastSignChangeTs: 0
-        };
+  const EMA_ALPHA           = 0.35;  // EMA smoothing on turn-rate (0..1)
+  const SIGN_MIN_DEG        = 3.0;   // min magnitude to accept L/R sign flip
+  const SIGN_HOLD_MS        = 250;   // new sign must persist this long
+
+  const now = performance.now();
+
+  // ---- persistent state ----
+  if (!window.lastPfdState || typeof window.lastPfdState !== 'object') {
+    window.lastPfdState = {
+      unwrapped: track_deg,
+      lastTime: now,
+      buf: [],                  // [{t, hdg}] for fresh samples only
+      rollDisp: 0,
+      turning: false,
+      lastTurnLatchTs: 0,
+
+      // freshness / hold
+      lastDataTs: 0,
+      lastTurnRate: 0,
+      lastRawTrack: track_deg,
+      lastRawGs: gs_kt,
+      prevUnwrapped: track_deg,
+
+      // smoothing & sign guard
+      turnRateEma: 0,
+      rollSign: 0,
+      lastSignChangeTs: 0
+    };
+  }
+  const S = window.lastPfdState;
+
+  // ---- unwrap heading ----
+  let delta = track_deg - (S.unwrapped % 360);
+  if (delta > 180)  delta -= 360;
+  if (delta < -180) delta += 360;
+  const unwrapped = S.unwrapped + delta;
+
+  // ---- detect "fresh" API packet vs. render tick (use unwrapped delta) ----
+  const unwrappedDelta = Math.abs(unwrapped - S.unwrapped);
+  const isFresh =
+    unwrappedDelta > HDG_EPS ||
+    Math.abs(gs_kt - S.lastRawGs) > GS_EPS;
+
+  // ---- manage regression buffer (only for fresh samples) ----
+  const tNow = now / 1000;
+  if (isFresh) {
+    S.lastDataTs = now;
+    S.lastRawTrack = track_deg;
+    S.lastRawGs = gs_kt;
+    const cutoff = tNow - WINDOW_SEC;
+    S.buf.push({ t: tNow, hdg: unwrapped });
+    while (S.buf.length && S.buf[0].t < cutoff) S.buf.shift();
+  }
+
+  // ---- turn-rate estimate (deg/s): fresh -> compute; else -> hold previous ----
+  let turnRate = S.lastTurnRate;
+  if (isFresh) {
+    if (S.buf.length >= 3 && gs_kt > MIN_GS_FOR_TURN) {
+      // linear regression slope
+      const t0 = S.buf[0].t;
+      let sumT = 0, sumH = 0, sumTT = 0, sumTH = 0, n = S.buf.length;
+      for (let i = 0; i < n; i++) {
+        const ti = S.buf[i].t - t0;
+        const hi = S.buf[i].hdg;
+        sumT  += ti;
+        sumH  += hi;
+        sumTT += ti * ti;
+        sumTH += ti * hi;
+      }
+      const denom = n * sumTT - sumT * sumT;
+      if (denom !== 0) {
+        turnRate = (n * sumTH - sumT * sumH) / denom; // deg/s
+      } else {
+        const dtS = Math.max(0.02, (now - S.lastTime) / 1000);
+        turnRate = (unwrapped - S.prevUnwrapped) / dtS;
+      }
+    } else {
+      const dtS = Math.max(0.02, (now - S.lastTime) / 1000);
+      turnRate = (unwrapped - S.prevUnwrapped) / dtS;
     }
-    const S = window.lastPfdState;
+    S.lastTurnRate = turnRate;
+  }
 
-    // Calculate Turn Rate
+  // ---- EMA smoothing on turn-rate ----
+  S.turnRateEma = EMA_ALPHA * turnRate + (1 - EMA_ALPHA) * S.turnRateEma;
+
+  // ---- hysteresis + data-hold for "turning" ----
+  const sinceFresh = now - S.lastDataTs;
+  const rateAbs    = Math.abs(S.turnRateEma);
+  const wasTurning = S.turning;
+  const forceTurningByHold = sinceFresh <= DATA_HOLD_MS && Math.abs(S.lastTurnRate) >= LATCH_OFF_TURN;
+
+  if (!wasTurning) {
+    if (rateAbs >= LATCH_ON_TURN || forceTurningByHold) {
+      S.turning = true;
+      S.lastTurnLatchTs = now;
+    }
+  } else {
+    const timeSinceLatch = now - S.lastTurnLatchTs;
+    const allowUnlatch = rateAbs < LATCH_OFF_TURN && timeSinceLatch > LATCH_HOLD_MS && sinceFresh > DATA_HOLD_MS;
+    if (allowUnlatch && sinceFresh > STALE_MS) {
+      S.turning = false;
+    } else if (rateAbs >= LATCH_OFF_TURN || forceTurningByHold) {
+      S.lastTurnLatchTs = now;
+    }
+  }
+
+  // ---- coordinated-turn bank target from smoothed rate ----
+  const Vms   = Math.max(0, gs_kt) * 0.514444;
+  const omega = (S.turnRateEma * Math.PI) / 180; // rad/s
+  const bankAbs = Math.atan(Math.abs(omega) * Vms / 9.81) * 180 / Math.PI;
+  let targetRoll = (S.turnRateEma >= 0 ? 1 : -1) * Math.min(bankAbs, MAX_BANK_DEG);
+
+  // ---- sign stickiness (prevents brief L/R flips) ----
+  const desiredSign = Math.sign(targetRoll);
+  if (desiredSign !== 0 && desiredSign !== S.rollSign) {
+    const bigEnough = Math.abs(targetRoll) >= SIGN_MIN_DEG;
+    const persisted = (now - S.lastSignChangeTs) >= SIGN_HOLD_MS;
+    if (bigEnough && persisted) {
+      S.rollSign = desiredSign;
+      S.lastSignChangeTs = now;
+    } else {
+      targetRoll = Math.abs(targetRoll) * (S.rollSign || desiredSign);
+    }
+  } else if (S.rollSign === 0 && desiredSign !== 0) {
+    S.rollSign = desiredSign;
+    S.lastSignChangeTs = now;
+  }
+
+  // ---- when not turning: decay toward level (hold pose before STALE_MS) ----
+  if (!S.turning) {
     const dt = Math.max(0.01, (now - S.lastTime) / 1000);
-    
-    // Unwrap heading to prevent 359->0 jumps
-    let delta = track_deg - (S.unwrapped % 360);
-    if (delta > 180) delta -= 360;
-    if (delta < -180) delta += 360;
-    const unwrapped = S.unwrapped + delta;
-    
-    const turnRate = (unwrapped - S.unwrapped) / dt;
-    S.unwrapped = unwrapped;
-    S.lastTime = now;
+    const base = DECAY_TO_LEVEL_DPS * dt;
+    const decayStep = sinceFresh <= STALE_MS ? base * MICRO_DECAY_FACTOR : base;
+    targetRoll = (Math.abs(S.rollDisp) <= decayStep) ? 0 : S.rollDisp - Math.sign(S.rollDisp) * decayStep;
+  }
 
-    // Smooth Turn Rate
-    S.turnRateEma = 0.35 * turnRate + (1 - 0.35) * S.turnRateEma;
+  // ---- slew-limit the displayed roll ----
+  {
+    const dt = Math.max(0.01, (now - S.lastTime) / 1000);
+    const maxStep = dt * MAX_ROLL_RATE;
+    const diff = targetRoll - S.rollDisp;
+    S.rollDisp += Math.abs(diff) > maxStep ? Math.sign(diff) * maxStep : diff;
+  }
 
-    // Calculate Bank Angle based on standard rate turn physics
-    // Max bank visual limit: 35 degrees
-    const Vms = Math.max(50, gs_kt) * 0.514444; // approx m/s
-    const omega = (S.turnRateEma * Math.PI) / 180;
-    const bankAbs = Math.atan(Math.abs(omega) * Vms / 9.81) * 180 / Math.PI;
-    let targetRoll = (S.turnRateEma >= 0 ? 1 : -1) * Math.min(bankAbs, 35);
+  // ---- update state timestamps/unwraps ----
+  S.unwrapped = unwrapped;
+  S.prevUnwrapped = unwrapped;
+  S.lastTime = now;
 
-    // Damping (decay to 0 if not turning)
-    if (Math.abs(turnRate) < 0.5) {
-        targetRoll = targetRoll * 0.9; 
-    }
-    
-    // Slew limit for visual smoothness
-    const maxRollStep = dt * 60; // 60 deg/s max roll rate
-    const rollDiff = targetRoll - S.rollDisp;
-    S.rollDisp += Math.abs(rollDiff) > maxRollStep ? Math.sign(rollDiff) * maxRollStep : rollDiff;
+  // ---- pitch from VS ----
+  const pitch_deg = Math.max(-PITCH_LIMIT, Math.min(PITCH_LIMIT, (vs_fpm / 1000) * 4));
 
-    // Pitch Limit
-    const pitch_deg = Math.max(-25, Math.min(25, (vs_fpm / 1000) * 4));
+  // ---- [FIX] Apply transforms to ALL found elements ----
+  const rollForSvg = -S.rollDisp; // SVG rotation sense
+  const attitudeTransform = `translate(0, ${pitch_deg * PFD_PITCH_SCALE}) rotate(${rollForSvg}, 401.5, 312.5)`;
+  attitudeGroups.forEach(el => el.setAttribute('transform', attitudeTransform));
 
-    // --- 5. Apply Transforms ---
-    
-    // Attitude
-    const rollForSvg = -S.rollDisp;
-    const attitudeTransform = `translate(0, ${pitch_deg * PFD_PITCH_SCALE}) rotate(${rollForSvg}, 401.5, 312.5)`;
-    attitudeGroups.forEach(el => el.setAttribute('transform', attitudeTransform));
+  // ---- [FIX] Apply tape/readout updates to ALL found elements ----
+  const speedYOffset = (gs_kt - PFD_SPEED_REF_VALUE) * PFD_SPEED_SCALE;
+  speedReadouts.forEach(el => el.textContent = Math.round(gs_kt));
+  speedTapeGroups.forEach(el => el.setAttribute('transform', `translate(0, ${speedYOffset})`));
 
-    // Speed Tape
-    // We offset the group vertically. 
-    // If Speed is 120, offset is 0. If 130, offset is -70 (move tape UP to show higher numbers)
-    const speedYOffset = (gs_kt - PFD_SPEED_REF_VALUE) * PFD_SPEED_SCALE;
-    speedReadouts.forEach(el => el.textContent = Math.round(gs_kt));
-    speedTapeGroups.forEach(el => el.setAttribute('transform', `translate(0, ${speedYOffset})`));
+  const altitude = Math.max(0, alt_ft);
+  const tapeYOffset = altitude * PFD_ALTITUDE_SCALE;
+  altReadoutHunds.forEach(el => el.textContent = Math.floor(altitude / 100));
+  altitudeTapeGroups.forEach(el => el.setAttribute('transform', `translate(0, ${tapeYOffset})`));
 
-    // Altitude Tape
-    const altitude = Math.max(0, alt_ft);
-    const tapeYOffset = altitude * PFD_ALTITUDE_SCALE;
-    altReadoutHunds.forEach(el => el.textContent = Math.floor(altitude / 100));
-    altitudeTapeGroups.forEach(el => el.setAttribute('transform', `translate(0, ${tapeYOffset})`));
+  const tensValue = altitude % 100;
+  // [FIXED] Removed negative sign. Moves DOWN (positive Y) as value increases to reveal numbers from above.
+  const reelYOffset = (tensValue / 20) * PFD_REEL_SPACING;
+  tensReelGroups.forEach(el => el.setAttribute('transform', `translate(0, ${reelYOffset})`));
 
-    // Altitude Reel (The rolling last two digits)
-    const tensValue = altitude % 100;
-    const reelYOffset = (tensValue / 20) * PFD_REEL_SPACING;
-    tensReelGroups.forEach(el => el.setAttribute('transform', `translate(0, ${reelYOffset})`));
+  const hdg = ((Math.round(track_deg) % 360) + 360) % 360;
+  const xOffset = -(track_deg - PFD_HEADING_REF_VALUE) * PFD_HEADING_SCALE;
+  headingReadouts.forEach(el => el.textContent = String(hdg).padStart(3, '0'));
+  headingTapeGroups.forEach(el => el.setAttribute('transform', `translate(${xOffset}, 0)`));
 
-    // Heading Tape
-    const hdg = ((Math.round(track_deg) % 360) + 360) % 360;
-    const hdgXOffset = -(track_deg - PFD_HEADING_REF_VALUE) * PFD_HEADING_SCALE;
-    headingReadouts.forEach(el => el.textContent = String(hdg).padStart(3, '0'));
-    headingTapeGroups.forEach(el => el.setAttribute('transform', `translate(${hdgXOffset}, 0)`));
+  // ---------------------------------------------------------
+  // ---- NEW: UPDATE FMA TEXT (Flight Mode Annunciator) ----
+  // ---------------------------------------------------------
+  
+  // 1. Determine Modes Logic
+  let thrustMode = "SPEED";
+  let vertMode = "ALT";
+  let latMode = "NAV";
+  let catStatus = ""; // E.g., "CAT3\nDUAL"
 
-    // --- 6. FMA (Flight Mode Annunciator) Logic ---
-    // This logic guesses the autopilot modes based on aircraft behavior
-    
-    let thrustMode = "SPEED";
-    let vertMode = "ALT";
-    let latMode = "NAV";
-    let catStatus = ""; 
+  // -- Logic: Phase Detection --
+  const isClimbing = vs_fpm > 400;
+  const isDescending = vs_fpm < -400;
+  const isOnGround = alt_ft < 50 && gs_kt > 30; // Pseudo-takeoff
+  const isTurning = Math.abs(S.rollDisp) > 3.0;
+  
+  // Use inferred alignment logic (Low alt, low speed, steady roll)
+  // Note: This assumes landing configuration without checking runways directly (simulated)
+  const isLandingConfig = alt_ft < 2500 && gs_kt < 180 && !isClimbing; 
+  const isEstablished = isLandingConfig && !isTurning;
 
-    const isClimbing = vs_fpm > 400;
-    const isDescending = vs_fpm < -400;
-    const isOnGround = alt_ft < 50 && gs_kt < 100; // Simplified ground logic
-    const isTurning = Math.abs(S.rollDisp) > 3.0;
-    const isLandingConfig = alt_ft < 2500 && gs_kt < 180 && !isClimbing;
-    
-    // 1. Thrust Mode
-    if (isOnGround && gs_kt > 40) thrustMode = "TOGA";
-    else if (isClimbing) thrustMode = "THR CLB";
-    else if (isDescending && alt_ft > 2000) thrustMode = "THR IDLE";
-    else thrustMode = "SPEED";
+  // -- Col 1: Auto-Thrust --
+  if (isOnGround) {
+      thrustMode = "TOGA";
+  } else if (isClimbing) {
+      thrustMode = "THR CLB";
+  } else if (isDescending) {
+      thrustMode = "THR IDLE";
+  } else {
+      thrustMode = "SPEED";
+  }
 
-    // 2. Vertical Mode
-    if (isClimbing) vertMode = "CLB";
-    else if (isDescending) vertMode = "DES";
-    else if (isLandingConfig && !isTurning && alt_ft < 2000) vertMode = "G/S";
-    else vertMode = "ALT";
+  // -- Col 2: Vertical Mode --
+  if (isClimbing) {
+      vertMode = "CLB";
+  } else if (isDescending) {
+      vertMode = "DES";
+  } else if (isEstablished && isLandingConfig) {
+      vertMode = "G/S";
+  } else {
+      vertMode = "ALT"; // Level flight
+  }
 
-    // 3. Lateral Mode
-    if (isOnGround) latMode = "RWY";
-    else if (isLandingConfig && !isTurning && alt_ft < 2000) latMode = "LOC";
-    else if (isTurning) latMode = "HDG";
-    else latMode = "LNAV";
+  // -- Col 3: Lateral Mode --
+  if (isOnGround) {
+      latMode = "RWY";
+  } else if (isEstablished && isLandingConfig) {
+      latMode = "LOC";
+  } else if (isTurning) {
+      latMode = "HDG";
+  } else {
+      latMode = "NAV";
+  }
 
-    // 4. Status
-    if (latMode === "LOC" && vertMode === "G/S" && alt_ft < 1000) {
-        catStatus = "CAT3\nDUAL";
-    }
+  // -- Col 4: Approach Status (Simulated) --
+  if (latMode === "LOC" && vertMode === "G/S" && alt_ft < 1000) {
+      catStatus = "CAT3\nDUAL"; 
+  }
 
-    // Update DOM
-    if (fmaCol1) fmaCol1.textContent = thrustMode;
-    if (fmaCol2) fmaCol2.textContent = vertMode;
-    if (fmaCol3) fmaCol3.textContent = latMode;
-    
-    if (fmaCol4) {
-        const lines = catStatus.split('\n');
-        const spans = fmaCol4.querySelectorAll('tspan');
-        if (spans.length >= 2) {
-            spans[0].textContent = lines[0] || "";
-            spans[1].textContent = lines[1] || "";
-        }
-    }
+  // 2. Update DOM
+  const fmaCol1 = document.getElementById('fma_col1_text');
+  const fmaCol2 = document.getElementById('fma_col2_text');
+  const fmaCol3 = document.getElementById('fma_col3_text');
+  const fmaCol4 = document.getElementById('fma_col4_text');
+
+  if (fmaCol1) fmaCol1.textContent = thrustMode;
+  if (fmaCol2) fmaCol2.textContent = vertMode;
+  if (fmaCol3) fmaCol3.textContent = latMode;
+
+  if (fmaCol4) {
+      // Handle multiline logic for Col 4
+      const lines = catStatus.split('\n');
+      const spans = fmaCol4.querySelectorAll('tspan');
+      if (spans.length >= 2) {
+          spans[0].textContent = lines[0] || "";
+          spans[1].textContent = lines[1] || "";
+      }
+  }
 }
 
     /**
- * --- [NEW] Resets the PFD state and visuals to neutral. ---
- * Call this when selecting a new aircraft to prevent displaying stale data.
- */
-function resetPfdState() {
-    // 1. Invalidate the persistent state object.
-    //    This forces updatePfdDisplay to re-initialize it on its next run.
-    window.lastPfdState = null;
+     * --- [NEW] Resets the PFD state and visuals to neutral. ---
+     * Call this when selecting a new aircraft to prevent displaying stale data.
+     */
+    function resetPfdState() {
+        // 1. Invalidate the persistent state object.
+        //    This forces updatePfdDisplay to re-initialize it on its next run.
+        window.lastPfdState = null;
 
-    // 2. Immediately set the core SVG elements to a neutral, "level flight" state.
-    const attitudeGroups = document.querySelectorAll('#attitude_group');
-    const speedTapeGroups = document.querySelectorAll('#speed_tape_group');
-    const altitudeTapeGroups = document.querySelectorAll('#altitude_tape_group');
-    const headingTapeGroups = document.querySelectorAll('#heading_tape_group');
-    const fmaCol1 = document.getElementById('fma_col1_text');
+        // 2. Immediately set the core SVG elements to a neutral, "level flight" state.
+        const attitudeGroup = document.getElementById('attitude_group');
+        const speedReadout = document.getElementById('speed_readout');
+        const altReadoutHund = document.getElementById('altitude_readout_hundreds');
+        const headingReadout = document.getElementById('heading_readout');
+        const speedTapeGroup = document.getElementById('speed_tape_group');
+        const altitudeTapeGroup = document.getElementById('altitude_tape_group');
+        const headingTapeGroup = document.getElementById('heading_tape_group');
 
-    // Reset Attitude (Pitch 0, Roll 0)
-    attitudeGroups.forEach(el => {
-        el.setAttribute('transform', 'translate(0, 0) rotate(0, 401.5, 312.5)');
-    });
-    
-    // Reset Tapes to 0 offset
-    speedTapeGroups.forEach(el => el.setAttribute('transform', 'translate(0, 0)'));
-    altitudeTapeGroups.forEach(el => el.setAttribute('transform', 'translate(0, 0)'));
-    headingTapeGroups.forEach(el => el.setAttribute('transform', 'translate(0, 0)'));
+        if (attitudeGroup) {
+            // Set to zero pitch translation and zero roll rotation.
+            attitudeGroup.setAttribute('transform', 'translate(0, 0) rotate(0, 401.5, 312.5)');
+        }
+        
+        // 3. Clear readouts to avoid showing the last aircraft's data.
+        if (speedReadout) speedReadout.textContent = '---';
+        if (altReadoutHund) altReadoutHund.textContent = '---';
+        if (headingReadout) headingReadout.textContent = '---';
 
-    // Clear Readouts
-    const readouts = ['speed_readout', 'altitude_readout_hundreds', 'heading_readout'];
-    readouts.forEach(id => {
-        document.querySelectorAll(`#${id}`).forEach(el => el.textContent = '---');
-    });
-
-    // Reset FMA text to prevent "TOGA" flashing on a new plane
-    if (fmaCol1) fmaCol1.textContent = "";
-}
+        // 4. Reset tape positions to zero.
+        if (speedTapeGroup) speedTapeGroup.setAttribute('transform', 'translate(0, 0)');
+        if (altitudeTapeGroup) altitudeTapeGroup.setAttribute('transform', 'translate(0, 0)');
+        if (headingTapeGroup) headingTapeGroup.setAttribute('transform', 'translate(0, 0)');
+    }
 
 
 /**
@@ -3987,6 +4171,30 @@ function setupAircraftWindowEvents() {
         const tabBtn = e.target.closest('.ac-info-tab-btn');
         const planBtn = e.target.closest('#plan-this-flight-btn');
         const profileToggleBtn = e.target.closest('.profile-toggle-btn');
+        const displayToggleBtn = e.target.closest('.display-toggle-btn'); // NEW HANDLER
+
+        // NEW: Handle Display Toggle (PFD/ND)
+        if (displayToggleBtn) {
+            e.preventDefault();
+            const targetViewId = displayToggleBtn.dataset.view;
+            const container = displayToggleBtn.closest('.pfd-main-panel');
+            
+            if (!container || !targetViewId) return;
+
+            // 1. Update Buttons
+            container.querySelectorAll('.display-toggle-btn').forEach(btn => btn.classList.remove('active'));
+            displayToggleBtn.classList.add('active');
+
+            // 2. Toggle Views
+            container.querySelectorAll('.display-bezel').forEach(view => {
+                if (view.id === targetViewId) {
+                    view.classList.remove('d-none');
+                } else {
+                    view.classList.add('d-none');
+                }
+            });
+            return;
+        }
 
         // 1. Handle VSD/SSD Toggle
         if (profileToggleBtn) {
@@ -5734,7 +5942,7 @@ function populateAircraftInfoWindow(baseProps, plan, sortedRoutePoints) {
                 data-departure="${departureIcao}" 
                 data-arrival="${arrivalIcao}" 
                 data-aircraft="${simbriefAircraftValue}"
-                style="width: 100%; margin-top: 10px;">
+                style="width: 100%; margin-top: 16px;">
             <i class="fa-solid fa-file-invoice"></i> Plan This Flight
         </button>`;
     }
@@ -5755,409 +5963,556 @@ function populateAircraftInfoWindow(baseProps, plan, sortedRoutePoints) {
     // --- HTML Construction ---
     windowEl.innerHTML = `
     <style>
-        /* --- NEW "Unified MFD" CSS --- */
-        
-        .ac-header-modern {
+        /* --- Shared Tech Style --- */
+        .tech-module {
+            background: #0f172a; /* Solid Dark Slate */
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            border-radius: 12px;
+            overflow: hidden;
+            box-shadow: 0 4px 15px rgba(0, 0, 0, 0.5);
+            margin-bottom: 12px;
+            display: flex;
+            flex-direction: column;
+        }
+
+        .tech-module-header {
+            background: rgba(30, 41, 59, 0.5); /* Slightly lighter header */
+            padding: 8px 12px;
+            border-bottom: 1px solid rgba(255, 255, 255, 0.05);
             display: flex;
             justify-content: space-between;
             align-items: center;
-            padding: 15px 20px;
-            /* No background here, lets the window gradient show */
         }
         
-        .ac-identity {
-            display: flex;
-            flex-direction: column;
-        }
-        .ac-callsign-large {
-            font-size: 1.6rem;
-            font-weight: 800;
-            color: #fff;
-            line-height: 1;
-            display: flex;
-            align-items: center;
-            gap: 10px;
-        }
-        .ac-sub-identity {
-            font-size: 0.85rem;
-            color: #94a3b8;
-            margin-top: 4px;
-            font-weight: 500;
-        }
-
-        /* --- TELEMETRY STRIP (The "Glare Shield") --- */
-        .telemetry-strip {
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-            background: rgba(0, 0, 0, 0.3);
-            border-top: 1px solid rgba(255, 255, 255, 0.08);
-            border-bottom: 1px solid rgba(255, 255, 255, 0.08);
-            padding: 10px 20px;
-            margin-bottom: 0;
-        }
-        
-        .tele-group {
-            display: flex;
-            flex-direction: column;
-            align-items: center;
-        }
-        .tele-label {
-            font-size: 0.65rem;
-            color: #64748b;
-            text-transform: uppercase;
-            letter-spacing: 1px;
-            font-weight: 700;
-            margin-bottom: 2px;
-        }
-        .tele-value {
-            font-family: 'Consolas', monospace;
-            font-size: 1.2rem;
-            color: #fff;
-            font-weight: 600;
-        }
-        .tele-unit {
-            font-size: 0.7rem;
-            color: #64748b;
-            font-weight: 400;
-            margin-left: 2px;
-        }
-        .tele-value.highlight { color: #38bdf8; text-shadow: 0 0 10px rgba(56, 189, 248, 0.3); }
-        .tele-value.accent { color: #facc15; }
-
-        /* --- MAIN DASHBOARD GRID --- */
-        .mfd-grid-container {
-            display: grid;
-            grid-template-columns: 380px 1fr; /* Fixed width visualizer, flexible data col */
-            gap: 12px;
-            padding: 12px 20px;
-            height: 480px; /* Fixed height for dashboard feel */
-            overflow: hidden;
-        }
-
-        /* --- LEFT COLUMN: THE VISUALIZER --- */
-        .visualizer-panel {
-            background: #000; /* Deep black for screen */
-            border-radius: 8px;
-            border: 2px solid #334155;
-            display: flex;
-            flex-direction: column;
-            overflow: hidden;
-            position: relative;
-            box-shadow: inset 0 0 30px rgba(0,0,0,0.8);
-        }
-
-        .vis-tabs {
-            display: flex;
-            background: #1e293b;
-            border-bottom: 1px solid #334155;
-        }
-        .vis-tab-btn {
-            flex: 1;
-            background: transparent;
-            border: none;
-            color: #64748b;
-            padding: 8px;
+        .tech-module-title {
             font-size: 0.75rem;
             font-weight: 700;
-            cursor: pointer;
-            transition: all 0.2s;
-            border-right: 1px solid #334155;
-        }
-        .vis-tab-btn:last-child { border-right: none; }
-        .vis-tab-btn:hover { color: #fff; background: rgba(255,255,255,0.05); }
-        .vis-tab-btn.active {
-            color: #38bdf8;
-            background: rgba(56, 189, 248, 0.1);
-            box-shadow: inset 0 -2px 0 #38bdf8;
+            color: #94a3b8; /* Muted text */
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+            display: flex;
+            align-items: center;
+            gap: 8px;
         }
 
-        .vis-content-area {
+        .tech-module-body {
+            padding: 12px;
+            background: #0f172a;
             position: relative;
-            flex-grow: 1;
-            overflow: hidden;
         }
-        
-        .vis-pane {
+
+        /* --- Tech Card Specifics --- */
+        .tech-card {
+            background: #0f172a; 
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            border-radius: 12px; 
+            overflow: hidden;
+            box-shadow: 0 4px 15px rgba(0, 0, 0, 0.5);
+            position: relative;
+            font-family: 'Inter', sans-serif;
+            margin-bottom: 12px; 
+        }
+        .tech-card-header {
+            padding: 12px 16px 4px; 
+            display: flex;
+            justify-content: space-between;
+            align-items: flex-start;
+            position: relative;
+            z-index: 10;
+        }
+        .tech-badge {
+            display: inline-flex;
+            align-items: center;
+            gap: 4px;
+            padding: 1px 6px;
+            border-radius: 999px;
+            background: rgba(16, 185, 129, 0.1);
+            border: 1px solid rgba(16, 185, 129, 0.2);
+            font-size: 9px;
+            font-weight: 700;
+            color: #34d399;
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+        }
+        .tech-ping {
+            position: relative;
+            display: flex;
+            height: 5px;
+            width: 5px;
+        }
+        .tech-ping span {
+            position: absolute;
+            display: inline-flex;
+            height: 100%;
+            width: 100%;
+            border-radius: 50%;
+            background-color: #34d399;
+        }
+        .tech-ping .animate {
+            animation: ping 1s cubic-bezier(0, 0, 0.2, 1) infinite;
+            opacity: 0.75;
+        }
+        @keyframes ping {
+            75%, 100% { transform: scale(2); opacity: 0; }
+        }
+        .tech-model {
+            font-size: 1.1rem;
+            font-weight: 700;
+            color: #fff;
+            letter-spacing: -0.025em;
+            margin: 0;
+            line-height: 1.2;
+        }
+        .tech-airline {
+            font-size: 0.75rem;
+            font-weight: 500;
+            color: rgba(56, 189, 248, 0.9);
+            margin-top: 0px;
+            display: flex;
+            align-items: center;
+            gap: 5px;
+        }
+        .tech-content {
+            padding: 12px;
+            position: relative;
+            z-index: 10;
+        }
+        .tech-image-container {
+            position: relative;
+            width: 100%;
+            aspect-ratio: 21 / 9;
+            border-radius: 8px;
+            overflow: hidden;
+            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.2);
+            border: 1px solid rgba(255, 255, 255, 0.05);
+            background: #000;
+        }
+        .tech-image {
+            width: 100%;
+            height: 100%;
+            object-fit: cover;
+            transition: transform 0.7s ease-out;
+        }
+        .tech-image-container:hover .tech-image {
+            transform: scale(1.05);
+        }
+        .tech-image-overlay {
             position: absolute;
             inset: 0;
-            display: none; /* Hidden by default */
-            opacity: 0;
-            transition: opacity 0.3s ease;
+            background: linear-gradient(to top, rgba(2, 6, 23, 0.9), transparent, transparent);
+            opacity: 0.8;
         }
-        .vis-pane.active {
-            display: block;
-            opacity: 1;
+        .tech-image-info {
+            position: absolute;
+            bottom: 8px;
+            left: 10px;
+            right: 10px;
+            display: flex;
+            justify-content: space-between;
+            align-items: flex-end;
         }
-
-        /* --- RIGHT COLUMN: CONTEXT DATA --- */
-        .context-panel {
+        .tech-photographer {
             display: flex;
             flex-direction: column;
-            gap: 10px;
-            height: 100%;
-            overflow: hidden;
         }
-
-        /* Simplified Sensor Strip */
-        .sensor-strip {
+        .tech-photo-label {
+            font-size: 9px;
+            color: #cbd5e1;
+            font-weight: 500;
+            margin-bottom: 0px;
+            line-height: 1;
+        }
+        .tech-photo-name {
             display: flex;
-            gap: 8px;
+            align-items: center;
+            gap: 4px;
+            font-size: 10px;
+            font-weight: 600;
+            color: #fff;
         }
-        .sensor-pill {
-            flex: 1;
-            background: rgba(30, 41, 59, 0.4);
+        .tech-grid {
+            display: grid;
+            grid-template-columns: repeat(2, 1fr);
+            gap: 8px;
+            margin-top: 12px;
+        }
+        .tech-stat-card {
+            background: rgba(30, 41, 59, 0.5);
             border: 1px solid rgba(255, 255, 255, 0.05);
-            border-radius: 4px;
+            padding: 8px 10px;
+            border-radius: 6px;
+            transition: background 0.2s;
+        }
+        .tech-stat-card:hover {
+            background: rgba(30, 41, 59, 0.8);
+        }
+        .tech-stat-header {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            margin-bottom: 2px;
+        }
+        .tech-stat-label {
+            font-size: 9px;
+            font-weight: 600;
+            color: #94a3b8;
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+        }
+        .tech-stat-value {
+            font-family: 'Consolas', 'Monaco', monospace;
+            font-size: 0.95rem;
+            color: #fff;
+            font-weight: 600;
+            letter-spacing: -0.025em;
+        }
+        .tech-country-card {
+            grid-column: span 2;
+            background: rgba(30, 41, 59, 0.3);
+            border: 1px solid rgba(255, 255, 255, 0.05);
             padding: 6px 10px;
+            border-radius: 6px;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+        }
+        .tech-country-left {
             display: flex;
             align-items: center;
             gap: 8px;
-            font-size: 0.75rem;
-            color: #94a3b8;
-            font-weight: 600;
         }
-        .sensor-dot {
-            width: 8px; height: 8px; border-radius: 50%; background: #334155;
-            box-shadow: 0 0 5px rgba(0,0,0,0.5);
-        }
-        /* Active States */
-        .sensor-pill.active-green { border-color: rgba(16, 185, 129, 0.3); background: rgba(16, 185, 129, 0.1); color: #fff; }
-        .sensor-pill.active-green .sensor-dot { background: #10b981; box-shadow: 0 0 8px #10b981; }
-        
-        .sensor-pill.active-amber { border-color: rgba(245, 158, 11, 0.3); background: rgba(245, 158, 11, 0.1); color: #fff; }
-        .sensor-pill.active-amber .sensor-dot { background: #f59e0b; box-shadow: 0 0 8px #f59e0b; }
-
-        .sensor-pill.active-blue { border-color: rgba(56, 189, 248, 0.3); background: rgba(56, 189, 248, 0.1); color: #fff; }
-        .sensor-pill.active-blue .sensor-dot { background: #38bdf8; box-shadow: 0 0 8px #38bdf8; }
-
-        /* FMS List styling adjustments */
-        .fms-module-container {
-            flex-grow: 1; /* Take up all remaining height */
-            height: auto !important;
-            max-height: none !important;
-            margin-bottom: 0 !important;
-            background: rgba(15, 23, 42, 0.6) !important;
-        }
-        
-        /* Weather Strip at bottom right */
-        .env-strip {
-            display: grid;
-            grid-template-columns: 1fr 1fr;
-            gap: 8px;
-        }
-        .env-card {
-            background: rgba(30, 41, 59, 0.4);
-            border: 1px solid rgba(255, 255, 255, 0.05);
-            padding: 8px;
+        .tech-country-icon {
+            width: 24px;
+            height: 24px;
             border-radius: 4px;
+            background: rgba(51, 65, 85, 0.5);
             display: flex;
-            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            color: #94a3b8;
         }
-        .env-label { font-size: 0.65rem; color: #64748b; font-weight: 700; margin-bottom: 2px; }
-        .env-value { font-size: 0.9rem; color: #fff; font-family: 'Consolas', monospace; }
-
-
-        /* --- PFD OVERRIDES to fit new container --- */
-        #pfd-container svg {
-            width: 100%; height: 100%; /* Stretch to container */
-            aspect-ratio: auto; /* Allow flexible aspect ratio */
+        .tech-bottom-bar {
+            height: 3px;
+            width: 100%;
+            background: linear-gradient(to right, #0ea5e9, #2563eb, #4f46e5);
+            opacity: 0.8;
         }
-        
-        /* Mobile Breakpoint */
-        @media (max-width: 900px) {
-            .mfd-grid-container {
-                grid-template-columns: 1fr; /* Stack vertically on small screens */
-                height: auto;
-                overflow: visible;
-            }
-            .visualizer-panel {
-                height: 350px; /* Fixed height for visuals on mobile */
-            }
-            .context-panel {
-                height: auto;
-            }
-            .fms-module-container {
-                height: 300px !important; /* Force height on mobile */
-            }
+
+        /* --- FMS Overrides for Tech Style --- */
+        .fms-columns {
+            border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+            color: #94a3b8;
+        }
+        .fms-row {
+            border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+        }
+        .fms-footer {
+            background: rgba(30, 41, 59, 0.3);
+            border-top: 1px solid rgba(255, 255, 255, 0.1);
+        }
+
+        /* --- Nav Data Overrides --- */
+        .nav-header {
+             display: none; 
+        }
+        #location-data-panel {
+            background: transparent;
+            border: none;
+            box-shadow: none;
+        }
+        .nav-grid-container {
+            padding: 0;
+        }
+        .nav-cell {
+            background: rgba(30, 41, 59, 0.5);
+            border: 1px solid rgba(255, 255, 255, 0.05);
+        }
+
+        /* --- VSD Overrides --- */
+        .vsd-module-container {
+             background: transparent; 
+             border: none;
+             box-shadow: none;
+        }
+        .vsd-footer {
+            background: rgba(30, 41, 59, 0.3);
+            border-top: 1px solid rgba(255, 255, 255, 0.1);
+        }
+        .vsd-graph-window {
+            background: #0f172a;
+        }
+        #vsd-y-axis {
+            background: #0f172a;
+            border-right: 1px solid rgba(255, 255, 255, 0.1);
         }
     </style>
 
-    <div class="info-window-content" style="padding: 0; display: flex; flex-direction: column; height: 100%;">
-        
-        <div class="ac-header-modern">
-            <div class="ac-identity">
-                <div class="ac-callsign-large">${logoHtml} ${baseProps.callsign}</div>
-                <div class="ac-sub-identity">${airlineName} &bull; ${aircraftName}</div>
-            </div>
+    <div class="info-window-content">
+        <div class="aircraft-overview-panel" id="ac-overview-panel">
             <div class="overview-actions">
                 <button class="aircraft-window-hide-btn" title="Hide"><i class="fa-solid fa-compress"></i></button>
                 <button class="aircraft-window-close-btn" title="Close"><i class="fa-solid fa-xmark"></i></button>
             </div>
-        </div>
-        
-        <div class="telemetry-strip">
-            <div class="tele-group">
-                <span class="tele-label">Ground Spd</span>
-                <span class="tele-value" id="ac-gs">---</span>
-            </div>
-            <div class="tele-group">
-                <span class="tele-label">Altitude</span>
-                <span class="tele-value highlight" id="ac-alt">---</span>
-            </div>
-            <div class="tele-group">
-                <span class="tele-label">Vertical Spd</span>
-                <span class="tele-value" id="ac-vs-strip">---</span>
-            </div>
-            <div class="tele-group">
-                <span class="tele-label">Heading</span>
-                <span class="tele-value" id="ac-hdg">---</span>
-            </div>
-             <div class="tele-group">
-                <span class="tele-label">Phase</span>
-                <div class="flight-rules-badge" id="ac-phase-badge" style="padding: 2px 8px; font-size: 0.7rem;">---</div>
+            <div class="overview-content">
+                <div class="overview-col-left">
+                    <h3 id="ac-header-callsign">${logoHtml}${baseProps.callsign}</h3>
+                    <p id="ac-header-subtext-container">
+                        <span class="ac-header-subtext" id="ac-header-livery">${airlineName}</span>
+                        <span class="ac-header-subtext" id="ac-header-actype">${aircraftName}</span>
+                    </p>
+                </div>
+                <div class="overview-col-right">
+                    <span class="route-icao" id="ac-header-dep">${departureIcao}</span>
+                    <span class="route-icao" id="ac-header-arr">${arrivalIcao}</span>
+                </div>
             </div>
         </div>
 
-        <div class="route-summary-overlay" style="padding: 10px 20px; background: rgba(0,0,0,0.2);">
-             <div class="route-summary-airport" id="route-summary-dep" style="transform: scale(0.9); transform-origin: left;">
+        <div class="route-summary-overlay">
+            <div class="route-summary-airport" id="route-summary-dep">
                 <div class="airport-line">
-                    <img src="${depFlagSrc}" class="country-flag" id="ac-bar-dep-flag" style="display: ${depFlagDisplay};">
+                    <img src="${depFlagSrc}" class="country-flag" id="ac-bar-dep-flag" alt="${depCountryCode}" style="display: ${depFlagDisplay};">
                     <span class="icao" id="ac-bar-dep">${departureIcao}</span>
                 </div>
+                <span class="time" id="ac-bar-atd">${atdTime} Z</span>
             </div>
-            <div class="route-progress-container" style="min-height: 10px;">
-                <div class="route-progress-bar-container" style="height: 4px;">
+            <div class="route-progress-container">
+                <div class="route-progress-bar-container">
                     <div class="progress-bar-fill" id="ac-progress-bar"></div>
                 </div>
+                <div class="flight-phase-indicator" id="ac-phase-indicator">ENROUTE</div>
             </div>
-            <div class="route-summary-airport" id="route-summary-arr" style="transform: scale(0.9); transform-origin: right;">
+            <div class="route-summary-airport" id="route-summary-arr">
                  <div class="airport-line">
                     <span class="icao" id="ac-bar-arr">${arrivalIcao}</span>
-                    <img src="${arrFlagSrc}" class="country-flag" id="ac-bar-arr-flag" style="display: ${arrFlagDisplay};">
+                    <img src="${arrFlagSrc}" class="country-flag" id="ac-bar-arr-flag" alt="${arrCountryCode}" style="display: ${arrFlagDisplay};">
                 </div>
+                <span class="time" id="ac-bar-eta">${etaTime} Z</span>
             </div>
         </div>
 
-        <div class="ac-info-window-tabs" style="height: 40px; min-height: 40px;">
+        <div class="ac-info-window-tabs">
             <div class="ac-tabs-wrapper">
-                <button class="ac-info-tab-btn active" data-tab="ac-tab-flight-data" style="font-size: 0.8rem;">
-                    <i class="fa-solid fa-gauge-high"></i> Flight Deck
+                <button class="ac-info-tab-btn active" data-tab="ac-tab-flight-data">
+                    <i class="fa-solid fa-gauge-high"></i> Flight Display
                 </button>
-                <button class="ac-info-tab-btn pilot-tab-btn" data-tab="ac-tab-pilot-report" data-user-id="${baseProps.userId}" data-username="${pilotUsername}" style="font-size: 0.8rem;">
-                    <i class="fa-solid fa-user-pilot"></i> ${pilotReportTabText}
+                <button class="ac-info-tab-btn pilot-tab-btn" data-tab="ac-tab-pilot-report" data-user-id="${baseProps.userId}" data-username="${pilotUsername}">
+                    <i class="fa-solid fa-chart-simple"></i> ${pilotReportTabText}
                 </button>
             </div>
+            <img src="Images/inflight.png" alt="Inflight Logo" class="ac-info-tab-logo">
         </div>
 
-        <div class="unified-display-main-content" style="padding: 0; background: transparent;">
-            
-            <div id="ac-tab-flight-data" class="ac-tab-pane active" style="height: 100%; display: block;">
+        <div class="unified-display-main-content">
+            <div id="ac-tab-flight-data" class="ac-tab-pane active">
                 
-                <div class="mfd-grid-container">
-                    
-                    <div class="visualizer-panel">
-                        <div class="vis-tabs" id="visualizer-tabs">
-                            <button class="vis-tab-btn active" data-target="vis-pfd">PFD</button>
-                            <button class="vis-tab-btn" data-target="vis-map">MAP (ND)</button>
-                            <button class="vis-tab-btn" data-target="vis-vsd">PROFILE (VSD)</button>
+                <div class="pfd-and-location-grid">
+                    <div class="pfd-main-panel">
+                        
+                        <div class="display-toggle-container">
+                            <div class="display-toggle-group">
+                                <button class="display-toggle-btn active" data-view="view-pfd">PFD</button>
+                                <button class="display-toggle-btn" data-view="view-nd">NAV</button>
+                            </div>
+                        </div>
+
+                        <div id="view-pfd" class="display-bezel">
+                            <div class="screw tl"></div><div class="screw tr"></div><div class="screw bl"></div><div class="screw br"></div>
+                            <div class="crt-container scanlines" id="pfd-container">
+                                <svg width="787" height="800" viewBox="0 0 787 800" fill="none" xmlns="http://www.w3.org/2000/svg">
+                                    <g id="PFD" clip-path="url(#clip0_1_2890)">
+                                    <g transform="translate(0, 100)">
+                                        <g id="attitude_group">
+                                            <rect id="Sky" x="-186" y="-222" width="1121" height="600" fill="#0596FF"/>
+                                            <rect id="Ground" x="-138" y="307" width="1024" height="527" fill="#9A4710"/>
+                                        </g>
+                                        <rect id="Rectangle 1" x="-6" y="5" width="191" height="566" fill="#030309"/>
+                                        <rect id="Rectangle 9" x="609" width="185" height="566" fill="#030309"/>
+                                        <path id="Rectangle 2" d="M273.905 84.9424L180.983 183.181L-23 -9.76114L69.9218 -108L273.905 84.9424Z" fill="#030309"/>
+                                        <path id="Rectangle 8" d="M303.215 77.0814L187.591 147.198L42 -92.8829L157.624 -163L303.215 77.0814Z" fill="#030309"/>
+                                        <path id="Rectangle 7" d="M372.606 54.0171L244.59 97.5721L154.152 -168.242L282.169 -211.796L372.606 54.0171Z" fill="#030309"/>
+                                        <rect id="Rectangle 10" x="25" y="487.905" width="168.696" height="262.947" transform="rotate(-31.8041 25 487.905)" fill="#030309"/>
+                                        <rect id="Rectangle 14" width="67.3639" height="53.5561" transform="matrix(-0.972506 0.23288 0.23288 0.972506 482.512 537)" fill="#030309"/>
+                                        <rect id="Rectangle 19" width="80.8905" height="53.5561" transform="matrix(-0.999899 0.0142423 0.0142423 0.999899 442.882 549.506)" fill="#030309"/>
+                                        <rect id="Rectangle 18" width="46.2297" height="53.5561" transform="matrix(-0.988103 -0.153795 -0.153795 0.988103 369.916 549.11)" fill="#030309"/>
+                                        <rect id="Rectangle 17" width="46.2297" height="53.5561" transform="matrix(-0.940186 -0.340662 -0.340662 0.940186 337.709 546.749)" fill="#030309"/>
+                                        <rect id="Rectangle 16" width="46.2297" height="53.5561" transform="matrix(-0.940186 -0.340662 -0.340662 0.940186 299.709 531.749)" fill="#030309"/>
+                                        <rect id="Rectangle 15" x="387" y="587.269" width="168.696" height="262.947" transform="rotate(-27.6434 387 587.269)" fill="#030309"/>
+                                        <rect id="Rectangle 13" x="86" y="584.104" width="168.696" height="262.947" transform="rotate(-46.8648 86 584.104)" fill="#030309"/>
+                                        <rect id="Rectangle 11" x="527" y="532.777" width="168.696" height="262.947" transform="rotate(-51.9135 527 532.777)" fill="#030309"/>
+                                        <rect id="Rectangle 12" x="503" y="527.247" width="168.696" height="262.947" transform="rotate(-31.9408 503 527.247)" fill="#030309"/>
+                                        <rect id="Rectangle 6" x="456.715" y="60.2651" width="131.991" height="278.153" transform="rotate(-177.303 456.715 60.2651)" fill="#030309"/>
+                                        <rect id="Rectangle 5" x="525.118" y="90.4898" width="131.991" height="274.627" transform="rotate(-158.368 525.118 90.4898)" fill="#030309"/>
+                                        <rect id="Rectangle 4" x="570.695" y="127.633" width="109.94" height="223.222" transform="rotate(-142.051 570.695 127.633)" fill="#030309"/>
+                                        <rect id="Rectangle 3" x="613.292" y="189.098" width="99.2768" height="223.222" transform="rotate(-128.125 613.292 189.098)" fill="#030309"/>
+                                        <path id="Vector 3" d="M609 183V422.5" stroke="#E7E6E8" stroke-width="4"/>
+                                        <path id="Vector 1" d="M185.5 425.5L185 180" stroke="#DBDBDC" stroke-width="4"/>
+                                        <path id="Vector 2" d="M185 181.502C185 181.502 269.8 52.0936 397 56.0907C524.2 60.0879 576.603 135.189 609 184" stroke="#DBDBDC" stroke-width="4"/>
+                                        <path id="Vector 4" d="M608.5 424.5C608.5 424.5 557 548 396 550.5C235 553 185 424.5 185 424.5" stroke="#DBDBDC" stroke-width="4"/>
+                                        <path id="Polygon 1" d="M396.252 65.2333L377.848 35.8138L414.647 35.8079L396.252 65.2333Z" fill="#E7F013"/>
+                                        <path id="Polygon 2" d="M407.919 38.9482L396.431 59.4193L384.446 38.7244L407.919 38.9482Z" fill="#030309"/>
+                                        <path id="Vector 6" d="M307 76L302 64.5L312 60.5L317 71" stroke="#E7E6E8" stroke-width="4"/>
+                                        <path id="Vector 7" d="M279.5 91L268.5 73.5L259 79L269.5 97.5" stroke="#E7E6E8" stroke-width="4"/>
+                                        <path id="Vector 8" d="M225 135L206.5 117" stroke="#E7E6E8" stroke-width="4"/>
+                                        <path id="Vector 9" d="M477.153 71.5794L479.366 59.3018L489.886 61.5697L488.226 73.0218" stroke="#E7E6E8" stroke-width="4"/>
+                                        <path id="Vector 10" d="M347.928 61.4888L346.352 49.0483L357.072 48.0112L358.929 59.4917" stroke="#E7E6E8" stroke-width="4"/>
+                                        <path id="Vector 11" d="M435.153 59.5794L437.366 47.3018L447.886 49.5697L446.226 61.0218" stroke="#E7E6E8" stroke-width="4"/>
+                                        <path id="Vector 12" d="M514.032 86.1754L522.756 72.2658L533.956 78.0405L525.5 93.5" stroke="#E7E6E8" stroke-width="4"/>
+                                        <path id="Vector 13" d="M569.5 131.5L585.5 116" stroke="#E7E6E8" stroke-width="4"/>
+                                        <path id="Vector 15" d="M183.5 193.5L173 187" stroke="#029705" stroke-width="4"/>
+                                        <path id="Vector 16" d="M184 203L173.5 196.5" stroke="#029705" stroke-width="4"/>
+                                        <path id="Vector 17" d="M610 193.5L619 188" stroke="#029705" stroke-width="3"/>
+                                        <path id="Vector 18" d="M610 199.5L619 194" stroke="#029705" stroke-width="3"/>
+                                        <line id="Line 1" x1="184" y1="211" x2="184" y2="184" stroke="#DBDBDC" stroke-width="2"/>
+                                        <line id="Line 2" x1="610" y1="211" x2="610" y2="184" stroke="#DBDBDC" stroke-width="2"/>
+                                        <rect id="altitude_bg" x="675" y="73" width="72" height="476" fill="#76767A"/>
+                                        <g clip-path="url(#altTapeClip)">
+                                            <svg x="675" y="73" width="72" height="476"><g id="altitude_tape_group"></g></svg>
+                                        </g>
+                                        <g id="altitude_indicator_static">
+                                            <rect id="altitude_1" x="675" y="280" width="73" height="49" fill="#030309"/>
+                                            <text id="altitude_readout_hundreds" x="740" y="316" fill="#00FF00" font-size="32" text-anchor="end" font-weight="bold">0</text>
+                                            <g id="altitude_tens_reel_container" clip-path="url(#tensReelClip)"><g id="altitude_tens_reel_group"></g></g>
+                                            <line id="Line 8" x1="669" y1="307" x2="618" y2="307" stroke="#DDDF07" stroke-width="8"/>
+                                        </g>
+                                        <path id="limit" d="M636 336.08L621.413 307.511L650.858 307.651L636 336.08Z" fill="#C477C6"/>
+                                        <path id="limit2" d="M636 279L650.722 307.5H621.278L636 279Z" fill="#C477C6"/>
+                                        <path id="limit3" d="M636 285L643.794 303H628.206L636 285Z" fill="#100010"/>
+                                        <path id="limit4" d="M636.191 329.14L628.276 311.242L643.534 310.999L636.191 329.14Z" fill="#030309"/>
+                                        <line id="Line 6" x1="746.5" y1="263" x2="746.5" y2="281" stroke="#ECED06" stroke-width="3"/>
+                                        <line id="Line 4" x1="746.5" y1="329" x2="746.5" y2="347" stroke="#ECED06" stroke-width="3"/>
+                                        <path id="Ellipse 1" d="M636 481C636 484.866 632.866 488 629 488C625.134 488 622 484.866 622 481C622 477.134 625.134 474 629 474C632.866 474 636 477.134 636 481Z" fill="#D9D9D9"/>
+                                        <path id="Ellipse 4" d="M636 147C636 150.866 632.866 154 629 154C625.134 154 622 150.866 622 147C622 143.134 625.134 140 629 140C632.866 140 636 143.134 636 147Z" fill="#D9D9D9"/>
+                                        <g id="Ellipse 3">
+                                            <path d="M636 229C636 232.866 632.866 236 629 236C625.134 236 622 232.866 622 229C622 225.134 625.134 222 629 222C632.866 222 636 225.134 636 229Z" fill="#D9D9D9"/>
+                                            <path d="M636 395C636 398.866 632.866 402 629 402C625.134 402 622 398.866 622 395C622 391.134 625.134 388 629 388C632.866 388 636 391.134 636 395Z" fill="#D9D9D9"/>
+                                        </g>
+                                        <rect id="speed" x="28" y="73" width="97" height="477" fill="#76767A"/>
+                                        <g clip-path="url(#speedTapeClip)">
+                                            <svg x="28" y="73" width="97" height="477"><g id="speed_tape_group"></g></svg>
+                                        </g>
+                                        <g id="speed_indicator_static">
+                                            <path id="Polygon 9" d="M128.036 311.591L150.451 301.561L150.513 321.482L128.036 311.591Z" fill="#FDFD03"/>
+                                            <path id="Vector 20" d="M137 311H96.5" stroke="#FDFD03" stroke-width="4"/>
+                                            <rect x="50" y="296" width="45" height="30" fill="black" stroke="#999" stroke-width="1"/>
+                                            <text id="speed_readout" x="72.5" y="318" fill="#00FF00" font-size="20" text-anchor="middle" font-weight="bold">0</text>
+                                        </g>
+                                        <path id="Vector 19" d="M19.5 311H31" stroke="#FDFD03" stroke-width="4"/>
+                                        <path id="Vector 21" d="M29 73H151.5" stroke="#E7E6E8" stroke-width="4"/>
+                                        <path id="Vector 22" d="M28 549H151.5" stroke="#E7E6E8" stroke-width="4"/>
+                                        <path id="Vector 23" d="M672.5 73H774" stroke="#E7E6E8" stroke-width="4"/>
+                                        <path id="Vector 24" d="M672 548.5H773" stroke="#E7E6E8" stroke-width="4"/>
+                                        <path id="Vector 25" d="M745 549.5L746 347" stroke="#E7E6E8" stroke-width="3"/>
+                                        <path id="Vector 26" d="M745 73V265" stroke="#E7E6E8" stroke-width="3"/>
+                                        <g id="wings">
+                                            <rect id="Rectangle 21" x="280" y="315" width="11" height="25" fill="#030309"/>
+                                            <rect id="Rectangle 23" x="522" y="304" width="71" height="12" fill="#030309"/>
+                                            <rect id="Rectangle 22" x="512" y="305" width="13" height="35" fill="#030309"/>
+                                            <rect id="Rectangle 20" x="208" y="304" width="83" height="13" fill="#030309"/>
+                                            <g id="wing">
+                                                <path d="M278.591 316.857H208V304H291.608V340H278.591V316.857Z" stroke="#FEFE03" stroke-width="3"/>
+                                                <path d="M511.392 340V304H595V316.857H524.409V340H511.392Z" stroke="#FEFE03" stroke-width="3"/>
+                                            </g>
+                                        </g>
+                                        <g id="middle">
+                                            <rect id="middle_2" x="393" y="304" width="17" height="17" fill="#0CC704"/>
+                                            <rect id="Rectangle 24" x="395" y="307" width="13" height="11" fill="#030309"/>
+                                        </g>
+                                        <rect id="Rectangle 25" y="571" width="787" height="140" fill="#030309"/>
+                                        <rect id="header" x="243" y="599" width="326" height="66" fill="#76767A"/>
+                                        <g id="heading_indicator">
+                                            <g id="heading_tape_container" clip-path="url(#headingClip)"><g id="heading_tape_group"></g></g>
+                                            <g id="heading_static_elements">
+                                                <line x1="406" y1="620" x2="406" y2="635" stroke="#FDFD03" stroke-width="3"/>
+                                                <rect x="381" y="599" width="50" height="20" fill="black" stroke="#FFFFFF" stroke-width="1"/>
+                                                <text id="heading_readout" x="406" y="615" fill="#00FF00" font-size="16" text-anchor="middle" font-weight="bold">000</text>
+                                            </g>
+                                        </g>
+                                        <path id="Vector 27" d="M243 599V667" stroke="#FCFCFF" stroke-width="4"/>
+                                        <g id="Line 5"><line id="Line 5_2" x1="745" y1="264.5" x2="787" y2="264.5" stroke="#ECED06" stroke-width="3"/></g>
+                                        <line id="Line 6_2" x1="671" y1="279.5" x2="748" y2="279.5" stroke="#ECED06" stroke-width="3"/>
+                                        <line id="Line 7" x1="671" y1="329.5" x2="748" y2="329.5" stroke="#ECED06" stroke-width="3"/>
+                                        <line id="Line 3" x1="746" y1="345.5" x2="786" y2="345.5" stroke="#ECED06" stroke-width="3"/>
+                                    </g> 
+                                    </g>
+                                    <defs>
+                                        <clipPath id="clip0_1_2890"><rect width="787" height="800" fill="white"/></clipPath>
+                                        <clipPath id="tensReelClip"><rect x="732" y="269" width="50" height="75"/></clipPath>
+                                        <clipPath id="headingClip"><rect x="243" y="620" width="326" height="45"/></clipPath>
+                                        <clipPath id="speedTapeClip"><rect x="28" y="73" width="97" height="477"/></clipPath>
+                                        <clipPath id="altTapeClip"><rect x="675" y="73" width="72" height="476"/></clipPath>
+                                    </defs>
+                                </svg>
+                            </div>
                         </div>
                         
-                        <div class="vis-content-area">
-                            <div id="vis-pfd" class="vis-pane active" style="background: #000;">
-                                <div class="crt-container" id="pfd-container" style="border: none; border-radius: 0; box-shadow: none;">
-                                    <svg width="787" height="800" viewBox="0 0 787 800" fill="none" xmlns="http://www.w3.org/2000/svg">
-                                        <g id="PFD" clip-path="url(#clip0_1_2890)">
-                                            <g transform="translate(0, 100)">
-                                                <g id="attitude_group">
-                                                    <rect id="Sky" x="-186" y="-222" width="1121" height="600" fill="#0596FF"/>
-                                                    <rect id="Ground" x="-138" y="307" width="1024" height="527" fill="#9A4710"/>
-                                                </g>
-                                                <rect id="speed" x="28" y="73" width="97" height="477" fill="rgba(0,0,0,0.5)"/>
-                                                <g clip-path="url(#speedTapeClip)">
-                                                    <svg x="28" y="73" width="97" height="477"><g id="speed_tape_group"></g></svg>
-                                                </g>
-                                                <text id="speed_readout" x="72.5" y="318" fill="#00FF00" font-size="20" text-anchor="middle" font-weight="bold">0</text>
-                                                
-                                                <rect id="altitude_bg" x="675" y="73" width="72" height="476" fill="rgba(0,0,0,0.5)"/>
-                                                <g clip-path="url(#altTapeClip)">
-                                                    <svg x="675" y="73" width="72" height="476"><g id="altitude_tape_group"></g></svg>
-                                                </g>
-                                                <text id="altitude_readout_hundreds" x="740" y="316" fill="#00FF00" font-size="32" text-anchor="end" font-weight="bold">0</text>
-                                                <g id="altitude_tens_reel_container" clip-path="url(#tensReelClip)"><g id="altitude_tens_reel_group"></g></g>
-                                                
-                                                <g id="heading_indicator">
-                                                    <g id="heading_tape_container" clip-path="url(#headingClip)"><g id="heading_tape_group"></g></g>
-                                                    <text id="heading_readout" x="406" y="615" fill="#00FF00" font-size="16" text-anchor="middle" font-weight="bold">000</text>
-                                                </g>
-                                                
-                                                <rect id="middle_2" x="393" y="304" width="17" height="17" fill="#0CC704"/>
-                                                <g id="wings">
-                                                     <path d="M278.591 316.857H208V304H291.608V340H278.591V316.857Z" stroke="#FEFE03" stroke-width="3"/>
-                                                     <path d="M511.392 340V304H595V316.857H524.409V340H511.392Z" stroke="#FEFE03" stroke-width="3"/>
-                                                </g>
-                                            </g> 
-                                        </g>
-                                        <defs>
-                                            <clipPath id="clip0_1_2890"><rect width="787" height="800" fill="white"/></clipPath>
-                                            <clipPath id="tensReelClip"><rect x="732" y="269" width="50" height="75"/></clipPath>
-                                            <clipPath id="headingClip"><rect x="243" y="620" width="326" height="45"/></clipPath>
-                                            <clipPath id="speedTapeClip"><rect x="28" y="73" width="97" height="477"/></clipPath>
-                                            <clipPath id="altTapeClip"><rect x="675" y="73" width="72" height="476"/></clipPath>
-                                        </defs>
-                                    </svg>
+                        <div id="view-nd" class="display-bezel d-none">
+                            <div class="screw tl"></div><div class="screw tr"></div><div class="screw bl"></div><div class="screw br"></div>
+                            <div class="crt-container scanlines">
+                                <div id="nd-container">
+                                    <iframe id="nav-display-frame" src="nav.html" scrolling="no"></iframe>
                                 </div>
+                            </div>
+                        </div>
+
+                    </div>
+                    
+                    <div class="info-right-col">
+                        <div class="tech-module" id="cockpit-seat-sensor">
+                            <div class="tech-module-header">
+                                <span class="tech-module-title"><i class="fa-solid fa-chair"></i> COCKPIT STATE</span>
+                                <span class="fms-page-count"><i class="fa-solid fa-satellite-dish"></i></span>
+                            </div>
+                            <div class="tech-module-body">
+                                <div class="cockpit-view">
+                                    <div id="seat-cpt" class="seat" data-role="CPT"></div>
+                                    <div id="seat-fo" class="seat" data-role="FO"></div>
+                                    
+                                    <div id="icon-parking-overlay" class="cockpit-overlay-icon icon-parking">P</div>
+                                    <div id="icon-coffee-overlay" class="cockpit-overlay-icon icon-coffee"><i class="fa-solid fa-mug-hot"></i></div>
+                                    <div id="icon-cloud-overlay" class="cockpit-overlay-icon icon-cloud"><i class="fa-solid fa-cloud"></i></div>
+                                </div>
+                                <div class="seat-status-display">
+                                    <span id="status-cpt-text" class="status-pill">CMD: ---</span>
+                                    <span id="status-fo-text" class="status-pill">FO: ---</span>
+                                </div>
+                                <div id="seat-narrative-text">
+                                    Initializing...
+                                </div>
+                            </div>
+                        </div>
+
+                        <div class="tech-module">
+                            <div class="tech-module-header">
+                                <span class="tech-module-title"><i class="fa-solid fa-book"></i> FLIGHT RULES</span>
+                            </div>
+                            <div class="tech-module-body" style="padding: 8px;">
+                                <div id="flight-rules-display" class="flight-rules-badge">
+                                    <i class="fa-solid fa-spinner fa-spin"></i>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div id="fms-legs-module" class="tech-module" style="height: 400px; max-height: 400px; display: flex; flex-direction: column;">
+                            <div class="tech-module-header">
+                                <span class="tech-module-title"><i class="fa-solid fa-route"></i> ACTIVE FLIGHT PLAN</span>
+                                <span class="fms-page-count">1/1</span>
                             </div>
                             
-                            <div id="vis-map" class="vis-pane">
-                                <iframe id="nav-display-frame" src="nav.html" scrolling="no" style="width: 100%; height: 100%; border: none;"></iframe>
-                            </div>
-
-                            <div id="vis-vsd" class="vis-pane">
-                                 <div id="vsd-panel" class="vsd-panel active" data-plan-id="" data-profile-built="false" style="height: 100%;">
-                                    <div id="vsd-graph-window" class="vsd-graph-window" style="background: transparent;">
-                                        <div id="vsd-aircraft-icon"></div>
-                                        <div id="vsd-graph-content">
-                                            <svg id="vsd-profile-svg" xmlns="http://www.w3.org/2000/svg">
-                                                <path id="vsd-flown-path" d="" />
-                                                <path id="vsd-profile-path" d="" />
-                                            </svg>
-                                            <div id="vsd-waypoint-labels"></div>
-                                        </div>
-                                    </div>
-                                </div>
-                            </div>
-                        </div>
-                    </div>
-
-                    <div class="context-panel">
-                        
-                        <div class="sensor-strip">
-                            <div id="sensor-cpt" class="sensor-pill">
-                                <div class="sensor-dot"></div> <span id="sensor-cpt-text">CMD: ---</span>
-                            </div>
-                            <div id="sensor-fo" class="sensor-pill">
-                                <div class="sensor-dot"></div> <span id="sensor-fo-text">FO: ---</span>
-                            </div>
-                        </div>
-
-                        <div id="fms-legs-module" class="tech-module fms-module-container">
-                            <div class="tech-module-header">
-                                <span class="tech-module-title"><i class="fa-solid fa-route"></i> F-PLN</span>
-                                <span class="fms-page-count">SEQ</span>
-                            </div>
                             <div class="fms-columns">
-                                <span class="col-wpt">ID</span>
-                                <span class="col-data text-center">TRK</span>
+                                <span class="col-wpt">LEGS</span>
+                                <span class="col-data text-center">CRS</span>
                                 <span class="col-data text-right">DIST</span>
                             </div>
+
                             <div id="fms-legs-list" class="fms-list-scrollarea">
                                 <div class="fms-empty-state">NO ROUTE LOADED</div>
                             </div>
+                            
                             <div class="fms-footer">
                                 <div class="fms-stat">
                                     <span class="stat-label">DTG</span>
-                                    <span id="fms-total-dist" class="stat-value">----</span>
+                                    <span id="fms-total-dist" class="stat-value">---- NM</span>
                                 </div>
                                 <div class="fms-stat">
                                     <span class="stat-label">ETE</span>
@@ -6166,124 +6521,330 @@ function populateAircraftInfoWindow(baseProps, plan, sortedRoutePoints) {
                             </div>
                         </div>
 
-                        <div class="env-strip">
-                            <div class="env-card">
-                                <span class="env-label">WIND</span>
-                                <span class="env-value" id="ac-env-wind">---/--</span>
+                        ${planButtonHtml} </div>
+                </div>
+                
+                <div class="tech-module" id="location-data-panel">
+                    <div class="tech-module-header">
+                        <span class="tech-module-title"><i class="fa-solid fa-location-crosshairs"></i> NAV DATA</span>
+                        <span class="nav-status-indicator"><div class="nav-blink"></div> LIVE</span>
+                    </div>
+                    
+                    <div class="tech-module-body" style="padding: 8px;">
+                        <div class="nav-grid-container">
+                            <div class="nav-cell">
+                                <span class="nav-label"><i class="fa-solid fa-map-location-dot"></i> Region</span>
+                                <span class="nav-value small" id="ac-location">Scanning...</span>
                             </div>
-                             <div class="env-card">
-                                <span class="env-label">OAT</span>
-                                <span class="env-value" id="ac-env-oat">--°C</span>
+                            <div class="nav-cell">
+                                <span class="nav-label"><i class="fa-solid fa-tower-control"></i> Nearest</span>
+                                <div class="nav-row">
+                                    <span class="nav-value highlight" id="ac-nearest-apt">---</span>
+                                    <span class="nav-value" id="ac-nearest-apt-dist">--.- <span class="nav-unit">NM</span></span>
+                                </div>
+                            </div>
+                            <div class="nav-cell">
+                                <span class="nav-label"><i class="fa-solid fa-wind"></i> Wind</span>
+                                <span class="nav-value" id="ac-env-wind">---/--</span>
+                            </div>
+                            <div class="nav-cell">
+                                <span class="nav-label"><i class="fa-solid fa-temperature-half"></i> OAT</span>
+                                <span class="nav-value" id="ac-env-oat">--°C</span>
+                            </div>
+
+                            <div class="nav-cell nav-span-2">
+                                <span class="nav-label"><i class="fa-solid fa-location-crosshairs"></i> Position</span>
+                                <div class="nav-row">
+                                    <div><span class="nav-unit">LAT</span> <span class="nav-value" id="ac-lat">---</span></div>
+                                    <div><span class="nav-unit">LON</span> <span class="nav-value" id="ac-lon">---</span></div>
+                                </div>
+                            </div>
+                            <div class="nav-cell nav-span-2">
+                                 <span class="nav-label"><i class="fa-solid fa-arrow-up-right-dots"></i> Vertical Speed</span>
+                                 <span class="nav-value large highlight" id="ac-vs">--- <span class="nav-unit">fpm</span></span>
+                            </div>
+
+                            <div class="nav-cell nav-span-2">
+                                <span class="nav-label"><i class="fa-solid fa-location-arrow"></i> Next Waypoint</span>
+                                <div class="nav-row">
+                                    <span class="nav-value accent" id="ac-next-wp">---</span>
+                                    <span class="nav-value" id="ac-next-wp-dist">--.- <span class="nav-unit">NM</span></span>
+                                </div>
+                            </div>
+                            <div class="nav-cell nav-span-2">
+                                <span class="nav-label"><i class="fa-solid fa-flag-checkered"></i> Destination</span>
+                                <div class="nav-row">
+                                    <div><span class="nav-unit">DIST</span> <span class="nav-value" id="ac-dist">---</span></div>
+                                    <div><span class="nav-unit">ETE</span> <span class="nav-value" id="ac-ete">--:--</span></div>
+                                </div>
                             </div>
                         </div>
-                        
-                        ${planButtonHtml}
-
                     </div>
                 </div>
-            </div>
 
-            <div id="ac-tab-pilot-report" class="ac-tab-pane" style="display: none; padding: 20px;">
+                <div class="tech-card">
+                    <div class="tech-card-header">
+                        <div>
+                            <div style="display: flex; align-items: center; gap: 8px; margin-bottom: 4px;">
+                                <div class="tech-badge">
+                                    <span class="tech-ping">
+                                      <span class="animate"></span>
+                                      <span></span>
+                                    </span>
+                                    Active
+                                </div>
+                                <span style="font-size: 10px; font-weight: 600; color: #94a3b8; text-transform: uppercase; letter-spacing: 0.1em;">Flight Data</span>
+                            </div>
+                            <h1 class="tech-model">${aircraftName}</h1>
+                            <p class="tech-airline">
+                                <i class="fa-solid fa-plane" style="font-size: 12px;"></i>
+                                <span>${airlineName}</span>
+                            </p>
+                        </div>
+                        <button style="padding: 8px; color: #94a3b8; background: transparent; border: none; cursor: pointer;">
+                            <i class="fa-solid fa-ellipsis" style="font-size: 16px;"></i>
+                        </button>
+                    </div>
+
+                    <div class="tech-content">
+                        <div class="tech-image-container">
+                            <img src="${techCardImagePath}" onerror="this.src='${techCardFallbackPath}'" class="tech-image" alt="Aircraft">
+                            <div class="tech-image-overlay"></div>
+                            
+                            <div class="tech-image-info">
+                                <div class="tech-photographer">
+                                    <span class="tech-photo-label">Photographer</span>
+                                    <div class="tech-photo-name">
+                                        <i class="fa-solid fa-camera" style="color: #38bdf8; font-size: 12px;"></i>
+                                        <span>IF Community</span>
+                                    </div>
+                                </div>
+                                <a href="#" style="padding: 8px; background: rgba(255,255,255,0.1); border-radius: 8px; color: #fff; border: 1px solid rgba(255,255,255,0.1); display: flex;">
+                                    <i class="fa-solid fa-arrow-up-right-from-square" style="font-size: 14px;"></i>
+                                </a>
+                            </div>
+                        </div>
+
+                        <div class="tech-grid">
+                            <div class="tech-stat-card">
+                                <div class="tech-stat-header">
+                                    <span class="tech-stat-label">Registration</span>
+                                    <i class="fa-solid fa-hashtag" style="font-size: 12px; color: #475569;"></i>
+                                </div>
+                                <span class="tech-stat-value">${reg}</span>
+                            </div>
+
+                            <div class="tech-stat-card">
+                                <div class="tech-stat-header">
+                                    <span class="tech-stat-label">Callsign</span>
+                                    <i class="fa-solid fa-tag" style="font-size: 12px; color: #475569;"></i>
+                                </div>
+                                <span class="tech-stat-value">${baseProps.callsign}</span>
+                            </div>
+
+                            <div class="tech-country-card">
+                                <div class="tech-country-left">
+                                    <div class="tech-country-icon">
+                                        <i class="fa-solid fa-flag" style="font-size: 14px;"></i>
+                                    </div>
+                                    <div style="display: flex; flex-direction: column;">
+                                        <span class="tech-stat-label" style="font-size: 9px; margin-bottom: 2px;">Airline Origin</span>
+                                        <span style="font-size: 13px; font-weight: 600; color: #fff;">${depCountryCode ? airportsData[departureIcao]?.country : 'Unknown'}</span>
+                                    </div>
+                                </div>
+                                <div style="padding: 4px 8px; background: rgba(51, 65, 85, 0.5); border-radius: 4px; border: 1px solid rgba(255, 255, 255, 0.05);">
+                                    <span style="font-family: monospace; font-size: 10px; color: #cbd5e1;">${depCountryCode.toUpperCase()}</span>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="tech-bottom-bar"></div>
+                </div>
+
+                <div class="tech-module vsd-module-container">
+                    <div class="tech-module-header">
+                        <span class="tech-module-title"><i class="fa-solid fa-chart-area"></i> VERTICAL SITUATION DISPLAY</span>
+                        <span class="fms-page-count">VSD</span>
+                    </div>
+                    
+                    <div id="vsd-panel" class="vsd-panel active" data-plan-id="" data-profile-built="false">
+                        <div id="vsd-graph-window" class="vsd-graph-window">
+                            <div id="vsd-aircraft-icon"></div>
+                            <div id="vsd-graph-content">
+                                <svg id="vsd-profile-svg" xmlns="http://www.w3.org/2000/svg">
+                                    <path id="vsd-flown-path" d="" />
+                                    <path id="vsd-profile-path" d="" />
+                                </svg>
+                                <div id="vsd-waypoint-labels"></div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="vsd-footer">
+                        <div class="vsd-legend-item"><div class="dot-plan"></div> PLANNED</div>
+                        <div class="vsd-legend-item"><div class="dot-flown"></div> FLOWN</div>
+                        <div>ALTITUDE PROFILE</div>
+                    </div>
+                </div>
+                </div> 
+            
+            <div id="ac-tab-pilot-report" class="ac-tab-pane">
                 <div id="pilot-stats-display"></div>
             </div>
         </div> 
     </div>
     `;
     
-    // --- Post-Render Setup ---
     createPfdDisplay();
     updatePfdDisplay(baseProps.position);
     updateAircraftInfoWindow(baseProps, plan, sortedRoutePoints);
-
-    // --- NEW: SETUP INTERNAL TAB LISTENERS ---
-    // This is specific to the new layout, so we define it right here or in setupAircraftWindowEvents
-    const visTabs = document.getElementById('visualizer-tabs');
-    if (visTabs) {
-        visTabs.addEventListener('click', (e) => {
-            const btn = e.target.closest('.vis-tab-btn');
-            if (!btn) return;
-
-            // Remove active from all buttons and panes
-            visTabs.querySelectorAll('.vis-tab-btn').forEach(b => b.classList.remove('active'));
-            document.querySelectorAll('.vis-pane').forEach(p => p.classList.remove('active'));
-
-            // Activate clicked
-            btn.classList.add('active');
-            const targetId = btn.dataset.target;
-            document.getElementById(targetId).classList.add('active');
-        });
-    }
 }
-
 /**
- * --- [UPDATED] Updates the Environment Strip ---
- * (Replaces the old Nav Data Panel logic)
+ * --- [UPDATED] Updates the Navigation Data Panel ---
  */
 function updateNavPanelData(lat, lon, heading, oat, windDir, windSpd) {
-    // We no longer display Lat/Lon or Next Waypoint in a separate panel 
-    // to keep the UI clean, as they are less critical for live tracking.
+    // 1. Update Coordinates (Clean formatting)
+    const latEl = document.getElementById('ac-lat');
+    const lonEl = document.getElementById('ac-lon');
     
-    // Update Environment Strip (Wind & OAT)
+    // Use toFixed(3) to save space and prevent "falling out"
+    if (latEl) latEl.textContent = lat.toFixed(3);
+    if (lonEl) lonEl.textContent = lon.toFixed(3);
+
+    // 2. Update Environment
     const windEl = document.getElementById('ac-env-wind');
     const oatEl = document.getElementById('ac-env-oat');
     
-    // Format: 270° / 15 kt
-    if (windEl) {
-        windEl.textContent = `${String(windDir).padStart(3, '0')}° / ${windSpd} kt`;
-    }
-    
-    if (oatEl) {
-        oatEl.textContent = `${oat}°C`;
-    }
+    // Format: 270 / 15
+    if (windEl) windEl.textContent = `${String(windDir).padStart(3, '0')}° / ${windSpd}`;
+    if (oatEl) oatEl.textContent = `${oat}°C`;
 
-    // (Optional) If you want to keep the "Nearest Airport" logic running in the background
-    // for future use, you can leave it here, but we aren't displaying it in the current HTML.
+    // 3. Nearest Airport Logic (Unchanged, just targets)
+    if (airportsData && Object.keys(airportsData).length > 0) {
+        let nearestICAO = '---';
+        let minDist = Infinity;
+        
+        // Optimization: Only check airports within ~2 degrees lat/lon
+        for (const icao in airportsData) {
+            const apt = airportsData[icao];
+            if (!apt || apt.lat == null || apt.lon == null) continue;
+
+            const latDiff = Math.abs(apt.lat - lat);
+            const lonDiff = Math.abs(apt.lon - lon);
+
+            if (latDiff > 2 || lonDiff > 2) continue;
+
+            const dist = getDistanceKm(lat, lon, apt.lat, apt.lon);
+            if (dist < minDist) {
+                minDist = dist;
+                nearestICAO = icao;
+            }
+        }
+
+        const nearestEl = document.getElementById('ac-nearest-apt');
+        const nearestDistEl = document.getElementById('ac-nearest-apt-dist');
+        
+        if (nearestEl && minDist !== Infinity) {
+            nearestEl.textContent = nearestICAO;
+            const distNM = (minDist / 1.852).toFixed(1);
+            nearestDistEl.textContent = `${distNM} NM`;
+        }
+    }
 }
 
 function updateSeatSensor(flightProps) {
-    const cptPill = document.getElementById('sensor-cpt');
-    const foPill = document.getElementById('sensor-fo');
-    const cptText = document.getElementById('sensor-cpt-text');
-    const foText = document.getElementById('sensor-fo-text');
+    const seatCpt = document.getElementById('seat-cpt');
+    const seatFo = document.getElementById('seat-fo');
+    const statusCpt = document.getElementById('status-cpt-text');
+    const statusFo = document.getElementById('status-fo-text');
+    const narrative = document.getElementById('seat-narrative-text');
+    
+    // Overlays
+    const parkingOverlay = document.getElementById('icon-parking-overlay');
+    const coffeeOverlay = document.getElementById('icon-coffee-overlay');
+    const cloudOverlay = document.getElementById('icon-cloud-overlay');
 
-    if (!cptPill || !foPill) return;
+    if (!seatCpt || !seatFo) return;
 
-    // 1. Determine State (Default to 0: Active)
+    // 1. DETERMINE STATE
+    // Default to 0 (Active) if undefined
     let state = flightProps.pilotState !== undefined ? flightProps.pilotState : 0;
 
-    // 2. Reset Visuals
-    cptPill.classList.remove('active-green', 'active-amber', 'active-blue');
-    foPill.classList.remove('active-green', 'active-amber', 'active-blue');
+    // 2. RESET VISUALS
+    // Remove all active color classes
+    seatCpt.classList.remove('active-green', 'active-amber', 'active-blue');
+    seatFo.classList.remove('active-green', 'active-amber', 'active-blue');
     
-    // 3. Apply Logic
+    // Reset pills
+    statusCpt.className = 'status-pill';
+    statusFo.className = 'status-pill';
+    
+    // Hide all overlays
+    if(parkingOverlay) parkingOverlay.classList.remove('visible');
+    if(coffeeOverlay) coffeeOverlay.classList.remove('visible');
+    if(cloudOverlay) cloudOverlay.classList.remove('visible');
+
+    // 3. APPLY LOGIC
     switch (state) {
-        case 0: // ACTIVE (Pilot has controls)
-            cptPill.classList.add('active-green');
-            cptText.textContent = 'CMD: MANUAL';
-            foText.textContent = 'FO: MONITOR';
+        case 0: // ACTIVE
+            seatCpt.classList.add('active-green');
+            
+            statusCpt.classList.add('green');
+            statusCpt.textContent = 'CMD: PILOT';
+            
+            statusFo.textContent = 'FO: MONITOR';
+            
+            narrative.textContent = "Manual inputs detected. Pilot has controls.";
             break;
 
-        case 1: // AWAY/CRUISE (Auto)
-            cptPill.classList.add('active-amber');
-            cptText.textContent = 'CMD: AUTO';
-            foText.textContent = 'FO: MONITOR';
+        case 1: // AWAY (IN FLIGHT) - Monitoring
+            seatCpt.classList.add('active-amber');
+            
+            statusCpt.classList.add('amber');
+            statusCpt.textContent = 'CMD: AUTO';
+            
+            statusFo.textContent = 'FO: MONITOR';
+            
+            if(coffeeOverlay) coffeeOverlay.classList.add('visible');
+            narrative.textContent = "No recent inputs. Pilot is monitoring cruise systems.";
             break;
 
-        case 2: // PARKED (Secured)
-            // No active colors (Greyed out)
-            cptText.textContent = 'PRK: SET';
-            foText.textContent = 'FO: SECURED';
+        case 2: // AWAY (PARKED) - Secured
+            // Seats remain dark/grey (no active class)
+            
+            statusCpt.classList.add('red'); // Use red border/text for park brake
+            statusCpt.textContent = 'PARK BRK: SET';
+            statusCpt.style.width = '100%'; // Span full width
+            statusCpt.style.textAlign = 'center';
+            
+            statusFo.style.display = 'none'; // Hide FO pill in this specific state
+            
+            if(parkingOverlay) parkingOverlay.classList.add('visible');
+            narrative.textContent = "Cockpit secured. Parking brake set.";
             break;
 
-        case 3: // REST (Relief Pilot)
-            foPill.classList.add('active-blue');
-            cptText.textContent = 'CMD: REST';
-            foText.textContent = 'FO: ACTIVE';
+        case 3: // BACKGROUND - Relief Pilot / Rest
+            seatFo.classList.add('active-blue');
+            
+            statusCpt.textContent = 'CMD: REST';
+            
+            statusFo.classList.add('blue');
+            statusFo.textContent = 'FO: ACTIVE';
+            
+            if(cloudOverlay) cloudOverlay.classList.add('visible');
+            narrative.textContent = "Captain is resting (App Backgrounded). Relief Pilot has controls.";
             break;
 
         default:
-            cptText.textContent = 'CMD: ---';
+            narrative.textContent = "No telemetry data available.";
             break;
+    }
+
+    // Restore FO display if not in state 2
+    if (state !== 2) {
+        statusFo.style.display = 'block';
+        statusCpt.style.width = 'auto';
+        statusCpt.style.textAlign = 'left';
     }
 }
 
@@ -6457,50 +7018,36 @@ function renderPilotStatsHTML(stats, username) {
 
 
 function updateAircraftInfoWindow(baseProps, plan, sortedRoutePoints) {
-    // --- Helper function to update text safely ---
-    const setText = (id, value) => {
-        const el = document.getElementById(id);
-        if (el) el.textContent = value;
+    // --- Helper function to update all elements matching a selector ---
+    const updateAll = (selector, value, isHTML = false) => {
+        const elements = document.querySelectorAll(selector);
+        elements.forEach(el => {
+            if (isHTML) {
+                el.innerHTML = value;
+            } else {
+                el.textContent = value;
+            }
+        });
     };
     
     // --- Helper for styling ---
-    const setStyle = (id, property, value) => {
-        const el = document.getElementById(id);
-        if (el) el.style[property] = value;
+    const styleAll = (selector, property, value) => {
+        const elements = document.querySelectorAll(selector);
+        elements.forEach(el => {
+            el.style[property] = value;
+        });
     };
 
-    // --- 1. Update Telemetry Strip (The "Glare Shield") ---
-    const pos = baseProps.position;
-    
-    setText('ac-gs', Math.round(pos.gs_kt || 0));
-    setText('ac-alt', Math.round(pos.alt_ft || 0).toLocaleString());
-    setText('ac-hdg', Math.round(pos.heading_deg || 0).toString().padStart(3, '0') + '°');
-    
-    // Format VS with + sign
-    const vs = Math.round(pos.vs_fpm || 0);
-    const vsSign = vs > 0 ? '+' : '';
-    setText('ac-vs-strip', `${vsSign}${vs}`);
-
-    // --- 2. Update Environment Strip (Wind & OAT) ---
-    // Note: These come from the 'updateNavPanelData' state or defaults
-    const windDir = (currentAircraftPositionForGeocode && currentAircraftPositionForGeocode.wind_dir) || 0;
-    const windSpd = (currentAircraftPositionForGeocode && currentAircraftPositionForGeocode.wind_spd_kts) || 0;
-    const oat = (currentAircraftPositionForGeocode && currentAircraftPositionForGeocode.oat_c) || '--';
-
-    setText('ac-env-wind', `${String(windDir).padStart(3, '0')}° / ${windSpd} kt`);
-    setText('ac-env-oat', `${oat}°C`);
-
-    // --- 3. Route Calculation Logic (Progress & ETE) ---
+    // --- Get Original Data ---
     const originalFlatWaypoints = (plan && plan.flightPlanItems) ? flattenWaypointsFromPlan(plan.flightPlanItems) : [];
     const originalFlatWaypointObjects = (plan && plan.flightPlanItems) ? getFlatWaypointObjects(plan.flightPlanItems) : [];
     const hasPlan = originalFlatWaypoints.length >= 2;
 
-    let progress = 0;
-    let distanceToDestNM = 0;
+    let progress = 0, ete = '--:--', distanceToDestNM = 0;
     let totalDistanceNM = 0;
 
     if (hasPlan) {
-        // Calculate Total Distance
+        // ... (calculation logic for progress, ete, etc. is unchanged) ...
         let totalDistanceKm = 0;
         for (let i = 0; i < originalFlatWaypoints.length - 1; i++) {
             const [lon1, lat1] = originalFlatWaypoints[i];
@@ -6509,15 +7056,24 @@ function updateAircraftInfoWindow(baseProps, plan, sortedRoutePoints) {
         }
         totalDistanceNM = totalDistanceKm / 1.852;
 
-        // Calculate Remaining
         if (totalDistanceNM > 0) {
             const [destLon, destLat] = originalFlatWaypoints[originalFlatWaypoints.length - 1];
-            const remainingDistanceKm = getDistanceKm(pos.lat, pos.lon, destLat, destLon);
+            const remainingDistanceKm = getDistanceKm(baseProps.position.lat, baseProps.position.lon, destLat, destLon);
+            
             distanceToDestNM = remainingDistanceKm / 1.852;
             progress = Math.max(0, Math.min(100, (1 - (distanceToDestNM / totalDistanceNM)) * 100));
+
+            if (baseProps.position.gs_kt > 50) {
+                const timeHours = distanceToDestNM / baseProps.position.gs_kt;
+                const hours = Math.floor(timeHours);
+                const minutes = Math.round((timeHours - hours) * 60);
+                ete = `${String(hours).padStart(2, '0')}:${String(minutes).padStart(2, '0')}`;
+            }
         }
-        
-        // Pre-calculate cumulative for VSD/Progress
+    }
+
+    // --- Pre-calculate cumulative NM ---
+    if (hasPlan) {
         let cumulativeDistNM = 0;
         let lastLat = originalFlatWaypointObjects[0].location.latitude;
         let lastLon = originalFlatWaypointObjects[0].location.longitude;
@@ -6527,93 +7083,516 @@ function updateAircraftInfoWindow(baseProps, plan, sortedRoutePoints) {
             if (!wp.location) continue; 
             const wpLat = wp.location.latitude;
             const wpLon = wp.location.longitude;
+            
             const segmentDistNM = (i === 0) ? 0 : getDistanceKm(lastLat, lastLon, wpLat, wpLon) / 1.852;
             cumulativeDistNM += segmentDistNM;
+            
             wp.cumulativeNM = cumulativeDistNM;
+            
             lastLat = wpLat;
             lastLon = wpLon;
         }
+        totalDistanceNM = cumulativeDistNM;
+    }
+
+    // --- Flight Plan Data Extraction ---
+    let nextWpName = '---';
+    let nextWpDistNM = '---';
+    let bestWpIndex = -1;
+    let minScore = Infinity;
+    if (plan) { 
+        // ... (logic for finding next waypoint is unchanged) ...
+        const currentPos = baseProps.position;
+        const currentTrack = currentPos.heading_deg;
+        
+        if (originalFlatWaypointObjects.length > 1 && currentPos && typeof currentTrack === 'number') {
+            for (let i = 1; i < originalFlatWaypointObjects.length; i++) { 
+                const wp = originalFlatWaypointObjects[i];
+                if (!wp.location || wp.location.latitude == null || wp.location.longitude == null) {
+                    continue; 
+                }
+                const distanceToWpKm = getDistanceKm(currentPos.lat, currentPos.lon, wp.location.latitude, wp.location.longitude);
+                const bearingToWp = getBearing(currentPos.lat, currentPos.lon, wp.location.latitude, wp.location.longitude);
+                const bearingDiff = Math.abs(normalizeBearingDiff(currentTrack - bearingToWp));
+                if (bearingDiff <= 95) { 
+                    if (distanceToWpKm < minScore) {
+                        minScore = distanceToWpKm;
+                        bestWpIndex = i;
+                    }
+                }
+            }
+        }
+        if (bestWpIndex !== -1) {
+            const nextWp = originalFlatWaypointObjects[bestWpIndex]; 
+            if (nextWp) {
+                nextWpName = nextWp.identifier || nextWp.name || 'N/A';
+                nextWpDistNM = (minScore / 1.852).toFixed(0);
+            }
+        } else if (hasPlan && distanceToDestNM < 10 && distanceToDestNM > 0.5) {
+            nextWpName = originalFlatWaypointObjects.length > 0 ? (originalFlatWaypointObjects[originalFlatWaypoints.length - 1].identifier || originalFlatWaypointObjects[originalFlatWaypoints.length - 1].name) : "DEST";
+            nextWpDistNM = distanceToDestNM.toFixed(0);
+        } else if (hasPlan && distanceToDestNM <= 0.5) {
+             nextWpName = "DEST";
+             nextWpDistNM = "0";
+        }
     }
     
-    // Update Header Progress Bar
-    setStyle('ac-progress-bar', 'width', `${progress.toFixed(1)}%`);
+    // --- Calculate accurate progress along the planned route ---
+    let progressAlongRouteNM = 0;
+    if (hasPlan && bestWpIndex > 0) {
+        // ... (progressAlongRouteNM logic is unchanged) ...
+        const prevWp = originalFlatWaypointObjects[bestWpIndex - 1];
+        const nextWp = originalFlatWaypointObjects[bestWpIndex];
+        
+        if (prevWp && nextWp && prevWp.cumulativeNM != null && nextWp.cumulativeNM != null) {
+            const segmentTotalNM = nextWp.cumulativeNM - prevWp.cumulativeNM;
+            const distToNextNM = minScore / 1.852;
+            
+            if (segmentTotalNM > 0) {
+                const segmentProgressNM = Math.max(0, segmentTotalNM - distToNextNM);
+                progressAlongRouteNM = prevWp.cumulativeNM + segmentProgressNM;
+            } else {
+                progressAlongRouteNM = prevWp.cumulativeNM;
+            }
+        } else {
+             progressAlongRouteNM = Math.max(0.01, totalDistanceNM - distanceToDestNM);
+        }
+    } else if (hasPlan && (bestWpIndex === 0 || bestWpIndex === -1) && distanceToDestNM >= 1.0) { 
+        progressAlongRouteNM = Math.max(0.01, totalDistanceNM - distanceToDestNM);
+    } else if (hasPlan && distanceToDestNM < 1.0) { 
+        progressAlongRouteNM = totalDistanceNM;
+    }
 
-    // --- 4. Flight Phase Calculation (State Machine) ---
+
+    // --- [MODIFIED] Update New Data Bar (using helper) ---
+    const nextWpDisplay = nextWpName;
+    const nextWpDistDisplay = (nextWpDistNM === '---' || isNaN(parseFloat(nextWpDistNM))) ? '--.-' : Number(nextWpDistNM).toFixed(1);
+
+    updateAll('#ac-next-wp', nextWpDisplay);
+    updateAll('#ac-next-wp-dist', `${nextWpDistDisplay}<span class="unit">NM</span>`, true);
+    updateAll('#ac-dist', `${Math.round(distanceToDestNM)}<span class="unit">NM</span>`, true);
+    updateAll('#ac-ete', ete);
+    // --- [END MODIFIED] ---
+
+    // --- Flight Phase State Machine (Unchanged) ---
     let flightPhase = 'ENROUTE';
-    let phaseClass = 'phase-enroute'; // You can define CSS colors for these if needed
-    
-    // Simple logic (or paste your full complex logic here if you prefer)
-    if (pos.gs_kt < 35 && pos.alt_ft < 1000) {
-        flightPhase = 'GROUND';
-    } else if (pos.vs_fpm > 400) {
-        flightPhase = 'CLIMB';
-    } else if (pos.vs_fpm < -400) {
-        flightPhase = 'DESCENT';
-    } else if (pos.alt_ft > 10000) {
-        flightPhase = 'CRUISE';
+    let phaseClass = 'phase-enroute';
+    let phaseIcon = 'fa-route';
+    const vs = baseProps.position.vs_fpm || 0;
+    const altitude = baseProps.position.alt_ft || 0;
+    const gs = baseProps.position.gs_kt || 0;
+    let departureIcao = null;
+    let arrivalIcao = null;
+    if (plan && Array.isArray(plan.flightPlanItems) && plan.flightPlanItems.length >= 2) {
+        departureIcao = plan.flightPlanItems[0]?.identifier?.trim().toUpperCase();
+        arrivalIcao = plan.flightPlanItems[plan.flightPlanItems.length - 1]?.identifier?.trim().toUpperCase();
     }
-    
-    // Update Phase Badge in Telemetry Strip
-    setText('ac-phase-badge', flightPhase);
+    const aircraftPos = { lat: baseProps.position.lat, lon: baseProps.position.lon, heading_deg: baseProps.position.heading_deg };
+    let nearestRunwayInfo = null;
+    if (hasPlan) {
+        const distanceFlownKm = totalDistanceNM * 1.852 - distanceToDestNM * 1.852;
+        if (distanceToDestNM * 1.852 < distanceFlownKm && arrivalIcao) {
+             nearestRunwayInfo = getNearestRunway(aircraftPos, arrivalIcao, 1.5);
+        } else if (departureIcao) {
+             nearestRunwayInfo = getNearestRunway(aircraftPos, departureIcao, 1.5);
+        }
+    }
+    let altitudeAGL = null;
+    if (nearestRunwayInfo && nearestRunwayInfo.elevation_ft != null) {
+        altitudeAGL = altitude - nearestRunwayInfo.elevation_ft;
+    } else {
+        const originElevationFt = (plan?.origin?.elevation_ft) ? parseFloat(plan.origin.elevation_ft) : null;
+        const destElevationFt = (plan?.destination?.elevation_ft) ? parseFloat(plan.destination.elevation_ft) : null;
+        const relevantElevationFt = (totalDistanceNM > 0 && distanceToDestNM < totalDistanceNM / 2) ? destElevationFt : originElevationFt;
+        if (relevantElevationFt !== null) {
+            altitudeAGL = altitude - relevantElevationFt;
+        }
+    }
+    const aglCheck = altitudeAGL !== null && altitudeAGL < 75;
+    const fallbackGroundCheck = altitudeAGL === null && gs < 35 && Math.abs(vs) < 150;
+    const isOnGround = aglCheck || fallbackGroundCheck;
+    const isLinedUpForLanding = nearestRunwayInfo && nearestRunwayInfo.airport === arrivalIcao && nearestRunwayInfo.headingDiff < 10;
+    if (isOnGround) {
+        if (gs > 35) {
+            if (progress > 90) { flightPhase = 'LANDING ROLLOUT'; phaseClass = 'phase-approach'; phaseIcon = 'fa-plane-arrival';
+            } else if (progress < 10) { flightPhase = 'TAKEOFF ROLL'; phaseClass = 'phase-climb'; phaseIcon = 'fa-plane-departure';
+            } else { flightPhase = 'HIGH-SPEED TAXI'; phaseIcon = 'fa-road'; phaseClass = 'phase-enroute'; }
+        } else {
+            const isStopped = gs <= 2.0;
+            const isAtTerminal = (progress < 2) || (progress > 98);
+            const relevantIcao = progress < 50 ? departureIcao : arrivalIcao;
+            const closeRunwayInfo = getNearestRunway(aircraftPos, relevantIcao, 0.15);
+            const isLinedUp = closeRunwayInfo && closeRunwayInfo.headingDiff < 10;
+            if (isLinedUp) { flightPhase = `LINED UP RWY ${closeRunwayInfo.ident}`; phaseIcon = 'fa-arrow-up'; phaseClass = 'phase-climb';
+            } else if (isStopped) {
+                if (closeRunwayInfo) { flightPhase = `HOLDING SHORT RWY ${closeRunwayInfo.ident}`; phaseIcon = 'fa-pause-circle'; phaseClass = 'phase-enroute';
+                } else if (isAtTerminal) { flightPhase = 'PARKED'; phaseIcon = 'fa-parking'; phaseClass = 'phase-enroute';
+                } else { flightPhase = 'HOLDING POSITION'; phaseIcon = 'fa-hand'; phaseClass = 'phase-enroute'; }
+            } else {
+                flightPhase = 'TAXIING'; phaseIcon = 'fa-road'; phaseClass = 'phase-enroute';
+                if (progress > 50) { flightPhase = 'TAXIING TO GATE';
+                } else if (progress < 10) { flightPhase = 'TAXIING TO RUNWAY'; }
+            }
+        }
+    } else {
+        const isInLandingSequence = isLinedUpForLanding && altitudeAGL !== null;
+        if (isInLandingSequence && altitudeAGL < 2500) {
+            if (altitudeAGL < 60 && vs < -50) { flightPhase = 'FLARE';
+            } else if (altitudeAGL < 500) { flightPhase = 'SHORT FINAL';
+            } else { flightPhase = 'FINAL APPROACH'; }
+            phaseClass = 'phase-approach'; phaseIcon = 'fa-plane-arrival';
+        } else if (hasPlan && distanceToDestNM < 40 && progress > 5) {
+            flightPhase = 'APPROACH'; phaseClass = 'phase-approach'; phaseIcon = 'fa-plane-arrival';
+        } else if (vs > 300) {
+            flightPhase = 'CLIMB'; phaseClass = 'phase-climb'; phaseIcon = 'fa-arrow-trend-up';
+            if (progress < 10 && altitudeAGL !== null && altitudeAGL < 1500) {
+                 flightPhase = 'LIFTOFF'; phaseIcon = 'fa-plane-up';
+            }
+        } else if (vs < -500) {
+            flightPhase = 'DESCENT'; phaseClass = 'phase-descent'; phaseIcon = 'fa-arrow-trend-down';
+        } else if (altitude > 18000 && Math.abs(vs) < 500) {
+            flightPhase = 'CRUISE'; phaseClass = 'phase-cruise'; phaseIcon = 'fa-minus';
+        }
+    }
 
-    // --- 5. Update Times (Header) ---
+
+    // --- [MODIFIED] VSD LOGIC (Fixed Height) ---
+    const vsdPanels = document.querySelectorAll('#vsd-panel');
+    const planId = (plan && (plan.flightPlanId || plan.id)) || 'unknown';
+
+    vsdPanels.forEach(vsdPanel => {
+        if (!hasPlan) return;
+        
+        // Find elements *relative* to this specific vsdPanel
+        const vsdAircraftIcon = vsdPanel.querySelector('#vsd-aircraft-icon');
+        const vsdGraphWindow = vsdPanel.querySelector('#vsd-graph-window');
+        const vsdGraphContent = vsdPanel.querySelector('#vsd-graph-content');
+        const vsdProfilePath = vsdPanel.querySelector('#vsd-profile-path');
+        const vsdFlownPath = vsdPanel.querySelector('#vsd-flown-path');
+        const vsdWpLabels = vsdPanel.querySelector('#vsd-waypoint-labels');
+
+        if (!vsdGraphContent || !vsdAircraftIcon) return;
+
+        // --- 1. Define VSD scales ---
+        // With the new container height of 260px, the usable graph area is roughly 210px
+        const VSD_HEIGHT_PX = vsdGraphContent.clientHeight || 210; 
+        const MAX_ALT_FT = 45000;
+        const Y_SCALE_PX_PER_FT = VSD_HEIGHT_PX / MAX_ALT_FT;
+        const FIXED_X_SCALE_PX_PER_NM = 4;
+        
+        // --- 2. Build the Profile (Only once) ---
+        if (vsdPanel.dataset.profileBuilt !== 'true' || vsdPanel.dataset.planId !== planId) {
+            // ... (VSD profile, label, and Y-axis generation logic is unchanged) ...
+            let flatWaypointObjects = JSON.parse(JSON.stringify(originalFlatWaypointObjects));
+            if (flatWaypointObjects.length > 0) {
+                const lastIdx = flatWaypointObjects.length - 1;
+                if (flatWaypointObjects[0].altitude == null) {
+                    flatWaypointObjects[0].altitude = plan?.origin?.elevation_ft || 0;
+                }
+                if (flatWaypointObjects[lastIdx].altitude == null) {
+                    const prevAlt = (lastIdx > 0) ? flatWaypointObjects[lastIdx - 1]?.altitude : null;
+                    flatWaypointObjects[lastIdx].altitude = (prevAlt != null) ? prevAlt : (plan?.destination?.elevation_ft || 0);
+                }
+                for (let i = 1; i < lastIdx; i++) {
+                    const wp = flatWaypointObjects[i];
+                    if (wp.altitude == null || (typeof wp.altitude === 'number' && wp.altitude <= 0)) {
+                        wp.altitude = null;
+                    }
+                }
+                let lastValidAltIndex = 0; 
+                for (let i = 1; i < flatWaypointObjects.length; i++) {
+                    const wp = flatWaypointObjects[i];
+                    if (wp.altitude != null && typeof wp.altitude === 'number') {
+                        if (i > lastValidAltIndex + 1) {
+                            const gapStartIndex = lastValidAltIndex;
+                            const gapEndIndex = i;
+                            const startAlt = flatWaypointObjects[gapStartIndex].altitude;
+                            const endAlt = flatWaypointObjects[gapEndIndex].altitude;
+                            const numStepsInGap = gapEndIndex - gapStartIndex;
+
+                            for (let j = 1; j < numStepsInGap; j++) {
+                                const stepIndex = gapStartIndex + j;
+                                const fraction = j / numStepsInGap;
+                                const interpolatedAlt = startAlt + (endAlt - startAlt) * fraction;
+                                flatWaypointObjects[stepIndex].altitude = Math.round(interpolatedAlt);
+                            }
+                        }
+                        lastValidAltIndex = i;
+                    }
+                }
+            }
+
+            if (vsdGraphWindow && !vsdGraphWindow.querySelector('#vsd-y-axis')) {
+                let yAxisHtml = '<div id="vsd-y-axis">';
+                const altLabels = [10000, 20000, 30000, 40000];
+                for (const alt of altLabels) {
+                    const yPos = VSD_HEIGHT_PX - (alt * Y_SCALE_PX_PER_FT);
+                    yAxisHtml += `<div class="y-axis-label" style="top: ${yPos}px;">${alt / 1000}K</div>`;
+                }
+                yAxisHtml += '</div>';
+                vsdGraphWindow.insertAdjacentHTML('afterbegin', yAxisHtml);
+            }
+            
+            let path_d = "";
+            let labels_html = "";
+            let current_x_px = 0;
+            let last_label_x_px = -1000;
+            let stagger_level = 0;
+            const MIN_LABEL_SPACING_PX = 80;
+            
+            if (flatWaypointObjects.length === 0) return;
+
+            for (let i = 0; i < flatWaypointObjects.length; i++) {
+                const wp = flatWaypointObjects[i];
+                const wpAltFt = wp.altitude; 
+                const wpAltPx = VSD_HEIGHT_PX - (wpAltFt * Y_SCALE_PX_PER_FT);
+                current_x_px = wp.cumulativeNM * FIXED_X_SCALE_PX_PER_NM;
+
+                if (i === 0) {
+                    path_d = `M ${current_x_px} ${wpAltPx}`;
+                } else {
+                    path_d += ` L ${current_x_px} ${wpAltPx}`;
+                }
+
+                let label_top_px;
+                let label_class = '';
+                if (current_x_px - last_label_x_px < MIN_LABEL_SPACING_PX) {
+                    stagger_level = 1 - stagger_level;
+                } else {
+                    stagger_level = 0;
+                }
+                if (stagger_level === 1) {
+                    label_class = 'low-label';
+                    label_top_px = wpAltPx + 12;
+                } else {
+                    label_class = 'high-label';
+                    label_top_px = wpAltPx - 42;
+                }
+                last_label_x_px = current_x_px;
+
+                labels_html += `
+                    <div class="vsd-wp-label ${label_class}" style="left: ${current_x_px}px; top: ${label_top_px}px;">
+                        <span class="wp-name">${wp.identifier}</span>
+                        <span class="wp-alt">${Math.round(wpAltFt)}ft</span>
+                    </div>`;
+            }
+            
+            vsdGraphContent.style.width = `${current_x_px + 100}px`;
+            vsdProfilePath.closest('svg').style.width = `${current_x_px + 100}px`;
+            vsdProfilePath.setAttribute('d', path_d);
+            vsdWpLabels.innerHTML = labels_html;
+            vsdPanel.dataset.profileBuilt = 'true';
+            vsdPanel.dataset.planId = planId;
+        }
+        
+        // --- 3. Build/Update Flown Altitude Path ---
+        if (vsdFlownPath && hasPlan && originalFlatWaypointObjects.length > 0) {
+            let flown_path_d = "";
+            let lastFlownLat, lastFlownLon;
+            let currentFlightRoutePoints = [...sortedRoutePoints]; 
+            const originLat = plan?.origin?.latitude;
+            const originLon = plan?.origin?.longitude;
+            if (originLat != null && originLon != null && sortedRoutePoints.length > 10) {
+                let startIndex = -1;
+                for (let i = sortedRoutePoints.length - 1; i > 0; i--) {
+                    const point = sortedRoutePoints[i];
+                    if (!point.latitude || !point.longitude || point.altitude == null) continue;
+                    const distKm = getDistanceKm(point.latitude, point.longitude, originLat, originLon);
+                    if (point.altitude < 1000 && distKm < 25) {
+                        startIndex = i;
+                        break;
+                    }
+                }
+                if (startIndex !== -1) {
+                    currentFlightRoutePoints = sortedRoutePoints.slice(startIndex);
+                }
+            }
+            const fullFlownRoute = [];
+            if (currentFlightRoutePoints && currentFlightRoutePoints.length > 0) {
+                fullFlownRoute.push(...currentFlightRoutePoints); 
+                lastFlownLat = currentFlightRoutePoints[0].latitude;
+                lastFlownLon = currentFlightRoutePoints[0].longitude;
+            }
+            fullFlownRoute.push({
+                latitude: baseProps.position.lat,
+                longitude: baseProps.position.lon,
+                altitude: baseProps.position.alt_ft,
+                groundSpeed: baseProps.position.gs_kt
+            });
+            const flownPathPoints = [];
+            let totalActualFlownNM = 0;
+            if (fullFlownRoute.length > 0) {
+                if (!lastFlownLat) {
+                    lastFlownLat = fullFlownRoute[0].latitude;
+                    lastFlownLon = fullFlownRoute[0].longitude;
+                }
+                const startAltFt = originalFlatWaypointObjects[0]?.altitude || fullFlownRoute[0].altitude;
+                const startAltPx = VSD_HEIGHT_PX - (startAltFt * Y_SCALE_PX_PER_FT);
+                for (let i = 0; i < fullFlownRoute.length; i++) {
+                    const point = fullFlownRoute[i];
+                    const wpAltFt = typeof point.altitude === 'number' ? point.altitude : 0;
+                    const wpAltPx = VSD_HEIGHT_PX - (wpAltFt * Y_SCALE_PX_PER_FT);
+                    const wpLat = point.latitude;
+                    const wpLon = point.longitude;
+                    let segmentDistNM = 0;
+                    if (i > 0) { 
+                        segmentDistNM = getDistanceKm(lastFlownLat, lastFlownLon, wpLat, wpLon) / 1.852;
+                    }
+                    totalActualFlownNM += segmentDistNM;
+                    
+                    // Store Altitude
+                    flownPathPoints.push({ 
+                        x_nm: totalActualFlownNM, 
+                        y_px_alt: wpAltPx
+                    });
+
+                    lastFlownLat = wpLat;
+                    lastFlownLon = wpLon;
+                }
+                const plannedProgressNM = progressAlongRouteNM;
+                const scaleFactor = (totalActualFlownNM > 0.1 && plannedProgressNM > 0.01) ? (plannedProgressNM / totalActualFlownNM) : 1;
+                
+                for (let i = 0; i < flownPathPoints.length; i++) {
+                    const point = flownPathPoints[i];
+                    const scaled_x_px = point.x_nm * scaleFactor * FIXED_X_SCALE_PX_PER_NM; 
+                    
+                    // VSD Altitude Path
+                    if (i === 0) {
+                        flown_path_d = `M 0 ${startAltPx}`;
+                        if (flownPathPoints.length === 1) {
+                            flown_path_d += ` L ${scaled_x_px} ${point.y_px_alt}`;
+                        }
+                    } else {
+                        flown_path_d += ` L ${scaled_x_px} ${point.y_px_alt}`;
+                    }
+                }
+                
+                vsdFlownPath.setAttribute('d', flown_path_d);
+            }
+        }
+
+        // --- 4. Update Aircraft Icon Position (Vertical) ---
+        const currentAltPx = VSD_HEIGHT_PX - (altitude * Y_SCALE_PX_PER_FT);
+        vsdAircraftIcon.style.top = `${currentAltPx}px`;
+
+        // --- 5. Scroll the Graph (Horizontal) ---
+        if (vsdGraphWindow && vsdGraphWindow.clientWidth > 0) {
+            const distanceFlownNM = progressAlongRouteNM; 
+            const scrollOffsetPx = (distanceFlownNM * FIXED_X_SCALE_PX_PER_NM);
+            const vsdViewportWidth = vsdGraphWindow.clientWidth;
+            const totalProfileWidthPx = vsdGraphContent.scrollWidth;
+            const centerOffset = (vsdViewportWidth / 2) + 35;
+            const desiredTranslateX = centerOffset - scrollOffsetPx;
+            const maxTranslateX = 0;
+            const minTranslateX = Math.min(0, vsdViewportWidth - totalProfileWidthPx);
+            const finalTranslateX = Math.max(minTranslateX, Math.min(maxTranslateX, desiredTranslateX));
+            vsdGraphContent.style.transform = `translateX(${finalTranslateX - 35}px)`;
+            const iconLeftPx = scrollOffsetPx + finalTranslateX;
+            vsdAircraftIcon.style.left = `${iconLeftPx}px`;
+        } else {
+            const distanceFlownNM = progressAlongRouteNM;
+            const scrollOffsetPx = (distanceFlownNM * FIXED_X_SCALE_PX_PER_NM);
+            const translateX = 75 - scrollOffsetPx; 
+            vsdGraphContent.style.transform = `translateX(${translateX - 35}px)`;
+            vsdAircraftIcon.style.left = `75px`;
+        }
+        
+        // --- 6. Update Data Bar's V/S ---
+        const vsdSummaryVS = vsdPanel.closest('.ac-tab-pane').querySelector('#ac-vs');
+        if (vsdSummaryVS) {
+            vsdSummaryVS.innerHTML = `<i class="fa-solid ${vs > 100 ? 'fa-arrow-up' : vs < -100 ? 'fa-arrow-down' : 'fa-minus'}"></i> ${Math.round(vs)}<span class="unit">fpm</span>`;
+        }
+    });
+    // --- [END VSD LOGIC] ---
+
+
+    // --- Update Other DOM Elements (using helpers) ---
+    styleAll('#ac-progress-bar', 'width', `${progress.toFixed(1)}%`);
+    updateAll('#ac-phase-indicator', `<i class="fa-solid ${phaseIcon}"></i> ${flightPhase}`, true);
+    
+    // Set the class separately as it's a list
+    const phaseIndicators = document.querySelectorAll('#ac-phase-indicator');
+    phaseIndicators.forEach(el => {
+        el.className = `flight-phase-indicator ${phaseClass}`;
+    });
+
+    // --- Update Times and Flags ---
     const atdTimestamp = (sortedRoutePoints && sortedRoutePoints.length > 0) ? sortedRoutePoints[0].date : null;
     const atdTime = atdTimestamp ? formatTimeFromTimestamp(atdTimestamp) : '--:--';
     let etaTime = '--:--';
-
-    if (pos.gs_kt > 50 && distanceToDestNM > 0) {
-        const eteHours = distanceToDestNM / pos.gs_kt;
+    if (baseProps.position.gs_kt > 50 && totalDistanceNM > 0) {
+        const eteHours = distanceToDestNM / baseProps.position.gs_kt;
         if (eteHours > 0 && eteHours < 48) { 
             const eteMs = eteHours * 3600 * 1000;
             const etaTimestamp = new Date(Date.now() + eteMs);
             etaTime = formatTimeFromTimestamp(etaTimestamp);
         }
     }
+    const depCountryCode = airportsData[departureIcao]?.country ? airportsData[departureIcao].country.toLowerCase() : '';
+    const arrCountryCode = airportsData[arrivalIcao]?.country ? airportsData[arrivalIcao].country.toLowerCase() : '';
+    const depFlagSrc = depCountryCode ? `https://flagcdn.com/w20/${depCountryCode}.png` : '';
+    const arrFlagSrc = arrCountryCode ? `https://flagcdn.com/w20/${arrCountryCode}.png` : '';
 
-    setText('ac-bar-atd', `${atdTime} Z`);
-    setText('ac-bar-eta', `${etaTime} Z`);
+    updateAll('#ac-bar-atd', `${atdTime} Z`);
+    updateAll('#ac-bar-eta', `${etaTime} Z`);
+    
+    document.querySelectorAll('#ac-bar-dep-flag').forEach(el => {
+        el.src = depFlagSrc; 
+        el.alt = depCountryCode; 
+        el.style.display = depCountryCode ? 'block' : 'none'; 
+    });
+    document.querySelectorAll('#ac-bar-arr-flag').forEach(el => {
+        el.src = arrFlagSrc; 
+        el.alt = arrCountryCode; 
+        el.style.display = arrCountryCode ? 'block' : 'none'; 
+    });
 
-    // --- 6. Update FMS List ---
-    updateFmsLegsModule(plan, pos);
+    // --- Update Aircraft Image (using querySelectorAll) ---
+    const overviewPanels = document.querySelectorAll('#ac-overview-panel');
+    overviewPanels.forEach(overviewPanel => {
+        const sanitizeFilename = (name) => {
+            if (!name || typeof name !== 'string') return 'unknown';
+            return name.trim().toLowerCase().replace(/[^a-z0-j-9-]/g, '_');
+        };
+        const aircraftName = baseProps.aircraft?.aircraftName || 'Generic Aircraft';
+        const liveryName = baseProps.aircraft?.liveryName || 'Default Livery';
+        const sanitizedAircraft = sanitizeFilename(aircraftName);
+        const sanitizedLivery = sanitizeFilename(liveryName);
+        const imagePath = `/CommunityPlanes/${sanitizedAircraft}/${sanitizedLivery}.png`;
+        const fallbackPath = '/CommunityPlanes/default.png';
+        const newImageUrl = `url('${imagePath}')`;
 
-    // --- 7. Update Seat Sensor ---
+        if (overviewPanel.dataset.currentPath !== imagePath) {
+            const img = new Image();
+            img.src = imagePath;
+            img.onload = () => {
+                overviewPanel.style.backgroundImage = newImageUrl;
+                overviewPanel.dataset.currentPath = imagePath;
+            };
+            img.onerror = () => {
+                overviewPanel.style.backgroundImage = `url('${fallbackPath}')`;
+                overviewPanel.dataset.currentPath = fallbackPath;
+            };
+        }
+    });
+
+    // --- CALL THE FMS UPDATE ---
+    updateFmsLegsModule(plan, baseProps.position);
+
+    // --- NEW: Update Cockpit Seat Sensor ---
     updateSeatSensor(baseProps);
 
-    // --- 8. VSD Update Logic (Vertical Situation Display) ---
-    // Only runs if the VSD tab is actually rendered and visible
-    const vsdPanel = document.getElementById('vsd-panel');
-    if (vsdPanel && hasPlan) {
-        // Re-use your existing VSD logic here. 
-        // Note: Ensure the ID selectors inside your VSD logic match the new HTML.
-        // The IDs in the new HTML (#vsd-graph-window, #vsd-aircraft-icon) are identical
-        // to the old ones, so your VSD logic block from the previous code should work 
-        // if pasted here.
-        
-        // (Brief VSD Update Example)
-        const vsdIcon = document.getElementById('vsd-aircraft-icon');
-        const vsdContent = document.getElementById('vsd-graph-content');
-        
-        if (vsdIcon && vsdContent) {
-            // Recalculate Scales based on new container height (approx 100% of parent)
-            const VSD_HEIGHT = vsdPanel.clientHeight || 200;
-            const MAX_ALT = 45000;
-            const Y_SCALE = VSD_HEIGHT / MAX_ALT;
-            const X_SCALE = 4; // PX per NM
-            
-            // Move Aircraft Icon Vertically
-            const altPx = VSD_HEIGHT - (pos.alt_ft * Y_SCALE);
-            vsdIcon.style.top = `${altPx}px`;
-            
-            // Move Graph Horizontally
-            // (We need accurate 'progressAlongRouteNM' here, calculated above in full version)
-            // Simplified scroll:
-            const distFlown = (totalDistanceNM - distanceToDestNM); 
-            const scrollPx = distFlown * X_SCALE;
-            
-            // Center the icon (approx 75px offset)
-            const centerOffset = (vsdPanel.clientWidth / 2);
-            vsdContent.style.transform = `translateX(${centerOffset - scrollPx}px)`;
-            vsdIcon.style.left = `${scrollPx}px`;
+    // --- UPDATE FLIGHT RULES ---
+    const rulesDisplay = document.getElementById('flight-rules-display');
+    if (rulesDisplay) {
+        // Ensure helper function exists
+        if (typeof determineFlightRules === 'function') {
+            const rule = determineFlightRules(baseProps, plan);
+            rulesDisplay.className = `flight-rules-badge ${rule.class}`;
+            rulesDisplay.innerHTML = `<i class="fa-solid ${rule.icon}"></i> ${rule.label}`;
+        } else {
+            console.warn("determineFlightRules helper missing.");
+            rulesDisplay.textContent = "RULES UNKNOWN";
         }
     }
 }
