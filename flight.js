@@ -5965,7 +5965,7 @@ function populateAircraftInfoWindow(baseProps, plan, sortedRoutePoints) {
     <style>
         /* --- Shared Tech Style --- */
         .tech-module {
-            background: #0f172a; /* Solid Dark Slate */
+            background: #0f172a;
             border: 1px solid rgba(255, 255, 255, 0.1);
             border-radius: 12px;
             overflow: hidden;
@@ -5976,7 +5976,7 @@ function populateAircraftInfoWindow(baseProps, plan, sortedRoutePoints) {
         }
 
         .tech-module-header {
-            background: rgba(30, 41, 59, 0.5); /* Slightly lighter header */
+            background: rgba(30, 41, 59, 0.5);
             padding: 8px 12px;
             border-bottom: 1px solid rgba(255, 255, 255, 0.05);
             display: flex;
@@ -5987,7 +5987,7 @@ function populateAircraftInfoWindow(baseProps, plan, sortedRoutePoints) {
         .tech-module-title {
             font-size: 0.75rem;
             font-weight: 700;
-            color: #94a3b8; /* Muted text */
+            color: #94a3b8;
             text-transform: uppercase;
             letter-spacing: 0.05em;
             display: flex;
@@ -6478,17 +6478,6 @@ function populateAircraftInfoWindow(baseProps, plan, sortedRoutePoints) {
                                 </div>
                                 <div id="seat-narrative-text">
                                     Initializing...
-                                </div>
-                            </div>
-                        </div>
-
-                        <div class="tech-module">
-                            <div class="tech-module-header">
-                                <span class="tech-module-title"><i class="fa-solid fa-book"></i> FLIGHT RULES</span>
-                            </div>
-                            <div class="tech-module-body" style="padding: 8px;">
-                                <div id="flight-rules-display" class="flight-rules-badge">
-                                    <i class="fa-solid fa-spinner fa-spin"></i>
                                 </div>
                             </div>
                         </div>
@@ -7164,7 +7153,7 @@ function updateAircraftInfoWindow(baseProps, plan, sortedRoutePoints) {
     }
 
 
-    // --- [MODIFIED] Update New Data Bar (using helper) ---
+    // --- Update New Data Bar ---
     const nextWpDisplay = nextWpName;
     const nextWpDistDisplay = (nextWpDistNM === '---' || isNaN(parseFloat(nextWpDistNM))) ? '--.-' : Number(nextWpDistNM).toFixed(1);
 
@@ -7172,7 +7161,6 @@ function updateAircraftInfoWindow(baseProps, plan, sortedRoutePoints) {
     updateAll('#ac-next-wp-dist', `${nextWpDistDisplay}<span class="unit">NM</span>`, true);
     updateAll('#ac-dist', `${Math.round(distanceToDestNM)}<span class="unit">NM</span>`, true);
     updateAll('#ac-ete', ete);
-    // --- [END MODIFIED] ---
 
     // --- Flight Phase State Machine (Unchanged) ---
     let flightPhase = 'ENROUTE';
@@ -7256,7 +7244,7 @@ function updateAircraftInfoWindow(baseProps, plan, sortedRoutePoints) {
     }
 
 
-    // --- [MODIFIED] VSD LOGIC (Fixed Height) ---
+    // --- VSD LOGIC ---
     const vsdPanels = document.querySelectorAll('#vsd-panel');
     const planId = (plan && (plan.flightPlanId || plan.id)) || 'unknown';
 
@@ -7582,19 +7570,7 @@ function updateAircraftInfoWindow(baseProps, plan, sortedRoutePoints) {
     // --- NEW: Update Cockpit Seat Sensor ---
     updateSeatSensor(baseProps);
 
-    // --- UPDATE FLIGHT RULES ---
-    const rulesDisplay = document.getElementById('flight-rules-display');
-    if (rulesDisplay) {
-        // Ensure helper function exists
-        if (typeof determineFlightRules === 'function') {
-            const rule = determineFlightRules(baseProps, plan);
-            rulesDisplay.className = `flight-rules-badge ${rule.class}`;
-            rulesDisplay.innerHTML = `<i class="fa-solid ${rule.icon}"></i> ${rule.label}`;
-        } else {
-            console.warn("determineFlightRules helper missing.");
-            rulesDisplay.textContent = "RULES UNKNOWN";
-        }
-    }
+    // --- FLIGHT RULES UPDATE REMOVED FROM HERE ---
 }
 
 
