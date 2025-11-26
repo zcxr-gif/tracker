@@ -5838,7 +5838,7 @@ function populateAircraftInfoWindow(baseProps, plan, sortedRoutePoints) {
     const aircraftName = baseProps.aircraft?.aircraftName || 'Unknown Type';
     const airlineName = baseProps.aircraft?.liveryName || 'Generic Livery';
     const liveryName = baseProps.aircraft?.liveryName || '';
-    const reg = baseProps.aircraft?.registration || 'N/A'; // Assuming registration is available or placeholder
+    const reg = baseProps.aircraft?.registration || 'N/A';
     
     // Logo Logic
     const words = liveryName.trim().split(/\s+/);
@@ -5847,12 +5847,10 @@ function populateAircraftInfoWindow(baseProps, plan, sortedRoutePoints) {
     const logoPath = sanitizedLogoName ? `Images/airline_logos/${sanitizedLogoName}.png` : '';
     const logoHtml = logoPath ? `<img src="${logoPath}" alt="${liveryName}" class="ac-header-logo" onerror="this.style.display='none'">` : '';
 
-    // Times
+    // Times & Flags
     const atdTimestamp = (sortedRoutePoints && sortedRoutePoints.length > 0) ? sortedRoutePoints[0].date : null;
     const atdTime = atdTimestamp ? formatTimeFromTimestamp(atdTimestamp) : '--:--';
     const etaTime = '--:--'; 
-
-    // ICAO & Flags
     const departureIcao = hasPlan ? originalFlatWaypointObjects[0]?.identifier || originalFlatWaypointObjects[0]?.name : 'N/A';
     const arrivalIcao = hasPlan ? originalFlatWaypointObjects[originalFlatWaypointObjects.length - 1]?.identifier || originalFlatWaypointObjects[originalFlatWaypointObjects.length - 1]?.name : 'N/A';
     const depCountryCode = airportsData[departureIcao]?.country ? airportsData[departureIcao].country.toLowerCase() : '';
@@ -5879,8 +5877,7 @@ function populateAircraftInfoWindow(baseProps, plan, sortedRoutePoints) {
     const pilotUsername = baseProps.username || 'N/A';
     const pilotReportTabText = (pilotUsername !== 'N/A' && pilotUsername) ? pilotUsername : 'Pilot Report';
 
-    // --- [NEW] Aircraft Image Logic for Tech Card ---
-    // We try to find a specific image, otherwise fall back to the overview panel image logic
+    // Image Logic
     const sanitizeFilename = (name) => {
         if (!name || typeof name !== 'string') return 'unknown';
         return name.trim().toLowerCase().replace(/[^a-z0-j-9-]/g, '_');
@@ -5893,19 +5890,58 @@ function populateAircraftInfoWindow(baseProps, plan, sortedRoutePoints) {
     // --- HTML Construction ---
     windowEl.innerHTML = `
     <style>
-        /* --- [UPDATED] Tech Card CSS Scoped (Compact & Solid) --- */
-        .tech-card {
-            background: #0f172a; /* Solid Dark Slate (No Glass) */
+        /* --- Shared Tech Style --- */
+        .tech-module {
+            background: #0f172a; /* Solid Dark Slate */
             border: 1px solid rgba(255, 255, 255, 0.1);
-            border-radius: 12px; /* Slightly tighter radius */
+            border-radius: 12px;
+            overflow: hidden;
+            box-shadow: 0 4px 15px rgba(0, 0, 0, 0.5);
+            margin-bottom: 12px;
+            display: flex;
+            flex-direction: column;
+        }
+
+        /* Replaces the old .sensor-header, .fms-header, etc. */
+        .tech-module-header {
+            background: rgba(30, 41, 59, 0.5); /* Slightly lighter header */
+            padding: 8px 12px;
+            border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+        
+        .tech-module-title {
+            font-size: 0.75rem;
+            font-weight: 700;
+            color: #94a3b8; /* Muted text */
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .tech-module-body {
+            padding: 12px;
+            background: #0f172a;
+            position: relative;
+        }
+
+        /* --- Tech Card Specifics (Existing) --- */
+        .tech-card {
+            background: #0f172a; 
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            border-radius: 12px; 
             overflow: hidden;
             box-shadow: 0 4px 15px rgba(0, 0, 0, 0.5);
             position: relative;
             font-family: 'Inter', sans-serif;
-            margin-bottom: 12px; /* Less spacing below */
+            margin-bottom: 12px; 
         }
         .tech-card-header {
-            padding: 12px 16px 4px; /* Reduced padding */
+            padding: 12px 16px 4px; 
             display: flex;
             justify-content: space-between;
             align-items: flex-start;
@@ -5920,7 +5956,7 @@ function populateAircraftInfoWindow(baseProps, plan, sortedRoutePoints) {
             border-radius: 999px;
             background: rgba(16, 185, 129, 0.1);
             border: 1px solid rgba(16, 185, 129, 0.2);
-            font-size: 9px; /* Smaller font */
+            font-size: 9px;
             font-weight: 700;
             color: #34d399;
             text-transform: uppercase;
@@ -5929,7 +5965,7 @@ function populateAircraftInfoWindow(baseProps, plan, sortedRoutePoints) {
         .tech-ping {
             position: relative;
             display: flex;
-            height: 5px; /* Smaller dot */
+            height: 5px;
             width: 5px;
         }
         .tech-ping span {
@@ -5947,11 +5983,8 @@ function populateAircraftInfoWindow(baseProps, plan, sortedRoutePoints) {
         @keyframes ping {
             75%, 100% { transform: scale(2); opacity: 0; }
         }
-        .tech-title-group {
-            margin-top: 2px;
-        }
         .tech-model {
-            font-size: 1.1rem; /* Reduced from 1.5rem */
+            font-size: 1.1rem;
             font-weight: 700;
             color: #fff;
             letter-spacing: -0.025em;
@@ -5959,23 +5992,23 @@ function populateAircraftInfoWindow(baseProps, plan, sortedRoutePoints) {
             line-height: 1.2;
         }
         .tech-airline {
-            font-size: 0.75rem; /* Reduced from 0.875rem */
+            font-size: 0.75rem;
             font-weight: 500;
-            color: rgba(56, 189, 248, 0.9); /* sky-400 */
+            color: rgba(56, 189, 248, 0.9);
             margin-top: 0px;
             display: flex;
             align-items: center;
             gap: 5px;
         }
         .tech-content {
-            padding: 12px; /* Reduced padding */
+            padding: 12px;
             position: relative;
             z-index: 10;
         }
         .tech-image-container {
             position: relative;
             width: 100%;
-            aspect-ratio: 21 / 9; /* Flatter aspect ratio to save height */
+            aspect-ratio: 21 / 9;
             border-radius: 8px;
             overflow: hidden;
             box-shadow: 0 4px 6px rgba(0, 0, 0, 0.2);
@@ -5999,7 +6032,7 @@ function populateAircraftInfoWindow(baseProps, plan, sortedRoutePoints) {
         }
         .tech-image-info {
             position: absolute;
-            bottom: 8px; /* Tighter positioning */
+            bottom: 8px;
             left: 10px;
             right: 10px;
             display: flex;
@@ -6028,13 +6061,13 @@ function populateAircraftInfoWindow(baseProps, plan, sortedRoutePoints) {
         .tech-grid {
             display: grid;
             grid-template-columns: repeat(2, 1fr);
-            gap: 8px; /* Tighter gap */
+            gap: 8px;
             margin-top: 12px;
         }
         .tech-stat-card {
             background: rgba(30, 41, 59, 0.5);
             border: 1px solid rgba(255, 255, 255, 0.05);
-            padding: 8px 10px; /* Much tighter padding */
+            padding: 8px 10px;
             border-radius: 6px;
             transition: background 0.2s;
         }
@@ -6048,7 +6081,7 @@ function populateAircraftInfoWindow(baseProps, plan, sortedRoutePoints) {
             margin-bottom: 2px;
         }
         .tech-stat-label {
-            font-size: 9px; /* Smaller label */
+            font-size: 9px;
             font-weight: 600;
             color: #94a3b8;
             text-transform: uppercase;
@@ -6056,7 +6089,7 @@ function populateAircraftInfoWindow(baseProps, plan, sortedRoutePoints) {
         }
         .tech-stat-value {
             font-family: 'Consolas', 'Monaco', monospace;
-            font-size: 0.95rem; /* Reduced from 1.125rem */
+            font-size: 0.95rem;
             color: #fff;
             font-weight: 600;
             letter-spacing: -0.025em;
@@ -6065,7 +6098,7 @@ function populateAircraftInfoWindow(baseProps, plan, sortedRoutePoints) {
             grid-column: span 2;
             background: rgba(30, 41, 59, 0.3);
             border: 1px solid rgba(255, 255, 255, 0.05);
-            padding: 6px 10px; /* Tighter padding */
+            padding: 6px 10px;
             border-radius: 6px;
             display: flex;
             align-items: center;
@@ -6077,7 +6110,7 @@ function populateAircraftInfoWindow(baseProps, plan, sortedRoutePoints) {
             gap: 8px;
         }
         .tech-country-icon {
-            width: 24px; /* Smaller icon box */
+            width: 24px;
             height: 24px;
             border-radius: 4px;
             background: rgba(51, 65, 85, 0.5);
@@ -6087,10 +6120,58 @@ function populateAircraftInfoWindow(baseProps, plan, sortedRoutePoints) {
             color: #94a3b8;
         }
         .tech-bottom-bar {
-            height: 3px; /* Thinner bar */
+            height: 3px;
             width: 100%;
             background: linear-gradient(to right, #0ea5e9, #2563eb, #4f46e5);
             opacity: 0.8;
+        }
+
+        /* --- FMS Overrides for Tech Style --- */
+        .fms-columns {
+            border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+            color: #94a3b8;
+        }
+        .fms-row {
+            border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+        }
+        .fms-footer {
+            background: rgba(30, 41, 59, 0.3);
+            border-top: 1px solid rgba(255, 255, 255, 0.1);
+        }
+
+        /* --- Nav Data Overrides --- */
+        .nav-header {
+             display: none; /* We use the tech-module-header now */
+        }
+        #location-data-panel {
+            background: transparent;
+            border: none;
+            box-shadow: none;
+        }
+        .nav-grid-container {
+            padding: 0; /* Remove internal padding as body handles it */
+        }
+        .nav-cell {
+            background: rgba(30, 41, 59, 0.5); /* Match tech-stat-card */
+            border: 1px solid rgba(255, 255, 255, 0.05);
+        }
+
+        /* --- VSD Overrides --- */
+        .vsd-module-container {
+             background: transparent; 
+             border: none;
+             box-shadow: none;
+        }
+        .vsd-footer {
+            background: rgba(30, 41, 59, 0.3);
+            border-top: 1px solid rgba(255, 255, 255, 0.1);
+        }
+        .vsd-graph-window {
+            background: #0f172a; /* Match background */
+        }
+        #vsd-y-axis {
+            background: #0f172a;
+            border-right: 1px solid rgba(255, 255, 255, 0.1);
         }
     </style>
 
@@ -6298,12 +6379,12 @@ function populateAircraftInfoWindow(baseProps, plan, sortedRoutePoints) {
                     
                     <div class="info-right-col">
                         
-                        <div class="seat-sensor-wrapper" id="cockpit-seat-sensor">
-                            <div class="sensor-header">
-                                <span class="fms-title">COCKPIT STATE</span>
+                        <div class="tech-module" id="cockpit-seat-sensor">
+                            <div class="tech-module-header">
+                                <span class="tech-module-title"><i class="fa-solid fa-chair"></i> COCKPIT STATE</span>
                                 <span class="fms-page-count"><i class="fa-solid fa-satellite-dish"></i></span>
                             </div>
-                            <div class="sensor-body">
+                            <div class="tech-module-body">
                                 <div class="cockpit-view">
                                     <div id="seat-cpt" class="seat" data-role="CPT"></div>
                                     <div id="seat-fo" class="seat" data-role="FO"></div>
@@ -6322,20 +6403,20 @@ function populateAircraftInfoWindow(baseProps, plan, sortedRoutePoints) {
                             </div>
                         </div>
 
-                        <div class="rules-module-container">
-                            <div class="rules-header">
-                                <span class="fms-title">FLIGHT RULES</span>
+                        <div class="tech-module">
+                            <div class="tech-module-header">
+                                <span class="tech-module-title"><i class="fa-solid fa-book"></i> FLIGHT RULES</span>
                             </div>
-                            <div class="rules-body">
+                            <div class="tech-module-body" style="padding: 8px;">
                                 <div id="flight-rules-display" class="flight-rules-badge">
                                     <i class="fa-solid fa-spinner fa-spin"></i>
                                 </div>
                             </div>
                         </div>
 
-                        <div id="fms-legs-module" class="fms-module-container" style="height: 400px; max-height: 400px;">
-                            <div class="fms-header">
-                                <span class="fms-title">ACTIVE FLIGHT PLAN</span>
+                        <div id="fms-legs-module" class="tech-module" style="height: 400px; max-height: 400px; display: flex; flex-direction: column;">
+                            <div class="tech-module-header">
+                                <span class="tech-module-title"><i class="fa-solid fa-route"></i> ACTIVE FLIGHT PLAN</span>
                                 <span class="fms-page-count">1/1</span>
                             </div>
                             
@@ -6364,57 +6445,59 @@ function populateAircraftInfoWindow(baseProps, plan, sortedRoutePoints) {
                         ${planButtonHtml} </div>
                 </div>
                 
-                <div id="location-data-panel">
-                    <div class="nav-header">
-                        <span class="nav-title">NAV DATA</span>
+                <div class="tech-module" id="location-data-panel">
+                    <div class="tech-module-header">
+                        <span class="tech-module-title"><i class="fa-solid fa-location-crosshairs"></i> NAV DATA</span>
                         <span class="nav-status-indicator"><div class="nav-blink"></div> LIVE</span>
                     </div>
                     
-                    <div class="nav-grid-container">
-                        <div class="nav-cell">
-                            <span class="nav-label"><i class="fa-solid fa-map-location-dot"></i> Region</span>
-                            <span class="nav-value small" id="ac-location">Scanning...</span>
-                        </div>
-                        <div class="nav-cell">
-                            <span class="nav-label"><i class="fa-solid fa-tower-control"></i> Nearest</span>
-                            <div class="nav-row">
-                                <span class="nav-value highlight" id="ac-nearest-apt">---</span>
-                                <span class="nav-value" id="ac-nearest-apt-dist">--.- <span class="nav-unit">NM</span></span>
+                    <div class="tech-module-body" style="padding: 8px;">
+                        <div class="nav-grid-container">
+                            <div class="nav-cell">
+                                <span class="nav-label"><i class="fa-solid fa-map-location-dot"></i> Region</span>
+                                <span class="nav-value small" id="ac-location">Scanning...</span>
                             </div>
-                        </div>
-                        <div class="nav-cell">
-                            <span class="nav-label"><i class="fa-solid fa-wind"></i> Wind</span>
-                            <span class="nav-value" id="ac-env-wind">---/--</span>
-                        </div>
-                        <div class="nav-cell">
-                            <span class="nav-label"><i class="fa-solid fa-temperature-half"></i> OAT</span>
-                            <span class="nav-value" id="ac-env-oat">--°C</span>
-                        </div>
+                            <div class="nav-cell">
+                                <span class="nav-label"><i class="fa-solid fa-tower-control"></i> Nearest</span>
+                                <div class="nav-row">
+                                    <span class="nav-value highlight" id="ac-nearest-apt">---</span>
+                                    <span class="nav-value" id="ac-nearest-apt-dist">--.- <span class="nav-unit">NM</span></span>
+                                </div>
+                            </div>
+                            <div class="nav-cell">
+                                <span class="nav-label"><i class="fa-solid fa-wind"></i> Wind</span>
+                                <span class="nav-value" id="ac-env-wind">---/--</span>
+                            </div>
+                            <div class="nav-cell">
+                                <span class="nav-label"><i class="fa-solid fa-temperature-half"></i> OAT</span>
+                                <span class="nav-value" id="ac-env-oat">--°C</span>
+                            </div>
 
-                        <div class="nav-cell nav-span-2">
-                            <span class="nav-label"><i class="fa-solid fa-location-crosshairs"></i> Position</span>
-                            <div class="nav-row">
-                                <div><span class="nav-unit">LAT</span> <span class="nav-value" id="ac-lat">---</span></div>
-                                <div><span class="nav-unit">LON</span> <span class="nav-value" id="ac-lon">---</span></div>
+                            <div class="nav-cell nav-span-2">
+                                <span class="nav-label"><i class="fa-solid fa-location-crosshairs"></i> Position</span>
+                                <div class="nav-row">
+                                    <div><span class="nav-unit">LAT</span> <span class="nav-value" id="ac-lat">---</span></div>
+                                    <div><span class="nav-unit">LON</span> <span class="nav-value" id="ac-lon">---</span></div>
+                                </div>
                             </div>
-                        </div>
-                        <div class="nav-cell nav-span-2">
-                             <span class="nav-label"><i class="fa-solid fa-arrow-up-right-dots"></i> Vertical Speed</span>
-                             <span class="nav-value large highlight" id="ac-vs">--- <span class="nav-unit">fpm</span></span>
-                        </div>
+                            <div class="nav-cell nav-span-2">
+                                 <span class="nav-label"><i class="fa-solid fa-arrow-up-right-dots"></i> Vertical Speed</span>
+                                 <span class="nav-value large highlight" id="ac-vs">--- <span class="nav-unit">fpm</span></span>
+                            </div>
 
-                        <div class="nav-cell nav-span-2">
-                            <span class="nav-label"><i class="fa-solid fa-location-arrow"></i> Next Waypoint</span>
-                            <div class="nav-row">
-                                <span class="nav-value accent" id="ac-next-wp">---</span>
-                                <span class="nav-value" id="ac-next-wp-dist">--.- <span class="nav-unit">NM</span></span>
+                            <div class="nav-cell nav-span-2">
+                                <span class="nav-label"><i class="fa-solid fa-location-arrow"></i> Next Waypoint</span>
+                                <div class="nav-row">
+                                    <span class="nav-value accent" id="ac-next-wp">---</span>
+                                    <span class="nav-value" id="ac-next-wp-dist">--.- <span class="nav-unit">NM</span></span>
+                                </div>
                             </div>
-                        </div>
-                        <div class="nav-cell nav-span-2">
-                            <span class="nav-label"><i class="fa-solid fa-flag-checkered"></i> Destination</span>
-                            <div class="nav-row">
-                                <div><span class="nav-unit">DIST</span> <span class="nav-value" id="ac-dist">---</span></div>
-                                <div><span class="nav-unit">ETE</span> <span class="nav-value" id="ac-ete">--:--</span></div>
+                            <div class="nav-cell nav-span-2">
+                                <span class="nav-label"><i class="fa-solid fa-flag-checkered"></i> Destination</span>
+                                <div class="nav-row">
+                                    <div><span class="nav-unit">DIST</span> <span class="nav-value" id="ac-dist">---</span></div>
+                                    <div><span class="nav-unit">ETE</span> <span class="nav-value" id="ac-ete">--:--</span></div>
+                                </div>
                             </div>
                         </div>
                     </div>
@@ -6498,9 +6581,10 @@ function populateAircraftInfoWindow(baseProps, plan, sortedRoutePoints) {
                     </div>
                     <div class="tech-bottom-bar"></div>
                 </div>
-                <div class="vsd-module-container">
-                    <div class="fms-header">
-                        <span class="fms-title">VERTICAL SITUATION DISPLAY</span>
+
+                <div class="tech-module vsd-module-container">
+                    <div class="tech-module-header">
+                        <span class="tech-module-title"><i class="fa-solid fa-chart-area"></i> VERTICAL SITUATION DISPLAY</span>
                         <span class="fms-page-count">VSD</span>
                     </div>
                     
