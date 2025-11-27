@@ -8083,16 +8083,22 @@ function updateAircraftInfoWindow(baseProps, plan, sortedRoutePoints) {
     });
 
     // --- [FIX] Update Aircraft Image (Header) ---
-    // Only update if we don't already have a valid backend image loaded
     const overviewPanels = document.querySelectorAll('#ac-overview-panel');
+    
     overviewPanels.forEach(overviewPanel => {
-        // [FIX START] If we already have a backend (HTTP) image, don't overwrite it with a local guess
+        // --- FIX START ---
+        // 1. Get the current image path set by the initial load.
         const currentPath = overviewPanel.dataset.currentPath;
-        if (currentPath && currentPath.startsWith('http')) {
-            return; 
-        }
-        // [FIX END]
 
+        // 2. If the current path is a valid HTTP URL, DO NOT OVERWRITE IT.
+        if (currentPath && currentPath.startsWith('http')) {
+            return; // Exit early, image is correct and loaded from backend.
+        }
+        // --- FIX END ---
+        
+        // Old logic (Only runs if the image is NOT a backend URL, 
+        // allowing the system to update if a local image becomes available,
+        // but not overriding the high-quality one).
         const sanitizeFilename = (name) => {
             if (!name || typeof name !== 'string') return 'unknown';
             return name.trim().toLowerCase().replace(/[^a-z0-j-9-]/g, '_');
