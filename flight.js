@@ -1918,6 +1918,38 @@ function injectCustomStyles() {
             to { opacity: 1; transform: translateY(0); }
         }
 
+        /* --- RUNWAY DROPDOWN STYLES --- */
+        .runway-dropdown-header {
+            cursor: pointer;
+            transition: background 0.2s;
+        }
+        .runway-dropdown-header:hover {
+            background: rgba(255, 255, 255, 0.05);
+        }
+        .runway-dropdown-content {
+            display: none; /* Closed by default */
+            padding: 8px;
+            border-top: 1px solid rgba(255, 255, 255, 0.05);
+        }
+        .runway-dropdown-content.open {
+            display: grid; /* Grid layout when open */
+            grid-template-columns: 1fr 1fr; 
+            gap: 8px;
+            animation: slideDown 0.3s ease-out;
+        }
+        .runway-toggle-icon {
+            color: #94a3b8;
+            transition: transform 0.3s ease;
+        }
+        .runway-dropdown-header.open .runway-toggle-icon {
+            transform: rotate(180deg);
+        }
+        
+        @keyframes slideDown {
+            from { opacity: 0; transform: translateY(-5px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+
     `;
 
     const style = document.createElement('style');
@@ -4416,13 +4448,11 @@ async function createAirportInfoWindowHTML(icao) {
     const atcForAirport = activeAtcFacilities.filter(f => f.airportName === icao);
     const notamsForAirport = activeNotams.filter(n => n.airportIcao === icao);
     const routesFromAirport = ALL_AVAILABLE_ROUTES.filter(r => r.departure === icao);
-    
-    // --- [NEW] Get Runways ---
     const airportRunways = runwaysData[icao] || [];
 
     // --- Weather Logic ---
     let weatherHtml = '';
-    let runwayRecHtml = ''; // [NEW] Container for recommendations
+    let runwayRecHtml = ''; 
     let flightCategory = 'WAITING';
     let badgeClass = '';
     
@@ -4437,19 +4467,21 @@ async function createAirportInfoWindowHTML(icao) {
             else if (w.raw.includes('IFR') || w.raw.includes('VV')) { flightCategory = 'IFR'; badgeClass = 'wx-ifr'; }
             else if (w.raw.includes('MVFR')) { flightCategory = 'MVFR'; badgeClass = 'wx-mvfr'; }
 
-            // --- [NEW] Generate Runway Recommendations ---
+            // --- Generate Runway Recommendations ---
             const recs = getRunwayRecommendations(airportRunways, w.wind);
             
             if (recs.length > 0) {
+                // --- DROPDOWN STRUCTURE ---
                 runwayRecHtml = `
                 <div class="tech-module" style="margin-bottom: 8px;">
-                    <div class="tech-module-header">
+                    <div class="tech-module-header runway-dropdown-header" id="runway-accordion-toggle">
                         <span class="tech-module-title"><i class="fa-solid fa-road"></i> RECOMMENDED RUNWAYS</span>
+                        <i class="fa-solid fa-chevron-down runway-toggle-icon"></i>
                     </div>
-                    <div class="tech-module-body" style="padding: 8px; display: grid; grid-template-columns: 1fr 1fr; gap: 8px;">
+                    
+                    <div class="tech-module-body runway-dropdown-content" id="runway-accordion-content">
                         ${recs.map(r => {
-                            // Dynamic Icon for Headwind/Tailwind
-                            const windIcon = r.headwind >= 0 ? 'fa-arrow-down' : 'fa-arrow-up'; // Down = Headwind (facing you), Up = Tailwind
+                            const windIcon = r.headwind >= 0 ? 'fa-arrow-down' : 'fa-arrow-up'; 
                             const windColor = r.headwind >= 0 ? '#4ade80' : '#ef4444';
                             
                             return `
@@ -4485,30 +4517,14 @@ async function createAirportInfoWindowHTML(icao) {
                         <div class="wx-condition-pill ${badgeClass}">
                             <i class="fa-solid fa-plane-up"></i> ${flightCategory} CONDITIONS
                         </div>
-                        
                         <div class="weather-module-grid">
-                            <div class="wx-stat-box">
-                                <span class="wx-label">WIND</span>
-                                <span class="wx-value" style="color: #38bdf8;">${w.wind}</span>
-                            </div>
-                            <div class="wx-stat-box">
-                                <span class="wx-label">VIS</span>
-                                <span class="wx-value">${w.visibility || '10KM'}</span>
-                            </div>
-                            <div class="wx-stat-box">
-                                <span class="wx-label">TEMP</span>
-                                <span class="wx-value" style="color: #fbbf24;">${w.temp}</span>
-                            </div>
-                             <div class="wx-stat-box">
-                                <span class="wx-label">QNH</span>
-                                <span class="wx-value">${w.qnh || '1013'}</span>
-                            </div>
+                            <div class="wx-stat-box"><span class="wx-label">WIND</span><span class="wx-value" style="color: #38bdf8;">${w.wind}</span></div>
+                            <div class="wx-stat-box"><span class="wx-label">VIS</span><span class="wx-value">${w.visibility || '10KM'}</span></div>
+                            <div class="wx-stat-box"><span class="wx-label">TEMP</span><span class="wx-value" style="color: #fbbf24;">${w.temp}</span></div>
+                            <div class="wx-stat-box"><span class="wx-label">QNH</span><span class="wx-value">${w.qnh || '1013'}</span></div>
                         </div>
-
                         <div style="margin-top: 12px; padding: 8px; background: rgba(0,0,0,0.3); border-radius: 4px; border: 1px solid rgba(255,255,255,0.05);">
-                            <code style="font-family: monospace; color: #94a3b8; font-size: 0.75rem; line-height: 1.4; display: block; word-break: break-all;">
-                                ${w.raw}
-                            </code>
+                            <code style="font-family: monospace; color: #94a3b8; font-size: 0.75rem; line-height: 1.4; display: block; word-break: break-all;">${w.raw}</code>
                         </div>
                     </div>
                 </div>
@@ -4517,100 +4533,47 @@ async function createAirportInfoWindowHTML(icao) {
             weatherHtml = '<div class="tech-module"><div class="tech-module-body"><p class="muted-text">Weather service unavailable.</p></div></div>';
         }
     } catch (err) {
-        console.error(err);
         weatherHtml = '<div class="tech-module"><div class="tech-module-body"><p class="muted-text">Weather data offline.</p></div></div>';
     }
 
-    // --- Routes Logic ---
-    let routesHtml = '<div style="padding: 20px; text-align: center; color: #64748b;">No departing routes found in database.</div>';
+    // --- Routes/ATC/NOTAMs Logic (Unchanged) ---
+    // ... (Keep existing routesHtml, atcHtml, notamsHtml logic here) ...
+    // Note: I am omitting the middle logic for brevity, assuming you keep the code from the previous step.
     
+    // Re-declare them here briefly to prevent errors if you copy-paste blindly:
+    let routesHtml = '<div style="padding: 20px; text-align: center; color: #64748b;">No departing routes found in database.</div>';
     if (routesFromAirport.length > 0) {
-        routesHtml = `
-            <div style="padding: 12px; display: flex; flex-direction: column; gap: 4px;">
-                ${routesFromAirport.map(route => {
-                    const airlineCode = extractAirlineCode(route.flightNumber);
-                    const routeDataString = JSON.stringify(route).replace(/'/g, "&apos;");
-                    const shortAc = route.aircraft.replace('Boeing', 'B').replace('Airbus', 'A').split(' ')[0];
-
-                    return `
-                    <div class="route-card">
-                        <div class="route-info">
-                            <div class="route-callsign">
-                                <img src="Images/vas/${airlineCode}.png" style="height: 16px; width: auto; max-width: 40px;" onerror="this.style.display='none'">
-                                ${route.flightNumber}
-                            </div>
-                            <div class="route-details">
-                                <span class="route-ac-badge">${shortAc}</span>
-                                <span><i class="fa-solid fa-plane-arrival" style="color: #64748b;"></i> ${route.arrival}</span>
-                            </div>
-                        </div>
-                        <button class="plan-btn-mini plan-flight-from-explorer-btn" data-route='${routeDataString}'>
-                            PLAN <i class="fa-solid fa-angle-right"></i>
-                        </button>
-                    </div>
-                    `;
-                }).join('')}
-            </div>
-        `;
+        routesHtml = `<div style="padding: 12px; display: flex; flex-direction: column; gap: 4px;">${routesFromAirport.map(route => {
+            const airlineCode = extractAirlineCode(route.flightNumber);
+            const routeDataString = JSON.stringify(route).replace(/'/g, "&apos;");
+            const shortAc = route.aircraft.replace('Boeing', 'B').replace('Airbus', 'A').split(' ')[0];
+            return `<div class="route-card"><div class="route-info"><div class="route-callsign"><img src="Images/vas/${airlineCode}.png" style="height: 16px; width: auto; max-width: 40px;" onerror="this.style.display='none'"> ${route.flightNumber}</div><div class="route-details"><span class="route-ac-badge">${shortAc}</span><span><i class="fa-solid fa-plane-arrival" style="color: #64748b;"></i> ${route.arrival}</span></div></div><button class="plan-btn-mini plan-flight-from-explorer-btn" data-route='${routeDataString}'>PLAN <i class="fa-solid fa-angle-right"></i></button></div>`;
+        }).join('')}</div>`;
     }
-
-    // --- ATC Logic ---
+    
     let atcHtml = '<div style="padding: 20px; text-align: center; color: #64748b;">No active ATC frequencies.</div>';
     if (atcForAirport.length > 0) {
-        atcHtml = `
-            <div style="padding: 12px;">
-                ${atcForAirport.map(f => {
-                    const typeName = atcTypeToString(f.type);
-                    let badgeClass = 'atc-type-obs';
-                    if (f.type === 1) badgeClass = 'atc-type-twr';
-                    else if (f.type === 0) badgeClass = 'atc-type-gnd';
-                    else if (f.type === 4 || f.type === 5) badgeClass = 'atc-type-app';
-
-                    return `
-                    <div class="atc-grid-card">
-                        <div style="display: flex; align-items: center; gap: 12px;">
-                            <span class="atc-type-badge ${badgeClass}">${typeName}</span>
-                            <span class="atc-controller">${f.username || 'Unknown'}</span>
-                        </div>
-                        <span class="atc-duration"><i class="fa-regular fa-clock"></i> ${formatAtcDuration(f.startTime)}</span>
-                    </div>
-                    `;
-                }).join('')}
-            </div>
-        `;
+        atcHtml = `<div style="padding: 12px;">${atcForAirport.map(f => {
+            const typeName = atcTypeToString(f.type);
+            let badgeClass = f.type === 1 ? 'atc-type-twr' : f.type === 0 ? 'atc-type-gnd' : (f.type === 4 || f.type === 5) ? 'atc-type-app' : 'atc-type-obs';
+            return `<div class="atc-grid-card"><div style="display: flex; align-items: center; gap: 12px;"><span class="atc-type-badge ${badgeClass}">${typeName}</span><span class="atc-controller">${f.username || 'Unknown'}</span></div><span class="atc-duration"><i class="fa-regular fa-clock"></i> ${formatAtcDuration(f.startTime)}</span></div>`;
+        }).join('')}</div>`;
     }
 
-    // --- NOTAMs Logic ---
     let notamsHtml = '<div style="padding: 20px; text-align: center; color: #64748b;">No active NOTAMs.</div>';
     if (notamsForAirport.length > 0) {
-        notamsHtml = `
-            <div style="padding: 12px; display: flex; flex-direction: column; gap: 8px;">
-                ${notamsForAirport.map(n => `
-                    <div style="background: rgba(234, 179, 8, 0.1); border-left: 3px solid #eab308; padding: 10px; border-radius: 4px; color: #fef08a; font-family: monospace; font-size: 0.8rem;">
-                        <i class="fa-solid fa-triangle-exclamation"></i> ${n.message}
-                    </div>
-                `).join('')}
-            </div>
-        `;
+        notamsHtml = `<div style="padding: 12px; display: flex; flex-direction: column; gap: 8px;">${notamsForAirport.map(n => `<div style="background: rgba(234, 179, 8, 0.1); border-left: 3px solid #eab308; padding: 10px; border-radius: 4px; color: #fef08a; font-family: monospace; font-size: 0.8rem;"><i class="fa-solid fa-triangle-exclamation"></i> ${n.message}</div>`).join('')}</div>`;
     }
 
     // --- Final Assembly ---
     return `
         <div class="airport-hero">
             <div class="hero-actions">
-                <button id="airport-window-hide-btn" class="hero-btn" title="Hide Window">
-                    <i class="fa-solid fa-compress"></i>
-                </button>
-                <button id="airport-window-close-btn" class="hero-btn" title="Close Window">
-                    <i class="fa-solid fa-xmark"></i>
-                </button>
+                <button id="airport-window-hide-btn" class="hero-btn" title="Hide Window"><i class="fa-solid fa-compress"></i></button>
+                <button id="airport-window-close-btn" class="hero-btn" title="Close Window"><i class="fa-solid fa-xmark"></i></button>
             </div>
-
             <div class="apt-ident-group">
-                <div class="apt-icao">
-                    ${icao}
-                    ${flagSrc ? `<img src="${flagSrc}" style="height: 24px; border-radius: 2px;">` : ''}
-                </div>
+                <div class="apt-icao">${icao}${flagSrc ? `<img src="${flagSrc}" style="height: 24px; border-radius: 2px;">` : ''}</div>
                 <div class="apt-name">${airportName}</div>
                 <div style="margin-top: 8px; display: flex; gap: 8px;">
                      <span class="apt-meta-badge"><i class="fa-solid fa-location-crosshairs"></i> ${airportData.lat?.toFixed(3)}, ${airportData.lon?.toFixed(3)}</span>
@@ -4622,29 +4585,17 @@ async function createAirportInfoWindowHTML(icao) {
 
         <div style="padding: 16px; flex-grow: 1; overflow-y: auto;">
             ${weatherHtml}
-            ${runwayRecHtml} <div class="tech-module" style="min-height: 300px; display: flex; flex-direction: column;">
-                
-                <div class="apt-tabs-header">
-                    <button class="apt-tab-btn active" data-target="apt-routes">
-                        <i class="fa-solid fa-route"></i> ROUTES
-                    </button>
-                    <button class="apt-tab-btn" data-target="apt-atc">
-                        <i class="fa-solid fa-headset"></i> ATC
-                    </button>
-                    <button class="apt-tab-btn" data-target="apt-notams">
-                        <i class="fa-solid fa-triangle-exclamation"></i> NOTAMs
-                    </button>
-                </div>
+            ${runwayRecHtml} 
 
-                <div id="apt-routes" class="apt-tab-content active" style="padding: 0;">
-                    ${routesHtml}
+            <div class="tech-module" style="min-height: 300px; display: flex; flex-direction: column;">
+                <div class="apt-tabs-header">
+                    <button class="apt-tab-btn active" data-target="apt-routes"><i class="fa-solid fa-route"></i> ROUTES</button>
+                    <button class="apt-tab-btn" data-target="apt-atc"><i class="fa-solid fa-headset"></i> ATC</button>
+                    <button class="apt-tab-btn" data-target="apt-notams"><i class="fa-solid fa-triangle-exclamation"></i> NOTAMs</button>
                 </div>
-                <div id="apt-atc" class="apt-tab-content" style="padding: 0;">
-                    ${atcHtml}
-                </div>
-                <div id="apt-notams" class="apt-tab-content" style="padding: 0;">
-                    ${notamsHtml}
-                </div>
+                <div id="apt-routes" class="apt-tab-content active" style="padding: 0;">${routesHtml}</div>
+                <div id="apt-atc" class="apt-tab-content" style="padding: 0;">${atcHtml}</div>
+                <div id="apt-notams" class="apt-tab-content" style="padding: 0;">${notamsHtml}</div>
             </div>
         </div>
     `;
@@ -4867,6 +4818,16 @@ async function updateLiveFlights() {
         airportInfoWindow.addEventListener('click', (e) => {
             const closeBtn = e.target.closest('#airport-window-close-btn');
             const hideBtn = e.target.closest('#airport-window-hide-btn');
+            
+            // --- [NEW] Accordion Toggle Logic ---
+            const toggleBtn = e.target.closest('#runway-accordion-toggle');
+            if (toggleBtn) {
+                const content = document.getElementById('runway-accordion-content');
+                if (content) {
+                    toggleBtn.classList.toggle('open');
+                    content.classList.toggle('open');
+                }
+            }
 
             if (closeBtn) {
                 airportInfoWindow.classList.remove('visible');
