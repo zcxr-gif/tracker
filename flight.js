@@ -6835,19 +6835,19 @@ function populateAircraftInfoWindow(baseProps, plan, sortedRoutePoints, communit
                             </div>
 
                             <div class="tech-country-card">
-                                <div class="tech-country-left">
-                                    <div class="tech-country-icon">
-                                        <i class="fa-solid fa-flag" style="font-size: 14px;"></i>
-                                    </div>
-                                    <div style="display: flex; flex-direction: column;">
-                                        <span class="tech-stat-label" style="font-size: 9px; margin-bottom: 2px;">Airline Origin</span>
-                                        <span style="font-size: 13px; font-weight: 600; color: #fff;">${depCountryCode ? airportsData[departureIcao]?.country : 'Unknown'}</span>
-                                    </div>
-                                </div>
-                                <div style="padding: 4px 8px; background: rgba(51, 65, 85, 0.5); border-radius: 4px; border: 1px solid rgba(255, 255, 255, 0.05);">
-                                    <span style="font-family: monospace; font-size: 10px; color: #cbd5e1;">${depCountryCode.toUpperCase()}</span>
-                                </div>
-                            </div>
+    <div class="tech-country-left">
+        <div class="tech-country-icon">
+            <i class="fa-solid fa-plane-up" style="font-size: 14px;"></i>
+        </div>
+        <div style="display: flex; flex-direction: column;">
+            <span class="tech-stat-label" style="font-size: 9px; margin-bottom: 2px;">Category</span>
+            <span style="font-size: 13px; font-weight: 600; color: #fff; text-transform: capitalize;">${baseProps.category || 'Standard'}</span>
+        </div>
+    </div>
+    <div style="padding: 4px 8px; background: rgba(51, 65, 85, 0.5); border-radius: 4px; border: 1px solid rgba(255, 255, 255, 0.05);">
+        <span style="font-family: monospace; font-size: 10px; color: #cbd5e1;">CLASS</span>
+    </div>
+</div>
                         </div>
                     </div>
                     <div class="tech-bottom-bar"></div>
