@@ -1473,12 +1473,14 @@ function injectCustomStyles() {
 
         .vsd-disclaimer { background: rgba(10, 12, 26, 0.5); border: 1px solid rgba(255, 255, 255, 0.05); border-radius: 8px; padding: 10px 14px; margin-top: 0; }
 
-        /* --- MAPBOX POPUP OVERRIDES --- */
+        /* --- MAPBOX POPUP OVERRIDES (FIXED) --- */
         .mapboxgl-popup-content {
             background: transparent !important;
             box-shadow: none !important;
             padding: 0 !important;
             border: none !important;
+            /* This allows clicks/scrolls to pass through to the map */
+            pointer-events: none !important; 
         }
         .mapboxgl-popup-tip {
             display: none !important;
@@ -1486,16 +1488,18 @@ function injectCustomStyles() {
         
         /* --- FR24 STYLE CARD CONTAINER (MICRO) --- */
         .fr24-card-container {
-            width: 160px; /* Reduced to 160px */
+            width: 160px;
             display: flex;
             flex-direction: column;
-            gap: 3px; /* Very tight gap */
+            gap: 3px;
             font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+            /* Ensure the card itself doesn't block events either */
+            pointer-events: none; 
         }
 
         /* --- TOP IMAGE BUBBLE --- */
         .fr24-image-box {
-            height: 85px; /* Reduced height */
+            height: 85px;
             width: 100%;
             background-color: #2c2c2e;
             background-size: cover;
@@ -1511,7 +1515,7 @@ function injectCustomStyles() {
             bottom: 3px;
             left: 6px;
             color: rgba(255, 255, 255, 0.7);
-            font-size: 7px; /* Micro font */
+            font-size: 7px;
             font-weight: 500;
             text-shadow: 0 1px 2px rgba(0,0,0,1);
             z-index: 2;
@@ -1527,7 +1531,7 @@ function injectCustomStyles() {
         .fr24-info-box {
             background-color: #2c2c2e;
             border-radius: 8px;
-            padding: 6px 8px; /* Compact padding */
+            padding: 6px 8px;
             box-shadow: 0 2px 8px rgba(0,0,0,0.4);
             display: flex;
             flex-direction: column;
@@ -1542,7 +1546,7 @@ function injectCustomStyles() {
         }
 
         .fr24-airline-logo {
-            height: 14px; /* Very small logo */
+            height: 14px;
             width: auto;
             max-width: 35px;
             object-fit: contain;
@@ -1580,7 +1584,7 @@ function injectCustomStyles() {
             white-space: nowrap;
             overflow: hidden;
             text-overflow: ellipsis;
-            max-width: 100px; /* Ensure truncation works in tight space */
+            max-width: 100px;
         }
 
         .fr24-progress-track {
@@ -1603,7 +1607,7 @@ function injectCustomStyles() {
             color: #98989d;
             font-weight: 600;
             margin-top: 1px;
-        } 
+        }
 
     `;
 
