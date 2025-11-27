@@ -8084,48 +8084,6 @@ function updateAircraftInfoWindow(baseProps, plan, sortedRoutePoints) {
         el.style.display = arrCountryCode ? 'block' : 'none'; 
     });
 
-    // --- [FIX] Update Aircraft Image (Header) ---
-    const overviewPanels = document.querySelectorAll('#ac-overview-panel');
-    
-    overviewPanels.forEach(overviewPanel => {
-        // --- FIX START ---
-        // 1. Get the current image path set by the initial load.
-        const currentPath = overviewPanel.dataset.currentPath;
-
-        // 2. If the current path is a valid HTTP URL, DO NOT OVERWRITE IT.
-        if (currentPath && currentPath.startsWith('http')) {
-            return; // Exit early, image is correct and loaded from backend.
-        }
-        // --- FIX END ---
-        
-        // Old logic (Only runs if the image is NOT a backend URL, 
-        // allowing the system to update if a local image becomes available,
-        // but not overriding the high-quality one).
-        const sanitizeFilename = (name) => {
-            if (!name || typeof name !== 'string') return 'unknown';
-            return name.trim().toLowerCase().replace(/[^a-z0-j-9-]/g, '_');
-        };
-        const aircraftName = baseProps.aircraft?.aircraftName || 'Generic Aircraft';
-        const liveryName = baseProps.aircraft?.liveryName || 'Default Livery';
-        const sanitizedAircraft = sanitizeFilename(aircraftName);
-        const sanitizedLivery = sanitizeFilename(liveryName);
-        const imagePath = `/CommunityPlanes/${sanitizedAircraft}/${sanitizedLivery}.png`;
-        const fallbackPath = '/CommunityPlanes/default.png';
-        const newImageUrl = `url('${imagePath}')`;
-
-        if (overviewPanel.dataset.currentPath !== imagePath) {
-            const img = new Image();
-            img.src = imagePath;
-            img.onload = () => {
-                overviewPanel.style.backgroundImage = newImageUrl;
-                overviewPanel.dataset.currentPath = imagePath;
-            };
-            img.onerror = () => {
-                overviewPanel.style.backgroundImage = `url('${fallbackPath}')`;
-                overviewPanel.dataset.currentPath = fallbackPath;
-            };
-        }
-    });
 
     // --- CALL THE FMS UPDATE ---
     updateFmsLegsModule(plan, baseProps.position);
