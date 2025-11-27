@@ -1837,39 +1837,35 @@ function injectCustomStyles() {
     color: #64748b;
     font-size: 0.8rem;
 }
-    .hero-actions {
-    position: absolute;
-    top: 15px;
-    right: 15px;
-    display: flex;
-    gap: 8px;
-    z-index: 10;
-}
 
-.hero-btn {
-    background: rgba(255, 255, 255, 0.1);
-    border: 1px solid rgba(255, 255, 255, 0.2);
-    color: #e2e8f0;
-    width: 32px;
-    height: 32px;
-    border-radius: 50%;
-    cursor: pointer;
-    transition: all 0.2s ease;
-    display: grid;
-    place-items: center;
-    font-size: 0.9rem;
-}
+/* --- [NEW] HERO ACTION BUTTONS --- */
+        .hero-actions {
+            position: absolute;
+            top: 15px;
+            right: 15px;
+            display: flex;
+            gap: 8px;
+            z-index: 10;
+        }
 
-.hero-btn:hover {
-    background: rgba(255, 255, 255, 0.25);
-    color: #fff;
-    transform: scale(1.05);
-}
+        .hero-btn {
+            background: rgba(0, 0, 0, 0.3);
+            border: 1px solid rgba(255, 255, 255, 0.2);
+            color: #fff;
+            width: 32px;
+            height: 32px;
+            border-radius: 50%;
+            cursor: pointer;
+            display: grid;
+            place-items: center;
+            transition: all 0.2s ease;
+            backdrop-filter: blur(4px);
+        }
 
-.hero-btn.close-btn:hover {
-    background: rgba(239, 68, 68, 0.8); /* Red for close */
-    border-color: rgba(239, 68, 68, 1);
-}
+        .hero-btn:hover {
+            background: rgba(255, 255, 255, 0.2);
+            transform: scale(1.1);
+        }
 
     `;
 
@@ -4248,10 +4244,6 @@ function updatePfdDisplay(pfdData) {
         if (headingTapeGroup) headingTapeGroup.setAttribute('transform', 'translate(0, 0)');
     }
 
-/**
- * --- [REFACTORED] Creates the rich HTML content for the airport info window.
- * Matches the "Tech/EFB" theme of the Aircraft Window.
- */
 async function createAirportInfoWindowHTML(icao) {
     const airportData = airportsData[icao] || {};
     const airportName = airportData.name || 'Unknown Airport';
@@ -4335,7 +4327,7 @@ async function createAirportInfoWindowHTML(icao) {
                 ${routesFromAirport.map(route => {
                     const airlineCode = extractAirlineCode(route.flightNumber);
                     const aircraftInfo = AIRCRAFT_SELECTION_LIST.find(ac => ac.value === route.aircraft);
-                    const aircraftName = aircraftInfo ? aircraftInfo.name : route.aircraft;
+                    // const aircraftName = aircraftInfo ? aircraftInfo.name : route.aircraft; // Unused
                     const routeDataString = JSON.stringify(route).replace(/'/g, "&apos;");
                     
                     // Simplify aircraft name for badge
@@ -4404,12 +4396,16 @@ async function createAirportInfoWindowHTML(icao) {
     }
 
     // --- Final Assembly ---
-    // Note: We use the existing 'info-window-tabs' classes to ensure the JS logic in handleAirportClick still works
+    // UPDATED: Added hero-actions container and buttons
     return `
         <div class="airport-hero">
             <div class="hero-actions">
-                <button class="hero-btn airport-hide-trigger" title="Hide"><i class="fa-solid fa-compress"></i></button>
-                <button class="hero-btn close-btn airport-close-trigger" title="Close"><i class="fa-solid fa-xmark"></i></button>
+                <button id="airport-window-hide-btn" class="hero-btn" title="Hide Window">
+                    <i class="fa-solid fa-compress"></i>
+                </button>
+                <button id="airport-window-close-btn" class="hero-btn" title="Close Window">
+                    <i class="fa-solid fa-xmark"></i>
+                </button>
             </div>
 
             <div class="apt-ident-group">
@@ -4668,42 +4664,34 @@ async function updateLiveFlights() {
 }
 
 
-    // ==========================================================
-    // START: SECTOR OPS / ROUTE EXPLORER LOGIC (INTERACTIVE AIRPORT MAP)
-    // ==========================================================
-    
-    // NEW: Function to set up event listeners for the Airport Info Window
     function setupAirportWindowEvents() {
         if (!airportInfoWindow || airportInfoWindow.dataset.eventsAttached === 'true') return;
 
         // Use Event Delegation on the main container
         airportInfoWindow.addEventListener('click', (e) => {
-            // Check if clicked element is (or is inside) the Close Button
-            if (e.target.closest('.airport-close-trigger')) {
+            const closeBtn = e.target.closest('#airport-window-close-btn');
+            const hideBtn = e.target.closest('#airport-window-hide-btn');
+
+            if (closeBtn) {
                 airportInfoWindow.classList.remove('visible');
                 if (window.MobileUIHandler) MobileUIHandler.closeActiveWindow();
                 airportInfoWindowRecallBtn.classList.remove('visible');
-                clearRouteLayers(); // Closing also clears the map routes
+                clearRouteLayers(); 
                 currentAirportInWindow = null;
-                return;
             }
 
-            // Check if clicked element is (or is inside) the Hide Button
-            if (e.target.closest('.airport-hide-trigger')) {
+            if (hideBtn) {
                 airportInfoWindow.classList.remove('visible');
                 if (currentAirportInWindow) {
                     airportInfoWindowRecallBtn.classList.add('visible');
-                    // Trigger animation
                     airportInfoWindowRecallBtn.classList.add('palpitate');
                     setTimeout(() => {
                         airportInfoWindowRecallBtn.classList.remove('palpitate');
                     }, 1000);
                 }
-                return;
             }
         });
 
-        // Recall button logic remains the same
         airportInfoWindowRecallBtn.addEventListener('click', () => {
             if (currentAirportInWindow) {
                 airportInfoWindow.classList.add('visible');
@@ -5064,7 +5052,6 @@ function getIconImageExpression(colorMode = 'default') {
 
     async function initializeSectorOpsView() {
         const mapContainer = document.getElementById('sector-ops-map-fullscreen');
-        // Use the correct ID from your HTML for the view container if needed
         const viewContainer = document.getElementById('standalone-map-view'); 
         
         if (!viewContainer || !mapContainer) return;
@@ -5092,7 +5079,7 @@ function getIconImageExpression(colorMode = 'default') {
             }
 
             // --- 2. Inject Airport Info Window (if missing) ---
-            // [MODIFIED] Header removed; buttons will be injected by the content generator
+            // UPDATED: Removed the info-window-header div entirely
             if (!document.getElementById('airport-info-window')) {
                  const windowHtml = `
                     <div id="airport-info-window" class="info-window">
@@ -5157,7 +5144,7 @@ function getIconImageExpression(colorMode = 'default') {
                 mapContainer.insertAdjacentHTML('beforeend', windowHtml);
             }
 
-            // --- 5. Inject Filter Settings Window (UPDATED WITH THEME CONTROLS) ---
+            // --- 5. Inject Filter Settings Window ---
             if (!document.getElementById('filter-settings-window')) {
                 const windowHtml = `
                     <div id="filter-settings-window" class="info-window">
@@ -5320,7 +5307,7 @@ function getIconImageExpression(colorMode = 'default') {
             setupAirportWindowEvents();
             setupAircraftWindowEvents();
             setupWeatherSettingsWindowEvents();
-            setupFilterSettingsWindowEvents(); // Now handles the new theme inputs
+            setupFilterSettingsWindowEvents(); 
             setupSearchEventListeners();
 
             // --- 10. Listen for ND_READY signal ---
@@ -5972,10 +5959,6 @@ function updateFlightPlanLayer(flightId, plan, currentPosition) {
 }
 
 
-    /**
-     * --- [MODIFIED] Centralized handler for clicking any airport marker.
-     * This now opens the persistent info window instead of a popup.
-     */
     async function handleAirportClick(icao) {
         if (currentAirportInWindow && currentAirportInWindow !== icao) {
             airportInfoWindow.classList.remove('visible');
@@ -5988,19 +5971,18 @@ function updateFlightPlanLayer(flightId, plan, currentPosition) {
         const airport = airportsData[icao];
         if (!airport) return;
 
-        const titleEl = document.getElementById('airport-window-title');
-        const contentEl = document.getElementById('airport-window-content');
+        // --- [REMOVED] Title Element Logic ---
+        // const titleEl = document.getElementById('airport-window-title'); <-- Removed
+        // titleEl.innerHTML = ...; <-- Removed
         
-        titleEl.innerHTML = `${icao} <small>- ${airport.name || 'Airport'}</small>`;
+        const contentEl = document.getElementById('airport-window-content');
         contentEl.innerHTML = `<div class="spinner-small" style="margin: 2rem auto;"></div>`; // Loading state
         
-        // --- [FIX] Use the same mobile-aware logic as handleAircraftClick ---
         if (window.MobileUIHandler && window.MobileUIHandler.isMobile()) {
             window.MobileUIHandler.openWindow(airportInfoWindow);
         } else {
             airportInfoWindow.classList.add('visible');
         }
-        // --- [END FIX] ---
 
         airportInfoWindowRecallBtn.classList.remove('visible');
         currentAirportInWindow = icao;
@@ -6013,16 +5995,18 @@ function updateFlightPlanLayer(flightId, plan, currentPosition) {
 
             // Add event listeners for the new tabs
             const tabContainer = contentEl.querySelector('.info-window-tabs');
-            tabContainer.addEventListener('click', (e) => {
-                const tabBtn = e.target.closest('.info-tab-btn');
-                if (!tabBtn) return;
-                
-                tabContainer.querySelector('.active').classList.remove('active');
-                contentEl.querySelector('.info-tab-content.active').classList.remove('active');
+            if (tabContainer) { // Safety check
+                tabContainer.addEventListener('click', (e) => {
+                    const tabBtn = e.target.closest('.info-tab-btn');
+                    if (!tabBtn) return;
+                    
+                    tabContainer.querySelector('.active').classList.remove('active');
+                    contentEl.querySelector('.info-tab-content.active').classList.remove('active');
 
-                tabBtn.classList.add('active');
-                contentEl.querySelector(`#${tabBtn.dataset.tab}`).classList.add('active');
-            });
+                    tabBtn.classList.add('active');
+                    contentEl.querySelector(`#${tabBtn.dataset.tab}`).classList.add('active');
+                });
+            }
         } else {
              airportInfoWindow.classList.remove('visible');
              currentAirportInWindow = null;
