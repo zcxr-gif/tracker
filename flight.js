@@ -5683,7 +5683,7 @@ function generateAltitudeColoredRoute(sortedPoints, currentPosition, flightPlan 
 
 /**
  * --- [UPDATED] Handles the click on an aircraft, fetches data, and opens the window.
- * Now optimized to support the new Tech Card UI.
+ * Now fetches Community Aircraft details from the backend.
  */
 async function handleAircraftClick(flightProps, sessionId) {
     if (!flightProps || !flightProps.flightId) return;
@@ -5739,7 +5739,7 @@ async function handleAircraftClick(flightProps, sessionId) {
     windowEl.innerHTML = `
         <div style="display: flex; flex-direction: column; align-items: center; justify-content: center; height: 300px; color: #fff;">
             <div class="spinner-small" style="margin-bottom: 1rem;"></div>
-            <p style="font-family: 'Inter', sans-serif; font-size: 0.9rem; color: #94a3b8;">Acquiring Flight Data...</p>
+            <p style="font-family: 'Inter', sans-serif; font-size: 0.9rem; color: #94a3b8;">Acquiring Flight & Aircraft Data...</p>
         </div>
     `;
 
@@ -5747,15 +5747,29 @@ async function handleAircraftClick(flightProps, sessionId) {
         // Define layer ID for flown path
         const flownLayerId = `flown-path-${flightProps.flightId}`;
         
-        // --- Fetch Data ---
-        const [planRes, routeRes] = await Promise.all([
+        // --- PREPARE DATA FOR LOOKUP ---
+        const acName = flightProps.aircraft?.aircraftName || '';
+        const livName = flightProps.aircraft?.liveryName || '';
+
+        // --- FETCH DATA (Parallel: Plan, Route, AND Aircraft Details) ---
+        const [planRes, routeRes, aircraftLookupRes] = await Promise.all([
             fetch(`${LIVE_FLIGHTS_API_URL}/${sessionId}/${flightProps.flightId}/plan`),
-            fetch(`${LIVE_FLIGHTS_API_URL}/${sessionId}/${flightProps.flightId}/route`)
+            fetch(`${LIVE_FLIGHTS_API_URL}/${sessionId}/${flightProps.flightId}/route`),
+            // Fetch from your custom backend without sanitizing, just encoding for URL safety
+            fetch(`${API_BASE_URL}/api/aircraft/lookup?type=${encodeURIComponent(acName)}&livery=${encodeURIComponent(livName)}`)
         ]);
         
         const planData = planRes.ok ? await planRes.json() : null;
         const plan = (planData && planData.ok) ? planData.plan : null;
         const routeData = routeRes.ok ? await routeRes.json() : null;
+
+        // Process Aircraft Lookup Result
+        let communityAircraftData = null;
+        if (aircraftLookupRes.ok) {
+            communityAircraftData = await aircraftLookupRes.json();
+        } else {
+            console.warn(`Aircraft lookup failed or no match found for ${acName} / ${livName}`);
+        }
         
         // --- Process Route History ---
         let sortedRoutePoints = [];
@@ -5772,8 +5786,8 @@ async function handleAircraftClick(flightProps, sessionId) {
         // Cache data for stats view
         cachedFlightDataForStatsView = { flightProps, plan };
         
-        // --- [RENDER] Populate the new Window UI ---
-        populateAircraftInfoWindow(flightProps, plan, sortedRoutePoints);
+        // --- [RENDER] Populate the new Window UI (Pass the new data) ---
+        populateAircraftInfoWindow(flightProps, plan, sortedRoutePoints, communityAircraftData);
         
         // --- [GEOCODE] Initial Fetch ---
         fetchAndDisplayGeocode(flightProps.position.lat, flightProps.position.lon);
@@ -5813,11 +5827,8 @@ async function handleAircraftClick(flightProps, sessionId) {
                         38000, '#9400D3'  
                     ],
                     'line-width': 4,
-                    // --- [MODIFIED] Uniform Opacity ---
                     'line-opacity': 0.9, 
-                    // --- [MODIFIED] Solid Line Only (Removed Dash Array) ---
                     'line-dasharray': [1, 0],
-                    
                     'line-translate': [0, -2], 
                     'line-translate-anchor': 'viewport'
                 }
@@ -5964,7 +5975,10 @@ function rebuildDynamicLayers() {
 
 
 
-function populateAircraftInfoWindow(baseProps, plan, sortedRoutePoints) {
+/**
+ * --- [UPDATED] Populates the aircraft info window with data from backend lookup.
+ */
+function populateAircraftInfoWindow(baseProps, plan, sortedRoutePoints, communityAircraftData) {
     // --- Helper function to update all elements matching a selector ---
     const updateAll = (selector, value, isHTML = false) => {
         const elements = document.querySelectorAll(selector);
@@ -5997,7 +6011,7 @@ function populateAircraftInfoWindow(baseProps, plan, sortedRoutePoints) {
     const liveryName = baseProps.aircraft?.liveryName || '';
     const reg = baseProps.aircraft?.registration || 'N/A';
     
-    // Logo Logic
+    // Logo Logic (Client-side logic for Airline Logo remains useful)
     const words = liveryName.trim().split(/\s+/);
     let logoName = words.length > 1 && /[^a-zA-Z0-9]/.test(words[1]) ? words[0] : (words[0] + (words[1] ? ' ' + words[1] : ''));
     const sanitizedLogoName = logoName.toLowerCase().replace(/[^a-z0-9\s]/g, '').replace(/\s+/g, '_');
@@ -6034,15 +6048,19 @@ function populateAircraftInfoWindow(baseProps, plan, sortedRoutePoints) {
     const pilotUsername = baseProps.username || 'N/A';
     const pilotReportTabText = (pilotUsername !== 'N/A' && pilotUsername) ? pilotUsername : 'Pilot Report';
 
-    // Image Logic
-    const sanitizeFilename = (name) => {
-        if (!name || typeof name !== 'string') return 'unknown';
-        return name.trim().toLowerCase().replace(/[^a-z0-j-9-]/g, '_');
-    };
-    const sanitizedAircraft = sanitizeFilename(aircraftName);
-    const sanitizedLivery = sanitizeFilename(liveryName);
-    const techCardImagePath = `/CommunityPlanes/${sanitizedAircraft}/${sanitizedLivery}.png`;
-    const techCardFallbackPath = '/CommunityPlanes/default.png';
+    // --- DYNAMIC IMAGE & CONTRIBUTOR LOGIC ---
+    // Default Fallback
+    let techCardImagePath = '/CommunityPlanes/default.png';
+    let photographerName = 'IF Community';
+    let techCardTail = reg; // Default to live registration
+
+    // If backend returned data, use it
+    if (communityAircraftData) {
+        techCardImagePath = communityAircraftData.imageUrl;
+        photographerName = communityAircraftData.contributorName;
+        // Optionally, you can also display the specific tail number from the database record
+        // techCardTail = communityAircraftData.tailNumber; 
+    }
 
     // --- Distance Calc for TOD Logic ---
     let distanceToDestNM = 0;
@@ -6130,7 +6148,6 @@ function populateAircraftInfoWindow(baseProps, plan, sortedRoutePoints) {
         </div>
         `;
     } else if (hasPlan && baseProps.position.alt_ft <= 5000) {
-        // Optional: Simplified view if already low/landing
          todHtml = `
         <div class="tech-module">
             <div class="tech-module-header">
@@ -6775,15 +6792,15 @@ function populateAircraftInfoWindow(baseProps, plan, sortedRoutePoints) {
 
                     <div class="tech-content">
                         <div class="tech-image-container">
-                            <img src="${techCardImagePath}" onerror="this.src='${techCardFallbackPath}'" class="tech-image" alt="Aircraft">
+                            <img src="${techCardImagePath}" onerror="this.src='/CommunityPlanes/default.png'" class="tech-image" alt="Aircraft">
                             <div class="tech-image-overlay"></div>
                             
                             <div class="tech-image-info">
                                 <div class="tech-photographer">
-                                    <span class="tech-photo-label">Photographer</span>
+                                    <span class="tech-photo-label">Contributor</span>
                                     <div class="tech-photo-name">
                                         <i class="fa-solid fa-camera" style="color: #38bdf8; font-size: 12px;"></i>
-                                        <span>IF Community</span>
+                                        <span>${photographerName}</span>
                                     </div>
                                 </div>
                                 <a href="#" style="padding: 8px; background: rgba(255,255,255,0.1); border-radius: 8px; color: #fff; border: 1px solid rgba(255,255,255,0.1); display: flex;">
@@ -6798,7 +6815,7 @@ function populateAircraftInfoWindow(baseProps, plan, sortedRoutePoints) {
                                     <span class="tech-stat-label">Registration</span>
                                     <i class="fa-solid fa-hashtag" style="font-size: 12px; color: #475569;"></i>
                                 </div>
-                                <span class="tech-stat-value">${reg}</span>
+                                <span class="tech-stat-value">${techCardTail}</span>
                             </div>
 
                             <div class="tech-stat-card">
@@ -6864,7 +6881,7 @@ function populateAircraftInfoWindow(baseProps, plan, sortedRoutePoints) {
     
     createPfdDisplay();
     updatePfdDisplay(baseProps.position);
-    updateAircraftInfoWindow(baseProps, plan, sortedRoutePoints);
+    updateAircraftInfoWindow(baseProps, plan, sortedRoutePoints, communityAircraftData);
 }
 
 /**
