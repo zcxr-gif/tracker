@@ -1473,107 +1473,143 @@ function injectCustomStyles() {
 
         .vsd-disclaimer { background: rgba(10, 12, 26, 0.5); border: 1px solid rgba(255, 255, 255, 0.05); border-radius: 8px; padding: 10px 14px; margin-top: 0; }
 
-        /* --- HOVER CARD STYLES --- */
-.mapboxgl-popup-content {
-    background: transparent !important;
-    box-shadow: none !important;
-    padding: 0 !important;
-    border-radius: 16px !important;
-}
-.mapboxgl-popup-tip {
-    display: none !important; /* Hide the little triangle tip */
-}
+        /* --- MAPBOX POPUP OVERRIDES --- */
+        .mapboxgl-popup-content {
+            background: transparent !important;
+            box-shadow: none !important;
+            padding: 0 !important;
+            border: none !important;
+        }
+        .mapboxgl-popup-tip {
+            display: none !important; /* Hide the little triangle tip */
+        }
+        
+        /* --- FR24 STYLE CARD CONTAINER --- */
+        .fr24-card-container {
+            width: 280px;
+            display: flex;
+            flex-direction: column;
+            gap: 6px; /* Gap between image and info box */
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+        }
 
-/* The Card Container */
-.hover-card {
-    width: 240px;
-    background: #1c1c1e;
-    border-radius: 16px;
-    overflow: hidden;
-    box-shadow: 0 10px 30px rgba(0,0,0,0.5);
-    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
-    border: 1px solid rgba(255,255,255,0.1);
-}
+        /* --- TOP IMAGE BUBBLE --- */
+        .fr24-image-box {
+            height: 140px;
+            width: 100%;
+            background-color: #2c2c2e;
+            background-size: cover;
+            background-position: center;
+            border-radius: 14px;
+            position: relative;
+            box-shadow: 0 4px 12px rgba(0,0,0,0.4);
+            overflow: hidden;
+        }
+        
+        /* Copyright text on image */
+        .fr24-copyright {
+            position: absolute;
+            bottom: 8px;
+            left: 12px;
+            color: rgba(255, 255, 255, 0.8);
+            font-size: 10px;
+            font-weight: 500;
+            text-shadow: 0 1px 2px rgba(0,0,0,0.8);
+            z-index: 2;
+        }
+        
+        /* Gradient to make copyright readable */
+        .fr24-image-overlay {
+            position: absolute;
+            inset: 0;
+            background: linear-gradient(to top, rgba(0,0,0,0.6) 0%, transparent 30%);
+        }
 
-/* Top Image Section */
-.hover-card-image {
-    height: 100px;
-    width: 100%;
-    background-size: cover;
-    background-position: center;
-    position: relative;
-}
-.hover-card-overlay {
-    position: absolute;
-    inset: 0;
-    /* Gradient to make white text readable on top of image */
-    background: linear-gradient(to bottom, rgba(0,0,0,0.2) 0%, rgba(28,28,30,1) 100%);
-}
+        /* --- BOTTOM INFO BUBBLE --- */
+        .fr24-info-box {
+            background-color: #2c2c2e; /* Dark Grey */
+            border-radius: 14px;
+            padding: 12px 16px;
+            box-shadow: 0 4px 12px rgba(0,0,0,0.4);
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
+            color: #ffffff;
+        }
 
-/* Content Layout */
-.hover-card-header {
-    position: absolute;
-    bottom: 8px;
-    left: 12px;
-    right: 12px;
-    z-index: 2;
-}
-.hover-callsign {
-    color: #fff;
-    font-size: 1.2rem;
-    font-weight: 700;
-    margin: 0;
-    text-shadow: 0 2px 4px rgba(0,0,0,0.5);
-    display: flex;
-    align-items: center;
-    gap: 6px;
-}
-.hover-aircraft {
-    color: #a1a1aa;
-    font-size: 0.75rem;
-    font-weight: 600;
-    text-transform: uppercase;
-    margin-top: 2px;
-}
+        /* Header: Logo + Callsign/Badge */
+        .fr24-header-row {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
 
-/* Bottom Data Section */
-.hover-card-body {
-    padding: 0 12px 12px 12px;
-    background: #1c1c1e;
-}
+        .fr24-airline-logo {
+            height: 24px;
+            width: auto;
+            max-width: 60px;
+            object-fit: contain;
+            border-radius: 2px;
+        }
 
-/* The Progress Bar (Visual only for hover) */
-.hover-progress-track {
-    width: 100%;
-    height: 4px;
-    background: #3a3a3c;
-    border-radius: 2px;
-    margin: 8px 0 10px 0;
-    overflow: hidden;
-}
-.hover-progress-fill {
-    height: 100%;
-    background: #0a84ff; /* iOS Blue */
-    width: 50%; /* Default to 50% since we don't have full route on hover */
-    border-radius: 2px;
-}
+        .fr24-ident-group {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
 
-/* Stats Row */
-.hover-stats-row {
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-    font-size: 0.9rem;
-    color: #fff;
-    font-weight: 600;
-    font-variant-numeric: tabular-nums;
-}
-.hover-stat-label {
-    font-size: 0.7rem;
-    color: #8e8e93;
-    font-weight: 500;
-    margin-right: 4px;
-}
+        .fr24-callsign {
+            font-size: 17px;
+            font-weight: 700;
+            color: #fff;
+            line-height: 1;
+        }
+
+        .fr24-ac-badge {
+            background-color: #3a3a3c;
+            border: 1px solid #48484a;
+            color: #d1d1d6;
+            font-size: 11px;
+            font-weight: 600;
+            padding: 2px 6px;
+            border-radius: 4px;
+            line-height: 1;
+        }
+
+        /* Route Text */
+        .fr24-route {
+            font-size: 15px;
+            font-weight: 500;
+            color: #fff;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+
+        /* Progress Bar */
+        .fr24-progress-track {
+            height: 6px;
+            width: 100%;
+            background-color: #3a3a3c;
+            border-radius: 3px;
+            overflow: hidden;
+            margin-top: 2px;
+        }
+
+        .fr24-progress-fill {
+            height: 100%;
+            background-color: #ff3b30; /* The specific Red/Orange */
+            border-radius: 3px;
+        }
+
+        /* Stats Row */
+        .fr24-stats-row {
+            font-size: 14px;
+            color: #98989d; /* Standard iOS Grey */
+            font-weight: 500;
+        }
+        
+
     `;
 
     const style = document.createElement('style');
@@ -4881,65 +4917,97 @@ function initializeSectorOpsMap(centerICAO) {
     });
 
     /**
-     * --- [NEW HELPER] Generates the HTML for the Hover Card ---
+     * --- [NEW HELPER] Generates the HTML for the Hover Card (FR24 Style) ---
      */
     function generateHoverCardHTML(props) {
-        // 1. Image Logic (Replicated from your Aircraft Window logic for consistency)
+        // 1. Data Parsing
+        const aircraftData = typeof props.aircraft === 'string' ? JSON.parse(props.aircraft || '{}') : (props.aircraft || {});
+        const positionData = typeof props.position === 'string' ? JSON.parse(props.position || '{}') : (props.position || {});
+        
+        // 2. Image Logic
         const sanitizeFilename = (name) => {
             if (!name || typeof name !== 'string') return 'unknown';
             return name.trim().toLowerCase().replace(/[^a-z0-j-9-]/g, '_');
         };
 
-        // Parse JSON properties if they are strings
-        const aircraftData = typeof props.aircraft === 'string' ? JSON.parse(props.aircraft || '{}') : (props.aircraft || {});
-        
-        const acName = aircraftData.aircraftName || 'Unknown Aircraft';
-        const livName = aircraftData.liveryName || 'Default Livery';
+        const acName = aircraftData.aircraftName || 'Unknown';
+        const livName = aircraftData.liveryName || '';
         
         const sanitizedAircraft = sanitizeFilename(acName);
         const sanitizedLivery = sanitizeFilename(livName);
         
-        // Construct Image Path
+        // Use community image path
         const imagePath = `/CommunityPlanes/${sanitizedAircraft}/${sanitizedLivery}.png`;
         const fallbackPath = '/CommunityPlanes/default.png';
 
-        // 2. Data Formatting
+        // 3. Airline Logo Logic
+        // Attempt to extract airline name for logo matching
+        const words = livName.trim().split(/\s+/);
+        let logoName = words.length > 1 && /[^a-zA-Z0-9]/.test(words[1]) ? words[0] : (words[0] + (words[1] ? ' ' + words[1] : ''));
+        const sanitizedLogoName = logoName.toLowerCase().replace(/[^a-z0-9\s]/g, '').replace(/\s+/g, '_');
+        const logoPath = `Images/airline_logos/${sanitizedLogoName}.png`;
+
+        // 4. Formatting Data
         const callsign = props.callsign || 'N/A';
         const altitude = props.altitude ? Math.round(props.altitude).toLocaleString() : '0';
         const speed = props.speed ? Math.round(props.speed) : '0';
-        const category = props.category || 'default';
         
-        // Simple Phase/Status Text
-        const phaseText = props.phase || 'ENROUTE';
+        // Create a short aircraft code (e.g., "B77W" from "Boeing 777-300ER")
+        // Simple heuristic: Take first word letter + digits, or look up if you have a map. 
+        // For now, we assume simbrief code or a shortened version of acName.
+        let shortType = "JET";
+        if(acName.includes("777")) shortType = "B77W";
+        else if(acName.includes("737")) shortType = "B737";
+        else if(acName.includes("320")) shortType = "A320";
+        else if(acName.includes("321")) shortType = "A321";
+        else if(acName.includes("350")) shortType = "A350";
+        else if(acName.includes("380")) shortType = "A380";
+        else if(acName.includes("787")) shortType = "B787";
+        else shortType = acName.split(' ')[0].substring(0, 4).toUpperCase();
 
-        // 3. Icon Selection based on Category (for header)
-        let iconClass = 'fa-plane';
-        if (category === 'fighter') iconClass = 'fa-fighter-jet';
-        if (category === 'cessna') iconClass = 'fa-plane-prop';
+        // 5. Route Logic (Mocked or Real)
+        // Note: Live properties usually don't have origin/dest unless joined with a flight plan.
+        // We will check for common props, otherwise display 'Enroute'.
+        let routeText = "Enroute";
+        if (props.origin && props.destination) {
+            routeText = `${props.origin} to ${props.destination}`;
+        } else if (aircraftData.origin && aircraftData.destination) {
+             routeText = `${aircraftData.origin} to ${aircraftData.destination}`;
+        }
+        
+        // 6. Contributor Name (Mocked or from DB)
+        const contributor = "IF Community"; 
 
-        // 4. HTML Structure
+        // 7. Progress Logic (Mocked or Real)
+        // If we don't have real progress, we hardcode a visual value or 0
+        const progressPercent = props.progress || 50; 
+
+        // 8. HTML Construction
         return `
-            <div class="hover-card">
-                <div class="hover-card-image" style="background-image: url('${imagePath}'), url('${fallbackPath}');">
-                    <div class="hover-card-overlay"></div>
-                    <div class="hover-card-header">
-                        <h3 class="hover-callsign">
-                            <i class="fa-solid ${iconClass}" style="font-size: 0.8em; opacity: 0.8;"></i> ${callsign}
-                        </h3>
-                        <div class="hover-aircraft">${acName}</div>
-                    </div>
+            <div class="fr24-card-container">
+                <div class="fr24-image-box" style="background-image: url('${imagePath}'), url('${fallbackPath}');">
+                    <div class="fr24-image-overlay"></div>
+                    <span class="fr24-copyright">© ${contributor}</span>
                 </div>
-                <div class="hover-card-body">
-                    <div class="hover-progress-track">
-                        <div class="hover-progress-fill" style="width: 50%; background: linear-gradient(90deg, #0a84ff, #5ac8fa);"></div>
+
+                <div class="fr24-info-box">
+                    <div class="fr24-header-row">
+                        <img src="${logoPath}" class="fr24-airline-logo" onerror="this.style.display='none'" alt="Logo">
+                        <div style="display: flex; flex-direction: column; gap: 2px;">
+                            <div class="fr24-ident-group">
+                                <span class="fr24-callsign">${callsign}</span>
+                                <span class="fr24-ac-badge">${shortType}</span>
+                            </div>
+                             <div class="fr24-route">${routeText}</div>
+                        </div>
                     </div>
-                    <div class="hover-stats-row">
-                        <div title="Altitude">
-                            <span class="hover-stat-label">ALT</span> ${altitude} <span style="font-size:0.7em; opacity:0.7;">ft</span>
-                        </div>
-                        <div title="Ground Speed">
-                            <span class="hover-stat-label">GS</span> ${speed} <span style="font-size:0.7em; opacity:0.7;">kts</span>
-                        </div>
+                   
+                    <div class="fr24-progress-track">
+                        <div class="fr24-progress-fill" style="width: ${progressPercent}%;"></div>
+                    </div>
+
+                    <div class="fr24-stats-row">
+                        ${altitude} ft • ${speed} kts
                     </div>
                 </div>
             </div>
