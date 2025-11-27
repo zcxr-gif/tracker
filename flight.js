@@ -33,6 +33,8 @@ document.addEventListener('DOMContentLoaded', async () => {
     // --- Map-related State ---
     let lastSocketUpdateTimestamp = 0; // NEW: Tracks the last valid flight data packet
     let liveTrailCache = new Map();
+    const communityAircraftCache = new Map();
+    const lookupQueue = new Map();
     let liveFlightsMap = null;
     let pilotMarkers = {};
     let liveFlightsInterval = null;
@@ -2780,7 +2782,72 @@ function getIntermediatePoint(lat1, lon1, lat2, lon2, fraction) {
     return { lat: latI, lon: lonI };
 }
 
+// flight.js (Add this new function somewhere before handleSocketFlightUpdate)
 
+    /**
+     * --- [NEW FUNCTION] ---
+     * Fetches community aircraft details from the backend and caches the result.
+     * Uses a queue to prevent duplicate API calls for the same aircraft type/livery.
+     * @param {string} type - The aircraftType (e.g., "Airbus A320-200").
+     * @param {string} livery - The liveryName (e.g., "Air France").
+     * @returns {Promise<object|null>} The cached data { imageUrl, contributorName } or null.
+     */
+    async function fetchCommunityAircraftDetails(type, livery) {
+        if (!type || !livery) return null;
+
+        const key = `${type}/${livery}`;
+
+        // 1. Check local cache first
+        if (communityAircraftCache.has(key)) {
+            return communityAircraftCache.get(key);
+        }
+
+        // 2. Check if a fetch is already in progress (in the queue)
+        if (lookupQueue.has(key)) {
+            return lookupQueue.get(key);
+        }
+
+        const lookupPromise = (async () => {
+            try {
+                // Encode parameters for the URL
+                const encodedType = encodeURIComponent(type);
+                const encodedLivery = encodeURIComponent(livery);
+
+                const response = await fetch(`${API_BASE_URL}/api/aircraft/lookup?type=${encodedType}&livery=${encodedLivery}`);
+
+                if (response.ok) {
+                    let data = await response.json();
+                    
+                    // Handle array response from find() (though API returns results[0])
+                    if (Array.isArray(data)) {
+                        data = data.length > 0 ? data[0] : null;
+                    }
+
+                    if (data && data.imageUrl && data.contributorName) {
+                        const result = { 
+                            communityImageUrl: data.imageUrl, 
+                            contributorName: data.contributorName 
+                        };
+                        communityAircraftCache.set(key, result);
+                        return result;
+                    }
+                }
+            } catch (error) {
+                console.warn(`Background lookup failed for ${key}:`, error);
+                // On failure, cache null to avoid repeated failing lookups
+                communityAircraftCache.set(key, null); 
+            }
+            return null;
+        })();
+
+        // 3. Store the promise in the queue
+        lookupQueue.set(key, lookupPromise);
+
+        // 4. Remove the promise from the queue once resolved/rejected
+        lookupPromise.finally(() => lookupQueue.delete(key));
+
+        return lookupPromise;
+    }
 
 function handleSocketFlightUpdate(data) {
     if (!data || !Array.isArray(data.flights) || !data.timestamp) {
@@ -2790,12 +2857,7 @@ function handleSocketFlightUpdate(data) {
     
     lastSocketUpdateTimestamp = new Date(data.timestamp).getTime();
 
-    // --- [FIX START] --- 
-    // Removed the early return. We allow data processing even if the map isn't ready yet,
-    // so the Search Bar works immediately.
     const isMapReady = (sectorOpsMap && sectorOpsMap.isStyleLoaded() && mapAnimator);
-    // --- [FIX END] ---
-
     const flights = data.flights;
     const updatedFlightIds = new Set();
 
@@ -2809,7 +2871,13 @@ function handleSocketFlightUpdate(data) {
 
         const litePhase = getLiteFlightPhase(flight.position);
         const aircraftData = flight.aircraft || null;
+        const acName = aircraftData?.aircraftName || '';
+        const livName = aircraftData?.liveryName || '';
+        const lookupKey = `${acName}/${livName}`;
         
+        let existingFeature = currentMapFeatures[flightId] || {};
+        let existingProps = existingFeature.properties || {};
+
         const newProperties = {
             flightId: flight.flightId,
             callsign: flight.callsign,
@@ -2820,18 +2888,55 @@ function handleSocketFlightUpdate(data) {
             position: JSON.stringify(flight.position),
             aircraft: JSON.stringify(aircraftData),
             userId: flight.userId,
-            category: getAircraftCategory(flight.aircraft?.aircraftName),
+            category: getAircraftCategory(acName),
             heading: flight.position.heading_deg, 
             isStaff: flight.isStaff,
             isVAMember: flight.isVAMember,
             phase: litePhase,
             pilotState: flight.pilotState,
-            last_update: flight.position.lastReport || data.timestamp
+            last_update: flight.position.lastReport || data.timestamp,
+            // Preserve existing cached data
+            communityImageUrl: existingProps.communityImageUrl || null, 
+            contributorName: existingProps.contributorName || null,
         };
 
-        // --- [FIX START] ---
+        // --- START: ASYNCHRONOUS LOOKUP LOGIC FOR HOVER CARD ---
+        // Only run lookup if we don't have cached data yet and the aircraft info is present.
+        if (acName && livName && !existingProps.communityImageUrl) {
+            
+            // Check the main cache map for instant hit
+            const cachedData = communityAircraftCache.get(lookupKey);
+            
+            if (cachedData) {
+                // If found in the main cache, apply immediately
+                newProperties.communityImageUrl = cachedData.communityImageUrl;
+                newProperties.contributorName = cachedData.contributorName;
+            } else if (!lookupQueue.has(lookupKey)) {
+                // If not in main cache AND not already in the queue, trigger the fetch.
+                fetchCommunityAircraftDetails(acName, livName)
+                    .then(result => {
+                        // Once resolved, immediately update the feature in the cache
+                        if (result && currentMapFeatures[flightId]) {
+                            currentMapFeatures[flightId].properties.communityImageUrl = result.communityImageUrl;
+                            currentMapFeatures[flightId].properties.contributorName = result.contributorName;
+                            // Trigger a map redraw on the layer source if necessary (MapAnimator does this, but good practice)
+                            if (isMapReady && sectorOpsMap.getSource('sector-ops-live-flights-source')) {
+                                // Only need to update the source data if the properties changed
+                                sectorOpsMap.getSource('sector-ops-live-flights-source').setData({
+                                    type: 'FeatureCollection', 
+                                    features: Object.values(currentMapFeatures)
+                                });
+                            }
+                        }
+                    })
+                    .catch(err => console.error("Aircraft lookup failed:", err));
+            }
+            // If in queue, wait for it to resolve and update later.
+        }
+        // --- END: ASYNCHRONOUS LOOKUP LOGIC ---
+
+
         // Manually update the data cache (currentMapFeatures) immediately.
-        // This ensures the search bar finds flights even if the map is still loading.
         if (!currentMapFeatures[flightId]) {
             currentMapFeatures[flightId] = {
                 type: 'Feature',
@@ -2846,10 +2951,9 @@ function handleSocketFlightUpdate(data) {
             currentMapFeatures[flightId].properties = newProperties;
             currentMapFeatures[flightId].geometry.coordinates = [flight.position.lon, flight.position.lat];
         }
-        // --- [FIX END] ---
 
         // ================================================================
-        // === SELECTED AIRCRAFT UPDATE LOGIC ===
+        // === SELECTED AIRCRAFT UPDATE LOGIC (UNCHANGED) ===
         // ================================================================
         if (flightId === currentFlightInWindow) {
             
@@ -2900,7 +3004,7 @@ function handleSocketFlightUpdate(data) {
                     cachedWindSpd
                 );
                 
-                // 6. Update Navigation Display Iframe
+                // 6. Update Navigation Display Iframe (Traffic, Plan, Wind)
                 const navIframe = document.getElementById('nav-display-frame');
                 if (navIframe && navIframe.contentWindow) {
                     
@@ -2912,19 +3016,27 @@ function handleSocketFlightUpdate(data) {
 
                     flights.forEach(other => {
                         if (other.flightId === flightId) return; 
-                        const latDiff = Math.abs(other.position.lat - myLat);
-                        const lonDiff = Math.abs(other.position.lon - myLon);
+                        const otherFeature = currentMapFeatures[other.flightId];
+                        if (!otherFeature || !otherFeature.properties || !otherFeature.properties.position) return;
+
+                        let otherPos;
+                        try {
+                             otherPos = JSON.parse(otherFeature.properties.position);
+                        } catch (e) { return; }
+
+                        const latDiff = Math.abs(otherPos.lat - myLat);
+                        const lonDiff = Math.abs(otherPos.lon - myLon);
                         if (latDiff > 1 || lonDiff > 1) return; 
 
-                        const distKm = getDistanceKm(myLat, myLon, other.position.lat, other.position.lon);
+                        const distKm = getDistanceKm(myLat, myLon, otherPos.lat, otherPos.lon);
                         const distNM = distKm / 1.852;
 
                         if (distNM < 45) {
-                            const bearingTo = getBearing(myLat, myLon, other.position.lat, other.position.lon);
+                            const bearingTo = getBearing(myLat, myLon, otherPos.lat, otherPos.lon);
                             let relBearing = bearingTo - flight.position.heading_deg;
                             if (relBearing > 180) relBearing -= 360;
                             if (relBearing < -180) relBearing += 360;
-                            const altDiffFt = other.position.alt_ft - myAlt;
+                            const altDiffFt = otherPos.alt_ft - myAlt;
                             const altDiff100 = Math.round(altDiffFt / 100);
 
                             ndTraffic.push({
@@ -2932,7 +3044,7 @@ function handleSocketFlightUpdate(data) {
                                 bearing: relBearing,
                                 dist: distNM,
                                 altDiff: altDiff100,
-                                vs: other.position.vs_fpm
+                                vs: otherPos.vs_fpm
                             });
                         }
                     });
@@ -3018,7 +3130,6 @@ function handleSocketFlightUpdate(data) {
                     const layerId = sectorOpsLiveFlightPathLayers[flightId]?.flown;
                     const source = layerId ? sectorOpsMap.getSource(layerId) : null;
                     if (source) {
-                        // --- [MODIFIED] Pass the plan to enable gap filling ---
                         const newRouteData = generateAltitudeColoredRoute(localTrail, flight.position, cachedFlightDataForStatsView.plan);
                         source.setData(newRouteData);
                     }
@@ -3026,27 +3137,25 @@ function handleSocketFlightUpdate(data) {
             }
 
             // 9. Update Planned Route Line
-            if (cachedFlightDataForStatsView.plan && mapFilters.planDisplayMode === 'direct' && isMapReady) {
+            if (cachedFlightDataForStatsView.plan && mapFilters.planDisplayMode !== 'none' && isMapReady) {
                 updateFlightPlanLayer(flightId, cachedFlightDataForStatsView.plan, flight.position);
             }
         }
 
-        // --- [FIX START] ---
         // Only update the Map Animation/Icons if the map is actually ready.
         if (isMapReady) {
             mapAnimator.updateFlight(flight.position, newProperties);
         }
-        // --- [FIX END] ---
     });
 
     // Clean up old flights
     for (const flightId in currentMapFeatures) {
         if (!updatedFlightIds.has(String(flightId))) {
-            delete currentMapFeatures[flightId]; // Clean data cache
-            // Only clean visual if map is ready
+            // Clean visual and data cache
             if (isMapReady) {
                 mapAnimator.removeFlight(flightId);
             }
+            delete currentMapFeatures[flightId]; 
         }
     }
 }
@@ -4915,36 +5024,24 @@ function initializeSectorOpsMap(centerICAO) {
         projection: 'globe'
     });
 
+
     /**
      * --- [FIXED] Generates the HTML for the Hover Card (FR24 Style) ---
+     * Reads pre-cached image/contributor data from props.
      */
     function generateHoverCardHTML(props) {
-        // 1. Data Parsing - Use the pre-parsed, top-level strings
-        const acName = props.aircraft_type_name || 'Unknown Type';
-        const livName = props.aircraft_livery_name || 'Generic Livery';
-        const positionData = typeof props.position === 'string' ? JSON.parse(props.position || '{}') : (props.position || {});
+        // 1. Data Parsing & Cached Lookup
+        const aircraftData = typeof props.aircraft === 'string' ? JSON.parse(props.aircraft || '{}') : (props.aircraft || {});
         
-        // 2. Image Path Logic - ***PRIORITIZE BACKEND DATA***
+        // --- READ CACHED BACKEND DATA ---
+        const imagePath = props.communityImageUrl || '/CommunityPlanes/default.png'; // Use cached S3 URL
+        const contributor = props.contributorName || 'IF Community'; // Use cached contributor
         
-        // A. Check for Backend-Provided URL & Contributor (fetched via secondary loop)
-        let imagePath = props.backendImageUrl;
-        let contributor = props.contributorName || "IF Community";
+        // 2. Image Logic (Now simplified as it relies on the cached URL)
         const fallbackPath = '/CommunityPlanes/default.png';
 
-        if (!imagePath) {
-            // B. Fallback to Local File Structure Guess
-            const sanitizeFilename = (name) => {
-                if (!name || typeof name !== 'string') return 'unknown';
-                return name.trim().toLowerCase().replace(/[^a-z0-9-]/g, '_').replace(/_+/g, '_');
-            };
-
-            const sanitizedAircraft = sanitizeFilename(acName);
-            const sanitizedLivery = sanitizeFilename(livName);
-            imagePath = `/CommunityPlanes/${sanitizedAircraft}/${sanitizedLivery}.png`;
-            contributor = "IF Community"; // Use placeholder if using local file
-        }
-        
-        // 3. Airline Logo Logic (Unchanged, relies on livery name parsing)
+        // 3. Airline Logo Logic (Unchanged)
+        const livName = aircraftData.liveryName || '';
         const words = livName.trim().split(/\s+/);
         let logoName = words.length > 1 && /[^a-zA-Z0-9]/.test(words[1]) ? words[0] : (words[0] + (words[1] ? ' ' + words[1] : ''));
         const sanitizedLogoName = logoName.toLowerCase().replace(/[^a-z0-9\s]/g, '').replace(/\s+/g, '_');
@@ -4955,7 +5052,8 @@ function initializeSectorOpsMap(centerICAO) {
         const altitude = props.altitude ? Math.round(props.altitude).toLocaleString() : '0';
         const speed = props.speed ? Math.round(props.speed) : '0';
         
-        // Create a short aircraft code (e.g., "B77W")
+        // Create a short aircraft code 
+        const acName = aircraftData.aircraftName || 'Unknown';
         let shortType = "JET";
         if(acName.includes("777")) shortType = "B77W";
         else if(acName.includes("737")) shortType = "B737";
@@ -4966,21 +5064,18 @@ function initializeSectorOpsMap(centerICAO) {
         else if(acName.includes("787")) shortType = "B787";
         else shortType = acName.split(' ')[0].substring(0, 4).toUpperCase();
 
-        // 5. Route Logic 
+        // 5. Route Logic
         let routeText = "Enroute";
         if (props.origin && props.destination) {
             routeText = `${props.origin} to ${props.destination}`;
-        } else if (props.aircraft?.origin && props.aircraft?.destination) {
-             routeText = `${props.aircraft.origin} to ${props.aircraft.destination}`;
+        } else if (aircraftData.origin && aircraftData.destination) {
+             routeText = `${aircraftData.origin} to ${aircraftData.destination}`;
         }
         
-        // 6. Contributor Name (Now using the rich data)
-        // Already set in step 2.
-
-        // 7. Progress Logic (Mocked or Real)
+        // 6. Progress Logic (Mocked or Real)
         const progressPercent = props.progress || 50; 
 
-        // 8. HTML Construction
+        // 7. HTML Construction
         return `
             <div class="fr24-card-container">
                 <div class="fr24-image-box" style="background-image: url('${imagePath}'), url('${fallbackPath}');">
@@ -8810,13 +8905,12 @@ function renderAirportMarkers() {
 
 // --- [REPLACEMENT] for updateSectorOpsLiveFlights ---
 // --- [MODIFIED] This function is now named 'updateSectorOpsSecondaryData'
-// and ONLY fetches Sessions, ATC, NOTAMs, AND Rich Aircraft Data.
-// Flight data is handled by the 'handleSocketFlightUpdate' function via WebSocket.
+// and ONLY fetches Sessions, ATC, and NOTAMs.
+// Flight data is now handled by the 'handleSocketFlightUpdate' function via WebSocket.
 async function updateSectorOpsSecondaryData() {
     if (!sectorOpsMap || !sectorOpsMap.isStyleLoaded()) return;
 
     const LIVE_FLIGHTS_BACKEND = 'https://site--acars-backend--6dmjph8ltlhv.code.run';
-    const FETCH_WINDOW_MS = 300000; // Refetch rich data every 5 minutes
 
     try {
         const sessionsRes = await fetch(`${LIVE_FLIGHTS_BACKEND}/if-sessions`);
@@ -8832,7 +8926,7 @@ async function updateSectorOpsSecondaryData() {
             return;
         }
 
-        // --- Fetch ATC & NOTAMs ---
+        // --- MODIFIED: Removed 'flightsRes' from Promise.all ---
         const [atcRes, notamsRes] = await Promise.all([
             fetch(`${LIVE_FLIGHTS_BACKEND}/atc/${expertSession.id}`),
             fetch(`${LIVE_FLIGHTS_BACKEND}/notams/${expertSession.id}`)
@@ -8847,55 +8941,14 @@ async function updateSectorOpsSecondaryData() {
             const notamsData = await notamsRes.json();
             activeNotams = (notamsData.ok && Array.isArray(notamsData.notams)) ? notamsData.notams : [];
         }
-        
         // Re-render airport markers with fresh ATC data
         renderAirportMarkers(); 
 
-        // --- NEW: Fetch Rich Aircraft Data for Hover Cards ---
-        const featureKeys = Object.keys(currentMapFeatures);
-        const now = Date.now();
+        // --- REMOVED: All flight processing logic ('flightsRes', 'flightsData', loops) ---
+        // This is now handled by 'handleSocketFlightUpdate'
 
-        for (const flightId of featureKeys) {
-            const feature = currentMapFeatures[flightId];
-            const props = feature.properties;
-            const lastFetch = props.lastRichDataFetch || 0;
-
-            // Only fetch if the rich data is stale
-            if (now - lastFetch > FETCH_WINDOW_MS) {
-                const acName = props.aircraft_type_name;
-                const livName = props.aircraft_livery_name;
-
-                if (acName && livName) {
-                    try {
-                        const lookupRes = await fetch(`${API_BASE_URL}/api/aircraft/lookup?type=${encodeURIComponent(acName)}&livery=${encodeURIComponent(livName)}`);
-
-                        if (lookupRes.ok) {
-                            let communityAircraftData = await lookupRes.json();
-                            // Handle array return if necessary
-                            if (Array.isArray(communityAircraftData)) {
-                                communityAircraftData = communityAircraftData.length > 0 ? communityAircraftData[0] : null;
-                            }
-                            
-                            // Store rich data directly in GeoJSON properties
-                            props.backendImageUrl = communityAircraftData?.imageUrl || null;
-                            props.contributorName = communityAircraftData?.contributorName || 'IF Community';
-                        }
-                    } catch (error) {
-                        console.warn(`Failed to fetch rich data for ${flightId}:`, error);
-                        // Store a temporary placeholder to avoid immediate refetch attempts
-                        props.backendImageUrl = null;
-                        props.contributorName = 'IF Community'; 
-                    }
-                } else {
-                    props.backendImageUrl = null;
-                    props.contributorName = 'IF Community'; 
-                }
-                // Mark the fetch time whether successful or failed, to respect the fetch window
-                props.lastRichDataFetch = now;
-            }
-        }
     } catch (error) {
-        console.error('Error updating Sector Ops secondary data (ATC/NOTAMs/Rich Data):', error);
+        console.error('Error updating Sector Ops secondary data (ATC/NOTAMs):', error);
     }
 }
     // ====================================================================
