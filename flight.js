@@ -3988,134 +3988,139 @@ function updatePfdDisplay(pfdData) {
         if (headingTapeGroup) headingTapeGroup.setAttribute('transform', 'translate(0, 0)');
     }
 
-
 /**
  * --- [REVAMPED] Creates the rich HTML content for the airport information window.
- * This now includes a live weather widget and a tabbed interface.
+ * This now uses the local WeatherService (weather.js) instead of a serverless function.
  */
-    async function createAirportInfoWindowHTML(icao) {
-        const atcForAirport = activeAtcFacilities.filter(f => f.airportName === icao);
-        const notamsForAirport = activeNotams.filter(n => n.airportIcao === icao);
-        const routesFromAirport = ALL_AVAILABLE_ROUTES.filter(r => r.departure === icao);
+async function createAirportInfoWindowHTML(icao) {
+    const atcForAirport = activeAtcFacilities.filter(f => f.airportName === icao);
+    const notamsForAirport = activeNotams.filter(n => n.airportIcao === icao);
+    const routesFromAirport = ALL_AVAILABLE_ROUTES.filter(r => r.departure === icao);
 
-        // Fetch weather
-        let weatherHtml = '';
-        try {
-            const weatherRes = await fetch(`${CURRENT_SITE_URL}/.netlify/functions/weather?icao=${icao}`);
-            if (weatherRes.ok) {
-                const weatherData = await weatherRes.json();
-                if (weatherData.data && weatherData.data.length > 0) {
-                     const metar = weatherData.data[0];
-                     const flightCategory = metar.flight_category || 'N/A';
-                     weatherHtml = `
-                        <div class="airport-info-weather">
-                            <span class="weather-flight-rules flight-rules-${flightCategory.toLowerCase()}">${flightCategory}</span>
-                            <div class="weather-details-grid">
-                                <span><i class="fa-solid fa-temperature-half"></i> ${metar.temperature?.celsius || '--'}°C</span>
-                                <span><i class="fa-solid fa-droplet"></i> ${metar.dewpoint?.celsius || '--'}°C</span>
-                                <span><i class="fa-solid fa-wind"></i> ${metar.wind?.degrees || '---'}° @ ${metar.wind?.speed_kts || '--'} kts</span>
-                                <span><i class="fa-solid fa-gauge"></i> ${metar.barometer?.hpa || '----'} hPa</span>
-                                <span><i class="fa-solid fa-eye"></i> ${metar.visibility?.miles || '--'} SM</span>
-                                <span><i class="fa-solid fa-cloud"></i> ${metar.clouds?.[0]?.text || 'Clear'}</span>
-                            </div>
-                            <code class="metar-code">${metar.raw_text}</code>
-                        </div>
-                     `;
-                }
+    // Fetch weather using window.WeatherService (from weather.js)
+    let weatherHtml = '';
+    try {
+        if (window.WeatherService) {
+            const weatherData = await window.WeatherService.fetchAndParseMetar(icao);
+            
+            // Determine a basic flight category or status to display in the badge
+            // Since the simple parser doesn't return category, we default to 'METAR' or check for obvious keywords
+            let flightCategory = 'METAR'; 
+            let badgeClass = 'flight-rules-vfr'; // Default color (greenish)
+            
+            if (weatherData.raw.includes('CAVOK')) {
+                flightCategory = 'VFR';
             }
-        } catch (err) {
-            console.error(`Could not fetch weather for ${icao}:`, err);
-            weatherHtml = '<div class="airport-info-weather"><p>Weather data unavailable.</p></div>';
-        }
 
-        // If there's no data at all (besides weather), don't show a popup
-        if (atcForAirport.length === 0 && notamsForAirport.length === 0 && routesFromAirport.length === 0) {
-            return null;
-        }
-
-        let atcHtml = '<p class="muted-text">No active ATC reported.</p>';
-        if (atcForAirport.length > 0) {
-            atcHtml = `
-                <ul class="atc-frequencies">
-                    ${atcForAirport.map(f => `
-                        <li class="atc-frequency-item">
-                            <span class="freq-type">${atcTypeToString(f.type)}:</span>
-                            <span class="freq-user">${f.username || 'N/A'}</span>
-                            <span class="freq-time">${formatAtcDuration(f.startTime)}</span>
-                        </li>
-                    `).join('')}
-                </ul>
+            weatherHtml = `
+                <div class="airport-info-weather">
+                    <span class="weather-flight-rules ${badgeClass}">${flightCategory}</span>
+                    <div class="weather-details-grid" style="grid-template-columns: repeat(3, 1fr);">
+                        <span><i class="fa-solid fa-temperature-half"></i> ${weatherData.temp}</span>
+                        <span><i class="fa-solid fa-wind"></i> ${weatherData.wind}</span>
+                        <span><i class="fa-solid fa-cloud"></i> ${weatherData.condition}</span>
+                    </div>
+                    <code class="metar-code">${weatherData.raw}</code>
+                </div>
             `;
+        } else {
+            // Fallback if weather.js isn't loaded
+            console.warn("WeatherService not found. Ensure weather.js is loaded.");
+            weatherHtml = '<div class="airport-info-weather"><p>Weather service unavailable.</p></div>';
         }
+    } catch (err) {
+        console.error(`Could not fetch weather for ${icao}:`, err);
+        weatherHtml = '<div class="airport-info-weather"><p>Weather data unavailable.</p></div>';
+    }
 
-        let notamsHtml = '<p class="muted-text">No active NOTAMs.</p>';
-        if (notamsForAirport.length > 0) {
-            notamsHtml = `
-                <ul class="notam-list">
-                    ${notamsForAirport.map(n => `<li>${n.message}</li>`).join('')}
-                </ul>
-            `;
-        }
-        
-        let routesHtml = '<p class="muted-text">No departing routes from this airport in our database.</p>';
-        if (routesFromAirport.length > 0) {
-            routesHtml = `
-                <ul class="popup-routes-list">
-                    ${routesFromAirport.map(route => {
-                        const airlineCode = extractAirlineCode(route.flightNumber);
-                        const logoPath = airlineCode ? `Images/vas/${airlineCode}.png` : '';
-                        const aircraftInfo = AIRCRAFT_SELECTION_LIST.find(ac => ac.value === route.aircraft);
-                        const aircraftName = aircraftInfo ? aircraftInfo.name : route.aircraft;
-                        const aircraftImagePath = `Images/planesForCC/${route.aircraft}.png`;
-                        
-                        const routeDataString = JSON.stringify(route).replace(/'/g, "&apos;");
+    // If there's no data at all (besides weather), don't show a popup
+    if (atcForAirport.length === 0 && notamsForAirport.length === 0 && routesFromAirport.length === 0) {
+        return null;
+    }
 
-                        return `
-                        <li class="popup-route-item">
-                            <div class="route-item-header">
-                                <div class="route-item-info">
-                                    <img src="${logoPath}" class="route-item-airline-logo" alt="${airlineCode}" onerror="this.style.display='none'">
-                                    <div class="route-item-flight-details">
-                                        <span class="flight-number">${route.flightNumber}</span>
-                                        <span class="destination">to ${route.arrival}</span>
-                                    </div>
-                                </div>
-                                <div class="route-item-actions">
-                                     <button class="cta-button plan-flight-from-explorer-btn" data-route='${routeDataString}'>Plan</button>
-                                </div>
-                            </div>
-                            <div class="route-item-footer">
-                                <div class="route-item-aircraft-info">
-                                    <img src="${aircraftImagePath}" class="route-item-aircraft-img" alt="${aircraftName}" onerror="this.style.display='none'">
-                                    <span>${aircraftName}</span>
-                                </div>
-                                ${getRankBadgeHTML(route.rankUnlock || deduceRankFromAircraftFE(route.aircraft), { showImage: true, imageClass: 'roster-req-rank-badge' })}
-                            </div>
-                        </li>
-                        `;
-                    }).join('')}
-                </ul>
-            `;
-        }
-
-        return `
-            ${weatherHtml}
-            <div class="info-window-tabs">
-                <button class="info-tab-btn active" data-tab="airport-routes"><i class="fa-solid fa-route"></i> Routes</button>
-                <button class="info-tab-btn" data-tab="airport-atc"><i class="fa-solid fa-headset"></i> ATC</button>
-                <button class="info-tab-btn" data-tab="airport-notams"><i class="fa-solid fa-triangle-exclamation"></i> NOTAMs</button>
-            </div>
-            <div id="airport-routes" class="info-tab-content active" style="padding: 20px;">
-                ${routesHtml}
-            </div>
-            <div id="airport-atc" class="info-tab-content" style="padding: 20px;">
-                ${atcHtml}
-            </div>
-            <div id="airport-notams" class="info-tab-content" style="padding: 20px;">
-                ${notamsHtml}
-            </div>
+    let atcHtml = '<p class="muted-text">No active ATC reported.</p>';
+    if (atcForAirport.length > 0) {
+        atcHtml = `
+            <ul class="atc-frequencies">
+                ${atcForAirport.map(f => `
+                    <li class="atc-frequency-item">
+                        <span class="freq-type">${atcTypeToString(f.type)}:</span>
+                        <span class="freq-user">${f.username || 'N/A'}</span>
+                        <span class="freq-time">${formatAtcDuration(f.startTime)}</span>
+                    </li>
+                `).join('')}
+            </ul>
         `;
     }
+
+    let notamsHtml = '<p class="muted-text">No active NOTAMs.</p>';
+    if (notamsForAirport.length > 0) {
+        notamsHtml = `
+            <ul class="notam-list">
+                ${notamsForAirport.map(n => `<li>${n.message}</li>`).join('')}
+            </ul>
+        `;
+    }
+    
+    let routesHtml = '<p class="muted-text">No departing routes from this airport in our database.</p>';
+    if (routesFromAirport.length > 0) {
+        routesHtml = `
+            <ul class="popup-routes-list">
+                ${routesFromAirport.map(route => {
+                    const airlineCode = extractAirlineCode(route.flightNumber);
+                    const logoPath = airlineCode ? `Images/vas/${airlineCode}.png` : '';
+                    const aircraftInfo = AIRCRAFT_SELECTION_LIST.find(ac => ac.value === route.aircraft);
+                    const aircraftName = aircraftInfo ? aircraftInfo.name : route.aircraft;
+                    const aircraftImagePath = `Images/planesForCC/${route.aircraft}.png`;
+                    
+                    const routeDataString = JSON.stringify(route).replace(/'/g, "&apos;");
+
+                    return `
+                    <li class="popup-route-item">
+                        <div class="route-item-header">
+                            <div class="route-item-info">
+                                <img src="${logoPath}" class="route-item-airline-logo" alt="${airlineCode}" onerror="this.style.display='none'">
+                                <div class="route-item-flight-details">
+                                    <span class="flight-number">${route.flightNumber}</span>
+                                    <span class="destination">to ${route.arrival}</span>
+                                </div>
+                            </div>
+                            <div class="route-item-actions">
+                                    <button class="cta-button plan-flight-from-explorer-btn" data-route='${routeDataString}'>Plan</button>
+                            </div>
+                        </div>
+                        <div class="route-item-footer">
+                            <div class="route-item-aircraft-info">
+                                <img src="${aircraftImagePath}" class="route-item-aircraft-img" alt="${aircraftName}" onerror="this.style.display='none'">
+                                <span>${aircraftName}</span>
+                            </div>
+                            ${getRankBadgeHTML(route.rankUnlock || deduceRankFromAircraftFE(route.aircraft), { showImage: true, imageClass: 'roster-req-rank-badge' })}
+                        </div>
+                    </li>
+                    `;
+                }).join('')}
+            </ul>
+        `;
+    }
+
+    return `
+        ${weatherHtml}
+        <div class="info-window-tabs">
+            <button class="info-tab-btn active" data-tab="airport-routes"><i class="fa-solid fa-route"></i> Routes</button>
+            <button class="info-tab-btn" data-tab="airport-atc"><i class="fa-solid fa-headset"></i> ATC</button>
+            <button class="info-tab-btn" data-tab="airport-notams"><i class="fa-solid fa-triangle-exclamation"></i> NOTAMs</button>
+        </div>
+        <div id="airport-routes" class="info-tab-content active" style="padding: 20px;">
+            ${routesHtml}
+        </div>
+        <div id="airport-atc" class="info-tab-content" style="padding: 20px;">
+            ${atcHtml}
+        </div>
+        <div id="airport-notams" class="info-tab-content" style="padding: 20px;">
+            ${notamsHtml}
+        </div>
+    `;
+}
 
     // --- Rank & Fleet Models ---
     const PILOT_RANKS = [
