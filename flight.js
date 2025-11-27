@@ -4440,14 +4440,13 @@ function updatePfdDisplay(pfdData) {
 
 /**
  * --- [UPDATED] Generates HTML for the Airport Info Window ---
- * Now correctly fetches rich data from the ACARS backend (Live API).
+ * Moves 3D indicator to header and keeps Taxi Layout in the feature list.
  */
 async function createAirportInfoWindowHTML(icao) {
     // 1. Get Static Data (Fallback from airports.json)
     const staticData = airportsData[icao] || {};
     
-    // 2. Fetch Live Data from Backend
-    // FIX: Use ACARS_SOCKET_URL because that is where live_flights.js is running
+    // 2. Fetch Live Data from Backend (ACARS URL)
     let liveData = null;
     try {
         const response = await fetch(`${ACARS_SOCKET_URL}/api/airport/${icao}`);
@@ -4461,24 +4460,20 @@ async function createAirportInfoWindowHTML(icao) {
         console.warn(`Could not fetch live data for ${icao}`, e);
     }
 
-    // 3. Merge Data (Prefer Live -> Static)
+    // 3. Merge Data
     const airportName = liveData?.name || staticData.name || 'Unknown Airport';
     
-    // Handle Location String
     const city = liveData?.city || staticData.city;
     const state = liveData?.state || staticData.state;
     const cityState = [city, state].filter(Boolean).join(', ') || 'Location N/A';
 
-    // Handle Country Name & Code (Live returns object {name, isoCode}, Static returns string "US")
     const countryName = liveData?.country?.name || staticData.country || '';
-    
     let countryCode = '';
     if (liveData?.country?.isoCode) {
         countryCode = liveData.country.isoCode.toLowerCase();
     } else if (staticData.country) {
         countryCode = staticData.country.toLowerCase();
     }
-
     const flagSrc = countryCode ? `https://flagcdn.com/w40/${countryCode}.png` : '';
     
     const elevation = liveData?.elevation ?? staticData.elevation_ft ?? 0;
@@ -4487,13 +4482,21 @@ async function createAirportInfoWindowHTML(icao) {
         lon: liveData?.longitude ?? staticData.lon
     };
 
-    // Filter Derived Data (Runways/ATC/NOTAMs)
+    // --- 3D Badge Logic (Header) ---
+    // We check if liveData exists and has3dBuildings is true
+    const is3D = liveData?.has3dBuildings === true;
+    // Create a gold/orange badge for visibility
+    const badge3DHtml = is3D ? 
+        `<span style="background: linear-gradient(135deg, #fbbf24 0%, #d97706 100%); color: #000; font-size: 0.8rem; font-weight: 800; padding: 2px 6px; border-radius: 4px; margin-right: 10px; box-shadow: 0 2px 10px rgba(251, 191, 36, 0.3); letter-spacing: 0.5px; text-shadow: none;">3D</span>` 
+        : '';
+
+    // Filter Derived Data
     const atcForAirport = activeAtcFacilities.filter(f => f.airportName === icao);
     const notamsForAirport = activeNotams.filter(n => n.airportIcao === icao);
     const routesFromAirport = ALL_AVAILABLE_ROUTES.filter(r => r.departure === icao);
     const airportRunways = runwaysData[icao] || [];
 
-    // --- Weather Logic (Unchanged) ---
+    // --- Weather Logic ---
     let weatherHtml = '';
     let runwayRecHtml = ''; 
     let flightCategory = 'WAITING';
@@ -4566,12 +4569,11 @@ async function createAirportInfoWindowHTML(icao) {
         weatherHtml = '<div class="tech-module"><div class="tech-module-body"><p class="muted-text">Weather data offline.</p></div></div>';
     }
 
-    // --- Airport Attributes Module ---
+    // --- Attributes Module (Updated) ---
     let featuresHtml = '';
-    // Only render if we have live data to show these specific 3D attributes
     if (liveData) {
+        // Removed 'has3dBuildings' from here since it's now in the header
         const features = [
-            { key: 'has3dBuildings', label: '3D Buildings', icon: 'fa-cubes' },
             { key: 'hasJetbridges', label: 'Jetbridges', icon: 'fa-person-walking-luggage' },
             { key: 'hasSafedockUnits', label: 'Safedock', icon: 'fa-square-parking' },
             { key: 'hasTaxiwayRouting', label: 'Taxi Layout', icon: 'fa-route' }
@@ -4612,7 +4614,7 @@ async function createAirportInfoWindowHTML(icao) {
         `;
     }
 
-    // --- Standard Tabs Content ---
+    // --- Standard Tabs Content (Unchanged) ---
     let routesHtml = '<div style="padding: 20px; text-align: center; color: #64748b;">No departing routes found in database.</div>';
     if (routesFromAirport.length > 0) {
         routesHtml = `<div style="padding: 12px; display: flex; flex-direction: column; gap: 4px;">${routesFromAirport.map(route => {
@@ -4638,6 +4640,7 @@ async function createAirportInfoWindowHTML(icao) {
     }
 
     // --- Final Assembly ---
+    // Note the insertion of badge3DHtml before icao
     return `
         <div class="airport-hero">
             <div class="hero-actions">
@@ -4645,7 +4648,7 @@ async function createAirportInfoWindowHTML(icao) {
                 <button id="airport-window-close-btn" class="hero-btn" title="Close Window"><i class="fa-solid fa-xmark"></i></button>
             </div>
             <div class="apt-ident-group">
-                <div class="apt-icao">${icao}${flagSrc ? `<img src="${flagSrc}" style="height: 24px; border-radius: 2px;">` : ''}</div>
+                <div class="apt-icao">${badge3DHtml}${icao}${flagSrc ? `<img src="${flagSrc}" style="height: 24px; border-radius: 2px;">` : ''}</div>
                 <div class="apt-name">${airportName}</div>
                 <div style="font-size: 0.8rem; color: #64748b; margin-top: 2px;">${cityState}</div>
                 <div style="margin-top: 8px; display: flex; gap: 8px;">
