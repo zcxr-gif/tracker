@@ -1611,6 +1611,233 @@ function injectCustomStyles() {
             margin-top: 1px;
         }
 
+        /* --- AIRPORT WINDOW SPECIFIC STYLES --- */
+
+/* 1. Airport Hero Header */
+.airport-hero {
+    background: linear-gradient(135deg, rgba(30, 41, 59, 0.8) 0%, rgba(15, 23, 42, 0.9) 100%);
+    border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+    padding: 20px;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    position: relative;
+    overflow: hidden;
+}
+
+/* A subtle pattern overlay for the header */
+.airport-hero::before {
+    content: '';
+    position: absolute;
+    top: 0; right: 0; bottom: 0; left: 0;
+    background-image: radial-gradient(#ffffff 1px, transparent 1px);
+    background-size: 20px 20px;
+    opacity: 0.05;
+    pointer-events: none;
+}
+
+.apt-ident-group {
+    display: flex;
+    flex-direction: column;
+    z-index: 2;
+}
+
+.apt-icao {
+    font-family: 'Consolas', monospace;
+    font-size: 2.5rem;
+    font-weight: 800;
+    color: #fff;
+    line-height: 1;
+    text-shadow: 0 4px 10px rgba(0,0,0,0.5);
+    display: flex;
+    align-items: center;
+    gap: 12px;
+}
+
+.apt-name {
+    font-size: 0.9rem;
+    color: #94a3b8;
+    margin-top: 6px;
+    font-weight: 500;
+}
+
+.apt-meta-badge {
+    background: rgba(255,255,255,0.05);
+    border: 1px solid rgba(255,255,255,0.1);
+    padding: 4px 8px;
+    border-radius: 4px;
+    font-size: 0.75rem;
+    color: #cbd5e1;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+}
+
+/* 2. Weather Module Refactor */
+.weather-module-grid {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 8px;
+    margin-top: 12px;
+}
+
+.wx-stat-box {
+    background: rgba(255,255,255,0.03);
+    border-radius: 6px;
+    padding: 8px;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    text-align: center;
+}
+
+.wx-label {
+    font-size: 0.65rem;
+    color: #64748b;
+    text-transform: uppercase;
+    font-weight: 700;
+    margin-bottom: 4px;
+}
+
+.wx-value {
+    font-family: 'Consolas', monospace;
+    font-size: 0.95rem;
+    color: #e2e8f0;
+    font-weight: 600;
+}
+
+.wx-condition-pill {
+    grid-column: span 4;
+    background: rgba(16, 185, 129, 0.1); 
+    border: 1px solid rgba(16, 185, 129, 0.2);
+    color: #34d399;
+    padding: 8px;
+    border-radius: 6px;
+    text-align: center;
+    font-weight: 700;
+    font-size: 0.9rem;
+    margin-top: 4px;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    gap: 8px;
+}
+
+/* Dynamic colors for flight rules */
+.wx-vfr { background: rgba(34, 197, 94, 0.1); color: #4ade80; border-color: rgba(34, 197, 94, 0.3); }
+.wx-mvfr { background: rgba(59, 130, 246, 0.1); color: #60a5fa; border-color: rgba(59, 130, 246, 0.3); }
+.wx-ifr { background: rgba(239, 68, 68, 0.1); color: #f87171; border-color: rgba(239, 68, 68, 0.3); }
+.wx-lifr { background: rgba(168, 85, 247, 0.1); color: #c084fc; border-color: rgba(168, 85, 247, 0.3); }
+
+/* 3. Route Cards (Flight Strips) */
+.route-card {
+    background: linear-gradient(to right, rgba(30, 41, 59, 0.4), rgba(30, 41, 59, 0.2));
+    border: 1px solid rgba(255, 255, 255, 0.05);
+    border-left: 3px solid #00a8ff;
+    border-radius: 4px;
+    padding: 10px 14px;
+    margin-bottom: 8px;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    transition: all 0.2s;
+}
+
+.route-card:hover {
+    background: rgba(30, 41, 59, 0.7);
+    transform: translateX(2px);
+    border-color: rgba(255, 255, 255, 0.15);
+}
+
+.route-info {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+}
+
+.route-callsign {
+    font-family: 'Consolas', monospace;
+    font-size: 1rem;
+    color: #fff;
+    font-weight: 700;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.route-details {
+    font-size: 0.75rem;
+    color: #94a3b8;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+}
+
+.route-ac-badge {
+    background: #1e293b;
+    padding: 2px 6px;
+    border-radius: 3px;
+    color: #cbd5e1;
+    font-weight: 600;
+    font-size: 0.7rem;
+    border: 1px solid rgba(255,255,255,0.1);
+}
+
+.plan-btn-mini {
+    background: rgba(14, 165, 233, 0.1);
+    color: #38bdf8;
+    border: 1px solid rgba(14, 165, 233, 0.3);
+    padding: 6px 12px;
+    border-radius: 4px;
+    font-size: 0.8rem;
+    font-weight: 600;
+    cursor: pointer;
+    transition: all 0.2s;
+}
+
+.plan-btn-mini:hover {
+    background: #0ea5e9;
+    color: #fff;
+}
+
+/* 4. ATC Grid */
+.atc-grid-card {
+    background: #1e293b;
+    border: 1px solid rgba(255,255,255,0.05);
+    border-radius: 6px;
+    padding: 10px;
+    margin-bottom: 8px;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+}
+
+.atc-type-badge {
+    padding: 4px 8px;
+    border-radius: 4px;
+    font-size: 0.75rem;
+    font-weight: 800;
+    text-transform: uppercase;
+    width: 80px;
+    text-align: center;
+}
+.atc-type-gnd { background: #0f172a; color: #94a3b8; border: 1px solid #334155; }
+.atc-type-twr { background: #1e3a8a; color: #60a5fa; border: 1px solid #2563eb; }
+.atc-type-app { background: #312e81; color: #818cf8; border: 1px solid #4f46e5; }
+.atc-type-obs { background: #3f3f46; color: #a1a1aa; border: 1px solid #52525b; }
+
+.atc-controller {
+    font-weight: 600;
+    color: #e2e8f0;
+    font-size: 0.9rem;
+}
+
+.atc-duration {
+    font-family: monospace;
+    color: #64748b;
+    font-size: 0.8rem;
+}
+
     `;
 
     const style = document.createElement('style');
@@ -3989,135 +4216,206 @@ function updatePfdDisplay(pfdData) {
     }
 
 /**
- * --- [REVAMPED] Creates the rich HTML content for the airport information window.
- * This now uses the local WeatherService (weather.js) instead of a serverless function.
+ * --- [REFACTORED] Creates the rich HTML content for the airport info window.
+ * Matches the "Tech/EFB" theme of the Aircraft Window.
  */
 async function createAirportInfoWindowHTML(icao) {
+    const airportData = airportsData[icao] || {};
+    const airportName = airportData.name || 'Unknown Airport';
+    const countryCode = airportData.country ? airportData.country.toLowerCase() : '';
+    const flagSrc = countryCode ? `https://flagcdn.com/w40/${countryCode}.png` : '';
+    
+    // Filter Data
     const atcForAirport = activeAtcFacilities.filter(f => f.airportName === icao);
     const notamsForAirport = activeNotams.filter(n => n.airportIcao === icao);
     const routesFromAirport = ALL_AVAILABLE_ROUTES.filter(r => r.departure === icao);
 
-    // Fetch weather using window.WeatherService (from weather.js)
+    // --- Weather Logic (Tech Module Style) ---
     let weatherHtml = '';
+    let flightCategory = 'WAITING';
+    let badgeClass = '';
+    
     try {
         if (window.WeatherService) {
-            const weatherData = await window.WeatherService.fetchAndParseMetar(icao);
+            const w = await window.WeatherService.fetchAndParseMetar(icao);
             
-            // Determine a basic flight category or status to display in the badge
-            // Since the simple parser doesn't return category, we default to 'METAR' or check for obvious keywords
-            let flightCategory = 'METAR'; 
-            let badgeClass = 'flight-rules-vfr'; // Default color (greenish)
+            // Determine Flight Category (Basic Logic)
+            flightCategory = 'VFR'; // Default
+            badgeClass = 'wx-vfr';
             
-            if (weatherData.raw.includes('CAVOK')) {
-                flightCategory = 'VFR';
-            }
+            // Simple parsing for category colors
+            if (w.raw.includes('LIFR')) { flightCategory = 'LIFR'; badgeClass = 'wx-lifr'; }
+            else if (w.raw.includes('IFR') || w.raw.includes('VV')) { flightCategory = 'IFR'; badgeClass = 'wx-ifr'; }
+            else if (w.raw.includes('MVFR')) { flightCategory = 'MVFR'; badgeClass = 'wx-mvfr'; }
 
             weatherHtml = `
-                <div class="airport-info-weather">
-                    <span class="weather-flight-rules ${badgeClass}">${flightCategory}</span>
-                    <div class="weather-details-grid" style="grid-template-columns: repeat(3, 1fr);">
-                        <span><i class="fa-solid fa-temperature-half"></i> ${weatherData.temp}</span>
-                        <span><i class="fa-solid fa-wind"></i> ${weatherData.wind}</span>
-                        <span><i class="fa-solid fa-cloud"></i> ${weatherData.condition}</span>
+                <div class="tech-module" style="margin-bottom: 16px;">
+                    <div class="tech-module-header">
+                        <span class="tech-module-title"><i class="fa-solid fa-cloud-sun"></i> LIVE METAR</span>
+                        <span class="tech-badge" style="background: rgba(255,255,255,0.1); color: #fff;">${new Date().toLocaleTimeString('en-GB', {hour:'2-digit', minute:'2-digit'})} Z</span>
                     </div>
-                    <code class="metar-code">${weatherData.raw}</code>
+                    <div class="tech-module-body">
+                        <div class="wx-condition-pill ${badgeClass}">
+                            <i class="fa-solid fa-plane-up"></i> ${flightCategory} CONDITIONS
+                        </div>
+                        
+                        <div class="weather-module-grid">
+                            <div class="wx-stat-box">
+                                <span class="wx-label">WIND</span>
+                                <span class="wx-value" style="color: #38bdf8;">${w.wind}</span>
+                            </div>
+                            <div class="wx-stat-box">
+                                <span class="wx-label">VIS</span>
+                                <span class="wx-value">${w.visibility || '10KM'}</span>
+                            </div>
+                            <div class="wx-stat-box">
+                                <span class="wx-label">TEMP</span>
+                                <span class="wx-value" style="color: #fbbf24;">${w.temp}</span>
+                            </div>
+                             <div class="wx-stat-box">
+                                <span class="wx-label">QNH</span>
+                                <span class="wx-value">${w.qnh || '1013'}</span>
+                            </div>
+                        </div>
+
+                        <div style="margin-top: 12px; padding: 8px; background: rgba(0,0,0,0.3); border-radius: 4px; border: 1px solid rgba(255,255,255,0.05);">
+                            <code style="font-family: monospace; color: #94a3b8; font-size: 0.75rem; line-height: 1.4; display: block; word-break: break-all;">
+                                ${w.raw}
+                            </code>
+                        </div>
+                    </div>
                 </div>
             `;
         } else {
-            // Fallback if weather.js isn't loaded
-            console.warn("WeatherService not found. Ensure weather.js is loaded.");
-            weatherHtml = '<div class="airport-info-weather"><p>Weather service unavailable.</p></div>';
+            weatherHtml = '<div class="tech-module"><div class="tech-module-body"><p class="muted-text">Weather service unavailable.</p></div></div>';
         }
     } catch (err) {
-        console.error(`Could not fetch weather for ${icao}:`, err);
-        weatherHtml = '<div class="airport-info-weather"><p>Weather data unavailable.</p></div>';
+        weatherHtml = '<div class="tech-module"><div class="tech-module-body"><p class="muted-text">Weather data offline.</p></div></div>';
     }
 
-    // If there's no data at all (besides weather), don't show a popup
-    if (atcForAirport.length === 0 && notamsForAirport.length === 0 && routesFromAirport.length === 0) {
-        return null;
-    }
-
-    let atcHtml = '<p class="muted-text">No active ATC reported.</p>';
-    if (atcForAirport.length > 0) {
-        atcHtml = `
-            <ul class="atc-frequencies">
-                ${atcForAirport.map(f => `
-                    <li class="atc-frequency-item">
-                        <span class="freq-type">${atcTypeToString(f.type)}:</span>
-                        <span class="freq-user">${f.username || 'N/A'}</span>
-                        <span class="freq-time">${formatAtcDuration(f.startTime)}</span>
-                    </li>
-                `).join('')}
-            </ul>
-        `;
-    }
-
-    let notamsHtml = '<p class="muted-text">No active NOTAMs.</p>';
-    if (notamsForAirport.length > 0) {
-        notamsHtml = `
-            <ul class="notam-list">
-                ${notamsForAirport.map(n => `<li>${n.message}</li>`).join('')}
-            </ul>
-        `;
-    }
+    // --- Routes Logic (Flight Strip Style) ---
+    let routesHtml = '<div style="padding: 20px; text-align: center; color: #64748b;">No departing routes found in database.</div>';
     
-    let routesHtml = '<p class="muted-text">No departing routes from this airport in our database.</p>';
     if (routesFromAirport.length > 0) {
         routesHtml = `
-            <ul class="popup-routes-list">
+            <div style="padding: 12px; display: flex; flex-direction: column; gap: 4px;">
                 ${routesFromAirport.map(route => {
                     const airlineCode = extractAirlineCode(route.flightNumber);
-                    const logoPath = airlineCode ? `Images/vas/${airlineCode}.png` : '';
                     const aircraftInfo = AIRCRAFT_SELECTION_LIST.find(ac => ac.value === route.aircraft);
                     const aircraftName = aircraftInfo ? aircraftInfo.name : route.aircraft;
-                    const aircraftImagePath = `Images/planesForCC/${route.aircraft}.png`;
-                    
                     const routeDataString = JSON.stringify(route).replace(/'/g, "&apos;");
+                    
+                    // Simplify aircraft name for badge
+                    const shortAc = route.aircraft.replace('Boeing', 'B').replace('Airbus', 'A').split(' ')[0];
 
                     return `
-                    <li class="popup-route-item">
-                        <div class="route-item-header">
-                            <div class="route-item-info">
-                                <img src="${logoPath}" class="route-item-airline-logo" alt="${airlineCode}" onerror="this.style.display='none'">
-                                <div class="route-item-flight-details">
-                                    <span class="flight-number">${route.flightNumber}</span>
-                                    <span class="destination">to ${route.arrival}</span>
-                                </div>
+                    <div class="route-card">
+                        <div class="route-info">
+                            <div class="route-callsign">
+                                <img src="Images/vas/${airlineCode}.png" style="height: 16px; width: auto; max-width: 40px;" onerror="this.style.display='none'">
+                                ${route.flightNumber}
                             </div>
-                            <div class="route-item-actions">
-                                    <button class="cta-button plan-flight-from-explorer-btn" data-route='${routeDataString}'>Plan</button>
+                            <div class="route-details">
+                                <span class="route-ac-badge">${shortAc}</span>
+                                <span><i class="fa-solid fa-plane-arrival" style="color: #64748b;"></i> ${route.arrival}</span>
                             </div>
                         </div>
-                        <div class="route-item-footer">
-                            <div class="route-item-aircraft-info">
-                                <img src="${aircraftImagePath}" class="route-item-aircraft-img" alt="${aircraftName}" onerror="this.style.display='none'">
-                                <span>${aircraftName}</span>
-                            </div>
-                            ${getRankBadgeHTML(route.rankUnlock || deduceRankFromAircraftFE(route.aircraft), { showImage: true, imageClass: 'roster-req-rank-badge' })}
-                        </div>
-                    </li>
+                        <button class="plan-btn-mini plan-flight-from-explorer-btn" data-route='${routeDataString}'>
+                            PLAN <i class="fa-solid fa-angle-right"></i>
+                        </button>
+                    </div>
                     `;
                 }).join('')}
-            </ul>
+            </div>
         `;
     }
 
+    // --- ATC Logic (Tech Grid) ---
+    let atcHtml = '<div style="padding: 20px; text-align: center; color: #64748b;">No active ATC frequencies.</div>';
+    if (atcForAirport.length > 0) {
+        atcHtml = `
+            <div style="padding: 12px;">
+                ${atcForAirport.map(f => {
+                    const typeName = atcTypeToString(f.type);
+                    let badgeClass = 'atc-type-obs';
+                    if (f.type === 1) badgeClass = 'atc-type-twr'; // Tower
+                    else if (f.type === 0) badgeClass = 'atc-type-gnd'; // Ground
+                    else if (f.type === 4 || f.type === 5) badgeClass = 'atc-type-app'; // App/Dep
+
+                    return `
+                    <div class="atc-grid-card">
+                        <div style="display: flex; align-items: center; gap: 12px;">
+                            <span class="atc-type-badge ${badgeClass}">${typeName}</span>
+                            <span class="atc-controller">${f.username || 'Unknown'}</span>
+                        </div>
+                        <span class="atc-duration"><i class="fa-regular fa-clock"></i> ${formatAtcDuration(f.startTime)}</span>
+                    </div>
+                    `;
+                }).join('')}
+            </div>
+        `;
+    }
+
+    // --- NOTAMs Logic ---
+    let notamsHtml = '<div style="padding: 20px; text-align: center; color: #64748b;">No active NOTAMs.</div>';
+    if (notamsForAirport.length > 0) {
+        notamsHtml = `
+            <div style="padding: 12px; display: flex; flex-direction: column; gap: 8px;">
+                ${notamsForAirport.map(n => `
+                    <div style="background: rgba(234, 179, 8, 0.1); border-left: 3px solid #eab308; padding: 10px; border-radius: 4px; color: #fef08a; font-family: monospace; font-size: 0.8rem;">
+                        <i class="fa-solid fa-triangle-exclamation"></i> ${n.message}
+                    </div>
+                `).join('')}
+            </div>
+        `;
+    }
+
+    // --- Final Assembly ---
+    // Note: We use the existing 'info-window-tabs' classes to ensure the JS logic in handleAirportClick still works
     return `
-        ${weatherHtml}
-        <div class="info-window-tabs">
-            <button class="info-tab-btn active" data-tab="airport-routes"><i class="fa-solid fa-route"></i> Routes</button>
-            <button class="info-tab-btn" data-tab="airport-atc"><i class="fa-solid fa-headset"></i> ATC</button>
-            <button class="info-tab-btn" data-tab="airport-notams"><i class="fa-solid fa-triangle-exclamation"></i> NOTAMs</button>
+        <div class="airport-hero">
+            <div class="apt-ident-group">
+                <div class="apt-icao">
+                    ${icao}
+                    ${flagSrc ? `<img src="${flagSrc}" style="height: 24px; border-radius: 2px;">` : ''}
+                </div>
+                <div class="apt-name">${airportName}</div>
+                <div style="margin-top: 8px; display: flex; gap: 8px;">
+                     <span class="apt-meta-badge"><i class="fa-solid fa-location-crosshairs"></i> ${airportData.lat?.toFixed(3)}, ${airportData.lon?.toFixed(3)}</span>
+                     <span class="apt-meta-badge"><i class="fa-solid fa-arrows-up-down"></i> ${airportData.elevation_ft || 0} ft</span>
+                </div>
+            </div>
+            <i class="fa-solid fa-plane-departure" style="font-size: 6rem; color: rgba(255,255,255,0.03); position: absolute; right: -10px; bottom: -20px; transform: rotate(-15deg);"></i>
         </div>
-        <div id="airport-routes" class="info-tab-content active" style="padding: 20px;">
-            ${routesHtml}
-        </div>
-        <div id="airport-atc" class="info-tab-content" style="padding: 20px;">
-            ${atcHtml}
-        </div>
-        <div id="airport-notams" class="info-tab-content" style="padding: 20px;">
-            ${notamsHtml}
+
+        <div style="padding: 16px; flex-grow: 1; overflow-y: auto;">
+            ${weatherHtml}
+
+            <div class="tech-module" style="min-height: 300px; display: flex; flex-direction: column;">
+                <div class="ac-info-window-tabs" style="padding: 0; background: rgba(0,0,0,0.2); border-bottom: 1px solid rgba(255,255,255,0.05);">
+                    <div class="ac-tabs-wrapper" style="width: 100%; justify-content: flex-start; gap: 0;">
+                        <button class="info-tab-btn active" data-tab="airport-routes" style="flex: 1; border-radius: 0; background: transparent;">
+                            <i class="fa-solid fa-route"></i> ROUTES
+                        </button>
+                        <button class="info-tab-btn" data-tab="airport-atc" style="flex: 1; border-radius: 0; background: transparent;">
+                            <i class="fa-solid fa-headset"></i> ATC
+                        </button>
+                        <button class="info-tab-btn" data-tab="airport-notams" style="flex: 1; border-radius: 0; background: transparent;">
+                            <i class="fa-solid fa-triangle-exclamation"></i> NOTAMs
+                        </button>
+                    </div>
+                </div>
+
+                <div id="airport-routes" class="info-tab-content active" style="padding: 0;">
+                    ${routesHtml}
+                </div>
+                <div id="airport-atc" class="info-tab-content" style="padding: 0;">
+                    ${atcHtml}
+                </div>
+                <div id="airport-notams" class="info-tab-content" style="padding: 0;">
+                    ${notamsHtml}
+                </div>
+            </div>
         </div>
     `;
 }
