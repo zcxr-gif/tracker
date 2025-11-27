@@ -4440,7 +4440,7 @@ function updatePfdDisplay(pfdData) {
 
 /**
  * --- [UPDATED] Generates HTML for the Airport Info Window ---
- * Layout Update: 3D Badge moved to the right (Silver style).
+ * Fixes: 3D Badge moved to right/silver, Attributes compacted, "Drag & Taxi" rename.
  */
 async function createAirportInfoWindowHTML(icao) {
     // 1. Get Static Data (Fallback from airports.json)
@@ -4482,27 +4482,10 @@ async function createAirportInfoWindowHTML(icao) {
         lon: liveData?.longitude ?? staticData.lon
     };
 
-    // --- 3D Badge Logic (Updated Style & Position) ---
+    // --- 3D Badge Logic (Updated: Silver & Right Side) ---
     const is3D = liveData?.has3dBuildings === true;
-    
-    // Silver Gradient Style
-    // Removed margins because the parent container (.apt-icao) handles spacing via 'gap'
     const badge3DHtml = is3D ? 
-        `<span style="
-            background: linear-gradient(135deg, #f1f5f9 0%, #cbd5e1 100%); 
-            color: #334155; 
-            font-size: 0.8rem; 
-            font-weight: 800; 
-            padding: 3px 8px; 
-            border-radius: 4px; 
-            box-shadow: 0 2px 5px rgba(0,0,0,0.3); 
-            border: 1px solid #94a3b8;
-            letter-spacing: 0.5px; 
-            text-shadow: none;
-            display: flex;
-            align-items: center;
-            height: fit-content;
-        ">3D</span>` 
+        `<span style="background: linear-gradient(135deg, #e2e8f0 0%, #94a3b8 100%); color: #0f172a; font-size: 0.65rem; font-weight: 800; padding: 2px 6px; border-radius: 4px; margin-left: 10px; box-shadow: 0 1px 3px rgba(0,0,0,0.3); letter-spacing: 0.5px; text-shadow: none; vertical-align: middle;">3D</span>` 
         : '';
 
     // Filter Derived Data
@@ -4584,25 +4567,24 @@ async function createAirportInfoWindowHTML(icao) {
         weatherHtml = '<div class="tech-module"><div class="tech-module-body"><p class="muted-text">Weather data offline.</p></div></div>';
     }
 
-    // --- Attributes Module ---
+    // --- Attributes Module (Re-Designed) ---
+    // Moved features here to make them less dense (Pills instead of big circles)
     let featuresHtml = '';
     if (liveData) {
         const features = [
             { key: 'hasJetbridges', label: 'Jetbridges', icon: 'fa-person-walking-luggage' },
             { key: 'hasSafedockUnits', label: 'Safedock', icon: 'fa-square-parking' },
-            { key: 'hasTaxiwayRouting', label: 'Taxi Layout', icon: 'fa-route' }
+            { key: 'hasTaxiwayRouting', label: 'Drag & Taxi', icon: 'fa-route' } // <-- Renamed
         ];
 
-        const featureBadges = features.map(f => {
+        const featurePills = features.map(f => {
             const isActive = liveData[f.key];
             const color = isActive ? '#4ade80' : '#475569';
             const opacity = isActive ? '1' : '0.5';
+            // Sleek pill design instead of dense circles
             return `
-                <div style="display: flex; flex-direction: column; align-items: center; gap: 4px; opacity: ${opacity};">
-                    <div style="width: 32px; height: 32px; border-radius: 50%; background: rgba(0,0,0,0.3); display: grid; place-items: center; border: 1px solid ${color};">
-                        <i class="fa-solid ${f.icon}" style="color: ${color}; font-size: 0.9rem;"></i>
-                    </div>
-                    <span style="font-size: 0.65rem; color: #94a3b8; text-transform: uppercase; font-weight: 600;">${f.label}</span>
+                <div style="display: flex; align-items: center; gap: 6px; opacity: ${opacity}; color: ${isActive ? '#e2e8f0' : '#64748b'}; font-size: 0.7rem; font-weight: 600; background: rgba(255,255,255,0.03); padding: 4px 8px; border-radius: 4px; border: 1px solid ${isActive ? 'rgba(74, 222, 128, 0.2)' : 'transparent'};">
+                    <i class="fa-solid ${f.icon}" style="color: ${color};"></i> ${f.label}
                 </div>
             `;
         }).join('');
@@ -4613,15 +4595,16 @@ async function createAirportInfoWindowHTML(icao) {
         featuresHtml = `
             <div class="tech-module" style="margin-bottom: 8px;">
                 <div class="tech-module-body" style="padding: 12px;">
-                    <div style="display: flex; justify-content: space-between; margin-bottom: 12px; border-bottom: 1px solid rgba(255,255,255,0.05); padding-bottom: 8px;">
+                    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px; border-bottom: 1px solid rgba(255,255,255,0.05); padding-bottom: 8px;">
                         <div style="display: flex; gap: 12px;">
                             <span style="font-size: 0.75rem; color: #94a3b8;"><i class="fa-solid fa-earth-americas"></i> ${timezone}</span>
                             <span style="font-size: 0.75rem; color: #94a3b8;"><i class="fa-solid fa-ranking-star"></i> ${aptClass}</span>
                         </div>
                         <span style="font-size: 0.75rem; color: #94a3b8;">${countryName}</span>
                     </div>
-                    <div style="display: flex; justify-content: space-around;">
-                        ${featureBadges}
+                    
+                    <div style="display: flex; gap: 8px; flex-wrap: wrap;">
+                        ${featurePills}
                     </div>
                 </div>
             </div>
@@ -4654,7 +4637,7 @@ async function createAirportInfoWindowHTML(icao) {
     }
 
     // --- Final Assembly ---
-    // Badge is placed LAST inside the flex container to appear on the right
+    // Note: badge3DHtml is now placed AFTER the flag image in the template below
     return `
         <div class="airport-hero">
             <div class="hero-actions">
@@ -4662,7 +4645,7 @@ async function createAirportInfoWindowHTML(icao) {
                 <button id="airport-window-close-btn" class="hero-btn" title="Close Window"><i class="fa-solid fa-xmark"></i></button>
             </div>
             <div class="apt-ident-group">
-                <div class="apt-icao">${icao}${flagSrc ? `<img src="${flagSrc}" style="height: 24px; border-radius: 2px;">` : ''}${badge3DHtml}</div>
+                <div class="apt-icao">${icao}${flagSrc ? `<img src="${flagSrc}" style="height: 24px; border-radius: 2px; margin-left: 10px;">` : ''}${badge3DHtml}</div>
                 <div class="apt-name">${airportName}</div>
                 <div style="font-size: 0.8rem; color: #64748b; margin-top: 2px;">${cityState}</div>
                 <div style="margin-top: 8px; display: flex; gap: 8px;">
