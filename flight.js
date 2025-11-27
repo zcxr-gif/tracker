@@ -5213,38 +5213,45 @@ function initializeSectorOpsMap(centerICAO) {
             // -------------------------------------------------------------
             // --- NEW: HOVER POPUP LOGIC ---
             // -------------------------------------------------------------
-            const hoverPopup = new mapboxgl.Popup({
-                closeButton: false,
-                closeOnClick: false,
-                offset: 20 // Distance from the aircraft icon
-            });
+            
+            // ✅ FIX: Only attach hover listeners on non-mobile/tablet devices
+            if (typeof window.MobileUIHandler === 'undefined' || !window.MobileUIHandler.isMobile()) {
+                
+                const hoverPopup = new mapboxgl.Popup({
+                    closeButton: false,
+                    closeOnClick: false,
+                    offset: 20 // Distance from the aircraft icon
+                });
 
-            sectorOpsMap.on('mouseenter', 'sector-ops-live-flights-layer', (e) => {
-                // Change cursor
-                sectorOpsMap.getCanvas().style.cursor = 'pointer';
+                sectorOpsMap.on('mouseenter', 'sector-ops-live-flights-layer', (e) => {
+                    // Change cursor
+                    sectorOpsMap.getCanvas().style.cursor = 'pointer';
 
-                // Get properties
-                const coordinates = e.features[0].geometry.coordinates.slice();
-                const props = e.features[0].properties;
+                    // Get properties
+                    const coordinates = e.features[0].geometry.coordinates.slice();
+                    const props = e.features[0].properties;
 
-                // Handle map wrapping
-                while (Math.abs(e.lngLat.lng - coordinates[0]) > 180) {
-                    coordinates[0] += e.lngLat.lng > coordinates[0] ? 360 : -360;
-                }
+                    // Handle map wrapping
+                    while (Math.abs(e.lngLat.lng - coordinates[0]) > 180) {
+                        coordinates[0] += e.lngLat.lng > coordinates[0] ? 360 : -360;
+                    }
 
-                // Generate Custom "Widget" HTML
-                const cardHTML = generateHoverCardHTML(props);
+                    // Generate Custom "Widget" HTML
+                    const cardHTML = generateHoverCardHTML(props);
 
-                // Set HTML and Show
-                hoverPopup.setLngLat(coordinates)
-                          .setHTML(cardHTML)
-                          .addTo(sectorOpsMap);
-            });
+                    // Set HTML and Show
+                    hoverPopup.setLngLat(coordinates)
+                              .setHTML(cardHTML)
+                              .addTo(sectorOpsMap);
+                });
 
-            sectorOpsMap.on('mouseleave', 'sector-ops-live-flights-layer', () => {
-                sectorOpsMap.getCanvas().style.cursor = '';
-                hoverPopup.remove(); // Hide the card immediately on exit
-            });
+                sectorOpsMap.on('mouseleave', 'sector-ops-live-flights-layer', () => {
+                    sectorOpsMap.getCanvas().style.cursor = '';
+                    hoverPopup.remove(); // Hide the card immediately on exit
+                });
+            } else {
+                 console.log("Hover popup disabled for mobile device.");
+            }
             // -------------------------------------------------------------
         }
         
