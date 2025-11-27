@@ -7221,42 +7221,21 @@ function populateAircraftInfoWindow(baseProps, plan, sortedRoutePoints, communit
     updatePfdDisplay(baseProps.position);
     updateAircraftInfoWindow(baseProps, plan, sortedRoutePoints, communityAircraftData);
     
-    // --- [FIX START] Sync the Header Image Logic ---
-    // This part runs after the HTML is injected, ensuring the top header also gets the correct image
+    const imagePath = techCardImagePath; 
+    const fallbackPath = '/CommunityPlanes/default.png';
+    // Use the resolved image path for the main background, and the generic fallback as a secondary CSS fallback.
+    const newImageUrl = `url('${imagePath}'), url('${fallbackPath}')`; 
+
     const overviewPanels = document.querySelectorAll('#ac-overview-panel');
+    
     overviewPanels.forEach(overviewPanel => {
-        const sanitizeFilename = (name) => {
-            if (!name || typeof name !== 'string') return 'unknown';
-            return name.trim().toLowerCase().replace(/[^a-z0-j-9-]/g, '_');
-        };
-        const sanitizedAircraft = sanitizeFilename(aircraftName);
-        const sanitizedLivery = sanitizeFilename(liveryName);
-
-        // Determine image path: Use backend URL if available, else local fallback
-        let imagePath;
-        if (communityAircraftData && communityAircraftData.imageUrl) {
-             imagePath = communityAircraftData.imageUrl;
-        } else {
-             imagePath = `/CommunityPlanes/${sanitizedAircraft}/${sanitizedLivery}.png`;
-        }
-
-        const fallbackPath = '/CommunityPlanes/default.png';
-        const newImageUrl = `url('${imagePath}')`;
-
-        if (overviewPanel.dataset.currentPath !== imagePath) {
-            const img = new Image();
-            img.src = imagePath;
-            img.onload = () => {
-                overviewPanel.style.backgroundImage = newImageUrl;
-                overviewPanel.dataset.currentPath = imagePath;
-            };
-            img.onerror = () => {
-                overviewPanel.style.backgroundImage = `url('${fallbackPath}')`;
-                overviewPanel.dataset.currentPath = fallbackPath;
-            };
-        }
+        // Set the background image once.
+        overviewPanel.style.backgroundImage = newImageUrl;
+        
+        // Clear any old data attribute from previous flights
+        overviewPanel.dataset.currentPath = imagePath;
     });
-    // --- [FIX END] ---
+
 }
 
 /**
