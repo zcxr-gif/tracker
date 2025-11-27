@@ -4440,7 +4440,7 @@ function updatePfdDisplay(pfdData) {
 
 /**
  * --- [UPDATED] Generates HTML for the Airport Info Window ---
- * Moves 3D indicator to header and keeps Taxi Layout in the feature list.
+ * Layout Update: 3D Badge moved to the right (Silver style).
  */
 async function createAirportInfoWindowHTML(icao) {
     // 1. Get Static Data (Fallback from airports.json)
@@ -4482,12 +4482,27 @@ async function createAirportInfoWindowHTML(icao) {
         lon: liveData?.longitude ?? staticData.lon
     };
 
-    // --- 3D Badge Logic (Header) ---
-    // We check if liveData exists and has3dBuildings is true
+    // --- 3D Badge Logic (Updated Style & Position) ---
     const is3D = liveData?.has3dBuildings === true;
-    // Create a gold/orange badge for visibility
+    
+    // Silver Gradient Style
+    // Removed margins because the parent container (.apt-icao) handles spacing via 'gap'
     const badge3DHtml = is3D ? 
-        `<span style="background: linear-gradient(135deg, #fbbf24 0%, #d97706 100%); color: #000; font-size: 0.8rem; font-weight: 800; padding: 2px 6px; border-radius: 4px; margin-right: 10px; box-shadow: 0 2px 10px rgba(251, 191, 36, 0.3); letter-spacing: 0.5px; text-shadow: none;">3D</span>` 
+        `<span style="
+            background: linear-gradient(135deg, #f1f5f9 0%, #cbd5e1 100%); 
+            color: #334155; 
+            font-size: 0.8rem; 
+            font-weight: 800; 
+            padding: 3px 8px; 
+            border-radius: 4px; 
+            box-shadow: 0 2px 5px rgba(0,0,0,0.3); 
+            border: 1px solid #94a3b8;
+            letter-spacing: 0.5px; 
+            text-shadow: none;
+            display: flex;
+            align-items: center;
+            height: fit-content;
+        ">3D</span>` 
         : '';
 
     // Filter Derived Data
@@ -4569,10 +4584,9 @@ async function createAirportInfoWindowHTML(icao) {
         weatherHtml = '<div class="tech-module"><div class="tech-module-body"><p class="muted-text">Weather data offline.</p></div></div>';
     }
 
-    // --- Attributes Module (Updated) ---
+    // --- Attributes Module ---
     let featuresHtml = '';
     if (liveData) {
-        // Removed 'has3dBuildings' from here since it's now in the header
         const features = [
             { key: 'hasJetbridges', label: 'Jetbridges', icon: 'fa-person-walking-luggage' },
             { key: 'hasSafedockUnits', label: 'Safedock', icon: 'fa-square-parking' },
@@ -4640,7 +4654,7 @@ async function createAirportInfoWindowHTML(icao) {
     }
 
     // --- Final Assembly ---
-    // Note the insertion of badge3DHtml before icao
+    // Badge is placed LAST inside the flex container to appear on the right
     return `
         <div class="airport-hero">
             <div class="hero-actions">
@@ -4648,7 +4662,7 @@ async function createAirportInfoWindowHTML(icao) {
                 <button id="airport-window-close-btn" class="hero-btn" title="Close Window"><i class="fa-solid fa-xmark"></i></button>
             </div>
             <div class="apt-ident-group">
-                <div class="apt-icao">${badge3DHtml}${icao}${flagSrc ? `<img src="${flagSrc}" style="height: 24px; border-radius: 2px;">` : ''}</div>
+                <div class="apt-icao">${icao}${flagSrc ? `<img src="${flagSrc}" style="height: 24px; border-radius: 2px;">` : ''}${badge3DHtml}</div>
                 <div class="apt-name">${airportName}</div>
                 <div style="font-size: 0.8rem; color: #64748b; margin-top: 2px;">${cityState}</div>
                 <div style="margin-top: 8px; display: flex; gap: 8px;">
