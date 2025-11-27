@@ -6390,9 +6390,9 @@ function populateAircraftInfoWindow(baseProps, plan, sortedRoutePoints, communit
     }
 
     // If backend returned data, use it
-    if (communityAircraftData) {
+    if (communityAircraftData && communityAircraftData.imageUrl) {
         techCardImagePath = communityAircraftData.imageUrl;
-        photographerName = communityAircraftData.contributorName;
+        photographerName = communityAircraftData.contributorName || 'IF Community';
         // [FIX] Uncommented this to show the tail number from your DB
         if (communityAircraftData.tailNumber) {
             techCardTail = communityAircraftData.tailNumber; 
@@ -7217,23 +7217,25 @@ function populateAircraftInfoWindow(baseProps, plan, sortedRoutePoints, communit
     </div>
     `;
     
+    // --- POST-RENDER LOGIC ---
     createPfdDisplay();
     updatePfdDisplay(baseProps.position);
     updateAircraftInfoWindow(baseProps, plan, sortedRoutePoints, communityAircraftData);
     
+    // --- FIX IMPLEMENTATION: SET THE DATA ATTRIBUTE ON THE HEADER HERE ---
     const imagePath = techCardImagePath; 
     const fallbackPath = '/CommunityPlanes/default.png';
-    // Use the resolved image path for the main background, and the generic fallback as a secondary CSS fallback.
     const newImageUrl = `url('${imagePath}'), url('${fallbackPath}')`; 
 
     const overviewPanels = document.querySelectorAll('#ac-overview-panel');
     
     overviewPanels.forEach(overviewPanel => {
-        // Set the background image once.
+        // Set the background image
         overviewPanel.style.backgroundImage = newImageUrl;
         
-        // Clear any old data attribute from previous flights
+        // --- CRITICAL FIX: Set the path to the high-quality image ---
         overviewPanel.dataset.currentPath = imagePath;
+        // --- END CRITICAL FIX ---
     });
 
 }
