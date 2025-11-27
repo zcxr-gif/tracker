@@ -1837,6 +1837,39 @@ function injectCustomStyles() {
     color: #64748b;
     font-size: 0.8rem;
 }
+    .hero-actions {
+    position: absolute;
+    top: 15px;
+    right: 15px;
+    display: flex;
+    gap: 8px;
+    z-index: 10;
+}
+
+.hero-btn {
+    background: rgba(255, 255, 255, 0.1);
+    border: 1px solid rgba(255, 255, 255, 0.2);
+    color: #e2e8f0;
+    width: 32px;
+    height: 32px;
+    border-radius: 50%;
+    cursor: pointer;
+    transition: all 0.2s ease;
+    display: grid;
+    place-items: center;
+    font-size: 0.9rem;
+}
+
+.hero-btn:hover {
+    background: rgba(255, 255, 255, 0.25);
+    color: #fff;
+    transform: scale(1.05);
+}
+
+.hero-btn.close-btn:hover {
+    background: rgba(239, 68, 68, 0.8); /* Red for close */
+    border-color: rgba(239, 68, 68, 1);
+}
 
     `;
 
@@ -4374,6 +4407,11 @@ async function createAirportInfoWindowHTML(icao) {
     // Note: We use the existing 'info-window-tabs' classes to ensure the JS logic in handleAirportClick still works
     return `
         <div class="airport-hero">
+            <div class="hero-actions">
+                <button class="hero-btn airport-hide-trigger" title="Hide"><i class="fa-solid fa-compress"></i></button>
+                <button class="hero-btn close-btn airport-close-trigger" title="Close"><i class="fa-solid fa-xmark"></i></button>
+            </div>
+
             <div class="apt-ident-group">
                 <div class="apt-icao">
                     ${icao}
@@ -4638,29 +4676,34 @@ async function updateLiveFlights() {
     function setupAirportWindowEvents() {
         if (!airportInfoWindow || airportInfoWindow.dataset.eventsAttached === 'true') return;
 
-        const closeBtn = document.getElementById('airport-window-close-btn');
-        const hideBtn = document.getElementById('airport-window-hide-btn');
+        // Use Event Delegation on the main container
+        airportInfoWindow.addEventListener('click', (e) => {
+            // Check if clicked element is (or is inside) the Close Button
+            if (e.target.closest('.airport-close-trigger')) {
+                airportInfoWindow.classList.remove('visible');
+                if (window.MobileUIHandler) MobileUIHandler.closeActiveWindow();
+                airportInfoWindowRecallBtn.classList.remove('visible');
+                clearRouteLayers(); // Closing also clears the map routes
+                currentAirportInWindow = null;
+                return;
+            }
 
-        closeBtn.addEventListener('click', () => {
-            airportInfoWindow.classList.remove('visible');
-            MobileUIHandler.closeActiveWindow();
-            airportInfoWindowRecallBtn.classList.remove('visible');
-            clearRouteLayers(); // Closing also clears the map routes
-            currentAirportInWindow = null;
-        });
-
-        hideBtn.addEventListener('click', () => {
-            airportInfoWindow.classList.remove('visible');
-            if (currentAirportInWindow) {
-                airportInfoWindowRecallBtn.classList.add('visible');
-                // Trigger animation by adding and removing the class
-                airportInfoWindowRecallBtn.classList.add('palpitate');
-                setTimeout(() => {
-                    airportInfoWindowRecallBtn.classList.remove('palpitate');
-                }, 1000); // Duration of 2 palpitations (0.5s each)
+            // Check if clicked element is (or is inside) the Hide Button
+            if (e.target.closest('.airport-hide-trigger')) {
+                airportInfoWindow.classList.remove('visible');
+                if (currentAirportInWindow) {
+                    airportInfoWindowRecallBtn.classList.add('visible');
+                    // Trigger animation
+                    airportInfoWindowRecallBtn.classList.add('palpitate');
+                    setTimeout(() => {
+                        airportInfoWindowRecallBtn.classList.remove('palpitate');
+                    }, 1000);
+                }
+                return;
             }
         });
 
+        // Recall button logic remains the same
         airportInfoWindowRecallBtn.addEventListener('click', () => {
             if (currentAirportInWindow) {
                 airportInfoWindow.classList.add('visible');
@@ -5049,16 +5092,10 @@ function getIconImageExpression(colorMode = 'default') {
             }
 
             // --- 2. Inject Airport Info Window (if missing) ---
+            // [MODIFIED] Header removed; buttons will be injected by the content generator
             if (!document.getElementById('airport-info-window')) {
                  const windowHtml = `
                     <div id="airport-info-window" class="info-window">
-                        <div class="info-window-header">
-                            <h3 id="airport-window-title"></h3>
-                            <div class="info-window-actions">
-                                <button id="airport-window-hide-btn" title="Hide"><i class="fa-solid fa-compress"></i></button>
-                                <button id="airport-window-close-btn" title="Close"><i class="fa-solid fa-xmark"></i></button>
-                            </div>
-                        </div>
                         <div id="airport-window-content" class="info-window-content"></div>
                     </div>
                 `;
