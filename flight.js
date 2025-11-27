@@ -4916,31 +4916,35 @@ function initializeSectorOpsMap(centerICAO) {
     });
 
     /**
-     * --- [NEW HELPER] Generates the HTML for the Hover Card (FR24 Style) ---
+     * --- [FIXED] Generates the HTML for the Hover Card (FR24 Style) ---
      */
     function generateHoverCardHTML(props) {
-        // 1. Data Parsing
-        const aircraftData = typeof props.aircraft === 'string' ? JSON.parse(props.aircraft || '{}') : (props.aircraft || {});
+        // 1. Data Parsing - Use the pre-parsed, top-level strings
+        const acName = props.aircraft_type_name || 'Unknown Type';
+        const livName = props.aircraft_livery_name || 'Generic Livery';
         const positionData = typeof props.position === 'string' ? JSON.parse(props.position || '{}') : (props.position || {});
         
-        // 2. Image Logic
-        const sanitizeFilename = (name) => {
-            if (!name || typeof name !== 'string') return 'unknown';
-            return name.trim().toLowerCase().replace(/[^a-z0-j-9-]/g, '_');
-        };
-
-        const acName = aircraftData.aircraftName || 'Unknown';
-        const livName = aircraftData.liveryName || '';
+        // 2. Image Path Logic - ***PRIORITIZE BACKEND DATA***
         
-        const sanitizedAircraft = sanitizeFilename(acName);
-        const sanitizedLivery = sanitizeFilename(livName);
-        
-        // Use community image path
-        const imagePath = `/CommunityPlanes/${sanitizedAircraft}/${sanitizedLivery}.png`;
+        // A. Check for Backend-Provided URL & Contributor (fetched via secondary loop)
+        let imagePath = props.backendImageUrl;
+        let contributor = props.contributorName || "IF Community";
         const fallbackPath = '/CommunityPlanes/default.png';
 
-        // 3. Airline Logo Logic
-        // Attempt to extract airline name for logo matching
+        if (!imagePath) {
+            // B. Fallback to Local File Structure Guess
+            const sanitizeFilename = (name) => {
+                if (!name || typeof name !== 'string') return 'unknown';
+                return name.trim().toLowerCase().replace(/[^a-z0-9-]/g, '_').replace(/_+/g, '_');
+            };
+
+            const sanitizedAircraft = sanitizeFilename(acName);
+            const sanitizedLivery = sanitizeFilename(livName);
+            imagePath = `/CommunityPlanes/${sanitizedAircraft}/${sanitizedLivery}.png`;
+            contributor = "IF Community"; // Use placeholder if using local file
+        }
+        
+        // 3. Airline Logo Logic (Unchanged, relies on livery name parsing)
         const words = livName.trim().split(/\s+/);
         let logoName = words.length > 1 && /[^a-zA-Z0-9]/.test(words[1]) ? words[0] : (words[0] + (words[1] ? ' ' + words[1] : ''));
         const sanitizedLogoName = logoName.toLowerCase().replace(/[^a-z0-9\s]/g, '').replace(/\s+/g, '_');
@@ -4951,9 +4955,7 @@ function initializeSectorOpsMap(centerICAO) {
         const altitude = props.altitude ? Math.round(props.altitude).toLocaleString() : '0';
         const speed = props.speed ? Math.round(props.speed) : '0';
         
-        // Create a short aircraft code (e.g., "B77W" from "Boeing 777-300ER")
-        // Simple heuristic: Take first word letter + digits, or look up if you have a map. 
-        // For now, we assume simbrief code or a shortened version of acName.
+        // Create a short aircraft code (e.g., "B77W")
         let shortType = "JET";
         if(acName.includes("777")) shortType = "B77W";
         else if(acName.includes("737")) shortType = "B737";
@@ -4964,21 +4966,18 @@ function initializeSectorOpsMap(centerICAO) {
         else if(acName.includes("787")) shortType = "B787";
         else shortType = acName.split(' ')[0].substring(0, 4).toUpperCase();
 
-        // 5. Route Logic (Mocked or Real)
-        // Note: Live properties usually don't have origin/dest unless joined with a flight plan.
-        // We will check for common props, otherwise display 'Enroute'.
+        // 5. Route Logic 
         let routeText = "Enroute";
         if (props.origin && props.destination) {
             routeText = `${props.origin} to ${props.destination}`;
-        } else if (aircraftData.origin && aircraftData.destination) {
-             routeText = `${aircraftData.origin} to ${aircraftData.destination}`;
+        } else if (props.aircraft?.origin && props.aircraft?.destination) {
+             routeText = `${props.aircraft.origin} to ${props.aircraft.destination}`;
         }
         
-        // 6. Contributor Name (Mocked or from DB)
-        const contributor = "IF Community"; 
+        // 6. Contributor Name (Now using the rich data)
+        // Already set in step 2.
 
         // 7. Progress Logic (Mocked or Real)
-        // If we don't have real progress, we hardcode a visual value or 0
         const progressPercent = props.progress || 50; 
 
         // 8. HTML Construction
@@ -8811,12 +8810,13 @@ function renderAirportMarkers() {
 
 // --- [REPLACEMENT] for updateSectorOpsLiveFlights ---
 // --- [MODIFIED] This function is now named 'updateSectorOpsSecondaryData'
-// and ONLY fetches Sessions, ATC, and NOTAMs.
-// Flight data is now handled by the 'handleSocketFlightUpdate' function via WebSocket.
+// and ONLY fetches Sessions, ATC, NOTAMs, AND Rich Aircraft Data.
+// Flight data is handled by the 'handleSocketFlightUpdate' function via WebSocket.
 async function updateSectorOpsSecondaryData() {
     if (!sectorOpsMap || !sectorOpsMap.isStyleLoaded()) return;
 
     const LIVE_FLIGHTS_BACKEND = 'https://site--acars-backend--6dmjph8ltlhv.code.run';
+    const FETCH_WINDOW_MS = 300000; // Refetch rich data every 5 minutes
 
     try {
         const sessionsRes = await fetch(`${LIVE_FLIGHTS_BACKEND}/if-sessions`);
@@ -8832,7 +8832,7 @@ async function updateSectorOpsSecondaryData() {
             return;
         }
 
-        // --- MODIFIED: Removed 'flightsRes' from Promise.all ---
+        // --- Fetch ATC & NOTAMs ---
         const [atcRes, notamsRes] = await Promise.all([
             fetch(`${LIVE_FLIGHTS_BACKEND}/atc/${expertSession.id}`),
             fetch(`${LIVE_FLIGHTS_BACKEND}/notams/${expertSession.id}`)
@@ -8847,14 +8847,55 @@ async function updateSectorOpsSecondaryData() {
             const notamsData = await notamsRes.json();
             activeNotams = (notamsData.ok && Array.isArray(notamsData.notams)) ? notamsData.notams : [];
         }
+        
         // Re-render airport markers with fresh ATC data
         renderAirportMarkers(); 
 
-        // --- REMOVED: All flight processing logic ('flightsRes', 'flightsData', loops) ---
-        // This is now handled by 'handleSocketFlightUpdate'
+        // --- NEW: Fetch Rich Aircraft Data for Hover Cards ---
+        const featureKeys = Object.keys(currentMapFeatures);
+        const now = Date.now();
 
+        for (const flightId of featureKeys) {
+            const feature = currentMapFeatures[flightId];
+            const props = feature.properties;
+            const lastFetch = props.lastRichDataFetch || 0;
+
+            // Only fetch if the rich data is stale
+            if (now - lastFetch > FETCH_WINDOW_MS) {
+                const acName = props.aircraft_type_name;
+                const livName = props.aircraft_livery_name;
+
+                if (acName && livName) {
+                    try {
+                        const lookupRes = await fetch(`${API_BASE_URL}/api/aircraft/lookup?type=${encodeURIComponent(acName)}&livery=${encodeURIComponent(livName)}`);
+
+                        if (lookupRes.ok) {
+                            let communityAircraftData = await lookupRes.json();
+                            // Handle array return if necessary
+                            if (Array.isArray(communityAircraftData)) {
+                                communityAircraftData = communityAircraftData.length > 0 ? communityAircraftData[0] : null;
+                            }
+                            
+                            // Store rich data directly in GeoJSON properties
+                            props.backendImageUrl = communityAircraftData?.imageUrl || null;
+                            props.contributorName = communityAircraftData?.contributorName || 'IF Community';
+                        }
+                    } catch (error) {
+                        console.warn(`Failed to fetch rich data for ${flightId}:`, error);
+                        // Store a temporary placeholder to avoid immediate refetch attempts
+                        props.backendImageUrl = null;
+                        props.contributorName = 'IF Community'; 
+                    }
+                } else {
+                    props.backendImageUrl = null;
+                    props.contributorName = 'IF Community'; 
+                }
+                // Mark the fetch time whether successful or failed, to respect the fetch window
+                props.lastRichDataFetch = now;
+            }
+        }
     } catch (error) {
-        console.error('Error updating Sector Ops secondary data (ATC/NOTAMs):', error);
+        console.error('Error updating Sector Ops secondary data (ATC/NOTAMs/Rich Data):', error);
     }
 }
     // ====================================================================
