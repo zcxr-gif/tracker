@@ -1928,6 +1928,115 @@ function injectCustomStyles() {
 }
 
 /**
+ * --- [NEW] SMART RUNWAY LOGIC ---
+ * Parses wind string (e.g. "360 @ 10KT") into numeric values.
+ */
+function parseWindString(windStr) {
+    if (!windStr) return { dir: 0, spd: 0 };
+    
+    // Remove " @ " if present to standardize
+    const cleanStr = windStr.replace(' @ ', '');
+    
+    // Handle "VRB" (Variable)
+    if (cleanStr.startsWith('VRB')) {
+        const spdMatch = cleanStr.match(/VRB(\d+)/);
+        return { dir: -1, spd: spdMatch ? parseInt(spdMatch[1]) : 0 };
+    }
+
+    // Standard format (e.g. 36010KT or 360/10)
+    const match = cleanStr.match(/(\d{3})\/?(\d+)(?:KT|MPS)?/);
+    if (match) {
+        return { dir: parseInt(match[1]), spd: parseInt(match[2]) };
+    }
+    
+    return { dir: 0, spd: 0 };
+}
+
+/**
+ * Calculates headwind/crosswind components and assigns a suitability score.
+ */
+function getRunwayRecommendations(runways, windStr) {
+    if (!runways || runways.length === 0) return [];
+    
+    const wind = parseWindString(windStr);
+    
+    // Logic for Calm/Variable winds (< 5 kts)
+    if (wind.spd < 5 || wind.dir === -1) {
+        // Just return longest runways, marking them as "CALM / ANY"
+        return runways.flatMap(r => [
+            { ident: r.le_ident, score: 100, reason: 'CALM WIND', color: 'green', headwind: 0, crosswind: 0 },
+            { ident: r.he_ident, score: 100, reason: 'CALM WIND', color: 'green', headwind: 0, crosswind: 0 }
+        ]).sort((a, b) => a.ident.localeCompare(b.ident)).slice(0, 4);
+    }
+
+    const recommendations = [];
+
+    runways.forEach(r => {
+        // Check both ends (Low End and High End)
+        [
+            { ident: r.le_ident, heading: r.le_heading_degT },
+            { ident: r.he_ident, heading: r.he_heading_degT }
+        ].forEach(end => {
+            if (end.heading == null) return;
+
+            // --- PHYSICS CALCULATION ---
+            // 1. Calculate angle difference (0-180)
+            let angleDiff = Math.abs(end.heading - wind.dir);
+            if (angleDiff > 180) angleDiff = 360 - angleDiff;
+            
+            // 2. Convert to Radians
+            const rads = angleDiff * (Math.PI / 180);
+            
+            // 3. Components
+            const headwind = Math.round(wind.spd * Math.cos(rads));
+            const crosswind = Math.round(wind.spd * Math.sin(rads));
+
+            // --- SCORING LOGIC ---
+            let score = 100;
+            let color = 'green';
+            let reason = 'FAVORABLE';
+
+            // Headwind is good (add to score), Tailwind is bad (subtract)
+            score += headwind * 2; 
+
+            // Tailwind Penalty
+            if (headwind < -5) {
+                score -= 200; // Heavy penalty for significant tailwind
+                color = 'red';
+                reason = 'TAILWIND';
+            } else if (headwind < 0) {
+                score -= 50; // Minor penalty for slight tailwind
+                color = 'orange';
+                reason = 'MARGINAL';
+            }
+
+            // Crosswind Penalty
+            if (Math.abs(crosswind) > 20) {
+                score -= 100;
+                color = 'red';
+                reason = 'X-WIND LIMIT';
+            } else if (Math.abs(crosswind) > 12) {
+                score -= 30;
+                color = 'orange';
+                reason = 'CROSSWIND';
+            }
+
+            recommendations.push({
+                ident: end.ident,
+                score: score,
+                color: color,
+                reason: reason,
+                headwind: headwind,
+                crosswind: Math.abs(crosswind)
+            });
+        });
+    });
+
+    // Sort by score (descending) and return top 4
+    return recommendations.sort((a, b) => b.score - a.score).slice(0, 4);
+}
+
+/**
  * --- [FIXED] Helper to find the Simbrief aircraft <option> value
  * from a given aircraft name.
  * @param {string} aircraftName - The aircraft name (e.g., "Airbus A320-200" or "A320").
@@ -4295,6 +4404,8 @@ function updatePfdDisplay(pfdData) {
         if (headingTapeGroup) headingTapeGroup.setAttribute('transform', 'translate(0, 0)');
     }
 
+
+
 async function createAirportInfoWindowHTML(icao) {
     const airportData = airportsData[icao] || {};
     const airportName = airportData.name || 'Unknown Airport';
@@ -4305,9 +4416,13 @@ async function createAirportInfoWindowHTML(icao) {
     const atcForAirport = activeAtcFacilities.filter(f => f.airportName === icao);
     const notamsForAirport = activeNotams.filter(n => n.airportIcao === icao);
     const routesFromAirport = ALL_AVAILABLE_ROUTES.filter(r => r.departure === icao);
+    
+    // --- [NEW] Get Runways ---
+    const airportRunways = runwaysData[icao] || [];
 
-    // --- Weather Logic (Tech Module Style) ---
+    // --- Weather Logic ---
     let weatherHtml = '';
+    let runwayRecHtml = ''; // [NEW] Container for recommendations
     let flightCategory = 'WAITING';
     let badgeClass = '';
     
@@ -4315,17 +4430,53 @@ async function createAirportInfoWindowHTML(icao) {
         if (window.WeatherService) {
             const w = await window.WeatherService.fetchAndParseMetar(icao);
             
-            // Determine Flight Category (Basic Logic)
-            flightCategory = 'VFR'; // Default
+            // Flight Category Logic
+            flightCategory = 'VFR'; 
             badgeClass = 'wx-vfr';
-            
-            // Simple parsing for category colors
             if (w.raw.includes('LIFR')) { flightCategory = 'LIFR'; badgeClass = 'wx-lifr'; }
             else if (w.raw.includes('IFR') || w.raw.includes('VV')) { flightCategory = 'IFR'; badgeClass = 'wx-ifr'; }
             else if (w.raw.includes('MVFR')) { flightCategory = 'MVFR'; badgeClass = 'wx-mvfr'; }
 
+            // --- [NEW] Generate Runway Recommendations ---
+            const recs = getRunwayRecommendations(airportRunways, w.wind);
+            
+            if (recs.length > 0) {
+                runwayRecHtml = `
+                <div class="tech-module" style="margin-bottom: 8px;">
+                    <div class="tech-module-header">
+                        <span class="tech-module-title"><i class="fa-solid fa-road"></i> RECOMMENDED RUNWAYS</span>
+                    </div>
+                    <div class="tech-module-body" style="padding: 8px; display: grid; grid-template-columns: 1fr 1fr; gap: 8px;">
+                        ${recs.map(r => {
+                            // Dynamic Icon for Headwind/Tailwind
+                            const windIcon = r.headwind >= 0 ? 'fa-arrow-down' : 'fa-arrow-up'; // Down = Headwind (facing you), Up = Tailwind
+                            const windColor = r.headwind >= 0 ? '#4ade80' : '#ef4444';
+                            
+                            return `
+                            <div style="background: rgba(255,255,255,0.03); border-left: 3px solid ${r.color === 'green' ? '#22c55e' : r.color === 'orange' ? '#f59e0b' : '#ef4444'}; border-radius: 4px; padding: 8px; display: flex; justify-content: space-between; align-items: center;">
+                                <div>
+                                    <div style="font-weight: 700; font-size: 1.1rem; color: #fff;">RWY ${r.ident}</div>
+                                    <div style="font-size: 0.65rem; color: ${r.color === 'green' ? '#86efac' : r.color === 'orange' ? '#fcd34d' : '#fca5a5'}; font-weight: 600;">${r.reason}</div>
+                                </div>
+                                <div style="text-align: right;">
+                                    <div style="font-size: 0.8rem; color: #e2e8f0; font-family: monospace;">
+                                        <i class="fa-solid ${windIcon}" style="color: ${windColor}; font-size: 0.7rem;"></i> ${Math.abs(r.headwind)}<span style="font-size: 0.6rem; color: #64748b;">KT</span>
+                                    </div>
+                                    <div style="font-size: 0.8rem; color: #e2e8f0; font-family: monospace;">
+                                        <i class="fa-solid fa-arrow-right-arrow-left" style="color: #94a3b8; font-size: 0.7rem;"></i> ${r.crosswind}<span style="font-size: 0.6rem; color: #64748b;">KT</span>
+                                    </div>
+                                </div>
+                            </div>
+                            `;
+                        }).join('')}
+                    </div>
+                </div>`;
+            } else {
+                runwayRecHtml = `<div class="tech-module" style="margin-bottom: 8px; padding: 12px; color: #64748b; font-size: 0.8rem; text-align: center;">No runway data available for calculation.</div>`;
+            }
+
             weatherHtml = `
-                <div class="tech-module" style="margin-bottom: 16px;">
+                <div class="tech-module" style="margin-bottom: 8px;">
                     <div class="tech-module-header">
                         <span class="tech-module-title"><i class="fa-solid fa-cloud-sun"></i> LIVE METAR</span>
                         <span class="tech-badge" style="background: rgba(255,255,255,0.1); color: #fff;">${new Date().toLocaleTimeString('en-GB', {hour:'2-digit', minute:'2-digit'})} Z</span>
@@ -4366,10 +4517,11 @@ async function createAirportInfoWindowHTML(icao) {
             weatherHtml = '<div class="tech-module"><div class="tech-module-body"><p class="muted-text">Weather service unavailable.</p></div></div>';
         }
     } catch (err) {
+        console.error(err);
         weatherHtml = '<div class="tech-module"><div class="tech-module-body"><p class="muted-text">Weather data offline.</p></div></div>';
     }
 
-    // --- Routes Logic (Flight Strip Style) ---
+    // --- Routes Logic ---
     let routesHtml = '<div style="padding: 20px; text-align: center; color: #64748b;">No departing routes found in database.</div>';
     
     if (routesFromAirport.length > 0) {
@@ -4377,11 +4529,7 @@ async function createAirportInfoWindowHTML(icao) {
             <div style="padding: 12px; display: flex; flex-direction: column; gap: 4px;">
                 ${routesFromAirport.map(route => {
                     const airlineCode = extractAirlineCode(route.flightNumber);
-                    const aircraftInfo = AIRCRAFT_SELECTION_LIST.find(ac => ac.value === route.aircraft);
-                    // const aircraftName = aircraftInfo ? aircraftInfo.name : route.aircraft; // Unused
                     const routeDataString = JSON.stringify(route).replace(/'/g, "&apos;");
-                    
-                    // Simplify aircraft name for badge
                     const shortAc = route.aircraft.replace('Boeing', 'B').replace('Airbus', 'A').split(' ')[0];
 
                     return `
@@ -4406,7 +4554,7 @@ async function createAirportInfoWindowHTML(icao) {
         `;
     }
 
-    // --- ATC Logic (Tech Grid) ---
+    // --- ATC Logic ---
     let atcHtml = '<div style="padding: 20px; text-align: center; color: #64748b;">No active ATC frequencies.</div>';
     if (atcForAirport.length > 0) {
         atcHtml = `
@@ -4414,9 +4562,9 @@ async function createAirportInfoWindowHTML(icao) {
                 ${atcForAirport.map(f => {
                     const typeName = atcTypeToString(f.type);
                     let badgeClass = 'atc-type-obs';
-                    if (f.type === 1) badgeClass = 'atc-type-twr'; // Tower
-                    else if (f.type === 0) badgeClass = 'atc-type-gnd'; // Ground
-                    else if (f.type === 4 || f.type === 5) badgeClass = 'atc-type-app'; // App/Dep
+                    if (f.type === 1) badgeClass = 'atc-type-twr';
+                    else if (f.type === 0) badgeClass = 'atc-type-gnd';
+                    else if (f.type === 4 || f.type === 5) badgeClass = 'atc-type-app';
 
                     return `
                     <div class="atc-grid-card">
@@ -4447,7 +4595,6 @@ async function createAirportInfoWindowHTML(icao) {
     }
 
     // --- Final Assembly ---
-    // UPDATED: Added hero-actions container and buttons
     return `
         <div class="airport-hero">
             <div class="hero-actions">
@@ -4475,8 +4622,7 @@ async function createAirportInfoWindowHTML(icao) {
 
         <div style="padding: 16px; flex-grow: 1; overflow-y: auto;">
             ${weatherHtml}
-
-            <div class="tech-module" style="min-height: 300px; display: flex; flex-direction: column;">
+            ${runwayRecHtml} <div class="tech-module" style="min-height: 300px; display: flex; flex-direction: column;">
                 
                 <div class="apt-tabs-header">
                     <button class="apt-tab-btn active" data-target="apt-routes">
