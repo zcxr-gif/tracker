@@ -527,7 +527,6 @@ function injectCustomStyles() {
     const css = `
         /* --- CSS VARIABLES FOR THEMING --- */
         :root {
-            /* [MODIFIED] Ensure defaults are set for the new dynamic panel system */
             --iw-bg-start: rgba(18, 20, 38, 0.95);
             --iw-bg-end: rgba(18, 20, 38, 0.95);
         }
@@ -709,17 +708,11 @@ function injectCustomStyles() {
             width: 600px; 
             max-width: 95vw;
             max-height: calc(100vh - 40px);
-            
-            /* Dynamic Background */
             background: linear-gradient(160deg, var(--iw-bg-start), var(--iw-bg-end));
-            
             backdrop-filter: blur(20px) saturate(180%);
             -webkit-backdrop-filter: blur(20px) saturate(180%);
             border-radius: 16px;
-            
-            /* --- FIX: Use a much subtler border that blends with any color --- */
             border: 1px solid rgba(255, 255, 255, 0.08);
-            
             box-shadow: 0 20px 50px rgba(0,0,0,0.8); 
             z-index: 1060; 
             display: flex;
@@ -741,13 +734,8 @@ function injectCustomStyles() {
             justify-content: space-between;
             align-items: center;
             padding: 16px 20px;
-            
-            /* --- FIX: Make background transparent so it takes the user's theme color --- */
             background: rgba(0, 0, 0, 0.1); 
-            
-            /* Optional: Make the separator line subtler or remove it to blend fully */
             border-bottom: 1px solid rgba(255, 255, 255, 0.05);
-            
             flex-shrink: 0;
         }
         .info-window-header h3 {
@@ -781,7 +769,7 @@ function injectCustomStyles() {
             overflow-y: auto; 
             flex-grow: 1; 
             padding: 0;
-            background: transparent; /* Transparent to show gradient */
+            background: transparent; 
         }
 
         .pfd-and-location-grid { 
@@ -890,6 +878,7 @@ function injectCustomStyles() {
         .stat-value { color: #fff; font-weight: bold; }
         .fms-empty-state { text-align: center; padding: 20px; color: #555; font-style: italic; }
 
+        /* --- REDESIGNED LOCATION DATA PANEL (No Bleeding) --- */
         #location-data-panel {
             background: #0f1115;
             border-radius: 8px;
@@ -898,7 +887,7 @@ function injectCustomStyles() {
             width: 100%;
             display: flex;
             flex-direction: column;
-            overflow: hidden;
+            overflow: visible; /* Allow content to dictate height */
         }
         .nav-header {
             background: #181b21;
@@ -926,6 +915,7 @@ function injectCustomStyles() {
             animation: navPulse 2s infinite;
         }
         @keyframes navPulse { 0% { opacity: 1; } 50% { opacity: 0.4; } 100% { opacity: 1; } }
+        
         .nav-grid-container {
             padding: 10px;
             display: grid;
@@ -939,9 +929,12 @@ function injectCustomStyles() {
             display: flex;
             flex-direction: column;
             justify-content: space-between;
+            /* Allow height to grow based on content */
+            height: auto; 
             min-height: 45px;
             border: 1px solid transparent;
             transition: background 0.2s;
+            overflow: visible; /* Prevent cutting off */
         }
         .nav-cell:hover {
             background: rgba(255, 255, 255, 0.06);
@@ -953,40 +946,53 @@ function injectCustomStyles() {
             font-size: 0.6rem;
             color: #00a8ff;
             text-transform: uppercase;
-            margin-bottom: 2px;
+            margin-bottom: 4px;
             font-weight: 600;
             letter-spacing: 0.5px;
             display: flex;
             align-items: center;
             gap: 6px;
+            white-space: nowrap; /* Keep label on one line if possible */
         }
         .nav-label i { opacity: 0.7; font-size: 0.7rem; }
+        
+        /* FIX FOR BLEEDING: Allow wrapping, remove ellipsis */
         .nav-value {
             font-family: 'Consolas', 'Monaco', monospace;
-            font-size: 1.05rem;
+            font-size: 1.0rem; /* Slightly smaller for better fit */
             color: #fff;
             font-weight: 600;
-            white-space: nowrap;
-            overflow: hidden;
-            text-overflow: ellipsis;
-            line-height: 1.2;
+            
+            /* The Critical Fixes */
+            white-space: normal;  /* Allow text to wrap */
+            overflow: visible;    /* Show all content */
+            text-overflow: clip;  /* Remove ellipsis */
+            word-wrap: break-word; /* Break long words if needed */
+            line-height: 1.2;     /* Tighter line height for wrapped text */
         }
+        
         .nav-value.large { font-size: 1.2rem; }
         .nav-value.small { font-size: 0.85rem; color: #ccc; }
         .nav-value.highlight { color: #4ade80; text-shadow: 0 0 5px rgba(74, 222, 128, 0.2); }
         .nav-value.accent { color: #f59e0b; }
+        
+        /* FIX FOR ROWS: Allow wrapping inside rows too */
         .nav-row {
             display: flex;
             justify-content: space-between;
             align-items: baseline;
             width: 100%;
+            flex-wrap: wrap; /* Allow items to stack if they hit width limit */
+            gap: 4px; /* Space between wrapped items */
         }
+        
         .nav-unit {
             font-size: 0.7rem;
             color: #6b7280;
             margin-left: 2px;
             font-family: 'Segoe UI', sans-serif;
             font-weight: 400;
+            white-space: nowrap;
         }
 
         @media (max-width: 992px) {
@@ -994,6 +1000,7 @@ function injectCustomStyles() {
             .pfd-and-location-grid { grid-template-columns: 1fr; } 
             #fms-legs-module { display: none; }
             #location-data-panel { min-height: auto; }
+            /* On mobile, switch grid to 2 columns to give more space */
             .nav-grid-container { grid-template-columns: repeat(2, 1fr); }
             .nav-span-2 { grid-column: span 2; }
         }
@@ -1017,7 +1024,6 @@ function injectCustomStyles() {
             position: absolute; 
             inset: 0; 
             z-index: 1; 
-            /* --- MODIFIED: Use Theme Variable for seamless blending --- */
             background: linear-gradient(
                 to bottom,
                 rgba(0, 0, 0, 0.7) 0%, 
@@ -1032,14 +1038,13 @@ function injectCustomStyles() {
         .ac-header-logo { height: 1.8rem; width: auto; max-width: 100px; object-fit: contain; filter: drop-shadow(0 2px 4px rgba(0,0,0,0.7)); }
         .overview-col-left p { position: relative; margin: 0; font-size: 1.0rem; color: #e8eaf6; font-weight: 400; text-shadow: 0 2px 5px rgba(0, 0, 0, 0.6); min-height: 1.2em; margin-top: 4px; }
         
-        /* --- [FIXED] Removed ellipses and allowed wrapping --- */
         .ac-header-subtext { 
             position: absolute; 
             top: 0; 
             left: 0; 
             width: 100%; 
             opacity: 0; 
-            white-space: normal; /* Allow text to wrap naturally */
+            white-space: normal; 
         }
         
         @keyframes primarySubtextAnimation { 0% { opacity: 1; transform: translateY(0); } 40% { opacity: 1; transform: translateY(0); } 50% { opacity: 0; transform: translateY(10px); } 51% { opacity: 0; transform: translateY(-10px); } 90% { opacity: 0; transform: translateY(-10px); } 100% { opacity: 1; transform: translateY(0); } }
@@ -1051,7 +1056,6 @@ function injectCustomStyles() {
         .route-summary-overlay { 
             position: relative; 
             padding: 15px 20px 12px 20px; 
-            /* --- MODIFIED: Use Theme Variable --- */
             background: linear-gradient(180deg, 
                 transparent 0%, 
                 rgba(0, 0, 0, 0.2) 40%, 
@@ -1083,7 +1087,6 @@ function injectCustomStyles() {
             display: flex; 
             flex-direction: column; 
             gap: 16px; 
-            /* --- MODIFIED: Background uses theme variables --- */
             background: linear-gradient(180deg, var(--iw-bg-start), var(--iw-bg-end));
             border-top: 1px solid rgba(255, 255, 255, 0.05);
         }
@@ -1091,7 +1094,7 @@ function injectCustomStyles() {
         .ac-tab-pane { display: none; flex-direction: column; gap: 16px; animation: fadeIn 0.4s; }
         .ac-tab-pane.active { display: flex; }
         .ac-profile-card-new { 
-            background: rgba(0, 0, 0, 0.2); /* Neutral / Transparent so theme shows */
+            background: rgba(0, 0, 0, 0.2); 
             border-radius: 12px; border: 1px solid rgba(255, 255, 255, 0.05); padding: 10px; border-top: 3px solid #a33ea3; display: flex; flex-direction: column; gap: 10px; 
         }
         .ac-profile-header { display: flex; justify-content: space-between; align-items: center; padding: 0 5px; }
@@ -1389,7 +1392,6 @@ function injectCustomStyles() {
             display: flex;
             justify-content: space-between;
             align-items: center;
-            /* --- MODIFIED: Use Theme Variable for tabs to match window --- */
             background: var(--iw-bg-start);
             border-bottom: 1px solid rgba(255, 255, 255, 0.1);
             padding: 0 20px;
