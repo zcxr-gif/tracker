@@ -7402,7 +7402,7 @@ function updateAircraftInfoWindow(baseProps, plan, sortedRoutePoints) {
     }
 
 
-    // --- [MODIFIED] Update New Data Bar (using helper) ---
+    // --- Update New Data Bar ---
     const nextWpDisplay = nextWpName;
     const nextWpDistDisplay = (nextWpDistNM === '---' || isNaN(parseFloat(nextWpDistNM))) ? '--.-' : Number(nextWpDistNM).toFixed(1);
 
@@ -7410,7 +7410,6 @@ function updateAircraftInfoWindow(baseProps, plan, sortedRoutePoints) {
     updateAll('#ac-next-wp-dist', `${nextWpDistDisplay}<span class="unit">NM</span>`, true);
     updateAll('#ac-dist', `${Math.round(distanceToDestNM)}<span class="unit">NM</span>`, true);
     updateAll('#ac-ete', ete);
-    // --- [END MODIFIED] ---
 
     // --- Flight Phase State Machine (Unchanged) ---
     let flightPhase = 'ENROUTE';
@@ -7494,7 +7493,7 @@ function updateAircraftInfoWindow(baseProps, plan, sortedRoutePoints) {
     }
 
 
-    // --- [MODIFIED] VSD LOGIC (Fixed Height) ---
+    // --- VSD LOGIC (Fixed Height) ---
     const vsdPanels = document.querySelectorAll('#vsd-panel');
     const planId = (plan && (plan.flightPlanId || plan.id)) || 'unknown';
 
@@ -7512,7 +7511,6 @@ function updateAircraftInfoWindow(baseProps, plan, sortedRoutePoints) {
         if (!vsdGraphContent || !vsdAircraftIcon) return;
 
         // --- 1. Define VSD scales ---
-        // With the new container height of 260px, the usable graph area is roughly 210px
         const VSD_HEIGHT_PX = vsdGraphContent.clientHeight || 210; 
         const MAX_ALT_FT = 45000;
         const Y_SCALE_PX_PER_FT = VSD_HEIGHT_PX / MAX_ALT_FT;
@@ -7520,7 +7518,6 @@ function updateAircraftInfoWindow(baseProps, plan, sortedRoutePoints) {
         
         // --- 2. Build the Profile (Only once) ---
         if (vsdPanel.dataset.profileBuilt !== 'true' || vsdPanel.dataset.planId !== planId) {
-            // ... (VSD profile, label, and Y-axis generation logic is unchanged) ...
             let flatWaypointObjects = JSON.parse(JSON.stringify(originalFlatWaypointObjects));
             if (flatWaypointObjects.length > 0) {
                 const lastIdx = flatWaypointObjects.length - 1;
@@ -7678,7 +7675,6 @@ function updateAircraftInfoWindow(baseProps, plan, sortedRoutePoints) {
                     }
                     totalActualFlownNM += segmentDistNM;
                     
-                    // Store Altitude
                     flownPathPoints.push({ 
                         x_nm: totalActualFlownNM, 
                         y_px_alt: wpAltPx
@@ -7694,7 +7690,6 @@ function updateAircraftInfoWindow(baseProps, plan, sortedRoutePoints) {
                     const point = flownPathPoints[i];
                     const scaled_x_px = point.x_nm * scaleFactor * FIXED_X_SCALE_PX_PER_NM; 
                     
-                    // VSD Altitude Path
                     if (i === 0) {
                         flown_path_d = `M 0 ${startAltPx}`;
                         if (flownPathPoints.length === 1) {
@@ -7709,11 +7704,9 @@ function updateAircraftInfoWindow(baseProps, plan, sortedRoutePoints) {
             }
         }
 
-        // --- 4. Update Aircraft Icon Position (Vertical) ---
         const currentAltPx = VSD_HEIGHT_PX - (altitude * Y_SCALE_PX_PER_FT);
         vsdAircraftIcon.style.top = `${currentAltPx}px`;
 
-        // --- 5. Scroll the Graph (Horizontal) ---
         if (vsdGraphWindow && vsdGraphWindow.clientWidth > 0) {
             const distanceFlownNM = progressAlongRouteNM; 
             const scrollOffsetPx = (distanceFlownNM * FIXED_X_SCALE_PX_PER_NM);
@@ -7735,26 +7728,21 @@ function updateAircraftInfoWindow(baseProps, plan, sortedRoutePoints) {
             vsdAircraftIcon.style.left = `75px`;
         }
         
-        // --- 6. Update Data Bar's V/S ---
         const vsdSummaryVS = vsdPanel.closest('.ac-tab-pane').querySelector('#ac-vs');
         if (vsdSummaryVS) {
             vsdSummaryVS.innerHTML = `<i class="fa-solid ${vs > 100 ? 'fa-arrow-up' : vs < -100 ? 'fa-arrow-down' : 'fa-minus'}"></i> ${Math.round(vs)}<span class="unit">fpm</span>`;
         }
     });
-    // --- [END VSD LOGIC] ---
 
-
-    // --- Update Other DOM Elements (using helpers) ---
+    // --- Update Other DOM Elements ---
     styleAll('#ac-progress-bar', 'width', `${progress.toFixed(1)}%`);
     updateAll('#ac-phase-indicator', `<i class="fa-solid ${phaseIcon}"></i> ${flightPhase}`, true);
     
-    // Set the class separately as it's a list
     const phaseIndicators = document.querySelectorAll('#ac-phase-indicator');
     phaseIndicators.forEach(el => {
         el.className = `flight-phase-indicator ${phaseClass}`;
     });
 
-    // --- Update Times and Flags ---
     const atdTimestamp = (sortedRoutePoints && sortedRoutePoints.length > 0) ? sortedRoutePoints[0].date : null;
     const atdTime = atdTimestamp ? formatTimeFromTimestamp(atdTimestamp) : '--:--';
     let etaTime = '--:--';
@@ -7785,9 +7773,17 @@ function updateAircraftInfoWindow(baseProps, plan, sortedRoutePoints) {
         el.style.display = arrCountryCode ? 'block' : 'none'; 
     });
 
-    // --- Update Aircraft Image (using querySelectorAll) ---
+    // --- [FIX] Update Aircraft Image (Header) ---
+    // Only update if we don't already have a valid backend image loaded
     const overviewPanels = document.querySelectorAll('#ac-overview-panel');
     overviewPanels.forEach(overviewPanel => {
+        // [FIX START] If we already have a backend (HTTP) image, don't overwrite it with a local guess
+        const currentPath = overviewPanel.dataset.currentPath;
+        if (currentPath && currentPath.startsWith('http')) {
+            return; 
+        }
+        // [FIX END]
+
         const sanitizeFilename = (name) => {
             if (!name || typeof name !== 'string') return 'unknown';
             return name.trim().toLowerCase().replace(/[^a-z0-j-9-]/g, '_');
@@ -7817,13 +7813,12 @@ function updateAircraftInfoWindow(baseProps, plan, sortedRoutePoints) {
     // --- CALL THE FMS UPDATE ---
     updateFmsLegsModule(plan, baseProps.position);
 
-    // --- NEW: Update Cockpit Seat Sensor ---
+    // --- Update Cockpit Seat Sensor ---
     updateSeatSensor(baseProps);
 
     // --- UPDATE FLIGHT RULES ---
     const rulesDisplay = document.getElementById('flight-rules-display');
     if (rulesDisplay) {
-        // Ensure helper function exists
         if (typeof determineFlightRules === 'function') {
             const rule = determineFlightRules(baseProps, plan);
             rulesDisplay.className = `flight-rules-badge ${rule.class}`;
