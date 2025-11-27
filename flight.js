@@ -1472,6 +1472,108 @@ function injectCustomStyles() {
         }
 
         .vsd-disclaimer { background: rgba(10, 12, 26, 0.5); border: 1px solid rgba(255, 255, 255, 0.05); border-radius: 8px; padding: 10px 14px; margin-top: 0; }
+
+        /* --- HOVER CARD STYLES --- */
+.mapboxgl-popup-content {
+    background: transparent !important;
+    box-shadow: none !important;
+    padding: 0 !important;
+    border-radius: 16px !important;
+}
+.mapboxgl-popup-tip {
+    display: none !important; /* Hide the little triangle tip */
+}
+
+/* The Card Container */
+.hover-card {
+    width: 240px;
+    background: #1c1c1e;
+    border-radius: 16px;
+    overflow: hidden;
+    box-shadow: 0 10px 30px rgba(0,0,0,0.5);
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    border: 1px solid rgba(255,255,255,0.1);
+}
+
+/* Top Image Section */
+.hover-card-image {
+    height: 100px;
+    width: 100%;
+    background-size: cover;
+    background-position: center;
+    position: relative;
+}
+.hover-card-overlay {
+    position: absolute;
+    inset: 0;
+    /* Gradient to make white text readable on top of image */
+    background: linear-gradient(to bottom, rgba(0,0,0,0.2) 0%, rgba(28,28,30,1) 100%);
+}
+
+/* Content Layout */
+.hover-card-header {
+    position: absolute;
+    bottom: 8px;
+    left: 12px;
+    right: 12px;
+    z-index: 2;
+}
+.hover-callsign {
+    color: #fff;
+    font-size: 1.2rem;
+    font-weight: 700;
+    margin: 0;
+    text-shadow: 0 2px 4px rgba(0,0,0,0.5);
+    display: flex;
+    align-items: center;
+    gap: 6px;
+}
+.hover-aircraft {
+    color: #a1a1aa;
+    font-size: 0.75rem;
+    font-weight: 600;
+    text-transform: uppercase;
+    margin-top: 2px;
+}
+
+/* Bottom Data Section */
+.hover-card-body {
+    padding: 0 12px 12px 12px;
+    background: #1c1c1e;
+}
+
+/* The Progress Bar (Visual only for hover) */
+.hover-progress-track {
+    width: 100%;
+    height: 4px;
+    background: #3a3a3c;
+    border-radius: 2px;
+    margin: 8px 0 10px 0;
+    overflow: hidden;
+}
+.hover-progress-fill {
+    height: 100%;
+    background: #0a84ff; /* iOS Blue */
+    width: 50%; /* Default to 50% since we don't have full route on hover */
+    border-radius: 2px;
+}
+
+/* Stats Row */
+.hover-stats-row {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    font-size: 0.9rem;
+    color: #fff;
+    font-weight: 600;
+    font-variant-numeric: tabular-nums;
+}
+.hover-stat-label {
+    font-size: 0.7rem;
+    color: #8e8e93;
+    font-weight: 500;
+    margin-right: 4px;
+}
     `;
 
     const style = document.createElement('style');
@@ -4779,14 +4881,77 @@ function initializeSectorOpsMap(centerICAO) {
     });
 
     /**
+     * --- [NEW HELPER] Generates the HTML for the Hover Card ---
+     */
+    function generateHoverCardHTML(props) {
+        // 1. Image Logic (Replicated from your Aircraft Window logic for consistency)
+        const sanitizeFilename = (name) => {
+            if (!name || typeof name !== 'string') return 'unknown';
+            return name.trim().toLowerCase().replace(/[^a-z0-j-9-]/g, '_');
+        };
+
+        // Parse JSON properties if they are strings
+        const aircraftData = typeof props.aircraft === 'string' ? JSON.parse(props.aircraft || '{}') : (props.aircraft || {});
+        
+        const acName = aircraftData.aircraftName || 'Unknown Aircraft';
+        const livName = aircraftData.liveryName || 'Default Livery';
+        
+        const sanitizedAircraft = sanitizeFilename(acName);
+        const sanitizedLivery = sanitizeFilename(livName);
+        
+        // Construct Image Path
+        const imagePath = `/CommunityPlanes/${sanitizedAircraft}/${sanitizedLivery}.png`;
+        const fallbackPath = '/CommunityPlanes/default.png';
+
+        // 2. Data Formatting
+        const callsign = props.callsign || 'N/A';
+        const altitude = props.altitude ? Math.round(props.altitude).toLocaleString() : '0';
+        const speed = props.speed ? Math.round(props.speed) : '0';
+        const category = props.category || 'default';
+        
+        // Simple Phase/Status Text
+        const phaseText = props.phase || 'ENROUTE';
+
+        // 3. Icon Selection based on Category (for header)
+        let iconClass = 'fa-plane';
+        if (category === 'fighter') iconClass = 'fa-fighter-jet';
+        if (category === 'cessna') iconClass = 'fa-plane-prop';
+
+        // 4. HTML Structure
+        return `
+            <div class="hover-card">
+                <div class="hover-card-image" style="background-image: url('${imagePath}'), url('${fallbackPath}');">
+                    <div class="hover-card-overlay"></div>
+                    <div class="hover-card-header">
+                        <h3 class="hover-callsign">
+                            <i class="fa-solid ${iconClass}" style="font-size: 0.8em; opacity: 0.8;"></i> ${callsign}
+                        </h3>
+                        <div class="hover-aircraft">${acName}</div>
+                    </div>
+                </div>
+                <div class="hover-card-body">
+                    <div class="hover-progress-track">
+                        <div class="hover-progress-fill" style="width: 50%; background: linear-gradient(90deg, #0a84ff, #5ac8fa);"></div>
+                    </div>
+                    <div class="hover-stats-row">
+                        <div title="Altitude">
+                            <span class="hover-stat-label">ALT</span> ${altitude} <span style="font-size:0.7em; opacity:0.7;">ft</span>
+                        </div>
+                        <div title="Ground Speed">
+                            <span class="hover-stat-label">GS</span> ${speed} <span style="font-size:0.7em; opacity:0.7;">kts</span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        `;
+    }
+
+    /**
      * --- [NEW] Extracted function to set up base layers.
      * This is called on initial load AND on every style change.
-     * --- [MODIFIED] Added text labels for callsign and phase.
-     * --- [MODIFIED v2] Split icons and labels into two layers
-     * to allow icons to always show while labels can hide.
      */
     async function setupMapLayersAndFog() {
-        // 1. Set globe fog (Unchanged)
+        // 1. Set globe fog
         sectorOpsMap.setFog({
             color: 'rgb(186, 210, 235)', // Lower atmosphere
             'high-color': 'rgb(36, 92, 223)', // Upper atmosphere
@@ -4795,9 +4960,8 @@ function initializeSectorOpsMap(centerICAO) {
             'star-intensity': 0.6 // Adjust star intensity
         });
 
-        // 2. Load all aircraft icons (Unchanged)
+        // 2. Load all aircraft icons
         const iconsToLoad = [
-            // Regular (Default)
             { id: 'icon-jumbo', path: '/Images/map_icons/jumbo.png' },
             { id: 'icon-widebody', path: '/Images/map_icons/widebody.png' },
             { id: 'icon-narrowbody', path: '/Images/map_icons/narrowbody.png' },
@@ -4807,8 +4971,6 @@ function initializeSectorOpsMap(centerICAO) {
             { id: 'icon-default', path: '/Images/map_icons/default.png' },
             { id: 'icon-military', path: '/Images/map_icons/military.png' },
             { id: 'icon-cessna', path: '/Images/map_icons/cessna.png' },
-            
-            // --- MODIFICATION: Changed 'red' to 'orange' ---
             { id: 'icon-jumbo-orange', path: '/Images/map_icons/orange/jumbo.png' },
             { id: 'icon-widebody-orange', path: '/Images/map_icons/orange/widebody.png' },
             { id: 'icon-narrowbody-orange', path: '/Images/map_icons/orange/narrowbody.png' },
@@ -4818,8 +4980,6 @@ function initializeSectorOpsMap(centerICAO) {
             { id: 'icon-default-orange', path: '/Images/map_icons/orange/default.png' },
             { id: 'icon-military-orange', path: '/Images/map_icons/orange/military.png' },
             { id: 'icon-cessna-orange', path: '/Images/map_icons/orange/cessna.png' },
-
-            // --- MODIFICATION: Renamed 'staff' to 'blue' ---
             { id: 'icon-jumbo-blue', path: '/Images/map_icons/blue/jumbo.png' },
             { id: 'icon-widebody-blue', path: '/Images/map_icons/blue/widebody.png' },
             { id: 'icon-narrowbody-blue', path: '/Images/map_icons/blue/narrowbody.png' },
@@ -4833,7 +4993,6 @@ function initializeSectorOpsMap(centerICAO) {
 
         const imagePromises = iconsToLoad.map(icon =>
             new Promise((res, rej) => {
-                // Check if image already exists (Mapbox preserves images across style loads)
                 if (sectorOpsMap.hasImage(icon.id)) {
                     res();
                     return;
@@ -4851,46 +5010,34 @@ function initializeSectorOpsMap(centerICAO) {
         );
         
         await Promise.all(imagePromises).catch(err => console.error("Error loading map icons", err));
-        console.log('All custom aircraft icons are ready.');
 
-        // 3. Add base flight data source (Unchanged)
+        // 3. Add base flight data source
         if (!sectorOpsMap.getSource('sector-ops-live-flights-source')) {
             sectorOpsMap.addSource('sector-ops-live-flights-source', {
                 type: 'geojson',
-                data: { type: 'FeatureCollection', features: Object.values(currentMapFeatures) } // Use current state
+                data: { type: 'FeatureCollection', features: Object.values(currentMapFeatures) }
             });
         }
 
         mapAnimator = new MapAnimator(sectorOpsMap, 'sector-ops-live-flights-source', currentMapFeatures);
 
-        // 4. --- [START OF MODIFICATION] ---
-        // Add the ICON layer
+        // 4. Add the ICON layer
         if (!sectorOpsMap.getLayer('sector-ops-live-flights-layer')) {
             sectorOpsMap.addLayer({
-                id: 'sector-ops-live-flights-layer', // Keep original ID for click listeners
+                id: 'sector-ops-live-flights-layer',
                 type: 'symbol',
                 source: 'sector-ops-live-flights-source',
                 layout: {
-                    // --- Icon Properties ONLY ---
                     'icon-image': getIconImageExpression(mapFilters.iconColorMode),
                     'icon-size': 0.08,
                     'icon-rotate': ['get', 'heading'],
                     'icon-rotation-alignment': 'map',
-                    
-                    // --- THIS IS THE KEY ---
-                    // Force icons to always show, even if they overlap
                     'icon-allow-overlap': true,
                     'icon-ignore-placement': true,
-
-                    // --- Remove all text properties ---
-                    // 'text-field': ... (REMOVED)
-                    // 'text-font': ... (REMOVED)
-                    // etc.
                 }
-                // --- No 'paint' block needed (it was only for text) ---
             });
 
-            // 4a. Add click/hover listeners (These will now only apply to the icon layer)
+            // --- CLICK LISTENER (Existing) ---
             sectorOpsMap.on('click', 'sector-ops-live-flights-layer', (e) => {
                 const props = e.features[0].properties;
                 const flightProps = { ...props, position: JSON.parse(props.position), aircraft: JSON.parse(props.aircraft) };
@@ -4901,8 +5048,43 @@ function initializeSectorOpsMap(centerICAO) {
                     }
                 });
             });
-            sectorOpsMap.on('mouseenter', 'sector-ops-live-flights-layer', () => { sectorOpsMap.getCanvas().style.cursor = 'pointer'; });
-            sectorOpsMap.on('mouseleave', 'sector-ops-live-flights-layer', () => { sectorOpsMap.getCanvas().style.cursor = ''; });
+
+            // -------------------------------------------------------------
+            // --- NEW: HOVER POPUP LOGIC ---
+            // -------------------------------------------------------------
+            const hoverPopup = new mapboxgl.Popup({
+                closeButton: false,
+                closeOnClick: false,
+                offset: 20 // Distance from the aircraft icon
+            });
+
+            sectorOpsMap.on('mouseenter', 'sector-ops-live-flights-layer', (e) => {
+                // Change cursor
+                sectorOpsMap.getCanvas().style.cursor = 'pointer';
+
+                // Get properties
+                const coordinates = e.features[0].geometry.coordinates.slice();
+                const props = e.features[0].properties;
+
+                // Handle map wrapping
+                while (Math.abs(e.lngLat.lng - coordinates[0]) > 180) {
+                    coordinates[0] += e.lngLat.lng > coordinates[0] ? 360 : -360;
+                }
+
+                // Generate Custom "Widget" HTML
+                const cardHTML = generateHoverCardHTML(props);
+
+                // Set HTML and Show
+                hoverPopup.setLngLat(coordinates)
+                          .setHTML(cardHTML)
+                          .addTo(sectorOpsMap);
+            });
+
+            sectorOpsMap.on('mouseleave', 'sector-ops-live-flights-layer', () => {
+                sectorOpsMap.getCanvas().style.cursor = '';
+                hoverPopup.remove(); // Hide the card immediately on exit
+            });
+            // -------------------------------------------------------------
         }
         
         // 5. Add the LABEL layer
@@ -4910,86 +5092,54 @@ function initializeSectorOpsMap(centerICAO) {
             sectorOpsMap.addLayer({
                 id: 'sector-ops-live-flights-labels',
                 type: 'symbol',
-                source: 'sector-ops-live-flights-source', // Use the SAME source
-                
-                // ##### PERFORMANCE FIX START #####
-                // By setting a minzoom, we prevent Mapbox from trying to
-                // calculate label collisions for all aircraft on the map
-                // when zoomed out, which is the cause of the lag.
+                source: 'sector-ops-live-flights-source', 
                 minzoom: 6.5,
-                // ##### PERFORMANCE FIX END #####
-
                 layout: {
-                    // ##### MODIFICATION START #####
                     'visibility': mapFilters.showAircraftLabels ? 'visible' : 'none',
-                    // ##### MODIFICATION END #####
-
-                    // --- [MODIFICATION START] ---
-                    // Use a 'format' expression to set colors per line
                     'text-field': [
                         'format',
-                        // Part 1: Callsign (White)
-                        ['get', 'callsign'], 
-                        { 'text-color': '#FFFFFF' }, 
-                        
-                        // Part 2: Newline
-                        '\n',                
-                        {},                  
-                        
-                        // Part 3: Phase (Color-coded)
+                        ['get', 'callsign'], { 'text-color': '#FFFFFF' }, 
+                        '\n', {},                  
                         ['get', 'phase'],    
                         { 
                             'text-color': [ 
                                 'match',
                                 ['get', 'phase'],
-                                'Climb', '#28a745',     // Green
-                                'Cruise', '#007bff',    // Blue
-                                'Descent', '#ff9900',   // Orange
-                                'Approach', '#a33ea3',  // Purple
-                                'Ground', '#9fa8da',    // Muted Grey
-                                '#e8eaf6' // Default (for Enroute etc.)
+                                'Climb', '#28a745',
+                                'Cruise', '#007bff',
+                                'Descent', '#ff9900',
+                                'Approach', '#a33ea3',
+                                'Ground', '#9fa8da',
+                                '#e8eaf6'
                             ]
                         }
                     ],
-                    // --- [MODIFICATION END] ---
-
                     'text-font': ['Mapbox Txt Regular', 'Arial Unicode MS Regular'],
                     'text-size': 10,
-                    'text-offset': [0, 2.5], // Offset text below the icon
+                    'text-offset': [0, 2.5],
                     'text-anchor': 'top',
-                    
                     'text-allow-overlap': false,
                     'text-ignore-placement': false,
-
-                    // --- [NEW] ---
-                    'text-padding': 3, // Add padding *inside* the background box
+                    'text-padding': 3,
                 },
                 paint: {
-                    // --- [MODIFICATION START] ---
-                    // 'text-color' is REMOVED (now handled by 'format' in layout)
-                    
-                    // Use the halo as a solid background
-                    'text-halo-color': 'rgba(10, 12, 26, 0.85)', // Dark UI color
-                    'text-halo-width': 2, // This creates the box padding effect
-                    'text-halo-blur': 0   // This makes the box sharp
-                    // --- [MODIFICATION END] ---
+                    'text-halo-color': 'rgba(10, 12, 26, 0.85)',
+                    'text-halo-width': 2,
+                    'text-halo-blur': 0
                 }
             });
         }
-        // --- [END OF MODIFICATION] ---
     }
     
-    // --- [NEW] This handles style changes ---
     sectorOpsMap.on('style.load', async () => {
         console.log("Map style reloading. Rebuilding layers...");
-        await setupMapLayersAndFog(); // Re-add fog, icons, base layer
-        rebuildDynamicLayers();     // Re-add weather, routes, trails, filters
+        await setupMapLayersAndFog();
+        rebuildDynamicLayers();
     });
 
-    // --- This handles the initial map load ---
     return new Promise(resolve => {
         sectorOpsMap.on('load', async () => {
-            await setupMapLayersAndFog(); // Run setup for the first time
+            await setupMapLayersAndFog();
             resolve();
         });
     });
