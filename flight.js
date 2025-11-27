@@ -1031,7 +1031,17 @@ function injectCustomStyles() {
         .overview-col-left h3 { margin: 0; font-size: 1.6rem; font-weight: 700; text-shadow: 0 4px 10px rgba(0, 0, 0, 0.7); display: flex; align-items: center; gap: 12px; }
         .ac-header-logo { height: 1.8rem; width: auto; max-width: 100px; object-fit: contain; filter: drop-shadow(0 2px 4px rgba(0,0,0,0.7)); }
         .overview-col-left p { position: relative; margin: 0; font-size: 1.0rem; color: #e8eaf6; font-weight: 400; text-shadow: 0 2px 5px rgba(0, 0, 0, 0.6); min-height: 1.2em; margin-top: 4px; }
-        .ac-header-subtext { position: absolute; top: 0; left: 0; width: 100%; opacity: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+        
+        /* --- [FIXED] Removed ellipses and allowed wrapping --- */
+        .ac-header-subtext { 
+            position: absolute; 
+            top: 0; 
+            left: 0; 
+            width: 100%; 
+            opacity: 0; 
+            white-space: normal; /* Allow text to wrap naturally */
+        }
+        
         @keyframes primarySubtextAnimation { 0% { opacity: 1; transform: translateY(0); } 40% { opacity: 1; transform: translateY(0); } 50% { opacity: 0; transform: translateY(10px); } 51% { opacity: 0; transform: translateY(-10px); } 90% { opacity: 0; transform: translateY(-10px); } 100% { opacity: 1; transform: translateY(0); } }
         @keyframes secondarySubtextAnimation { 0% { opacity: 0; transform: translateY(-10px); } 40% { opacity: 0; transform: translateY(-10px); } 50% { opacity: 1; transform: translateY(0); } 90% { opacity: 1; transform: translateY(0); } 100% { opacity: 0; transform: translateY(10px); } }
         #ac-header-livery { animation: primarySubtextAnimation 8s infinite ease-in-out; }
