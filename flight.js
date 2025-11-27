@@ -2869,7 +2869,8 @@ function handleSocketFlightUpdate(data) {
                     const layerId = sectorOpsLiveFlightPathLayers[flightId]?.flown;
                     const source = layerId ? sectorOpsMap.getSource(layerId) : null;
                     if (source) {
-                        const newRouteData = generateAltitudeColoredRoute(localTrail, flight.position);
+                        // --- [MODIFIED] Pass the plan to enable gap filling ---
+                        const newRouteData = generateAltitudeColoredRoute(localTrail, flight.position, cachedFlightDataForStatsView.plan);
                         source.setData(newRouteData);
                     }
                 }
@@ -5025,7 +5026,7 @@ function initializeSectorOpsMap(centerICAO) {
 
     
 
-    /**
+ /**
  * --- [NEW] Rebuilds all dynamic layers after a map style change.
  * This includes weather, airport routes, and the active aircraft trail.
  */
@@ -5065,7 +5066,8 @@ function rebuildDynamicLayers() {
         if (flightProps) {
             const localTrail = liveTrailCache.get(flightId) || [];
             const currentPosition = currentAircraftPositionForGeocode || flightProps.position;
-            const routeFeatureCollection = generateAltitudeColoredRoute(localTrail, currentPosition);
+            // --- [MODIFIED] Pass plan ---
+            const routeFeatureCollection = generateAltitudeColoredRoute(localTrail, currentPosition, plan);
 
             // Re-add source
             sectorOpsMap.addSource(`flown-path-${flightId}`, { // Use base ID
@@ -5090,12 +5092,22 @@ function rebuildDynamicLayers() {
                         38000, '#9400D3'
                     ],
                     'line-width': 4,
-                    'line-opacity': 0.9,
+                    // --- [MODIFIED] Include new opacity and dash logic ---
+                    'line-opacity': [
+                        'case',
+                        ['boolean', ['get', 'simulated'], false],
+                        0.6,
+                        0.9
+                    ],
+                    'line-dasharray': [
+                        'case',
+                        ['boolean', ['get', 'simulated'], false],
+                        ['literal', [2, 2]],
+                        ['literal', [1, 0]]
+                    ],
                     
                     // ##### FIX START #####
                     // This is the fix for the "termites" / Z-fighting glitch.
-                    // It ensures the line is also rendered correctly after
-                    // a map style change (e.g., to Light/Satellite).
                     'line-translate': [0, -2],
                     'line-translate-anchor': 'viewport'
                     // ##### FIX END #####
@@ -5409,10 +5421,10 @@ function getFlatWaypointObjects(items) {
 
 
 /**
- * --- [FIXED] Generates an altitude-segmented GeoJSON FeatureCollection.
- * Includes "Gap Detection" to prevent straight-line artifacts when data is missing (AP+).
+ * --- [UPDATED] Generates an altitude-segmented GeoJSON FeatureCollection.
+ * Includes "Gap Detection" and "Simulated Path Filling" using the Flight Plan.
  */
-function generateAltitudeColoredRoute(sortedPoints, currentPosition) {
+function generateAltitudeColoredRoute(sortedPoints, currentPosition, flightPlan = null) {
     const features = [];
     
     // 1. Create a single array of all points
@@ -5479,9 +5491,42 @@ function generateAltitudeColoredRoute(sortedPoints, currentPosition) {
         prevLon = currentLon; 
     }
 
-    // 3. Generate features (NOW WITH GAP DETECTION)
-    // We use a threshold of 100km. If points are further than this apart, 
-    // we assume data was lost (AP+) and do not connect them.
+    // 3. Prepare Flight Plan Waypoints for Gap Filling
+    let planWaypoints = [];
+    if (flightPlan && flightPlan.flightPlanItems) {
+        // Flatten plan into simple objects with lat/lon/alt
+        const flatten = (items) => {
+            let res = [];
+            items.forEach(item => {
+                if (item.children && item.children.length > 0) {
+                    res = res.concat(flatten(item.children));
+                } else if (item.location) {
+                    res.push({
+                        lat: item.location.latitude,
+                        lon: item.location.longitude,
+                        alt: item.altitude || 30000 // Fallback alt if missing
+                    });
+                }
+            });
+            return res;
+        };
+        planWaypoints = flatten(flightPlan.flightPlanItems);
+    }
+
+    // Helper to find closest plan index
+    const getClosestPlanIndex = (lat, lon) => {
+        let minDist = Infinity;
+        let index = -1;
+        for(let i=0; i<planWaypoints.length; i++) {
+            const d = getDistanceKm(lat, lon, planWaypoints[i].lat, planWaypoints[i].lon);
+            if(d < minDist) {
+                minDist = d;
+                index = i;
+            }
+        }
+        return { index, dist: minDist };
+    };
+
     const GAP_THRESHOLD_KM = 100;
 
     for (let i = 0; i < unwrappedPoints.length - 1; i++) {
@@ -5492,17 +5537,95 @@ function generateAltitudeColoredRoute(sortedPoints, currentPosition) {
             continue;
         }
 
-        // --- GAP CHECK START ---
-        // Calculate distance between the two points we are about to connect
         const distKm = getDistanceKm(p1.latitude, p1.longitude, p2.latitude, p2.longitude);
         
+        // --- GAP DETECTION & SIMULATION ---
         if (distKm > GAP_THRESHOLD_KM) {
-            // If the jump is too big, skip this segment. 
-            // This leaves a visual gap instead of drawing a straight line.
-            continue;
-        }
-        // --- GAP CHECK END ---
+            
+            // Try to bridge the gap using the flight plan
+            let gapBridged = false;
 
+            if (planWaypoints.length > 0) {
+                const startMatch = getClosestPlanIndex(p1.latitude, p1.longitude);
+                const endMatch = getClosestPlanIndex(p2.latitude, p2.longitude);
+
+                // If we found sequential waypoints between the gap start and end
+                if (startMatch.index !== -1 && endMatch.index !== -1 && endMatch.index > startMatch.index) {
+                    
+                    let prevGapPoint = p1;
+                    
+                    // Iterate through the plan points between the gap
+                    for (let j = startMatch.index; j <= endMatch.index; j++) {
+                        const wp = planWaypoints[j];
+                        
+                        // Create segment from Prev -> Plan WP
+                        // (We ignore antimeridian logic for simulation for simplicity, assuming localized gaps)
+                        features.push({
+                            type: 'Feature',
+                            geometry: {
+                                type: 'LineString',
+                                coordinates: [
+                                    [prevGapPoint.unwrappedLongitude || prevGapPoint.longitude, prevGapPoint.latitude],
+                                    [wp.lon, wp.lat]
+                                ]
+                            },
+                            properties: {
+                                avgAltitude: ( (prevGapPoint.altitude||0) + (wp.alt||0) ) / 2,
+                                simulated: true // MARK AS SIMULATED
+                            }
+                        });
+                        
+                        // Prepare for next segment
+                        prevGapPoint = { 
+                            latitude: wp.lat, 
+                            longitude: wp.lon, 
+                            unwrappedLongitude: wp.lon, 
+                            altitude: wp.alt 
+                        };
+                    }
+
+                    // Final segment: Last Plan WP -> p2
+                    features.push({
+                        type: 'Feature',
+                        geometry: {
+                            type: 'LineString',
+                            coordinates: [
+                                [prevGapPoint.unwrappedLongitude || prevGapPoint.longitude, prevGapPoint.latitude],
+                                [p2.unwrappedLongitude, p2.latitude]
+                            ]
+                        },
+                        properties: {
+                            avgAltitude: ( (prevGapPoint.altitude||0) + (p2.altitude||0) ) / 2,
+                            simulated: true
+                        }
+                    });
+                    
+                    gapBridged = true;
+                }
+            }
+
+            // Fallback: If no plan or plan matching failed, draw a direct simulated line
+            if (!gapBridged) {
+                features.push({
+                    type: 'Feature',
+                    geometry: {
+                        type: 'LineString',
+                        coordinates: [
+                            [p1.unwrappedLongitude, p1.latitude],
+                            [p2.unwrappedLongitude, p2.latitude]
+                        ]
+                    },
+                    properties: {
+                        avgAltitude: ((p1.altitude || 0) + (p2.altitude || 0)) / 2,
+                        simulated: true // MARK AS SIMULATED
+                    }
+                });
+            }
+
+            continue; // Move to next iteration
+        }
+        
+        // --- NORMAL FLOWN PATH ---
         const coords = [
             [p1.unwrappedLongitude, p1.latitude],
             [p2.unwrappedLongitude, p2.latitude]
@@ -5519,7 +5642,8 @@ function generateAltitudeColoredRoute(sortedPoints, currentPosition) {
                 coordinates: coords
             },
             properties: {
-                avgAltitude: avgAltitude
+                avgAltitude: avgAltitude,
+                simulated: false // MARK AS REAL
             }
         });
     }
@@ -5636,8 +5760,9 @@ async function handleAircraftClick(flightProps, sessionId) {
             flightProps.position.wind_spd_kts || 0
         );
 
-        // --- [MAP] Generate Altitude Colored Route ---
-        const routeFeatureCollection = generateAltitudeColoredRoute(sortedRoutePoints, flightProps.position);
+        // --- [MAP] Generate Altitude Colored Route (WITH SIMULATION) ---
+        // Pass 'plan' to enable gap filling
+        const routeFeatureCollection = generateAltitudeColoredRoute(sortedRoutePoints, flightProps.position, plan);
 
         if (!sectorOpsMap.getSource(flownLayerId)) {
             sectorOpsMap.addSource(flownLayerId, {
@@ -5660,7 +5785,18 @@ async function handleAircraftClick(flightProps, sessionId) {
                         38000, '#9400D3'  
                     ],
                     'line-width': 4,
-                    'line-opacity': 0.9,
+                    'line-opacity': [
+                        'case',
+                        ['boolean', ['get', 'simulated'], false],
+                        0.6, // Lower opacity for simulated parts
+                        0.9  // Standard opacity for real parts
+                    ],
+                    'line-dasharray': [
+                        'case',
+                        ['boolean', ['get', 'simulated'], false],
+                        ['literal', [2, 2]], // Dashed line for simulated
+                        ['literal', [1, 0]]  // Solid line for real
+                    ],
                     'line-translate': [0, -2], // Z-fighting fix
                     'line-translate-anchor': 'viewport'
                 }
