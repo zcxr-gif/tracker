@@ -1867,6 +1867,57 @@ function injectCustomStyles() {
             transform: scale(1.1);
         }
 
+        /* --- AIRPORT WINDOW TABS (REDESIGNED) --- */
+        .apt-tabs-header {
+            display: flex;
+            background: rgba(0, 0, 0, 0.2);
+            border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+            margin-bottom: 16px;
+        }
+
+        .apt-tab-btn {
+            flex: 1;
+            padding: 12px 10px;
+            background: transparent;
+            border: none;
+            color: #94a3b8;
+            font-size: 0.85rem;
+            font-weight: 600;
+            text-transform: uppercase;
+            cursor: pointer;
+            border-bottom: 2px solid transparent;
+            transition: all 0.3s ease;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 8px;
+        }
+
+        .apt-tab-btn:hover {
+            color: #fff;
+            background: rgba(255, 255, 255, 0.05);
+        }
+
+        .apt-tab-btn.active {
+            color: #38bdf8;
+            border-bottom-color: #38bdf8;
+            background: rgba(56, 189, 248, 0.1);
+        }
+
+        .apt-tab-content {
+            display: none;
+            animation: fadeIn 0.3s ease;
+        }
+
+        .apt-tab-content.active {
+            display: block;
+        }
+
+        @keyframes fadeIn {
+            from { opacity: 0; transform: translateY(5px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+
     `;
 
     const style = document.createElement('style');
@@ -4426,27 +4477,26 @@ async function createAirportInfoWindowHTML(icao) {
             ${weatherHtml}
 
             <div class="tech-module" style="min-height: 300px; display: flex; flex-direction: column;">
-                <div class="ac-info-window-tabs" style="padding: 0; background: rgba(0,0,0,0.2); border-bottom: 1px solid rgba(255,255,255,0.05);">
-                    <div class="ac-tabs-wrapper" style="width: 100%; justify-content: flex-start; gap: 0;">
-                        <button class="info-tab-btn active" data-tab="airport-routes" style="flex: 1; border-radius: 0; background: transparent;">
-                            <i class="fa-solid fa-route"></i> ROUTES
-                        </button>
-                        <button class="info-tab-btn" data-tab="airport-atc" style="flex: 1; border-radius: 0; background: transparent;">
-                            <i class="fa-solid fa-headset"></i> ATC
-                        </button>
-                        <button class="info-tab-btn" data-tab="airport-notams" style="flex: 1; border-radius: 0; background: transparent;">
-                            <i class="fa-solid fa-triangle-exclamation"></i> NOTAMs
-                        </button>
-                    </div>
+                
+                <div class="apt-tabs-header">
+                    <button class="apt-tab-btn active" data-target="apt-routes">
+                        <i class="fa-solid fa-route"></i> ROUTES
+                    </button>
+                    <button class="apt-tab-btn" data-target="apt-atc">
+                        <i class="fa-solid fa-headset"></i> ATC
+                    </button>
+                    <button class="apt-tab-btn" data-target="apt-notams">
+                        <i class="fa-solid fa-triangle-exclamation"></i> NOTAMs
+                    </button>
                 </div>
 
-                <div id="airport-routes" class="info-tab-content active" style="padding: 0;">
+                <div id="apt-routes" class="apt-tab-content active" style="padding: 0;">
                     ${routesHtml}
                 </div>
-                <div id="airport-atc" class="info-tab-content" style="padding: 0;">
+                <div id="apt-atc" class="apt-tab-content" style="padding: 0;">
                     ${atcHtml}
                 </div>
-                <div id="airport-notams" class="info-tab-content" style="padding: 0;">
+                <div id="apt-notams" class="apt-tab-content" style="padding: 0;">
                     ${notamsHtml}
                 </div>
             </div>
@@ -5993,18 +6043,30 @@ function updateFlightPlanLayer(flightId, plan, currentPosition) {
             contentEl.innerHTML = windowContentHTML;
             contentEl.scrollTop = 0;
 
-            // Add event listeners for the new tabs
-            const tabContainer = contentEl.querySelector('.info-window-tabs');
-            if (tabContainer) { // Safety check
+            // --- REDESIGNED TAB SWITCHING LOGIC ---
+            const tabContainer = contentEl.querySelector('.apt-tabs-header');
+            if (tabContainer) {
                 tabContainer.addEventListener('click', (e) => {
-                    const tabBtn = e.target.closest('.info-tab-btn');
-                    if (!tabBtn) return;
-                    
-                    tabContainer.querySelector('.active').classList.remove('active');
-                    contentEl.querySelector('.info-tab-content.active').classList.remove('active');
+                    const btn = e.target.closest('.apt-tab-btn');
+                    if (!btn) return;
 
-                    tabBtn.classList.add('active');
-                    contentEl.querySelector(`#${tabBtn.dataset.tab}`).classList.add('active');
+                    // 1. Remove active class from all buttons
+                    const allBtns = tabContainer.querySelectorAll('.apt-tab-btn');
+                    allBtns.forEach(b => b.classList.remove('active'));
+
+                    // 2. Add active class to clicked button
+                    btn.classList.add('active');
+
+                    // 3. Hide all tab content
+                    const allContent = contentEl.querySelectorAll('.apt-tab-content');
+                    allContent.forEach(content => content.classList.remove('active'));
+
+                    // 4. Show target content
+                    const targetId = btn.dataset.target;
+                    const targetContent = contentEl.querySelector(`#${targetId}`);
+                    if (targetContent) {
+                        targetContent.classList.add('active');
+                    }
                 });
             }
         } else {
