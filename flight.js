@@ -6054,17 +6054,21 @@ function populateAircraftInfoWindow(baseProps, plan, sortedRoutePoints, communit
     let photographerName = 'IF Community';
     let techCardTail = reg; // Default to live registration
 
+    // [FIX START] Handle if data comes as an array (common with DB lookups)
+    if (Array.isArray(communityAircraftData)) {
+        communityAircraftData = communityAircraftData.length > 0 ? communityAircraftData[0] : null;
+    }
+
     // If backend returned data, use it
     if (communityAircraftData) {
-        if (communityAircraftData.imageUrl) {
-            techCardImagePath = communityAircraftData.imageUrl;
+        techCardImagePath = communityAircraftData.imageUrl;
+        photographerName = communityAircraftData.contributorName;
+        // [FIX] Uncommented this to show the tail number from your DB
+        if (communityAircraftData.tailNumber) {
+            techCardTail = communityAircraftData.tailNumber; 
         }
-        if (communityAircraftData.contributorName) {
-            photographerName = communityAircraftData.contributorName;
-        }
-        // Optionally, you can also display the specific tail number from the database record
-        // techCardTail = communityAircraftData.tailNumber; 
     }
+    // [FIX END]
 
     // --- Distance Calc for TOD Logic ---
     let distanceToDestNM = 0;
@@ -6083,7 +6087,7 @@ function populateAircraftInfoWindow(baseProps, plan, sortedRoutePoints, communit
         }
     }
 
-    // --- NEW: TOD Calculator Logic ---
+    // --- TOD Calculator Logic ---
     let todHtml = '';
     
     // We need a destination and valid physics to calculate TOD
@@ -6886,51 +6890,43 @@ function populateAircraftInfoWindow(baseProps, plan, sortedRoutePoints, communit
     createPfdDisplay();
     updatePfdDisplay(baseProps.position);
     updateAircraftInfoWindow(baseProps, plan, sortedRoutePoints, communityAircraftData);
-
-    // --- Update Aircraft Image (using querySelectorAll) ---
+    
+    // --- [FIX START] Sync the Header Image Logic ---
+    // This part runs after the HTML is injected, ensuring the top header also gets the correct image
     const overviewPanels = document.querySelectorAll('#ac-overview-panel');
     overviewPanels.forEach(overviewPanel => {
         const sanitizeFilename = (name) => {
             if (!name || typeof name !== 'string') return 'unknown';
             return name.trim().toLowerCase().replace(/[^a-z0-j-9-]/g, '_');
         };
+        const sanitizedAircraft = sanitizeFilename(aircraftName);
+        const sanitizedLivery = sanitizeFilename(liveryName);
 
-        // 1. Determine the primary image source
+        // Determine image path: Use backend URL if available, else local fallback
         let imagePath;
-        
         if (communityAircraftData && communityAircraftData.imageUrl) {
-            // PRIORITY: Use the URL from the backend if available
-            imagePath = communityAircraftData.imageUrl;
+             imagePath = communityAircraftData.imageUrl;
         } else {
-            // FALLBACK: Construct local path if no backend data
-            const aircraftName = baseProps.aircraft?.aircraftName || 'Generic Aircraft';
-            const liveryName = baseProps.aircraft?.liveryName || 'Default Livery';
-            const sanitizedAircraft = sanitizeFilename(aircraftName);
-            const sanitizedLivery = sanitizeFilename(liveryName);
-            imagePath = `/CommunityPlanes/${sanitizedAircraft}/${sanitizedLivery}.png`;
+             imagePath = `/CommunityPlanes/${sanitizedAircraft}/${sanitizedLivery}.png`;
         }
 
         const fallbackPath = '/CommunityPlanes/default.png';
         const newImageUrl = `url('${imagePath}')`;
 
-        // 2. Apply the image (with check to avoid flickering if unchanged)
         if (overviewPanel.dataset.currentPath !== imagePath) {
             const img = new Image();
             img.src = imagePath;
-            
             img.onload = () => {
                 overviewPanel.style.backgroundImage = newImageUrl;
                 overviewPanel.dataset.currentPath = imagePath;
             };
-            
             img.onerror = () => {
-                // If the primary (Backend or Constructed) fails, load default
-                console.warn(`Failed to load image: ${imagePath}. Reverting to default.`);
                 overviewPanel.style.backgroundImage = `url('${fallbackPath}')`;
                 overviewPanel.dataset.currentPath = fallbackPath;
             };
         }
     });
+    // --- [FIX END] ---
 }
 
 /**
@@ -7796,36 +7792,22 @@ function updateAircraftInfoWindow(baseProps, plan, sortedRoutePoints) {
             if (!name || typeof name !== 'string') return 'unknown';
             return name.trim().toLowerCase().replace(/[^a-z0-j-9-]/g, '_');
         };
-
-        // 1. Determine the primary image source
-        let imagePath;
-        
-        // CHECK IF DATA EXISTS BEFORE ACCESSING .imageUrl
-        if (communityAircraftData && communityAircraftData.imageUrl) {
-            imagePath = communityAircraftData.imageUrl;
-        } else {
-            // FALLBACK logic
-            const aircraftName = baseProps.aircraft?.aircraftName || 'Generic Aircraft';
-            const liveryName = baseProps.aircraft?.liveryName || 'Default Livery';
-            const sanitizedAircraft = sanitizeFilename(aircraftName);
-            const sanitizedLivery = sanitizeFilename(liveryName);
-            imagePath = `/CommunityPlanes/${sanitizedAircraft}/${sanitizedLivery}.png`;
-        }
-
+        const aircraftName = baseProps.aircraft?.aircraftName || 'Generic Aircraft';
+        const liveryName = baseProps.aircraft?.liveryName || 'Default Livery';
+        const sanitizedAircraft = sanitizeFilename(aircraftName);
+        const sanitizedLivery = sanitizeFilename(liveryName);
+        const imagePath = `/CommunityPlanes/${sanitizedAircraft}/${sanitizedLivery}.png`;
         const fallbackPath = '/CommunityPlanes/default.png';
         const newImageUrl = `url('${imagePath}')`;
 
         if (overviewPanel.dataset.currentPath !== imagePath) {
             const img = new Image();
             img.src = imagePath;
-            
             img.onload = () => {
                 overviewPanel.style.backgroundImage = newImageUrl;
                 overviewPanel.dataset.currentPath = imagePath;
             };
-            
             img.onerror = () => {
-                console.warn(`Failed to load image: ${imagePath}. Reverting to default.`);
                 overviewPanel.style.backgroundImage = `url('${fallbackPath}')`;
                 overviewPanel.dataset.currentPath = fallbackPath;
             };
