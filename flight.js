@@ -1484,79 +1484,79 @@ function injectCustomStyles() {
             display: none !important;
         }
         
-        /* --- FR24 STYLE CARD CONTAINER (COMPACT) --- */
+        /* --- FR24 STYLE CARD CONTAINER (MICRO) --- */
         .fr24-card-container {
-            width: 210px; /* Reduced from 280px */
+            width: 160px; /* Reduced to 160px */
             display: flex;
             flex-direction: column;
-            gap: 4px; /* Tighter gap */
+            gap: 3px; /* Very tight gap */
             font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
         }
 
         /* --- TOP IMAGE BUBBLE --- */
         .fr24-image-box {
-            height: 100px; /* Reduced from 140px */
+            height: 85px; /* Reduced height */
             width: 100%;
             background-color: #2c2c2e;
             background-size: cover;
             background-position: center;
-            border-radius: 10px; /* Slightly smaller radius */
+            border-radius: 8px;
             position: relative;
-            box-shadow: 0 4px 12px rgba(0,0,0,0.4);
+            box-shadow: 0 2px 8px rgba(0,0,0,0.4);
             overflow: hidden;
         }
         
         .fr24-copyright {
             position: absolute;
-            bottom: 4px;
-            left: 8px;
-            color: rgba(255, 255, 255, 0.8);
-            font-size: 8px; /* Smaller font */
+            bottom: 3px;
+            left: 6px;
+            color: rgba(255, 255, 255, 0.7);
+            font-size: 7px; /* Micro font */
             font-weight: 500;
-            text-shadow: 0 1px 2px rgba(0,0,0,0.8);
+            text-shadow: 0 1px 2px rgba(0,0,0,1);
             z-index: 2;
         }
         
         .fr24-image-overlay {
             position: absolute;
             inset: 0;
-            background: linear-gradient(to top, rgba(0,0,0,0.6) 0%, transparent 30%);
+            background: linear-gradient(to top, rgba(0,0,0,0.6) 0%, transparent 40%);
         }
 
         /* --- BOTTOM INFO BUBBLE --- */
         .fr24-info-box {
             background-color: #2c2c2e;
-            border-radius: 10px;
-            padding: 8px 10px; /* Reduced padding */
-            box-shadow: 0 4px 12px rgba(0,0,0,0.4);
+            border-radius: 8px;
+            padding: 6px 8px; /* Compact padding */
+            box-shadow: 0 2px 8px rgba(0,0,0,0.4);
             display: flex;
             flex-direction: column;
-            gap: 6px; /* Tighter gap */
+            gap: 4px;
             color: #ffffff;
         }
 
         .fr24-header-row {
             display: flex;
             align-items: center;
-            gap: 8px;
+            gap: 6px;
         }
 
         .fr24-airline-logo {
-            height: 18px; /* Reduced logo size */
+            height: 14px; /* Very small logo */
             width: auto;
-            max-width: 45px;
+            max-width: 35px;
             object-fit: contain;
-            border-radius: 2px;
+            border-radius: 1px;
         }
 
         .fr24-ident-group {
             display: flex;
             align-items: center;
-            gap: 6px;
+            gap: 4px;
         }
 
         .fr24-callsign {
-            font-size: 14px; /* Reduced from 17px */
+            font-size: 13px;
             font-weight: 700;
             color: #fff;
             line-height: 1;
@@ -1566,41 +1566,43 @@ function injectCustomStyles() {
             background-color: #3a3a3c;
             border: 1px solid #48484a;
             color: #d1d1d6;
-            font-size: 9px; /* Reduced from 11px */
+            font-size: 8px;
             font-weight: 600;
-            padding: 1px 4px;
+            padding: 0px 3px;
             border-radius: 3px;
-            line-height: 1;
+            line-height: 1.1;
         }
 
         .fr24-route {
-            font-size: 11px; /* Reduced from 15px */
+            font-size: 10px;
             font-weight: 500;
-            color: #d1d1d6; /* Slightly lighter for hierarchy */
+            color: #d1d1d6;
             white-space: nowrap;
             overflow: hidden;
             text-overflow: ellipsis;
+            max-width: 100px; /* Ensure truncation works in tight space */
         }
 
         .fr24-progress-track {
-            height: 4px; /* Thinner bar */
+            height: 3px;
             width: 100%;
             background-color: #3a3a3c;
-            border-radius: 2px;
+            border-radius: 1.5px;
             overflow: hidden;
-            margin-top: 2px;
+            margin-top: 1px;
         }
 
         .fr24-progress-fill {
             height: 100%;
             background-color: #ff3b30;
-            border-radius: 2px;
+            border-radius: 1.5px;
         }
 
         .fr24-stats-row {
-            font-size: 11px; /* Reduced from 14px */
+            font-size: 10px;
             color: #98989d;
             font-weight: 600;
+            margin-top: 1px;
         } 
 
     `;
