@@ -7792,8 +7792,6 @@ function updateAircraftInfoWindow(baseProps, plan, sortedRoutePoints) {
     // --- Update Aircraft Image (using querySelectorAll) ---
     const overviewPanels = document.querySelectorAll('#ac-overview-panel');
     overviewPanels.forEach(overviewPanel => {
-        // Define helper inside loop or rely on outer scope if available. 
-        // We define it here to be safe and self-contained.
         const sanitizeFilename = (name) => {
             if (!name || typeof name !== 'string') return 'unknown';
             return name.trim().toLowerCase().replace(/[^a-z0-j-9-]/g, '_');
@@ -7802,11 +7800,11 @@ function updateAircraftInfoWindow(baseProps, plan, sortedRoutePoints) {
         // 1. Determine the primary image source
         let imagePath;
         
+        // CHECK IF DATA EXISTS BEFORE ACCESSING .imageUrl
         if (communityAircraftData && communityAircraftData.imageUrl) {
-            // PRIORITY: Use the URL from the backend if available
             imagePath = communityAircraftData.imageUrl;
         } else {
-            // FALLBACK: Construct local path if no backend data
+            // FALLBACK logic
             const aircraftName = baseProps.aircraft?.aircraftName || 'Generic Aircraft';
             const liveryName = baseProps.aircraft?.liveryName || 'Default Livery';
             const sanitizedAircraft = sanitizeFilename(aircraftName);
@@ -7817,7 +7815,6 @@ function updateAircraftInfoWindow(baseProps, plan, sortedRoutePoints) {
         const fallbackPath = '/CommunityPlanes/default.png';
         const newImageUrl = `url('${imagePath}')`;
 
-        // 2. Apply the image (with check to avoid flickering if unchanged)
         if (overviewPanel.dataset.currentPath !== imagePath) {
             const img = new Image();
             img.src = imagePath;
@@ -7828,7 +7825,6 @@ function updateAircraftInfoWindow(baseProps, plan, sortedRoutePoints) {
             };
             
             img.onerror = () => {
-                // If the primary (Backend or Constructed) fails, load default
                 console.warn(`Failed to load image: ${imagePath}. Reverting to default.`);
                 overviewPanel.style.backgroundImage = `url('${fallbackPath}')`;
                 overviewPanel.dataset.currentPath = fallbackPath;
