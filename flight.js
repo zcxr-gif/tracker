@@ -2033,9 +2033,6 @@ function injectCustomStyles() {
         return session ? session.id : null;
     }
 
-    /**
-     * --- [NEW] Handles the full server switch logic ---
-     */
     function switchServer(newServerName) {
         if (newServerName === currentServerName) return;
 
@@ -3440,6 +3437,12 @@ function handleSocketFlightUpdate(data) {
     if (!data || !Array.isArray(data.flights) || !data.timestamp) {
         console.warn('Socket: Received invalid or untimestamped flights data packet.');
         return;
+    }
+    
+    // --- [FIX] Race Condition Check ---
+    // Ignore packets that don't match the currently selected server.
+    if (data.server && data.server !== currentServerName) {
+        return; 
     }
     
     lastSocketUpdateTimestamp = new Date(data.timestamp).getTime();
