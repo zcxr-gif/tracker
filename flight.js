@@ -2049,15 +2049,23 @@ function injectCustomStyles() {
         });
         pilotMarkers = {};
         
-        // Clear logic state
-        currentMapFeatures = {};
+        // --- FIX START: Clear object IN PLACE to preserve reference for MapAnimator ---
+        // We delete every key, effectively emptying the object without breaking the link.
+        for (const key in currentMapFeatures) {
+            delete currentMapFeatures[key];
+        }
+        // --- FIX END ---
+
         liveTrailCache.clear();
         
         // Clear MapAnimator (Crucial for ghost planes)
         if (mapAnimator) {
-            // We simulate a removal of all flights
-            mapAnimator.features = {}; 
-            // If the animator has a clear method, use it, otherwise the update loop will handle empty features
+            // Because we cleared currentMapFeatures in place above, 
+            // mapAnimator.currentMapFeatures is now also empty.
+            // We just need to force the map to clear visually.
+            if (typeof mapAnimator._updateMapSource === 'function') {
+                mapAnimator._updateMapSource();
+            }
         }
         
         // Clear any open flight details
@@ -2067,7 +2075,7 @@ function injectCustomStyles() {
             if (closeBtn) closeBtn.click();
         }
 
-        // 3. Clear Map Source Data immediately
+        // 3. Clear Map Source Data immediately (Redundant safety check)
         if (sectorOpsMap && sectorOpsMap.getSource('sector-ops-live-flights-source')) {
             sectorOpsMap.getSource('sector-ops-live-flights-source').setData({
                 type: 'FeatureCollection',
