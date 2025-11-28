@@ -2042,9 +2042,9 @@ function injectCustomStyles() {
         currentServerName = newServerName;
         localStorage.setItem('preferredServer', currentServerName);
 
-        // 2. Clear Map Data (Visuals) - IMMEDIATE FLUSH
+        // 2. Clear Live Aircraft Data (Visuals)
         
-        // Remove aircraft markers from DOM immediately
+        // Remove pilot markers
         Object.keys(pilotMarkers).forEach(fid => {
             if (pilotMarkers[fid].marker) pilotMarkers[fid].marker.remove();
         });
@@ -2053,43 +2053,49 @@ function injectCustomStyles() {
         // Clear caches
         liveTrailCache.clear();
         
-        // Clear object IN PLACE to preserve reference for MapAnimator
+        // Clear feature object
         for (const key in currentMapFeatures) {
             delete currentMapFeatures[key];
         }
         
-        // [PERFORMANCE TWEAK] Immediately notify MapAnimator to clear the canvas
-        // before waiting for network data. This removes "ghost planes".
+        // Flush MapAnimator
         if (mapAnimator && typeof mapAnimator._updateMapSource === 'function') {
             mapAnimator._updateMapSource(); 
         }
         
-        // Clear any open flight details
+        // Close flight window if open
         if (currentFlightInWindow) {
             const closeBtn = document.querySelector('.aircraft-window-close-btn');
             if (closeBtn) closeBtn.click();
         }
 
-        // --- [UPDATED] ATC & NOTAM Reset Logic ---
+        // --- 3. ATC & AIRPORT MARKER RESET (The Fix) ---
         
-        // A. Stop the existing polling interval. 
-        // This prevents a pending request from the OLD server from returning 
-        // and populating the map after we've cleared it.
+        // A. Stop the polling interval immediately to prevent race conditions
         if (sectorOpsAtcNotamInterval) {
             clearInterval(sectorOpsAtcNotamInterval);
             sectorOpsAtcNotamInterval = null;
         }
 
-        // B. Wipe Data arrays immediately
+        // B. Manually remove every existing airport marker from the map instance
+        // This ensures visual removal of "old" red dots immediately.
+        Object.values(airportAndAtcMarkers).forEach(obj => {
+            if (obj && obj.marker) {
+                obj.marker.remove();
+            }
+        });
+        airportAndAtcMarkers = {}; // Reset the tracking object
+
+        // C. Wipe the data arrays
         activeAtcFacilities = [];
         activeNotams = [];
         
-        // C. Force a re-render immediately.
-        // Since activeAtcFacilities is now empty, this visually erases all 
-        // red ATC dots from the map instantly.
+        // D. Render the "Clean State"
+        // Since activeAtcFacilities is empty, this draws only standard blue route dots (if configured)
+        // and ensures no leftover red dots remain.
         renderAirportMarkers();
 
-        // 3. UI Updates
+        // 4. UI Updates
         document.querySelectorAll('.server-btn').forEach(btn => {
             if (btn.dataset.server === currentServerName) {
                 btn.classList.add('active');
@@ -2098,18 +2104,18 @@ function injectCustomStyles() {
             }
         });
 
-        // 4. Show "Loading" State
+        // 5. Show Notification
         showNotification(`Switching to ${currentServerName}...`, 'info');
 
-        // 5. Socket Handshake (Joins the new room for live aircraft positions)
+        // 6. Socket Handshake (Join new room)
         if (sectorOpsSocket && sectorOpsSocket.connected) {
             sectorOpsSocket.emit('join_server_room', currentServerName);
         }
 
-        // 6. Restart Data Polling (Just like Page Load)
-        // Fetch new data immediately...
+        // 7. Restart Data Polling
+        // This fetches new data -> populates activeAtcFacilities -> calls renderAirportMarkers() again
+        // to draw the *new* red dots for the selected server.
         updateSectorOpsSecondaryData();
-        // ...and set up the interval for future updates.
         sectorOpsAtcNotamInterval = setInterval(updateSectorOpsSecondaryData, DATA_REFRESH_INTERVAL_MS);
     }
 
