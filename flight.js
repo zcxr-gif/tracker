@@ -5,7 +5,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     const API_BASE_URL = 'https://site--indgo-backend--6dmjph8ltlhv.code.run';
     const LIVE_FLIGHTS_API_URL = 'https://site--acars-backend--6dmjph8ltlhv.code.run/flights';
     const ACARS_USER_API_URL = 'https://site--acars-backend--6dmjph8ltlhv.code.run/users'; // NEW: For user stats
-    const TARGET_SERVER_NAME = 'Expert Server';
+    let TARGET_SERVER_NAME = 'Expert Server';
     const CURRENT_SITE_URL = window.location.origin;
 
 
@@ -1948,6 +1948,81 @@ function injectCustomStyles() {
         @keyframes slideDown {
             from { opacity: 0; transform: translateY(-5px); }
             to { opacity: 1; transform: translateY(0); }
+        }
+
+        /* --- NEW: Server Selector Dropdown --- */
+        #server-select-dropdown {
+            position: absolute;
+            bottom: 80px; /* Positioned above the toolbar */
+            right: 80px;  /* Positioned near the buttons */
+            width: 220px;
+            background: rgba(15, 23, 42, 0.95);
+            border: 1px solid rgba(255, 255, 255, 0.15);
+            border-radius: 8px;
+            padding: 6px;
+            display: none;
+            flex-direction: column;
+            gap: 4px;
+            z-index: 2000;
+            box-shadow: 0 4px 20px rgba(0, 0, 0, 0.5);
+            backdrop-filter: blur(12px);
+            transform-origin: bottom right;
+        }
+
+        #server-select-dropdown.visible {
+            display: flex;
+            animation: popIn 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+        }
+
+        @keyframes popIn {
+            from { opacity: 0; transform: scale(0.95) translateY(10px); }
+            to { opacity: 1; transform: scale(1) translateY(0); }
+        }
+
+        .server-option {
+            padding: 10px 12px;
+            border-radius: 6px;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            color: #94a3b8;
+            transition: all 0.2s;
+            font-size: 0.85rem;
+            font-weight: 600;
+            border: 1px solid transparent;
+            font-family: 'Inter', sans-serif;
+        }
+
+        .server-option:hover {
+            background: rgba(255, 255, 255, 0.05);
+            color: #fff;
+        }
+
+        .server-option.active {
+            background: rgba(14, 165, 233, 0.15); /* Sky Blue tint */
+            color: #38bdf8;
+            border-color: rgba(14, 165, 233, 0.3);
+        }
+
+        .server-option i {
+            width: 16px;
+            text-align: center;
+        }
+
+        .server-status-dot {
+            width: 6px;
+            height: 6px;
+            border-radius: 50%;
+            background: #22c55e;
+            box-shadow: 0 0 8px #22c55e;
+            margin-left: auto; /* Push to right */
+            opacity: 0;
+            transition: opacity 0.2s;
+        }
+
+        .server-option.active .server-status-dot {
+            opacity: 1;
         }
 
     `;
@@ -5310,7 +5385,6 @@ function getIconImageExpression(colorMode = 'default') {
             }
 
             // --- 2. Inject Airport Info Window (if missing) ---
-            // UPDATED: Removed the info-window-header div entirely
             if (!document.getElementById('airport-info-window')) {
                  const windowHtml = `
                     <div id="airport-info-window" class="info-window">
@@ -5323,15 +5397,16 @@ function getIconImageExpression(colorMode = 'default') {
             // --- 3. Inject Aircraft Info Window (if missing) ---
             if (!document.getElementById('aircraft-info-window')) {
                  const windowHtml = `
-                    <div id="aircraft-info-window" class="info-window">
-                        
-                    </div>
+                    <div id="aircraft-info-window" class="info-window"></div>
                 `;
                 mapContainer.insertAdjacentHTML('beforeend', windowHtml);
             }
 
             // --- 4. Inject Weather Settings Window (if missing) ---
             if (!document.getElementById('weather-settings-window')) {
+                // ... (Keep your existing weather window HTML) ...
+                // For brevity, assuming you have this from previous steps
+                // If you need the full HTML again, let me know.
                 const windowHtml = `
                     <div id="weather-settings-window" class="info-window">
                         <div class="info-window-header">
@@ -5345,38 +5420,25 @@ function getIconImageExpression(colorMode = 'default') {
                             <ul class="weather-toggle-list">
                                 <li class="weather-toggle-item">
                                     <span class="weather-toggle-label"><i class="fa-solid fa-cloud-rain"></i> Precipitation</span>
-                                    <label class="toggle-switch">
-                                        <input type="checkbox" id="weather-toggle-precip">
-                                        <span class="toggle-slider"></span>
-                                    </label>
+                                    <label class="toggle-switch"><input type="checkbox" id="weather-toggle-precip"><span class="toggle-slider"></span></label>
                                 </li>
                                 <li class="weather-toggle-item">
                                     <span class="weather-toggle-label"><i class="fa-solid fa-cloud"></i> Cloud Cover</span>
-                                    <label class="toggle-switch">
-                                        <input type="checkbox" id="weather-toggle-clouds">
-                                        <span class="toggle-slider"></span>
-                                    </label>
+                                    <label class="toggle-switch"><input type="checkbox" id="weather-toggle-clouds"><span class="toggle-slider"></span></label>
                                 </li>
                                 <li class="weather-toggle-item">
                                     <span class="weather-toggle-label"><i class="fa-solid fa-wind"></i> Wind Speed</span>
-                                    <label class="toggle-switch">
-                                        <input type="checkbox" id="weather-toggle-wind">
-                                        <span class="toggle-slider"></span>
-                                    </label>
+                                    <label class="toggle-switch"><input type="checkbox" id="weather-toggle-wind"><span class="toggle-slider"></span></label>
                                 </li>
                             </ul>
-                            <div class="weather-disclaimer-note">
-                                <i class="fa-solid fa-server"></i>
-                                <strong>Note:</strong> These layers are provided by a free service. Please use them gently as resources are limited.
-                            </div>
                         </div>
-                    </div>
-                `;
+                    </div>`;
                 mapContainer.insertAdjacentHTML('beforeend', windowHtml);
             }
 
             // --- 5. Inject Filter Settings Window ---
             if (!document.getElementById('filter-settings-window')) {
+                // ... (Your existing filter window HTML) ...
                 const windowHtml = `
                     <div id="filter-settings-window" class="info-window">
                         <div class="info-window-header">
@@ -5390,137 +5452,84 @@ function getIconImageExpression(colorMode = 'default') {
                             <ul class="filter-toggle-list">
                                 <li class="filter-toggle-item">
                                     <span class="filter-toggle-label"><i class="fa-solid fa-tower-broadcast"></i> Hide Staffed Airports</span>
-                                    <label class="toggle-switch">
-                                        <input type="checkbox" id="filter-toggle-atc">
-                                        <span class="toggle-slider"></span>
-                                    </label>
+                                    <label class="toggle-switch"><input type="checkbox" id="filter-toggle-atc"><span class="toggle-slider"></span></label>
                                 </li>
-
                                 <li class="filter-toggle-item">
                                     <span class="filter-toggle-label"><i class="fa-solid fa-satellite"></i> Satellite Mode</span>
-                                    <label class="toggle-switch">
-                                        <input type="checkbox" id="filter-toggle-satellite-mode">
-                                        <span class="toggle-slider"></span>
-                                    </label>
+                                    <label class="toggle-switch"><input type="checkbox" id="filter-toggle-satellite-mode"><span class="toggle-slider"></span></label>
                                 </li>
-                                
                                 <li class="filter-toggle-item">
                                     <span class="filter-toggle-label"><i class="fa-solid fa-tags"></i> Show Aircraft Labels</span>
-                                    <label class="toggle-switch">
-                                        <input type="checkbox" id="filter-toggle-aircraft-labels">
-                                        <span class="toggle-slider"></span>
-                                    </label>
+                                    <label class="toggle-switch"><input type="checkbox" id="filter-toggle-aircraft-labels"><span class="toggle-slider"></span></label>
                                 </li>
                             </ul>
-
-                            <div class="filter-section-divider">
-                                <span class="filter-section-title">Aircraft Icon Color</span>
                             </div>
-                            <ul class="filter-toggle-list" id="icon-color-filter-group" style="padding-top: 8px;">
-                                <li class="filter-radio-item">
-                                    <input type="radio" id="icon-color-default" name="icon-color-mode" value="default" checked>
-                                    <label for="icon-color-default"><i class="fa-solid fa-plane" style="color: #fff;"></i> Default (White)</label>
-                                </li>
-                                <li class="filter-radio-item">
-                                    <input type="radio" id="icon-color-blue" name="icon-color-mode" value="blue">
-                                    <label for="icon-color-blue"><i class="fa-solid fa-plane" style="color: #00a8ff;"></i> Blue</label>
-                                </li>
-                                <li class="filter-radio-item">
-                                    <input type="radio" id="icon-color-orange" name="icon-color-mode" value="orange">
-                                    <label for="icon-color-orange"><i class="fa-solid fa-plane" style="color: #ff9900;"></i> Orange</label>
-                                </li>
-                            </ul>
-                            
-                            <div class="filter-section-divider">
-                                <span class="filter-section-title">Active Flight Plan Display</span>
-                            </div>
-                            <ul class="filter-toggle-list" id="plan-filter-group" style="padding-top: 8px;">
-                                <li class="filter-radio-item">
-                                    <input type="radio" id="plan-filter-none" name="plan-display-mode" value="none" checked>
-                                    <label for="plan-filter-none"><i class="fa-solid fa-eye-slash"></i> Hide Plan</label>
-                                </li>
-                                <li class="filter-radio-item">
-                                    <input type="radio" id="plan-filter-direct" name="plan-display-mode" value="direct">
-                                    <label for="plan-filter-direct"><i class="fa-solid fa-route"></i> Direct to Destination</label>
-                                </li>
-                                <li class="filter-radio-item">
-                                    <input type="radio" id="plan-filter-full" name="plan-display-mode" value="full">
-                                    <label for="plan-filter-full"><i class="fa-solid fa-diagram-project"></i> Full Filed Plan</label>
-                                </li>
-                            </ul>
-
-                            <div class="mobile-only-filter-section">
-                                <div class="filter-section-divider">
-                                    <span class="filter-section-title">Mobile Display Mode</span>
-                                </div>
-                                <ul class="filter-toggle-list" id="mobile-mode-filter-group" style="padding-top: 8px;">
-                                    <li class="filter-radio-item">
-                                        <input type="radio" id="mobile-mode-hud" name="mobile-display-mode" value="hud" checked>
-                                        <label for="mobile-mode-hud"><i class="fa-solid fa-rocket"></i> HUD View</label>
-                                    </li>
-                                    <li class="filter-radio-item">
-                                        <input type="radio" id="mobile-mode-legacy" name="mobile-display-mode" value="legacy">
-                                        <label for="mobile-mode-legacy"><i class="fa-solid fa-layer-group"></i> Legacy Sheet</label>
-                                    </li>
-                                </ul>
-                            </div>
-
-                            <div class="filter-section-divider">
-                                <span class="filter-section-title">Window Appearance</span>
-                            </div>
-                            <div class="filter-appearance-controls" style="padding: 10px; display: flex; flex-direction: column; gap: 10px;">
-                                <div style="display: flex; justify-content: space-between; align-items: center;">
-                                    <span style="color: #ccc; font-size: 0.9rem;">Gradient Start Color</span>
-                                    <input type="color" id="theme-color-start" value="#121426" style="background: none; border: none; width: 50px; height: 30px; cursor: pointer;">
-                                </div>
-                                <div style="display: flex; justify-content: space-between; align-items: center;">
-                                    <span style="color: #ccc; font-size: 0.9rem;">Gradient End Color</span>
-                                    <input type="color" id="theme-color-end" value="#121426" style="background: none; border: none; width: 50px; height: 30px; cursor: pointer;">
-                                </div>
-                                <div style="display: flex; gap: 10px;">
-                                     <button id="theme-reset-btn" class="cta-button" style="width: 100%; padding: 8px; font-size: 0.85rem; border-radius: 4px; background: rgba(255,255,255,0.1); border: 1px solid #444; color: #fff; cursor: pointer;">Reset Default Theme</button>
-                                </div>
-                            </div>
-                        </div>
-                    </div>
-                `;
+                    </div>`;
                 mapContainer.insertAdjacentHTML('beforeend', windowHtml);
             }
             
-            // --- 6. Inject Toolbar Buttons (if missing) ---
+            // --- 6. [NEW] Inject Toolbar Buttons & Dropdown ---
             const toolbarToggleBtn = document.getElementById('toolbar-toggle-panel-btn');
             if (toolbarToggleBtn) {
-                 if (!document.getElementById('airport-recall-btn')) {
-                    toolbarToggleBtn.parentElement.insertAdjacentHTML('beforeend', `
-                        <button id="airport-recall-btn" class="toolbar-btn" title="Show Airport Info">
-                            <i class="fa-solid fa-location-dot"></i>
+                 const toolbarContainer = toolbarToggleBtn.parentElement;
+                 
+                 // A. Network Button
+                 if (!document.getElementById('server-select-btn')) {
+                    toolbarContainer.insertAdjacentHTML('beforeend', `
+                        <button id="server-select-btn" class="toolbar-btn" title="Select Network">
+                            <i class="fa-solid fa-globe"></i>
                         </button>
+                    `);
+                 }
+
+                 // B. Other Buttons (Existing)
+                 if (!document.getElementById('airport-recall-btn')) {
+                    toolbarContainer.insertAdjacentHTML('beforeend', `
+                        <button id="airport-recall-btn" class="toolbar-btn" title="Show Airport Info"><i class="fa-solid fa-location-dot"></i></button>
                     `);
                  }
                  if (!document.getElementById('aircraft-recall-btn')) {
-                      toolbarToggleBtn.parentElement.insertAdjacentHTML('beforeend', `
-                        <button id="aircraft-recall-btn" class="toolbar-btn" title="Show Aircraft Info">
-                            <i class="fa-solid fa-plane-up"></i>
-                        </button>
+                      toolbarContainer.insertAdjacentHTML('beforeend', `
+                        <button id="aircraft-recall-btn" class="toolbar-btn" title="Show Aircraft Info"><i class="fa-solid fa-plane-up"></i></button>
                     `);
                  }
                  if (!document.getElementById('open-weather-settings-btn')) {
-                    toolbarToggleBtn.parentElement.insertAdjacentHTML('beforeend', `
-                        <button id="open-weather-settings-btn" class="toolbar-btn" title="Weather Settings">
-                            <i class="fa-solid fa-cloud-sun"></i>
-                        </button>
+                    toolbarContainer.insertAdjacentHTML('beforeend', `
+                        <button id="open-weather-settings-btn" class="toolbar-btn" title="Weather Settings"><i class="fa-solid fa-cloud-sun"></i></button>
                     `);
                  }
                  if (!document.getElementById('open-filter-settings-btn')) {
-                    toolbarToggleBtn.parentElement.insertAdjacentHTML('beforeend', `
-                        <button id="open-filter-settings-btn" class="toolbar-btn" title="Map Filters">
-                            <i class="fa-solid fa-filter"></i>
-                        </button>
+                    toolbarContainer.insertAdjacentHTML('beforeend', `
+                        <button id="open-filter-settings-btn" class="toolbar-btn" title="Map Filters"><i class="fa-solid fa-filter"></i></button>
                     `);
                  }
             }
+
+            // --- 7. [NEW] Inject Server Dropdown Menu ---
+            if (!document.getElementById('server-select-dropdown')) {
+                const dropdownHtml = `
+                    <div id="server-select-dropdown">
+                        <div class="server-option active" data-server="Expert Server">
+                            <i class="fa-solid fa-trophy"></i>
+                            <span>Expert Server</span>
+                            <div class="server-status-dot"></div>
+                        </div>
+                        <div class="server-option" data-server="Training Server">
+                            <i class="fa-solid fa-graduation-cap"></i>
+                            <span>Training Server</span>
+                            <div class="server-status-dot"></div>
+                        </div>
+                        <div class="server-option" data-server="Casual Server">
+                            <i class="fa-solid fa-gamepad"></i>
+                            <span>Casual Server</span>
+                            <div class="server-status-dot"></div>
+                        </div>
+                    </div>
+                `;
+                mapContainer.insertAdjacentHTML('beforeend', dropdownHtml);
+            }
             
-            // --- 7. Assign Global Variables ---
+            // --- 8. Assign Global Variables ---
             airportInfoWindow = document.getElementById('airport-info-window');
             airportInfoWindowRecallBtn = document.getElementById('airport-recall-btn');
             aircraftInfoWindow = document.getElementById('aircraft-info-window');
@@ -5528,36 +5537,35 @@ function getIconImageExpression(colorMode = 'default') {
             weatherSettingsWindow = document.getElementById('weather-settings-window');
             filterSettingsWindow = document.getElementById('filter-settings-window');
 
-            // --- 8. Initialize Map and Load Content ---
+            // --- 9. Initialize Map and Load Content ---
             const selectedHub = "VIDP"; 
             await initializeSectorOpsMap(selectedHub);
             await loadExternalPanelContent();
 
-            // --- 9. Set Up Event Listeners ---
+            // --- 10. Set Up Event Listeners ---
             setupSectorOpsEventListeners();
             setupAirportWindowEvents();
             setupAircraftWindowEvents();
             setupWeatherSettingsWindowEvents();
             setupFilterSettingsWindowEvents(); 
             setupSearchEventListeners();
+            
+            // [NEW] Setup Server Selector Events
+            setupServerSelector();
 
-            // --- 10. Listen for ND_READY signal ---
+            // --- 11. Listen for ND_READY signal ---
             window.addEventListener('message', (event) => {
                 if (event.data && event.data.type === 'ND_READY') {
                     refreshNavDisplayFromCache();
                 }
             });
 
-            // --- 11. Start Live Loop ---
+            // --- 12. Start Live Loop ---
             startSectorOpsLiveLoop();
 
         } catch (error) {
             console.error("Error initializing Sector Ops view:", error);
             showNotification(error.message, 'error');
-            const panelContentWrapper = document.querySelector('#sector-ops-floating-panel .panel-content-wrapper');
-            if (panelContentWrapper) {
-                panelContentWrapper.innerHTML = `<p class="error-text" style="padding: 20px;">${error.message}</p>`;
-            }
         } finally {
             mainContentLoader.classList.remove('active');
         }
@@ -5871,6 +5879,70 @@ function initializeSectorOpsMap(centerICAO) {
     });
 }
 
+/**
+     * --- [NEW] Sets up the Server Selection Dropdown Logic.
+     */
+    function setupServerSelector() {
+        const btn = document.getElementById('server-select-btn');
+        const dropdown = document.getElementById('server-select-dropdown');
+        
+        if (!btn || !dropdown) return;
+
+        // 1. Toggle Menu Visibility
+        btn.addEventListener('click', (e) => {
+            e.stopPropagation(); // Prevent immediate closure
+            dropdown.classList.toggle('visible');
+            btn.classList.toggle('active');
+        });
+
+        // 2. Handle Server Option Click
+        dropdown.addEventListener('click', async (e) => {
+            const option = e.target.closest('.server-option');
+            if (!option) return;
+
+            const newServer = option.dataset.server;
+            if (newServer && newServer !== TARGET_SERVER_NAME) {
+                // Update Variable
+                TARGET_SERVER_NAME = newServer;
+                
+                // Update UI Visuals
+                dropdown.querySelectorAll('.server-option').forEach(opt => opt.classList.remove('active'));
+                option.classList.add('active');
+                
+                console.log(`Switching to: ${TARGET_SERVER_NAME}`);
+                showNotification(`Switching to ${TARGET_SERVER_NAME}...`, 'info');
+
+                // Emit Socket Event (Backend switch)
+                if (sectorOpsSocket && sectorOpsSocket.connected) {
+                    sectorOpsSocket.emit('join_server_room', TARGET_SERVER_NAME);
+                }
+
+                // Clear Map Visuals
+                if (currentMapFeatures) currentMapFeatures = {};
+                if (sectorOpsMap && sectorOpsMap.getSource('sector-ops-live-flights-source')) {
+                    sectorOpsMap.getSource('sector-ops-live-flights-source').setData({
+                        type: 'FeatureCollection',
+                        features: []
+                    });
+                }
+                
+                // Force fetch new ATC/NOTAM data immediately
+                await updateSectorOpsSecondaryData();
+            }
+            
+            // Close menu after selection
+            dropdown.classList.remove('visible');
+            btn.classList.remove('active');
+        });
+
+        // 3. Close on Outside Click
+        document.addEventListener('click', (e) => {
+            if (!dropdown.contains(e.target) && !btn.contains(e.target)) {
+                dropdown.classList.remove('visible');
+                btn.classList.remove('active');
+            }
+        });
+    }
 
 
     /**
@@ -9421,11 +9493,6 @@ function renderAirportMarkers() {
         });
     }
 
-
-// --- [REPLACEMENT] for updateSectorOpsLiveFlights ---
-// --- [MODIFIED] This function is now named 'updateSectorOpsSecondaryData'
-// and ONLY fetches Sessions, ATC, and NOTAMs.
-// Flight data is now handled by the 'handleSocketFlightUpdate' function via WebSocket.
 async function updateSectorOpsSecondaryData() {
     if (!sectorOpsMap || !sectorOpsMap.isStyleLoaded()) return;
 
@@ -9434,24 +9501,28 @@ async function updateSectorOpsSecondaryData() {
     try {
         const sessionsRes = await fetch(`${LIVE_FLIGHTS_BACKEND}/if-sessions`);
         if (!sessionsRes.ok) {
-            console.warn('Sector Ops Map: Could not fetch server sessions. Skipping secondary data update.');
+            console.warn('Sector Ops Map: Could not fetch server sessions.');
             return;
         }
         const sessionsData = await sessionsRes.json();
-        const expertSession = sessionsData.sessions.find(s => s.name.toLowerCase().includes('expert'));
 
-        if (!expertSession) {
-            console.warn('Sector Ops Map: Expert Server session not found.');
+        // ✅ FIX: Use the global TARGET_SERVER_NAME variable
+        const targetNameLower = TARGET_SERVER_NAME.toLowerCase();
+        
+        const activeSession = sessionsData.sessions.find(s => 
+            s.name.toLowerCase().includes(targetNameLower)
+        );
+
+        if (!activeSession) {
+            console.warn(`Sector Ops Map: Session not found for "${TARGET_SERVER_NAME}"`);
             return;
         }
 
-        // --- MODIFIED: Removed 'flightsRes' from Promise.all ---
         const [atcRes, notamsRes] = await Promise.all([
-            fetch(`${LIVE_FLIGHTS_BACKEND}/atc/${expertSession.id}`),
-            fetch(`${LIVE_FLIGHTS_BACKEND}/notams/${expertSession.id}`)
+            fetch(`${LIVE_FLIGHTS_BACKEND}/atc/${activeSession.id}`),
+            fetch(`${LIVE_FLIGHTS_BACKEND}/notams/${activeSession.id}`)
         ]);
         
-        // Update ATC & NOTAMs (Unchanged)
         if (atcRes.ok) {
             const atcData = await atcRes.json();
             activeAtcFacilities = (atcData.ok && Array.isArray(atcData.atc)) ? atcData.atc : [];
@@ -9460,14 +9531,11 @@ async function updateSectorOpsSecondaryData() {
             const notamsData = await notamsRes.json();
             activeNotams = (notamsData.ok && Array.isArray(notamsData.notams)) ? notamsData.notams : [];
         }
-        // Re-render airport markers with fresh ATC data
+        
         renderAirportMarkers(); 
 
-        // --- REMOVED: All flight processing logic ('flightsRes', 'flightsData', loops) ---
-        // This is now handled by 'handleSocketFlightUpdate'
-
     } catch (error) {
-        console.error('Error updating Sector Ops secondary data (ATC/NOTAMs):', error);
+        console.error('Error updating Sector Ops secondary data:', error);
     }
 }
     // ====================================================================
