@@ -2044,13 +2044,13 @@ function injectCustomStyles() {
 
         // 2. Clear Map Data (Visuals) - IMMEDIATE FLUSH
         
-        // Remove pilot markers from DOM immediately
+        // Remove aircraft markers from DOM immediately
         Object.keys(pilotMarkers).forEach(fid => {
             if (pilotMarkers[fid].marker) pilotMarkers[fid].marker.remove();
         });
         pilotMarkers = {};
         
-        // Clear flight path caches
+        // Clear caches
         liveTrailCache.clear();
         
         // Clear object IN PLACE to preserve reference for MapAnimator
@@ -2070,14 +2070,23 @@ function injectCustomStyles() {
             if (closeBtn) closeBtn.click();
         }
 
-        // --- [FIX] Clear ATC & NOTAM Data Immediately ---
-        // This ensures the old server's red ATC dots vanish instantly.
+        // --- [UPDATED] ATC & NOTAM Reset Logic ---
+        
+        // A. Stop the existing polling interval. 
+        // This prevents a pending request from the OLD server from returning 
+        // and populating the map after we've cleared it.
+        if (sectorOpsAtcNotamInterval) {
+            clearInterval(sectorOpsAtcNotamInterval);
+            sectorOpsAtcNotamInterval = null;
+        }
+
+        // B. Wipe Data arrays immediately
         activeAtcFacilities = [];
         activeNotams = [];
         
-        // Force a re-render of markers. 
-        // Since the array is now empty, this will remove all red ATC markers 
-        // and revert them to standard blue airport markers immediately.
+        // C. Force a re-render immediately.
+        // Since activeAtcFacilities is now empty, this visually erases all 
+        // red ATC dots from the map instantly.
         renderAirportMarkers();
 
         // 3. UI Updates
@@ -2092,14 +2101,16 @@ function injectCustomStyles() {
         // 4. Show "Loading" State
         showNotification(`Switching to ${currentServerName}...`, 'info');
 
-        // 5. Socket Handshake (Triggers the Immediate Cache Response for planes)
+        // 5. Socket Handshake (Joins the new room for live aircraft positions)
         if (sectorOpsSocket && sectorOpsSocket.connected) {
             sectorOpsSocket.emit('join_server_room', currentServerName);
         }
 
-        // 6. Trigger ATC/NOTAM Refresh
-        // This will fetch the NEW data and call renderAirportMarkers() again when finished.
+        // 6. Restart Data Polling (Just like Page Load)
+        // Fetch new data immediately...
         updateSectorOpsSecondaryData();
+        // ...and set up the interval for future updates.
+        sectorOpsAtcNotamInterval = setInterval(updateSectorOpsSecondaryData, DATA_REFRESH_INTERVAL_MS);
     }
 
 /**
