@@ -2042,59 +2042,35 @@ function injectCustomStyles() {
         currentServerName = newServerName;
         localStorage.setItem('preferredServer', currentServerName);
 
-        // 2. Clear Map Data (Visuals)
-        // Clear marker object and remove DOM elements
+        // 2. Clear Map Data (Visuals) - IMMEDIATE FLUSH
+        
+        // Remove markers from DOM immediately
         Object.keys(pilotMarkers).forEach(fid => {
             if (pilotMarkers[fid].marker) pilotMarkers[fid].marker.remove();
         });
         pilotMarkers = {};
         
-        // --- FIX START: Clear object IN PLACE to preserve reference for MapAnimator ---
-        // We delete every key, effectively emptying the object without breaking the link.
+        // Clear caches
+        liveTrailCache.clear();
+        
+        // Clear object IN PLACE to preserve reference for MapAnimator
         for (const key in currentMapFeatures) {
             delete currentMapFeatures[key];
         }
-        // --- FIX END ---
-
-        liveTrailCache.clear();
         
-        // --- FIX START: Force Mapbox Source to Empty Immediately ---
-        // This ensures the visual layer is wiped even if MapAnimator is slightly out of sync
-        if (sectorOpsMap && sectorOpsMap.getSource('sector-ops-live-flights-source')) {
-            sectorOpsMap.getSource('sector-ops-live-flights-source').setData({
-                type: 'FeatureCollection',
-                features: []
-            });
-        }
-        // --- FIX END ---
-        
-        // Clear MapAnimator (Crucial for ghost planes)
-        if (mapAnimator) {
-            // Because we cleared currentMapFeatures in place above, 
-            // mapAnimator.currentMapFeatures is now also empty.
-            // We just need to force the map to clear visually.
-            if (typeof mapAnimator._updateMapSource === 'function') {
-                mapAnimator._updateMapSource();
-            }
+        // [PERFORMANCE TWEAK] Immediately notify MapAnimator to clear the canvas
+        // before waiting for network data. This removes "ghost planes".
+        if (mapAnimator && typeof mapAnimator._updateMapSource === 'function') {
+            mapAnimator._updateMapSource(); 
         }
         
         // Clear any open flight details
         if (currentFlightInWindow) {
-            // Close window programmatically
             const closeBtn = document.querySelector('.aircraft-window-close-btn');
             if (closeBtn) closeBtn.click();
         }
 
-        // 4. Socket Handshake
-        if (sectorOpsSocket && sectorOpsSocket.connected) {
-            sectorOpsSocket.emit('join_server_room', currentServerName);
-        }
-
-        // 5. Trigger Instant Data Refresh (ATC/NOTAMs)
-        // This will fetch the new session ID and get ATC for the new server
-        updateSectorOpsSecondaryData();
-        
-        // 6. Update UI Buttons
+        // 3. UI Updates
         document.querySelectorAll('.server-btn').forEach(btn => {
             if (btn.dataset.server === currentServerName) {
                 btn.classList.add('active');
@@ -2103,7 +2079,16 @@ function injectCustomStyles() {
             }
         });
 
-        showNotification(`Switched to ${currentServerName}`, 'success');
+        // 4. Show "Loading" State (Optional but good UX)
+        showNotification(`Switching to ${currentServerName}...`, 'info');
+
+        // 5. Socket Handshake (This now triggers the Immediate Cache Response)
+        if (sectorOpsSocket && sectorOpsSocket.connected) {
+            sectorOpsSocket.emit('join_server_room', currentServerName);
+        }
+
+        // 6. Trigger ATC/NOTAM Refresh
+        updateSectorOpsSecondaryData();
     }
 
 /**
