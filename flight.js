@@ -2044,7 +2044,7 @@ function injectCustomStyles() {
 
         // 2. Clear Map Data (Visuals) - IMMEDIATE FLUSH
         
-        // Remove markers from DOM immediately
+        // Remove aircraft markers from DOM immediately
         Object.keys(pilotMarkers).forEach(fid => {
             if (pilotMarkers[fid].marker) pilotMarkers[fid].marker.remove();
         });
@@ -2070,6 +2070,16 @@ function injectCustomStyles() {
             if (closeBtn) closeBtn.click();
         }
 
+        // --- [FIX] Clear ATC & NOTAM Data Immediately ---
+        // This prevents the old server's ATC from persisting while the new data loads.
+        activeAtcFacilities = [];
+        activeNotams = [];
+        
+        // Force a re-render of markers immediately.
+        // Since activeAtcFacilities is now empty, this effectively removes all red ATC dots
+        // but preserves the blue destination markers (if routes are loaded).
+        renderAirportMarkers();
+
         // 3. UI Updates
         document.querySelectorAll('.server-btn').forEach(btn => {
             if (btn.dataset.server === currentServerName) {
@@ -2088,6 +2098,7 @@ function injectCustomStyles() {
         }
 
         // 6. Trigger ATC/NOTAM Refresh
+        // This will fetch the new data and call renderAirportMarkers() again when finished.
         updateSectorOpsSecondaryData();
     }
 
