@@ -4617,7 +4617,7 @@ function updatePfdDisplay(pfdData) {
 
 /**
  * --- [UPDATED] Generates HTML for the Airport Info Window ---
- * Fixes: 3D Badge moved to right/silver, Attributes compacted, "Drag & Taxi" rename.
+ * Features: Live Arrival Board, Weather, Smart Runways, and ATC/NOTAMs.
  */
 async function createAirportInfoWindowHTML(icao) {
     // 1. Get Static Data (Fallback from airports.json)
@@ -4659,7 +4659,7 @@ async function createAirportInfoWindowHTML(icao) {
         lon: liveData?.longitude ?? staticData.lon
     };
 
-    // --- 3D Badge Logic (Updated: Silver & Right Side) ---
+    // --- 3D Badge Logic (Silver & Right Side) ---
     const is3D = liveData?.has3dBuildings === true;
     const badge3DHtml = is3D ? 
         `<span style="background: linear-gradient(135deg, #e2e8f0 0%, #94a3b8 100%); color: #0f172a; font-size: 0.65rem; font-weight: 800; padding: 2px 6px; border-radius: 4px; margin-left: 10px; box-shadow: 0 1px 3px rgba(0,0,0,0.3); letter-spacing: 0.5px; text-shadow: none; vertical-align: middle;">3D</span>` 
@@ -4668,7 +4668,6 @@ async function createAirportInfoWindowHTML(icao) {
     // Filter Derived Data
     const atcForAirport = activeAtcFacilities.filter(f => f.airportName === icao);
     const notamsForAirport = activeNotams.filter(n => n.airportIcao === icao);
-    const routesFromAirport = ALL_AVAILABLE_ROUTES.filter(r => r.departure === icao);
     const airportRunways = runwaysData[icao] || [];
 
     // --- Weather Logic ---
@@ -4744,21 +4743,19 @@ async function createAirportInfoWindowHTML(icao) {
         weatherHtml = '<div class="tech-module"><div class="tech-module-body"><p class="muted-text">Weather data offline.</p></div></div>';
     }
 
-    // --- Attributes Module (Re-Designed) ---
-    // Moved features here to make them less dense (Pills instead of big circles)
+    // --- Attributes Module ---
     let featuresHtml = '';
     if (liveData) {
         const features = [
             { key: 'hasJetbridges', label: 'Jetbridges', icon: 'fa-person-walking-luggage' },
             { key: 'hasSafedockUnits', label: 'Safedock', icon: 'fa-square-parking' },
-            { key: 'hasTaxiwayRouting', label: 'Drag & Taxi', icon: 'fa-route' } // <-- Renamed
+            { key: 'hasTaxiwayRouting', label: 'Drag & Taxi', icon: 'fa-route' } 
         ];
 
         const featurePills = features.map(f => {
             const isActive = liveData[f.key];
             const color = isActive ? '#4ade80' : '#475569';
             const opacity = isActive ? '1' : '0.5';
-            // Sleek pill design instead of dense circles
             return `
                 <div style="display: flex; align-items: center; gap: 6px; opacity: ${opacity}; color: ${isActive ? '#e2e8f0' : '#64748b'}; font-size: 0.7rem; font-weight: 600; background: rgba(255,255,255,0.03); padding: 4px 8px; border-radius: 4px; border: 1px solid ${isActive ? 'rgba(74, 222, 128, 0.2)' : 'transparent'};">
                     <i class="fa-solid ${f.icon}" style="color: ${color};"></i> ${f.label}
@@ -4788,17 +4785,118 @@ async function createAirportInfoWindowHTML(icao) {
         `;
     }
 
-    // --- Standard Tabs Content (Unchanged) ---
-    let routesHtml = '<div style="padding: 20px; text-align: center; color: #64748b;">No departing routes found in database.</div>';
-    if (routesFromAirport.length > 0) {
-        routesHtml = `<div style="padding: 12px; display: flex; flex-direction: column; gap: 4px;">${routesFromAirport.map(route => {
-            const airlineCode = extractAirlineCode(route.flightNumber);
-            const routeDataString = JSON.stringify(route).replace(/'/g, "&apos;");
-            const shortAc = route.aircraft.replace('Boeing', 'B').replace('Airbus', 'A').split(' ')[0];
-            return `<div class="route-card"><div class="route-info"><div class="route-callsign"><img src="Images/vas/${airlineCode}.png" style="height: 16px; width: auto; max-width: 40px;" onerror="this.style.display='none'"> ${route.flightNumber}</div><div class="route-details"><span class="route-ac-badge">${shortAc}</span><span><i class="fa-solid fa-plane-arrival" style="color: #64748b;"></i> ${route.arrival}</span></div></div><button class="plan-btn-mini plan-flight-from-explorer-btn" data-route='${routeDataString}'>PLAN <i class="fa-solid fa-angle-right"></i></button></div>`;
-        }).join('')}</div>`;
+    // --- [NEW] LIVE ARRIVAL BOARD LOGIC ---
+    let routesHtml = '<div style="padding: 20px; text-align: center; color: #64748b;">No inbound flights detected.</div>';
+    
+    // 1. Scan all live flights for inbound traffic
+    const inboundFlights = [];
+    const airportCoords = { lat: coords.lat, lon: coords.lon };
+
+    Object.values(currentMapFeatures).forEach(feature => {
+        const props = feature.properties;
+        let acData = {};
+        
+        try {
+            acData = typeof props.aircraft === 'string' ? JSON.parse(props.aircraft) : props.aircraft;
+        } catch (e) { return; }
+
+        // Check if destination matches current airport ICAO
+        if (acData && acData.destination === icao) {
+            
+            // Calculate Distance & ETA
+            let pos = {};
+            try { pos = typeof props.position === 'string' ? JSON.parse(props.position) : props.position; } catch(e) { return; }
+            
+            if (!pos || pos.lat == null) return;
+
+            const distKm = getDistanceKm(pos.lat, pos.lon, airportCoords.lat, airportCoords.lon);
+            const distNM = distKm / 1.852;
+            const gs = pos.gs_kt || 1; // Avoid divide by zero
+            
+            // ETE in Minutes
+            const eteMinutes = (distNM / gs) * 60;
+            
+            inboundFlights.push({
+                callsign: props.callsign || 'N/A',
+                aircraft: acData.aircraftName || 'Unknown',
+                airlineCode: extractAirlineCode(props.callsign),
+                gs: Math.round(gs),
+                dist: distNM,
+                ete: eteMinutes,
+                phase: props.phase || 'Enroute',
+                username: props.username || 'Unknown'
+            });
+        }
+    });
+
+    // 2. Sort by ETA (Soonest first)
+    inboundFlights.sort((a, b) => a.ete - b.ete);
+
+    // 3. Generate HTML
+    if (inboundFlights.length > 0) {
+        routesHtml = `
+        <div style="display: flex; flex-direction: column; gap: 4px;">
+            
+            <div style="display: grid; grid-template-columns: 2fr 1fr 1fr 1.5fr; padding: 8px 12px; font-size: 0.7rem; color: #64748b; font-weight: 700; text-transform: uppercase;">
+                <span>Flight</span>
+                <span>Type</span>
+                <span>ETA</span>
+                <span style="text-align: right;">Status</span>
+            </div>
+
+            ${inboundFlights.map(f => {
+                // Formatting ETA
+                let etaDisplay = "--:--";
+                if (f.gs > 40 && f.ete < 1440) { // Only calc if moving > 40kts
+                    const hours = Math.floor(f.ete / 60);
+                    const mins = Math.floor(f.ete % 60);
+                    etaDisplay = `${String(hours).padStart(2,'0')}:${String(mins).padStart(2,'0')}`;
+                } else if (f.gs <= 40 && f.dist < 10) {
+                    etaDisplay = "NOW";
+                }
+
+                // Determine Status Color/Text
+                let statusColor = "#94a3b8"; // Default Grey
+                let statusText = "Enroute";
+                
+                if (f.dist < 15 && (f.phase === 'Landing' || f.phase === 'Approach' || f.dist < 10)) { 
+                    statusText = "On Final"; statusColor = "#34d399"; // Green
+                } else if (f.dist < 50 && f.phase === 'Descent') { 
+                    statusText = "Approach"; statusColor = "#38bdf8"; // Blue
+                } else if (f.gs < 40 && f.dist < 5) { 
+                    statusText = "Landed"; statusColor = "#fbbf24"; // Amber
+                }
+                
+                // Shorten Aircraft Name
+                const shortAc = f.aircraft.replace('Boeing', 'B').replace('Airbus', 'A').split(' ')[0];
+
+                return `
+                <div class="route-card" style="display: grid; grid-template-columns: 2fr 1fr 1fr 1.5fr; align-items: center; gap: 0; padding: 10px 12px; border-left: 3px solid ${statusColor};">
+                    
+                    <div style="display: flex; flex-direction: column;">
+                        <div style="font-family: 'Consolas', monospace; font-size: 1rem; color: #fff; font-weight: 700; display: flex; align-items: center; gap: 8px;">
+                            <img src="Images/vas/${f.airlineCode}.png" style="height: 16px; width: auto; max-width: 40px;" onerror="this.style.display='none'">
+                            ${f.callsign}
+                        </div>
+                        <div style="font-size: 0.7rem; color: #64748b;">${f.username}</div>
+                    </div>
+
+                    <div style="font-size: 0.8rem; color: #cbd5e1; font-weight: 600;">${shortAc}</div>
+
+                    <div style="font-family: 'Consolas', monospace; font-size: 0.95rem; color: #fff;">${etaDisplay}</div>
+
+                    <div style="text-align: right;">
+                        <span style="background: ${statusColor}20; color: ${statusColor}; border: 1px solid ${statusColor}40; padding: 3px 8px; border-radius: 4px; font-size: 0.65rem; font-weight: 700; text-transform: uppercase;">
+                            ${statusText}
+                        </span>
+                    </div>
+
+                </div>`;
+            }).join('')}
+        </div>`;
     }
     
+    // --- ATC Section ---
     let atcHtml = '<div style="padding: 20px; text-align: center; color: #64748b;">No active ATC frequencies.</div>';
     if (atcForAirport.length > 0) {
         atcHtml = `<div style="padding: 12px;">${atcForAirport.map(f => {
@@ -4808,13 +4906,13 @@ async function createAirportInfoWindowHTML(icao) {
         }).join('')}</div>`;
     }
 
+    // --- NOTAMs Section ---
     let notamsHtml = '<div style="padding: 20px; text-align: center; color: #64748b;">No active NOTAMs.</div>';
     if (notamsForAirport.length > 0) {
         notamsHtml = `<div style="padding: 12px; display: flex; flex-direction: column; gap: 8px;">${notamsForAirport.map(n => `<div style="background: rgba(234, 179, 8, 0.1); border-left: 3px solid #eab308; padding: 10px; border-radius: 4px; color: #fef08a; font-family: monospace; font-size: 0.8rem;"><i class="fa-solid fa-triangle-exclamation"></i> ${n.message}</div>`).join('')}</div>`;
     }
 
     // --- Final Assembly ---
-    // Note: badge3DHtml is now placed AFTER the flag image in the template below
     return `
         <div class="airport-hero">
             <div class="hero-actions">
@@ -4840,7 +4938,7 @@ async function createAirportInfoWindowHTML(icao) {
 
             <div class="tech-module" style="min-height: 300px; display: flex; flex-direction: column;">
                 <div class="apt-tabs-header">
-                    <button class="apt-tab-btn active" data-target="apt-routes"><i class="fa-solid fa-route"></i> ROUTES</button>
+                    <button class="apt-tab-btn active" data-target="apt-routes"><i class="fa-solid fa-plane-arrival"></i> ARRIVALS</button>
                     <button class="apt-tab-btn" data-target="apt-atc"><i class="fa-solid fa-headset"></i> ATC</button>
                     <button class="apt-tab-btn" data-target="apt-notams"><i class="fa-solid fa-triangle-exclamation"></i> NOTAMs</button>
                 </div>
