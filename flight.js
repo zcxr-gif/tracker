@@ -4617,7 +4617,7 @@ function updatePfdDisplay(pfdData) {
 
 /**
  * --- [UPDATED] Generates HTML for the Airport Info Window ---
- * NOW INCLUDES: Live Inbound/Outbound Traffic from Airport Status API
+ * FIX: Looks up flight details in currentMapFeatures using the ID from the Status API.
  */
 async function createAirportInfoWindowHTML(icao) {
     // 1. Get Static Data (Fallback from airports.json)
@@ -4637,7 +4637,7 @@ async function createAirportInfoWindowHTML(icao) {
         console.warn(`Could not fetch live data for ${icao}`, e);
     }
 
-    // --- 3. [NEW] Fetch Live Traffic (Inbound/Outbound) ---
+    // --- 3. Fetch Live Traffic (Inbound/Outbound) ---
     let inbounds = [];
     let outbounds = [];
     let trafficFetchSuccess = false;
@@ -4664,9 +4664,8 @@ async function createAirportInfoWindowHTML(icao) {
         console.error("Error fetching live traffic stats:", e);
     }
 
-    // 4. Merge Data
+    // 4. Merge Data (Basic Airport Info)
     const airportName = liveData?.name || staticData.name || 'Unknown Airport';
-    
     const city = liveData?.city || staticData.city;
     const state = liveData?.state || staticData.state;
     const cityState = [city, state].filter(Boolean).join(', ') || 'Location N/A';
@@ -4697,7 +4696,7 @@ async function createAirportInfoWindowHTML(icao) {
     const notamsForAirport = activeNotams.filter(n => n.airportIcao === icao);
     const airportRunways = runwaysData[icao] || [];
 
-    // --- Weather Logic (Existing) ---
+    // --- Weather Logic ---
     let weatherHtml = '';
     let runwayRecHtml = ''; 
     let flightCategory = 'WAITING';
@@ -4810,7 +4809,7 @@ async function createAirportInfoWindowHTML(icao) {
         `;
     }
 
-    // --- [NEW] LIVE TRAFFIC (Replacess Routes) ---
+    // --- [NEW FIX] LIVE TRAFFIC (Replacess Routes) ---
     let trafficHtml = '';
     
     if (!trafficFetchSuccess) {
@@ -4818,31 +4817,40 @@ async function createAirportInfoWindowHTML(icao) {
     } else if (inbounds.length === 0 && outbounds.length === 0) {
         trafficHtml = '<div style="padding: 20px; text-align: center; color: #64748b;">No live traffic found.</div>';
     } else {
-        // Helper to render a flight card
-        const renderFlightCard = (f, type) => {
-            // Attempt to look up extra details in our live map cache
-            // The API status gives ID, callsign, and userId. Map cache might have aircraft name/livery.
-            const cachedFeature = currentMapFeatures[f.flightId];
-            let acName = 'Aircraft';
-            let acAirline = 'Unknown';
-            let acBadge = 'UNK';
+        // --- FIXED HELPER: Look up details via Flight ID ---
+        const renderFlightCard = (flightId, type) => {
+            // 1. Try to look up the full feature in our map cache
+            // Note: If you are filtering flights on the map (e.g. "?callsignEndsWith=GO"),
+            // flights not matching that filter WON'T be in currentMapFeatures, so they will show as "Unknown".
+            const cachedFeature = currentMapFeatures[flightId];
             
-            if (cachedFeature && cachedFeature.properties) {
-                // If we have live map data
-                const acData = JSON.parse(cachedFeature.properties.aircraft || '{}');
-                acName = acData.aircraftName || 'Aircraft';
-                acAirline = acData.liveryName || '';
-            } 
-            
-            // Shorten Aircraft Name
-            acBadge = acName.split(' ')[0].substring(0,4).toUpperCase();
-            if(acName.includes('777')) acBadge='B777';
-            if(acName.includes('737')) acBadge='B737';
-            if(acName.includes('320')) acBadge='A320';
-            if(acName.includes('350')) acBadge='A350';
+            // 2. Default Values
+            let callsign = 'Unknown Flight';
+            let username = 'Unknown Pilot';
+            let acBadge = '---';
+            let airlineCode = 'UNKNOWN';
 
-            // Extract Airline Code for logo
-            const airlineCode = extractAirlineCode(f.callsign);
+            // 3. Fill details if found
+            if (cachedFeature && cachedFeature.properties) {
+                const props = cachedFeature.properties;
+                callsign = props.callsign || callsign;
+                username = props.username || username;
+
+                // Aircraft Name Logic
+                const acData = typeof props.aircraft === 'string' ? JSON.parse(props.aircraft || '{}') : (props.aircraft || {});
+                const acName = acData.aircraftName || 'Aircraft';
+                
+                acBadge = acName.split(' ')[0].substring(0,4).toUpperCase();
+                if(acName.includes('777')) acBadge='B777';
+                else if(acName.includes('737')) acBadge='B737';
+                else if(acName.includes('320')) acBadge='A320';
+                else if(acName.includes('321')) acBadge='A321';
+                else if(acName.includes('350')) acBadge='A350';
+                else if(acName.includes('380')) acBadge='A380';
+                else if(acName.includes('787')) acBadge='B787';
+
+                airlineCode = extractAirlineCode(callsign);
+            } 
             
             const icon = type === 'in' ? 'fa-plane-arrival' : 'fa-plane-departure';
             const color = type === 'in' ? '#4ade80' : '#38bdf8'; // Green for In, Blue for Out
@@ -4852,11 +4860,11 @@ async function createAirportInfoWindowHTML(icao) {
                 <div class="route-info">
                     <div class="route-callsign">
                         <img src="Images/vas/${airlineCode}.png" style="height: 16px; width: auto; max-width: 40px;" onerror="this.style.display='none'"> 
-                        ${f.callsign}
+                        ${callsign}
                     </div>
                     <div class="route-details">
                         <span class="route-ac-badge">${acBadge}</span>
-                        <span>${f.displayName || f.username || 'Pilot'}</span>
+                        <span>${username}</span>
                     </div>
                 </div>
                 <div style="font-size: 0.8rem; font-weight: bold; color: ${color};">
@@ -4866,17 +4874,17 @@ async function createAirportInfoWindowHTML(icao) {
         };
 
         const inboundsHtml = inbounds.length > 0 
-            ? `<div style="margin-bottom: 8px;"><div style="font-size: 0.7rem; color: #94a3b8; font-weight: 700; margin-bottom: 4px;">INBOUND (${inbounds.length})</div>${inbounds.map(f => renderFlightCard(f, 'in')).join('')}</div>` 
+            ? `<div style="margin-bottom: 8px;"><div style="font-size: 0.7rem; color: #94a3b8; font-weight: 700; margin-bottom: 4px;">INBOUND (${inbounds.length})</div>${inbounds.map(id => renderFlightCard(id, 'in')).join('')}</div>` 
             : '';
             
         const outboundsHtml = outbounds.length > 0 
-            ? `<div><div style="font-size: 0.7rem; color: #94a3b8; font-weight: 700; margin-bottom: 4px;">OUTBOUND (${outbounds.length})</div>${outbounds.map(f => renderFlightCard(f, 'out')).join('')}</div>` 
+            ? `<div><div style="font-size: 0.7rem; color: #94a3b8; font-weight: 700; margin-bottom: 4px;">OUTBOUND (${outbounds.length})</div>${outbounds.map(id => renderFlightCard(id, 'out')).join('')}</div>` 
             : '';
 
         trafficHtml = `<div style="padding: 12px; display: flex; flex-direction: column; gap: 4px;">${inboundsHtml}${outboundsHtml}</div>`;
     }
     
-    // --- ATC Section (Unchanged) ---
+    // --- ATC Section ---
     let atcHtml = '<div style="padding: 20px; text-align: center; color: #64748b;">No active ATC frequencies.</div>';
     if (atcForAirport.length > 0) {
         atcHtml = `<div style="padding: 12px;">${atcForAirport.map(f => {
@@ -4886,14 +4894,13 @@ async function createAirportInfoWindowHTML(icao) {
         }).join('')}</div>`;
     }
 
-    // --- NOTAMs Section (Unchanged) ---
+    // --- NOTAMs Section ---
     let notamsHtml = '<div style="padding: 20px; text-align: center; color: #64748b;">No active NOTAMs.</div>';
     if (notamsForAirport.length > 0) {
         notamsHtml = `<div style="padding: 12px; display: flex; flex-direction: column; gap: 8px;">${notamsForAirport.map(n => `<div style="background: rgba(234, 179, 8, 0.1); border-left: 3px solid #eab308; padding: 10px; border-radius: 4px; color: #fef08a; font-family: monospace; font-size: 0.8rem;"><i class="fa-solid fa-triangle-exclamation"></i> ${n.message}</div>`).join('')}</div>`;
     }
 
     // --- Final Assembly ---
-    // [CHANGE] Replaced ROUTES button with TRAFFIC button
     return `
         <div class="airport-hero">
             <div class="hero-actions">
