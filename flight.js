@@ -4617,13 +4617,13 @@ function updatePfdDisplay(pfdData) {
 
 /**
  * --- [UPDATED] Generates HTML for the Airport Info Window ---
- * Fixes: 3D Badge moved to right/silver, Attributes compacted, "Drag & Taxi" rename.
+ * NOW INCLUDES: Live Inbound/Outbound Traffic from Airport Status API
  */
 async function createAirportInfoWindowHTML(icao) {
     // 1. Get Static Data (Fallback from airports.json)
     const staticData = airportsData[icao] || {};
     
-    // 2. Fetch Live Data from Backend (ACARS URL)
+    // 2. Fetch Live Airport Details (Meta data) from Backend
     let liveData = null;
     try {
         const response = await fetch(`${ACARS_SOCKET_URL}/api/airport/${icao}`);
@@ -4637,7 +4637,34 @@ async function createAirportInfoWindowHTML(icao) {
         console.warn(`Could not fetch live data for ${icao}`, e);
     }
 
-    // 3. Merge Data
+    // --- 3. [NEW] Fetch Live Traffic (Inbound/Outbound) ---
+    let inbounds = [];
+    let outbounds = [];
+    let trafficFetchSuccess = false;
+
+    try {
+        // A. Get Session ID for current server
+        const sessionsRes = await fetch(`${ACARS_SOCKET_URL}/if-sessions`);
+        const sessionsData = await sessionsRes.json();
+        const sessionId = getCurrentSessionId(sessionsData);
+
+        if (sessionId) {
+            // B. Call the Status Endpoint
+            const statusRes = await fetch(`${ACARS_SOCKET_URL}/api/live/airport/${sessionId}/${icao}/status`);
+            if (statusRes.ok) {
+                const statusJson = await statusRes.json();
+                if (statusJson.ok && statusJson.status) {
+                    inbounds = statusJson.status.inboundFlights || [];
+                    outbounds = statusJson.status.outboundFlights || [];
+                    trafficFetchSuccess = true;
+                }
+            }
+        }
+    } catch (e) {
+        console.error("Error fetching live traffic stats:", e);
+    }
+
+    // 4. Merge Data
     const airportName = liveData?.name || staticData.name || 'Unknown Airport';
     
     const city = liveData?.city || staticData.city;
@@ -4659,7 +4686,7 @@ async function createAirportInfoWindowHTML(icao) {
         lon: liveData?.longitude ?? staticData.lon
     };
 
-    // --- 3D Badge Logic (Updated: Silver & Right Side) ---
+    // --- 3D Badge Logic ---
     const is3D = liveData?.has3dBuildings === true;
     const badge3DHtml = is3D ? 
         `<span style="background: linear-gradient(135deg, #e2e8f0 0%, #94a3b8 100%); color: #0f172a; font-size: 0.65rem; font-weight: 800; padding: 2px 6px; border-radius: 4px; margin-left: 10px; box-shadow: 0 1px 3px rgba(0,0,0,0.3); letter-spacing: 0.5px; text-shadow: none; vertical-align: middle;">3D</span>` 
@@ -4668,10 +4695,9 @@ async function createAirportInfoWindowHTML(icao) {
     // Filter Derived Data
     const atcForAirport = activeAtcFacilities.filter(f => f.airportName === icao);
     const notamsForAirport = activeNotams.filter(n => n.airportIcao === icao);
-    const routesFromAirport = ALL_AVAILABLE_ROUTES.filter(r => r.departure === icao);
     const airportRunways = runwaysData[icao] || [];
 
-    // --- Weather Logic ---
+    // --- Weather Logic (Existing) ---
     let weatherHtml = '';
     let runwayRecHtml = ''; 
     let flightCategory = 'WAITING';
@@ -4680,7 +4706,6 @@ async function createAirportInfoWindowHTML(icao) {
     try {
         if (window.WeatherService) {
             const w = await window.WeatherService.fetchAndParseMetar(icao);
-            
             flightCategory = 'VFR'; badgeClass = 'wx-vfr';
             if (w.raw.includes('LIFR')) { flightCategory = 'LIFR'; badgeClass = 'wx-lifr'; }
             else if (w.raw.includes('IFR') || w.raw.includes('VV')) { flightCategory = 'IFR'; badgeClass = 'wx-ifr'; }
@@ -4744,21 +4769,19 @@ async function createAirportInfoWindowHTML(icao) {
         weatherHtml = '<div class="tech-module"><div class="tech-module-body"><p class="muted-text">Weather data offline.</p></div></div>';
     }
 
-    // --- Attributes Module (Re-Designed) ---
-    // Moved features here to make them less dense (Pills instead of big circles)
+    // --- Attributes Module ---
     let featuresHtml = '';
     if (liveData) {
         const features = [
             { key: 'hasJetbridges', label: 'Jetbridges', icon: 'fa-person-walking-luggage' },
             { key: 'hasSafedockUnits', label: 'Safedock', icon: 'fa-square-parking' },
-            { key: 'hasTaxiwayRouting', label: 'Drag & Taxi', icon: 'fa-route' } // <-- Renamed
+            { key: 'hasTaxiwayRouting', label: 'Drag & Taxi', icon: 'fa-route' }
         ];
 
         const featurePills = features.map(f => {
             const isActive = liveData[f.key];
             const color = isActive ? '#4ade80' : '#475569';
             const opacity = isActive ? '1' : '0.5';
-            // Sleek pill design instead of dense circles
             return `
                 <div style="display: flex; align-items: center; gap: 6px; opacity: ${opacity}; color: ${isActive ? '#e2e8f0' : '#64748b'}; font-size: 0.7rem; font-weight: 600; background: rgba(255,255,255,0.03); padding: 4px 8px; border-radius: 4px; border: 1px solid ${isActive ? 'rgba(74, 222, 128, 0.2)' : 'transparent'};">
                     <i class="fa-solid ${f.icon}" style="color: ${color};"></i> ${f.label}
@@ -4779,7 +4802,6 @@ async function createAirportInfoWindowHTML(icao) {
                         </div>
                         <span style="font-size: 0.75rem; color: #94a3b8;">${countryName}</span>
                     </div>
-                    
                     <div style="display: flex; gap: 8px; flex-wrap: wrap;">
                         ${featurePills}
                     </div>
@@ -4788,17 +4810,73 @@ async function createAirportInfoWindowHTML(icao) {
         `;
     }
 
-    // --- Standard Tabs Content (Unchanged) ---
-    let routesHtml = '<div style="padding: 20px; text-align: center; color: #64748b;">No departing routes found in database.</div>';
-    if (routesFromAirport.length > 0) {
-        routesHtml = `<div style="padding: 12px; display: flex; flex-direction: column; gap: 4px;">${routesFromAirport.map(route => {
-            const airlineCode = extractAirlineCode(route.flightNumber);
-            const routeDataString = JSON.stringify(route).replace(/'/g, "&apos;");
-            const shortAc = route.aircraft.replace('Boeing', 'B').replace('Airbus', 'A').split(' ')[0];
-            return `<div class="route-card"><div class="route-info"><div class="route-callsign"><img src="Images/vas/${airlineCode}.png" style="height: 16px; width: auto; max-width: 40px;" onerror="this.style.display='none'"> ${route.flightNumber}</div><div class="route-details"><span class="route-ac-badge">${shortAc}</span><span><i class="fa-solid fa-plane-arrival" style="color: #64748b;"></i> ${route.arrival}</span></div></div><button class="plan-btn-mini plan-flight-from-explorer-btn" data-route='${routeDataString}'>PLAN <i class="fa-solid fa-angle-right"></i></button></div>`;
-        }).join('')}</div>`;
+    // --- [NEW] LIVE TRAFFIC (Replacess Routes) ---
+    let trafficHtml = '';
+    
+    if (!trafficFetchSuccess) {
+        trafficHtml = '<div style="padding: 20px; text-align: center; color: #64748b;">Traffic data unavailable.</div>';
+    } else if (inbounds.length === 0 && outbounds.length === 0) {
+        trafficHtml = '<div style="padding: 20px; text-align: center; color: #64748b;">No live traffic found.</div>';
+    } else {
+        // Helper to render a flight card
+        const renderFlightCard = (f, type) => {
+            // Attempt to look up extra details in our live map cache
+            // The API status gives ID, callsign, and userId. Map cache might have aircraft name/livery.
+            const cachedFeature = currentMapFeatures[f.flightId];
+            let acName = 'Aircraft';
+            let acAirline = 'Unknown';
+            let acBadge = 'UNK';
+            
+            if (cachedFeature && cachedFeature.properties) {
+                // If we have live map data
+                const acData = JSON.parse(cachedFeature.properties.aircraft || '{}');
+                acName = acData.aircraftName || 'Aircraft';
+                acAirline = acData.liveryName || '';
+            } 
+            
+            // Shorten Aircraft Name
+            acBadge = acName.split(' ')[0].substring(0,4).toUpperCase();
+            if(acName.includes('777')) acBadge='B777';
+            if(acName.includes('737')) acBadge='B737';
+            if(acName.includes('320')) acBadge='A320';
+            if(acName.includes('350')) acBadge='A350';
+
+            // Extract Airline Code for logo
+            const airlineCode = extractAirlineCode(f.callsign);
+            
+            const icon = type === 'in' ? 'fa-plane-arrival' : 'fa-plane-departure';
+            const color = type === 'in' ? '#4ade80' : '#38bdf8'; // Green for In, Blue for Out
+
+            return `
+            <div class="route-card" style="border-left: 3px solid ${color};">
+                <div class="route-info">
+                    <div class="route-callsign">
+                        <img src="Images/vas/${airlineCode}.png" style="height: 16px; width: auto; max-width: 40px;" onerror="this.style.display='none'"> 
+                        ${f.callsign}
+                    </div>
+                    <div class="route-details">
+                        <span class="route-ac-badge">${acBadge}</span>
+                        <span>${f.displayName || f.username || 'Pilot'}</span>
+                    </div>
+                </div>
+                <div style="font-size: 0.8rem; font-weight: bold; color: ${color};">
+                    <i class="fa-solid ${icon}"></i> ${type === 'in' ? 'INBOUND' : 'OUTBOUND'}
+                </div>
+            </div>`;
+        };
+
+        const inboundsHtml = inbounds.length > 0 
+            ? `<div style="margin-bottom: 8px;"><div style="font-size: 0.7rem; color: #94a3b8; font-weight: 700; margin-bottom: 4px;">INBOUND (${inbounds.length})</div>${inbounds.map(f => renderFlightCard(f, 'in')).join('')}</div>` 
+            : '';
+            
+        const outboundsHtml = outbounds.length > 0 
+            ? `<div><div style="font-size: 0.7rem; color: #94a3b8; font-weight: 700; margin-bottom: 4px;">OUTBOUND (${outbounds.length})</div>${outbounds.map(f => renderFlightCard(f, 'out')).join('')}</div>` 
+            : '';
+
+        trafficHtml = `<div style="padding: 12px; display: flex; flex-direction: column; gap: 4px;">${inboundsHtml}${outboundsHtml}</div>`;
     }
     
+    // --- ATC Section (Unchanged) ---
     let atcHtml = '<div style="padding: 20px; text-align: center; color: #64748b;">No active ATC frequencies.</div>';
     if (atcForAirport.length > 0) {
         atcHtml = `<div style="padding: 12px;">${atcForAirport.map(f => {
@@ -4808,13 +4886,14 @@ async function createAirportInfoWindowHTML(icao) {
         }).join('')}</div>`;
     }
 
+    // --- NOTAMs Section (Unchanged) ---
     let notamsHtml = '<div style="padding: 20px; text-align: center; color: #64748b;">No active NOTAMs.</div>';
     if (notamsForAirport.length > 0) {
         notamsHtml = `<div style="padding: 12px; display: flex; flex-direction: column; gap: 8px;">${notamsForAirport.map(n => `<div style="background: rgba(234, 179, 8, 0.1); border-left: 3px solid #eab308; padding: 10px; border-radius: 4px; color: #fef08a; font-family: monospace; font-size: 0.8rem;"><i class="fa-solid fa-triangle-exclamation"></i> ${n.message}</div>`).join('')}</div>`;
     }
 
     // --- Final Assembly ---
-    // Note: badge3DHtml is now placed AFTER the flag image in the template below
+    // [CHANGE] Replaced ROUTES button with TRAFFIC button
     return `
         <div class="airport-hero">
             <div class="hero-actions">
@@ -4840,11 +4919,11 @@ async function createAirportInfoWindowHTML(icao) {
 
             <div class="tech-module" style="min-height: 300px; display: flex; flex-direction: column;">
                 <div class="apt-tabs-header">
-                    <button class="apt-tab-btn active" data-target="apt-routes"><i class="fa-solid fa-route"></i> ROUTES</button>
+                    <button class="apt-tab-btn active" data-target="apt-traffic"><i class="fa-solid fa-plane-circle-check"></i> TRAFFIC</button>
                     <button class="apt-tab-btn" data-target="apt-atc"><i class="fa-solid fa-headset"></i> ATC</button>
                     <button class="apt-tab-btn" data-target="apt-notams"><i class="fa-solid fa-triangle-exclamation"></i> NOTAMs</button>
                 </div>
-                <div id="apt-routes" class="apt-tab-content active" style="padding: 0;">${routesHtml}</div>
+                <div id="apt-traffic" class="apt-tab-content active" style="padding: 0;">${trafficHtml}</div>
                 <div id="apt-atc" class="apt-tab-content" style="padding: 0;">${atcHtml}</div>
                 <div id="apt-notams" class="apt-tab-content" style="padding: 0;">${notamsHtml}</div>
             </div>
