@@ -2044,13 +2044,13 @@ function injectCustomStyles() {
 
         // 2. Clear Map Data (Visuals) - IMMEDIATE FLUSH
         
-        // Remove aircraft markers from DOM immediately
+        // Remove pilot markers from DOM immediately
         Object.keys(pilotMarkers).forEach(fid => {
             if (pilotMarkers[fid].marker) pilotMarkers[fid].marker.remove();
         });
         pilotMarkers = {};
         
-        // Clear caches
+        // Clear flight path caches
         liveTrailCache.clear();
         
         // Clear object IN PLACE to preserve reference for MapAnimator
@@ -2071,13 +2071,13 @@ function injectCustomStyles() {
         }
 
         // --- [FIX] Clear ATC & NOTAM Data Immediately ---
-        // This prevents the old server's ATC from persisting while the new data loads.
+        // This ensures the old server's red ATC dots vanish instantly.
         activeAtcFacilities = [];
         activeNotams = [];
         
-        // Force a re-render of markers immediately.
-        // Since activeAtcFacilities is now empty, this effectively removes all red ATC dots
-        // but preserves the blue destination markers (if routes are loaded).
+        // Force a re-render of markers. 
+        // Since the array is now empty, this will remove all red ATC markers 
+        // and revert them to standard blue airport markers immediately.
         renderAirportMarkers();
 
         // 3. UI Updates
@@ -2089,16 +2089,16 @@ function injectCustomStyles() {
             }
         });
 
-        // 4. Show "Loading" State (Optional but good UX)
+        // 4. Show "Loading" State
         showNotification(`Switching to ${currentServerName}...`, 'info');
 
-        // 5. Socket Handshake (This now triggers the Immediate Cache Response)
+        // 5. Socket Handshake (Triggers the Immediate Cache Response for planes)
         if (sectorOpsSocket && sectorOpsSocket.connected) {
             sectorOpsSocket.emit('join_server_room', currentServerName);
         }
 
         // 6. Trigger ATC/NOTAM Refresh
-        // This will fetch the new data and call renderAirportMarkers() again when finished.
+        // This will fetch the NEW data and call renderAirportMarkers() again when finished.
         updateSectorOpsSecondaryData();
     }
 
