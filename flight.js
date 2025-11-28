@@ -2005,6 +2005,101 @@ function injectCustomStyles() {
             }
         }
 
+        .apt-quick-info-strip {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 10px 16px;
+    background: rgba(0, 0, 0, 0.2);
+    border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+    font-size: 0.75rem;
+    color: #94a3b8;
+    overflow-x: auto;
+    white-space: nowrap;
+}
+
+.apt-feature-pill {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    background: rgba(255, 255, 255, 0.03);
+    padding: 3px 8px;
+    border-radius: 4px;
+    border: 1px solid rgba(255, 255, 255, 0.05);
+    font-weight: 600;
+}
+
+.apt-dashboard-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr; /* Two equal columns */
+    gap: 8px;
+    padding: 0 16px; /* Horizontal padding only */
+    margin-bottom: 8px;
+}
+
+/* On mobile, stack them back to 1 column */
+@media (max-width: 600px) {
+    .apt-dashboard-grid {
+        grid-template-columns: 1fr;
+    }
+}
+
+.apt-mini-module {
+    background: rgba(15, 23, 42, 0.6);
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    border-radius: 8px;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+}
+
+.apt-mini-header {
+    background: rgba(255, 255, 255, 0.03);
+    padding: 6px 10px;
+    font-size: 0.7rem;
+    font-weight: 700;
+    color: #94a3b8;
+    text-transform: uppercase;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+}
+
+.apt-mini-body {
+    padding: 10px;
+    flex-grow: 1;
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+}
+
+.stat-grid-compact {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 8px;
+}
+
+.compact-stat-box {
+    text-align: center;
+    background: rgba(255, 255, 255, 0.02);
+    border-radius: 4px;
+    padding: 4px;
+}
+.compact-label { font-size: 0.6rem; color: #64748b; display: block; }
+.compact-value { font-family: 'Consolas', monospace; font-size: 0.9rem; color: #e2e8f0; font-weight: 600; }
+
+.metar-strip {
+    background: rgba(0, 0, 0, 0.3);
+    padding: 8px 16px;
+    font-family: 'Consolas', monospace;
+    font-size: 0.7rem;
+    color: #94a3b8;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+    white-space: pre-wrap;
+    line-height: 1.3;
+}
+
     `;
 
     const style = document.createElement('style');
@@ -4762,7 +4857,7 @@ function updatePfdDisplay(pfdData) {
 
 
 /**
- * --- [UPDATED] Generates HTML for the Airport Info Window ---
+ * --- [UPDATED DECONGESTED] Generates HTML for the Airport Info Window ---
  */
 async function createAirportInfoWindowHTML(icao) {
     // 1. Get Static Data (Fallback from airports.json)
@@ -4788,13 +4883,11 @@ async function createAirportInfoWindowHTML(icao) {
     let trafficFetchSuccess = false;
 
     try {
-        // A. Get Session ID for current server
         const sessionsRes = await fetch(`${ACARS_SOCKET_URL}/if-sessions`);
         const sessionsData = await sessionsRes.json();
         const sessionId = getCurrentSessionId(sessionsData);
 
         if (sessionId) {
-            // B. Call the Status Endpoint
             const statusRes = await fetch(`${ACARS_SOCKET_URL}/api/live/airport/${sessionId}/${icao}/status`);
             if (statusRes.ok) {
                 const statusJson = await statusRes.json();
@@ -4842,85 +4935,112 @@ async function createAirportInfoWindowHTML(icao) {
     const airportRunways = runwaysData[icao] || [];
 
     // --- [NEW] Calculate Congestion ---
-    // We pass the inbound flight IDs and the airport coordinates
     const congestionStats = calculateAirportCongestion(inbounds, coords);
-    // Generate the HTML for the module
-    const congestionHtml = generateTrafficForecastHTML(congestionStats);
+    
+    // --- [RE-DESIGNED] Traffic Forecast HTML (Simplified) ---
+    // We calculate percentages for the mini bar
+    const tTotal = congestionStats.imminent + congestionStats.approach + congestionStats.enroute;
+    const tpImm = tTotal > 0 ? (congestionStats.imminent / tTotal) * 100 : 0;
+    const tpApp = tTotal > 0 ? (congestionStats.approach / tTotal) * 100 : 0;
+    const tpEnr = tTotal > 0 ? (congestionStats.enroute / tTotal) * 100 : 0;
 
-    // --- Weather Logic ---
-    let weatherHtml = '';
+    const trafficModuleHtml = `
+    <div class="apt-mini-module">
+        <div class="apt-mini-header">
+            <span><i class="fa-solid fa-chart-pie"></i> TRAFFIC FLOW</span>
+            <span style="color: ${congestionStats.color};">${congestionStats.level}</span>
+        </div>
+        <div class="apt-mini-body">
+            <div style="display: flex; justify-content: space-between; margin-bottom: 6px;">
+                <div class="compact-stat-box" style="flex:1; margin-right:4px;">
+                    <span class="compact-value" style="color:#ef4444">${congestionStats.imminent}</span>
+                    <span class="compact-label">FINAL</span>
+                </div>
+                <div class="compact-stat-box" style="flex:1; margin-right:4px;">
+                    <span class="compact-value" style="color:#f59e0b">${congestionStats.approach}</span>
+                    <span class="compact-label">APPR</span>
+                </div>
+                <div class="compact-stat-box" style="flex:1;">
+                    <span class="compact-value" style="color:#38bdf8">${congestionStats.enroute}</span>
+                    <span class="compact-label">ENR</span>
+                </div>
+            </div>
+            <div style="height: 4px; width: 100%; background: #1e293b; border-radius: 2px; display: flex; overflow: hidden;">
+                <div style="width: ${tpImm}%; background: #ef4444;"></div>
+                <div style="width: ${tpApp}%; background: #f59e0b;"></div>
+                <div style="width: ${tpEnr}%; background: #38bdf8;"></div>
+            </div>
+            <div style="font-size: 0.65rem; color: #64748b; text-align: center; margin-top: 6px;">
+                 Trend: <span style="color: #e2e8f0;">${congestionStats.trend}</span>
+            </div>
+        </div>
+    </div>
+    `;
+
+    // --- [RE-DESIGNED] Weather Logic ---
+    let weatherModuleHtml = '';
+    let metarString = '';
     let runwayRecHtml = ''; 
-    let flightCategory = 'WAITING';
-    let badgeClass = '';
     
     try {
         if (window.WeatherService) {
             const w = await window.WeatherService.fetchAndParseMetar(icao);
-            flightCategory = 'VFR'; badgeClass = 'wx-vfr';
-            if (w.raw.includes('LIFR')) { flightCategory = 'LIFR'; badgeClass = 'wx-lifr'; }
-            else if (w.raw.includes('IFR') || w.raw.includes('VV')) { flightCategory = 'IFR'; badgeClass = 'wx-ifr'; }
-            else if (w.raw.includes('MVFR')) { flightCategory = 'MVFR'; badgeClass = 'wx-mvfr'; }
-
-            const recs = getRunwayRecommendations(airportRunways, w.wind);
             
+            // Category Logic
+            let flightCategory = 'VFR'; 
+            let catColor = '#4ade80';
+            if (w.raw.includes('LIFR')) { flightCategory = 'LIFR'; catColor = '#c084fc'; }
+            else if (w.raw.includes('IFR') || w.raw.includes('VV')) { flightCategory = 'IFR'; catColor = '#f87171'; }
+            else if (w.raw.includes('MVFR')) { flightCategory = 'MVFR'; catColor = '#60a5fa'; }
+
+            metarString = w.raw;
+
+            // Recommendations
+            const recs = getRunwayRecommendations(airportRunways, w.wind);
             if (recs.length > 0) {
+                // Keep the accordion, but make it cleaner
                 runwayRecHtml = `
-                <div class="tech-module" style="margin-bottom: 8px;">
+                <div class="tech-module" style="margin: 0 16px 8px 16px;">
                     <div class="tech-module-header runway-dropdown-header" id="runway-accordion-toggle">
                         <span class="tech-module-title"><i class="fa-solid fa-road"></i> RECOMMENDED RUNWAYS</span>
                         <i class="fa-solid fa-chevron-down runway-toggle-icon"></i>
                     </div>
-                    <div class="tech-module-body runway-dropdown-content" id="runway-accordion-content">
-                        ${recs.map(r => {
-                            const windIcon = r.headwind >= 0 ? 'fa-arrow-down' : 'fa-arrow-up'; 
-                            const windColor = r.headwind >= 0 ? '#4ade80' : '#ef4444';
-                            return `
-                            <div style="background: rgba(255,255,255,0.03); border-left: 3px solid ${r.color === 'green' ? '#22c55e' : r.color === 'orange' ? '#f59e0b' : '#ef4444'}; border-radius: 4px; padding: 8px; display: flex; justify-content: space-between; align-items: center;">
-                                <div>
-                                    <div style="font-weight: 700; font-size: 1.1rem; color: #fff;">RWY ${r.ident}</div>
-                                    <div style="font-size: 0.65rem; color: ${r.color === 'green' ? '#86efac' : r.color === 'orange' ? '#fcd34d' : '#fca5a5'}; font-weight: 600;">${r.reason}</div>
-                                </div>
-                                <div style="text-align: right;">
-                                    <div style="font-size: 0.8rem; color: #e2e8f0; font-family: monospace;">
-                                        <i class="fa-solid ${windIcon}" style="color: ${windColor}; font-size: 0.7rem;"></i> ${Math.abs(r.headwind)}<span style="font-size: 0.6rem; color: #64748b;">KT</span>
-                                    </div>
-                                </div>
-                            </div>`;
-                        }).join('')}
+                    <div class="tech-module-body runway-dropdown-content" id="runway-accordion-content" style="background: rgba(15, 23, 42, 0.4);">
+                        ${recs.map(r => `
+                            <div style="display: flex; justify-content: space-between; align-items: center; padding: 6px 0; border-bottom: 1px solid rgba(255,255,255,0.05);">
+                                <div><span style="font-weight: 700; color: #fff;">RWY ${r.ident}</span> <span style="font-size: 0.65rem; color: ${r.color === 'green' ? '#86efac' : r.color === 'orange' ? '#fcd34d' : '#fca5a5'}; margin-left: 6px;">${r.reason}</span></div>
+                                <div style="font-size: 0.75rem; font-family: monospace; color: #94a3b8;"><i class="fa-solid ${r.headwind >= 0 ? 'fa-arrow-down' : 'fa-arrow-up'}"></i> ${Math.abs(r.headwind)}kt</div>
+                            </div>
+                        `).join('')}
                     </div>
                 </div>`;
-            } else {
-                runwayRecHtml = `<div class="tech-module" style="margin-bottom: 8px; padding: 12px; color: #64748b; font-size: 0.8rem; text-align: center;">No runway data available.</div>`;
             }
 
-            weatherHtml = `
-                <div class="tech-module" style="margin-bottom: 8px;">
-                    <div class="tech-module-header">
-                        <span class="tech-module-title"><i class="fa-solid fa-cloud-sun"></i> LIVE METAR</span>
-                        <span class="tech-badge" style="background: rgba(255,255,255,0.1); color: #fff;">${new Date().toLocaleTimeString('en-GB', {hour:'2-digit', minute:'2-digit'})} Z</span>
+            weatherModuleHtml = `
+            <div class="apt-mini-module">
+                <div class="apt-mini-header">
+                    <span><i class="fa-solid fa-cloud-sun"></i> METAR</span>
+                    <span style="color: ${catColor}; border: 1px solid ${catColor}; padding: 0 4px; border-radius: 3px; font-size: 0.6rem;">${flightCategory}</span>
+                </div>
+                <div class="apt-mini-body">
+                    <div class="stat-grid-compact">
+                        <div class="compact-stat-box"><span class="compact-label">WIND</span><span class="compact-value" style="color: #38bdf8;">${w.wind}</span></div>
+                        <div class="compact-stat-box"><span class="compact-label">VIS</span><span class="compact-value">${w.visibility || '10KM'}</span></div>
+                        <div class="compact-stat-box"><span class="compact-label">TEMP</span><span class="compact-value" style="color: #fbbf24;">${w.temp}</span></div>
+                        <div class="compact-stat-box"><span class="compact-label">QNH</span><span class="compact-value">${w.qnh || '1013'}</span></div>
                     </div>
-                    <div class="tech-module-body">
-                        <div class="wx-condition-pill ${badgeClass}"><i class="fa-solid fa-plane-up"></i> ${flightCategory} CONDITIONS</div>
-                        <div class="weather-module-grid">
-                            <div class="wx-stat-box"><span class="wx-label">WIND</span><span class="wx-value" style="color: #38bdf8;">${w.wind}</span></div>
-                            <div class="wx-stat-box"><span class="wx-label">VIS</span><span class="wx-value">${w.visibility || '10KM'}</span></div>
-                            <div class="wx-stat-box"><span class="wx-label">TEMP</span><span class="wx-value" style="color: #fbbf24;">${w.temp}</span></div>
-                            <div class="wx-stat-box"><span class="wx-label">QNH</span><span class="wx-value">${w.qnh || '1013'}</span></div>
-                        </div>
-                        <div style="margin-top: 12px; padding: 8px; background: rgba(0,0,0,0.3); border-radius: 4px; border: 1px solid rgba(255,255,255,0.05);">
-                            <code style="font-family: monospace; color: #94a3b8; font-size: 0.75rem; line-height: 1.4; display: block; word-break: break-all;">${w.raw}</code>
-                        </div>
-                    </div>
-                </div>`;
+                </div>
+            </div>`;
         } else {
-            weatherHtml = '<div class="tech-module"><div class="tech-module-body"><p class="muted-text">Weather service unavailable.</p></div></div>';
+            weatherModuleHtml = `<div class="apt-mini-module"><div class="apt-mini-body"><p class="muted-text">Weather Unavailable</p></div></div>`;
         }
     } catch (err) {
-        weatherHtml = '<div class="tech-module"><div class="tech-module-body"><p class="muted-text">Weather data offline.</p></div></div>';
+        weatherModuleHtml = `<div class="apt-mini-module"><div class="apt-mini-body"><p class="muted-text">Weather Offline</p></div></div>`;
     }
 
-    // --- Attributes Module ---
-    let featuresHtml = '';
+    // --- [RE-DESIGNED] Feature Strip (The Decongestion Key) ---
+    // Instead of a box, we make a horizontal scrollable strip of pills
+    let featureStripHtml = '';
     if (liveData) {
         const features = [
             { key: 'hasJetbridges', label: 'Jetbridges', icon: 'fa-person-walking-luggage' },
@@ -4928,39 +5048,24 @@ async function createAirportInfoWindowHTML(icao) {
             { key: 'hasTaxiwayRouting', label: 'Drag & Taxi', icon: 'fa-route' }
         ];
 
-        const featurePills = features.map(f => {
-            const isActive = liveData[f.key];
-            const color = isActive ? '#4ade80' : '#475569';
-            const opacity = isActive ? '1' : '0.5';
-            return `
-                <div style="display: flex; align-items: center; gap: 6px; opacity: ${opacity}; color: ${isActive ? '#e2e8f0' : '#64748b'}; font-size: 0.7rem; font-weight: 600; background: rgba(255,255,255,0.03); padding: 4px 8px; border-radius: 4px; border: 1px solid ${isActive ? 'rgba(74, 222, 128, 0.2)' : 'transparent'};">
-                    <i class="fa-solid ${f.icon}" style="color: ${color};"></i> ${f.label}
-                </div>
-            `;
-        }).join('');
-
         const aptClass = liveData.class ? `Class ${liveData.class}` : 'N/A';
         const timezone = liveData.timezone ? liveData.timezone.split(' ')[0] : 'UTC';
 
-        featuresHtml = `
-            <div class="tech-module" style="margin-bottom: 8px;">
-                <div class="tech-module-body" style="padding: 12px;">
-                    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px; border-bottom: 1px solid rgba(255,255,255,0.05); padding-bottom: 8px;">
-                        <div style="display: flex; gap: 12px;">
-                            <span style="font-size: 0.75rem; color: #94a3b8;"><i class="fa-solid fa-earth-americas"></i> ${timezone}</span>
-                            <span style="font-size: 0.75rem; color: #94a3b8;"><i class="fa-solid fa-ranking-star"></i> ${aptClass}</span>
-                        </div>
-                        <span style="font-size: 0.75rem; color: #94a3b8;">${countryName}</span>
-                    </div>
-                    <div style="display: flex; gap: 8px; flex-wrap: wrap;">
-                        ${featurePills}
-                    </div>
-                </div>
+        featureStripHtml = `
+            <div class="apt-quick-info-strip">
+                <div class="apt-feature-pill"><i class="fa-solid fa-earth-americas"></i> ${timezone}</div>
+                <div class="apt-feature-pill"><i class="fa-solid fa-ranking-star"></i> ${aptClass}</div>
+                ${features.map(f => {
+                    if (liveData[f.key]) {
+                        return `<div class="apt-feature-pill" style="color: #cbd5e1; border-color: rgba(74, 222, 128, 0.3); background: rgba(74, 222, 128, 0.05);"><i class="fa-solid ${f.icon}" style="color: #4ade80;"></i> ${f.label}</div>`;
+                    }
+                    return '';
+                }).join('')}
             </div>
         `;
     }
 
-    // --- Traffic Section ---
+    // --- Traffic Section (Tab Content) ---
     let trafficHtml = '';
     if (!trafficFetchSuccess) {
         trafficHtml = '<div style="padding: 20px; text-align: center; color: #64748b;">Traffic data unavailable.</div>';
@@ -4981,13 +5086,10 @@ async function createAirportInfoWindowHTML(icao) {
                 const acData = typeof props.aircraft === 'string' ? JSON.parse(props.aircraft || '{}') : (props.aircraft || {});
                 const acName = acData.aircraftName || 'Aircraft';
                 acBadge = acName.split(' ')[0].substring(0,4).toUpperCase();
+                // Simple badge logic
                 if(acName.includes('777')) acBadge='B777';
                 else if(acName.includes('737')) acBadge='B737';
                 else if(acName.includes('320')) acBadge='A320';
-                else if(acName.includes('321')) acBadge='A321';
-                else if(acName.includes('350')) acBadge='A350';
-                else if(acName.includes('380')) acBadge='A380';
-                else if(acName.includes('787')) acBadge='B787';
                 airlineCode = extractAirlineCode(callsign);
             } 
             
@@ -4995,29 +5097,29 @@ async function createAirportInfoWindowHTML(icao) {
             const color = type === 'in' ? '#4ade80' : '#38bdf8'; 
 
             return `
-            <div class="route-card" style="border-left: 3px solid ${color};">
+            <div class="route-card" style="border-left: 3px solid ${color}; padding: 8px 12px;">
                 <div class="route-info">
-                    <div class="route-callsign">
-                        <img src="Images/vas/${airlineCode}.png" style="height: 16px; width: auto; max-width: 40px;" onerror="this.style.display='none'"> 
+                    <div class="route-callsign" style="font-size: 0.95rem;">
+                        <img src="Images/vas/${airlineCode}.png" style="height: 14px; width: auto; max-width: 30px;" onerror="this.style.display='none'"> 
                         ${callsign}
                     </div>
-                    <div class="route-details">
-                        <span class="route-ac-badge">${acBadge}</span>
+                    <div class="route-details" style="font-size: 0.7rem;">
+                        <span class="route-ac-badge" style="font-size: 0.65rem;">${acBadge}</span>
                         <span>${username}</span>
                     </div>
                 </div>
-                <div style="font-size: 0.8rem; font-weight: bold; color: ${color};">
-                    <i class="fa-solid ${icon}"></i> ${type === 'in' ? 'INBOUND' : 'OUTBOUND'}
+                <div style="font-size: 0.7rem; font-weight: bold; color: ${color};">
+                    <i class="fa-solid ${icon}"></i>
                 </div>
             </div>`;
         };
 
         const inboundsHtml = inbounds.length > 0 
-            ? `<div style="margin-bottom: 8px;"><div style="font-size: 0.7rem; color: #94a3b8; font-weight: 700; margin-bottom: 4px;">INBOUND (${inbounds.length})</div>${inbounds.map(id => renderFlightCard(id, 'in')).join('')}</div>` 
+            ? `<div style="margin-bottom: 8px;"><div style="font-size: 0.7rem; color: #94a3b8; font-weight: 700; margin-bottom: 4px; padding-left: 4px;">INBOUND (${inbounds.length})</div>${inbounds.map(id => renderFlightCard(id, 'in')).join('')}</div>` 
             : '';
             
         const outboundsHtml = outbounds.length > 0 
-            ? `<div><div style="font-size: 0.7rem; color: #94a3b8; font-weight: 700; margin-bottom: 4px;">OUTBOUND (${outbounds.length})</div>${outbounds.map(id => renderFlightCard(id, 'out')).join('')}</div>` 
+            ? `<div><div style="font-size: 0.7rem; color: #94a3b8; font-weight: 700; margin-bottom: 4px; padding-left: 4px;">OUTBOUND (${outbounds.length})</div>${outbounds.map(id => renderFlightCard(id, 'out')).join('')}</div>` 
             : '';
 
         trafficHtml = `<div style="padding: 12px; display: flex; flex-direction: column; gap: 4px;">${inboundsHtml}${outboundsHtml}</div>`;
@@ -5029,18 +5131,18 @@ async function createAirportInfoWindowHTML(icao) {
         atcHtml = `<div style="padding: 12px;">${atcForAirport.map(f => {
             const typeName = atcTypeToString(f.type);
             let badgeClass = f.type === 1 ? 'atc-type-twr' : f.type === 0 ? 'atc-type-gnd' : (f.type === 4 || f.type === 5) ? 'atc-type-app' : 'atc-type-obs';
-            return `<div class="atc-grid-card"><div style="display: flex; align-items: center; gap: 12px;"><span class="atc-type-badge ${badgeClass}">${typeName}</span><span class="atc-controller">${f.username || 'Unknown'}</span></div><span class="atc-duration"><i class="fa-regular fa-clock"></i> ${formatAtcDuration(f.startTime)}</span></div>`;
+            return `<div class="atc-grid-card" style="padding: 8px;"><div style="display: flex; align-items: center; gap: 12px;"><span class="atc-type-badge ${badgeClass}" style="width: 60px; font-size: 0.65rem;">${typeName}</span><span class="atc-controller" style="font-size: 0.85rem;">${f.username || 'Unknown'}</span></div><span class="atc-duration" style="font-size: 0.75rem;"><i class="fa-regular fa-clock"></i> ${formatAtcDuration(f.startTime)}</span></div>`;
         }).join('')}</div>`;
     }
 
     // --- NOTAMs Section ---
     let notamsHtml = '<div style="padding: 20px; text-align: center; color: #64748b;">No active NOTAMs.</div>';
     if (notamsForAirport.length > 0) {
-        notamsHtml = `<div style="padding: 12px; display: flex; flex-direction: column; gap: 8px;">${notamsForAirport.map(n => `<div style="background: rgba(234, 179, 8, 0.1); border-left: 3px solid #eab308; padding: 10px; border-radius: 4px; color: #fef08a; font-family: monospace; font-size: 0.8rem;"><i class="fa-solid fa-triangle-exclamation"></i> ${n.message}</div>`).join('')}</div>`;
+        notamsHtml = `<div style="padding: 12px; display: flex; flex-direction: column; gap: 8px;">${notamsForAirport.map(n => `<div style="background: rgba(234, 179, 8, 0.1); border-left: 3px solid #eab308; padding: 8px; border-radius: 4px; color: #fef08a; font-family: monospace; font-size: 0.75rem;"><i class="fa-solid fa-triangle-exclamation"></i> ${n.message}</div>`).join('')}</div>`;
     }
 
     // --- Final Assembly ---
-    // [NEW] Added congestionHtml here
+    // The key here is the new grid layout and the removed heavy containers
     return `
         <div class="airport-hero">
             <div class="hero-actions">
@@ -5059,12 +5161,22 @@ async function createAirportInfoWindowHTML(icao) {
             <i class="fa-solid fa-plane-departure" style="font-size: 6rem; color: rgba(255,255,255,0.03); position: absolute; right: -10px; bottom: -20px; transform: rotate(-15deg);"></i>
         </div>
 
-        <div style="padding: 16px; flex-grow: 1; overflow-y: auto;">
-            ${featuresHtml}
-            ${congestionHtml} ${weatherHtml}
-            ${runwayRecHtml} 
+        ${featureStripHtml}
 
-            <div class="tech-module" style="min-height: 300px; display: flex; flex-direction: column;">
+        <div style="flex-grow: 1; overflow-y: auto; padding-top: 12px;">
+            
+            <div class="apt-dashboard-grid">
+                ${weatherModuleHtml}
+                ${trafficModuleHtml}
+            </div>
+
+            ${metarString ? `<div class="metar-strip">${metarString}</div>` : ''}
+
+            <div style="margin-top: 12px;">
+                ${runwayRecHtml}
+            </div>
+
+            <div class="tech-module" style="min-height: 300px; display: flex; flex-direction: column; margin: 0 16px 16px 16px; border: 1px solid rgba(255,255,255,0.05);">
                 <div class="apt-tabs-header">
                     <button class="apt-tab-btn active" data-target="apt-traffic"><i class="fa-solid fa-plane-circle-check"></i> TRAFFIC</button>
                     <button class="apt-tab-btn" data-target="apt-atc"><i class="fa-solid fa-headset"></i> ATC</button>
