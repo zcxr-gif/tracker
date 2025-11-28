@@ -2015,6 +2015,152 @@ function injectCustomStyles() {
 }
 
 /**
+ * --- [NEW] Calculates airport congestion based on live telemetry ---
+ * analyzing the inbound flight list against live map positions.
+ */
+function calculateAirportCongestion(inboundFlightIds, airportCoords) {
+    // 1. Setup Buckets & Thresholds
+    const congestion = {
+        imminent: 0,   // < 10 mins (Landing/Final)
+        approach: 0,   // 10-20 mins (Vectoring/STAR)
+        enroute: 0,    // 20+ mins
+        score: 0,      // Calculated "Stress Score"
+        level: 'LOW',  // Display Label
+        color: '#4ade80', // Display Color (Green)
+        trend: 'STEADY',
+        avgHoldTime: 0
+    };
+
+    if (!inboundFlightIds || inboundFlightIds.length === 0 || !airportCoords) {
+        return congestion;
+    }
+
+    let totalEtaMinutes = 0;
+    let countedFlights = 0;
+
+    // 2. Process Each Inbound Flight
+    inboundFlightIds.forEach(flightId => {
+        // Look up the flight in our live map cache
+        const feature = currentMapFeatures[flightId];
+        
+        if (feature && feature.properties && feature.properties.position) {
+            try {
+                // Parse position data
+                const pos = typeof feature.properties.position === 'string' 
+                    ? JSON.parse(feature.properties.position) 
+                    : feature.properties.position;
+
+                // Calculate Distance & Speed
+                const distKm = getDistanceKm(airportCoords.lat, airportCoords.lon, pos.lat, pos.lon);
+                const distNM = distKm / 1.852;
+                
+                // Use Ground Speed (clamp minimum to 50kts to avoid infinity for parked/slow planes)
+                const gs = Math.max(pos.gs_kt || 0, 50); 
+                
+                // Calculate ETA in Minutes
+                const minutesToArr = (distNM / gs) * 60;
+
+                // Bucket the Traffic
+                if (minutesToArr < 12) {
+                    congestion.imminent++;
+                } else if (minutesToArr < 25) {
+                    congestion.approach++;
+                } else {
+                    congestion.enroute++;
+                }
+                
+                totalEtaMinutes += minutesToArr;
+                countedFlights++;
+
+            } catch (e) {
+                // Ignore flights with bad data
+            }
+        } else {
+            // Flight is "Inbound" according to IF API, but not streamed yet (far out)
+            congestion.enroute++;
+        }
+    });
+
+    // 3. Calculate "Stress Score" (Weighted algorithm)
+    // Imminent traffic counts 3x more towards stress than approach traffic
+    // Single runway capacity is approx ~1 arrival every 2 mins (conservative)
+    congestion.score = (congestion.imminent * 3) + (congestion.approach * 1);
+
+    // 4. Determine Level
+    if (congestion.score >= 15) {
+        congestion.level = 'SEVERE';
+        congestion.color = '#ef4444'; // Red
+        congestion.trend = 'EXPECT HOLDS';
+        congestion.avgHoldTime = Math.round((congestion.score - 10) * 2); // Rough estimate
+    } else if (congestion.score >= 8) {
+        congestion.level = 'HEAVY';
+        congestion.color = '#f59e0b'; // Orange
+        congestion.trend = 'BUSY';
+    } else if (congestion.score >= 4) {
+        congestion.level = 'MODERATE';
+        congestion.color = '#38bdf8'; // Blue
+        congestion.trend = 'STEADY';
+    } else {
+        congestion.level = 'LIGHT';
+        congestion.color = '#4ade80'; // Green
+        congestion.trend = 'FREE FLOW';
+    }
+
+    return congestion;
+}
+
+/**
+ * --- [NEW] Generates the HTML for the Traffic Forecast Module ---
+ */
+function generateTrafficForecastHTML(congestion) {
+    // Calculate percentages for the flow bar
+    const total = congestion.imminent + congestion.approach + congestion.enroute;
+    const pImm = total > 0 ? (congestion.imminent / total) * 100 : 0;
+    const pApp = total > 0 ? (congestion.approach / total) * 100 : 0;
+    const pEnr = total > 0 ? (congestion.enroute / total) * 100 : 0;
+
+    return `
+    <div class="tech-module" style="margin-bottom: 8px;">
+        <div class="tech-module-header">
+            <span class="tech-module-title"><i class="fa-solid fa-chart-pie"></i> TRAFFIC FORECAST</span>
+            <span class="tech-badge" style="background: rgba(255,255,255,0.05); color: ${congestion.color}; border-color: ${congestion.color};">
+                ${congestion.level}
+            </span>
+        </div>
+        <div class="tech-module-body" style="padding: 12px;">
+            
+            <div style="display: flex; justify-content: space-between; margin-bottom: 8px;">
+                <div style="text-align: center; flex: 1;">
+                    <div style="font-size: 1.2rem; font-weight: 700; color: #fff;">${congestion.imminent}</div>
+                    <div style="font-size: 0.6rem; color: #ef4444; font-weight: 600; text-transform: uppercase;">Final (< 12m)</div>
+                </div>
+                <div style="text-align: center; flex: 1; border-left: 1px solid rgba(255,255,255,0.1); border-right: 1px solid rgba(255,255,255,0.1);">
+                    <div style="font-size: 1.2rem; font-weight: 700; color: #fff;">${congestion.approach}</div>
+                    <div style="font-size: 0.6rem; color: #f59e0b; font-weight: 600; text-transform: uppercase;">Appr (12-25m)</div>
+                </div>
+                <div style="text-align: center; flex: 1;">
+                    <div style="font-size: 1.2rem; font-weight: 700; color: #fff;">${congestion.enroute}</div>
+                    <div style="font-size: 0.6rem; color: #38bdf8; font-weight: 600; text-transform: uppercase;">Enroute (25m+)</div>
+                </div>
+            </div>
+
+            <div style="height: 6px; width: 100%; background: #1e293b; border-radius: 3px; display: flex; overflow: hidden; margin-top: 10px;">
+                <div style="width: ${pImm}%; background: #ef4444;"></div>
+                <div style="width: ${pApp}%; background: #f59e0b;"></div>
+                <div style="width: ${pEnr}%; background: #38bdf8;"></div>
+            </div>
+            
+            <div style="margin-top: 8px; font-size: 0.75rem; color: #94a3b8; text-align: center; font-style: italic;">
+                <i class="fa-solid fa-arrow-trend-up"></i> Status: <span style="color: #e2e8f0; font-weight: 600;">${congestion.trend}</span>
+                ${congestion.avgHoldTime > 0 ? `<span style="margin-left: 8px; color: #ef4444;">(Est. Delay: ~${congestion.avgHoldTime}m)</span>` : ''}
+            </div>
+
+        </div>
+    </div>
+    `;
+}
+
+/**
      * --- [NEW] Helper to find the session ID for the currently selected server ---
      */
     function getCurrentSessionId(sessionsData) {
@@ -4617,7 +4763,6 @@ function updatePfdDisplay(pfdData) {
 
 /**
  * --- [UPDATED] Generates HTML for the Airport Info Window ---
- * FIX: Looks up flight details in currentMapFeatures using the ID from the Status API.
  */
 async function createAirportInfoWindowHTML(icao) {
     // 1. Get Static Data (Fallback from airports.json)
@@ -4695,6 +4840,12 @@ async function createAirportInfoWindowHTML(icao) {
     const atcForAirport = activeAtcFacilities.filter(f => f.airportName === icao);
     const notamsForAirport = activeNotams.filter(n => n.airportIcao === icao);
     const airportRunways = runwaysData[icao] || [];
+
+    // --- [NEW] Calculate Congestion ---
+    // We pass the inbound flight IDs and the airport coordinates
+    const congestionStats = calculateAirportCongestion(inbounds, coords);
+    // Generate the HTML for the module
+    const congestionHtml = generateTrafficForecastHTML(congestionStats);
 
     // --- Weather Logic ---
     let weatherHtml = '';
@@ -4809,37 +4960,26 @@ async function createAirportInfoWindowHTML(icao) {
         `;
     }
 
-    // --- [NEW FIX] LIVE TRAFFIC (Replacess Routes) ---
+    // --- Traffic Section ---
     let trafficHtml = '';
-    
     if (!trafficFetchSuccess) {
         trafficHtml = '<div style="padding: 20px; text-align: center; color: #64748b;">Traffic data unavailable.</div>';
     } else if (inbounds.length === 0 && outbounds.length === 0) {
         trafficHtml = '<div style="padding: 20px; text-align: center; color: #64748b;">No live traffic found.</div>';
     } else {
-        // --- FIXED HELPER: Look up details via Flight ID ---
         const renderFlightCard = (flightId, type) => {
-            // 1. Try to look up the full feature in our map cache
-            // Note: If you are filtering flights on the map (e.g. "?callsignEndsWith=GO"),
-            // flights not matching that filter WON'T be in currentMapFeatures, so they will show as "Unknown".
             const cachedFeature = currentMapFeatures[flightId];
-            
-            // 2. Default Values
             let callsign = 'Unknown Flight';
             let username = 'Unknown Pilot';
             let acBadge = '---';
             let airlineCode = 'UNKNOWN';
 
-            // 3. Fill details if found
             if (cachedFeature && cachedFeature.properties) {
                 const props = cachedFeature.properties;
                 callsign = props.callsign || callsign;
                 username = props.username || username;
-
-                // Aircraft Name Logic
                 const acData = typeof props.aircraft === 'string' ? JSON.parse(props.aircraft || '{}') : (props.aircraft || {});
                 const acName = acData.aircraftName || 'Aircraft';
-                
                 acBadge = acName.split(' ')[0].substring(0,4).toUpperCase();
                 if(acName.includes('777')) acBadge='B777';
                 else if(acName.includes('737')) acBadge='B737';
@@ -4848,12 +4988,11 @@ async function createAirportInfoWindowHTML(icao) {
                 else if(acName.includes('350')) acBadge='A350';
                 else if(acName.includes('380')) acBadge='A380';
                 else if(acName.includes('787')) acBadge='B787';
-
                 airlineCode = extractAirlineCode(callsign);
             } 
             
             const icon = type === 'in' ? 'fa-plane-arrival' : 'fa-plane-departure';
-            const color = type === 'in' ? '#4ade80' : '#38bdf8'; // Green for In, Blue for Out
+            const color = type === 'in' ? '#4ade80' : '#38bdf8'; 
 
             return `
             <div class="route-card" style="border-left: 3px solid ${color};">
@@ -4901,6 +5040,7 @@ async function createAirportInfoWindowHTML(icao) {
     }
 
     // --- Final Assembly ---
+    // [NEW] Added congestionHtml here
     return `
         <div class="airport-hero">
             <div class="hero-actions">
@@ -4921,7 +5061,7 @@ async function createAirportInfoWindowHTML(icao) {
 
         <div style="padding: 16px; flex-grow: 1; overflow-y: auto;">
             ${featuresHtml}
-            ${weatherHtml}
+            ${congestionHtml} ${weatherHtml}
             ${runwayRecHtml} 
 
             <div class="tech-module" style="min-height: 300px; display: flex; flex-direction: column;">
