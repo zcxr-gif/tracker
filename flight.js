@@ -2058,6 +2058,16 @@ function injectCustomStyles() {
 
         liveTrailCache.clear();
         
+        // --- FIX START: Force Mapbox Source to Empty Immediately ---
+        // This ensures the visual layer is wiped even if MapAnimator is slightly out of sync
+        if (sectorOpsMap && sectorOpsMap.getSource('sector-ops-live-flights-source')) {
+            sectorOpsMap.getSource('sector-ops-live-flights-source').setData({
+                type: 'FeatureCollection',
+                features: []
+            });
+        }
+        // --- FIX END ---
+        
         // Clear MapAnimator (Crucial for ghost planes)
         if (mapAnimator) {
             // Because we cleared currentMapFeatures in place above, 
@@ -2073,14 +2083,6 @@ function injectCustomStyles() {
             // Close window programmatically
             const closeBtn = document.querySelector('.aircraft-window-close-btn');
             if (closeBtn) closeBtn.click();
-        }
-
-        // 3. Clear Map Source Data immediately (Redundant safety check)
-        if (sectorOpsMap && sectorOpsMap.getSource('sector-ops-live-flights-source')) {
-            sectorOpsMap.getSource('sector-ops-live-flights-source').setData({
-                type: 'FeatureCollection',
-                features: []
-            });
         }
 
         // 4. Socket Handshake
@@ -3447,9 +3449,9 @@ function handleSocketFlightUpdate(data) {
         return;
     }
     
-    // --- [FIX] Race Condition Check ---
+    // --- [FIX] Race Condition Check (Case Insensitive) ---
     // Ignore packets that don't match the currently selected server.
-    if (data.server && data.server !== currentServerName) {
+    if (data.server && data.server.toLowerCase() !== currentServerName.toLowerCase()) {
         return; 
     }
     
@@ -9509,7 +9511,10 @@ function stopSectorOpsLiveLoop() {
     }
 
     // 4. Clear the feature state
-    currentMapFeatures = {};
+    // FIX: Clear in place so MapAnimator keeps the reference
+    for (const key in currentMapFeatures) {
+        delete currentMapFeatures[key];
+    }
 }
 
 
