@@ -3810,6 +3810,24 @@ function initializeSectorOpsSocket() {
     // Listen for the broadcasted flight data
     sectorOpsSocket.on('all_flights_update', handleSocketFlightUpdate);
 
+    // --- [NEW FIX] Listen for ATC/NOTAM updates (Secondary Data) ---
+    // This catches the immediate packet sent after joining the room
+    sectorOpsSocket.on('secondary_data_update', (data) => {
+        // Validation: Ensure packet belongs to current server
+        if (!data || !data.server || data.server.toLowerCase() !== currentServerName.toLowerCase()) {
+            return;
+        }
+
+        console.log(`Socket: Received secondary update (ATC/NOTAMs) for ${data.server}`);
+
+        // Update State
+        activeAtcFacilities = (data.atc && Array.isArray(data.atc)) ? data.atc : [];
+        activeNotams = (data.notams && Array.isArray(data.notams)) ? data.notams : [];
+
+        // Redraw Map Markers Immediately
+        renderAirportMarkers();
+    });
+
     sectorOpsSocket.on('disconnect', (reason) => {
         console.warn(`Socket: Disconnected. Reason: ${reason}`);
     });
