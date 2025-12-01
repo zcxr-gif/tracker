@@ -69,7 +69,6 @@ document.addEventListener('DOMContentLoaded', async () => {
     let cachedFlightDataForStatsView = { flightProps: null, plan: null };
     let mapFilters = {
         showVaOnly: false,
-        simplifyAircraftView: false,
         showStaffOnly: false,
         hideAllAircraft: false,
         showAtcAirportsOnly: false,
@@ -570,8 +569,7 @@ function injectCustomStyles() {
 
         .cockpit-view {
             position: relative;
-            width: 100%; /* Changed from fixed width to fill container */
-            max-width: 200px; /* Cap width for aesthetics */
+            width: 140px;
             height: 80px;
             background: #1a1a1a;
             border-radius: 40px 40px 10px 10px;
@@ -581,8 +579,6 @@ function injectCustomStyles() {
             padding: 10px 20px;
             box-sizing: border-box;
             margin-bottom: 10px;
-            margin-left: auto;
-            margin-right: auto;
         }
 
         .cockpit-view::after {
@@ -778,28 +774,16 @@ function injectCustomStyles() {
             background: transparent; 
         }
 
-        /* --- [FIXED] LAYOUT GRID: STACKED --- */
         .pfd-and-location-grid { 
-            display: flex;
-            flex-direction: column;
-            gap: 12px;
-        }
-
-        /* --- [NEW] DASHBOARD SPLIT ROW --- */
-        /* Used to put FMS and Seat Sensor/Nav side-by-side below PFD */
-        .dashboard-split-row {
-            display: grid;
-            grid-template-columns: 1fr 1fr;
-            gap: 12px;
-            width: 100%;
+            display: grid; 
+            grid-template-columns: 2fr 1fr; 
+            gap: 8px;
         }
 
         .info-right-col {
-            /* Now serves as a container for the bottom modules */
             display: flex;
             flex-direction: column;
-            gap: 12px;
-            width: 100%;
+            gap: 8px;
         }
         
         .fms-module-container {
@@ -815,7 +799,6 @@ function injectCustomStyles() {
             box-shadow: inset 0 0 20px rgba(0,0,0,0.8);
             box-sizing: border-box;
             overflow: hidden; 
-            width: 100%; /* Fill container */
         }
         .fms-header {
             background: #111;
@@ -897,7 +880,7 @@ function injectCustomStyles() {
         .stat-value { color: #fff; font-weight: bold; }
         .fms-empty-state { text-align: center; padding: 20px; color: #555; font-style: italic; }
 
-        /* --- REDESIGNED LOCATION DATA PANEL --- */
+        /* --- REDESIGNED LOCATION DATA PANEL (No Bleeding) --- */
         #location-data-panel {
             background: #0f1115;
             border-radius: 8px;
@@ -906,7 +889,7 @@ function injectCustomStyles() {
             width: 100%;
             display: flex;
             flex-direction: column;
-            overflow: visible;
+            overflow: visible; /* Allow content to dictate height */
         }
         .nav-header {
             background: #181b21;
@@ -981,11 +964,13 @@ function injectCustomStyles() {
             font-size: 1.0rem; /* Slightly smaller for better fit */
             color: #fff;
             font-weight: 600;
-            white-space: normal;  
-            overflow: visible;    
-            text-overflow: clip;  
-            word-wrap: break-word; 
-            line-height: 1.2;     
+            
+            /* The Critical Fixes */
+            white-space: normal;  /* Allow text to wrap */
+            overflow: visible;    /* Show all content */
+            text-overflow: clip;  /* Remove ellipsis */
+            word-wrap: break-word; /* Break long words if needed */
+            line-height: 1.2;     /* Tighter line height for wrapped text */
         }
         
         .nav-value.large { font-size: 1.2rem; }
@@ -993,13 +978,14 @@ function injectCustomStyles() {
         .nav-value.highlight { color: #4ade80; text-shadow: 0 0 5px rgba(74, 222, 128, 0.2); }
         .nav-value.accent { color: #f59e0b; }
         
+        /* FIX FOR ROWS: Allow wrapping inside rows too */
         .nav-row {
             display: flex;
             justify-content: space-between;
             align-items: baseline;
             width: 100%;
-            flex-wrap: wrap; 
-            gap: 4px; 
+            flex-wrap: wrap; /* Allow items to stack if they hit width limit */
+            gap: 4px; /* Space between wrapped items */
         }
         
         .nav-unit {
@@ -1013,9 +999,10 @@ function injectCustomStyles() {
 
         @media (max-width: 992px) {
             .info-window { width: 95vw; top: 10px; right: 2.5vw; left: 2.5vw; max-height: calc(100vh - 20px); }
-            .dashboard-split-row { grid-template-columns: 1fr; } /* Stack vertically on mobile */
+            .pfd-and-location-grid { grid-template-columns: 1fr; } 
             #fms-legs-module { display: none; }
             #location-data-panel { min-height: auto; }
+            /* On mobile, switch grid to 2 columns to give more space */
             .nav-grid-container { grid-template-columns: repeat(2, 1fr); }
             .nav-span-2 { grid-column: span 2; }
         }
@@ -1133,7 +1120,7 @@ function injectCustomStyles() {
             padding: 12px; 
             border-radius: 1rem; 
             box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.5); 
-            width: 100%; /* Ensure full width */
+            width: 100%; 
             box-sizing: border-box; 
             display: flex;
             flex-direction: column;
@@ -2113,341 +2100,6 @@ function injectCustomStyles() {
     line-height: 1.3;
 }
 
-        /* --- SIMPLIFIED TELEMETRY VIEW --- */
-        .simple-telemetry-grid {
-            display: grid;
-            grid-template-columns: repeat(3, 1fr);
-            gap: 12px;
-            padding: 20px;
-            background: #0f172a;
-            border-radius: 8px;
-            border: 1px solid rgba(255,255,255,0.05);
-            margin-bottom: 16px;
-        }
-        .simple-stat-box {
-            background: rgba(255,255,255,0.03);
-            border: 1px solid rgba(255,255,255,0.05);
-            border-radius: 8px;
-            padding: 15px;
-            display: flex;
-            flex-direction: column;
-            align-items: center;
-            justify-content: center;
-            aspect-ratio: 1.2; /* roughly square */
-        }
-        .simple-stat-label {
-            font-size: 0.8rem;
-            color: #94a3b8;
-            text-transform: uppercase;
-            font-weight: 600;
-            margin-bottom: 8px;
-        }
-        .simple-stat-value {
-            font-family: 'Consolas', monospace;
-            font-size: 1.8rem;
-            font-weight: 700;
-            color: #fff;
-            text-shadow: 0 0 10px rgba(0,0,0,0.5);
-            text-align: center;
-        }
-        .simple-stat-unit {
-            font-size: 0.9rem;
-            color: #64748b;
-            margin-left: 4px;
-        }
-        .simple-nav-strip {
-            background: rgba(30, 41, 59, 0.5);
-            border: 1px solid rgba(255, 255, 255, 0.05);
-            padding: 15px;
-            margin-bottom: 12px;
-            border-radius: 8px;
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-        }
-        .simple-env-row {
-            display: grid;
-            grid-template-columns: 1fr 1fr;
-            gap: 12px;
-            margin-bottom: 12px;
-        }
-        .simple-nav-point {
-            font-family: 'Consolas', monospace;
-            font-size: 1.1rem;
-            color: #38bdf8;
-            font-weight: 700;
-        }
-        .simple-nav-arrow {
-            color: #64748b;
-            font-size: 0.9rem;
-        }
-    `;
-
-    const style = document.createElement('style');
-    style.id = styleId;
-    style.type = 'text/css';
-    style.appendChild(document.createTextNode(css));
-    document.head.appendChild(style);
-}
-
-function injectNewSettingsStyles() {
-    const styleId = 'new-settings-modal-styles';
-    if (document.getElementById(styleId)) return;
-
-    const css = `
-        /* --- SETTINGS MODAL LAYOUT --- */
-        #filter-settings-window {
-            width: 800px !important; /* Wider to accommodate sidebar */
-            height: 500px !important;
-            max-width: 95vw;
-            max-height: 85vh;
-            display: flex;
-            flex-direction: column;
-            padding: 0;
-            background: #1e1e1e; /* Dark background from screenshot */
-            overflow: hidden;
-            border: 1px solid #333;
-            box-shadow: 0 20px 60px rgba(0,0,0,0.8);
-        }
-
-        #filter-settings-window .info-window-header {
-            background: #1e1e1e;
-            border-bottom: 1px solid #333;
-            padding: 15px 20px;
-        }
-
-        #filter-settings-window .info-window-content {
-            display: flex;
-            flex-direction: row;
-            padding: 0;
-            height: 100%;
-            overflow: hidden;
-        }
-
-        /* --- SIDEBAR NAVIGATION --- */
-        .settings-sidebar {
-            width: 240px;
-            background: #1e1e1e;
-            border-right: 1px solid #333;
-            padding: 15px 0;
-            display: flex;
-            flex-direction: column;
-            flex-shrink: 0;
-        }
-
-        .settings-category-label {
-            font-size: 0.75rem;
-            color: #888;
-            text-transform: uppercase;
-            padding: 10px 20px 5px 20px;
-            font-weight: 600;
-            letter-spacing: 0.5px;
-        }
-
-        .settings-nav-item {
-            padding: 10px 20px;
-            cursor: pointer;
-            color: #ccc;
-            font-size: 0.9rem;
-            display: flex;
-            align-items: center;
-            gap: 12px;
-            transition: all 0.2s;
-            border-left: 3px solid transparent;
-        }
-
-        .settings-nav-item:hover {
-            background: rgba(255,255,255,0.05);
-            color: #fff;
-        }
-
-        .settings-nav-item.active {
-            background: rgba(255,255,255,0.08);
-            color: #fff;
-            border-left-color: #00a8ff; /* Active Blue Accent */
-            font-weight: 500;
-        }
-
-        /* --- MAIN CONTENT AREA --- */
-        .settings-main-panel {
-            flex-grow: 1;
-            padding: 25px 40px;
-            overflow-y: auto;
-            background: #1e1e1e;
-        }
-
-        .settings-section-title {
-            font-size: 1.1rem;
-            color: #fff;
-            font-weight: 600;
-            margin-bottom: 20px;
-            display: flex;
-            align-items: center;
-            justify-content: space-between;
-        }
-
-        .settings-group-label {
-            font-size: 0.85rem;
-            color: #999;
-            margin-bottom: 10px;
-            margin-top: 20px;
-            font-weight: 500;
-        }
-        .settings-group-label:first-child { margin-top: 0; }
-
-        /* --- VISUAL SELECTION CARDS (For Markers/Map Type) --- */
-        .visual-selector-container {
-            display: flex;
-            flex-direction: column;
-            gap: 10px;
-        }
-
-        .visual-card {
-            background: #252525;
-            border: 1px solid #3a3a3a;
-            border-radius: 8px;
-            padding: 15px;
-            display: flex;
-            align-items: center;
-            justify-content: space-between;
-            cursor: pointer;
-            transition: all 0.2s ease;
-        }
-
-        .visual-card:hover {
-            border-color: #555;
-            background: #2a2a2a;
-        }
-
-        .visual-card.active {
-            border-color: #007acc; /* Blue border for active */
-            background: rgba(0, 122, 204, 0.05);
-        }
-
-        .visual-card-left {
-            display: flex;
-            align-items: center;
-            gap: 15px;
-        }
-
-        .visual-preview-box {
-            width: 50px;
-            height: 50px;
-            background: #111;
-            border-radius: 6px;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            border: 1px solid #333;
-        }
-
-        /* Simulating the radio circle on the right */
-        .custom-radio-circle {
-            width: 18px;
-            height: 18px;
-            border-radius: 50%;
-            border: 2px solid #555;
-            position: relative;
-        }
-
-        .visual-card.active .custom-radio-circle {
-            border-color: #007acc;
-        }
-        
-        .visual-card.active .custom-radio-circle::after {
-            content: '';
-            position: absolute;
-            top: 50%; left: 50%;
-            transform: translate(-50%, -50%);
-            width: 10px; height: 10px;
-            background: #007acc;
-            border-radius: 50%;
-        }
-
-        /* --- MAP TYPE GRID (Satellite vs Default) --- */
-        .map-type-grid {
-            display: grid;
-            grid-template-columns: 1fr 1fr;
-            gap: 15px;
-        }
-        
-        .map-type-card {
-            background: #252525;
-            border: 1px solid #3a3a3a;
-            border-radius: 8px;
-            overflow: hidden;
-            cursor: pointer;
-            transition: all 0.2s;
-            position: relative;
-        }
-
-        .map-type-card.active {
-            border-color: #007acc;
-        }
-
-        .map-type-preview {
-            height: 80px;
-            width: 100%;
-            background-size: cover;
-            background-position: center;
-        }
-
-        .map-type-label {
-            padding: 10px;
-            color: #ddd;
-            font-size: 0.9rem;
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-        }
-
-        /* --- TOGGLE SWITCH ROW STYLING (Matches Screenshot) --- */
-        .settings-toggle-row {
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-            padding: 12px 0;
-            border-bottom: 1px solid #2a2a2a;
-        }
-        .settings-toggle-row:last-child { border-bottom: none; }
-
-        .settings-toggle-text h4 {
-            margin: 0;
-            font-size: 0.95rem;
-            color: #eee;
-            font-weight: 500;
-        }
-        .settings-toggle-text p {
-            margin: 4px 0 0 0;
-            font-size: 0.8rem;
-            color: #888;
-        }
-
-        /* HIDE TAB CONTENT BY DEFAULT */
-        .settings-tab-content {
-            display: none;
-            animation: fadeIn 0.2s ease;
-        }
-        .settings-tab-content.active {
-            display: block;
-        }
-        
-        /* Mobile adjustment */
-        @media (max-width: 768px) {
-            #filter-settings-window {
-                width: 100% !important;
-                height: 100% !important;
-                top: 0 !important; right: 0 !important; 
-                max-width: 100vw; max-height: 100vh;
-                border-radius: 0;
-            }
-            .settings-sidebar {
-                width: 60px; /* Collapse sidebar */
-            }
-            .settings-nav-item span { display: none; } /* Hide text */
-            .settings-category-label { display: none; }
-            .settings-main-panel { padding: 15px; }
-        }
     `;
 
     const style = document.createElement('style');
@@ -6250,205 +5902,112 @@ function getIconImageExpression(colorMode = 'default') {
                 mapContainer.insertAdjacentHTML('beforeend', windowHtml);
             }
 
-            // --- 6. Inject Filter Settings Window (Updated with Simple Mode) ---
-            // --- 6. Inject NEW Filter Settings Window (Redesigned) ---
+            // --- 6. Inject Filter Settings Window (Existing) ---
             if (!document.getElementById('filter-settings-window')) {
+                // ... (Keep existing Filter Window HTML logic exactly as is) ...
                 const windowHtml = `
                     <div id="filter-settings-window" class="info-window">
-                        
                         <div class="info-window-header">
-                            <h3 style="margin:0; font-size:1.1rem; display: flex; justify-content: space-between; align-items: center; width: 100%;">
-                                <span>Settings</span>
-                                <button class="filter-window-close-btn" title="Close" style="background:none; border:none; color:#fff; cursor:pointer;">
-                                    <i class="fa-solid fa-xmark" style="font-size: 1.2rem;"></i>
-                                </button>
-                            </h3>
+                            <h3><i class="fa-solid fa-filter" style="margin-right: 10px;"></i> Map Filters</h3>
+                            <div class="info-window-actions">
+                                <button class="filter-window-hide-btn" title="Hide"><i class="fa-solid fa-compress"></i></button>
+                                <button class="filter-window-close-btn" title="Close"><i class="fa-solid fa-xmark"></i></button>
+                            </div>
                         </div>
+                        <div id="filter-window-content" class="info-window-content">
+                            <ul class="filter-toggle-list">
+                                <li class="filter-toggle-item">
+                                    <span class="filter-toggle-label"><i class="fa-solid fa-tower-broadcast"></i> Hide Staffed Airports</span>
+                                    <label class="toggle-switch">
+                                        <input type="checkbox" id="filter-toggle-atc">
+                                        <span class="toggle-slider"></span>
+                                    </label>
+                                </li>
 
-                        <div class="info-window-content">
+                                <li class="filter-toggle-item">
+                                    <span class="filter-toggle-label"><i class="fa-solid fa-satellite"></i> Satellite Mode</span>
+                                    <label class="toggle-switch">
+                                        <input type="checkbox" id="filter-toggle-satellite-mode">
+                                        <span class="toggle-slider"></span>
+                                    </label>
+                                </li>
+                                
+                                <li class="filter-toggle-item">
+                                    <span class="filter-toggle-label"><i class="fa-solid fa-tags"></i> Show Aircraft Labels</span>
+                                    <label class="toggle-switch">
+                                        <input type="checkbox" id="filter-toggle-aircraft-labels">
+                                        <span class="toggle-slider"></span>
+                                    </label>
+                                </li>
+                            </ul>
+
+                            <div class="filter-section-divider">
+                                <span class="filter-section-title">Aircraft Icon Color</span>
+                            </div>
+                            <ul class="filter-toggle-list" id="icon-color-filter-group" style="padding-top: 8px;">
+                                <li class="filter-radio-item">
+                                    <input type="radio" id="icon-color-default" name="icon-color-mode" value="default" checked>
+                                    <label for="icon-color-default"><i class="fa-solid fa-plane" style="color: #fff;"></i> Default (White)</label>
+                                </li>
+                                <li class="filter-radio-item">
+                                    <input type="radio" id="icon-color-blue" name="icon-color-mode" value="blue">
+                                    <label for="icon-color-blue"><i class="fa-solid fa-plane" style="color: #00a8ff;"></i> Blue</label>
+                                </li>
+                                <li class="filter-radio-item">
+                                    <input type="radio" id="icon-color-orange" name="icon-color-mode" value="orange">
+                                    <label for="icon-color-orange"><i class="fa-solid fa-plane" style="color: #ff9900;"></i> Orange</label>
+                                </li>
+                            </ul>
                             
-                            <div class="settings-sidebar">
-                                <div class="settings-category-label">Customisation</div>
-                                
-                                <div class="settings-nav-item" data-tab-target="tab-labels">
-                                    <i class="fa-solid fa-comment-dots" style="width: 20px; text-align: center;"></i> 
-                                    <span>Aircraft Labels</span>
-                                </div>
-                                <div class="settings-nav-item active" data-tab-target="tab-map-markers">
-                                    <i class="fa-solid fa-map" style="width: 20px; text-align: center;"></i> 
-                                    <span>Map & Markers</span>
-                                </div>
-                                <div class="settings-nav-item" data-tab-target="tab-weather">
-                                    <i class="fa-solid fa-cloud" style="width: 20px; text-align: center;"></i> 
-                                    <span>Weather</span>
-                                </div>
+                            <div class="filter-section-divider">
+                                <span class="filter-section-title">Active Flight Plan Display</span>
+                            </div>
+                            <ul class="filter-toggle-list" id="plan-filter-group" style="padding-top: 8px;">
+                                <li class="filter-radio-item">
+                                    <input type="radio" id="plan-filter-none" name="plan-display-mode" value="none" checked>
+                                    <label for="plan-filter-none"><i class="fa-solid fa-eye-slash"></i> Hide Plan</label>
+                                </li>
+                                <li class="filter-radio-item">
+                                    <input type="radio" id="plan-filter-direct" name="plan-display-mode" value="direct">
+                                    <label for="plan-filter-direct"><i class="fa-solid fa-route"></i> Direct to Destination</label>
+                                </li>
+                                <li class="filter-radio-item">
+                                    <input type="radio" id="plan-filter-full" name="plan-display-mode" value="full">
+                                    <label for="plan-filter-full"><i class="fa-solid fa-diagram-project"></i> Full Filed Plan</label>
+                                </li>
+                            </ul>
 
-                                <div class="settings-category-label">App Settings</div>
-                                <div class="settings-nav-item" data-tab-target="tab-filters">
-                                    <i class="fa-solid fa-filter" style="width: 20px; text-align: center;"></i> 
-                                    <span>Filters</span>
+                            <div class="mobile-only-filter-section">
+                                <div class="filter-section-divider">
+                                    <span class="filter-section-title">Mobile Display Mode</span>
                                 </div>
-                                
-                                <div class="settings-category-label" style="margin-top: auto;">Help & Support</div>
-                                <div class="settings-nav-item">
-                                    <i class="fa-solid fa-bolt" style="width: 20px; text-align: center;"></i> 
-                                    <span>Keyboard Shortcuts</span>
-                                </div>
+                                <ul class="filter-toggle-list" id="mobile-mode-filter-group" style="padding-top: 8px;">
+                                    <li class="filter-radio-item">
+                                        <input type="radio" id="mobile-mode-hud" name="mobile-display-mode" value="hud" checked>
+                                        <label for="mobile-mode-hud"><i class="fa-solid fa-rocket"></i> HUD View</label>
+                                    </li>
+                                    <li class="filter-radio-item">
+                                        <input type="radio" id="mobile-mode-legacy" name="mobile-display-mode" value="legacy">
+                                        <label for="mobile-mode-legacy"><i class="fa-solid fa-layer-group"></i> Legacy Sheet</label>
+                                    </li>
+                                </ul>
                             </div>
 
-                            <div class="settings-main-panel">
-                                
-                                <div id="tab-map-markers" class="settings-tab-content active">
-                                    <div class="settings-section-title">Map & Markers</div>
-
-                                    <div class="settings-group-label">Marker Colours</div>
-                                    <div class="visual-selector-container">
-                                        <div class="visual-card active" data-setting="icon-color" data-value="default">
-                                            <div class="visual-card-left">
-                                                <div class="visual-preview-box">
-                                                    <i class="fa-solid fa-plane" style="color: #ffffff; font-size: 1.2rem;"></i>
-                                                </div>
-                                                <span style="font-weight: 500; color: #fff;">White (Default)</span>
-                                            </div>
-                                            <div class="custom-radio-circle"></div>
-                                        </div>
-
-                                        <div class="visual-card" data-setting="icon-color" data-value="blue">
-                                            <div class="visual-card-left">
-                                                <div class="visual-preview-box">
-                                                    <i class="fa-solid fa-plane" style="color: #00a8ff; font-size: 1.2rem;"></i>
-                                                </div>
-                                                <span style="font-weight: 500; color: #fff;">Blue</span>
-                                            </div>
-                                            <div class="custom-radio-circle"></div>
-                                        </div>
-                                        
-                                        <div class="visual-card" data-setting="icon-color" data-value="orange">
-                                            <div class="visual-card-left">
-                                                <div class="visual-preview-box">
-                                                    <i class="fa-solid fa-plane" style="color: #ff9900; font-size: 1.2rem;"></i>
-                                                </div>
-                                                <span style="font-weight: 500; color: #fff;">Yellow</span>
-                                            </div>
-                                            <div class="custom-radio-circle"></div>
-                                        </div>
-                                    </div>
-
-                                    <div style="margin-top: 30px; margin-bottom: 10px; border-top: 1px solid #333;"></div>
-
-                                    <div class="settings-group-label">Map Type</div>
-                                    <div class="map-type-grid">
-                                        <div class="map-type-card active" data-setting="map-style" data-value="dark">
-                                            <div class="map-type-preview" style="background-color: #222; background-image: radial-gradient(#444 1px, transparent 1px); background-size: 10px 10px;"></div>
-                                            <div class="map-type-label">
-                                                <span>Detailed (Default)</span>
-                                                <div class="custom-radio-circle" style="width: 16px; height: 16px;"></div>
-                                            </div>
-                                        </div>
-                                        
-                                        <div class="map-type-card" data-setting="map-style" data-value="satellite">
-                                            <div class="map-type-preview" style="background-color: #003300; background-image: url('https://docs.mapbox.com/mapbox-gl-js/assets/satellite.png');"></div>
-                                            <div class="map-type-label">
-                                                <span>Satellite</span>
-                                                <div class="custom-radio-circle" style="width: 16px; height: 16px;"></div>
-                                            </div>
-                                        </div>
-                                    </div>
+                            <div class="filter-section-divider">
+                                <span class="filter-section-title">Window Appearance</span>
+                            </div>
+                            <div class="filter-appearance-controls" style="padding: 10px; display: flex; flex-direction: column; gap: 10px;">
+                                <div style="display: flex; justify-content: space-between; align-items: center;">
+                                    <span style="color: #ccc; font-size: 0.9rem;">Gradient Start Color</span>
+                                    <input type="color" id="theme-color-start" value="#121426" style="background: none; border: none; width: 50px; height: 30px; cursor: pointer;">
                                 </div>
-
-                                <div id="tab-labels" class="settings-tab-content">
-                                    <div class="settings-section-title">Aircraft Labels</div>
-                                    
-                                    <div class="settings-toggle-row">
-                                        <div class="settings-toggle-text">
-                                            <h4>Show Labels</h4>
-                                            <p>Display callsign and flight phase above aircraft.</p>
-                                        </div>
-                                        <label class="toggle-switch">
-                                            <input type="checkbox" id="setting-toggle-labels">
-                                            <span class="toggle-slider"></span>
-                                        </label>
-                                    </div>
+                                <div style="display: flex; justify-content: space-between; align-items: center;">
+                                    <span style="color: #ccc; font-size: 0.9rem;">Gradient End Color</span>
+                                    <input type="color" id="theme-color-end" value="#121426" style="background: none; border: none; width: 50px; height: 30px; cursor: pointer;">
                                 </div>
-
-                                <div id="tab-weather" class="settings-tab-content">
-                                    <div class="settings-section-title">Weather Layers</div>
-                                    
-                                    <div class="settings-toggle-row">
-                                        <div class="settings-toggle-text">
-                                            <h4>Precipitation</h4>
-                                            <p>Show rain and snow radar.</p>
-                                        </div>
-                                        <label class="toggle-switch">
-                                            <input type="checkbox" id="setting-toggle-precip">
-                                            <span class="toggle-slider"></span>
-                                        </label>
-                                    </div>
-                                    <div class="settings-toggle-row">
-                                        <div class="settings-toggle-text">
-                                            <h4>Cloud Cover</h4>
-                                            <p>Show global cloud density.</p>
-                                        </div>
-                                        <label class="toggle-switch">
-                                            <input type="checkbox" id="setting-toggle-clouds">
-                                            <span class="toggle-slider"></span>
-                                        </label>
-                                    </div>
-                                    <div class="settings-toggle-row">
-                                        <div class="settings-toggle-text">
-                                            <h4>Wind</h4>
-                                            <p>Show global wind patterns.</p>
-                                        </div>
-                                        <label class="toggle-switch">
-                                            <input type="checkbox" id="setting-toggle-wind">
-                                            <span class="toggle-slider"></span>
-                                        </label>
-                                    </div>
+                                <div style="display: flex; gap: 10px;">
+                                     <button id="theme-reset-btn" class="cta-button" style="width: 100%; padding: 8px; font-size: 0.85rem; border-radius: 4px; background: rgba(255,255,255,0.1); border: 1px solid #444; color: #fff; cursor: pointer;">Reset Default Theme</button>
                                 </div>
-
-                                <div id="tab-filters" class="settings-tab-content">
-                                    <div class="settings-section-title">Global Filters</div>
-
-                                    <div class="settings-toggle-row">
-                                        <div class="settings-toggle-text">
-                                            <h4>Hide Staffed Airports</h4>
-                                            <p>Do not show red markers for active ATC.</p>
-                                        </div>
-                                        <label class="toggle-switch">
-                                            <input type="checkbox" id="setting-toggle-hide-atc">
-                                            <span class="toggle-slider"></span>
-                                        </label>
-                                    </div>
-                                    <div class="settings-toggle-row">
-                                        <div class="settings-toggle-text">
-                                            <h4>Simplified Aircraft View</h4>
-                                            <p>Use a clean list view instead of the realistic cockpit.</p>
-                                        </div>
-                                        <label class="toggle-switch">
-                                            <input type="checkbox" id="setting-toggle-simple-mode">
-                                            <span class="toggle-slider"></span>
-                                        </label>
-                                    </div>
-                                    
-                                    <div class="settings-group-label">Route Display</div>
-                                    <div class="visual-selector-container">
-                                        <div class="visual-card active" data-setting="plan-mode" data-value="none">
-                                            <div class="visual-card-left">
-                                                <i class="fa-solid fa-eye-slash"></i>
-                                                <span>Hide Flight Plan</span>
-                                            </div>
-                                            <div class="custom-radio-circle"></div>
-                                        </div>
-                                        <div class="visual-card" data-setting="plan-mode" data-value="full">
-                                            <div class="visual-card-left">
-                                                <i class="fa-solid fa-route"></i>
-                                                <span>Show Full Route</span>
-                                            </div>
-                                            <div class="custom-radio-circle"></div>
-                                        </div>
-                                    </div>
-                                </div>
-
                             </div>
                         </div>
                     </div>
@@ -7842,15 +7401,18 @@ function rebuildDynamicLayers() {
 
 
 /**
- * --- [UPDATED STEP 2] Populates the aircraft info window with Stacked Dashboard Layout ---
+ * --- [UPDATED] Populates the aircraft info window with data from backend lookup.
  */
 function populateAircraftInfoWindow(baseProps, plan, sortedRoutePoints, communityAircraftData) {
     // --- Helper function to update all elements matching a selector ---
     const updateAll = (selector, value, isHTML = false) => {
         const elements = document.querySelectorAll(selector);
         elements.forEach(el => {
-            if (isHTML) el.innerHTML = value;
-            else el.textContent = value;
+            if (isHTML) {
+                el.innerHTML = value;
+            } else {
+                el.textContent = value;
+            }
         });
     };
     
@@ -7862,93 +7424,11 @@ function populateAircraftInfoWindow(baseProps, plan, sortedRoutePoints, communit
         });
     };
 
-    // ==========================================================
-    // 1. COMMON CALCULATIONS (Run for both modes)
-    // ==========================================================
-    
+    // --- Get Original Data ---
     const originalFlatWaypoints = (plan && plan.flightPlanItems) ? flattenWaypointsFromPlan(plan.flightPlanItems) : [];
     const originalFlatWaypointObjects = (plan && plan.flightPlanItems) ? getFlatWaypointObjects(plan.flightPlanItems) : [];
     const hasPlan = originalFlatWaypoints.length >= 2;
-
-    let distanceToDestNM = 0;
-    let totalDistanceNM = 0;
-    let progress = 0;
-    let ete = '--:--';
-
-    // Calculate Distance & Progress
-    if (hasPlan) {
-        let totalDistanceKm = 0;
-        for (let i = 0; i < originalFlatWaypoints.length - 1; i++) {
-            const [lon1, lat1] = originalFlatWaypoints[i];
-            const [lon2, lat2] = originalFlatWaypoints[i + 1];
-            totalDistanceKm += getDistanceKm(lat1, lon1, lat2, lon2);
-        }
-        totalDistanceNM = totalDistanceKm / 1.852;
-
-        if (totalDistanceNM > 0) {
-            const [destLon, destLat] = originalFlatWaypoints[originalFlatWaypoints.length - 1];
-            const remainingDistanceKm = getDistanceKm(baseProps.position.lat, baseProps.position.lon, destLat, destLon);
-            
-            distanceToDestNM = remainingDistanceKm / 1.852;
-            progress = Math.max(0, Math.min(100, (1 - (distanceToDestNM / totalDistanceNM)) * 100));
-
-            if (baseProps.position.gs_kt > 50) {
-                const timeHours = distanceToDestNM / baseProps.position.gs_kt;
-                const hours = Math.floor(timeHours);
-                const minutes = Math.round((timeHours - hours) * 60);
-                ete = `${String(hours).padStart(2, '0')}:${String(minutes).padStart(2, '0')}`;
-            }
-        }
-    }
-
-    // Determine Waypoints (Next/Prev)
-    let nextWpName = '---';
-    let prevWpName = '---';
-    let nextWpDistNM = '---';
-    let bestWpIndex = -1;
-    let minScore = Infinity;
-    
-    const currentPos = baseProps.position;
-    const currentTrack = currentPos.heading_deg;
-
-    if (plan && originalFlatWaypointObjects.length > 1 && currentPos) {
-        for (let i = 1; i < originalFlatWaypointObjects.length; i++) { 
-            const wp = originalFlatWaypointObjects[i];
-            if (!wp.location || wp.location.latitude == null) continue; 
-            
-            const distanceToWpKm = getDistanceKm(currentPos.lat, currentPos.lon, wp.location.latitude, wp.location.longitude);
-            const bearingToWp = getBearing(currentPos.lat, currentPos.lon, wp.location.latitude, wp.location.longitude);
-            const bearingDiff = Math.abs(normalizeBearingDiff(currentTrack - bearingToWp));
-            
-            if (bearingDiff <= 95 && distanceToWpKm < minScore) { 
-                minScore = distanceToWpKm;
-                bestWpIndex = i;
-            }
-        }
-    }
-
-    if (bestWpIndex !== -1) {
-        const nextWp = originalFlatWaypointObjects[bestWpIndex]; 
-        nextWpName = nextWp.identifier || nextWp.name || 'N/A';
-        nextWpDistNM = (minScore / 1.852).toFixed(1);
-        
-        // Identify Previous
-        if (bestWpIndex > 0) {
-            const prevWp = originalFlatWaypointObjects[bestWpIndex - 1];
-            prevWpName = prevWp.identifier || prevWp.name || 'DEP';
-        }
-    } else if (hasPlan && distanceToDestNM < 10) {
-         nextWpName = "DEST";
-         nextWpDistNM = distanceToDestNM.toFixed(1);
-         if (originalFlatWaypointObjects.length > 1) {
-             prevWpName = originalFlatWaypointObjects[originalFlatWaypointObjects.length - 2].identifier || 'WPT';
-         }
-    }
-
-    // Common Weather Data
-    const oat = currentAircraftPositionForGeocode?.oat_c || 15;
-    const windDir = currentAircraftPositionForGeocode?.wind_dir || 0;
-    const windSpd = currentAircraftPositionForGeocode?.wind_spd_kts || 0;
+    const windowEl = document.getElementById('aircraft-info-window');
 
     // Aircraft Info
     const aircraftName = baseProps.aircraft?.aircraftName || 'Unknown Type';
@@ -7956,21 +7436,19 @@ function populateAircraftInfoWindow(baseProps, plan, sortedRoutePoints, communit
     const liveryName = baseProps.aircraft?.liveryName || '';
     const reg = baseProps.aircraft?.registration || 'N/A';
     
-    // Logo Logic
+    // Logo Logic (Client-side logic for Airline Logo remains useful)
     const words = liveryName.trim().split(/\s+/);
     let logoName = words.length > 1 && /[^a-zA-Z0-9]/.test(words[1]) ? words[0] : (words[0] + (words[1] ? ' ' + words[1] : ''));
     const sanitizedLogoName = logoName.toLowerCase().replace(/[^a-z0-9\s]/g, '').replace(/\s+/g, '_');
     const logoPath = sanitizedLogoName ? `Images/airline_logos/${sanitizedLogoName}.png` : '';
     const logoHtml = logoPath ? `<img src="${logoPath}" alt="${liveryName}" class="ac-header-logo" onerror="this.style.display='none'">` : '';
 
-    // Route Info
+    // Times & Flags
     const atdTimestamp = (sortedRoutePoints && sortedRoutePoints.length > 0) ? sortedRoutePoints[0].date : null;
     const atdTime = atdTimestamp ? formatTimeFromTimestamp(atdTimestamp) : '--:--';
-    const etaTime = '--:--'; // Calculated dynamically in update loop
-    const departureIcao = plan?.origin?.identifier || (plan?.flightPlanItems?.[0]?.identifier) || 'N/A';
-    const arrivalIcao = plan?.destination?.identifier || (plan?.flightPlanItems?.[plan?.flightPlanItems?.length - 1]?.identifier) || 'N/A';
-    
-    // Flags
+    const etaTime = '--:--'; 
+    const departureIcao = hasPlan ? originalFlatWaypointObjects[0]?.identifier || originalFlatWaypointObjects[0]?.name : 'N/A';
+    const arrivalIcao = hasPlan ? originalFlatWaypointObjects[originalFlatWaypointObjects.length - 1]?.identifier || originalFlatWaypointObjects[originalFlatWaypointObjects.length - 1]?.name : 'N/A';
     const depCountryCode = airportsData[departureIcao]?.country ? airportsData[departureIcao].country.toLowerCase() : '';
     const arrCountryCode = airportsData[arrivalIcao]?.country ? airportsData[arrivalIcao].country.toLowerCase() : '';
     const depFlagSrc = depCountryCode ? `https://flagcdn.com/w20/${depCountryCode}.png` : '';
@@ -7995,446 +7473,414 @@ function populateAircraftInfoWindow(baseProps, plan, sortedRoutePoints, communit
     const pilotUsername = baseProps.username || 'N/A';
     const pilotReportTabText = (pilotUsername !== 'N/A' && pilotUsername) ? pilotUsername : 'Pilot Report';
 
-    // --- Dynamic Image & Contributor ---
+    // --- DYNAMIC IMAGE & CONTRIBUTOR LOGIC ---
+    // Default Fallback
     let techCardImagePath = '/CommunityPlanes/default.png';
     let photographerName = 'IF Community';
-    let techCardTail = reg;
+    let techCardTail = reg; // Default to live registration
 
+    // [FIX START] Handle if data comes as an array (common with DB lookups)
     if (Array.isArray(communityAircraftData)) {
         communityAircraftData = communityAircraftData.length > 0 ? communityAircraftData[0] : null;
     }
+
+    // If backend returned data, use it
     if (communityAircraftData && communityAircraftData.imageUrl) {
         techCardImagePath = communityAircraftData.imageUrl;
         photographerName = communityAircraftData.contributorName || 'IF Community';
-        if (communityAircraftData.tailNumber) techCardTail = communityAircraftData.tailNumber; 
+        // [FIX] Uncommented this to show the tail number from your DB
+        if (communityAircraftData.tailNumber) {
+            techCardTail = communityAircraftData.tailNumber; 
+        }
+    }
+    // [FIX END]
+
+    // --- Distance Calc for TOD Logic ---
+    let distanceToDestNM = 0;
+    if (hasPlan) {
+        let totalDistanceKm = 0;
+        for (let i = 0; i < originalFlatWaypoints.length - 1; i++) {
+            const [lon1, lat1] = originalFlatWaypoints[i];
+            const [lon2, lat2] = originalFlatWaypoints[i + 1];
+            totalDistanceKm += getDistanceKm(lat1, lon1, lat2, lon2);
+        }
+        const totalDistanceNM = totalDistanceKm / 1.852;
+        if (totalDistanceNM > 0) {
+            const [destLon, destLat] = originalFlatWaypoints[originalFlatWaypoints.length - 1];
+            const remainingDistanceKm = getDistanceKm(baseProps.position.lat, baseProps.position.lon, destLat, destLon);
+            distanceToDestNM = remainingDistanceKm / 1.852;
+        }
     }
 
-    // ==========================================================================================
-    // --- CONDITIONAL VIEW GENERATION ---
-    // ==========================================================================================
-    let flightDisplayTabContent = '';
-    const windowEl = document.getElementById('aircraft-info-window');
-
-    if (mapFilters.simplifyAircraftView) {
-        // --- VIEW A: SIMPLIFIED TELEMETRY GRID ---
-        flightDisplayTabContent = `
-            <div class="simple-telemetry-grid">
-                <div class="simple-stat-box">
-                    <span class="simple-stat-label">Altitude</span>
-                    <div class="simple-stat-value" id="simple-alt-val">---</div>
-                    <span class="simple-stat-unit">FT</span>
-                </div>
-                <div class="simple-stat-box">
-                    <span class="simple-stat-label">Ground Speed</span>
-                    <div class="simple-stat-value" id="simple-gs-val">---</div>
-                    <span class="simple-stat-unit">KTS</span>
-                </div>
-                <div class="simple-stat-box">
-                    <span class="simple-stat-label">Vertical Spd</span>
-                    <div class="simple-stat-value" id="simple-vs-val">---</div>
-                    <span class="simple-stat-unit">FPM</span>
-                </div>
-                <div class="simple-stat-box">
-                    <span class="simple-stat-label">Heading</span>
-                    <div class="simple-stat-value" id="simple-hdg-val">---</div>
-                    <span class="simple-stat-unit">DEG</span>
-                </div>
-                <div class="simple-stat-box">
-                    <span class="simple-stat-label">True Airspeed</span>
-                    <div class="simple-stat-value" id="simple-tas-val">---</div>
-                    <span class="simple-stat-unit">TAS</span>
-                </div>
-                <div class="simple-stat-box">
-                    <span class="simple-stat-label">Mach</span>
-                    <div class="simple-stat-value" id="simple-mach-val">---</div>
-                    <span class="simple-stat-unit">M</span>
-                </div>
-            </div>
-
-            <div class="simple-nav-strip">
-                <span class="simple-nav-point" id="simple-prev-wp">---</span>
-                <i class="fa-solid fa-plane simple-nav-arrow"></i>
-                <span class="simple-nav-point" id="simple-next-wp">---</span>
-                <div style="text-align: right;">
-                    <div style="font-weight: 700; color: #fff;" id="simple-dist-val">-- NM</div>
-                    <div style="font-size: 0.8rem; color: #94a3b8;" id="simple-ete-val">--:--</div>
-                </div>
-            </div>
-
-            <div class="simple-env-row">
-                <div class="tech-stat-card">
-                    <div class="tech-stat-header"><span class="tech-stat-label">WIND</span></div>
-                    <span class="tech-stat-value" id="simple-wind-val">---/--</span>
-                </div>
-                <div class="tech-stat-card">
-                    <div class="tech-stat-header"><span class="tech-stat-label">OAT</span></div>
-                    <span class="tech-stat-value" id="simple-oat-val">--°C</span>
-                </div>
-            </div>
-            
-            <div id="flight-rules-display" class="flight-rules-badge" style="margin-bottom: 12px;">Checking Rules...</div>
-        `;
-    } else {
-        // --- VIEW B: STANDARD COCKPIT VIEW (Original) ---
-        // (This includes PFD, ND, Seat Sensor, TOD, VSD, FMS)
+    // --- TOD Calculator Logic ---
+    let todHtml = '';
+    
+    // We need a destination and valid physics to calculate TOD
+    if (hasPlan && baseProps.position.alt_ft > 5000 && distanceToDestNM > 20) {
+        // 1. Get Altitudes
+        const currentAlt = baseProps.position.alt_ft;
+        // Try to get destination elevation from plan, default to 0 (Sea Level) if missing
+        const destElev = (plan.destination && plan.destination.elevation_ft) ? parseInt(plan.destination.elevation_ft) : 0;
         
-        let todHtml = '';
-        if (hasPlan && baseProps.position.alt_ft > 5000) {
-             todHtml = `<div class="tech-module" id="tod-calculator-module"><div class="tech-module-body" style="padding:12px; text-align:center;">Calculating Descent...</div></div>`;
-        } else if (hasPlan && baseProps.position.alt_ft <= 5000) {
-             todHtml = `<div class="tech-module"><div class="tech-module-header"><span class="tech-module-title">DESCENT PHASE</span><span class="tech-badge">ACTIVE</span></div></div>`;
+        // 2. Calculate Descent
+        const altToLose = currentAlt - destElev;
+        // 3:1 Rule: 3nm distance for every 1000ft height
+        const descentDistanceNM = (altToLose / 1000) * 3;
+        
+        // 3. Calculate TOD location relative to us
+        const distToTodNM = distanceToDestNM - descentDistanceNM;
+        
+        // 4. Calculate Time to TOD (based on current GS)
+        let timeToTodStr = '--:--';
+        if (baseProps.position.gs_kt > 50) {
+            const timeHours = distToTodNM / baseProps.position.gs_kt;
+            const minutes = Math.floor(timeHours * 60);
+            const seconds = Math.floor((timeHours * 60 - minutes) * 60);
+            
+            // Format nicely
+            if (distToTodNM > 0) {
+                 timeToTodStr = `${String(minutes).padStart(2, '0')}:${String(seconds).padStart(2, '0')}`;
+            } else {
+                 timeToTodStr = 'NOW';
+            }
         }
 
-        flightDisplayTabContent = `
-            <div class="pfd-and-location-grid">
-                <div class="pfd-main-panel">
-                    <div class="display-bezel">
-                        <div class="screw tl"></div><div class="screw tr"></div><div class="screw bl"></div><div class="screw br"></div>
-                        <div class="crt-container scanlines" id="pfd-container">
-                            <svg width="787" height="800" viewBox="0 0 787 800" fill="none" xmlns="http://www.w3.org/2000/svg">
-                                <g id="PFD" clip-path="url(#clip0_1_2890)">
-                                <g transform="translate(0, 100)">
-                                    <g id="attitude_group">
-                                        <rect id="Sky" x="-186" y="-222" width="1121" height="600" fill="#0596FF"/>
-                                        <rect id="Ground" x="-138" y="307" width="1024" height="527" fill="#9A4710"/>
-                                    </g>
-                                    <rect id="Rectangle 1" x="-6" y="5" width="191" height="566" fill="#030309"/>
-                                    <rect id="Rectangle 9" x="609" width="185" height="566" fill="#030309"/>
-                                    <path id="Rectangle 2" d="M273.905 84.9424L180.983 183.181L-23 -9.76114L69.9218 -108L273.905 84.9424Z" fill="#030309"/>
-                                    <path id="Rectangle 8" d="M303.215 77.0814L187.591 147.198L42 -92.8829L157.624 -163L303.215 77.0814Z" fill="#030309"/>
-                                    <path id="Rectangle 7" d="M372.606 54.0171L244.59 97.5721L154.152 -168.242L282.169 -211.796L372.606 54.0171Z" fill="#030309"/>
-                                    <rect id="Rectangle 10" x="25" y="487.905" width="168.696" height="262.947" transform="rotate(-31.8041 25 487.905)" fill="#030309"/>
-                                    <rect id="Rectangle 14" width="67.3639" height="53.5561" transform="matrix(-0.972506 0.23288 0.23288 0.972506 482.512 537)" fill="#030309"/>
-                                    <rect id="Rectangle 19" width="80.8905" height="53.5561" transform="matrix(-0.999899 0.0142423 0.0142423 0.999899 442.882 549.506)" fill="#030309"/>
-                                    <rect id="Rectangle 18" width="46.2297" height="53.5561" transform="matrix(-0.988103 -0.153795 -0.153795 0.988103 369.916 549.11)" fill="#030309"/>
-                                    <rect id="Rectangle 17" width="46.2297" height="53.5561" transform="matrix(-0.940186 -0.340662 -0.340662 0.940186 337.709 546.749)" fill="#030309"/>
-                                    <rect id="Rectangle 16" width="46.2297" height="53.5561" transform="matrix(-0.940186 -0.340662 -0.340662 0.940186 299.709 531.749)" fill="#030309"/>
-                                    <rect id="Rectangle 15" x="387" y="587.269" width="168.696" height="262.947" transform="rotate(-27.6434 387 587.269)" fill="#030309"/>
-                                    <rect id="Rectangle 13" x="86" y="584.104" width="168.696" height="262.947" transform="rotate(-46.8648 86 584.104)" fill="#030309"/>
-                                    <rect id="Rectangle 11" x="527" y="532.777" width="168.696" height="262.947" transform="rotate(-51.9135 527 532.777)" fill="#030309"/>
-                                    <rect id="Rectangle 12" x="503" y="527.247" width="168.696" height="262.947" transform="rotate(-31.9408 503 527.247)" fill="#030309"/>
-                                    <rect id="Rectangle 6" x="456.715" y="60.2651" width="131.991" height="278.153" transform="rotate(-177.303 456.715 60.2651)" fill="#030309"/>
-                                    <rect id="Rectangle 5" x="525.118" y="90.4898" width="131.991" height="274.627" transform="rotate(-158.368 525.118 90.4898)" fill="#030309"/>
-                                    <rect id="Rectangle 4" x="570.695" y="127.633" width="109.94" height="223.222" transform="rotate(-142.051 570.695 127.633)" fill="#030309"/>
-                                    <rect id="Rectangle 3" x="613.292" y="189.098" width="99.2768" height="223.222" transform="rotate(-128.125 613.292 189.098)" fill="#030309"/>
-                                    <path id="Vector 3" d="M609 183V422.5" stroke="#E7E6E8" stroke-width="4"/>
-                                    <path id="Vector 1" d="M185.5 425.5L185 180" stroke="#DBDBDC" stroke-width="4"/>
-                                    <path id="Vector 2" d="M185 181.502C185 181.502 269.8 52.0936 397 56.0907C524.2 60.0879 576.603 135.189 609 184" stroke="#DBDBDC" stroke-width="4"/>
-                                    <path id="Vector 4" d="M608.5 424.5C608.5 424.5 557 548 396 550.5C235 553 185 424.5 185 424.5" stroke="#DBDBDC" stroke-width="4"/>
-                                    <path id="Polygon 1" d="M396.252 65.2333L377.848 35.8138L414.647 35.8079L396.252 65.2333Z" fill="#E7F013"/>
-                                    <path id="Polygon 2" d="M407.919 38.9482L396.431 59.4193L384.446 38.7244L407.919 38.9482Z" fill="#030309"/>
-                                    <path id="Vector 6" d="M307 76L302 64.5L312 60.5L317 71" stroke="#E7E6E8" stroke-width="4"/>
-                                    <path id="Vector 7" d="M279.5 91L268.5 73.5L259 79L269.5 97.5" stroke="#E7E6E8" stroke-width="4"/>
-                                    <path id="Vector 8" d="M225 135L206.5 117" stroke="#E7E6E8" stroke-width="4"/>
-                                    <path id="Vector 9" d="M477.153 71.5794L479.366 59.3018L489.886 61.5697L488.226 73.0218" stroke="#E7E6E8" stroke-width="4"/>
-                                    <path id="Vector 10" d="M347.928 61.4888L346.352 49.0483L357.072 48.0112L358.929 59.4917" stroke="#E7E6E8" stroke-width="4"/>
-                                    <path id="Vector 11" d="M435.153 59.5794L437.366 47.3018L447.886 49.5697L446.226 61.0218" stroke="#E7E6E8" stroke-width="4"/>
-                                    <path id="Vector 12" d="M514.032 86.1754L522.756 72.2658L533.956 78.0405L525.5 93.5" stroke="#E7E6E8" stroke-width="4"/>
-                                    <path id="Vector 13" d="M569.5 131.5L585.5 116" stroke="#E7E6E8" stroke-width="4"/>
-                                    <path id="Vector 15" d="M183.5 193.5L173 187" stroke="#029705" stroke-width="4"/>
-                                    <path id="Vector 16" d="M184 203L173.5 196.5" stroke="#029705" stroke-width="4"/>
-                                    <path id="Vector 17" d="M610 193.5L619 188" stroke="#029705" stroke-width="3"/>
-                                    <path id="Vector 18" d="M610 199.5L619 194" stroke="#029705" stroke-width="3"/>
-                                    <line id="Line 1" x1="184" y1="211" x2="184" y2="184" stroke="#DBDBDC" stroke-width="2"/>
-                                    <line id="Line 2" x1="610" y1="211" x2="610" y2="184" stroke="#DBDBDC" stroke-width="2"/>
-                                    <rect id="altitude_bg" x="675" y="73" width="72" height="476" fill="#76767A"/>
-                                    <g clip-path="url(#altTapeClip)">
-                                        <svg x="675" y="73" width="72" height="476"><g id="altitude_tape_group"></g></svg>
-                                    </g>
-                                    <g id="altitude_indicator_static">
-                                        <rect id="altitude_1" x="675" y="280" width="73" height="49" fill="#030309"/>
-                                        <text id="altitude_readout_hundreds" x="740" y="316" fill="#00FF00" font-size="32" text-anchor="end" font-weight="bold">0</text>
-                                        <g id="altitude_tens_reel_container" clip-path="url(#tensReelClip)"><g id="altitude_tens_reel_group"></g></g>
-                                        <line id="Line 8" x1="669" y1="307" x2="618" y2="307" stroke="#DDDF07" stroke-width="8"/>
-                                    </g>
-                                    <path id="limit" d="M636 336.08L621.413 307.511L650.858 307.651L636 336.08Z" fill="#C477C6"/>
-                                    <path id="limit2" d="M636 279L650.722 307.5H621.278L636 279Z" fill="#C477C6"/>
-                                    <path id="limit3" d="M636 285L643.794 303H628.206L636 285Z" fill="#100010"/>
-                                    <path id="limit4" d="M636.191 329.14L628.276 311.242L643.534 310.999L636.191 329.14Z" fill="#030309"/>
-                                    <line id="Line 6" x1="746.5" y1="263" x2="746.5" y2="281" stroke="#ECED06" stroke-width="3"/>
-                                    <line id="Line 4" x1="746.5" y1="329" x2="746.5" y2="347" stroke="#ECED06" stroke-width="3"/>
-                                    <path id="Ellipse 1" d="M636 481C636 484.866 632.866 488 629 488C625.134 488 622 484.866 622 481C622 477.134 625.134 474 629 474C632.866 474 636 477.134 636 481Z" fill="#D9D9D9"/>
-                                    <path id="Ellipse 4" d="M636 147C636 150.866 632.866 154 629 154C625.134 154 622 150.866 622 147C622 143.134 625.134 140 629 140C632.866 140 636 143.134 636 147Z" fill="#D9D9D9"/>
-                                    <g id="Ellipse 3">
-                                        <path d="M636 229C636 232.866 632.866 236 629 236C625.134 236 622 232.866 622 229C622 225.134 625.134 222 629 222C632.866 222 636 225.134 636 229Z" fill="#D9D9D9"/>
-                                        <path d="M636 395C636 398.866 632.866 402 629 402C625.134 402 622 398.866 622 395C622 391.134 625.134 388 629 388C632.866 388 636 391.134 636 395Z" fill="#D9D9D9"/>
-                                    </g>
-                                    <rect id="speed" x="28" y="73" width="97" height="477" fill="#76767A"/>
-                                    <g clip-path="url(#speedTapeClip)">
-                                        <svg x="28" y="73" width="97" height="477"><g id="speed_tape_group"></g></svg>
-                                    </g>
-                                    <g id="speed_indicator_static">
-                                        <path id="Polygon 9" d="M128.036 311.591L150.451 301.561L150.513 321.482L128.036 311.591Z" fill="#FDFD03"/>
-                                        <path id="Vector 20" d="M137 311H96.5" stroke="#FDFD03" stroke-width="4"/>
-                                        <rect x="50" y="296" width="45" height="30" fill="black" stroke="#999" stroke-width="1"/>
-                                        <text id="speed_readout" x="72.5" y="318" fill="#00FF00" font-size="20" text-anchor="middle" font-weight="bold">0</text>
-                                    </g>
-                                    <path id="Vector 19" d="M19.5 311H31" stroke="#FDFD03" stroke-width="4"/>
-                                    <path id="Vector 21" d="M29 73H151.5" stroke="#E7E6E8" stroke-width="4"/>
-                                    <path id="Vector 22" d="M28 549H151.5" stroke="#E7E6E8" stroke-width="4"/>
-                                    <path id="Vector 23" d="M672.5 73H774" stroke="#E7E6E8" stroke-width="4"/>
-                                    <path id="Vector 24" d="M672 548.5H773" stroke="#E7E6E8" stroke-width="4"/>
-                                    <path id="Vector 25" d="M745 549.5L746 347" stroke="#E7E6E8" stroke-width="3"/>
-                                    <path id="Vector 26" d="M745 73V265" stroke="#E7E6E8" stroke-width="3"/>
-                                    <g id="wings">
-                                        <rect id="Rectangle 21" x="280" y="315" width="11" height="25" fill="#030309"/>
-                                        <rect id="Rectangle 23" x="522" y="304" width="71" height="12" fill="#030309"/>
-                                        <rect id="Rectangle 22" x="512" y="305" width="13" height="35" fill="#030309"/>
-                                        <rect id="Rectangle 20" x="208" y="304" width="83" height="13" fill="#030309"/>
-                                        <g id="wing">
-                                            <path d="M278.591 316.857H208V304H291.608V340H278.591V316.857Z" stroke="#FEFE03" stroke-width="3"/>
-                                            <path d="M511.392 340V304H595V316.857H524.409V340H511.392Z" stroke="#FEFE03" stroke-width="3"/>
-                                        </g>
-                                    </g>
-                                    <g id="middle">
-                                        <rect id="middle_2" x="393" y="304" width="17" height="17" fill="#0CC704"/>
-                                        <rect id="Rectangle 24" x="395" y="307" width="13" height="11" fill="#030309"/>
-                                    </g>
-                                    <rect id="Rectangle 25" y="571" width="787" height="140" fill="#030309"/>
-                                    <rect id="header" x="243" y="599" width="326" height="66" fill="#76767A"/>
-                                    <g id="heading_indicator">
-                                        <g id="heading_tape_container" clip-path="url(#headingClip)"><g id="heading_tape_group"></g></g>
-                                        <g id="heading_static_elements">
-                                            <line x1="406" y1="620" x2="406" y2="635" stroke="#FDFD03" stroke-width="3"/>
-                                            <rect x="381" y="599" width="50" height="20" fill="black" stroke="#FFFFFF" stroke-width="1"/>
-                                            <text id="heading_readout" x="406" y="615" fill="#00FF00" font-size="16" text-anchor="middle" font-weight="bold">000</text>
-                                        </g>
-                                    </g>
-                                    <path id="Vector 27" d="M243 599V667" stroke="#FCFCFF" stroke-width="4"/>
-                                    <g id="Line 5"><line id="Line 5_2" x1="745" y1="264.5" x2="787" y2="264.5" stroke="#ECED06" stroke-width="3"/></g>
-                                    <line id="Line 6_2" x1="671" y1="279.5" x2="748" y2="279.5" stroke="#ECED06" stroke-width="3"/>
-                                    <line id="Line 7" x1="671" y1="329.5" x2="748" y2="329.5" stroke="#ECED06" stroke-width="3"/>
-                                    <line id="Line 3" x1="746" y1="345.5" x2="786" y2="345.5" stroke="#ECED06" stroke-width="3"/>
-                                </g> 
-                                </g>
-                                <defs>
-                                    <clipPath id="clip0_1_2890"><rect width="787" height="800" fill="white"/></clipPath>
-                                    <clipPath id="tensReelClip"><rect x="732" y="269" width="50" height="75"/></clipPath>
-                                    <clipPath id="headingClip"><rect x="243" y="620" width="326" height="45"/></clipPath>
-                                    <clipPath id="speedTapeClip"><rect x="28" y="73" width="97" height="477"/></clipPath>
-                                    <clipPath id="altTapeClip"><rect x="675" y="73" width="72" height="476"/></clipPath>
-                                </defs>
-                            </svg>
-                        </div>
-                    </div>
-                    
-                    <div class="display-bezel">
-                        <div class="screw tl"></div><div class="screw tr"></div><div class="screw bl"></div><div class="screw br"></div>
-                        <div class="crt-container scanlines">
-                            <div id="nd-container">
-                                <iframe id="nav-display-frame" src="nav.html" scrolling="no"></iframe>
-                            </div>
-                        </div>
-                    </div>
-                </div>
-                
-                <div class="dashboard-split-row">
-                    <div id="fms-legs-module" class="tech-module" style="height: 380px; max-height: 380px; display: flex; flex-direction: column;">
-                        <div class="tech-module-header">
-                            <span class="tech-module-title"><i class="fa-solid fa-route"></i> ACTIVE FLIGHT PLAN</span>
-                            <span class="fms-page-count">1/1</span>
-                        </div>
-                        <div class="fms-columns">
-                            <span class="col-wpt">LEGS</span>
-                            <span class="col-data text-center">CRS</span>
-                            <span class="col-data text-right">DIST</span>
-                        </div>
-                        <div id="fms-legs-list" class="fms-list-scrollarea">
-                            <div class="fms-empty-state">NO ROUTE LOADED</div>
-                        </div>
-                        <div class="fms-footer">
-                            <div class="fms-stat">
-                                <span class="stat-label">DTG</span>
-                                <span id="fms-total-dist" class="stat-value">---- NM</span>
-                            </div>
-                            <div class="fms-stat">
-                                <span class="stat-label">ETE</span>
-                                <span id="fms-total-ete" class="stat-value">--:--</span>
-                            </div>
-                        </div>
-                    </div>
+        // 5. Determine State (Cruise vs Descent)
+        const isPastTod = distToTodNM <= 0;
+        const statusColor = isPastTod ? '#ef4444' : '#34d399'; // Red if past, Green if pending
+        const statusText = isPastTod ? 'DESCEND NOW' : 'CRUISING';
+        const distDisplay = isPastTod ? `+${Math.abs(distToTodNM).toFixed(1)} NM` : `${distToTodNM.toFixed(1)} NM`;
 
-                    <div class="info-right-col">
-                        <div class="tech-module" id="cockpit-seat-sensor">
-                            <div class="tech-module-header">
-                                <span class="tech-module-title"><i class="fa-solid fa-chair"></i> COCKPIT STATE</span>
-                                <span class="fms-page-count"><i class="fa-solid fa-satellite-dish"></i></span>
-                            </div>
-                            <div class="tech-module-body">
-                                <div class="cockpit-view">
-                                    <div id="seat-cpt" class="seat" data-role="CPT"></div>
-                                    <div id="seat-fo" class="seat" data-role="FO"></div>
-                                    <div id="icon-parking-overlay" class="cockpit-overlay-icon icon-parking">P</div>
-                                    <div id="icon-coffee-overlay" class="cockpit-overlay-icon icon-coffee"><i class="fa-solid fa-mug-hot"></i></div>
-                                    <div id="icon-cloud-overlay" class="cockpit-overlay-icon icon-cloud"><i class="fa-solid fa-cloud"></i></div>
-                                </div>
-                                <div class="seat-status-display">
-                                    <span id="status-cpt-text" class="status-pill">CMD: ---</span>
-                                    <span id="status-fo-text" class="status-pill">FO: ---</span>
-                                </div>
-                                <div id="seat-narrative-text">Initializing...</div>
-                            </div>
-                        </div>
-
-                        ${todHtml}
-
-                        <div class="tech-module" id="location-data-panel">
-                            <div class="tech-module-header">
-                                <span class="tech-module-title"><i class="fa-solid fa-location-crosshairs"></i> NAV DATA</span>
-                                <span class="nav-status-indicator"><div class="nav-blink"></div> LIVE</span>
-                            </div>
-                            <div class="tech-module-body" style="padding: 8px;">
-                                <div class="nav-grid-container">
-                                    <div class="nav-cell">
-                                        <span class="nav-label"><i class="fa-solid fa-map-location-dot"></i> Region</span>
-                                        <span class="nav-value small" id="ac-location">Scanning...</span>
-                                    </div>
-                                    <div class="nav-cell">
-                                        <span class="nav-label"><i class="fa-solid fa-tower-control"></i> Nearest</span>
-                                        <div class="nav-row">
-                                            <span class="nav-value highlight" id="ac-nearest-apt">---</span>
-                                            <span class="nav-value" id="ac-nearest-apt-dist">--.- <span class="nav-unit">NM</span></span>
-                                        </div>
-                                    </div>
-                                    <div class="nav-cell">
-                                        <span class="nav-label"><i class="fa-solid fa-wind"></i> Wind</span>
-                                        <span class="nav-value" id="ac-env-wind">---/--</span>
-                                    </div>
-                                    <div class="nav-cell">
-                                        <span class="nav-label"><i class="fa-solid fa-temperature-half"></i> OAT</span>
-                                        <span class="nav-value" id="ac-env-oat">--°C</span>
-                                    </div>
-                                    <div class="nav-cell nav-span-2">
-                                        <span class="nav-label"><i class="fa-solid fa-location-crosshairs"></i> Position</span>
-                                        <div class="nav-row">
-                                            <div><span class="nav-unit">LAT</span> <span class="nav-value" id="ac-lat">---</span></div>
-                                            <div><span class="nav-unit">LON</span> <span class="nav-value" id="ac-lon">---</span></div>
-                                        </div>
-                                    </div>
-                                    <div class="nav-cell nav-span-2">
-                                            <span class="nav-label"><i class="fa-solid fa-arrow-up-right-dots"></i> Vertical Speed</span>
-                                            <span class="nav-value large highlight" id="ac-vs">--- <span class="nav-unit">fpm</span></span>
-                                    </div>
-                                    <div class="nav-cell nav-span-2">
-                                        <span class="nav-label"><i class="fa-solid fa-location-arrow"></i> Next Waypoint</span>
-                                        <div class="nav-row">
-                                            <span class="nav-value accent" id="ac-next-wp">---</span>
-                                            <span class="nav-value" id="ac-next-wp-dist">--.- <span class="nav-unit">NM</span></span>
-                                        </div>
-                                    </div>
-                                    <div class="nav-cell nav-span-2">
-                                        <span class="nav-label"><i class="fa-solid fa-flag-checkered"></i> Destination</span>
-                                        <div class="nav-row">
-                                            <div><span class="nav-unit">DIST</span> <span class="nav-value" id="ac-dist">---</span></div>
-                                            <div><span class="nav-unit">ETE</span> <span class="nav-value" id="ac-ete">--:--</span></div>
-                                        </div>
-                                    </div>
-                                </div>
-                            </div>
-                        </div>
-                    </div>
-                </div>
-
-                <div class="tech-module vsd-module-container">
-                    <div class="tech-module-header">
-                        <span class="tech-module-title"><i class="fa-solid fa-chart-area"></i> VERTICAL SITUATION DISPLAY</span>
-                        <span class="fms-page-count">VSD</span>
-                    </div>
-                    <div id="vsd-panel" class="vsd-panel active" data-plan-id="" data-profile-built="false">
-                        <div id="vsd-graph-window" class="vsd-graph-window">
-                            <div id="vsd-aircraft-icon"></div>
-                            <div id="vsd-graph-content">
-                                <svg id="vsd-profile-svg" xmlns="http://www.w3.org/2000/svg">
-                                    <path id="vsd-flown-path" d="" />
-                                    <path id="vsd-profile-path" d="" />
-                                </svg>
-                                <div id="vsd-waypoint-labels"></div>
-                            </div>
-                        ${planButtonHtml} </div>
-                    </div>
-                    <div class="vsd-footer">
-                        <div class="vsd-legend-item"><div class="dot-plan"></div> PLANNED</div>
-                        <div class="vsd-legend-item"><div class="dot-flown"></div> FLOWN</div>
-                        <div>ALTITUDE PROFILE</div>
-                    </div>
-                </div>
+        // 6. Build the HTML Module
+        todHtml = `
+        <div class="tech-module" id="tod-calculator-module">
+            <div class="tech-module-header">
+                <span class="tech-module-title"><i class="fa-solid fa-calculator"></i> DESCENT (3:1)</span>
+                <span class="tech-badge" style="background: rgba(16, 185, 129, 0.1); color: ${statusColor}; border-color: ${statusColor};">
+                    ${statusText}
+                </span>
             </div>
+            <div class="tech-module-body" style="padding: 8px; display: flex; gap: 8px; align-items: center;">
+                
+                <div style="flex: 1; display: flex; flex-direction: column; align-items: center; background: rgba(255,255,255,0.03); border-radius: 6px; padding: 6px;">
+                    <span class="tech-stat-label" style="font-size: 8px; color: #94a3b8; margin-bottom: 2px;">DIST TO TOD</span>
+                    <span class="tech-stat-value" style="font-size: 1.0rem;">${distDisplay}</span>
+                </div>
+
+                <div style="flex: 1; display: flex; flex-direction: column; align-items: center; background: rgba(255,255,255,0.03); border-radius: 6px; padding: 6px;">
+                    <span class="tech-stat-label" style="font-size: 8px; color: #94a3b8; margin-bottom: 2px;">TIME TO TOD</span>
+                    <span class="tech-stat-value" style="font-size: 1.0rem; color: #38bdf8;">${timeToTodStr}</span>
+                </div>
+
+                <div style="flex: 1; display: flex; flex-direction: column; align-items: center; background: rgba(255,255,255,0.03); border-radius: 6px; padding: 6px;">
+                    <span class="tech-stat-label" style="font-size: 8px; color: #94a3b8; margin-bottom: 2px;">REQ. RATE</span>
+                    <span class="tech-stat-value" style="font-size: 1.0rem; color: #fbbf24;">-${Math.round(baseProps.position.gs_kt * 5)}</span>
+                </div>
+
+            </div>
+        </div>
         `;
+    } else if (hasPlan && baseProps.position.alt_ft <= 5000) {
+         todHtml = `
+        <div class="tech-module">
+            <div class="tech-module-header">
+                <span class="tech-module-title"><i class="fa-solid fa-calculator"></i> DESCENT PHASE</span>
+                <span class="tech-badge" style="color: #38bdf8; border-color: #38bdf8;">ACTIVE</span>
+            </div>
+            <div class="tech-module-body" style="padding: 12px; text-align: center; color: #94a3b8; font-size: 0.8rem;">
+                Aircraft is in terminal phase.
+            </div>
+        </div>`;
     }
 
-    // --- SHARED BOTTOM CARD (Tech Card) ---
-    // (This is common to both modes)
-    const sharedTechCardHtml = `
-        <div class="tech-card">
-            <div class="tech-card-header">
-                <div>
-                    <div style="display: flex; align-items: center; gap: 8px; margin-bottom: 4px;">
-                        <div class="tech-badge">
-                            <span class="tech-ping"><span class="animate"></span><span></span></span>
-                            Active
-                        </div>
-                        <span style="font-size: 10px; font-weight: 600; color: #94a3b8; text-transform: uppercase; letter-spacing: 0.1em;">Flight Data</span>
-                    </div>
-                    <h1 class="tech-model">${aircraftName}</h1>
-                    <p class="tech-airline">
-                        <i class="fa-solid fa-plane" style="font-size: 12px;"></i>
-                        <span>${airlineName}</span>
-                    </p>
-                </div>
-            </div>
-            <div class="tech-content">
-                <div class="tech-image-container">
-                    <img src="${techCardImagePath}" onerror="this.src='/CommunityPlanes/default.png'" class="tech-image" alt="Aircraft">
-                    <div class="tech-image-overlay"></div>
-                    <div class="tech-image-info">
-                        <div class="tech-photographer">
-                            <span class="tech-photo-label">Contributor</span>
-                            <div class="tech-photo-name">
-                                <i class="fa-solid fa-camera" style="color: #38bdf8; font-size: 12px;"></i>
-                                <span>${photographerName}</span>
-                            </div>
-                        </div>
-                        <a href="#" style="padding: 8px; background: rgba(255,255,255,0.1); border-radius: 8px; color: #fff; border: 1px solid rgba(255,255,255,0.1); display: flex;">
-                            <i class="fa-solid fa-arrow-up-right-from-square" style="font-size: 14px;"></i>
-                        </a>
-                    </div>
-                </div>
-                <div class="tech-grid">
-                    <div class="tech-stat-card">
-                        <div class="tech-stat-header">
-                            <span class="tech-stat-label">Registration</span>
-                            <i class="fa-solid fa-hashtag" style="font-size: 12px; color: #475569;"></i>
-                        </div>
-                        <span class="tech-stat-value">${techCardTail}</span>
-                    </div>
-                    <div class="tech-stat-card">
-                        <div class="tech-stat-header">
-                            <span class="tech-stat-label">Callsign</span>
-                            <i class="fa-solid fa-tag" style="font-size: 12px; color: #475569;"></i>
-                        </div>
-                        <span class="tech-stat-value">${baseProps.callsign}</span>
-                    </div>
-                    <div class="tech-country-card">
-                        <div class="tech-country-left">
-                            <div class="tech-country-icon">
-                                <i class="fa-solid fa-plane-up" style="font-size: 14px;"></i>
-                            </div>
-                            <div style="display: flex; flex-direction: column;">
-                                <span class="tech-stat-label" style="font-size: 9px; margin-bottom: 2px;">Category</span>
-                                <span style="font-size: 13px; font-weight: 600; color: #fff; text-transform: capitalize;">${baseProps.category || 'Standard'}</span>
-                            </div>
-                        </div>
-                        <div style="padding: 4px 8px; background: rgba(51, 65, 85, 0.5); border-radius: 4px; border: 1px solid rgba(255, 255, 255, 0.05);">
-                            <span style="font-family: monospace; font-size: 10px; color: #cbd5e1;">CLASS</span>
-                        </div>
-                    </div>
-                </div>
-            </div>
-            <div class="tech-bottom-bar"></div>
-        </div>`;
-
-    // --- HTML Assembly ---
+    // --- HTML Construction ---
     windowEl.innerHTML = `
+    <style>
+        /* --- Shared Tech Style --- */
+        .tech-module {
+            background: #0f172a; /* Solid Dark Slate */
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            border-radius: 12px;
+            overflow: hidden;
+            box-shadow: 0 4px 15px rgba(0, 0, 0, 0.5);
+            margin-bottom: 8px; 
+            display: flex;
+            flex-direction: column;
+        }
+
+        .tech-module-header {
+            background: rgba(30, 41, 59, 0.5); /* Slightly lighter header */
+            padding: 8px 12px;
+            border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+        
+        .tech-module-title {
+            font-size: 0.75rem;
+            font-weight: 700;
+            color: #94a3b8; /* Muted text */
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .tech-module-body {
+            padding: 12px;
+            background: #0f172a;
+            position: relative;
+        }
+
+        /* --- Tech Card Specifics --- */
+        .tech-card {
+            background: #0f172a; 
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            border-radius: 12px; 
+            overflow: hidden;
+            box-shadow: 0 4px 15px rgba(0, 0, 0, 0.5);
+            position: relative;
+            font-family: 'Inter', sans-serif;
+            margin-bottom: 12px; 
+        }
+        .tech-card-header {
+            padding: 12px 16px 4px; 
+            display: flex;
+            justify-content: space-between;
+            align-items: flex-start;
+            position: relative;
+            z-index: 10;
+        }
+        .tech-badge {
+            display: inline-flex;
+            align-items: center;
+            gap: 4px;
+            padding: 1px 6px;
+            border-radius: 999px;
+            background: rgba(16, 185, 129, 0.1);
+            border: 1px solid rgba(16, 185, 129, 0.2);
+            font-size: 9px;
+            font-weight: 700;
+            color: #34d399;
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+        }
+        .tech-ping {
+            position: relative;
+            display: flex;
+            height: 5px;
+            width: 5px;
+        }
+        .tech-ping span {
+            position: absolute;
+            display: inline-flex;
+            height: 100%;
+            width: 100%;
+            border-radius: 50%;
+            background-color: #34d399;
+        }
+        .tech-ping .animate {
+            animation: ping 1s cubic-bezier(0, 0, 0.2, 1) infinite;
+            opacity: 0.75;
+        }
+        @keyframes ping {
+            75%, 100% { transform: scale(2); opacity: 0; }
+        }
+        .tech-model {
+            font-size: 1.1rem;
+            font-weight: 700;
+            color: #fff;
+            letter-spacing: -0.025em;
+            margin: 0;
+            line-height: 1.2;
+        }
+        .tech-airline {
+            font-size: 0.75rem;
+            font-weight: 500;
+            color: rgba(56, 189, 248, 0.9);
+            margin-top: 0px;
+            display: flex;
+            align-items: center;
+            gap: 5px;
+        }
+        .tech-content {
+            padding: 12px;
+            position: relative;
+            z-index: 10;
+        }
+        .tech-image-container {
+            position: relative;
+            width: 100%;
+            aspect-ratio: 21 / 9;
+            border-radius: 8px;
+            overflow: hidden;
+            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.2);
+            border: 1px solid rgba(255, 255, 255, 0.05);
+            background: #000;
+        }
+        .tech-image {
+            width: 100%;
+            height: 100%;
+            object-fit: cover;
+            transition: transform 0.7s ease-out;
+        }
+        .tech-image-container:hover .tech-image {
+            transform: scale(1.05);
+        }
+        .tech-image-overlay {
+            position: absolute;
+            inset: 0;
+            background: linear-gradient(to top, rgba(2, 6, 23, 0.9), transparent, transparent);
+            opacity: 0.8;
+        }
+        .tech-image-info {
+            position: absolute;
+            bottom: 8px;
+            left: 10px;
+            right: 10px;
+            display: flex;
+            justify-content: space-between;
+            align-items: flex-end;
+        }
+        .tech-photographer {
+            display: flex;
+            flex-direction: column;
+        }
+        .tech-photo-label {
+            font-size: 9px;
+            color: #cbd5e1;
+            font-weight: 500;
+            margin-bottom: 0px;
+            line-height: 1;
+        }
+        .tech-photo-name {
+            display: flex;
+            align-items: center;
+            gap: 4px;
+            font-size: 10px;
+            font-weight: 600;
+            color: #fff;
+        }
+        .tech-grid {
+            display: grid;
+            grid-template-columns: repeat(2, 1fr);
+            gap: 8px;
+            margin-top: 12px;
+        }
+        .tech-stat-card {
+            background: rgba(30, 41, 59, 0.5);
+            border: 1px solid rgba(255, 255, 255, 0.05);
+            padding: 8px 10px;
+            border-radius: 6px;
+            transition: background 0.2s;
+        }
+        .tech-stat-card:hover {
+            background: rgba(30, 41, 59, 0.8);
+        }
+        .tech-stat-header {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            margin-bottom: 2px;
+        }
+        .tech-stat-label {
+            font-size: 9px;
+            font-weight: 600;
+            color: #94a3b8;
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+        }
+        .tech-stat-value {
+            font-family: 'Consolas', 'Monaco', monospace;
+            font-size: 0.95rem;
+            color: #fff;
+            font-weight: 600;
+            letter-spacing: -0.025em;
+        }
+        .tech-country-card {
+            grid-column: span 2;
+            background: rgba(30, 41, 59, 0.3);
+            border: 1px solid rgba(255, 255, 255, 0.05);
+            padding: 6px 10px;
+            border-radius: 6px;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+        }
+        .tech-country-left {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+        .tech-country-icon {
+            width: 24px;
+            height: 24px;
+            border-radius: 4px;
+            background: rgba(51, 65, 85, 0.5);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            color: #94a3b8;
+        }
+        .tech-bottom-bar {
+            height: 3px;
+            width: 100%;
+            background: linear-gradient(to right, #0ea5e9, #2563eb, #4f46e5);
+            opacity: 0.8;
+        }
+
+        /* --- FMS Overrides for Tech Style --- */
+        .fms-columns {
+            border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+            color: #94a3b8;
+        }
+        .fms-row {
+            border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+        }
+        .fms-footer {
+            background: rgba(30, 41, 59, 0.3);
+            border-top: 1px solid rgba(255, 255, 255, 0.1);
+        }
+
+        /* --- Nav Data Overrides --- */
+        .nav-header {
+             display: none; /* We use the tech-module-header now */
+        }
+        #location-data-panel {
+            background: transparent;
+            border: none;
+            box-shadow: none;
+        }
+        .nav-grid-container {
+            padding: 0; /* Remove internal padding as body handles it */
+        }
+        .nav-cell {
+            background: rgba(30, 41, 59, 0.5); /* Match tech-stat-card */
+            border: 1px solid rgba(255, 255, 255, 0.05);
+        }
+
+        /* --- VSD Overrides --- */
+        .vsd-module-container {
+             background: transparent; 
+             border: none;
+             box-shadow: none;
+             margin-bottom: 12px;
+        }
+        .vsd-footer {
+            background: rgba(30, 41, 59, 0.3);
+            border-top: 1px solid rgba(255, 255, 255, 0.1);
+        }
+        .vsd-graph-window {
+            background: #0f172a; /* Match background */
+        }
+        #vsd-y-axis {
+            background: #0f172a;
+            border-right: 1px solid rgba(255, 255, 255, 0.1);
+        }
+    </style>
+
     <div class="info-window-content">
         <div class="aircraft-overview-panel" id="ac-overview-panel">
             <div class="overview-actions">
@@ -8493,9 +7939,371 @@ function populateAircraftInfoWindow(baseProps, plan, sortedRoutePoints, communit
 
         <div class="unified-display-main-content">
             <div id="ac-tab-flight-data" class="ac-tab-pane active" style="gap: 6px;">
-                ${flightDisplayTabContent}
-                ${sharedTechCardHtml}
-            </div>
+                
+                <div class="pfd-and-location-grid">
+                    <div class="pfd-main-panel">
+                        <div class="display-bezel">
+                            <div class="screw tl"></div><div class="screw tr"></div><div class="screw bl"></div><div class="screw br"></div>
+                            <div class="crt-container scanlines" id="pfd-container">
+                                <svg width="787" height="800" viewBox="0 0 787 800" fill="none" xmlns="http://www.w3.org/2000/svg">
+                                    <g id="PFD" clip-path="url(#clip0_1_2890)">
+                                    <g transform="translate(0, 100)">
+                                        <g id="attitude_group">
+                                            <rect id="Sky" x="-186" y="-222" width="1121" height="600" fill="#0596FF"/>
+                                            <rect id="Ground" x="-138" y="307" width="1024" height="527" fill="#9A4710"/>
+                                        </g>
+                                        <rect id="Rectangle 1" x="-6" y="5" width="191" height="566" fill="#030309"/>
+                                        <rect id="Rectangle 9" x="609" width="185" height="566" fill="#030309"/>
+                                        <path id="Rectangle 2" d="M273.905 84.9424L180.983 183.181L-23 -9.76114L69.9218 -108L273.905 84.9424Z" fill="#030309"/>
+                                        <path id="Rectangle 8" d="M303.215 77.0814L187.591 147.198L42 -92.8829L157.624 -163L303.215 77.0814Z" fill="#030309"/>
+                                        <path id="Rectangle 7" d="M372.606 54.0171L244.59 97.5721L154.152 -168.242L282.169 -211.796L372.606 54.0171Z" fill="#030309"/>
+                                        <rect id="Rectangle 10" x="25" y="487.905" width="168.696" height="262.947" transform="rotate(-31.8041 25 487.905)" fill="#030309"/>
+                                        <rect id="Rectangle 14" width="67.3639" height="53.5561" transform="matrix(-0.972506 0.23288 0.23288 0.972506 482.512 537)" fill="#030309"/>
+                                        <rect id="Rectangle 19" width="80.8905" height="53.5561" transform="matrix(-0.999899 0.0142423 0.0142423 0.999899 442.882 549.506)" fill="#030309"/>
+                                        <rect id="Rectangle 18" width="46.2297" height="53.5561" transform="matrix(-0.988103 -0.153795 -0.153795 0.988103 369.916 549.11)" fill="#030309"/>
+                                        <rect id="Rectangle 17" width="46.2297" height="53.5561" transform="matrix(-0.940186 -0.340662 -0.340662 0.940186 337.709 546.749)" fill="#030309"/>
+                                        <rect id="Rectangle 16" width="46.2297" height="53.5561" transform="matrix(-0.940186 -0.340662 -0.340662 0.940186 299.709 531.749)" fill="#030309"/>
+                                        <rect id="Rectangle 15" x="387" y="587.269" width="168.696" height="262.947" transform="rotate(-27.6434 387 587.269)" fill="#030309"/>
+                                        <rect id="Rectangle 13" x="86" y="584.104" width="168.696" height="262.947" transform="rotate(-46.8648 86 584.104)" fill="#030309"/>
+                                        <rect id="Rectangle 11" x="527" y="532.777" width="168.696" height="262.947" transform="rotate(-51.9135 527 532.777)" fill="#030309"/>
+                                        <rect id="Rectangle 12" x="503" y="527.247" width="168.696" height="262.947" transform="rotate(-31.9408 503 527.247)" fill="#030309"/>
+                                        <rect id="Rectangle 6" x="456.715" y="60.2651" width="131.991" height="278.153" transform="rotate(-177.303 456.715 60.2651)" fill="#030309"/>
+                                        <rect id="Rectangle 5" x="525.118" y="90.4898" width="131.991" height="274.627" transform="rotate(-158.368 525.118 90.4898)" fill="#030309"/>
+                                        <rect id="Rectangle 4" x="570.695" y="127.633" width="109.94" height="223.222" transform="rotate(-142.051 570.695 127.633)" fill="#030309"/>
+                                        <rect id="Rectangle 3" x="613.292" y="189.098" width="99.2768" height="223.222" transform="rotate(-128.125 613.292 189.098)" fill="#030309"/>
+                                        <path id="Vector 3" d="M609 183V422.5" stroke="#E7E6E8" stroke-width="4"/>
+                                        <path id="Vector 1" d="M185.5 425.5L185 180" stroke="#DBDBDC" stroke-width="4"/>
+                                        <path id="Vector 2" d="M185 181.502C185 181.502 269.8 52.0936 397 56.0907C524.2 60.0879 576.603 135.189 609 184" stroke="#DBDBDC" stroke-width="4"/>
+                                        <path id="Vector 4" d="M608.5 424.5C608.5 424.5 557 548 396 550.5C235 553 185 424.5 185 424.5" stroke="#DBDBDC" stroke-width="4"/>
+                                        <path id="Polygon 1" d="M396.252 65.2333L377.848 35.8138L414.647 35.8079L396.252 65.2333Z" fill="#E7F013"/>
+                                        <path id="Polygon 2" d="M407.919 38.9482L396.431 59.4193L384.446 38.7244L407.919 38.9482Z" fill="#030309"/>
+                                        <path id="Vector 6" d="M307 76L302 64.5L312 60.5L317 71" stroke="#E7E6E8" stroke-width="4"/>
+                                        <path id="Vector 7" d="M279.5 91L268.5 73.5L259 79L269.5 97.5" stroke="#E7E6E8" stroke-width="4"/>
+                                        <path id="Vector 8" d="M225 135L206.5 117" stroke="#E7E6E8" stroke-width="4"/>
+                                        <path id="Vector 9" d="M477.153 71.5794L479.366 59.3018L489.886 61.5697L488.226 73.0218" stroke="#E7E6E8" stroke-width="4"/>
+                                        <path id="Vector 10" d="M347.928 61.4888L346.352 49.0483L357.072 48.0112L358.929 59.4917" stroke="#E7E6E8" stroke-width="4"/>
+                                        <path id="Vector 11" d="M435.153 59.5794L437.366 47.3018L447.886 49.5697L446.226 61.0218" stroke="#E7E6E8" stroke-width="4"/>
+                                        <path id="Vector 12" d="M514.032 86.1754L522.756 72.2658L533.956 78.0405L525.5 93.5" stroke="#E7E6E8" stroke-width="4"/>
+                                        <path id="Vector 13" d="M569.5 131.5L585.5 116" stroke="#E7E6E8" stroke-width="4"/>
+                                        <path id="Vector 15" d="M183.5 193.5L173 187" stroke="#029705" stroke-width="4"/>
+                                        <path id="Vector 16" d="M184 203L173.5 196.5" stroke="#029705" stroke-width="4"/>
+                                        <path id="Vector 17" d="M610 193.5L619 188" stroke="#029705" stroke-width="3"/>
+                                        <path id="Vector 18" d="M610 199.5L619 194" stroke="#029705" stroke-width="3"/>
+                                        <line id="Line 1" x1="184" y1="211" x2="184" y2="184" stroke="#DBDBDC" stroke-width="2"/>
+                                        <line id="Line 2" x1="610" y1="211" x2="610" y2="184" stroke="#DBDBDC" stroke-width="2"/>
+                                        <rect id="altitude_bg" x="675" y="73" width="72" height="476" fill="#76767A"/>
+                                        <g clip-path="url(#altTapeClip)">
+                                            <svg x="675" y="73" width="72" height="476"><g id="altitude_tape_group"></g></svg>
+                                        </g>
+                                        <g id="altitude_indicator_static">
+                                            <rect id="altitude_1" x="675" y="280" width="73" height="49" fill="#030309"/>
+                                            <text id="altitude_readout_hundreds" x="740" y="316" fill="#00FF00" font-size="32" text-anchor="end" font-weight="bold">0</text>
+                                            <g id="altitude_tens_reel_container" clip-path="url(#tensReelClip)"><g id="altitude_tens_reel_group"></g></g>
+                                            <line id="Line 8" x1="669" y1="307" x2="618" y2="307" stroke="#DDDF07" stroke-width="8"/>
+                                        </g>
+                                        <path id="limit" d="M636 336.08L621.413 307.511L650.858 307.651L636 336.08Z" fill="#C477C6"/>
+                                        <path id="limit2" d="M636 279L650.722 307.5H621.278L636 279Z" fill="#C477C6"/>
+                                        <path id="limit3" d="M636 285L643.794 303H628.206L636 285Z" fill="#100010"/>
+                                        <path id="limit4" d="M636.191 329.14L628.276 311.242L643.534 310.999L636.191 329.14Z" fill="#030309"/>
+                                        <line id="Line 6" x1="746.5" y1="263" x2="746.5" y2="281" stroke="#ECED06" stroke-width="3"/>
+                                        <line id="Line 4" x1="746.5" y1="329" x2="746.5" y2="347" stroke="#ECED06" stroke-width="3"/>
+                                        <path id="Ellipse 1" d="M636 481C636 484.866 632.866 488 629 488C625.134 488 622 484.866 622 481C622 477.134 625.134 474 629 474C632.866 474 636 477.134 636 481Z" fill="#D9D9D9"/>
+                                        <path id="Ellipse 4" d="M636 147C636 150.866 632.866 154 629 154C625.134 154 622 150.866 622 147C622 143.134 625.134 140 629 140C632.866 140 636 143.134 636 147Z" fill="#D9D9D9"/>
+                                        <g id="Ellipse 3">
+                                            <path d="M636 229C636 232.866 632.866 236 629 236C625.134 236 622 232.866 622 229C622 225.134 625.134 222 629 222C632.866 222 636 225.134 636 229Z" fill="#D9D9D9"/>
+                                            <path d="M636 395C636 398.866 632.866 402 629 402C625.134 402 622 398.866 622 395C622 391.134 625.134 388 629 388C632.866 388 636 391.134 636 395Z" fill="#D9D9D9"/>
+                                        </g>
+                                        <rect id="speed" x="28" y="73" width="97" height="477" fill="#76767A"/>
+                                        <g clip-path="url(#speedTapeClip)">
+                                            <svg x="28" y="73" width="97" height="477"><g id="speed_tape_group"></g></svg>
+                                        </g>
+                                        <g id="speed_indicator_static">
+                                            <path id="Polygon 9" d="M128.036 311.591L150.451 301.561L150.513 321.482L128.036 311.591Z" fill="#FDFD03"/>
+                                            <path id="Vector 20" d="M137 311H96.5" stroke="#FDFD03" stroke-width="4"/>
+                                            <rect x="50" y="296" width="45" height="30" fill="black" stroke="#999" stroke-width="1"/>
+                                            <text id="speed_readout" x="72.5" y="318" fill="#00FF00" font-size="20" text-anchor="middle" font-weight="bold">0</text>
+                                        </g>
+                                        <path id="Vector 19" d="M19.5 311H31" stroke="#FDFD03" stroke-width="4"/>
+                                        <path id="Vector 21" d="M29 73H151.5" stroke="#E7E6E8" stroke-width="4"/>
+                                        <path id="Vector 22" d="M28 549H151.5" stroke="#E7E6E8" stroke-width="4"/>
+                                        <path id="Vector 23" d="M672.5 73H774" stroke="#E7E6E8" stroke-width="4"/>
+                                        <path id="Vector 24" d="M672 548.5H773" stroke="#E7E6E8" stroke-width="4"/>
+                                        <path id="Vector 25" d="M745 549.5L746 347" stroke="#E7E6E8" stroke-width="3"/>
+                                        <path id="Vector 26" d="M745 73V265" stroke="#E7E6E8" stroke-width="3"/>
+                                        <g id="wings">
+                                            <rect id="Rectangle 21" x="280" y="315" width="11" height="25" fill="#030309"/>
+                                            <rect id="Rectangle 23" x="522" y="304" width="71" height="12" fill="#030309"/>
+                                            <rect id="Rectangle 22" x="512" y="305" width="13" height="35" fill="#030309"/>
+                                            <rect id="Rectangle 20" x="208" y="304" width="83" height="13" fill="#030309"/>
+                                            <g id="wing">
+                                                <path d="M278.591 316.857H208V304H291.608V340H278.591V316.857Z" stroke="#FEFE03" stroke-width="3"/>
+                                                <path d="M511.392 340V304H595V316.857H524.409V340H511.392Z" stroke="#FEFE03" stroke-width="3"/>
+                                            </g>
+                                        </g>
+                                        <g id="middle">
+                                            <rect id="middle_2" x="393" y="304" width="17" height="17" fill="#0CC704"/>
+                                            <rect id="Rectangle 24" x="395" y="307" width="13" height="11" fill="#030309"/>
+                                        </g>
+                                        <rect id="Rectangle 25" y="571" width="787" height="140" fill="#030309"/>
+                                        <rect id="header" x="243" y="599" width="326" height="66" fill="#76767A"/>
+                                        <g id="heading_indicator">
+                                            <g id="heading_tape_container" clip-path="url(#headingClip)"><g id="heading_tape_group"></g></g>
+                                            <g id="heading_static_elements">
+                                                <line x1="406" y1="620" x2="406" y2="635" stroke="#FDFD03" stroke-width="3"/>
+                                                <rect x="381" y="599" width="50" height="20" fill="black" stroke="#FFFFFF" stroke-width="1"/>
+                                                <text id="heading_readout" x="406" y="615" fill="#00FF00" font-size="16" text-anchor="middle" font-weight="bold">000</text>
+                                            </g>
+                                        </g>
+                                        <path id="Vector 27" d="M243 599V667" stroke="#FCFCFF" stroke-width="4"/>
+                                        <g id="Line 5"><line id="Line 5_2" x1="745" y1="264.5" x2="787" y2="264.5" stroke="#ECED06" stroke-width="3"/></g>
+                                        <line id="Line 6_2" x1="671" y1="279.5" x2="748" y2="279.5" stroke="#ECED06" stroke-width="3"/>
+                                        <line id="Line 7" x1="671" y1="329.5" x2="748" y2="329.5" stroke="#ECED06" stroke-width="3"/>
+                                        <line id="Line 3" x1="746" y1="345.5" x2="786" y2="345.5" stroke="#ECED06" stroke-width="3"/>
+                                    </g> 
+                                    </g>
+                                    <defs>
+                                        <clipPath id="clip0_1_2890"><rect width="787" height="800" fill="white"/></clipPath>
+                                        <clipPath id="tensReelClip"><rect x="732" y="269" width="50" height="75"/></clipPath>
+                                        <clipPath id="headingClip"><rect x="243" y="620" width="326" height="45"/></clipPath>
+                                        <clipPath id="speedTapeClip"><rect x="28" y="73" width="97" height="477"/></clipPath>
+                                        <clipPath id="altTapeClip"><rect x="675" y="73" width="72" height="476"/></clipPath>
+                                    </defs>
+                                </svg>
+                            </div>
+                        </div>
+                        
+                        <div class="display-bezel">
+                            <div class="screw tl"></div><div class="screw tr"></div><div class="screw bl"></div><div class="screw br"></div>
+                            <div class="crt-container scanlines">
+                                <div id="nd-container">
+                                    <iframe id="nav-display-frame" src="nav.html" scrolling="no"></iframe>
+                                </div>
+                            </div>
+                        </div>
+
+                    </div>
+                    
+                    <div class="info-right-col">
+                        
+                        <div class="tech-module" id="cockpit-seat-sensor">
+                            <div class="tech-module-header">
+                                <span class="tech-module-title"><i class="fa-solid fa-chair"></i> COCKPIT STATE</span>
+                                <span class="fms-page-count"><i class="fa-solid fa-satellite-dish"></i></span>
+                            </div>
+                            <div class="tech-module-body">
+                                <div class="cockpit-view">
+                                    <div id="seat-cpt" class="seat" data-role="CPT"></div>
+                                    <div id="seat-fo" class="seat" data-role="FO"></div>
+                                    
+                                    <div id="icon-parking-overlay" class="cockpit-overlay-icon icon-parking">P</div>
+                                    <div id="icon-coffee-overlay" class="cockpit-overlay-icon icon-coffee"><i class="fa-solid fa-mug-hot"></i></div>
+                                    <div id="icon-cloud-overlay" class="cockpit-overlay-icon icon-cloud"><i class="fa-solid fa-cloud"></i></div>
+                                </div>
+                                <div class="seat-status-display">
+                                    <span id="status-cpt-text" class="status-pill">CMD: ---</span>
+                                    <span id="status-fo-text" class="status-pill">FO: ---</span>
+                                </div>
+                                <div id="seat-narrative-text">
+                                    Initializing...
+                                </div>
+                            </div>
+                        </div>
+
+                        ${todHtml}
+
+                        <div id="fms-legs-module" class="tech-module" style="height: 380px; max-height: 380px; display: flex; flex-direction: column; margin-top: 12px;">
+                            <div class="tech-module-header">
+                                <span class="tech-module-title"><i class="fa-solid fa-route"></i> ACTIVE FLIGHT PLAN</span>
+                                <span class="fms-page-count">1/1</span>
+                            </div>
+                            
+                            <div class="fms-columns">
+                                <span class="col-wpt">LEGS</span>
+                                <span class="col-data text-center">CRS</span>
+                                <span class="col-data text-right">DIST</span>
+                            </div>
+
+                            <div id="fms-legs-list" class="fms-list-scrollarea">
+                                <div class="fms-empty-state">NO ROUTE LOADED</div>
+                            </div>
+                            
+                            <div class="fms-footer">
+                                <div class="fms-stat">
+                                    <span class="stat-label">DTG</span>
+                                    <span id="fms-total-dist" class="stat-value">---- NM</span>
+                                </div>
+                                <div class="fms-stat">
+                                    <span class="stat-label">ETE</span>
+                                    <span id="fms-total-ete" class="stat-value">--:--</span>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                
+                <div class="tech-module" id="location-data-panel">
+                    <div class="tech-module-header">
+                        <span class="tech-module-title"><i class="fa-solid fa-location-crosshairs"></i> NAV DATA</span>
+                        <span class="nav-status-indicator"><div class="nav-blink"></div> LIVE</span>
+                    </div>
+                    
+                    <div class="tech-module-body" style="padding: 8px;">
+                        <div class="nav-grid-container">
+                            <div class="nav-cell">
+                                <span class="nav-label"><i class="fa-solid fa-map-location-dot"></i> Region</span>
+                                <span class="nav-value small" id="ac-location">Scanning...</span>
+                            </div>
+                            <div class="nav-cell">
+                                <span class="nav-label"><i class="fa-solid fa-tower-control"></i> Nearest</span>
+                                <div class="nav-row">
+                                    <span class="nav-value highlight" id="ac-nearest-apt">---</span>
+                                    <span class="nav-value" id="ac-nearest-apt-dist">--.- <span class="nav-unit">NM</span></span>
+                                </div>
+                            </div>
+                            <div class="nav-cell">
+                                <span class="nav-label"><i class="fa-solid fa-wind"></i> Wind</span>
+                                <span class="nav-value" id="ac-env-wind">---/--</span>
+                            </div>
+                            <div class="nav-cell">
+                                <span class="nav-label"><i class="fa-solid fa-temperature-half"></i> OAT</span>
+                                <span class="nav-value" id="ac-env-oat">--°C</span>
+                            </div>
+
+                            <div class="nav-cell nav-span-2">
+                                <span class="nav-label"><i class="fa-solid fa-location-crosshairs"></i> Position</span>
+                                <div class="nav-row">
+                                    <div><span class="nav-unit">LAT</span> <span class="nav-value" id="ac-lat">---</span></div>
+                                    <div><span class="nav-unit">LON</span> <span class="nav-value" id="ac-lon">---</span></div>
+                                </div>
+                            </div>
+                            <div class="nav-cell nav-span-2">
+                                 <span class="nav-label"><i class="fa-solid fa-arrow-up-right-dots"></i> Vertical Speed</span>
+                                 <span class="nav-value large highlight" id="ac-vs">--- <span class="nav-unit">fpm</span></span>
+                            </div>
+
+                            <div class="nav-cell nav-span-2">
+                                <span class="nav-label"><i class="fa-solid fa-location-arrow"></i> Next Waypoint</span>
+                                <div class="nav-row">
+                                    <span class="nav-value accent" id="ac-next-wp">---</span>
+                                    <span class="nav-value" id="ac-next-wp-dist">--.- <span class="nav-unit">NM</span></span>
+                                </div>
+                            </div>
+                            <div class="nav-cell nav-span-2">
+                                <span class="nav-label"><i class="fa-solid fa-flag-checkered"></i> Destination</span>
+                                <div class="nav-row">
+                                    <div><span class="nav-unit">DIST</span> <span class="nav-value" id="ac-dist">---</span></div>
+                                    <div><span class="nav-unit">ETE</span> <span class="nav-value" id="ac-ete">--:--</span></div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="tech-card">
+                    <div class="tech-card-header">
+                        <div>
+                            <div style="display: flex; align-items: center; gap: 8px; margin-bottom: 4px;">
+                                <div class="tech-badge">
+                                    <span class="tech-ping">
+                                      <span class="animate"></span>
+                                      <span></span>
+                                    </span>
+                                    Active
+                                </div>
+                                <span style="font-size: 10px; font-weight: 600; color: #94a3b8; text-transform: uppercase; letter-spacing: 0.1em;">Flight Data</span>
+                            </div>
+                            <h1 class="tech-model">${aircraftName}</h1>
+                            <p class="tech-airline">
+                                <i class="fa-solid fa-plane" style="font-size: 12px;"></i>
+                                <span>${airlineName}</span>
+                            </p>
+                        </div>
+                        <button style="padding: 8px; color: #94a3b8; background: transparent; border: none; cursor: pointer;">
+                            <i class="fa-solid fa-ellipsis" style="font-size: 16px;"></i>
+                        </button>
+                    </div>
+
+                    <div class="tech-content">
+                        <div class="tech-image-container">
+                            <img src="${techCardImagePath}" onerror="this.src='/CommunityPlanes/default.png'" class="tech-image" alt="Aircraft">
+                            <div class="tech-image-overlay"></div>
+                            
+                            <div class="tech-image-info">
+                                <div class="tech-photographer">
+                                    <span class="tech-photo-label">Contributor</span>
+                                    <div class="tech-photo-name">
+                                        <i class="fa-solid fa-camera" style="color: #38bdf8; font-size: 12px;"></i>
+                                        <span>${photographerName}</span>
+                                    </div>
+                                </div>
+                                <a href="#" style="padding: 8px; background: rgba(255,255,255,0.1); border-radius: 8px; color: #fff; border: 1px solid rgba(255,255,255,0.1); display: flex;">
+                                    <i class="fa-solid fa-arrow-up-right-from-square" style="font-size: 14px;"></i>
+                                </a>
+                            </div>
+                        </div>
+
+                        <div class="tech-grid">
+                            <div class="tech-stat-card">
+                                <div class="tech-stat-header">
+                                    <span class="tech-stat-label">Registration</span>
+                                    <i class="fa-solid fa-hashtag" style="font-size: 12px; color: #475569;"></i>
+                                </div>
+                                <span class="tech-stat-value">${techCardTail}</span>
+                            </div>
+
+                            <div class="tech-stat-card">
+                                <div class="tech-stat-header">
+                                    <span class="tech-stat-label">Callsign</span>
+                                    <i class="fa-solid fa-tag" style="font-size: 12px; color: #475569;"></i>
+                                </div>
+                                <span class="tech-stat-value">${baseProps.callsign}</span>
+                            </div>
+
+                            <div class="tech-country-card">
+    <div class="tech-country-left">
+        <div class="tech-country-icon">
+            <i class="fa-solid fa-plane-up" style="font-size: 14px;"></i>
+        </div>
+        <div style="display: flex; flex-direction: column;">
+            <span class="tech-stat-label" style="font-size: 9px; margin-bottom: 2px;">Category</span>
+            <span style="font-size: 13px; font-weight: 600; color: #fff; text-transform: capitalize;">${baseProps.category || 'Standard'}</span>
+        </div>
+    </div>
+    <div style="padding: 4px 8px; background: rgba(51, 65, 85, 0.5); border-radius: 4px; border: 1px solid rgba(255, 255, 255, 0.05);">
+        <span style="font-family: monospace; font-size: 10px; color: #cbd5e1;">CLASS</span>
+    </div>
+</div>
+                        </div>
+                    </div>
+                    <div class="tech-bottom-bar"></div>
+                </div>
+
+                <div class="tech-module vsd-module-container">
+                    <div class="tech-module-header">
+                        <span class="tech-module-title"><i class="fa-solid fa-chart-area"></i> VERTICAL SITUATION DISPLAY</span>
+                        <span class="fms-page-count">VSD</span>
+                    </div>
+                    
+                    <div id="vsd-panel" class="vsd-panel active" data-plan-id="" data-profile-built="false">
+                        <div id="vsd-graph-window" class="vsd-graph-window">
+                            <div id="vsd-aircraft-icon"></div>
+                            <div id="vsd-graph-content">
+                                <svg id="vsd-profile-svg" xmlns="http://www.w3.org/2000/svg">
+                                    <path id="vsd-flown-path" d="" />
+                                    <path id="vsd-profile-path" d="" />
+                                </svg>
+                                <div id="vsd-waypoint-labels"></div>
+                            </div>
+                        ${planButtonHtml} </div>
+                    </div>
+
+                    <div class="vsd-footer">
+                        <div class="vsd-legend-item"><div class="dot-plan"></div> PLANNED</div>
+                        <div class="vsd-legend-item"><div class="dot-flown"></div> FLOWN</div>
+                        <div>ALTITUDE PROFILE</div>
+                    </div>
+                </div>
+                </div> 
             
             <div id="ac-tab-pilot-report" class="ac-tab-pane">
                 <div id="pilot-stats-display"></div>
@@ -8505,25 +8313,26 @@ function populateAircraftInfoWindow(baseProps, plan, sortedRoutePoints, communit
     `;
     
     // --- POST-RENDER LOGIC ---
-    
-    // Only initialize PFD if NOT in simple mode
-    if (!mapFilters.simplifyAircraftView) {
-        createPfdDisplay();
-        updatePfdDisplay(baseProps.position);
-    }
-    
-    // Call update to populate numbers (works for both modes)
+    createPfdDisplay();
+    updatePfdDisplay(baseProps.position);
     updateAircraftInfoWindow(baseProps, plan, sortedRoutePoints, communityAircraftData);
     
-    // Image Background Fix
+    // --- FIX IMPLEMENTATION: SET THE DATA ATTRIBUTE ON THE HEADER HERE ---
     const imagePath = techCardImagePath; 
     const fallbackPath = '/CommunityPlanes/default.png';
     const newImageUrl = `url('${imagePath}'), url('${fallbackPath}')`; 
+
     const overviewPanels = document.querySelectorAll('#ac-overview-panel');
+    
     overviewPanels.forEach(overviewPanel => {
+        // Set the background image
         overviewPanel.style.backgroundImage = newImageUrl;
+        
+        // --- CRITICAL FIX: Set the path to the high-quality image ---
         overviewPanel.dataset.currentPath = imagePath;
+        // --- END CRITICAL FIX ---
     });
+
 }
 
 /**
@@ -8852,17 +8661,16 @@ function renderPilotStatsHTML(stats, username) {
 
 
 
-/**
- * --- [UPDATED STEP 3] Updates the active window with live data (Dual Mode) ---
- * Matches the new .nav-unit CSS classes.
- */
 function updateAircraftInfoWindow(baseProps, plan, sortedRoutePoints) {
     // --- Helper function to update all elements matching a selector ---
     const updateAll = (selector, value, isHTML = false) => {
         const elements = document.querySelectorAll(selector);
         elements.forEach(el => {
-            if (isHTML) el.innerHTML = value;
-            else el.textContent = value;
+            if (isHTML) {
+                el.innerHTML = value;
+            } else {
+                el.textContent = value;
+            }
         });
     };
     
@@ -8874,21 +8682,16 @@ function updateAircraftInfoWindow(baseProps, plan, sortedRoutePoints) {
         });
     };
 
-    // ==========================================================
-    // 1. COMMON CALCULATIONS (Run for both modes)
-    // ==========================================================
-    
+    // --- Get Original Data ---
     const originalFlatWaypoints = (plan && plan.flightPlanItems) ? flattenWaypointsFromPlan(plan.flightPlanItems) : [];
     const originalFlatWaypointObjects = (plan && plan.flightPlanItems) ? getFlatWaypointObjects(plan.flightPlanItems) : [];
     const hasPlan = originalFlatWaypoints.length >= 2;
 
-    let distanceToDestNM = 0;
+    let progress = 0, ete = '--:--', distanceToDestNM = 0;
     let totalDistanceNM = 0;
-    let progress = 0;
-    let ete = '--:--';
 
-    // Calculate Distance & Progress
     if (hasPlan) {
+        // ... (calculation logic for progress, ete, etc. is unchanged) ...
         let totalDistanceKm = 0;
         for (let i = 0; i < originalFlatWaypoints.length - 1; i++) {
             const [lon1, lat1] = originalFlatWaypoints[i];
@@ -8913,163 +8716,487 @@ function updateAircraftInfoWindow(baseProps, plan, sortedRoutePoints) {
         }
     }
 
-    // Determine Waypoints (Next/Prev)
+    // --- Pre-calculate cumulative NM ---
+    if (hasPlan) {
+        let cumulativeDistNM = 0;
+        let lastLat = originalFlatWaypointObjects[0].location.latitude;
+        let lastLon = originalFlatWaypointObjects[0].location.longitude;
+
+        for (let i = 0; i < originalFlatWaypointObjects.length; i++) {
+            const wp = originalFlatWaypointObjects[i];
+            if (!wp.location) continue; 
+            const wpLat = wp.location.latitude;
+            const wpLon = wp.location.longitude;
+            
+            const segmentDistNM = (i === 0) ? 0 : getDistanceKm(lastLat, lastLon, wpLat, wpLon) / 1.852;
+            cumulativeDistNM += segmentDistNM;
+            
+            wp.cumulativeNM = cumulativeDistNM;
+            
+            lastLat = wpLat;
+            lastLon = wpLon;
+        }
+        totalDistanceNM = cumulativeDistNM;
+    }
+
+    // --- Flight Plan Data Extraction ---
     let nextWpName = '---';
-    let prevWpName = '---';
     let nextWpDistNM = '---';
     let bestWpIndex = -1;
     let minScore = Infinity;
-    
-    const currentPos = baseProps.position;
-    const currentTrack = currentPos.heading_deg;
-
-    if (plan && originalFlatWaypointObjects.length > 1 && currentPos) {
-        for (let i = 1; i < originalFlatWaypointObjects.length; i++) { 
-            const wp = originalFlatWaypointObjects[i];
-            if (!wp.location || wp.location.latitude == null) continue; 
-            
-            const distanceToWpKm = getDistanceKm(currentPos.lat, currentPos.lon, wp.location.latitude, wp.location.longitude);
-            const bearingToWp = getBearing(currentPos.lat, currentPos.lon, wp.location.latitude, wp.location.longitude);
-            const bearingDiff = Math.abs(normalizeBearingDiff(currentTrack - bearingToWp));
-            
-            if (bearingDiff <= 95 && distanceToWpKm < minScore) { 
-                minScore = distanceToWpKm;
-                bestWpIndex = i;
+    if (plan) { 
+        // ... (logic for finding next waypoint is unchanged) ...
+        const currentPos = baseProps.position;
+        const currentTrack = currentPos.heading_deg;
+        
+        if (originalFlatWaypointObjects.length > 1 && currentPos && typeof currentTrack === 'number') {
+            for (let i = 1; i < originalFlatWaypointObjects.length; i++) { 
+                const wp = originalFlatWaypointObjects[i];
+                if (!wp.location || wp.location.latitude == null || wp.location.longitude == null) {
+                    continue; 
+                }
+                const distanceToWpKm = getDistanceKm(currentPos.lat, currentPos.lon, wp.location.latitude, wp.location.longitude);
+                const bearingToWp = getBearing(currentPos.lat, currentPos.lon, wp.location.latitude, wp.location.longitude);
+                const bearingDiff = Math.abs(normalizeBearingDiff(currentTrack - bearingToWp));
+                if (bearingDiff <= 95) { 
+                    if (distanceToWpKm < minScore) {
+                        minScore = distanceToWpKm;
+                        bestWpIndex = i;
+                    }
+                }
             }
         }
+        if (bestWpIndex !== -1) {
+            const nextWp = originalFlatWaypointObjects[bestWpIndex]; 
+            if (nextWp) {
+                nextWpName = nextWp.identifier || nextWp.name || 'N/A';
+                nextWpDistNM = (minScore / 1.852).toFixed(0);
+            }
+        } else if (hasPlan && distanceToDestNM < 10 && distanceToDestNM > 0.5) {
+            nextWpName = originalFlatWaypointObjects.length > 0 ? (originalFlatWaypointObjects[originalFlatWaypoints.length - 1].identifier || originalFlatWaypointObjects[originalFlatWaypoints.length - 1].name) : "DEST";
+            nextWpDistNM = distanceToDestNM.toFixed(0);
+        } else if (hasPlan && distanceToDestNM <= 0.5) {
+             nextWpName = "DEST";
+             nextWpDistNM = "0";
+        }
+    }
+    
+    // --- Calculate accurate progress along the planned route ---
+    let progressAlongRouteNM = 0;
+    if (hasPlan && bestWpIndex > 0) {
+        // ... (progressAlongRouteNM logic is unchanged) ...
+        const prevWp = originalFlatWaypointObjects[bestWpIndex - 1];
+        const nextWp = originalFlatWaypointObjects[bestWpIndex];
+        
+        if (prevWp && nextWp && prevWp.cumulativeNM != null && nextWp.cumulativeNM != null) {
+            const segmentTotalNM = nextWp.cumulativeNM - prevWp.cumulativeNM;
+            const distToNextNM = minScore / 1.852;
+            
+            if (segmentTotalNM > 0) {
+                const segmentProgressNM = Math.max(0, segmentTotalNM - distToNextNM);
+                progressAlongRouteNM = prevWp.cumulativeNM + segmentProgressNM;
+            } else {
+                progressAlongRouteNM = prevWp.cumulativeNM;
+            }
+        } else {
+             progressAlongRouteNM = Math.max(0.01, totalDistanceNM - distanceToDestNM);
+        }
+    } else if (hasPlan && (bestWpIndex === 0 || bestWpIndex === -1) && distanceToDestNM >= 1.0) { 
+        progressAlongRouteNM = Math.max(0.01, totalDistanceNM - distanceToDestNM);
+    } else if (hasPlan && distanceToDestNM < 1.0) { 
+        progressAlongRouteNM = totalDistanceNM;
     }
 
-    if (bestWpIndex !== -1) {
-        const nextWp = originalFlatWaypointObjects[bestWpIndex]; 
-        nextWpName = nextWp.identifier || nextWp.name || 'N/A';
-        nextWpDistNM = (minScore / 1.852).toFixed(1);
-        
-        // Identify Previous
-        if (bestWpIndex > 0) {
-            const prevWp = originalFlatWaypointObjects[bestWpIndex - 1];
-            prevWpName = prevWp.identifier || prevWp.name || 'DEP';
-        }
-    } else if (hasPlan && distanceToDestNM < 10) {
-         nextWpName = "DEST";
-         nextWpDistNM = distanceToDestNM.toFixed(1);
-         if (originalFlatWaypointObjects.length > 1) {
-             prevWpName = originalFlatWaypointObjects[originalFlatWaypointObjects.length - 2].identifier || 'WPT';
-         }
+
+    // --- Update New Data Bar ---
+    const nextWpDisplay = nextWpName;
+    const nextWpDistDisplay = (nextWpDistNM === '---' || isNaN(parseFloat(nextWpDistNM))) ? '--.-' : Number(nextWpDistNM).toFixed(1);
+
+    updateAll('#ac-next-wp', nextWpDisplay);
+    updateAll('#ac-next-wp-dist', `${nextWpDistDisplay}<span class="unit">NM</span>`, true);
+    updateAll('#ac-dist', `${Math.round(distanceToDestNM)}<span class="unit">NM</span>`, true);
+    updateAll('#ac-ete', ete);
+
+    // --- Flight Phase State Machine (Unchanged) ---
+    let flightPhase = 'ENROUTE';
+    let phaseClass = 'phase-enroute';
+    let phaseIcon = 'fa-route';
+    const vs = baseProps.position.vs_fpm || 0;
+    const altitude = baseProps.position.alt_ft || 0;
+    const gs = baseProps.position.gs_kt || 0;
+    let departureIcao = null;
+    let arrivalIcao = null;
+    if (plan && Array.isArray(plan.flightPlanItems) && plan.flightPlanItems.length >= 2) {
+        departureIcao = plan.flightPlanItems[0]?.identifier?.trim().toUpperCase();
+        arrivalIcao = plan.flightPlanItems[plan.flightPlanItems.length - 1]?.identifier?.trim().toUpperCase();
     }
-
-    // Common Weather Data
-    const oat = currentAircraftPositionForGeocode?.oat_c || 15;
-    const windDir = currentAircraftPositionForGeocode?.wind_dir || 0;
-    const windSpd = currentAircraftPositionForGeocode?.wind_spd_kts || 0;
-
-    // ==========================================================
-    // 2. BRANCHING UPDATE LOGIC
-    // ==========================================================
-
-    if (mapFilters.simplifyAircraftView) {
-        // --- MODE A: SIMPLIFIED VIEW UPDATES ---
-        
-        // 1. Calculate Advanced Physics (TAS/Mach)
-        const alt = baseProps.position.alt_ft || 0;
-        const gs = baseProps.position.gs_kt || 0;
-        const vs = baseProps.position.vs_fpm || 0;
-        const hdg = baseProps.position.heading_deg || 0;
-        
-        const tas = calculateTas(alt, oat, gs);
-        
-        // Approx Speed of Sound
-        const tempK = 273.15 + oat;
-        const speedOfSound = 38.967854 * Math.sqrt(tempK); // m/s
-        const speedOfSoundKts = speedOfSound * 1.94384;
-        const mach = (speedOfSoundKts > 0) ? (tas / speedOfSoundKts).toFixed(2) : "0.00";
-
-        // 2. Update Grid
-        updateAll('#simple-alt-val', Math.round(alt).toLocaleString());
-        updateAll('#simple-gs-val', Math.round(gs));
-        
-        // VS Color Logic
-        const vsElem = document.getElementById('simple-vs-val');
-        if (vsElem) {
-            vsElem.textContent = (vs > 0 ? "+" : "") + Math.round(vs);
-            vsElem.style.color = vs > 100 ? '#4ade80' : vs < -100 ? '#fca5a5' : '#fff';
+    const aircraftPos = { lat: baseProps.position.lat, lon: baseProps.position.lon, heading_deg: baseProps.position.heading_deg };
+    let nearestRunwayInfo = null;
+    if (hasPlan) {
+        const distanceFlownKm = totalDistanceNM * 1.852 - distanceToDestNM * 1.852;
+        if (distanceToDestNM * 1.852 < distanceFlownKm && arrivalIcao) {
+             nearestRunwayInfo = getNearestRunway(aircraftPos, arrivalIcao, 1.5);
+        } else if (departureIcao) {
+             nearestRunwayInfo = getNearestRunway(aircraftPos, departureIcao, 1.5);
         }
-
-        updateAll('#simple-hdg-val', Math.round(hdg).toString().padStart(3, '0'));
-        updateAll('#simple-tas-val', Math.round(tas));
-        updateAll('#simple-mach-val', mach);
-
-        // 3. Update Nav Strip
-        updateAll('#simple-prev-wp', prevWpName);
-        updateAll('#simple-next-wp', nextWpName);
-        updateAll('#simple-dist-val', `${nextWpDistNM} NM`);
-        updateAll('#simple-ete-val', `ETE ${ete} / DEST ${Math.round(distanceToDestNM)} NM`);
-
-        // 4. Update Env
-        updateAll('#simple-wind-val', `${String(windDir).padStart(3, '0')}° / ${windSpd} kt`);
-        updateAll('#simple-oat-val', `${oat}°C`);
-
+    }
+    let altitudeAGL = null;
+    if (nearestRunwayInfo && nearestRunwayInfo.elevation_ft != null) {
+        altitudeAGL = altitude - nearestRunwayInfo.elevation_ft;
     } else {
-        // --- MODE B: STANDARD COCKPIT VIEW UPDATES ---
-
-        // 1. Update Top Bar Data
-        updateAll('#ac-next-wp', nextWpName);
-        // FIX: Use 'nav-unit' class from the new CSS
-        updateAll('#ac-next-wp-dist', `${nextWpDistNM} <span class="nav-unit">NM</span>`, true);
-        updateAll('#ac-dist', `${Math.round(distanceToDestNM)} <span class="nav-unit">NM</span>`, true);
-        updateAll('#ac-ete', ete);
-        styleAll('#ac-progress-bar', 'width', `${progress.toFixed(1)}%`);
-
-        // 2. Calculate flight phase
-        let flightPhase = 'ENROUTE';
-        let phaseClass = 'phase-enroute';
-        let phaseIcon = 'fa-route';
-        const vs = baseProps.position.vs_fpm || 0;
-        const altitude = baseProps.position.alt_ft || 0;
-        const gs = baseProps.position.gs_kt || 0;
-        
-        if (vs > 300) { flightPhase = 'CLIMB'; phaseClass = 'phase-climb'; phaseIcon = 'fa-arrow-trend-up'; }
-        else if (vs < -500) { flightPhase = 'DESCENT'; phaseClass = 'phase-descent'; phaseIcon = 'fa-arrow-trend-down'; }
-        else if (altitude > 18000) { flightPhase = 'CRUISE'; phaseClass = 'phase-cruise'; phaseIcon = 'fa-minus'; }
-        else if (altitude < 2000 && gs < 40) { flightPhase = 'GROUND'; phaseIcon = 'fa-plane-arrival'; }
-
-        updateAll('#ac-phase-indicator', `<i class="fa-solid ${phaseIcon}"></i> ${flightPhase}`, true);
-        const phaseIndicators = document.querySelectorAll('#ac-phase-indicator');
-        phaseIndicators.forEach(el => el.className = `flight-phase-indicator ${phaseClass}`);
-
-        // 3. Update VSD (Vertical Situation Display)
-        const vsdPanels = document.querySelectorAll('#vsd-panel');
-        vsdPanels.forEach(vsdPanel => {
-            if (!hasPlan) return;
-            const vsdAircraftIcon = vsdPanel.querySelector('#vsd-aircraft-icon');
-            const vsdGraphContent = vsdPanel.querySelector('#vsd-graph-content');
-            
-            // Only update if visible/rendered
-            if (vsdGraphContent && vsdAircraftIcon && vsdPanel.dataset.profileBuilt === 'true') {
-                const VSD_HEIGHT_PX = vsdGraphContent.clientHeight || 210; 
-                const MAX_ALT_FT = 45000;
-                const Y_SCALE_PX_PER_FT = VSD_HEIGHT_PX / MAX_ALT_FT;
-                const currentAltPx = VSD_HEIGHT_PX - (altitude * Y_SCALE_PX_PER_FT);
-                vsdAircraftIcon.style.top = `${currentAltPx}px`;
+        const originElevationFt = (plan?.origin?.elevation_ft) ? parseFloat(plan.origin.elevation_ft) : null;
+        const destElevationFt = (plan?.destination?.elevation_ft) ? parseFloat(plan.destination.elevation_ft) : null;
+        const relevantElevationFt = (totalDistanceNM > 0 && distanceToDestNM < totalDistanceNM / 2) ? destElevationFt : originElevationFt;
+        if (relevantElevationFt !== null) {
+            altitudeAGL = altitude - relevantElevationFt;
+        }
+    }
+    const aglCheck = altitudeAGL !== null && altitudeAGL < 75;
+    const fallbackGroundCheck = altitudeAGL === null && gs < 35 && Math.abs(vs) < 150;
+    const isOnGround = aglCheck || fallbackGroundCheck;
+    const isLinedUpForLanding = nearestRunwayInfo && nearestRunwayInfo.airport === arrivalIcao && nearestRunwayInfo.headingDiff < 10;
+    if (isOnGround) {
+        if (gs > 35) {
+            if (progress > 90) { flightPhase = 'LANDING ROLLOUT'; phaseClass = 'phase-approach'; phaseIcon = 'fa-plane-arrival';
+            } else if (progress < 10) { flightPhase = 'TAKEOFF ROLL'; phaseClass = 'phase-climb'; phaseIcon = 'fa-plane-departure';
+            } else { flightPhase = 'HIGH-SPEED TAXI'; phaseIcon = 'fa-road'; phaseClass = 'phase-enroute'; }
+        } else {
+            const isStopped = gs <= 2.0;
+            const isAtTerminal = (progress < 2) || (progress > 98);
+            const relevantIcao = progress < 50 ? departureIcao : arrivalIcao;
+            const closeRunwayInfo = getNearestRunway(aircraftPos, relevantIcao, 0.15);
+            const isLinedUp = closeRunwayInfo && closeRunwayInfo.headingDiff < 10;
+            if (isLinedUp) { flightPhase = `LINED UP RWY ${closeRunwayInfo.ident}`; phaseIcon = 'fa-arrow-up'; phaseClass = 'phase-climb';
+            } else if (isStopped) {
+                if (closeRunwayInfo) { flightPhase = `HOLDING SHORT RWY ${closeRunwayInfo.ident}`; phaseIcon = 'fa-pause-circle'; phaseClass = 'phase-enroute';
+                } else if (isAtTerminal) { flightPhase = 'PARKED'; phaseIcon = 'fa-parking'; phaseClass = 'phase-enroute';
+                } else { flightPhase = 'HOLDING POSITION'; phaseIcon = 'fa-hand'; phaseClass = 'phase-enroute'; }
+            } else {
+                flightPhase = 'TAXIING'; phaseIcon = 'fa-road'; phaseClass = 'phase-enroute';
+                if (progress > 50) { flightPhase = 'TAXIING TO GATE';
+                } else if (progress < 10) { flightPhase = 'TAXIING TO RUNWAY'; }
             }
-        });
-
-        // 4. Update Seat Sensor
-        updateSeatSensor(baseProps);
-        
-        // 5. Update FMS List
-        updateFmsLegsModule(plan, baseProps.position);
+        }
+    } else {
+        const isInLandingSequence = isLinedUpForLanding && altitudeAGL !== null;
+        if (isInLandingSequence && altitudeAGL < 2500) {
+            if (altitudeAGL < 60 && vs < -50) { flightPhase = 'FLARE';
+            } else if (altitudeAGL < 500) { flightPhase = 'SHORT FINAL';
+            } else { flightPhase = 'FINAL APPROACH'; }
+            phaseClass = 'phase-approach'; phaseIcon = 'fa-plane-arrival';
+        } else if (hasPlan && distanceToDestNM < 40 && progress > 5) {
+            flightPhase = 'APPROACH'; phaseClass = 'phase-approach'; phaseIcon = 'fa-plane-arrival';
+        } else if (vs > 300) {
+            flightPhase = 'CLIMB'; phaseClass = 'phase-climb'; phaseIcon = 'fa-arrow-trend-up';
+            if (progress < 10 && altitudeAGL !== null && altitudeAGL < 1500) {
+                 flightPhase = 'LIFTOFF'; phaseIcon = 'fa-plane-up';
+            }
+        } else if (vs < -500) {
+            flightPhase = 'DESCENT'; phaseClass = 'phase-descent'; phaseIcon = 'fa-arrow-trend-down';
+        } else if (altitude > 18000 && Math.abs(vs) < 500) {
+            flightPhase = 'CRUISE'; phaseClass = 'phase-cruise'; phaseIcon = 'fa-minus';
+        }
     }
 
-    // ==========================================================
-    // 3. SHARED UI UPDATES
-    // ==========================================================
+
+    // --- VSD LOGIC (Fixed Height) ---
+    const vsdPanels = document.querySelectorAll('#vsd-panel');
+    const planId = (plan && (plan.flightPlanId || plan.id)) || 'unknown';
+
+    vsdPanels.forEach(vsdPanel => {
+        if (!hasPlan) return;
+        
+        // Find elements *relative* to this specific vsdPanel
+        const vsdAircraftIcon = vsdPanel.querySelector('#vsd-aircraft-icon');
+        const vsdGraphWindow = vsdPanel.querySelector('#vsd-graph-window');
+        const vsdGraphContent = vsdPanel.querySelector('#vsd-graph-content');
+        const vsdProfilePath = vsdPanel.querySelector('#vsd-profile-path');
+        const vsdFlownPath = vsdPanel.querySelector('#vsd-flown-path');
+        const vsdWpLabels = vsdPanel.querySelector('#vsd-waypoint-labels');
+
+        if (!vsdGraphContent || !vsdAircraftIcon) return;
+
+        // --- 1. Define VSD scales ---
+        const VSD_HEIGHT_PX = vsdGraphContent.clientHeight || 210; 
+        const MAX_ALT_FT = 45000;
+        const Y_SCALE_PX_PER_FT = VSD_HEIGHT_PX / MAX_ALT_FT;
+        const FIXED_X_SCALE_PX_PER_NM = 4;
+        
+        // --- 2. Build the Profile (Only once) ---
+        if (vsdPanel.dataset.profileBuilt !== 'true' || vsdPanel.dataset.planId !== planId) {
+            let flatWaypointObjects = JSON.parse(JSON.stringify(originalFlatWaypointObjects));
+            if (flatWaypointObjects.length > 0) {
+                const lastIdx = flatWaypointObjects.length - 1;
+                if (flatWaypointObjects[0].altitude == null) {
+                    flatWaypointObjects[0].altitude = plan?.origin?.elevation_ft || 0;
+                }
+                if (flatWaypointObjects[lastIdx].altitude == null) {
+                    const prevAlt = (lastIdx > 0) ? flatWaypointObjects[lastIdx - 1]?.altitude : null;
+                    flatWaypointObjects[lastIdx].altitude = (prevAlt != null) ? prevAlt : (plan?.destination?.elevation_ft || 0);
+                }
+                for (let i = 1; i < lastIdx; i++) {
+                    const wp = flatWaypointObjects[i];
+                    if (wp.altitude == null || (typeof wp.altitude === 'number' && wp.altitude <= 0)) {
+                        wp.altitude = null;
+                    }
+                }
+                let lastValidAltIndex = 0; 
+                for (let i = 1; i < flatWaypointObjects.length; i++) {
+                    const wp = flatWaypointObjects[i];
+                    if (wp.altitude != null && typeof wp.altitude === 'number') {
+                        if (i > lastValidAltIndex + 1) {
+                            const gapStartIndex = lastValidAltIndex;
+                            const gapEndIndex = i;
+                            const startAlt = flatWaypointObjects[gapStartIndex].altitude;
+                            const endAlt = flatWaypointObjects[gapEndIndex].altitude;
+                            const numStepsInGap = gapEndIndex - gapStartIndex;
+
+                            for (let j = 1; j < numStepsInGap; j++) {
+                                const stepIndex = gapStartIndex + j;
+                                const fraction = j / numStepsInGap;
+                                const interpolatedAlt = startAlt + (endAlt - startAlt) * fraction;
+                                flatWaypointObjects[stepIndex].altitude = Math.round(interpolatedAlt);
+                            }
+                        }
+                        lastValidAltIndex = i;
+                    }
+                }
+            }
+
+            if (vsdGraphWindow && !vsdGraphWindow.querySelector('#vsd-y-axis')) {
+                let yAxisHtml = '<div id="vsd-y-axis">';
+                const altLabels = [10000, 20000, 30000, 40000];
+                for (const alt of altLabels) {
+                    const yPos = VSD_HEIGHT_PX - (alt * Y_SCALE_PX_PER_FT);
+                    yAxisHtml += `<div class="y-axis-label" style="top: ${yPos}px;">${alt / 1000}K</div>`;
+                }
+                yAxisHtml += '</div>';
+                vsdGraphWindow.insertAdjacentHTML('afterbegin', yAxisHtml);
+            }
+            
+            let path_d = "";
+            let labels_html = "";
+            let current_x_px = 0;
+            let last_label_x_px = -1000;
+            let stagger_level = 0;
+            const MIN_LABEL_SPACING_PX = 80;
+            
+            if (flatWaypointObjects.length === 0) return;
+
+            for (let i = 0; i < flatWaypointObjects.length; i++) {
+                const wp = flatWaypointObjects[i];
+                const wpAltFt = wp.altitude; 
+                const wpAltPx = VSD_HEIGHT_PX - (wpAltFt * Y_SCALE_PX_PER_FT);
+                current_x_px = wp.cumulativeNM * FIXED_X_SCALE_PX_PER_NM;
+
+                if (i === 0) {
+                    path_d = `M ${current_x_px} ${wpAltPx}`;
+                } else {
+                    path_d += ` L ${current_x_px} ${wpAltPx}`;
+                }
+
+                let label_top_px;
+                let label_class = '';
+                if (current_x_px - last_label_x_px < MIN_LABEL_SPACING_PX) {
+                    stagger_level = 1 - stagger_level;
+                } else {
+                    stagger_level = 0;
+                }
+                if (stagger_level === 1) {
+                    label_class = 'low-label';
+                    label_top_px = wpAltPx + 12;
+                } else {
+                    label_class = 'high-label';
+                    label_top_px = wpAltPx - 42;
+                }
+                last_label_x_px = current_x_px;
+
+                labels_html += `
+                    <div class="vsd-wp-label ${label_class}" style="left: ${current_x_px}px; top: ${label_top_px}px;">
+                        <span class="wp-name">${wp.identifier}</span>
+                        <span class="wp-alt">${Math.round(wpAltFt)}ft</span>
+                    </div>`;
+            }
+            
+            vsdGraphContent.style.width = `${current_x_px + 100}px`;
+            vsdProfilePath.closest('svg').style.width = `${current_x_px + 100}px`;
+            vsdProfilePath.setAttribute('d', path_d);
+            vsdWpLabels.innerHTML = labels_html;
+            vsdPanel.dataset.profileBuilt = 'true';
+            vsdPanel.dataset.planId = planId;
+        }
+        
+        // --- 3. Build/Update Flown Altitude Path ---
+        if (vsdFlownPath && hasPlan && originalFlatWaypointObjects.length > 0) {
+            let flown_path_d = "";
+            let lastFlownLat, lastFlownLon;
+            let currentFlightRoutePoints = [...sortedRoutePoints]; 
+            const originLat = plan?.origin?.latitude;
+            const originLon = plan?.origin?.longitude;
+            if (originLat != null && originLon != null && sortedRoutePoints.length > 10) {
+                let startIndex = -1;
+                for (let i = sortedRoutePoints.length - 1; i > 0; i--) {
+                    const point = sortedRoutePoints[i];
+                    if (!point.latitude || !point.longitude || point.altitude == null) continue;
+                    const distKm = getDistanceKm(point.latitude, point.longitude, originLat, originLon);
+                    if (point.altitude < 1000 && distKm < 25) {
+                        startIndex = i;
+                        break;
+                    }
+                }
+                if (startIndex !== -1) {
+                    currentFlightRoutePoints = sortedRoutePoints.slice(startIndex);
+                }
+            }
+            const fullFlownRoute = [];
+            if (currentFlightRoutePoints && currentFlightRoutePoints.length > 0) {
+                fullFlownRoute.push(...currentFlightRoutePoints); 
+                lastFlownLat = currentFlightRoutePoints[0].latitude;
+                lastFlownLon = currentFlightRoutePoints[0].longitude;
+            }
+            fullFlownRoute.push({
+                latitude: baseProps.position.lat,
+                longitude: baseProps.position.lon,
+                altitude: baseProps.position.alt_ft,
+                groundSpeed: baseProps.position.gs_kt
+            });
+            const flownPathPoints = [];
+            let totalActualFlownNM = 0;
+            if (fullFlownRoute.length > 0) {
+                if (!lastFlownLat) {
+                    lastFlownLat = fullFlownRoute[0].latitude;
+                    lastFlownLon = fullFlownRoute[0].longitude;
+                }
+                const startAltFt = originalFlatWaypointObjects[0]?.altitude || fullFlownRoute[0].altitude;
+                const startAltPx = VSD_HEIGHT_PX - (startAltFt * Y_SCALE_PX_PER_FT);
+                for (let i = 0; i < fullFlownRoute.length; i++) {
+                    const point = fullFlownRoute[i];
+                    const wpAltFt = typeof point.altitude === 'number' ? point.altitude : 0;
+                    const wpAltPx = VSD_HEIGHT_PX - (wpAltFt * Y_SCALE_PX_PER_FT);
+                    const wpLat = point.latitude;
+                    const wpLon = point.longitude;
+                    let segmentDistNM = 0;
+                    if (i > 0) { 
+                        segmentDistNM = getDistanceKm(lastFlownLat, lastFlownLon, wpLat, wpLon) / 1.852;
+                    }
+                    totalActualFlownNM += segmentDistNM;
+                    
+                    flownPathPoints.push({ 
+                        x_nm: totalActualFlownNM, 
+                        y_px_alt: wpAltPx
+                    });
+
+                    lastFlownLat = wpLat;
+                    lastFlownLon = wpLon;
+                }
+                const plannedProgressNM = progressAlongRouteNM;
+                const scaleFactor = (totalActualFlownNM > 0.1 && plannedProgressNM > 0.01) ? (plannedProgressNM / totalActualFlownNM) : 1;
+                
+                for (let i = 0; i < flownPathPoints.length; i++) {
+                    const point = flownPathPoints[i];
+                    const scaled_x_px = point.x_nm * scaleFactor * FIXED_X_SCALE_PX_PER_NM; 
+                    
+                    if (i === 0) {
+                        flown_path_d = `M 0 ${startAltPx}`;
+                        if (flownPathPoints.length === 1) {
+                            flown_path_d += ` L ${scaled_x_px} ${point.y_px_alt}`;
+                        }
+                    } else {
+                        flown_path_d += ` L ${scaled_x_px} ${point.y_px_alt}`;
+                    }
+                }
+                
+                vsdFlownPath.setAttribute('d', flown_path_d);
+            }
+        }
+
+        const currentAltPx = VSD_HEIGHT_PX - (altitude * Y_SCALE_PX_PER_FT);
+        vsdAircraftIcon.style.top = `${currentAltPx}px`;
+
+        if (vsdGraphWindow && vsdGraphWindow.clientWidth > 0) {
+            const distanceFlownNM = progressAlongRouteNM; 
+            const scrollOffsetPx = (distanceFlownNM * FIXED_X_SCALE_PX_PER_NM);
+            const vsdViewportWidth = vsdGraphWindow.clientWidth;
+            const totalProfileWidthPx = vsdGraphContent.scrollWidth;
+            const centerOffset = (vsdViewportWidth / 2) + 35;
+            const desiredTranslateX = centerOffset - scrollOffsetPx;
+            const maxTranslateX = 0;
+            const minTranslateX = Math.min(0, vsdViewportWidth - totalProfileWidthPx);
+            const finalTranslateX = Math.max(minTranslateX, Math.min(maxTranslateX, desiredTranslateX));
+            vsdGraphContent.style.transform = `translateX(${finalTranslateX - 35}px)`;
+            const iconLeftPx = scrollOffsetPx + finalTranslateX;
+            vsdAircraftIcon.style.left = `${iconLeftPx}px`;
+        } else {
+            const distanceFlownNM = progressAlongRouteNM;
+            const scrollOffsetPx = (distanceFlownNM * FIXED_X_SCALE_PX_PER_NM);
+            const translateX = 75 - scrollOffsetPx; 
+            vsdGraphContent.style.transform = `translateX(${translateX - 35}px)`;
+            vsdAircraftIcon.style.left = `75px`;
+        }
+        
+        const vsdSummaryVS = vsdPanel.closest('.ac-tab-pane').querySelector('#ac-vs');
+        if (vsdSummaryVS) {
+            vsdSummaryVS.innerHTML = `<i class="fa-solid ${vs > 100 ? 'fa-arrow-up' : vs < -100 ? 'fa-arrow-down' : 'fa-minus'}"></i> ${Math.round(vs)}<span class="unit">fpm</span>`;
+        }
+    });
+
+    // --- Update Other DOM Elements ---
+    styleAll('#ac-progress-bar', 'width', `${progress.toFixed(1)}%`);
+    updateAll('#ac-phase-indicator', `<i class="fa-solid ${phaseIcon}"></i> ${flightPhase}`, true);
     
-    // Update Flight Rules Badge (Common to both)
+    const phaseIndicators = document.querySelectorAll('#ac-phase-indicator');
+    phaseIndicators.forEach(el => {
+        el.className = `flight-phase-indicator ${phaseClass}`;
+    });
+
+    const atdTimestamp = (sortedRoutePoints && sortedRoutePoints.length > 0) ? sortedRoutePoints[0].date : null;
+    const atdTime = atdTimestamp ? formatTimeFromTimestamp(atdTimestamp) : '--:--';
+    let etaTime = '--:--';
+    if (baseProps.position.gs_kt > 50 && totalDistanceNM > 0) {
+        const eteHours = distanceToDestNM / baseProps.position.gs_kt;
+        if (eteHours > 0 && eteHours < 48) { 
+            const eteMs = eteHours * 3600 * 1000;
+            const etaTimestamp = new Date(Date.now() + eteMs);
+            etaTime = formatTimeFromTimestamp(etaTimestamp);
+        }
+    }
+    const depCountryCode = airportsData[departureIcao]?.country ? airportsData[departureIcao].country.toLowerCase() : '';
+    const arrCountryCode = airportsData[arrivalIcao]?.country ? airportsData[arrivalIcao].country.toLowerCase() : '';
+    const depFlagSrc = depCountryCode ? `https://flagcdn.com/w20/${depCountryCode}.png` : '';
+    const arrFlagSrc = arrCountryCode ? `https://flagcdn.com/w20/${arrCountryCode}.png` : '';
+
+    updateAll('#ac-bar-atd', `${atdTime} Z`);
+    updateAll('#ac-bar-eta', `${etaTime} Z`);
+    
+    document.querySelectorAll('#ac-bar-dep-flag').forEach(el => {
+        el.src = depFlagSrc; 
+        el.alt = depCountryCode; 
+        el.style.display = depCountryCode ? 'block' : 'none'; 
+    });
+    document.querySelectorAll('#ac-bar-arr-flag').forEach(el => {
+        el.src = arrFlagSrc; 
+        el.alt = arrCountryCode; 
+        el.style.display = arrCountryCode ? 'block' : 'none'; 
+    });
+
+
+    // --- CALL THE FMS UPDATE ---
+    updateFmsLegsModule(plan, baseProps.position);
+
+    // --- Update Cockpit Seat Sensor ---
+    updateSeatSensor(baseProps);
+
+    // --- UPDATE FLIGHT RULES ---
     const rulesDisplay = document.getElementById('flight-rules-display');
-    if (rulesDisplay && typeof determineFlightRules === 'function') {
-        const rule = determineFlightRules(baseProps, plan);
-        rulesDisplay.className = `flight-rules-badge ${rule.class}`;
-        rulesDisplay.innerHTML = `<i class="fa-solid ${rule.icon}"></i> ${rule.label}`;
+    if (rulesDisplay) {
+        if (typeof determineFlightRules === 'function') {
+            const rule = determineFlightRules(baseProps, plan);
+            rulesDisplay.className = `flight-rules-badge ${rule.class}`;
+            rulesDisplay.innerHTML = `<i class="fa-solid ${rule.icon}"></i> ${rule.label}`;
+        } else {
+            console.warn("determineFlightRules helper missing.");
+            rulesDisplay.textContent = "RULES UNKNOWN";
+        }
     }
 }
 
@@ -9454,171 +9581,180 @@ function setupFilterSettingsWindowEvents() {
         return;
     }
 
-    // --- Helper: Update Active State of Visual Cards ---
-    const updateCardVisuals = (settingType, activeValue) => {
-        // Handle standard visual cards (colors, plan mode)
-        const cards = filterSettingsWindow.querySelectorAll(`.visual-card[data-setting="${settingType}"]`);
-        cards.forEach(card => {
-            if (card.dataset.value === activeValue) card.classList.add('active');
-            else card.classList.remove('active');
-        });
+    // --- Helper: Convert Hex to RGBA ---
+    const hexToRgba = (hex, alpha) => {
+        const r = parseInt(hex.slice(1, 3), 16);
+        const g = parseInt(hex.slice(3, 5), 16);
+        const b = parseInt(hex.slice(5, 7), 16);
+        return `rgba(${r}, ${g}, ${b}, ${alpha})`;
+    };
 
-        // Handle Map Type cards (Satellite vs Detailed)
-        if (settingType === 'map-style') {
-            const mapCards = filterSettingsWindow.querySelectorAll(`.map-type-card[data-setting="map-style"]`);
-            mapCards.forEach(card => {
-                if (card.dataset.value === activeValue) card.classList.add('active');
-                else card.classList.remove('active');
-            });
+    // --- Helper: Apply Theme to CSS Vars ---
+    const applyWindowTheme = (startHex, endHex) => {
+        const root = document.documentElement;
+        const opacity = (mapFilters.themeOpacity || 95) / 100;
+        
+        root.style.setProperty('--iw-bg-start', hexToRgba(startHex, opacity));
+        root.style.setProperty('--iw-bg-end', hexToRgba(endHex, opacity));
+    };
+
+    // --- Helper: Set UI from State ---
+    const setUIFromState = () => {
+        // Toggles
+        document.getElementById('filter-toggle-atc').checked = mapFilters.hideAtcMarkers;
+        document.getElementById('filter-toggle-satellite-mode').checked = (currentMapStyle === MAP_STYLE_SATELLITE);
+        document.getElementById('filter-toggle-aircraft-labels').checked = mapFilters.showAircraftLabels;
+
+        // Radios
+        const colorRadio = document.querySelector(`input[name="icon-color-mode"][value="${mapFilters.iconColorMode}"]`);
+        if (colorRadio) colorRadio.checked = true;
+        
+        const planRadio = document.querySelector(`input[name="plan-display-mode"][value="${mapFilters.planDisplayMode}"]`);
+        if (planRadio) planRadio.checked = true;
+
+        // Colors
+        document.getElementById('theme-color-start').value = mapFilters.themeStartColor || '#121426';
+        document.getElementById('theme-color-end').value = mapFilters.themeEndColor || '#121426';
+        
+        // Apply immediately on load
+        applyWindowTheme(mapFilters.themeStartColor, mapFilters.themeEndColor);
+
+        // Mobile-specific
+        const currentMobileMode = localStorage.getItem('mobileDisplayMode') || 'hud';
+        const mobileModeHud = document.getElementById('mobile-mode-hud');
+        const mobileModeLegacy = document.getElementById('mobile-mode-legacy');
+        if (mobileModeHud && mobileModeLegacy) {
+            if (currentMobileMode === 'legacy') {
+                mobileModeLegacy.checked = true;
+            } else {
+                mobileModeHud.checked = true;
+            }
         }
     };
+    
+    // --- Set the UI when the window is first set up ---
+    setUIFromState();
 
-    // --- 1. INITIALIZE UI STATE FROM SAVED FILTERS ---
-    const initSettingsUI = () => {
-        // Toggles
-        document.getElementById('setting-toggle-labels').checked = mapFilters.showAircraftLabels;
-        document.getElementById('setting-toggle-hide-atc').checked = mapFilters.hideAtcMarkers;
-        document.getElementById('setting-toggle-simple-mode').checked = mapFilters.simplifyAircraftView;
-        
-        // Weather Toggles (Check if layers are active)
-        const isPrecip = document.getElementById('weather-toggle-precip')?.checked || false; 
-        const isCloud = document.getElementById('weather-toggle-clouds')?.checked || false;
-        const isWind = document.getElementById('weather-toggle-wind')?.checked || false;
-        
-        // Sync new IDs with old state if possible, or default to false
-        if(document.getElementById('setting-toggle-precip')) document.getElementById('setting-toggle-precip').checked = isPrecip;
-        if(document.getElementById('setting-toggle-clouds')) document.getElementById('setting-toggle-clouds').checked = isCloud;
-        if(document.getElementById('setting-toggle-wind')) document.getElementById('setting-toggle-wind').checked = isWind;
+    // --- Event Listener: Color Inputs (Input = Realtime Preview) ---
+    const startPicker = document.getElementById('theme-color-start');
+    const endPicker = document.getElementById('theme-color-end');
+    const resetBtn = document.getElementById('theme-reset-btn');
 
-        // Visual Cards
-        updateCardVisuals('icon-color', mapFilters.iconColorMode);
-        updateCardVisuals('plan-mode', mapFilters.planDisplayMode);
-        
-        // Map Style
-        const currentStyleVal = (currentMapStyle === MAP_STYLE_SATELLITE) ? 'satellite' : 'dark';
-        updateCardVisuals('map-style', currentStyleVal);
+    const handleColorChange = () => {
+        const s = startPicker.value;
+        const e = endPicker.value;
+        applyWindowTheme(s, e);
+        // Update state
+        mapFilters.themeStartColor = s;
+        mapFilters.themeEndColor = e;
+        saveFiltersToLocalStorage();
     };
 
-    // Run initialization
-    initSettingsUI();
+    if (startPicker) startPicker.addEventListener('input', handleColorChange);
+    if (endPicker) endPicker.addEventListener('input', handleColorChange);
 
-    // --- 2. EVENT DELEGATION FOR CLICKS ---
+    if (resetBtn) {
+        resetBtn.addEventListener('click', () => {
+            const defColor = '#121426';
+            startPicker.value = defColor;
+            endPicker.value = defColor;
+            applyWindowTheme(defColor, defColor);
+            
+            mapFilters.themeStartColor = defColor;
+            mapFilters.themeEndColor = defColor;
+            saveFiltersToLocalStorage();
+            showNotification("Window theme reset to default.", "success");
+        });
+    }
+
+    // Use a single listener on the window for better performance
     filterSettingsWindow.addEventListener('click', (e) => {
         const target = e.target;
-
-        // A. Handle Close Button
-        if (target.closest('.filter-window-close-btn')) {
+        if (target.closest('.filter-window-close-btn') || target.closest('.filter-window-hide-btn')) {
             filterSettingsWindow.classList.remove('visible');
-            if (typeof MobileUIHandler !== 'undefined') MobileUIHandler.closeActiveWindow();
-            return;
-        }
-
-        // B. Handle Sidebar Navigation
-        const navItem = target.closest('.settings-nav-item');
-        if (navItem) {
-            // Remove active class from all nav items
-            filterSettingsWindow.querySelectorAll('.settings-nav-item').forEach(el => el.classList.remove('active'));
-            // Add active class to clicked item
-            navItem.classList.add('active');
-
-            // Hide all tab contents
-            filterSettingsWindow.querySelectorAll('.settings-tab-content').forEach(el => el.classList.remove('active'));
-            
-            // Show target tab
-            const targetId = navItem.dataset.tabTarget;
-            const targetTab = document.getElementById(targetId);
-            if (targetTab) targetTab.classList.add('active');
-            return;
-        }
-
-        // C. Handle Visual Card Selection (Icon Color & Plan Mode)
-        const visualCard = target.closest('.visual-card');
-        if (visualCard) {
-            const setting = visualCard.dataset.setting;
-            const value = visualCard.dataset.value;
-
-            if (setting === 'icon-color') {
-                mapFilters.iconColorMode = value;
-                updateCardVisuals('icon-color', value);
-                
-                // Update Map
-                const newExpression = getIconImageExpression(value);
-                if (sectorOpsMap && sectorOpsMap.getLayer('sector-ops-live-flights-layer')) {
-                    sectorOpsMap.setLayoutProperty('sector-ops-live-flights-layer', 'icon-image', newExpression);
-                }
-                saveFiltersToLocalStorage();
-            }
-            
-            if (setting === 'plan-mode') {
-                mapFilters.planDisplayMode = value;
-                updateCardVisuals('plan-mode', value);
-                saveFiltersToLocalStorage();
-                
-                // Refresh lines if aircraft selected
-                if (currentFlightInWindow && cachedFlightDataForStatsView.plan) {
-                    const { flightProps, plan } = cachedFlightDataForStatsView;
-                    const position = currentAircraftPositionForGeocode || flightProps.position;
-                    updateFlightPlanLayer(currentFlightInWindow, plan, position);
-                }
-            }
-            return;
-        }
-
-        // D. Handle Map Type Selection
-        const mapCard = target.closest('.map-type-card');
-        if (mapCard) {
-            const value = mapCard.dataset.value;
-            const newStyle = (value === 'satellite') ? MAP_STYLE_SATELLITE : MAP_STYLE_DARK;
-
-            if (newStyle !== currentMapStyle) {
-                currentMapStyle = newStyle;
-                updateCardVisuals('map-style', value);
-                sectorOpsMap.setStyle(currentMapStyle);
-                // Note: 'style.load' listener in initMap will handle rebuilding layers
-            }
-            return;
+            MobileUIHandler.closeActiveWindow();
         }
     });
 
-    // --- 3. EVENT LISTENERS FOR TOGGLES (Change Event) ---
+    // Use a 'change' listener for all toggles and radios
     filterSettingsWindow.addEventListener('change', (e) => {
         const target = e.target;
-        if (target.type !== 'checkbox') return;
-
-        // Aircraft Labels
-        if (target.id === 'setting-toggle-labels') {
-            mapFilters.showAircraftLabels = target.checked;
-            updateAircraftLabelVisibility();
-            saveFiltersToLocalStorage();
+        
+        // Handle Flight Plan Radio Logic
+        if (target.name === 'plan-display-mode') {
+            mapFilters.planDisplayMode = target.value;
+            saveFiltersToLocalStorage(); 
+            if (currentFlightInWindow && cachedFlightDataForStatsView.plan) {
+                const { flightProps, plan } = cachedFlightDataForStatsView;
+                const position = currentAircraftPositionForGeocode || flightProps.position;
+                updateFlightPlanLayer(currentFlightInWindow, plan, position);
+            }
+            return;
         }
         
-        // Hide ATC Markers
-        if (target.id === 'setting-toggle-hide-atc') {
-            mapFilters.hideAtcMarkers = target.checked;
-            renderAirportMarkers();
-            saveFiltersToLocalStorage();
-        }
-
-        // Simplified View
-        if (target.id === 'setting-toggle-simple-mode') {
-            mapFilters.simplifyAircraftView = target.checked;
-            saveFiltersToLocalStorage();
-            // Refresh window if open
-            if (aircraftInfoWindow.classList.contains('visible') && currentFlightInWindow && cachedFlightDataForStatsView.flightProps) {
-                const { flightProps } = cachedFlightDataForStatsView;
-                fetch('https://site--acars-backend--6dmjph8ltlhv.code.run/if-sessions')
-                    .then(res => res.json())
-                    .then(data => {
-                        const sessionId = getCurrentSessionId(data);
-                        if (sessionId) handleAircraftClick(flightProps, sessionId);
-                    });
+        // Handle Icon Color Radio Logic
+        if (target.name === 'icon-color-mode') {
+            mapFilters.iconColorMode = target.value;
+            saveFiltersToLocalStorage(); 
+            const newExpression = getIconImageExpression(mapFilters.iconColorMode);
+            if (sectorOpsMap && sectorOpsMap.getLayer('sector-ops-live-flights-layer')) {
+                sectorOpsMap.setLayoutProperty('sector-ops-live-flights-layer', 'icon-image', newExpression);
             }
+            return; 
+        }
+        
+        // Handle Mobile Display Mode Radio Logic
+        if (target.name === 'mobile-display-mode') {
+            const newMode = target.value;
+            localStorage.setItem('mobileDisplayMode', newMode);
+            if (!document.getElementById('mobile-mode-note')) {
+                document.getElementById('mobile-mode-filter-group').insertAdjacentHTML(
+                    'beforeend',
+                    '<p id="mobile-mode-note" class="muted-text" style="padding: 10px 0 0 0; text-align: left; font-size: 0.8rem;">Changes will apply the next time you open an aircraft window.</p>'
+                );
+            }
+            return; 
         }
 
-        // Weather Toggles (Directly call existing functions)
-        if (target.id === 'setting-toggle-precip') toggleWeatherLayer(target.checked);
-        if (target.id === 'setting-toggle-clouds') toggleCloudLayer(target.checked);
-        if (target.id === 'setting-toggle-wind') toggleWindLayer(target.checked);
+        if (target.type !== 'checkbox') return;
+
+        // Handle Aircraft Label Toggle
+        if (target.id === 'filter-toggle-aircraft-labels') {
+            mapFilters.showAircraftLabels = target.checked;
+            saveFiltersToLocalStorage(); 
+            updateAircraftLabelVisibility(); 
+            return;
+        }
+
+        // Handle Map Style Logic
+        const satelliteModeToggle = document.getElementById('filter-toggle-satellite-mode');
+        let styleChanged = false;
+        let newMapStyle = currentMapStyle;
+
+        if (target.id === 'filter-toggle-satellite-mode') {
+            if (target.checked) {
+                newMapStyle = MAP_STYLE_SATELLITE;
+            } else {
+                newMapStyle = MAP_STYLE_DARK; 
+            }
+            styleChanged = true;
+        }
+
+        // Update mapFilters state
+        mapFilters.showVaOnly = document.getElementById('filter-toggle-members-only')?.checked || false;
+        mapFilters.hideAtcMarkers = document.getElementById('filter-toggle-atc')?.checked || false;
+        mapFilters.hideNoAtcMarkers = document.getElementById('filter-toggle-no-atc')?.checked || false;
+        
+        if (styleChanged && newMapStyle !== currentMapStyle) {
+            console.log(`Changing map style to: ${newMapStyle}`);
+            currentMapStyle = newMapStyle;
+            sectorOpsMap.setStyle(currentMapStyle);
+        } else if (!styleChanged) {
+            saveFiltersToLocalStorage(); 
+            updateMapFilters();
+        }
+
+        updateToolbarButtonStates(); 
     });
 
     filterSettingsWindow.dataset.eventsAttached = 'true';
@@ -9884,7 +10020,6 @@ async function initializeApp() {
         loadFiltersFromLocalStorage();
 
         // Inject all custom CSS
-        injectNewSettingsStyles()
         injectCustomStyles();
 
         // Fetch essential data in parallel
