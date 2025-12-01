@@ -2110,9 +2110,9 @@ function injectCustomStyles() {
 }
 
 /**
- * --- [REPLACED] Advanced Congestion Algorithm v2 ---
- * Fixes "Extreme" false positives by distinguishing between
- * Parked (Static) traffic vs. Active Taxiing/Inbound pressure.
+ * --- [REPLACED] Advanced Congestion Algorithm v3 (Strict Mode) ---
+ * Uses a "Capacity Points" system with HARD VOLUME GATES to prevent
+ * small clusters of planes from triggering high congestion alerts.
  */
 function calculateAirportCongestion(inboundFlightIds, airportCoords) {
     // 1. Safety Checks
@@ -2121,29 +2121,31 @@ function calculateAirportCongestion(inboundFlightIds, airportCoords) {
         imminent: 0, approach: 0, enroute: 0, ground: 0 
     };
 
-    // --- 2. CONFIGURABLE WEIGHTS (Tuned for Realism) ---
-    // Total Score = Sum of (Count * Weight)
-    // Thresholds: > 0.8 (Extreme), > 0.5 (Heavy), > 0.3 (Busy)
-    const WEIGHTS = {
-        STATIC: 0.002,   // Parked at gate (Very low impact) -> 50 planes = 0.1 score
-        TAXI: 0.015,     // Active taxi (Medium impact)      -> 20 planes = 0.3 score
-        FINAL: 0.06,     // < 15min out (High impact)        -> 10 planes = 0.6 score
-        APPROACH: 0.015, // 15-40min out (Medium impact)     -> 20 planes = 0.3 score
-        ENROUTE: 0.001   // > 40min out (Low impact)         -> Negligible
+    // --- 2. "STRICT" SCORING WEIGHTS (Points per aircraft) ---
+    const POINTS = {
+        FINAL: 12,      // Very high impact (Final app < 15m)
+        TAXI: 4,        // Moderate impact (Active ground)
+        APPROACH: 2,    // Low impact (15-40m out)
+        STATIC: 0.1,    // Negligible (Parked)
+        ENROUTE: 0      // Zero (40m+ out)
     };
 
-    // --- 3. BUCKET COUNTERS ---
+    // --- 3. THRESHOLDS (Total Points Required) ---
+    // EXTREME: Needs ~10 planes on Final OR ~30 active Taxiing
+    const THRESHOLD_EXTREME = 120; 
+    const THRESHOLD_HEAVY = 70;
+    const THRESHOLD_BUSY = 35;
+
+    // --- 4. BUCKET COUNTERS ---
     let countStatic = 0; // Ground < 3 kts
     let countTaxi = 0;   // Ground > 3 kts
     let countFinal = 0;  // Air < 15 min ETE
     let countAppr = 0;   // Air 15-40 min ETE
     let countEnr = 0;    // Air > 40 min ETE
 
-    // Track processed IDs to prevent double counting inbounds as ground
     const processedIds = new Set(); 
 
-    // --- 4. GROUND SCAN (Local Map Features) ---
-    // We scan ALL features for ground traffic first
+    // --- 5. GROUND SCAN (Local Map Features) ---
     Object.values(currentMapFeatures).forEach(feature => {
         const props = feature.properties;
         if (!props || !props.position) return;
@@ -2153,21 +2155,18 @@ function calculateAirportCongestion(inboundFlightIds, airportCoords) {
             try { pos = JSON.parse(pos); } catch(e) { return; }
         }
 
-        // Calculate distance to airport center
+        // Distance Check
         const distKm = getDistanceKm(airportCoords.lat, airportCoords.lon, pos.lat, pos.lon);
         const distNM = distKm / 1.852;
         const airportElev = airportCoords.elevation_ft || 0;
         
-        // Strict Ground Definition: Within 3NM and < 1500ft AGL
-        // (Slightly higher alt buffer to catch pattern work as "Taxi/Active" pressure)
+        // Strict Ground Definition: 3.5NM radius, < 1500ft AGL
         const isLowAlt = pos.alt_ft < (airportElev + 1500); 
         const isClose = distNM < 3.5;
 
         if (isClose && isLowAlt) {
             processedIds.add(props.flightId);
-            
-            // Differentiate Static vs Active Taxi
-            // Speed < 3kts usually means parked or holding short
+            // Speed < 3kts = Parked/Static
             if ((pos.gs_kt || 0) < 3) {
                 countStatic++;
             } else {
@@ -2176,88 +2175,111 @@ function calculateAirportCongestion(inboundFlightIds, airportCoords) {
         }
     });
 
-    // --- 5. INBOUND SCAN (Provided Flight IDs) ---
+    // --- 6. INBOUND SCAN ---
     if (inboundFlightIds && Array.isArray(inboundFlightIds)) {
         inboundFlightIds.forEach(id => {
-            if (processedIds.has(id)) return; // Already counted as ground/pattern
+            if (processedIds.has(id)) return; // Already counted as ground
 
             const feature = currentMapFeatures[id];
-            let eteMinutes = 60; // Default if we can't calc
+            let eteMinutes = 60; 
 
             if (feature && feature.properties) {
                 let pos = feature.properties.position;
                 if (typeof pos === 'string') {
                     try { pos = JSON.parse(pos); } catch(e) {}
                 }
-
                 if (pos) {
                     const distKm = getDistanceKm(airportCoords.lat, airportCoords.lon, pos.lat, pos.lon);
                     const distNM = distKm / 1.852;
-                    const speed = Math.max(pos.gs_kt || 0, 100); // Clamp min speed for ETE calc
+                    const speed = Math.max(pos.gs_kt || 0, 100); 
                     eteMinutes = (distNM / speed) * 60;
                 }
             }
 
-            // Bucket by ETE
             if (eteMinutes < 15) countFinal++;
             else if (eteMinutes < 40) countAppr++;
             else countEnr++;
         });
     }
 
-    // --- 6. CALCULATE SCORE ---
-    let rawScore = 
-        (countStatic * WEIGHTS.STATIC) +
-        (countTaxi * WEIGHTS.TAXI) +
-        (countFinal * WEIGHTS.FINAL) +
-        (countAppr * WEIGHTS.APPROACH) +
-        (countEnr * WEIGHTS.ENROUTE);
+    // --- 7. CALCULATE TOTAL CAPACITY POINTS ---
+    let totalPoints = 
+        (countFinal * POINTS.FINAL) +
+        (countTaxi * POINTS.TAXI) +
+        (countAppr * POINTS.APPROACH) +
+        (countStatic * POINTS.STATIC);
 
-    // Dampener: If total "Active" aircraft (Taxi + Final + Appr) is very low (< 3),
-    // force the score down to prevent "Busy" flashes from just 1-2 planes.
-    const activeTrafficCount = countTaxi + countFinal + countAppr;
-    if (activeTrafficCount < 3) {
-        rawScore = Math.min(rawScore, 0.25); // Cap at LOW/MODERATE
-    }
+    // --- 8. APPLY HARD VOLUME GATES (The Strictness Fix) ---
+    const totalActivePlanes = countFinal + countTaxi + countAppr;
+    const totalPlanes = totalActivePlanes + countStatic;
 
-    // --- 7. DETERMINE LEVEL & TREND ---
     let level = "LOW";
     let color = "#4ade80"; // Green
+
+    // GATE 1: Absolute Minimums for Ratings
+    // To be EXTREME, you need at least 25 planes total OR 15 active planes
+    // To be HEAVY, you need at least 15 planes total OR 8 active planes
+    // To be BUSY, you need at least 8 planes total OR 4 active planes
+
+    if (totalPoints >= THRESHOLD_EXTREME) {
+        if (totalActivePlanes >= 15 || totalPlanes >= 40) {
+            level = "EXTREME"; 
+            color = "#ef4444"; // Red
+        } else {
+            // Downgrade if points are high but volume is low (unlikely, but safe)
+            level = "HEAVY"; 
+            color = "#f97316"; 
+        }
+    } 
+    else if (totalPoints >= THRESHOLD_HEAVY) {
+        if (totalActivePlanes >= 8 || totalPlanes >= 20) {
+            level = "HEAVY"; 
+            color = "#f97316"; // Orange
+        } else {
+            level = "BUSY"; 
+            color = "#eab308"; 
+        }
+    } 
+    else if (totalPoints >= THRESHOLD_BUSY) {
+        if (totalActivePlanes >= 4 || totalPlanes >= 10) {
+            level = "BUSY"; 
+            color = "#eab308"; // Yellow
+        } else {
+            level = "LOW"; 
+            color = "#4ade80"; 
+        }
+    }
+
+    // --- 9. TREND LOGIC ---
     let trend = "STEADY";
     let trendIcon = "fa-minus";
 
-    // Thresholds
-    if (rawScore > 0.8) { level = "EXTREME"; color = "#ef4444"; }      // Red
-    else if (rawScore > 0.5) { level = "HEAVY"; color = "#f97316"; }   // Orange
-    else if (rawScore > 0.3) { level = "BUSY"; color = "#eab308"; }    // Yellow
-
-    // (Optional) Trend Logic placeholder
-    // Since we don't store history in this specific function scope anymore, 
-    // we default to STEADY or could calculate based on specific inbound pressure delta.
-    // For now, simple heuristic: High FINAL count = Building pressure.
-    if (countFinal > 5 && countFinal > countTaxi) {
+    if (countFinal > 3 && countFinal > countTaxi) {
         trend = "BUILDING";
         trendIcon = "fa-arrow-trend-up";
-    } else if (countStatic > 10 && countFinal === 0) {
-        trend = "EASING"; 
+    } else if (countTaxi > 5 && countFinal < 2) {
+        trend = "EASING"; // Lots of taxi, no arrivals = clearing out
         trendIcon = "fa-arrow-trend-down";
     }
 
-    // Map 0.0-1.0 score to 0.0-5.0 display scale for UI
-    let displayScore = Math.min(5.0, rawScore * 5).toFixed(1);
+    // Calculate a 0.0 - 5.0 score based on the THRESHOLD_EXTREME
+    // 120 points = 5.0 score
+    let scoreNum = (totalPoints / THRESHOLD_EXTREME) * 5.0;
+    
+    // Hard cap the display score if we hit a Volume Gate limitation
+    if (level === "LOW" && scoreNum > 1.5) scoreNum = 1.2;
+    if (level === "BUSY" && scoreNum > 3.0) scoreNum = 2.8;
 
     return {
         level,
         color,
         trend,
         trendIcon,
-        scoreDisplay: displayScore,
-        scoreRaw: rawScore, // Exposed for debugging
-        // UI Counters
+        scoreDisplay: Math.min(5.0, scoreNum).toFixed(1),
         imminent: countFinal,
         approach: countAppr,
         enroute: countEnr,
-        ground: countStatic + countTaxi // Combined for the simple UI counter
+        ground: countStatic + countTaxi
     };
 }
 
