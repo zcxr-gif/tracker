@@ -7398,941 +7398,375 @@ function rebuildDynamicLayers() {
     renderAirportMarkers();
 }
 
+function injectModernDashboardStyles() {
+    const css = `
+    /* --- LAYOUT GRID --- */
+    .dashboard-grid {
+        display: grid;
+        grid-template-columns: 1.8fr 1fr; /* PFD Left, Data Right */
+        gap: 12px;
+        padding: 12px;
+        background: #000;
+        font-family: 'Segoe UI', Inter, -apple-system, sans-serif;
+        height: 100%;
+        box-sizing: border-box;
+    }
+
+    /* --- COMMON CARD STYLE --- */
+    .dash-card {
+        background: rgba(30, 30, 35, 0.6);
+        border: 1px solid rgba(255, 255, 255, 0.08);
+        border-radius: 12px;
+        padding: 12px;
+        backdrop-filter: blur(10px);
+        display: flex;
+        flex-direction: column;
+        gap: 8px;
+    }
+
+    .dash-header {
+        font-size: 0.7rem;
+        text-transform: uppercase;
+        letter-spacing: 1px;
+        color: #888;
+        font-weight: 600;
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        margin-bottom: 4px;
+        border-bottom: 1px solid rgba(255,255,255,0.05);
+        padding-bottom: 4px;
+    }
+
+    /* --- RIGHT COLUMN STACK --- */
+    .data-stack {
+        display: flex;
+        flex-direction: column;
+        gap: 10px;
+        height: 100%;
+        overflow-y: auto;
+    }
+
+    /* --- STATS ROW (Wind, Speed, OAT) --- */
+    .stats-row {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 8px;
+    }
+    
+    .mini-stat {
+        background: rgba(255, 255, 255, 0.03);
+        border-radius: 8px;
+        padding: 8px;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        text-align: center;
+    }
+    
+    .mini-stat-label { font-size: 0.65rem; color: #6c757d; margin-bottom: 2px; font-weight: 500;}
+    .mini-stat-value { font-size: 1.1rem; color: #fff; font-weight: 700; letter-spacing: -0.5px;}
+    .mini-stat-unit { font-size: 0.7rem; color: #adb5bd; font-weight: normal; margin-left: 2px;}
+
+    /* --- PILOT STATUS PILL --- */
+    .pilot-status-container {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        background: rgba(255,255,255,0.03);
+        border-radius: 8px;
+        padding: 10px 12px;
+        border: 1px solid rgba(255,255,255,0.05);
+    }
+    
+    .status-dot {
+        height: 8px; width: 8px;
+        border-radius: 50%;
+        margin-right: 8px;
+        box-shadow: 0 0 8px currentColor;
+    }
+    .status-active { background-color: #2ecc71; color: #2ecc71; } /* Green */
+    .status-monitor { background-color: #f1c40f; color: #f1c40f; } /* Amber */
+    .status-parked { background-color: #e74c3c; color: #e74c3c; } /* Red */
+    
+    .status-text { font-size: 0.9rem; font-weight: 600; color: #fff; }
+
+    /* --- MODERN FLIGHT PLAN LIST --- */
+    .fms-modern-list {
+        display: flex;
+        flex-direction: column;
+        gap: 0;
+        overflow-y: auto;
+        padding-right: 4px;
+        flex-grow: 1;
+        min-height: 150px;
+        
+        /* Scrollbar Styling */
+        scrollbar-width: thin;
+        scrollbar-color: #333 transparent;
+    }
+    
+    .fms-modern-item {
+        display: grid;
+        grid-template-columns: 30px 1fr auto;
+        padding: 8px 4px;
+        border-bottom: 1px solid rgba(255,255,255,0.05);
+        align-items: center;
+        font-size: 0.85rem;
+        color: #adb5bd;
+    }
+    
+    .fms-modern-item.active {
+        background: linear-gradient(90deg, rgba(0, 168, 255, 0.1), transparent);
+        border-left: 2px solid #00a8ff;
+        color: #fff;
+        font-weight: 600;
+    }
+
+    .fms-icon { font-size: 0.7rem; color: #495057; display: flex; justify-content: center;}
+    .fms-modern-item.active .fms-icon { color: #00a8ff; }
+
+    /* --- FOOTER METADATA --- */
+    .meta-footer {
+        margin-top: auto;
+        padding-top: 10px;
+        border-top: 1px solid rgba(255,255,255,0.1);
+        display: flex;
+        justify-content: space-between;
+        font-size: 0.75rem;
+        color: #6c757d;
+    }
+
+    /* PFD Container Wrapper to keep it clean */
+    .pfd-wrapper {
+        background: #000;
+        border-radius: 12px;
+        overflow: hidden;
+        border: 1px solid #222;
+        padding: 2px;
+        position: relative;
+    }
+    `;
+    const style = document.createElement('style');
+    style.type = 'text/css';
+    style.appendChild(document.createTextNode(css));
+    document.head.appendChild(style);
+}
 
 
-/**
- * --- [UPDATED] Populates the aircraft info window with data from backend lookup.
+//**
+ * --- [RE-DESIGNED] Populates the aircraft info window with the Modern Dashboard Layout.
  */
 function populateAircraftInfoWindow(baseProps, plan, sortedRoutePoints, communityAircraftData) {
-    // --- Helper function to update all elements matching a selector ---
-    const updateAll = (selector, value, isHTML = false) => {
-        const elements = document.querySelectorAll(selector);
-        elements.forEach(el => {
-            if (isHTML) {
-                el.innerHTML = value;
-            } else {
-                el.textContent = value;
-            }
-        });
-    };
-    
-    // --- Helper for styling ---
-    const styleAll = (selector, property, value) => {
-        const elements = document.querySelectorAll(selector);
-        elements.forEach(el => {
-            el.style[property] = value;
-        });
-    };
-
-    // --- Get Original Data ---
-    const originalFlatWaypoints = (plan && plan.flightPlanItems) ? flattenWaypointsFromPlan(plan.flightPlanItems) : [];
-    const originalFlatWaypointObjects = (plan && plan.flightPlanItems) ? getFlatWaypointObjects(plan.flightPlanItems) : [];
-    const hasPlan = originalFlatWaypoints.length >= 2;
     const windowEl = document.getElementById('aircraft-info-window');
-
+    
+    // --- 1. DATA PREPARATION ---
+    
     // Aircraft Info
     const aircraftName = baseProps.aircraft?.aircraftName || 'Unknown Type';
     const airlineName = baseProps.aircraft?.liveryName || 'Generic Livery';
     const liveryName = baseProps.aircraft?.liveryName || '';
     const reg = baseProps.aircraft?.registration || 'N/A';
     
-    // Logo Logic (Client-side logic for Airline Logo remains useful)
+    // Logo Logic
     const words = liveryName.trim().split(/\s+/);
     let logoName = words.length > 1 && /[^a-zA-Z0-9]/.test(words[1]) ? words[0] : (words[0] + (words[1] ? ' ' + words[1] : ''));
     const sanitizedLogoName = logoName.toLowerCase().replace(/[^a-z0-9\s]/g, '').replace(/\s+/g, '_');
     const logoPath = sanitizedLogoName ? `Images/airline_logos/${sanitizedLogoName}.png` : '';
     const logoHtml = logoPath ? `<img src="${logoPath}" alt="${liveryName}" class="ac-header-logo" onerror="this.style.display='none'">` : '';
 
-    // Times & Flags
-    const atdTimestamp = (sortedRoutePoints && sortedRoutePoints.length > 0) ? sortedRoutePoints[0].date : null;
-    const atdTime = atdTimestamp ? formatTimeFromTimestamp(atdTimestamp) : '--:--';
-    const etaTime = '--:--'; 
+    // Route & Times
+    const originalFlatWaypointObjects = (plan && plan.flightPlanItems) ? getFlatWaypointObjects(plan.flightPlanItems) : [];
+    const hasPlan = originalFlatWaypointObjects.length >= 2;
+    
     const departureIcao = hasPlan ? originalFlatWaypointObjects[0]?.identifier || originalFlatWaypointObjects[0]?.name : 'N/A';
     const arrivalIcao = hasPlan ? originalFlatWaypointObjects[originalFlatWaypointObjects.length - 1]?.identifier || originalFlatWaypointObjects[originalFlatWaypointObjects.length - 1]?.name : 'N/A';
-    const depCountryCode = airportsData[departureIcao]?.country ? airportsData[departureIcao].country.toLowerCase() : '';
-    const arrCountryCode = airportsData[arrivalIcao]?.country ? airportsData[arrivalIcao].country.toLowerCase() : '';
-    const depFlagSrc = depCountryCode ? `https://flagcdn.com/w20/${depCountryCode}.png` : '';
-    const arrFlagSrc = arrCountryCode ? `https://flagcdn.com/w20/${arrCountryCode}.png` : '';
-    const depFlagDisplay = depCountryCode ? 'block' : 'none';
-    const arrFlagDisplay = arrCountryCode ? 'block' : 'none';
-
-    // Plan Button
-    const simbriefAircraftValue = findSimbriefAircraftValue(aircraftName);
-    let planButtonHtml = '';
-    if (hasPlan && simbriefAircraftValue) {
-        planButtonHtml = `
-        <button id="plan-this-flight-btn" class="pilot-stats-toggle-btn" 
-                data-departure="${departureIcao}" 
-                data-arrival="${arrivalIcao}" 
-                data-aircraft="${simbriefAircraftValue}"
-                style="width: 100%; margin-top: 16px;">
-            <i class="fa-solid fa-file-invoice"></i> Plan This Flight
-        </button>`;
-    }
-
-    const pilotUsername = baseProps.username || 'N/A';
-    const pilotReportTabText = (pilotUsername !== 'N/A' && pilotUsername) ? pilotUsername : 'Pilot Report';
-
-    // --- DYNAMIC IMAGE & CONTRIBUTOR LOGIC ---
-    // Default Fallback
-    let techCardImagePath = '/CommunityPlanes/default.png';
-    let photographerName = 'IF Community';
-    let techCardTail = reg; // Default to live registration
-
-    // [FIX START] Handle if data comes as an array (common with DB lookups)
-    if (Array.isArray(communityAircraftData)) {
-        communityAircraftData = communityAircraftData.length > 0 ? communityAircraftData[0] : null;
-    }
-
-    // If backend returned data, use it
-    if (communityAircraftData && communityAircraftData.imageUrl) {
-        techCardImagePath = communityAircraftData.imageUrl;
-        photographerName = communityAircraftData.contributorName || 'IF Community';
-        // [FIX] Uncommented this to show the tail number from your DB
-        if (communityAircraftData.tailNumber) {
-            techCardTail = communityAircraftData.tailNumber; 
-        }
-    }
-    // [FIX END]
-
-    // --- Distance Calc for TOD Logic ---
-    let distanceToDestNM = 0;
-    if (hasPlan) {
-        let totalDistanceKm = 0;
-        for (let i = 0; i < originalFlatWaypoints.length - 1; i++) {
-            const [lon1, lat1] = originalFlatWaypoints[i];
-            const [lon2, lat2] = originalFlatWaypoints[i + 1];
-            totalDistanceKm += getDistanceKm(lat1, lon1, lat2, lon2);
-        }
-        const totalDistanceNM = totalDistanceKm / 1.852;
-        if (totalDistanceNM > 0) {
-            const [destLon, destLat] = originalFlatWaypoints[originalFlatWaypoints.length - 1];
-            const remainingDistanceKm = getDistanceKm(baseProps.position.lat, baseProps.position.lon, destLat, destLon);
-            distanceToDestNM = remainingDistanceKm / 1.852;
-        }
-    }
-
-    // --- TOD Calculator Logic ---
-    let todHtml = '';
     
-    // We need a destination and valid physics to calculate TOD
-    if (hasPlan && baseProps.position.alt_ft > 5000 && distanceToDestNM > 20) {
-        // 1. Get Altitudes
-        const currentAlt = baseProps.position.alt_ft;
-        // Try to get destination elevation from plan, default to 0 (Sea Level) if missing
-        const destElev = (plan.destination && plan.destination.elevation_ft) ? parseInt(plan.destination.elevation_ft) : 0;
-        
-        // 2. Calculate Descent
-        const altToLose = currentAlt - destElev;
-        // 3:1 Rule: 3nm distance for every 1000ft height
-        const descentDistanceNM = (altToLose / 1000) * 3;
-        
-        // 3. Calculate TOD location relative to us
-        const distToTodNM = distanceToDestNM - descentDistanceNM;
-        
-        // 4. Calculate Time to TOD (based on current GS)
-        let timeToTodStr = '--:--';
-        if (baseProps.position.gs_kt > 50) {
-            const timeHours = distToTodNM / baseProps.position.gs_kt;
-            const minutes = Math.floor(timeHours * 60);
-            const seconds = Math.floor((timeHours * 60 - minutes) * 60);
-            
-            // Format nicely
-            if (distToTodNM > 0) {
-                 timeToTodStr = `${String(minutes).padStart(2, '0')}:${String(seconds).padStart(2, '0')}`;
-            } else {
-                 timeToTodStr = 'NOW';
-            }
-        }
+    const atdTimestamp = (sortedRoutePoints && sortedRoutePoints.length > 0) ? sortedRoutePoints[0].date : null;
+    const atdTime = atdTimestamp ? formatTimeFromTimestamp(atdTimestamp) : '--:--';
+    let etaTime = '--:--'; // Calculated later via JS update
+    
+    // Pilot Status Logic
+    let statusColorClass = 'status-active';
+    let statusText = 'MANUAL CONTROL';
+    let statusIcon = 'fa-gamepad';
 
-        // 5. Determine State (Cruise vs Descent)
-        const isPastTod = distToTodNM <= 0;
-        const statusColor = isPastTod ? '#ef4444' : '#34d399'; // Red if past, Green if pending
-        const statusText = isPastTod ? 'DESCEND NOW' : 'CRUISING';
-        const distDisplay = isPastTod ? `+${Math.abs(distToTodNM).toFixed(1)} NM` : `${distToTodNM.toFixed(1)} NM`;
-
-        // 6. Build the HTML Module
-        todHtml = `
-        <div class="tech-module" id="tod-calculator-module">
-            <div class="tech-module-header">
-                <span class="tech-module-title"><i class="fa-solid fa-calculator"></i> DESCENT (3:1)</span>
-                <span class="tech-badge" style="background: rgba(16, 185, 129, 0.1); color: ${statusColor}; border-color: ${statusColor};">
-                    ${statusText}
-                </span>
-            </div>
-            <div class="tech-module-body" style="padding: 8px; display: flex; gap: 8px; align-items: center;">
-                
-                <div style="flex: 1; display: flex; flex-direction: column; align-items: center; background: rgba(255,255,255,0.03); border-radius: 6px; padding: 6px;">
-                    <span class="tech-stat-label" style="font-size: 8px; color: #94a3b8; margin-bottom: 2px;">DIST TO TOD</span>
-                    <span class="tech-stat-value" style="font-size: 1.0rem;">${distDisplay}</span>
-                </div>
-
-                <div style="flex: 1; display: flex; flex-direction: column; align-items: center; background: rgba(255,255,255,0.03); border-radius: 6px; padding: 6px;">
-                    <span class="tech-stat-label" style="font-size: 8px; color: #94a3b8; margin-bottom: 2px;">TIME TO TOD</span>
-                    <span class="tech-stat-value" style="font-size: 1.0rem; color: #38bdf8;">${timeToTodStr}</span>
-                </div>
-
-                <div style="flex: 1; display: flex; flex-direction: column; align-items: center; background: rgba(255,255,255,0.03); border-radius: 6px; padding: 6px;">
-                    <span class="tech-stat-label" style="font-size: 8px; color: #94a3b8; margin-bottom: 2px;">REQ. RATE</span>
-                    <span class="tech-stat-value" style="font-size: 1.0rem; color: #fbbf24;">-${Math.round(baseProps.position.gs_kt * 5)}</span>
-                </div>
-
-            </div>
-        </div>
-        `;
-    } else if (hasPlan && baseProps.position.alt_ft <= 5000) {
-         todHtml = `
-        <div class="tech-module">
-            <div class="tech-module-header">
-                <span class="tech-module-title"><i class="fa-solid fa-calculator"></i> DESCENT PHASE</span>
-                <span class="tech-badge" style="color: #38bdf8; border-color: #38bdf8;">ACTIVE</span>
-            </div>
-            <div class="tech-module-body" style="padding: 12px; text-align: center; color: #94a3b8; font-size: 0.8rem;">
-                Aircraft is in terminal phase.
-            </div>
-        </div>`;
+    if (baseProps.pilotState === 1) { // Auto/Monitoring
+        statusColorClass = 'status-monitor';
+        statusText = 'SYSTEMS MONITORING';
+        statusIcon = 'fa-robot';
+    } else if (baseProps.pilotState === 2) { // Parked
+        statusColorClass = 'status-parked';
+        statusText = 'PARKED / SECURED';
+        statusIcon = 'fa-square-parking';
     }
 
-    // --- HTML Construction ---
+    // Community Data (Photographer)
+    let photographerName = 'IF Community';
+    if (Array.isArray(communityAircraftData)) communityAircraftData = communityAircraftData[0];
+    if (communityAircraftData && communityAircraftData.contributorName) {
+        photographerName = communityAircraftData.contributorName;
+    }
+
+    // Calculate Progress (Initial)
+    let progress = 0;
+    if (hasPlan && baseProps.position) {
+        // Simple initial calc, real-time updates happen in updateAircraftInfoWindow
+        const distFlown = sortedRoutePoints.length; // Approximate using trail length as proxy if needed, or just default 0
+        // We let the update loop handle the exact bar width
+    }
+
+    // --- 2. HTML INJECTION (Modern Grid Layout) ---
     windowEl.innerHTML = `
-    <style>
-        /* --- Shared Tech Style --- */
-        .tech-module {
-            background: #0f172a; /* Solid Dark Slate */
-            border: 1px solid rgba(255, 255, 255, 0.1);
-            border-radius: 12px;
-            overflow: hidden;
-            box-shadow: 0 4px 15px rgba(0, 0, 0, 0.5);
-            margin-bottom: 8px; 
-            display: flex;
-            flex-direction: column;
-        }
-
-        .tech-module-header {
-            background: rgba(30, 41, 59, 0.5); /* Slightly lighter header */
-            padding: 8px 12px;
-            border-bottom: 1px solid rgba(255, 255, 255, 0.05);
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-        }
+    <div class="info-window-content" style="background: #000; height: 100%; display: flex; flex-direction: column;">
         
-        .tech-module-title {
-            font-size: 0.75rem;
-            font-weight: 700;
-            color: #94a3b8; /* Muted text */
-            text-transform: uppercase;
-            letter-spacing: 0.05em;
-            display: flex;
-            align-items: center;
-            gap: 8px;
-        }
-
-        .tech-module-body {
-            padding: 12px;
-            background: #0f172a;
-            position: relative;
-        }
-
-        /* --- Tech Card Specifics --- */
-        .tech-card {
-            background: #0f172a; 
-            border: 1px solid rgba(255, 255, 255, 0.1);
-            border-radius: 12px; 
-            overflow: hidden;
-            box-shadow: 0 4px 15px rgba(0, 0, 0, 0.5);
-            position: relative;
-            font-family: 'Inter', sans-serif;
-            margin-bottom: 12px; 
-        }
-        .tech-card-header {
-            padding: 12px 16px 4px; 
-            display: flex;
-            justify-content: space-between;
-            align-items: flex-start;
-            position: relative;
-            z-index: 10;
-        }
-        .tech-badge {
-            display: inline-flex;
-            align-items: center;
-            gap: 4px;
-            padding: 1px 6px;
-            border-radius: 999px;
-            background: rgba(16, 185, 129, 0.1);
-            border: 1px solid rgba(16, 185, 129, 0.2);
-            font-size: 9px;
-            font-weight: 700;
-            color: #34d399;
-            text-transform: uppercase;
-            letter-spacing: 0.05em;
-        }
-        .tech-ping {
-            position: relative;
-            display: flex;
-            height: 5px;
-            width: 5px;
-        }
-        .tech-ping span {
-            position: absolute;
-            display: inline-flex;
-            height: 100%;
-            width: 100%;
-            border-radius: 50%;
-            background-color: #34d399;
-        }
-        .tech-ping .animate {
-            animation: ping 1s cubic-bezier(0, 0, 0.2, 1) infinite;
-            opacity: 0.75;
-        }
-        @keyframes ping {
-            75%, 100% { transform: scale(2); opacity: 0; }
-        }
-        .tech-model {
-            font-size: 1.1rem;
-            font-weight: 700;
-            color: #fff;
-            letter-spacing: -0.025em;
-            margin: 0;
-            line-height: 1.2;
-        }
-        .tech-airline {
-            font-size: 0.75rem;
-            font-weight: 500;
-            color: rgba(56, 189, 248, 0.9);
-            margin-top: 0px;
-            display: flex;
-            align-items: center;
-            gap: 5px;
-        }
-        .tech-content {
-            padding: 12px;
-            position: relative;
-            z-index: 10;
-        }
-        .tech-image-container {
-            position: relative;
-            width: 100%;
-            aspect-ratio: 21 / 9;
-            border-radius: 8px;
-            overflow: hidden;
-            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.2);
-            border: 1px solid rgba(255, 255, 255, 0.05);
-            background: #000;
-        }
-        .tech-image {
-            width: 100%;
-            height: 100%;
-            object-fit: cover;
-            transition: transform 0.7s ease-out;
-        }
-        .tech-image-container:hover .tech-image {
-            transform: scale(1.05);
-        }
-        .tech-image-overlay {
-            position: absolute;
-            inset: 0;
-            background: linear-gradient(to top, rgba(2, 6, 23, 0.9), transparent, transparent);
-            opacity: 0.8;
-        }
-        .tech-image-info {
-            position: absolute;
-            bottom: 8px;
-            left: 10px;
-            right: 10px;
-            display: flex;
-            justify-content: space-between;
-            align-items: flex-end;
-        }
-        .tech-photographer {
-            display: flex;
-            flex-direction: column;
-        }
-        .tech-photo-label {
-            font-size: 9px;
-            color: #cbd5e1;
-            font-weight: 500;
-            margin-bottom: 0px;
-            line-height: 1;
-        }
-        .tech-photo-name {
-            display: flex;
-            align-items: center;
-            gap: 4px;
-            font-size: 10px;
-            font-weight: 600;
-            color: #fff;
-        }
-        .tech-grid {
-            display: grid;
-            grid-template-columns: repeat(2, 1fr);
-            gap: 8px;
-            margin-top: 12px;
-        }
-        .tech-stat-card {
-            background: rgba(30, 41, 59, 0.5);
-            border: 1px solid rgba(255, 255, 255, 0.05);
-            padding: 8px 10px;
-            border-radius: 6px;
-            transition: background 0.2s;
-        }
-        .tech-stat-card:hover {
-            background: rgba(30, 41, 59, 0.8);
-        }
-        .tech-stat-header {
-            display: flex;
-            align-items: center;
-            justify-content: space-between;
-            margin-bottom: 2px;
-        }
-        .tech-stat-label {
-            font-size: 9px;
-            font-weight: 600;
-            color: #94a3b8;
-            text-transform: uppercase;
-            letter-spacing: 0.05em;
-        }
-        .tech-stat-value {
-            font-family: 'Consolas', 'Monaco', monospace;
-            font-size: 0.95rem;
-            color: #fff;
-            font-weight: 600;
-            letter-spacing: -0.025em;
-        }
-        .tech-country-card {
-            grid-column: span 2;
-            background: rgba(30, 41, 59, 0.3);
-            border: 1px solid rgba(255, 255, 255, 0.05);
-            padding: 6px 10px;
-            border-radius: 6px;
-            display: flex;
-            align-items: center;
-            justify-content: space-between;
-        }
-        .tech-country-left {
-            display: flex;
-            align-items: center;
-            gap: 8px;
-        }
-        .tech-country-icon {
-            width: 24px;
-            height: 24px;
-            border-radius: 4px;
-            background: rgba(51, 65, 85, 0.5);
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            color: #94a3b8;
-        }
-        .tech-bottom-bar {
-            height: 3px;
-            width: 100%;
-            background: linear-gradient(to right, #0ea5e9, #2563eb, #4f46e5);
-            opacity: 0.8;
-        }
-
-        /* --- FMS Overrides for Tech Style --- */
-        .fms-columns {
-            border-bottom: 1px solid rgba(255, 255, 255, 0.1);
-            color: #94a3b8;
-        }
-        .fms-row {
-            border-bottom: 1px solid rgba(255, 255, 255, 0.05);
-        }
-        .fms-footer {
-            background: rgba(30, 41, 59, 0.3);
-            border-top: 1px solid rgba(255, 255, 255, 0.1);
-        }
-
-        /* --- Nav Data Overrides --- */
-        .nav-header {
-             display: none; /* We use the tech-module-header now */
-        }
-        #location-data-panel {
-            background: transparent;
-            border: none;
-            box-shadow: none;
-        }
-        .nav-grid-container {
-            padding: 0; /* Remove internal padding as body handles it */
-        }
-        .nav-cell {
-            background: rgba(30, 41, 59, 0.5); /* Match tech-stat-card */
-            border: 1px solid rgba(255, 255, 255, 0.05);
-        }
-
-        /* --- VSD Overrides --- */
-        .vsd-module-container {
-             background: transparent; 
-             border: none;
-             box-shadow: none;
-             margin-bottom: 12px;
-        }
-        .vsd-footer {
-            background: rgba(30, 41, 59, 0.3);
-            border-top: 1px solid rgba(255, 255, 255, 0.1);
-        }
-        .vsd-graph-window {
-            background: #0f172a; /* Match background */
-        }
-        #vsd-y-axis {
-            background: #0f172a;
-            border-right: 1px solid rgba(255, 255, 255, 0.1);
-        }
-    </style>
-
-    <div class="info-window-content">
         <div class="aircraft-overview-panel" id="ac-overview-panel">
             <div class="overview-actions">
-                <button class="aircraft-window-hide-btn" title="Hide"><i class="fa-solid fa-compress"></i></button>
-                <button class="aircraft-window-close-btn" title="Close"><i class="fa-solid fa-xmark"></i></button>
+                <button class="aircraft-window-hide-btn"><i class="fa-solid fa-compress"></i></button>
+                <button class="aircraft-window-close-btn"><i class="fa-solid fa-xmark"></i></button>
             </div>
             <div class="overview-content">
                 <div class="overview-col-left">
                     <h3 id="ac-header-callsign">${logoHtml}${baseProps.callsign}</h3>
-                    <p id="ac-header-subtext-container">
-                        <span class="ac-header-subtext" id="ac-header-livery">${airlineName}</span>
-                        <span class="ac-header-subtext" id="ac-header-actype">${aircraftName}</span>
-                    </p>
+                    <p><span class="ac-header-subtext">${airlineName} • ${aircraftName}</span></p>
                 </div>
                 <div class="overview-col-right">
-                    <span class="route-icao" id="ac-header-dep">${departureIcao}</span>
-                    <span class="route-icao" id="ac-header-arr">${arrivalIcao}</span>
+                    <span class="route-icao">${departureIcao}</span>
+                    <i class="fa-solid fa-arrow-right" style="color: #666; font-size: 0.8rem;"></i>
+                    <span class="route-icao">${arrivalIcao}</span>
                 </div>
             </div>
         </div>
 
-        <div class="route-summary-overlay">
-            <div class="route-summary-airport" id="route-summary-dep">
-                <div class="airport-line">
-                    <img src="${depFlagSrc}" class="country-flag" id="ac-bar-dep-flag" alt="${depCountryCode}" style="display: ${depFlagDisplay};">
-                    <span class="icao" id="ac-bar-dep">${departureIcao}</span>
-                </div>
-                <span class="time" id="ac-bar-atd">${atdTime} Z</span>
+        <div style="background: #111; padding: 10px 20px; border-bottom: 1px solid #222;">
+            <div style="display: flex; justify-content: space-between; font-size: 0.8rem; color: #fff; margin-bottom: 5px;">
+                <span>${departureIcao}</span>
+                <span style="color: #00a8ff;" id="ac-progress-text">--%</span>
+                <span>${arrivalIcao}</span>
             </div>
-            <div class="route-progress-container">
-                <div class="route-progress-bar-container">
-                    <div class="progress-bar-fill" id="ac-progress-bar"></div>
-                </div>
-                <div class="flight-phase-indicator" id="ac-phase-indicator">ENROUTE</div>
+            <div style="height: 4px; background: #333; border-radius: 2px; overflow: hidden;">
+                <div id="ac-progress-bar" style="width: 0%; height: 100%; background: #00a8ff; box-shadow: 0 0 10px rgba(0,168,255,0.5); transition: width 0.5s;"></div>
             </div>
-            <div class="route-summary-airport" id="route-summary-arr">
-                 <div class="airport-line">
-                    <span class="icao" id="ac-bar-arr">${arrivalIcao}</span>
-                    <img src="${arrFlagSrc}" class="country-flag" id="ac-bar-arr-flag" alt="${arrCountryCode}" style="display: ${arrFlagDisplay};">
-                </div>
-                <span class="time" id="ac-bar-eta">${etaTime} Z</span>
+            <div style="display: flex; justify-content: space-between; font-size: 0.7rem; color: #666; margin-top: 4px;">
+                <span>DEP: ${atdTime} Z</span>
+                <span id="ac-bar-eta">ETA: --:-- Z</span>
             </div>
         </div>
 
-        <div class="ac-info-window-tabs">
-            <div class="ac-tabs-wrapper">
-                <button class="ac-info-tab-btn active" data-tab="ac-tab-flight-data">
-                    <i class="fa-solid fa-gauge-high"></i> Flight Display
-                </button>
-                <button class="ac-info-tab-btn pilot-tab-btn" data-tab="ac-tab-pilot-report" data-user-id="${baseProps.userId}" data-username="${pilotUsername}">
-                    <i class="fa-solid fa-chart-simple"></i> ${pilotReportTabText}
-                </button>
-            </div>
-            <img src="Images/inflight.png" alt="Inflight Logo" class="ac-info-tab-logo">
-        </div>
-
-        <div class="unified-display-main-content">
-            <div id="ac-tab-flight-data" class="ac-tab-pane active" style="gap: 6px;">
-                
-                <div class="pfd-and-location-grid">
-                    <div class="pfd-main-panel">
-                        <div class="display-bezel">
-                            <div class="screw tl"></div><div class="screw tr"></div><div class="screw bl"></div><div class="screw br"></div>
-                            <div class="crt-container scanlines" id="pfd-container">
-                                <svg width="787" height="800" viewBox="0 0 787 800" fill="none" xmlns="http://www.w3.org/2000/svg">
-                                    <g id="PFD" clip-path="url(#clip0_1_2890)">
-                                    <g transform="translate(0, 100)">
-                                        <g id="attitude_group">
-                                            <rect id="Sky" x="-186" y="-222" width="1121" height="600" fill="#0596FF"/>
-                                            <rect id="Ground" x="-138" y="307" width="1024" height="527" fill="#9A4710"/>
-                                        </g>
-                                        <rect id="Rectangle 1" x="-6" y="5" width="191" height="566" fill="#030309"/>
-                                        <rect id="Rectangle 9" x="609" width="185" height="566" fill="#030309"/>
-                                        <path id="Rectangle 2" d="M273.905 84.9424L180.983 183.181L-23 -9.76114L69.9218 -108L273.905 84.9424Z" fill="#030309"/>
-                                        <path id="Rectangle 8" d="M303.215 77.0814L187.591 147.198L42 -92.8829L157.624 -163L303.215 77.0814Z" fill="#030309"/>
-                                        <path id="Rectangle 7" d="M372.606 54.0171L244.59 97.5721L154.152 -168.242L282.169 -211.796L372.606 54.0171Z" fill="#030309"/>
-                                        <rect id="Rectangle 10" x="25" y="487.905" width="168.696" height="262.947" transform="rotate(-31.8041 25 487.905)" fill="#030309"/>
-                                        <rect id="Rectangle 14" width="67.3639" height="53.5561" transform="matrix(-0.972506 0.23288 0.23288 0.972506 482.512 537)" fill="#030309"/>
-                                        <rect id="Rectangle 19" width="80.8905" height="53.5561" transform="matrix(-0.999899 0.0142423 0.0142423 0.999899 442.882 549.506)" fill="#030309"/>
-                                        <rect id="Rectangle 18" width="46.2297" height="53.5561" transform="matrix(-0.988103 -0.153795 -0.153795 0.988103 369.916 549.11)" fill="#030309"/>
-                                        <rect id="Rectangle 17" width="46.2297" height="53.5561" transform="matrix(-0.940186 -0.340662 -0.340662 0.940186 337.709 546.749)" fill="#030309"/>
-                                        <rect id="Rectangle 16" width="46.2297" height="53.5561" transform="matrix(-0.940186 -0.340662 -0.340662 0.940186 299.709 531.749)" fill="#030309"/>
-                                        <rect id="Rectangle 15" x="387" y="587.269" width="168.696" height="262.947" transform="rotate(-27.6434 387 587.269)" fill="#030309"/>
-                                        <rect id="Rectangle 13" x="86" y="584.104" width="168.696" height="262.947" transform="rotate(-46.8648 86 584.104)" fill="#030309"/>
-                                        <rect id="Rectangle 11" x="527" y="532.777" width="168.696" height="262.947" transform="rotate(-51.9135 527 532.777)" fill="#030309"/>
-                                        <rect id="Rectangle 12" x="503" y="527.247" width="168.696" height="262.947" transform="rotate(-31.9408 503 527.247)" fill="#030309"/>
-                                        <rect id="Rectangle 6" x="456.715" y="60.2651" width="131.991" height="278.153" transform="rotate(-177.303 456.715 60.2651)" fill="#030309"/>
-                                        <rect id="Rectangle 5" x="525.118" y="90.4898" width="131.991" height="274.627" transform="rotate(-158.368 525.118 90.4898)" fill="#030309"/>
-                                        <rect id="Rectangle 4" x="570.695" y="127.633" width="109.94" height="223.222" transform="rotate(-142.051 570.695 127.633)" fill="#030309"/>
-                                        <rect id="Rectangle 3" x="613.292" y="189.098" width="99.2768" height="223.222" transform="rotate(-128.125 613.292 189.098)" fill="#030309"/>
-                                        <path id="Vector 3" d="M609 183V422.5" stroke="#E7E6E8" stroke-width="4"/>
-                                        <path id="Vector 1" d="M185.5 425.5L185 180" stroke="#DBDBDC" stroke-width="4"/>
-                                        <path id="Vector 2" d="M185 181.502C185 181.502 269.8 52.0936 397 56.0907C524.2 60.0879 576.603 135.189 609 184" stroke="#DBDBDC" stroke-width="4"/>
-                                        <path id="Vector 4" d="M608.5 424.5C608.5 424.5 557 548 396 550.5C235 553 185 424.5 185 424.5" stroke="#DBDBDC" stroke-width="4"/>
-                                        <path id="Polygon 1" d="M396.252 65.2333L377.848 35.8138L414.647 35.8079L396.252 65.2333Z" fill="#E7F013"/>
-                                        <path id="Polygon 2" d="M407.919 38.9482L396.431 59.4193L384.446 38.7244L407.919 38.9482Z" fill="#030309"/>
-                                        <path id="Vector 6" d="M307 76L302 64.5L312 60.5L317 71" stroke="#E7E6E8" stroke-width="4"/>
-                                        <path id="Vector 7" d="M279.5 91L268.5 73.5L259 79L269.5 97.5" stroke="#E7E6E8" stroke-width="4"/>
-                                        <path id="Vector 8" d="M225 135L206.5 117" stroke="#E7E6E8" stroke-width="4"/>
-                                        <path id="Vector 9" d="M477.153 71.5794L479.366 59.3018L489.886 61.5697L488.226 73.0218" stroke="#E7E6E8" stroke-width="4"/>
-                                        <path id="Vector 10" d="M347.928 61.4888L346.352 49.0483L357.072 48.0112L358.929 59.4917" stroke="#E7E6E8" stroke-width="4"/>
-                                        <path id="Vector 11" d="M435.153 59.5794L437.366 47.3018L447.886 49.5697L446.226 61.0218" stroke="#E7E6E8" stroke-width="4"/>
-                                        <path id="Vector 12" d="M514.032 86.1754L522.756 72.2658L533.956 78.0405L525.5 93.5" stroke="#E7E6E8" stroke-width="4"/>
-                                        <path id="Vector 13" d="M569.5 131.5L585.5 116" stroke="#E7E6E8" stroke-width="4"/>
-                                        <path id="Vector 15" d="M183.5 193.5L173 187" stroke="#029705" stroke-width="4"/>
-                                        <path id="Vector 16" d="M184 203L173.5 196.5" stroke="#029705" stroke-width="4"/>
-                                        <path id="Vector 17" d="M610 193.5L619 188" stroke="#029705" stroke-width="3"/>
-                                        <path id="Vector 18" d="M610 199.5L619 194" stroke="#029705" stroke-width="3"/>
-                                        <line id="Line 1" x1="184" y1="211" x2="184" y2="184" stroke="#DBDBDC" stroke-width="2"/>
-                                        <line id="Line 2" x1="610" y1="211" x2="610" y2="184" stroke="#DBDBDC" stroke-width="2"/>
-                                        <rect id="altitude_bg" x="675" y="73" width="72" height="476" fill="#76767A"/>
-                                        <g clip-path="url(#altTapeClip)">
-                                            <svg x="675" y="73" width="72" height="476"><g id="altitude_tape_group"></g></svg>
-                                        </g>
-                                        <g id="altitude_indicator_static">
-                                            <rect id="altitude_1" x="675" y="280" width="73" height="49" fill="#030309"/>
-                                            <text id="altitude_readout_hundreds" x="740" y="316" fill="#00FF00" font-size="32" text-anchor="end" font-weight="bold">0</text>
-                                            <g id="altitude_tens_reel_container" clip-path="url(#tensReelClip)"><g id="altitude_tens_reel_group"></g></g>
-                                            <line id="Line 8" x1="669" y1="307" x2="618" y2="307" stroke="#DDDF07" stroke-width="8"/>
-                                        </g>
-                                        <path id="limit" d="M636 336.08L621.413 307.511L650.858 307.651L636 336.08Z" fill="#C477C6"/>
-                                        <path id="limit2" d="M636 279L650.722 307.5H621.278L636 279Z" fill="#C477C6"/>
-                                        <path id="limit3" d="M636 285L643.794 303H628.206L636 285Z" fill="#100010"/>
-                                        <path id="limit4" d="M636.191 329.14L628.276 311.242L643.534 310.999L636.191 329.14Z" fill="#030309"/>
-                                        <line id="Line 6" x1="746.5" y1="263" x2="746.5" y2="281" stroke="#ECED06" stroke-width="3"/>
-                                        <line id="Line 4" x1="746.5" y1="329" x2="746.5" y2="347" stroke="#ECED06" stroke-width="3"/>
-                                        <path id="Ellipse 1" d="M636 481C636 484.866 632.866 488 629 488C625.134 488 622 484.866 622 481C622 477.134 625.134 474 629 474C632.866 474 636 477.134 636 481Z" fill="#D9D9D9"/>
-                                        <path id="Ellipse 4" d="M636 147C636 150.866 632.866 154 629 154C625.134 154 622 150.866 622 147C622 143.134 625.134 140 629 140C632.866 140 636 143.134 636 147Z" fill="#D9D9D9"/>
-                                        <g id="Ellipse 3">
-                                            <path d="M636 229C636 232.866 632.866 236 629 236C625.134 236 622 232.866 622 229C622 225.134 625.134 222 629 222C632.866 222 636 225.134 636 229Z" fill="#D9D9D9"/>
-                                            <path d="M636 395C636 398.866 632.866 402 629 402C625.134 402 622 398.866 622 395C622 391.134 625.134 388 629 388C632.866 388 636 391.134 636 395Z" fill="#D9D9D9"/>
-                                        </g>
-                                        <rect id="speed" x="28" y="73" width="97" height="477" fill="#76767A"/>
-                                        <g clip-path="url(#speedTapeClip)">
-                                            <svg x="28" y="73" width="97" height="477"><g id="speed_tape_group"></g></svg>
-                                        </g>
-                                        <g id="speed_indicator_static">
-                                            <path id="Polygon 9" d="M128.036 311.591L150.451 301.561L150.513 321.482L128.036 311.591Z" fill="#FDFD03"/>
-                                            <path id="Vector 20" d="M137 311H96.5" stroke="#FDFD03" stroke-width="4"/>
-                                            <rect x="50" y="296" width="45" height="30" fill="black" stroke="#999" stroke-width="1"/>
-                                            <text id="speed_readout" x="72.5" y="318" fill="#00FF00" font-size="20" text-anchor="middle" font-weight="bold">0</text>
-                                        </g>
-                                        <path id="Vector 19" d="M19.5 311H31" stroke="#FDFD03" stroke-width="4"/>
-                                        <path id="Vector 21" d="M29 73H151.5" stroke="#E7E6E8" stroke-width="4"/>
-                                        <path id="Vector 22" d="M28 549H151.5" stroke="#E7E6E8" stroke-width="4"/>
-                                        <path id="Vector 23" d="M672.5 73H774" stroke="#E7E6E8" stroke-width="4"/>
-                                        <path id="Vector 24" d="M672 548.5H773" stroke="#E7E6E8" stroke-width="4"/>
-                                        <path id="Vector 25" d="M745 549.5L746 347" stroke="#E7E6E8" stroke-width="3"/>
-                                        <path id="Vector 26" d="M745 73V265" stroke="#E7E6E8" stroke-width="3"/>
-                                        <g id="wings">
-                                            <rect id="Rectangle 21" x="280" y="315" width="11" height="25" fill="#030309"/>
-                                            <rect id="Rectangle 23" x="522" y="304" width="71" height="12" fill="#030309"/>
-                                            <rect id="Rectangle 22" x="512" y="305" width="13" height="35" fill="#030309"/>
-                                            <rect id="Rectangle 20" x="208" y="304" width="83" height="13" fill="#030309"/>
-                                            <g id="wing">
-                                                <path d="M278.591 316.857H208V304H291.608V340H278.591V316.857Z" stroke="#FEFE03" stroke-width="3"/>
-                                                <path d="M511.392 340V304H595V316.857H524.409V340H511.392Z" stroke="#FEFE03" stroke-width="3"/>
-                                            </g>
-                                        </g>
-                                        <g id="middle">
-                                            <rect id="middle_2" x="393" y="304" width="17" height="17" fill="#0CC704"/>
-                                            <rect id="Rectangle 24" x="395" y="307" width="13" height="11" fill="#030309"/>
-                                        </g>
-                                        <rect id="Rectangle 25" y="571" width="787" height="140" fill="#030309"/>
-                                        <rect id="header" x="243" y="599" width="326" height="66" fill="#76767A"/>
-                                        <g id="heading_indicator">
-                                            <g id="heading_tape_container" clip-path="url(#headingClip)"><g id="heading_tape_group"></g></g>
-                                            <g id="heading_static_elements">
-                                                <line x1="406" y1="620" x2="406" y2="635" stroke="#FDFD03" stroke-width="3"/>
-                                                <rect x="381" y="599" width="50" height="20" fill="black" stroke="#FFFFFF" stroke-width="1"/>
-                                                <text id="heading_readout" x="406" y="615" fill="#00FF00" font-size="16" text-anchor="middle" font-weight="bold">000</text>
-                                            </g>
-                                        </g>
-                                        <path id="Vector 27" d="M243 599V667" stroke="#FCFCFF" stroke-width="4"/>
-                                        <g id="Line 5"><line id="Line 5_2" x1="745" y1="264.5" x2="787" y2="264.5" stroke="#ECED06" stroke-width="3"/></g>
-                                        <line id="Line 6_2" x1="671" y1="279.5" x2="748" y2="279.5" stroke="#ECED06" stroke-width="3"/>
-                                        <line id="Line 7" x1="671" y1="329.5" x2="748" y2="329.5" stroke="#ECED06" stroke-width="3"/>
-                                        <line id="Line 3" x1="746" y1="345.5" x2="786" y2="345.5" stroke="#ECED06" stroke-width="3"/>
-                                    </g> 
-                                    </g>
-                                    <defs>
-                                        <clipPath id="clip0_1_2890"><rect width="787" height="800" fill="white"/></clipPath>
-                                        <clipPath id="tensReelClip"><rect x="732" y="269" width="50" height="75"/></clipPath>
-                                        <clipPath id="headingClip"><rect x="243" y="620" width="326" height="45"/></clipPath>
-                                        <clipPath id="speedTapeClip"><rect x="28" y="73" width="97" height="477"/></clipPath>
-                                        <clipPath id="altTapeClip"><rect x="675" y="73" width="72" height="476"/></clipPath>
-                                    </defs>
-                                </svg>
-                            </div>
-                        </div>
-                        
-                        <div class="display-bezel">
-                            <div class="screw tl"></div><div class="screw tr"></div><div class="screw bl"></div><div class="screw br"></div>
-                            <div class="crt-container scanlines">
-                                <div id="nd-container">
-                                    <iframe id="nav-display-frame" src="nav.html" scrolling="no"></iframe>
-                                </div>
-                            </div>
-                        </div>
-
-                    </div>
-                    
-                    <div class="info-right-col">
-                        
-                        <div class="tech-module" id="cockpit-seat-sensor">
-                            <div class="tech-module-header">
-                                <span class="tech-module-title"><i class="fa-solid fa-chair"></i> COCKPIT STATE</span>
-                                <span class="fms-page-count"><i class="fa-solid fa-satellite-dish"></i></span>
-                            </div>
-                            <div class="tech-module-body">
-                                <div class="cockpit-view">
-                                    <div id="seat-cpt" class="seat" data-role="CPT"></div>
-                                    <div id="seat-fo" class="seat" data-role="FO"></div>
-                                    
-                                    <div id="icon-parking-overlay" class="cockpit-overlay-icon icon-parking">P</div>
-                                    <div id="icon-coffee-overlay" class="cockpit-overlay-icon icon-coffee"><i class="fa-solid fa-mug-hot"></i></div>
-                                    <div id="icon-cloud-overlay" class="cockpit-overlay-icon icon-cloud"><i class="fa-solid fa-cloud"></i></div>
-                                </div>
-                                <div class="seat-status-display">
-                                    <span id="status-cpt-text" class="status-pill">CMD: ---</span>
-                                    <span id="status-fo-text" class="status-pill">FO: ---</span>
-                                </div>
-                                <div id="seat-narrative-text">
-                                    Initializing...
-                                </div>
-                            </div>
-                        </div>
-
-                        ${todHtml}
-
-                        <div id="fms-legs-module" class="tech-module" style="height: 380px; max-height: 380px; display: flex; flex-direction: column; margin-top: 12px;">
-                            <div class="tech-module-header">
-                                <span class="tech-module-title"><i class="fa-solid fa-route"></i> ACTIVE FLIGHT PLAN</span>
-                                <span class="fms-page-count">1/1</span>
-                            </div>
-                            
-                            <div class="fms-columns">
-                                <span class="col-wpt">LEGS</span>
-                                <span class="col-data text-center">CRS</span>
-                                <span class="col-data text-right">DIST</span>
-                            </div>
-
-                            <div id="fms-legs-list" class="fms-list-scrollarea">
-                                <div class="fms-empty-state">NO ROUTE LOADED</div>
-                            </div>
-                            
-                            <div class="fms-footer">
-                                <div class="fms-stat">
-                                    <span class="stat-label">DTG</span>
-                                    <span id="fms-total-dist" class="stat-value">---- NM</span>
-                                </div>
-                                <div class="fms-stat">
-                                    <span class="stat-label">ETE</span>
-                                    <span id="fms-total-ete" class="stat-value">--:--</span>
-                                </div>
-                            </div>
-                        </div>
-                    </div>
-                </div>
-                
-                <div class="tech-module" id="location-data-panel">
-                    <div class="tech-module-header">
-                        <span class="tech-module-title"><i class="fa-solid fa-location-crosshairs"></i> NAV DATA</span>
-                        <span class="nav-status-indicator"><div class="nav-blink"></div> LIVE</span>
-                    </div>
-                    
-                    <div class="tech-module-body" style="padding: 8px;">
-                        <div class="nav-grid-container">
-                            <div class="nav-cell">
-                                <span class="nav-label"><i class="fa-solid fa-map-location-dot"></i> Region</span>
-                                <span class="nav-value small" id="ac-location">Scanning...</span>
-                            </div>
-                            <div class="nav-cell">
-                                <span class="nav-label"><i class="fa-solid fa-tower-control"></i> Nearest</span>
-                                <div class="nav-row">
-                                    <span class="nav-value highlight" id="ac-nearest-apt">---</span>
-                                    <span class="nav-value" id="ac-nearest-apt-dist">--.- <span class="nav-unit">NM</span></span>
-                                </div>
-                            </div>
-                            <div class="nav-cell">
-                                <span class="nav-label"><i class="fa-solid fa-wind"></i> Wind</span>
-                                <span class="nav-value" id="ac-env-wind">---/--</span>
-                            </div>
-                            <div class="nav-cell">
-                                <span class="nav-label"><i class="fa-solid fa-temperature-half"></i> OAT</span>
-                                <span class="nav-value" id="ac-env-oat">--°C</span>
-                            </div>
-
-                            <div class="nav-cell nav-span-2">
-                                <span class="nav-label"><i class="fa-solid fa-location-crosshairs"></i> Position</span>
-                                <div class="nav-row">
-                                    <div><span class="nav-unit">LAT</span> <span class="nav-value" id="ac-lat">---</span></div>
-                                    <div><span class="nav-unit">LON</span> <span class="nav-value" id="ac-lon">---</span></div>
-                                </div>
-                            </div>
-                            <div class="nav-cell nav-span-2">
-                                 <span class="nav-label"><i class="fa-solid fa-arrow-up-right-dots"></i> Vertical Speed</span>
-                                 <span class="nav-value large highlight" id="ac-vs">--- <span class="nav-unit">fpm</span></span>
-                            </div>
-
-                            <div class="nav-cell nav-span-2">
-                                <span class="nav-label"><i class="fa-solid fa-location-arrow"></i> Next Waypoint</span>
-                                <div class="nav-row">
-                                    <span class="nav-value accent" id="ac-next-wp">---</span>
-                                    <span class="nav-value" id="ac-next-wp-dist">--.- <span class="nav-unit">NM</span></span>
-                                </div>
-                            </div>
-                            <div class="nav-cell nav-span-2">
-                                <span class="nav-label"><i class="fa-solid fa-flag-checkered"></i> Destination</span>
-                                <div class="nav-row">
-                                    <div><span class="nav-unit">DIST</span> <span class="nav-value" id="ac-dist">---</span></div>
-                                    <div><span class="nav-unit">ETE</span> <span class="nav-value" id="ac-ete">--:--</span></div>
-                                </div>
-                            </div>
-                        </div>
-                    </div>
-                </div>
-
-                <div class="tech-card">
-                    <div class="tech-card-header">
-                        <div>
-                            <div style="display: flex; align-items: center; gap: 8px; margin-bottom: 4px;">
-                                <div class="tech-badge">
-                                    <span class="tech-ping">
-                                      <span class="animate"></span>
-                                      <span></span>
-                                    </span>
-                                    Active
-                                </div>
-                                <span style="font-size: 10px; font-weight: 600; color: #94a3b8; text-transform: uppercase; letter-spacing: 0.1em;">Flight Data</span>
-                            </div>
-                            <h1 class="tech-model">${aircraftName}</h1>
-                            <p class="tech-airline">
-                                <i class="fa-solid fa-plane" style="font-size: 12px;"></i>
-                                <span>${airlineName}</span>
-                            </p>
-                        </div>
-                        <button style="padding: 8px; color: #94a3b8; background: transparent; border: none; cursor: pointer;">
-                            <i class="fa-solid fa-ellipsis" style="font-size: 16px;"></i>
-                        </button>
-                    </div>
-
-                    <div class="tech-content">
-                        <div class="tech-image-container">
-                            <img src="${techCardImagePath}" onerror="this.src='/CommunityPlanes/default.png'" class="tech-image" alt="Aircraft">
-                            <div class="tech-image-overlay"></div>
-                            
-                            <div class="tech-image-info">
-                                <div class="tech-photographer">
-                                    <span class="tech-photo-label">Contributor</span>
-                                    <div class="tech-photo-name">
-                                        <i class="fa-solid fa-camera" style="color: #38bdf8; font-size: 12px;"></i>
-                                        <span>${photographerName}</span>
-                                    </div>
-                                </div>
-                                <a href="#" style="padding: 8px; background: rgba(255,255,255,0.1); border-radius: 8px; color: #fff; border: 1px solid rgba(255,255,255,0.1); display: flex;">
-                                    <i class="fa-solid fa-arrow-up-right-from-square" style="font-size: 14px;"></i>
-                                </a>
-                            </div>
-                        </div>
-
-                        <div class="tech-grid">
-                            <div class="tech-stat-card">
-                                <div class="tech-stat-header">
-                                    <span class="tech-stat-label">Registration</span>
-                                    <i class="fa-solid fa-hashtag" style="font-size: 12px; color: #475569;"></i>
-                                </div>
-                                <span class="tech-stat-value">${techCardTail}</span>
-                            </div>
-
-                            <div class="tech-stat-card">
-                                <div class="tech-stat-header">
-                                    <span class="tech-stat-label">Callsign</span>
-                                    <i class="fa-solid fa-tag" style="font-size: 12px; color: #475569;"></i>
-                                </div>
-                                <span class="tech-stat-value">${baseProps.callsign}</span>
-                            </div>
-
-                            <div class="tech-country-card">
-    <div class="tech-country-left">
-        <div class="tech-country-icon">
-            <i class="fa-solid fa-plane-up" style="font-size: 14px;"></i>
-        </div>
-        <div style="display: flex; flex-direction: column;">
-            <span class="tech-stat-label" style="font-size: 9px; margin-bottom: 2px;">Category</span>
-            <span style="font-size: 13px; font-weight: 600; color: #fff; text-transform: capitalize;">${baseProps.category || 'Standard'}</span>
-        </div>
-    </div>
-    <div style="padding: 4px 8px; background: rgba(51, 65, 85, 0.5); border-radius: 4px; border: 1px solid rgba(255, 255, 255, 0.05);">
-        <span style="font-family: monospace; font-size: 10px; color: #cbd5e1;">CLASS</span>
-    </div>
-</div>
-                        </div>
-                    </div>
-                    <div class="tech-bottom-bar"></div>
-                </div>
-
-                <div class="tech-module vsd-module-container">
-                    <div class="tech-module-header">
-                        <span class="tech-module-title"><i class="fa-solid fa-chart-area"></i> VERTICAL SITUATION DISPLAY</span>
-                        <span class="fms-page-count">VSD</span>
-                    </div>
-                    
-                    <div id="vsd-panel" class="vsd-panel active" data-plan-id="" data-profile-built="false">
-                        <div id="vsd-graph-window" class="vsd-graph-window">
-                            <div id="vsd-aircraft-icon"></div>
-                            <div id="vsd-graph-content">
-                                <svg id="vsd-profile-svg" xmlns="http://www.w3.org/2000/svg">
-                                    <path id="vsd-flown-path" d="" />
-                                    <path id="vsd-profile-path" d="" />
-                                </svg>
-                                <div id="vsd-waypoint-labels"></div>
-                            </div>
-                        ${planButtonHtml} </div>
-                    </div>
-
-                    <div class="vsd-footer">
-                        <div class="vsd-legend-item"><div class="dot-plan"></div> PLANNED</div>
-                        <div class="vsd-legend-item"><div class="dot-flown"></div> FLOWN</div>
-                        <div>ALTITUDE PROFILE</div>
-                    </div>
-                </div>
-                </div> 
+        <div class="dashboard-grid">
             
-            <div id="ac-tab-pilot-report" class="ac-tab-pane">
-                <div id="pilot-stats-display"></div>
+            <div class="left-col" style="display: flex; flex-direction: column; gap: 8px;">
+                <div class="pfd-wrapper">
+                    <div class="crt-container scanlines" id="pfd-container">
+                        </div>
+                </div>
+                <div class="pfd-wrapper" style="flex-grow: 1;">
+                     <div id="nd-container" style="width: 100%; height: 100%;">
+                        <iframe id="nav-display-frame" src="nav.html" scrolling="no" style="border:none; width:100%; height:100%;"></iframe>
+                     </div>
+                </div>
             </div>
-        </div> 
+
+            <div class="data-stack">
+                
+                <div class="pilot-status-container">
+                    <div style="display: flex; align-items: center;">
+                        <div class="status-dot ${statusColorClass}"></div>
+                        <span class="status-text">${statusText}</span>
+                    </div>
+                    <i class="fa-solid ${statusIcon}" style="color: #666;"></i>
+                </div>
+
+                <div class="dash-card">
+                    <div class="dash-header">
+                        <span>Current Status</span>
+                        <i class="fa-solid fa-satellite-dish"></i>
+                    </div>
+                    <div class="stats-row">
+                        <div class="mini-stat">
+                            <span class="mini-stat-label">GS</span>
+                            <span class="mini-stat-value" id="speed_readout_digital">---<span class="mini-stat-unit">kts</span></span>
+                        </div>
+                        <div class="mini-stat">
+                            <span class="mini-stat-label">ALT</span>
+                            <span class="mini-stat-value" id="alt_readout_digital">---<span class="mini-stat-unit">ft</span></span>
+                        </div>
+                        <div class="mini-stat">
+                            <span class="mini-stat-label">VS</span>
+                            <span class="mini-stat-value" id="ac-vs">---</span>
+                        </div>
+                        <div class="mini-stat">
+                            <span class="mini-stat-label">WIND</span>
+                            <span class="mini-stat-value" id="ac-env-wind">--<span class="mini-stat-unit">/--</span></span>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="dash-card">
+                    <div class="dash-header">
+                        <span>Next Waypoint</span>
+                        <i class="fa-solid fa-location-arrow"></i>
+                    </div>
+                    <div style="display: flex; justify-content: space-between; align-items: baseline; margin-top: 4px;">
+                        <span style="font-size: 1.3rem; font-weight: 700; color: #00a8ff;" id="ac-next-wp">---</span>
+                        <span style="font-size: 1.1rem; font-weight: 400; color: #fff;"><span id="ac-next-wp-dist">--</span> <span class="mini-stat-unit">NM</span></span>
+                    </div>
+                    <div style="width: 100%; height: 1px; background: rgba(255,255,255,0.1); margin: 8px 0;"></div>
+                    <div style="display: flex; justify-content: space-between;">
+                         <span style="font-size: 0.8rem; color: #888;">Dist to Dest</span>
+                         <span style="font-size: 0.9rem; font-weight: 600; color: #fff;"><span id="ac-dist">--</span> NM</span>
+                    </div>
+                    <div style="display: flex; justify-content: space-between;">
+                         <span style="font-size: 0.8rem; color: #888;">Est. Time Enroute</span>
+                         <span style="font-size: 0.9rem; font-weight: 600; color: #fff;" id="ac-ete">--:--</span>
+                    </div>
+                </div>
+
+                <div class="dash-card" style="flex-grow: 1; min-height: 0;">
+                     <div class="dash-header">
+                        <span>Flight Plan</span>
+                        <span style="font-size: 0.6rem; background: #333; padding: 2px 6px; border-radius: 4px;">LIVE</span>
+                    </div>
+                    <div id="fms-legs-list" class="fms-modern-list">
+                        <div style="padding: 10px; color: #666; font-style: italic; text-align: center;">Loading Route...</div>
+                    </div>
+                </div>
+
+                <div class="meta-footer">
+                    <div>
+                        <div style="font-weight: 600; color: #ccc;">${reg}</div>
+                        <div>${baseProps.username}</div>
+                    </div>
+                    <div style="text-align: right;">
+                        <div style="font-size: 0.7rem;">Photo By</div>
+                        <div style="color: #ccc;">${photographerName}</div>
+                    </div>
+                </div>
+
+            </div>
+        </div>
     </div>
     `;
+
+    // --- 3. POST-RENDER INITIALIZATION ---
     
-    // --- POST-RENDER LOGIC ---
-    createPfdDisplay();
-    updatePfdDisplay(baseProps.position);
-    updateAircraftInfoWindow(baseProps, plan, sortedRoutePoints, communityAircraftData);
-    
-    // --- FIX IMPLEMENTATION: SET THE DATA ATTRIBUTE ON THE HEADER HERE ---
-    const imagePath = techCardImagePath; 
+    // Set Header Image (Using data found in flight.js logic)
+    const imagePath = communityAircraftData?.imageUrl || '/CommunityPlanes/default.png';
     const fallbackPath = '/CommunityPlanes/default.png';
     const newImageUrl = `url('${imagePath}'), url('${fallbackPath}')`; 
-
-    const overviewPanels = document.querySelectorAll('#ac-overview-panel');
-    
-    overviewPanels.forEach(overviewPanel => {
-        // Set the background image
+    const overviewPanel = document.getElementById('ac-overview-panel');
+    if(overviewPanel) {
         overviewPanel.style.backgroundImage = newImageUrl;
-        
-        // --- CRITICAL FIX: Set the path to the high-quality image ---
         overviewPanel.dataset.currentPath = imagePath;
-        // --- END CRITICAL FIX ---
-    });
+    }
 
+    // Initialize PFD
+    createPfdDisplay();
+    // Update PFD with initial position
+    updatePfdDisplay(baseProps.position);
+    
+    // Call the generic update function to fill values immediately
+    updateAircraftInfoWindow(baseProps, plan, sortedRoutePoints);
 }
 
 /**
@@ -9203,25 +8637,32 @@ function updateAircraftInfoWindow(baseProps, plan, sortedRoutePoints) {
 
 function updateFmsLegsModule(plan, currentPos) {
     const listContainer = document.getElementById('fms-legs-list');
-    const totalDistEl = document.getElementById('fms-total-dist');
-    const totalEteEl = document.getElementById('fms-total-ete');
     
     if (!listContainer) return;
 
     // 1. Basic Validation
     if (!plan || !plan.flightPlanItems || plan.flightPlanItems.length === 0) {
-        listContainer.innerHTML = '<div class="fms-empty-state">NO ROUTE LOADED</div>';
-        if(totalDistEl) totalDistEl.textContent = '---- NM';
-        if(totalEteEl) totalEteEl.textContent = '--:--';
+        listContainer.innerHTML = '<div style="padding:20px; text-align:center; color:#555;">NO ROUTE LOADED</div>';
         return;
     }
 
-    // --- Capture current scroll position ---
     const previousScrollTop = listContainer.scrollTop;
-
     let html = '';
-    let globalLeafIndex = 0; // Tracks index of actual flyable waypoints
+    let globalLeafIndex = 0; 
     
+    // Flatten logic needed to find active index
+    const getFlatWaypointObjects = (items) => {
+        const wps = [];
+        const extract = (arr) => {
+            arr.forEach(item => {
+                if (item.children && item.children.length > 0) extract(item.children);
+                else if (item.location) wps.push(item);
+            });
+        };
+        extract(items);
+        return wps;
+    };
+
     // Find the "Active" waypoint index
     const flatWaypoints = getFlatWaypointObjects(plan.flightPlanItems);
     let activeWpIndex = 0;
@@ -9238,130 +8679,76 @@ function updateFmsLegsModule(plan, currentPos) {
         });
     }
 
-    // Track previous coords for Distance/Bearing calc
+    // Track previous coords for Distance calc
     let prevLat = (plan.origin && plan.origin.latitude) || currentPos.lat;
     let prevLon = (plan.origin && plan.origin.longitude) || currentPos.lon;
 
-    // --- MAIN LOOP: Iterate the Top-Level Items ---
-    plan.flightPlanItems.forEach((item, index) => {
-        const hasChildren = Array.isArray(item.children) && item.children.length > 0;
-        
-        // --- 2. HEADER LOGIC (SID/STAR/APPR detection) ---
-        if (hasChildren) {
-            let typeTag = 'PROC'; 
-            let typeClass = '';
-            const ident = (item.identifier || item.name || '').toUpperCase();
-            
-            // A. SID Logic (Start of plan)
-            if (index <= 1) { 
-                typeTag = 'SID'; 
-                typeClass = 'sid';
-            } 
-            // B. Approach Logic (Pattern match or explicit type)
-            else {
-                // Regex: Starts with exactly 1 Letter [A-Z], followed by 2 digits \d{2}, 
-                // optionally followed by L, R, or C.
-                const isApproachPattern = /^[A-Z]\d{2}[LRC]?$/.test(ident);
-
-                if (isApproachPattern) {
-                    typeTag = 'APPR';
-                    typeClass = 'appr';
-                } else {
-                    typeTag = 'STAR'; 
-                    typeClass = 'star';
-                }
-            }
-
-            // Render The Header Row
-            html += `
-                <div class="fms-proc-header">
-                    <span class="proc-tag ${typeClass}">${typeTag}</span>
-                    <span>${ident}</span>
-                </div>
-            `;
-
-            // --- 3. CHILDREN LOOP (With isLast detection) ---
-            item.children.forEach((child, cIdx) => {
-                const isLast = cIdx === item.children.length - 1;
-                html += renderLegRow(child, true, isLast); 
-            });
-
-        } else {
-            // --- 4. STANDARD ROW ---
-            html += renderLegRow(item, false, false);
-        }
-    });
-
-    // --- Helper to Render a Single Waypoint Row ---
-    function renderLegRow(wp, isChild, isLastChild) {
+    // Helper to Render a Single Waypoint Row
+    function renderLegRow(wp, isChild) {
         if (!wp.location || wp.location.latitude == null) return '';
 
         // Calc Leg Data
         const distKm = getDistanceKm(prevLat, prevLon, wp.location.latitude, wp.location.longitude);
         const distNM = distKm / 1.852;
-        const bearing = getBearing(prevLat, prevLon, wp.location.latitude, wp.location.longitude);
 
         // Determine Row State
         let rowClass = '';
-        if (globalLeafIndex < activeWpIndex) rowClass = 'passed-leg';
-        else if (globalLeafIndex === activeWpIndex) rowClass = 'active-leg';
+        if (globalLeafIndex === activeWpIndex) rowClass = 'active';
+        else if (globalLeafIndex < activeWpIndex) rowClass = 'passed'; // Optional CSS for passed
         
         const ident = wp.identifier || wp.name || 'WPT';
-        const crsDisplay = Math.round(bearing).toString().padStart(3, '0') + '°';
-        const distDisplay = distNM.toFixed(1);
+        const distDisplay = distNM.toFixed(1) + ' NM';
 
         // Update Prev coords for next loop
         prevLat = wp.location.latitude;
         prevLon = wp.location.longitude;
 
         globalLeafIndex++;
-        
-        // --- NEW: Add is-last-child class if applicable ---
-        const childClasses = isChild ? `is-child ${isLastChild ? 'is-last-child' : ''}` : '';
 
+        // --- MODERN ROW HTML ---
         return `
-            <div class="fms-row ${rowClass} ${childClasses}" id="leg-${globalLeafIndex}">
-                <span class="col-wpt">${ident}</span>
-                <span class="col-data text-center">${crsDisplay}</span>
-                <span class="col-data text-right">${distDisplay}</span>
+            <div class="fms-modern-item ${rowClass}" id="leg-${globalLeafIndex}">
+                <div class="fms-icon"><i class="fa-solid fa-location-dot"></i></div>
+                <div style="font-weight: 500;">${ident}</div>
+                <div style="font-family: monospace; font-size: 0.8rem;">${distDisplay}</div>
             </div>
         `;
     }
 
+    // Recursive render
+    const processItems = (items) => {
+        items.forEach(item => {
+            if (item.children && item.children.length > 0) {
+                processItems(item.children);
+            } else {
+                html += renderLegRow(item, false);
+            }
+        });
+    };
+
+    processItems(plan.flightPlanItems);
+
     listContainer.innerHTML = html;
 
-    // --- Restore scroll position ---
+    // Restore scroll position
     if (previousScrollTop > 0) {
         listContainer.scrollTop = previousScrollTop;
     }
 
-    // --- [FIXED] Scroll Active Leg into View (ONCE) without scrolling parent window ---
+    // Scroll Active Leg into View (ONCE)
     if (listContainer.dataset.initialScrollComplete !== 'true') {
         setTimeout(() => {
-            const activeRow = listContainer.querySelector('.active-leg');
+            const activeRow = listContainer.querySelector('.active');
             if (activeRow) {
-                // Calculate position manually to avoid 'scrollIntoView' bubbling up to the main window
                 const rowTop = activeRow.offsetTop;
-                const rowHeight = activeRow.offsetHeight;
                 const containerHeight = listContainer.clientHeight;
-                
-                // Center the row: Row Top - Half Container + Half Row
                 listContainer.scrollTo({
-                    top: rowTop - (containerHeight / 2) + (rowHeight / 2),
+                    top: rowTop - (containerHeight / 2) + 20,
                     behavior: 'smooth'
                 });
-
                 listContainer.dataset.initialScrollComplete = 'true';
             }
         }, 100);
-    }
-
-    // --- Footer Stats ---
-    if(totalDistEl && document.getElementById('ac-dist')) {
-        totalDistEl.innerHTML = document.getElementById('ac-dist').innerHTML;
-    }
-    if(totalEteEl && document.getElementById('ac-ete')) {
-        totalEteEl.textContent = document.getElementById('ac-ete').textContent;
     }
 }
 
@@ -10020,6 +9407,7 @@ async function initializeApp() {
         loadFiltersFromLocalStorage();
 
         // Inject all custom CSS
+        injectModernDashboardStyles();
         injectCustomStyles();
 
         // Fetch essential data in parallel
