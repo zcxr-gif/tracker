@@ -7554,9 +7554,6 @@ function injectModernDashboardStyles() {
 }
 
 
-//**
- * --- [RE-DESIGNED] Populates the aircraft info window with the Modern Dashboard Layout.
- */
 function populateAircraftInfoWindow(baseProps, plan, sortedRoutePoints, communityAircraftData) {
     const windowEl = document.getElementById('aircraft-info-window');
     
