@@ -527,223 +527,182 @@ function injectCustomStyles() {
     if (document.getElementById(styleId)) return;
 
     const css = `
-        /* --- CSS VARIABLES & FONTS --- */
+        /* --- CSS VARIABLES FOR THEMING --- */
         :root {
             --iw-bg-start: rgba(18, 20, 38, 0.95);
             --iw-bg-end: rgba(18, 20, 38, 0.95);
-            --glass-bg: rgba(30, 30, 35, 0.6);
-            --glass-border: rgba(255, 255, 255, 0.08);
-            --glass-blur: blur(10px);
-            --font-main: 'Segoe UI', Inter, -apple-system, sans-serif;
-            --text-muted: #888;
-            --text-bright: #fff;
-            --accent-blue: #00a8ff;
         }
 
-        /* --- GLOBAL OVERRIDES --- */
-        .info-window-content {
-            font-family: var(--font-main);
-        }
-
-        /* --- LAYOUT GRID --- */
-        .pfd-and-location-grid { 
-            display: grid; 
-            grid-template-columns: 1.8fr 1fr; /* Adjusted for better PFD width */
-            gap: 12px;
-            padding: 0;
-        }
-
-        /* --- COMMON CARD STYLE (Glassmorphism) --- */
-        /* Applies to all tech modules, VSD, Nav Panel, FMS */
-        .tech-module, 
-        .vsd-module-container,
-        #location-data-panel,
-        .fms-module-container,
-        .cockpit-view-container {
-            background: var(--glass-bg) !important;
-            border: 1px solid var(--glass-border) !important;
-            border-radius: 12px !important;
-            backdrop-filter: var(--glass-blur);
-            -webkit-backdrop-filter: var(--glass-blur);
-            box-shadow: 0 4px 20px rgba(0,0,0,0.3);
-            margin-bottom: 12px;
-            overflow: hidden;
+        /* --- VIRTUAL COCKPIT SEAT SENSOR --- */
+        .seat-sensor-wrapper {
+            background: #000; 
+            border: 2px solid #333; 
+            border-radius: 4px; 
             display: flex;
             flex-direction: column;
+            box-shadow: inset 0 0 20px rgba(0,0,0,0.8);
+            overflow: hidden;
+            position: relative;
         }
 
-        /* --- HEADER STYLE (Modern Caps) --- */
-        .tech-module-header, 
-        .fms-header, 
-        .nav-header,
-        .sensor-header,
-        .rules-header,
-        .vsd-footer,
-        .fms-footer {
-            background: rgba(255, 255, 255, 0.02) !important;
-            border-bottom: 1px solid rgba(255, 255, 255, 0.05) !important;
-            border-top: none !important;
-            padding: 8px 12px !important;
-            
-            /* Typography */
-            font-family: var(--font-main) !important;
-            font-size: 0.7rem !important;
-            text-transform: uppercase;
-            letter-spacing: 1px;
-            color: var(--text-muted) !important;
-            font-weight: 600 !important;
+        .sensor-header {
+            background: #111;
+            padding: 6px 10px;
+            border-bottom: 1px solid #333;
             display: flex;
             justify-content: space-between;
-            align-items: center;
-        }
-        
-        .tech-module-title, .fms-page-count {
-            color: inherit !important;
-            font-weight: inherit !important;
-            font-size: inherit !important;
+            font-size: 0.8rem;
+            font-weight: bold;
+            color: #fff;
+            flex-shrink: 0;
+            font-family: 'Consolas', monospace;
         }
 
-        /* --- NAV DATA / STATS CELLS --- */
-        .nav-grid-container {
-            display: grid;
-            grid-template-columns: repeat(4, 1fr); /* Keep 4 cols to fit data */
-            gap: 8px;
-            padding: 12px;
-        }
-
-        .nav-cell {
-            background: rgba(255, 255, 255, 0.03) !important;
-            border: 1px solid transparent;
-            border-radius: 8px !important;
-            padding: 8px 12px !important;
+        .sensor-body {
+            padding: 15px;
             display: flex;
             flex-direction: column;
-            align-items: center; /* Center align for modern look */
-            justify-content: center;
-            text-align: center;
-            min-height: auto;
-            transition: background 0.2s;
-        }
-        
-        .nav-cell:hover {
-            background: rgba(255, 255, 255, 0.06) !important;
-        }
-
-        .nav-label {
-            font-size: 0.65rem !important;
-            color: #6c757d !important;
-            margin-bottom: 4px;
-            font-weight: 500 !important;
-            text-transform: uppercase;
-            justify-content: center;
-            display: flex;
-            gap: 4px;
-        }
-        
-        .nav-value {
-            font-family: var(--font-main) !important; 
-            font-size: 1.1rem !important;
-            color: var(--text-bright) !important;
-            font-weight: 700 !important;
-            letter-spacing: -0.5px;
-            line-height: 1.1;
-            white-space: nowrap;
-        }
-        
-        .nav-unit {
-            font-size: 0.7rem;
-            color: #adb5bd;
-            font-weight: normal;
-            margin-left: 2px;
-        }
-
-        /* Handle rows inside nav cells (like lat/lon) */
-        .nav-row {
-            display: flex;
-            flex-direction: row; /* Keep row for space efficiency */
-            gap: 8px;
-            align-items: baseline;
-            justify-content: center;
-            width: 100%;
-            flex-wrap: wrap;
-        }
-
-        /* --- FMS LIST --- */
-        .fms-list-scrollarea {
-            scrollbar-width: thin;
-            scrollbar-color: #333 transparent;
-            padding: 0 !important;
-        }
-        
-        .fms-columns {
-            background: rgba(0,0,0,0.2);
-            padding: 6px 12px;
-            color: #6c757d;
-            font-size: 0.65rem;
-            font-weight: 600;
-            border-bottom: 1px solid rgba(255,255,255,0.05);
-        }
-
-        .fms-row {
-            padding: 8px 12px !important;
-            border-bottom: 1px solid rgba(255,255,255,0.05) !important;
             align-items: center;
-            font-size: 0.85rem !important;
-            color: #adb5bd !important;
-            font-family: var(--font-main);
+            position: relative;
+            background: #0f1115; 
         }
 
-        /* Active Leg: Modern blue gradient strip */
-        .fms-row.active-leg {
-            background: linear-gradient(90deg, rgba(0, 168, 255, 0.1), transparent) !important;
-            border-left: 2px solid var(--accent-blue);
-            color: var(--text-bright) !important;
-            font-weight: 600;
-            padding-left: 10px !important; 
+        .cockpit-view {
+            position: relative;
+            width: 140px;
+            height: 80px;
+            background: #1a1a1a;
+            border-radius: 40px 40px 10px 10px;
+            border: 2px solid #444;
+            display: flex;
+            justify-content: space-between;
+            padding: 10px 20px;
+            box-sizing: border-box;
+            margin-bottom: 10px;
         }
 
-        /* --- SEAT SENSOR & VISUALS --- */
-        .seat-sensor-wrapper, .cockpit-view {
-            background: transparent !important;
-            border: none !important;
-            box-shadow: none !important;
+        .cockpit-view::after {
+            content: '';
+            position: absolute;
+            left: 50%;
+            bottom: 10px;
+            transform: translateX(-50%);
+            width: 14px;
+            height: 40px;
+            background: #333;
+            border-radius: 4px;
+            border: 1px solid #555;
         }
-        
-        /* Seat Styling to match dark theme */
-        .seat { 
-            width: 35px; height: 40px; 
-            background: #222; 
-            border-radius: 6px; 
-            border: 2px solid #444; 
-            position: relative; 
-            display: flex; 
-            justify-content: center; 
-            align-items: center; 
+
+        .seat {
+            width: 35px;
+            height: 40px;
+            background: #222;
+            border-radius: 6px;
+            border: 2px solid #444;
+            transition: all 0.5s ease;
+            position: relative;
+            display: flex;
+            justify-content: center;
+            align-items: center;
         }
-        .seat::before { 
-            content: ''; position: absolute; top: -8px; width: 25px; height: 8px; 
-            background: inherit; border-radius: 4px; border: 2px solid #444; 
+
+        .seat::before {
+            content: '';
+            position: absolute;
+            top: -8px;
+            width: 25px;
+            height: 8px;
+            background: inherit;
+            border-radius: 4px;
+            border: 2px solid #444;
         }
-        
-        /* Active States */
+
+        .cockpit-overlay-icon {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            font-size: 2.5rem;
+            z-index: 10;
+            opacity: 0;
+            transition: opacity 0.3s ease, transform 0.3s ease;
+            pointer-events: none;
+            text-shadow: 0 2px 10px rgba(0,0,0,0.8);
+        }
+
+        .cockpit-overlay-icon.visible {
+            opacity: 1;
+            transform: translate(-50%, -50%) scale(1);
+        }
+
+        .icon-parking { color: #ff3333; border: 3px solid #ff3333; border-radius: 50%; width: 45px; height: 45px; display: flex; align-items: center; justify-content: center; font-weight: bold; background: rgba(0,0,0,0.6); font-family: sans-serif; }
+        .icon-coffee { color: #ffaa00; }
+        .icon-cloud { color: #00a8ff; }
+
         .seat.active-green { background: rgba(0, 255, 0, 0.1); border-color: #00ff00; box-shadow: 0 0 15px rgba(0, 255, 0, 0.4); }
         .seat.active-green::before { border-color: #00ff00; background: #003300; }
+
         .seat.active-amber { background: rgba(255, 170, 0, 0.1); border-color: #ffaa00; box-shadow: 0 0 15px rgba(255, 170, 0, 0.4); }
         .seat.active-amber::before { border-color: #ffaa00; background: #442200; }
+
         .seat.active-blue { background: rgba(0, 168, 255, 0.1); border-color: #00a8ff; box-shadow: 0 0 15px rgba(0, 168, 255, 0.4); }
         .seat.active-blue::before { border-color: #00a8ff; background: #002244; }
 
-        /* Overlays */
-        .cockpit-overlay-icon { position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); font-size: 2.5rem; z-index: 10; opacity: 0; pointer-events: none; }
-        .cockpit-overlay-icon.visible { opacity: 1; }
-        .icon-parking { color: #ff3333; border: 3px solid #ff3333; border-radius: 50%; width: 45px; height: 45px; display: flex; align-items: center; justify-content: center; font-weight: bold; background: rgba(0,0,0,0.6); font-family: sans-serif; }
-        
-        /* --- SCROLLBARS --- */
-        ::-webkit-scrollbar { width: 6px; }
-        ::-webkit-scrollbar-track { background: transparent; }
-        ::-webkit-scrollbar-thumb { background-color: #333; border-radius: 3px; }
+        .seat::after { content: attr(data-role); font-size: 0.6rem; font-weight: bold; color: #555; margin-top: 2px; }
+        .seat.active-green::after, .seat.active-amber::after, .seat.active-blue::after { color: #fff; text-shadow: 0 0 5px currentColor; }
 
-        /* --- INFO WINDOW CONTAINER --- */
+        .seat-status-display {
+            margin-top: 8px;
+            font-family: 'Consolas', monospace;
+            font-size: 0.75rem;
+            text-align: center;
+            width: 100%;
+            display: flex;
+            justify-content: space-between;
+            color: #888;
+        }
+
+        .status-pill { padding: 2px 8px; border-radius: 4px; background: #222; border: 1px solid #333; }
+        .status-pill.green { color: #00ff00; border-color: #00ff00; }
+        .status-pill.amber { color: #ffaa00; border-color: #ffaa00; }
+        .status-pill.blue { color: #00a8ff; border-color: #00a8ff; }
+        .status-pill.red { color: #ff3333; border-color: #ff3333; }
+
+        #seat-narrative-text {
+            font-family: 'Segoe UI', sans-serif;
+            font-size: 0.7rem;
+            color: #aaa;
+            margin-top: 8px;
+            text-align: center;
+            border-top: 1px solid #333;
+            padding-top: 6px;
+            width: 100%;
+            font-style: italic;
+        }
+        
+        #view-rosters.active {
+            position: absolute;
+            inset: 0;
+            width: 100%;
+            height: 100%;
+            padding: 0;
+            overflow: hidden;
+            display: grid;
+            grid-template-columns: 1fr;
+            grid-template-rows: 1fr;
+        }
+        #sector-ops-map-fullscreen {
+            grid-column: 1 / -1;
+            grid-row: 1 / -1;
+        }
+        .main-content:has(#view-rosters.active) {
+            padding: 0; 
+            height: 100dvh; 
+            overflow: hidden; 
+        }
+        
+        /* --- INFO WINDOW STYLES (UPDATED) --- */
         .info-window {
             position: absolute;
             top: 20px; 
@@ -772,36 +731,1375 @@ function injectCustomStyles() {
             transform: translateX(0);
             pointer-events: auto;
         }
+        .info-window-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 16px 20px;
+            background: rgba(0, 0, 0, 0.1); 
+            border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+            flex-shrink: 0;
+        }
+        .info-window-header h3 {
+            margin: 0; 
+            font-size: 1.3rem; 
+            color: #fff;
+            font-weight: 600;
+            text-shadow: 0 2px 5px rgba(0,0,0,0.4);
+        }
+        .info-window-actions button {
+            background: rgba(255,255,255,0.05); 
+            border: 1px solid rgba(255,255,255,0.1);
+            color: #c5cae9; 
+            cursor: pointer;
+            font-size: 1rem; 
+            width: 32px; height: 32px;
+            border-radius: 50%;
+            margin-left: 8px;
+            line-height: 1; 
+            display: grid;
+            place-items: center;
+            transition: all 0.2s ease-in-out;
+        }
+        .info-window-actions button:hover { 
+            background: #00a8ff;
+            color: #fff; 
+            transform: scale(1.1) rotate(90deg);
+            border-color: #00a8ff;
+        }
+        .info-window-content { 
+            overflow-y: auto; 
+            flex-grow: 1; 
+            padding: 0;
+            background: transparent; 
+        }
 
-        /* --- PRESERVE ESSENTIAL LAYOUTS (Hidden/Specifics) --- */
-        #view-rosters.active { position: absolute; inset: 0; overflow: hidden; display: grid; }
-        #sector-ops-map-fullscreen { grid-column: 1 / -1; grid-row: 1 / -1; }
-        .mapboxgl-popup-content { background: transparent !important; box-shadow: none !important; padding: 0 !important; }
+        .pfd-and-location-grid { 
+            display: grid; 
+            grid-template-columns: 2fr 1fr; 
+            gap: 8px;
+        }
+
+        .info-right-col {
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
+        }
         
-        /* Mobile Adjustments */
+        .fms-module-container {
+            height: 380px; 
+            max-height: 380px;
+            background: #000;
+            color: #00e600; 
+            font-family: 'Consolas', 'Monaco', 'Courier New', monospace;
+            display: flex;
+            flex-direction: column;
+            border: 2px solid #333;
+            border-radius: 4px;
+            box-shadow: inset 0 0 20px rgba(0,0,0,0.8);
+            box-sizing: border-box;
+            overflow: hidden; 
+        }
+        .fms-header {
+            background: #111;
+            padding: 6px 10px;
+            border-bottom: 1px solid #333;
+            display: flex;
+            justify-content: space-between;
+            font-size: 0.8rem;
+            font-weight: bold;
+            color: #fff;
+            flex-shrink: 0;
+        }
+        .fms-columns {
+            display: grid;
+            grid-template-columns: 2fr 1fr 1fr;
+            padding: 4px 10px;
+            border-bottom: 1px dashed #333;
+            font-size: 0.7rem;
+            color: #00a8ff;
+            flex-shrink: 0;
+        }
+        .fms-list-scrollarea {
+            flex-grow: 1;
+            overflow-y: auto;
+            padding: 5px 0;
+            scrollbar-width: thin;
+            scrollbar-color: #333 #000;
+        }
+        .fms-list-scrollarea::-webkit-scrollbar { width: 6px; }
+        .fms-list-scrollarea::-webkit-scrollbar-track { background: #000; }
+        .fms-list-scrollarea::-webkit-scrollbar-thumb { background-color: #333; border-radius: 3px; border: 1px solid #111; }
+        .fms-list-scrollarea::-webkit-scrollbar-thumb:hover { background-color: #555; }
+        .fms-row {
+            display: grid;
+            grid-template-columns: 2fr 1fr 1fr;
+            padding: 4px 10px;
+            font-size: 0.85rem;
+            border-bottom: 1px solid #111;
+            align-items: center;
+        }
+        .fms-row.active-leg {
+            background: rgba(255, 0, 255, 0.15);
+            color: #ff00ff;
+            font-weight: bold;
+        }
+        .fms-row.passed-leg { color: #555; }
+        .fms-proc-header {
+            padding: 4px 10px;
+            background: #1a1a1a;
+            color: #fff;
+            font-size: 0.75rem;
+            font-weight: bold;
+            border-top: 1px solid #333;
+            border-bottom: 1px solid #333;
+            display: flex;
+            align-items: center;
+            gap: 6px;
+        }
+        .proc-tag {
+            font-size: 0.6rem;
+            padding: 1px 4px;
+            border-radius: 2px;
+            background: #333;
+            color: #ccc;
+        }
+        .proc-tag.sid { background: #004d40; color: #4db6ac; }
+        .proc-tag.star { background: #3e2723; color: #ffab91; }
+        .fms-row.is-child { padding-left: 20px; }
+        .fms-footer {
+            background: #111;
+            padding: 6px 10px;
+            border-top: 1px solid #333;
+            display: flex;
+            justify-content: space-between;
+            flex-shrink: 0;
+        }
+        .fms-stat { display: flex; gap: 8px; font-size: 0.8rem; }
+        .stat-label { color: #aaa; }
+        .stat-value { color: #fff; font-weight: bold; }
+        .fms-empty-state { text-align: center; padding: 20px; color: #555; font-style: italic; }
+
+        /* --- REDESIGNED LOCATION DATA PANEL (No Bleeding) --- */
+        #location-data-panel {
+            background: #0f1115;
+            border-radius: 8px;
+            border: 1px solid #333;
+            box-shadow: 0 4px 20px rgba(0,0,0,0.5);
+            width: 100%;
+            display: flex;
+            flex-direction: column;
+            overflow: visible; /* Allow content to dictate height */
+        }
+        .nav-header {
+            background: #181b21;
+            padding: 8px 12px;
+            border-bottom: 1px solid #333;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+        .nav-title { 
+            font-size: 0.7rem; 
+            font-weight: 700; 
+            color: #6b7280; 
+            letter-spacing: 1px; 
+            font-family: 'Segoe UI', sans-serif;
+        }
+        .nav-status-indicator {
+            display: flex; align-items: center; gap: 6px;
+            font-size: 0.65rem; font-weight: 700; letter-spacing: 0.5px;
+            color: #10b981; text-transform: uppercase;
+        }
+        .nav-blink {
+            width: 6px; height: 6px; border-radius: 50%; background: #10b981;
+            box-shadow: 0 0 6px #10b981;
+            animation: navPulse 2s infinite;
+        }
+        @keyframes navPulse { 0% { opacity: 1; } 50% { opacity: 0.4; } 100% { opacity: 1; } }
+        
+        .nav-grid-container {
+            padding: 10px;
+            display: grid;
+            grid-template-columns: repeat(4, 1fr);
+            gap: 8px;
+        }
+        .nav-cell {
+            background: rgba(255, 255, 255, 0.03);
+            border-radius: 4px;
+            padding: 6px 10px;
+            display: flex;
+            flex-direction: column;
+            justify-content: space-between;
+            /* Allow height to grow based on content */
+            height: auto; 
+            min-height: 45px;
+            border: 1px solid transparent;
+            transition: background 0.2s;
+            overflow: visible; /* Prevent cutting off */
+        }
+        .nav-cell:hover {
+            background: rgba(255, 255, 255, 0.06);
+            border-color: rgba(255, 255, 255, 0.1);
+        }
+        .nav-span-2 { grid-column: span 2; }
+        .nav-span-4 { grid-column: span 4; }
+        .nav-label {
+            font-size: 0.6rem;
+            color: #00a8ff;
+            text-transform: uppercase;
+            margin-bottom: 4px;
+            font-weight: 600;
+            letter-spacing: 0.5px;
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            white-space: nowrap; /* Keep label on one line if possible */
+        }
+        .nav-label i { opacity: 0.7; font-size: 0.7rem; }
+        
+        /* FIX FOR BLEEDING: Allow wrapping, remove ellipsis */
+        .nav-value {
+            font-family: 'Consolas', 'Monaco', monospace;
+            font-size: 1.0rem; /* Slightly smaller for better fit */
+            color: #fff;
+            font-weight: 600;
+            
+            /* The Critical Fixes */
+            white-space: normal;  /* Allow text to wrap */
+            overflow: visible;    /* Show all content */
+            text-overflow: clip;  /* Remove ellipsis */
+            word-wrap: break-word; /* Break long words if needed */
+            line-height: 1.2;     /* Tighter line height for wrapped text */
+        }
+        
+        .nav-value.large { font-size: 1.2rem; }
+        .nav-value.small { font-size: 0.85rem; color: #ccc; }
+        .nav-value.highlight { color: #4ade80; text-shadow: 0 0 5px rgba(74, 222, 128, 0.2); }
+        .nav-value.accent { color: #f59e0b; }
+        
+        /* FIX FOR ROWS: Allow wrapping inside rows too */
+        .nav-row {
+            display: flex;
+            justify-content: space-between;
+            align-items: baseline;
+            width: 100%;
+            flex-wrap: wrap; /* Allow items to stack if they hit width limit */
+            gap: 4px; /* Space between wrapped items */
+        }
+        
+        .nav-unit {
+            font-size: 0.7rem;
+            color: #6b7280;
+            margin-left: 2px;
+            font-family: 'Segoe UI', sans-serif;
+            font-weight: 400;
+            white-space: nowrap;
+        }
+
         @media (max-width: 992px) {
+            .info-window { width: 95vw; top: 10px; right: 2.5vw; left: 2.5vw; max-height: calc(100vh - 20px); }
             .pfd-and-location-grid { grid-template-columns: 1fr; } 
-            .nav-grid-container { grid-template-columns: 1fr 1fr; }
+            #fms-legs-module { display: none; }
+            #location-data-panel { min-height: auto; }
+            /* On mobile, switch grid to 2 columns to give more space */
+            .nav-grid-container { grid-template-columns: repeat(2, 1fr); }
             .nav-span-2 { grid-column: span 2; }
         }
         
-        /* PFD BEZEL */
-        .display-bezel { 
-            background-color: #1f2937; border: 4px solid #374151; padding: 12px; border-radius: 1rem; box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.5); width: 100%; box-sizing: border-box; display: flex; flex-direction: column;
+        .aircraft-overview-panel { 
+            position: relative; 
+            height: 200px; 
+            background-size: cover; 
+            background-position: center; 
+            border-bottom-left-radius: 0; 
+            border-bottom-right-radius: 0; 
+            color: #fff; 
+            display: flex; 
+            flex-direction: column; 
+            justify-content: space-between; 
+            margin-bottom: -40px; 
         }
-        .crt-container { border: 2px solid #111827; background: #000; border-radius: 12px; overflow: hidden; }
         
-        /* Existing Tab Styles (Cleaned) */
-        .ac-info-window-tabs { display: flex; justify-content: space-between; align-items: center; background: rgba(0,0,0,0.2); border-bottom: 1px solid rgba(255, 255, 255, 0.1); padding: 0 20px; height: 50px; }
-        .ac-info-tab-btn { background: transparent; border: none; color: #9fa8da; font-weight: 600; cursor: pointer; height: 100%; border-bottom: 3px solid transparent; }
-        .ac-info-tab-btn.active { color: #fff; border-bottom-color: var(--accent-blue); }
-        .ac-tab-pane { display: none; flex-direction: column; gap: 16px; padding: 16px; }
-        .ac-tab-pane.active { display: flex; }
+        .aircraft-overview-panel::before { 
+            content: ''; 
+            position: absolute; 
+            inset: 0; 
+            z-index: 1; 
+            background: linear-gradient(
+                to bottom,
+                rgba(0, 0, 0, 0.7) 0%, 
+                rgba(0, 0, 0, 0) 35%, 
+                rgba(0, 0, 0, 0.2) 80%, 
+                var(--iw-bg-start) 100%
+            ); 
+        }
+        
+        .overview-content { position: relative; z-index: 2; padding: 16px 20px 0 20px; display: flex; justify-content: space-between; align-items: flex-start; }
+        .overview-col-left h3 { margin: 0; font-size: 1.6rem; font-weight: 700; text-shadow: 0 4px 10px rgba(0, 0, 0, 0.7); display: flex; align-items: center; gap: 12px; }
+        .ac-header-logo { height: 1.8rem; width: auto; max-width: 100px; object-fit: contain; filter: drop-shadow(0 2px 4px rgba(0,0,0,0.7)); }
+        .overview-col-left p { position: relative; margin: 0; font-size: 1.0rem; color: #e8eaf6; font-weight: 400; text-shadow: 0 2px 5px rgba(0, 0, 0, 0.6); min-height: 1.2em; margin-top: 4px; }
+        
+        .ac-header-subtext { 
+            position: absolute; 
+            top: 0; 
+            left: 0; 
+            width: 100%; 
+            opacity: 0; 
+            white-space: normal; 
+        }
+        
+        @keyframes primarySubtextAnimation { 0% { opacity: 1; transform: translateY(0); } 40% { opacity: 1; transform: translateY(0); } 50% { opacity: 0; transform: translateY(10px); } 51% { opacity: 0; transform: translateY(-10px); } 90% { opacity: 0; transform: translateY(-10px); } 100% { opacity: 1; transform: translateY(0); } }
+        @keyframes secondarySubtextAnimation { 0% { opacity: 0; transform: translateY(-10px); } 40% { opacity: 0; transform: translateY(-10px); } 50% { opacity: 1; transform: translateY(0); } 90% { opacity: 1; transform: translateY(0); } 100% { opacity: 0; transform: translateY(10px); } }
+        #ac-header-livery { animation: primarySubtextAnimation 8s infinite ease-in-out; }
+        #ac-header-actype { animation: secondarySubtextAnimation 8s infinite ease-in-out; }
+        .overview-actions { position: absolute; top: 16px; right: 16px; z-index: 3; display: flex; gap: 8px; }
+        
+        .route-summary-overlay { 
+            position: relative; 
+            padding: 15px 20px 12px 20px; 
+            background: linear-gradient(180deg, 
+                transparent 0%, 
+                rgba(0, 0, 0, 0.2) 40%, 
+                var(--iw-bg-start) 100%
+            ); 
+            display: grid; 
+            grid-template-columns: auto 1fr auto; 
+            align-items: center; 
+            gap: 16px; 
+            width: 100%; 
+        }
+        
+        .route-summary-airport { display: flex; flex-direction: column; }
+        #route-summary-dep { text-align: left; align-items: center; }
+        #route-summary-arr { text-align: right; align-items: center; }
+        .route-summary-airport .airport-line { display: flex; align-items: center; gap: 8px; }
+        .route-summary-airport .icao { font-family: 'Courier New', monospace; font-size: 1.2rem; font-weight: 700; color: #fff; text-shadow: 0 1px 3px rgba(0,0,0,0.5); }
+        .route-summary-airport .time { font-size: 0.85rem; font-weight: 600; color: #c5cae9; margin-top: 4px; text-align: center; }
+        .country-flag { width: 20px; height: auto; border-radius: 3px; border: 1px solid rgba(255, 255, 255, 0.2); display: none; }
+        .route-progress-container { display: grid; grid-template-columns: 1fr; grid-template-rows: 1fr; align-items: center; justify-items: center; position: relative; min-height: 28px; }
+        .route-progress-bar-container { width: 100%; height: 6px; background: rgba(10, 12, 26, 0.7); border-radius: 3px; overflow: hidden; grid-row: 1; grid-column: 1; z-index: 1; }
+        .progress-bar-fill { height: 100%; width: 0%; background: linear-gradient(90deg, #00a8ff, #89f7fe); transition: width 0.5s ease-out; border-radius: 3px; }
+        .flight-phase-indicator { padding: 4px 12px; border-radius: 20px; font-size: 0.75rem; font-weight: 700; color: #fff; border: 1px solid rgba(255, 255, 255, 0.1); grid-row: 1; grid-column: 1; z-index: 2; box-shadow: 0 4px 15px rgba(0, 0, 0, 0.5); }
+        .phase-climb { background: rgba(34, 139, 34, 0.9); } .phase-cruise { background: rgba(0, 119, 255, 0.9); } .phase-descent { background: rgba(255, 140, 0, 0.9); } .phase-approach { background: rgba(138, 43, 226, 0.9); } .phase-enroute { background: rgba(100, 110, 130, 0.9); }
+        
+        .unified-display-main-content { 
+            padding: 16px; 
+            flex-grow: 1; 
+            display: flex; 
+            flex-direction: column; 
+            gap: 16px; 
+            background: linear-gradient(180deg, var(--iw-bg-start), var(--iw-bg-end));
+            border-top: 1px solid rgba(255, 255, 255, 0.05);
+        }
 
-        /* VSD Graph Specifics */
-        .vsd-graph-window { background: transparent !important; position: relative; width: 100%; height: 100%; overflow: hidden; padding-left: 35px; box-sizing: border-box; }
-        #vsd-y-axis { position: absolute; top: 0; left: 0; width: 35px; height: 100%; background: rgba(255,255,255,0.02); border-right: 1px solid rgba(255,255,255,0.1); z-index: 10; }
-        .y-axis-label { position: absolute; right: 4px; font-family: var(--font-main); font-size: 0.65rem; color: #666; transform: translateY(-50%); }
+        .ac-tab-pane { display: none; flex-direction: column; gap: 16px; animation: fadeIn 0.4s; }
+        .ac-tab-pane.active { display: flex; }
+        .ac-profile-card-new { 
+            background: rgba(0, 0, 0, 0.2); 
+            border-radius: 12px; border: 1px solid rgba(255, 255, 255, 0.05); padding: 10px; border-top: 3px solid #a33ea3; display: flex; flex-direction: column; gap: 10px; 
+        }
+        .ac-profile-header { display: flex; justify-content: space-between; align-items: center; padding: 0 5px; }
+        .profile-toggle-buttons { display: flex; background: rgba(0,0,0,0.3); border-radius: 6px; }
+        .profile-toggle-btn { background: transparent; border: none; color: #9fa8da; padding: 6px 10px; font-size: 0.75rem; font-weight: 600; cursor: pointer; border-radius: 6px; transition: all 0.2s; }
+        .profile-toggle-btn:hover { color: #fff; }
+        .profile-toggle-btn.active { background: #00a8ff; color: #fff; box-shadow: 0 2px 5px rgba(0, 168, 255, 0.3); }
+        
+        .pfd-main-panel { 
+            display: flex; 
+            flex-direction: column; 
+            width: 100%; 
+            align-items: center; 
+            gap: 16px; 
+        }
+
+        .display-bezel { 
+            position: relative; 
+            background-color: #1f2937; 
+            border: 4px solid #374151; 
+            padding: 12px; 
+            border-radius: 1rem; 
+            box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.5); 
+            width: 100%; 
+            box-sizing: border-box; 
+            display: flex;
+            flex-direction: column;
+        }
+        
+        .screw { 
+            position: absolute; 
+            width: 0.5rem; 
+            height: 0.5rem; 
+            background-color: #4b5563; 
+            border-radius: 50%; 
+            box-shadow: inset 1px 1px 2px rgba(0,0,0,0.5); 
+            z-index: 5; 
+        }
+        .screw.tl { top: 0.35rem; left: 0.35rem; } 
+        .screw.tr { top: 0.35rem; right: 0.35rem; } 
+        .screw.bl { bottom: 0.35rem; left: 0.35rem; } 
+        .screw.br { bottom: 0.35rem; right: 0.35rem; }
+        
+        .crt-container { 
+            width: 100%; 
+            position: relative; 
+            border: 2px solid #111827; 
+            background: #000; 
+            border-radius: 12px; 
+            overflow: hidden; 
+            box-shadow: inset 0 0 20px rgba(0,0,0,0.8); 
+            display: flex; 
+        }
+        
+        .scanlines::before { 
+            content: " "; 
+            display: block; 
+            position: absolute; 
+            top: 0; left: 0; bottom: 0; right: 0; 
+            background: linear-gradient(rgba(18, 16, 16, 0) 50%, rgba(0, 0, 0, 0.25) 50%), 
+                        linear-gradient(90deg, rgba(255, 0, 0, 0.06), rgba(0, 255, 0, 0.02), rgba(0, 0, 255, 0.06)); 
+            z-index: 10; 
+            background-size: 100% 2px, 3px 100%; 
+            pointer-events: none; 
+        }
+        
+        #pfd-container { width: 100%; }
+        
+        #pfd-container svg { 
+            width: 100%; 
+            height: auto; 
+            display: block;
+            margin: 0; 
+            max-width: none; 
+            aspect-ratio: 787 / 800; 
+            background-color: #1a1a1a; 
+            overflow: hidden; 
+            border-radius: 0; 
+            filter: brightness(1.3) contrast(1.2) drop-shadow(0 0 2px rgba(255, 255, 255, 0.3)); 
+        }
+        
+        #nd-container { 
+            width: 100%;
+            aspect-ratio: 787 / 800; 
+            background: transparent; 
+            overflow: hidden; 
+            display: flex; 
+            justify-content: center; 
+            height: auto; 
+        }
+        
+        #nav-display-frame {
+            width: 100%; 
+            height: 100%; 
+            border: none;
+            display: block;
+        }
+
+        .rules-module-container {
+            background: #000;
+            border: 2px solid #333;
+            border-radius: 4px;
+            display: flex;
+            flex-direction: column;
+            box-shadow: inset 0 0 20px rgba(0,0,0,0.8);
+            overflow: hidden;
+        }
+
+        .rules-header {
+            background: #111;
+            padding: 6px 10px;
+            border-bottom: 1px solid #333;
+            display: flex;
+            justify-content: space-between;
+            font-size: 0.8rem;
+            font-weight: bold;
+            color: #fff;
+            font-family: 'Consolas', monospace;
+        }
+
+        .rules-body {
+            padding: 12px;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            background: #0f1115; 
+        }
+
+        .flight-rules-badge {
+            padding: 6px 16px;
+            border-radius: 4px;
+            font-family: 'Consolas', monospace;
+            font-weight: bold;
+            font-size: 1.1rem;
+            text-align: center;
+            width: 100%;
+            border: 1px solid rgba(255,255,255,0.1);
+            box-shadow: 0 4px 15px rgba(0,0,0,0.5);
+            text-shadow: 0 1px 2px rgba(0,0,0,0.8);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 10px;
+        }
+
+        .badge-ifr {
+            background: linear-gradient(180deg, rgba(0, 119, 255, 0.2) 0%, rgba(0, 60, 130, 0.4) 100%);
+            color: #00a8ff;
+            border-color: #0077ff;
+        }
+
+        .badge-vfr {
+            background: linear-gradient(180deg, rgba(40, 167, 69, 0.2) 0%, rgba(20, 80, 35, 0.4) 100%);
+            color: #28a745;
+            border-color: #28a745;
+        }
+
+        .badge-svfr {
+            background: linear-gradient(180deg, rgba(255, 193, 7, 0.2) 0%, rgba(130, 100, 5, 0.4) 100%);
+            color: #ffc107;
+            border-color: #ffc107;
+        }
+        
+        .vsd-module-container {
+            height: 260px; 
+            max-height: 260px;
+            background: #000;
+            border: 2px solid #333;
+            border-radius: 4px;
+            display: flex;
+            flex-direction: column;
+            box-shadow: inset 0 0 20px rgba(0,0,0,0.8);
+            box-sizing: border-box;
+            overflow: hidden;
+            margin-bottom: 16px; 
+        }
+
+        .vsd-panel { 
+            display: flex; 
+            flex-direction: column; 
+            background: #0f1115; 
+            flex-grow: 1;
+            position: relative;
+            overflow: hidden; 
+            width: 100%; 
+        }
+
+        .vsd-graph-window { 
+            position: relative; 
+            width: 100%; 
+            height: 100%; 
+            overflow: hidden; 
+            padding-left: 35px; 
+            box-sizing: border-box; 
+        }
+
+        #vsd-y-axis {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 35px;
+            height: 100%;
+            background: #111;
+            border-right: 1px solid #333;
+            z-index: 10;
+        }
+        .y-axis-label {
+            position: absolute;
+            right: 4px;
+            font-family: 'Consolas', monospace;
+            font-size: 0.65rem;
+            color: #666;
+            transform: translateY(-50%);
+        }
+
+        #vsd-graph-content {
+            position: relative;
+            height: 100%;
+        }
+
+        #vsd-profile-svg {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            overflow: visible;
+        }
+
+        #vsd-profile-path {
+            fill: none;
+            stroke: #444; 
+            stroke-width: 2;
+            stroke-dasharray: 4, 2;
+        }
+
+        #vsd-flown-path {
+            fill: none;
+            stroke: #00e600; 
+            stroke-width: 3;
+            filter: drop-shadow(0 0 4px rgba(0, 230, 0, 0.5));
+        }
+
+        #vsd-aircraft-icon {
+            position: absolute;
+            width: 14px;
+            height: 14px;
+            background-image: url('data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><path fill="%2300a8ff" d="M488 256l-112-80v-96l-80 48-80-48v96L104 256 24 288v64l192-48v96l-32 32v32l72-24 72 24v-32l-32-32v-96l192 48v-64l-80-32z"/></svg>');
+            background-size: contain;
+            background-repeat: no-repeat;
+            transform: translate(-50%, -50%);
+            z-index: 20;
+        }
+
+        .vsd-wp-label {
+            position: absolute;
+            transform: translateX(-50%);
+            font-family: 'Consolas', monospace;
+            text-align: center;
+            width: 60px;
+            pointer-events: none;
+        }
+        .vsd-wp-label .wp-name {
+            display: block;
+            font-size: 0.7rem;
+            color: #00a8ff;
+            font-weight: bold;
+            background: rgba(0,0,0,0.7);
+            padding: 1px 3px;
+            border-radius: 2px;
+        }
+        .vsd-wp-label .wp-alt {
+            display: block;
+            font-size: 0.6rem;
+            color: #888;
+            margin-top: 1px;
+        }
+        
+        .vsd-footer {
+            background: #111;
+            padding: 4px 10px;
+            border-top: 1px solid #333;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            font-size: 0.7rem;
+            color: #888;
+            flex-shrink: 0;
+        }
+        .vsd-legend-item { display: flex; align-items: center; gap: 5px; }
+        .dot-plan { width: 6px; height: 6px; background: #444; border-radius: 50%; }
+        .dot-flown { width: 6px; height: 6px; background: #00e600; border-radius: 50%; box-shadow: 0 0 4px #00e600; }
+        
+        .ac-info-window-tabs {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            background: var(--iw-bg-start);
+            border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+            padding: 0 20px;
+            height: 60px;
+        }
+
+        .ac-tabs-wrapper {
+            display: flex;
+            gap: 20px;
+            height: 100%;
+        }
+
+        .ac-info-tab-logo {
+            height: 32px; 
+            width: auto;
+            object-fit: contain;
+            opacity: 0.8;
+        }
+
+        .ac-info-tab-btn {
+            padding: 0 10px;
+            height: 100%;
+            border: none;
+            background: transparent;
+            color: #9fa8da;
+            cursor: pointer;
+            font-size: 0.95rem;
+            font-family: 'Segoe UI', sans-serif;
+            font-weight: 600;
+            position: relative;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            transition: all 0.3s ease;
+            border-bottom: 3px solid transparent;
+        }
+
+        .ac-info-tab-btn:hover {
+            color: #fff;
+        }
+
+        .ac-info-tab-btn.active {
+            color: #fff;
+            border-bottom-color: #00a8ff;
+            text-shadow: 0 0 10px rgba(0, 168, 255, 0.5);
+        }
+        .ac-info-tab-btn.active i {
+            color: #00a8ff;
+        }
+
+        .ac-info-tab-btn.pilot-tab-btn {
+            color: #e0e0e0;
+            font-weight: 700;
+            letter-spacing: 0.5px;
+        }
+        .ac-info-tab-btn.pilot-tab-btn i {
+            color: #ffb74d; 
+        }
+        .ac-info-tab-btn.pilot-tab-btn.active {
+            color: #fff;
+            border-bottom-color: #ffb74d; 
+            text-shadow: 0 0 10px rgba(255, 183, 77, 0.5);
+        }
+
+        @media (max-width: 768px) {
+            .ac-info-tab-logo {
+                display: none !important;
+            }
+            .ac-info-window-tabs {
+                justify-content: center;
+                padding: 0 10px;
+            }
+            .ac-tabs-wrapper {
+                width: 100%;
+                justify-content: space-around;
+                gap: 0;
+            }
+        }
+
+        .vsd-disclaimer { background: rgba(10, 12, 26, 0.5); border: 1px solid rgba(255, 255, 255, 0.05); border-radius: 8px; padding: 10px 14px; margin-top: 0; }
+
+        /* --- MAPBOX POPUP OVERRIDES (FIXED) --- */
+        .mapboxgl-popup-content {
+            background: transparent !important;
+            box-shadow: none !important;
+            padding: 0 !important;
+            border: none !important;
+            /* This allows clicks/scrolls to pass through to the map */
+            pointer-events: none !important; 
+        }
+        .mapboxgl-popup-tip {
+            display: none !important;
+        }
+        
+        /* --- FR24 STYLE CARD CONTAINER (MICRO) --- */
+        .fr24-card-container {
+            width: 160px;
+            display: flex;
+            flex-direction: column;
+            gap: 3px;
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+            /* Ensure the card itself doesn't block events either */
+            pointer-events: none; 
+        }
+
+        /* --- TOP IMAGE BUBBLE --- */
+        .fr24-image-box {
+            height: 85px;
+            width: 100%;
+            background-color: #2c2c2e;
+            background-size: cover;
+            background-position: center;
+            border-radius: 8px;
+            position: relative;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.4);
+            overflow: hidden;
+        }
+        
+        .fr24-copyright {
+            position: absolute;
+            bottom: 3px;
+            left: 6px;
+            color: rgba(255, 255, 255, 0.7);
+            font-size: 7px;
+            font-weight: 500;
+            text-shadow: 0 1px 2px rgba(0,0,0,1);
+            z-index: 2;
+        }
+        
+        .fr24-image-overlay {
+            position: absolute;
+            inset: 0;
+            background: linear-gradient(to top, rgba(0,0,0,0.6) 0%, transparent 40%);
+        }
+
+        /* --- BOTTOM INFO BUBBLE --- */
+        .fr24-info-box {
+            background-color: #2c2c2e;
+            border-radius: 8px;
+            padding: 6px 8px;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.4);
+            display: flex;
+            flex-direction: column;
+            gap: 4px;
+            color: #ffffff;
+        }
+
+        .fr24-header-row {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+        }
+
+        .fr24-airline-logo {
+            height: 14px;
+            width: auto;
+            max-width: 35px;
+            object-fit: contain;
+            border-radius: 1px;
+        }
+
+        .fr24-ident-group {
+            display: flex;
+            align-items: center;
+            gap: 4px;
+        }
+
+        .fr24-callsign {
+            font-size: 13px;
+            font-weight: 700;
+            color: #fff;
+            line-height: 1;
+        }
+
+        .fr24-ac-badge {
+            background-color: #3a3a3c;
+            border: 1px solid #48484a;
+            color: #d1d1d6;
+            font-size: 8px;
+            font-weight: 600;
+            padding: 0px 3px;
+            border-radius: 3px;
+            line-height: 1.1;
+        }
+
+        .fr24-route {
+            font-size: 10px;
+            font-weight: 500;
+            color: #d1d1d6;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            max-width: 100px;
+        }
+
+        .fr24-progress-track {
+            height: 3px;
+            width: 100%;
+            background-color: #3a3a3c;
+            border-radius: 1.5px;
+            overflow: hidden;
+            margin-top: 1px;
+        }
+
+        .fr24-progress-fill {
+            height: 100%;
+            background-color: #ff3b30;
+            border-radius: 1.5px;
+        }
+
+        .fr24-stats-row {
+            font-size: 10px;
+            color: #98989d;
+            font-weight: 600;
+            margin-top: 1px;
+        }
+
+        /* --- AIRPORT WINDOW SPECIFIC STYLES --- */
+
+/* 1. Airport Hero Header */
+.airport-hero {
+    background: linear-gradient(135deg, rgba(30, 41, 59, 0.8) 0%, rgba(15, 23, 42, 0.9) 100%);
+    border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+    padding: 20px;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    position: relative;
+    overflow: hidden;
+}
+
+/* A subtle pattern overlay for the header */
+.airport-hero::before {
+    content: '';
+    position: absolute;
+    top: 0; right: 0; bottom: 0; left: 0;
+    background-image: radial-gradient(#ffffff 1px, transparent 1px);
+    background-size: 20px 20px;
+    opacity: 0.05;
+    pointer-events: none;
+}
+
+.apt-ident-group {
+    display: flex;
+    flex-direction: column;
+    z-index: 2;
+}
+
+.apt-icao {
+    font-family: 'Consolas', monospace;
+    font-size: 2.5rem;
+    font-weight: 800;
+    color: #fff;
+    line-height: 1;
+    text-shadow: 0 4px 10px rgba(0,0,0,0.5);
+    display: flex;
+    align-items: center;
+    gap: 12px;
+}
+
+.apt-name {
+    font-size: 0.9rem;
+    color: #94a3b8;
+    margin-top: 6px;
+    font-weight: 500;
+}
+
+.apt-meta-badge {
+    background: rgba(255,255,255,0.05);
+    border: 1px solid rgba(255,255,255,0.1);
+    padding: 4px 8px;
+    border-radius: 4px;
+    font-size: 0.75rem;
+    color: #cbd5e1;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+}
+
+/* 2. Weather Module Refactor */
+.weather-module-grid {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 8px;
+    margin-top: 12px;
+}
+
+.wx-stat-box {
+    background: rgba(255,255,255,0.03);
+    border-radius: 6px;
+    padding: 8px;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    text-align: center;
+}
+
+.wx-label {
+    font-size: 0.65rem;
+    color: #64748b;
+    text-transform: uppercase;
+    font-weight: 700;
+    margin-bottom: 4px;
+}
+
+.wx-value {
+    font-family: 'Consolas', monospace;
+    font-size: 0.95rem;
+    color: #e2e8f0;
+    font-weight: 600;
+}
+
+.wx-condition-pill {
+    grid-column: span 4;
+    background: rgba(16, 185, 129, 0.1); 
+    border: 1px solid rgba(16, 185, 129, 0.2);
+    color: #34d399;
+    padding: 8px;
+    border-radius: 6px;
+    text-align: center;
+    font-weight: 700;
+    font-size: 0.9rem;
+    margin-top: 4px;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    gap: 8px;
+}
+
+/* Dynamic colors for flight rules */
+.wx-vfr { background: rgba(34, 197, 94, 0.1); color: #4ade80; border-color: rgba(34, 197, 94, 0.3); }
+.wx-mvfr { background: rgba(59, 130, 246, 0.1); color: #60a5fa; border-color: rgba(59, 130, 246, 0.3); }
+.wx-ifr { background: rgba(239, 68, 68, 0.1); color: #f87171; border-color: rgba(239, 68, 68, 0.3); }
+.wx-lifr { background: rgba(168, 85, 247, 0.1); color: #c084fc; border-color: rgba(168, 85, 247, 0.3); }
+
+/* 3. Route Cards (Flight Strips) */
+.route-card {
+    background: linear-gradient(to right, rgba(30, 41, 59, 0.4), rgba(30, 41, 59, 0.2));
+    border: 1px solid rgba(255, 255, 255, 0.05);
+    border-left: 3px solid #00a8ff;
+    border-radius: 4px;
+    padding: 10px 14px;
+    margin-bottom: 8px;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    transition: all 0.2s;
+}
+
+.route-card:hover {
+    background: rgba(30, 41, 59, 0.7);
+    transform: translateX(2px);
+    border-color: rgba(255, 255, 255, 0.15);
+}
+
+.route-info {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+}
+
+.route-callsign {
+    font-family: 'Consolas', monospace;
+    font-size: 1rem;
+    color: #fff;
+    font-weight: 700;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.route-details {
+    font-size: 0.75rem;
+    color: #94a3b8;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+}
+
+.route-ac-badge {
+    background: #1e293b;
+    padding: 2px 6px;
+    border-radius: 3px;
+    color: #cbd5e1;
+    font-weight: 600;
+    font-size: 0.7rem;
+    border: 1px solid rgba(255,255,255,0.1);
+}
+
+.plan-btn-mini {
+    background: rgba(14, 165, 233, 0.1);
+    color: #38bdf8;
+    border: 1px solid rgba(14, 165, 233, 0.3);
+    padding: 6px 12px;
+    border-radius: 4px;
+    font-size: 0.8rem;
+    font-weight: 600;
+    cursor: pointer;
+    transition: all 0.2s;
+}
+
+.plan-btn-mini:hover {
+    background: #0ea5e9;
+    color: #fff;
+}
+
+/* 4. ATC Grid */
+.atc-grid-card {
+    background: #1e293b;
+    border: 1px solid rgba(255,255,255,0.05);
+    border-radius: 6px;
+    padding: 10px;
+    margin-bottom: 8px;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+}
+
+.atc-type-badge {
+    padding: 4px 8px;
+    border-radius: 4px;
+    font-size: 0.75rem;
+    font-weight: 800;
+    text-transform: uppercase;
+    width: 80px;
+    text-align: center;
+}
+.atc-type-gnd { background: #0f172a; color: #94a3b8; border: 1px solid #334155; }
+.atc-type-twr { background: #1e3a8a; color: #60a5fa; border: 1px solid #2563eb; }
+.atc-type-app { background: #312e81; color: #818cf8; border: 1px solid #4f46e5; }
+.atc-type-obs { background: #3f3f46; color: #a1a1aa; border: 1px solid #52525b; }
+
+.atc-controller {
+    font-weight: 600;
+    color: #e2e8f0;
+    font-size: 0.9rem;
+}
+
+.atc-duration {
+    font-family: monospace;
+    color: #64748b;
+    font-size: 0.8rem;
+}
+
+/* --- [NEW] HERO ACTION BUTTONS --- */
+        .hero-actions {
+            position: absolute;
+            top: 15px;
+            right: 15px;
+            display: flex;
+            gap: 8px;
+            z-index: 10;
+        }
+
+        .hero-btn {
+            background: rgba(0, 0, 0, 0.3);
+            border: 1px solid rgba(255, 255, 255, 0.2);
+            color: #fff;
+            width: 32px;
+            height: 32px;
+            border-radius: 50%;
+            cursor: pointer;
+            display: grid;
+            place-items: center;
+            transition: all 0.2s ease;
+            backdrop-filter: blur(4px);
+        }
+
+        .hero-btn:hover {
+            background: rgba(255, 255, 255, 0.2);
+            transform: scale(1.1);
+        }
+
+        /* --- AIRPORT WINDOW TABS (REDESIGNED) --- */
+        .apt-tabs-header {
+            display: flex;
+            background: rgba(0, 0, 0, 0.2);
+            border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+            margin-bottom: 16px;
+        }
+
+        .apt-tab-btn {
+            flex: 1;
+            padding: 12px 10px;
+            background: transparent;
+            border: none;
+            color: #94a3b8;
+            font-size: 0.85rem;
+            font-weight: 600;
+            text-transform: uppercase;
+            cursor: pointer;
+            border-bottom: 2px solid transparent;
+            transition: all 0.3s ease;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 8px;
+        }
+
+        .apt-tab-btn:hover {
+            color: #fff;
+            background: rgba(255, 255, 255, 0.05);
+        }
+
+        .apt-tab-btn.active {
+            color: #38bdf8;
+            border-bottom-color: #38bdf8;
+            background: rgba(56, 189, 248, 0.1);
+        }
+
+        .apt-tab-content {
+            display: none;
+            animation: fadeIn 0.3s ease;
+        }
+
+        .apt-tab-content.active {
+            display: block;
+        }
+
+        @keyframes fadeIn {
+            from { opacity: 0; transform: translateY(5px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+
+        /* --- RUNWAY DROPDOWN STYLES --- */
+        .runway-dropdown-header {
+            cursor: pointer;
+            transition: background 0.2s;
+        }
+        .runway-dropdown-header:hover {
+            background: rgba(255, 255, 255, 0.05);
+        }
+        .runway-dropdown-content {
+            display: none; /* Closed by default */
+            padding: 8px;
+            border-top: 1px solid rgba(255, 255, 255, 0.05);
+        }
+        .runway-dropdown-content.open {
+            display: grid; /* Grid layout when open */
+            grid-template-columns: 1fr 1fr; 
+            gap: 8px;
+            animation: slideDown 0.3s ease-out;
+        }
+        .runway-toggle-icon {
+            color: #94a3b8;
+            transition: transform 0.3s ease;
+        }
+        .runway-dropdown-header.open .runway-toggle-icon {
+            transform: rotate(180deg);
+        }
+        
+        @keyframes slideDown {
+            from { opacity: 0; transform: translateY(-5px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+
+        /* --- SERVER SELECTOR PILL --- */
+        #server-selector-container {
+            position: absolute;
+            top: 20px;
+            left: 50%;
+            transform: translateX(-50%);
+            background: rgba(15, 23, 42, 0.9);
+            backdrop-filter: blur(10px);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            border-radius: 999px; /* Pill shape */
+            padding: 4px;
+            display: flex;
+            gap: 4px;
+            z-index: 1050; /* Above map, below modals */
+            box-shadow: 0 4px 20px rgba(0,0,0,0.4);
+        }
+
+        .server-btn {
+            background: transparent;
+            border: none;
+            color: #94a3b8;
+            padding: 6px 16px;
+            font-size: 0.8rem;
+            font-weight: 600;
+            border-radius: 999px;
+            cursor: pointer;
+            transition: all 0.2s ease;
+            white-space: nowrap;
+            font-family: 'Inter', sans-serif;
+        }
+
+        .server-btn:hover {
+            color: #fff;
+            background: rgba(255, 255, 255, 0.05);
+        }
+
+        .server-btn.active {
+            background: #3b82f6; /* Blue active state */
+            color: #fff;
+            box-shadow: 0 2px 10px rgba(59, 130, 246, 0.4);
+        }
+
+        /* Mobile adjustment to drop it below the search bar if needed */
+        @media (max-width: 768px) {
+            #server-selector-container {
+                top: 70px; /* Push down below search bar on mobile */
+                width: auto;
+                max-width: 90vw;
+            }
+            .server-btn {
+                padding: 6px 12px;
+                font-size: 0.75rem;
+            }
+        }
+
+        .apt-quick-info-strip {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 10px 16px;
+    background: rgba(0, 0, 0, 0.2);
+    border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+    font-size: 0.75rem;
+    color: #94a3b8;
+    overflow-x: auto;
+    white-space: nowrap;
+}
+
+.apt-feature-pill {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    background: rgba(255, 255, 255, 0.03);
+    padding: 3px 8px;
+    border-radius: 4px;
+    border: 1px solid rgba(255, 255, 255, 0.05);
+    font-weight: 600;
+}
+
+.apt-dashboard-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr; /* Two equal columns */
+    gap: 8px;
+    padding: 0 16px; /* Horizontal padding only */
+    margin-bottom: 8px;
+}
+
+/* On mobile, stack them back to 1 column */
+@media (max-width: 600px) {
+    .apt-dashboard-grid {
+        grid-template-columns: 1fr;
+    }
+}
+
+.apt-mini-module {
+    background: rgba(15, 23, 42, 0.6);
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    border-radius: 8px;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+}
+
+.apt-mini-header {
+    background: rgba(255, 255, 255, 0.03);
+    padding: 6px 10px;
+    font-size: 0.7rem;
+    font-weight: 700;
+    color: #94a3b8;
+    text-transform: uppercase;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+}
+
+.apt-mini-body {
+    padding: 10px;
+    flex-grow: 1;
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+}
+
+.stat-grid-compact {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 8px;
+}
+
+.compact-stat-box {
+    text-align: center;
+    background: rgba(255, 255, 255, 0.02);
+    border-radius: 4px;
+    padding: 4px;
+}
+.compact-label { font-size: 0.6rem; color: #64748b; display: block; }
+.compact-value { font-family: 'Consolas', monospace; font-size: 0.9rem; color: #e2e8f0; font-weight: 600; }
+
+.metar-strip {
+    background: rgba(0, 0, 0, 0.3);
+    padding: 8px 16px;
+    font-family: 'Consolas', monospace;
+    font-size: 0.7rem;
+    color: #94a3b8;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+    white-space: pre-wrap;
+    line-height: 1.3;
+}
+
     `;
 
     const style = document.createElement('style');
@@ -809,6 +2107,182 @@ function injectCustomStyles() {
     style.type = 'text/css';
     style.appendChild(document.createTextNode(css));
     document.head.appendChild(style);
+}
+
+/**
+ * --- [NEW] Injects specific modern styles to override existing dashboard looks.
+ * Maps the requested visual style (glassmorphism, fonts, borders) to the
+ * existing DOM elements (.tech-module, .nav-cell, etc).
+ */
+function injectModernDashboardStyles() {
+    const styleId = 'modern-dashboard-styles';
+    if (document.getElementById(styleId)) return;
+
+    const css = `
+    /* --- 1. GLOBAL DASHBOARD BACKGROUND & FONT --- */
+    .unified-display-main-content, 
+    .info-window-content {
+        background: #000 !important;
+        font-family: 'Segoe UI', Inter, -apple-system, sans-serif !important;
+    }
+
+    /* --- 2. CARD STYLING (Adapting .dash-card) --- */
+    /* Targets: Tech Modules, Nav Panel, FMS, Seat Sensor, VSD */
+    .tech-module, 
+    .tech-card, 
+    #location-data-panel, 
+    .fms-module-container, 
+    .vsd-module-container, 
+    .seat-sensor-wrapper,
+    .rules-module-container,
+    .ac-profile-card-new {
+        background: rgba(30, 30, 35, 0.6) !important;
+        border: 1px solid rgba(255, 255, 255, 0.08) !important;
+        border-radius: 12px !important;
+        backdrop-filter: blur(10px) !important;
+        -webkit-backdrop-filter: blur(10px) !important;
+        box-shadow: none !important; /* Clean look, removing heavy shadows */
+        margin-bottom: 12px !important;
+    }
+
+    /* --- 3. HEADERS (Adapting .dash-header) --- */
+    .tech-module-header, 
+    .tech-card-header, 
+    .nav-header, 
+    .fms-header, 
+    .sensor-header, 
+    .rules-header {
+        background: transparent !important;
+        border-bottom: 1px solid rgba(255,255,255,0.05) !important;
+        padding: 8px 12px 4px 12px !important;
+        margin-bottom: 4px !important;
+        min-height: 30px !important;
+    }
+
+    .tech-module-title, 
+    .nav-title, 
+    .fms-page-count {
+        font-size: 0.7rem !important;
+        text-transform: uppercase !important;
+        letter-spacing: 1px !important;
+        color: #888 !important;
+        font-weight: 600 !important;
+        text-shadow: none !important;
+    }
+
+    /* --- 4. DATA CELLS / MINI STATS (Adapting .mini-stat) --- */
+    /* Remaps .nav-cell to the requested look */
+    .nav-cell {
+        background: rgba(255, 255, 255, 0.03) !important;
+        border-radius: 8px !important;
+        border: none !important;
+        padding: 8px !important;
+        display: flex !important;
+        flex-direction: column !important;
+        align-items: center !important;
+        text-align: center !important;
+        justify-content: center !important;
+        min-height: 55px !important;
+    }
+    
+    .nav-cell:hover {
+        background: rgba(255, 255, 255, 0.06) !important;
+    }
+
+    .nav-label {
+        font-size: 0.65rem !important; 
+        color: #6c757d !important; 
+        margin-bottom: 2px !important; 
+        font-weight: 500 !important;
+        text-transform: none !important;
+        justify-content: center !important;
+        width: 100%;
+    }
+    
+    /* Remove icons from labels to match the clean .mini-stat look, or keep them small */
+    .nav-label i {
+        font-size: 0.6rem !important;
+        color: #555 !important;
+        margin-right: 4px;
+    }
+
+    .nav-value {
+        font-size: 1.1rem !important; 
+        color: #fff !important; 
+        font-weight: 700 !important; 
+        letter-spacing: -0.5px !important;
+        font-family: 'Segoe UI', sans-serif !important; /* Removed Mono constraint */
+        text-shadow: none !important;
+    }
+    
+    .nav-unit {
+        font-size: 0.7rem !important; 
+        color: #adb5bd !important; 
+        font-weight: normal !important;
+        margin-left: 2px !important;
+    }
+    
+    /* Fix row alignment in the new centered flex layout */
+    .nav-row {
+        justify-content: center !important;
+        gap: 8px !important;
+    }
+
+    /* --- 5. FMS LIST ITEMS (Adapting .fms-modern-item) --- */
+    .fms-row {
+        background: transparent !important;
+        border-bottom: 1px solid rgba(255,255,255,0.05) !important;
+        font-size: 0.85rem !important;
+        color: #adb5bd !important;
+        padding: 8px 10px !important;
+    }
+
+    .fms-row.active-leg {
+        background: linear-gradient(90deg, rgba(0, 168, 255, 0.1), transparent) !important;
+        border-left: 2px solid #00a8ff !important;
+        color: #fff !important;
+        font-weight: 600 !important;
+    }
+    
+    .fms-columns {
+        border-bottom: 1px solid rgba(255, 255, 255, 0.05) !important;
+        color: #6c757d !important;
+    }
+
+    /* --- 6. PFD BEZEL (Adapting .pfd-wrapper) --- */
+    /* Removes the 'hardware' look for a cleaner digital look */
+    .display-bezel {
+        background: #000 !important;
+        border-radius: 12px !important;
+        border: 1px solid #222 !important;
+        padding: 2px !important;
+        box-shadow: none !important;
+    }
+    .screw { display: none !important; }
+
+    /* --- 7. SCROLLBARS --- */
+    /* Clean, thin scrollbars */
+    .fms-list-scrollarea::-webkit-scrollbar, 
+    .info-window-content::-webkit-scrollbar { 
+        width: 4px; 
+    }
+    .fms-list-scrollarea::-webkit-scrollbar-track, 
+    .info-window-content::-webkit-scrollbar-track { 
+        background: transparent; 
+    }
+    .fms-list-scrollarea::-webkit-scrollbar-thumb, 
+    .info-window-content::-webkit-scrollbar-thumb { 
+        background: #333; 
+        border-radius: 2px; 
+    }
+    `;
+
+    const style = document.createElement('style');
+    style.id = styleId;
+    style.type = 'text/css';
+    style.appendChild(document.createTextNode(css));
+    document.head.appendChild(style);
+    console.log("Modern Dashboard Styles Injected");
 }
 
 /**
@@ -8723,6 +10197,7 @@ async function initializeApp() {
 
         // Inject all custom CSS
         injectCustomStyles();
+        injectModernDashboardStyles();
 
         // Fetch essential data in parallel
         await Promise.all([
