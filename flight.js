@@ -570,7 +570,8 @@ function injectCustomStyles() {
 
         .cockpit-view {
             position: relative;
-            width: 140px;
+            width: 100%; /* Changed from fixed width to fill container */
+            max-width: 200px; /* Cap width for aesthetics */
             height: 80px;
             background: #1a1a1a;
             border-radius: 40px 40px 10px 10px;
@@ -580,6 +581,8 @@ function injectCustomStyles() {
             padding: 10px 20px;
             box-sizing: border-box;
             margin-bottom: 10px;
+            margin-left: auto;
+            margin-right: auto;
         }
 
         .cockpit-view::after {
@@ -775,16 +778,28 @@ function injectCustomStyles() {
             background: transparent; 
         }
 
+        /* --- [FIXED] LAYOUT GRID: STACKED --- */
         .pfd-and-location-grid { 
-            display: grid; 
-            grid-template-columns: 2fr 1fr; 
-            gap: 8px;
+            display: flex;
+            flex-direction: column;
+            gap: 12px;
+        }
+
+        /* --- [NEW] DASHBOARD SPLIT ROW --- */
+        /* Used to put FMS and Seat Sensor/Nav side-by-side below PFD */
+        .dashboard-split-row {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 12px;
+            width: 100%;
         }
 
         .info-right-col {
+            /* Now serves as a container for the bottom modules */
             display: flex;
             flex-direction: column;
-            gap: 8px;
+            gap: 12px;
+            width: 100%;
         }
         
         .fms-module-container {
@@ -800,6 +815,7 @@ function injectCustomStyles() {
             box-shadow: inset 0 0 20px rgba(0,0,0,0.8);
             box-sizing: border-box;
             overflow: hidden; 
+            width: 100%; /* Fill container */
         }
         .fms-header {
             background: #111;
@@ -881,7 +897,7 @@ function injectCustomStyles() {
         .stat-value { color: #fff; font-weight: bold; }
         .fms-empty-state { text-align: center; padding: 20px; color: #555; font-style: italic; }
 
-        /* --- REDESIGNED LOCATION DATA PANEL (No Bleeding) --- */
+        /* --- REDESIGNED LOCATION DATA PANEL --- */
         #location-data-panel {
             background: #0f1115;
             border-radius: 8px;
@@ -890,7 +906,7 @@ function injectCustomStyles() {
             width: 100%;
             display: flex;
             flex-direction: column;
-            overflow: visible; /* Allow content to dictate height */
+            overflow: visible;
         }
         .nav-header {
             background: #181b21;
@@ -965,13 +981,11 @@ function injectCustomStyles() {
             font-size: 1.0rem; /* Slightly smaller for better fit */
             color: #fff;
             font-weight: 600;
-            
-            /* The Critical Fixes */
-            white-space: normal;  /* Allow text to wrap */
-            overflow: visible;    /* Show all content */
-            text-overflow: clip;  /* Remove ellipsis */
-            word-wrap: break-word; /* Break long words if needed */
-            line-height: 1.2;     /* Tighter line height for wrapped text */
+            white-space: normal;  
+            overflow: visible;    
+            text-overflow: clip;  
+            word-wrap: break-word; 
+            line-height: 1.2;     
         }
         
         .nav-value.large { font-size: 1.2rem; }
@@ -979,14 +993,13 @@ function injectCustomStyles() {
         .nav-value.highlight { color: #4ade80; text-shadow: 0 0 5px rgba(74, 222, 128, 0.2); }
         .nav-value.accent { color: #f59e0b; }
         
-        /* FIX FOR ROWS: Allow wrapping inside rows too */
         .nav-row {
             display: flex;
             justify-content: space-between;
             align-items: baseline;
             width: 100%;
-            flex-wrap: wrap; /* Allow items to stack if they hit width limit */
-            gap: 4px; /* Space between wrapped items */
+            flex-wrap: wrap; 
+            gap: 4px; 
         }
         
         .nav-unit {
@@ -1000,10 +1013,9 @@ function injectCustomStyles() {
 
         @media (max-width: 992px) {
             .info-window { width: 95vw; top: 10px; right: 2.5vw; left: 2.5vw; max-height: calc(100vh - 20px); }
-            .pfd-and-location-grid { grid-template-columns: 1fr; } 
+            .dashboard-split-row { grid-template-columns: 1fr; } /* Stack vertically on mobile */
             #fms-legs-module { display: none; }
             #location-data-panel { min-height: auto; }
-            /* On mobile, switch grid to 2 columns to give more space */
             .nav-grid-container { grid-template-columns: repeat(2, 1fr); }
             .nav-span-2 { grid-column: span 2; }
         }
@@ -1121,7 +1133,7 @@ function injectCustomStyles() {
             padding: 12px; 
             border-radius: 1rem; 
             box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.5); 
-            width: 100%; 
+            width: 100%; /* Ensure full width */
             box-sizing: border-box; 
             display: flex;
             flex-direction: column;
@@ -7477,7 +7489,7 @@ function rebuildDynamicLayers() {
 
 
 /**
- * --- [UPDATED STEP 3] Populates the aircraft info window with Conditional Views ---
+ * --- [UPDATED STEP 2] Populates the aircraft info window with Stacked Dashboard Layout ---
  */
 function populateAircraftInfoWindow(baseProps, plan, sortedRoutePoints, communityAircraftData) {
     // --- Helper function to update all elements matching a selector ---
@@ -7488,11 +7500,102 @@ function populateAircraftInfoWindow(baseProps, plan, sortedRoutePoints, communit
             else el.textContent = value;
         });
     };
+    
+    // --- Helper for styling ---
+    const styleAll = (selector, property, value) => {
+        const elements = document.querySelectorAll(selector);
+        elements.forEach(el => {
+            el.style[property] = value;
+        });
+    };
 
-    // --- Data Prep ---
-    const windowEl = document.getElementById('aircraft-info-window');
+    // ==========================================================
+    // 1. COMMON CALCULATIONS (Run for both modes)
+    // ==========================================================
+    
     const originalFlatWaypoints = (plan && plan.flightPlanItems) ? flattenWaypointsFromPlan(plan.flightPlanItems) : [];
+    const originalFlatWaypointObjects = (plan && plan.flightPlanItems) ? getFlatWaypointObjects(plan.flightPlanItems) : [];
     const hasPlan = originalFlatWaypoints.length >= 2;
+
+    let distanceToDestNM = 0;
+    let totalDistanceNM = 0;
+    let progress = 0;
+    let ete = '--:--';
+
+    // Calculate Distance & Progress
+    if (hasPlan) {
+        let totalDistanceKm = 0;
+        for (let i = 0; i < originalFlatWaypoints.length - 1; i++) {
+            const [lon1, lat1] = originalFlatWaypoints[i];
+            const [lon2, lat2] = originalFlatWaypoints[i + 1];
+            totalDistanceKm += getDistanceKm(lat1, lon1, lat2, lon2);
+        }
+        totalDistanceNM = totalDistanceKm / 1.852;
+
+        if (totalDistanceNM > 0) {
+            const [destLon, destLat] = originalFlatWaypoints[originalFlatWaypoints.length - 1];
+            const remainingDistanceKm = getDistanceKm(baseProps.position.lat, baseProps.position.lon, destLat, destLon);
+            
+            distanceToDestNM = remainingDistanceKm / 1.852;
+            progress = Math.max(0, Math.min(100, (1 - (distanceToDestNM / totalDistanceNM)) * 100));
+
+            if (baseProps.position.gs_kt > 50) {
+                const timeHours = distanceToDestNM / baseProps.position.gs_kt;
+                const hours = Math.floor(timeHours);
+                const minutes = Math.round((timeHours - hours) * 60);
+                ete = `${String(hours).padStart(2, '0')}:${String(minutes).padStart(2, '0')}`;
+            }
+        }
+    }
+
+    // Determine Waypoints (Next/Prev)
+    let nextWpName = '---';
+    let prevWpName = '---';
+    let nextWpDistNM = '---';
+    let bestWpIndex = -1;
+    let minScore = Infinity;
+    
+    const currentPos = baseProps.position;
+    const currentTrack = currentPos.heading_deg;
+
+    if (plan && originalFlatWaypointObjects.length > 1 && currentPos) {
+        for (let i = 1; i < originalFlatWaypointObjects.length; i++) { 
+            const wp = originalFlatWaypointObjects[i];
+            if (!wp.location || wp.location.latitude == null) continue; 
+            
+            const distanceToWpKm = getDistanceKm(currentPos.lat, currentPos.lon, wp.location.latitude, wp.location.longitude);
+            const bearingToWp = getBearing(currentPos.lat, currentPos.lon, wp.location.latitude, wp.location.longitude);
+            const bearingDiff = Math.abs(normalizeBearingDiff(currentTrack - bearingToWp));
+            
+            if (bearingDiff <= 95 && distanceToWpKm < minScore) { 
+                minScore = distanceToWpKm;
+                bestWpIndex = i;
+            }
+        }
+    }
+
+    if (bestWpIndex !== -1) {
+        const nextWp = originalFlatWaypointObjects[bestWpIndex]; 
+        nextWpName = nextWp.identifier || nextWp.name || 'N/A';
+        nextWpDistNM = (minScore / 1.852).toFixed(1);
+        
+        // Identify Previous
+        if (bestWpIndex > 0) {
+            const prevWp = originalFlatWaypointObjects[bestWpIndex - 1];
+            prevWpName = prevWp.identifier || prevWp.name || 'DEP';
+        }
+    } else if (hasPlan && distanceToDestNM < 10) {
+         nextWpName = "DEST";
+         nextWpDistNM = distanceToDestNM.toFixed(1);
+         if (originalFlatWaypointObjects.length > 1) {
+             prevWpName = originalFlatWaypointObjects[originalFlatWaypointObjects.length - 2].identifier || 'WPT';
+         }
+    }
+
+    // Common Weather Data
+    const oat = currentAircraftPositionForGeocode?.oat_c || 15;
+    const windDir = currentAircraftPositionForGeocode?.wind_dir || 0;
+    const windSpd = currentAircraftPositionForGeocode?.wind_spd_kts || 0;
 
     // Aircraft Info
     const aircraftName = baseProps.aircraft?.aircraftName || 'Unknown Type';
@@ -7557,6 +7660,7 @@ function populateAircraftInfoWindow(baseProps, plan, sortedRoutePoints, communit
     // --- CONDITIONAL VIEW GENERATION ---
     // ==========================================================================================
     let flightDisplayTabContent = '';
+    const windowEl = document.getElementById('aircraft-info-window');
 
     if (mapFilters.simplifyAircraftView) {
         // --- VIEW A: SIMPLIFIED TELEMETRY GRID ---
@@ -7621,10 +7725,8 @@ function populateAircraftInfoWindow(baseProps, plan, sortedRoutePoints, communit
         // --- VIEW B: STANDARD COCKPIT VIEW (Original) ---
         // (This includes PFD, ND, Seat Sensor, TOD, VSD, FMS)
         
-        // We reuse your existing TOD Logic for Standard View
         let todHtml = '';
         if (hasPlan && baseProps.position.alt_ft > 5000) {
-             // ... (Keeping simplified placeholder, logic runs in update loop) ...
              todHtml = `<div class="tech-module" id="tod-calculator-module"><div class="tech-module-body" style="padding:12px; text-align:center;">Calculating Descent...</div></div>`;
         } else if (hasPlan && baseProps.position.alt_ft <= 5000) {
              todHtml = `<div class="tech-module"><div class="tech-module-header"><span class="tech-module-title">DESCENT PHASE</span><span class="tech-badge">ACTIVE</span></div></div>`;
@@ -7773,31 +7875,8 @@ function populateAircraftInfoWindow(baseProps, plan, sortedRoutePoints, communit
                     </div>
                 </div>
                 
-                <div class="info-right-col">
-                    <div class="tech-module" id="cockpit-seat-sensor">
-                        <div class="tech-module-header">
-                            <span class="tech-module-title"><i class="fa-solid fa-chair"></i> COCKPIT STATE</span>
-                            <span class="fms-page-count"><i class="fa-solid fa-satellite-dish"></i></span>
-                        </div>
-                        <div class="tech-module-body">
-                            <div class="cockpit-view">
-                                <div id="seat-cpt" class="seat" data-role="CPT"></div>
-                                <div id="seat-fo" class="seat" data-role="FO"></div>
-                                <div id="icon-parking-overlay" class="cockpit-overlay-icon icon-parking">P</div>
-                                <div id="icon-coffee-overlay" class="cockpit-overlay-icon icon-coffee"><i class="fa-solid fa-mug-hot"></i></div>
-                                <div id="icon-cloud-overlay" class="cockpit-overlay-icon icon-cloud"><i class="fa-solid fa-cloud"></i></div>
-                            </div>
-                            <div class="seat-status-display">
-                                <span id="status-cpt-text" class="status-pill">CMD: ---</span>
-                                <span id="status-fo-text" class="status-pill">FO: ---</span>
-                            </div>
-                            <div id="seat-narrative-text">Initializing...</div>
-                        </div>
-                    </div>
-
-                    ${todHtml}
-
-                    <div id="fms-legs-module" class="tech-module" style="height: 380px; max-height: 380px; display: flex; flex-direction: column; margin-top: 12px;">
+                <div class="dashboard-split-row">
+                    <div id="fms-legs-module" class="tech-module" style="height: 380px; max-height: 380px; display: flex; flex-direction: column;">
                         <div class="tech-module-header">
                             <span class="tech-module-title"><i class="fa-solid fa-route"></i> ACTIVE FLIGHT PLAN</span>
                             <span class="fms-page-count">1/1</span>
@@ -7821,85 +7900,110 @@ function populateAircraftInfoWindow(baseProps, plan, sortedRoutePoints, communit
                             </div>
                         </div>
                     </div>
-                </div>
-            </div>
-            
-            <div class="tech-module" id="location-data-panel">
-                <div class="tech-module-header">
-                    <span class="tech-module-title"><i class="fa-solid fa-location-crosshairs"></i> NAV DATA</span>
-                    <span class="nav-status-indicator"><div class="nav-blink"></div> LIVE</span>
-                </div>
-                <div class="tech-module-body" style="padding: 8px;">
-                    <div class="nav-grid-container">
-                        <div class="nav-cell">
-                            <span class="nav-label"><i class="fa-solid fa-map-location-dot"></i> Region</span>
-                            <span class="nav-value small" id="ac-location">Scanning...</span>
-                        </div>
-                        <div class="nav-cell">
-                            <span class="nav-label"><i class="fa-solid fa-tower-control"></i> Nearest</span>
-                            <div class="nav-row">
-                                <span class="nav-value highlight" id="ac-nearest-apt">---</span>
-                                <span class="nav-value" id="ac-nearest-apt-dist">--.- <span class="nav-unit">NM</span></span>
+
+                    <div class="info-right-col">
+                        <div class="tech-module" id="cockpit-seat-sensor">
+                            <div class="tech-module-header">
+                                <span class="tech-module-title"><i class="fa-solid fa-chair"></i> COCKPIT STATE</span>
+                                <span class="fms-page-count"><i class="fa-solid fa-satellite-dish"></i></span>
+                            </div>
+                            <div class="tech-module-body">
+                                <div class="cockpit-view">
+                                    <div id="seat-cpt" class="seat" data-role="CPT"></div>
+                                    <div id="seat-fo" class="seat" data-role="FO"></div>
+                                    <div id="icon-parking-overlay" class="cockpit-overlay-icon icon-parking">P</div>
+                                    <div id="icon-coffee-overlay" class="cockpit-overlay-icon icon-coffee"><i class="fa-solid fa-mug-hot"></i></div>
+                                    <div id="icon-cloud-overlay" class="cockpit-overlay-icon icon-cloud"><i class="fa-solid fa-cloud"></i></div>
+                                </div>
+                                <div class="seat-status-display">
+                                    <span id="status-cpt-text" class="status-pill">CMD: ---</span>
+                                    <span id="status-fo-text" class="status-pill">FO: ---</span>
+                                </div>
+                                <div id="seat-narrative-text">Initializing...</div>
                             </div>
                         </div>
-                        <div class="nav-cell">
-                            <span class="nav-label"><i class="fa-solid fa-wind"></i> Wind</span>
-                            <span class="nav-value" id="ac-env-wind">---/--</span>
-                        </div>
-                        <div class="nav-cell">
-                            <span class="nav-label"><i class="fa-solid fa-temperature-half"></i> OAT</span>
-                            <span class="nav-value" id="ac-env-oat">--°C</span>
-                        </div>
-                        <div class="nav-cell nav-span-2">
-                            <span class="nav-label"><i class="fa-solid fa-location-crosshairs"></i> Position</span>
-                            <div class="nav-row">
-                                <div><span class="nav-unit">LAT</span> <span class="nav-value" id="ac-lat">---</span></div>
-                                <div><span class="nav-unit">LON</span> <span class="nav-value" id="ac-lon">---</span></div>
+
+                        ${todHtml}
+
+                        <div class="tech-module" id="location-data-panel">
+                            <div class="tech-module-header">
+                                <span class="tech-module-title"><i class="fa-solid fa-location-crosshairs"></i> NAV DATA</span>
+                                <span class="nav-status-indicator"><div class="nav-blink"></div> LIVE</span>
                             </div>
-                        </div>
-                        <div class="nav-cell nav-span-2">
-                                <span class="nav-label"><i class="fa-solid fa-arrow-up-right-dots"></i> Vertical Speed</span>
-                                <span class="nav-value large highlight" id="ac-vs">--- <span class="nav-unit">fpm</span></span>
-                        </div>
-                        <div class="nav-cell nav-span-2">
-                            <span class="nav-label"><i class="fa-solid fa-location-arrow"></i> Next Waypoint</span>
-                            <div class="nav-row">
-                                <span class="nav-value accent" id="ac-next-wp">---</span>
-                                <span class="nav-value" id="ac-next-wp-dist">--.- <span class="nav-unit">NM</span></span>
-                            </div>
-                        </div>
-                        <div class="nav-cell nav-span-2">
-                            <span class="nav-label"><i class="fa-solid fa-flag-checkered"></i> Destination</span>
-                            <div class="nav-row">
-                                <div><span class="nav-unit">DIST</span> <span class="nav-value" id="ac-dist">---</span></div>
-                                <div><span class="nav-unit">ETE</span> <span class="nav-value" id="ac-ete">--:--</span></div>
+                            <div class="tech-module-body" style="padding: 8px;">
+                                <div class="nav-grid-container">
+                                    <div class="nav-cell">
+                                        <span class="nav-label"><i class="fa-solid fa-map-location-dot"></i> Region</span>
+                                        <span class="nav-value small" id="ac-location">Scanning...</span>
+                                    </div>
+                                    <div class="nav-cell">
+                                        <span class="nav-label"><i class="fa-solid fa-tower-control"></i> Nearest</span>
+                                        <div class="nav-row">
+                                            <span class="nav-value highlight" id="ac-nearest-apt">---</span>
+                                            <span class="nav-value" id="ac-nearest-apt-dist">--.- <span class="nav-unit">NM</span></span>
+                                        </div>
+                                    </div>
+                                    <div class="nav-cell">
+                                        <span class="nav-label"><i class="fa-solid fa-wind"></i> Wind</span>
+                                        <span class="nav-value" id="ac-env-wind">---/--</span>
+                                    </div>
+                                    <div class="nav-cell">
+                                        <span class="nav-label"><i class="fa-solid fa-temperature-half"></i> OAT</span>
+                                        <span class="nav-value" id="ac-env-oat">--°C</span>
+                                    </div>
+                                    <div class="nav-cell nav-span-2">
+                                        <span class="nav-label"><i class="fa-solid fa-location-crosshairs"></i> Position</span>
+                                        <div class="nav-row">
+                                            <div><span class="nav-unit">LAT</span> <span class="nav-value" id="ac-lat">---</span></div>
+                                            <div><span class="nav-unit">LON</span> <span class="nav-value" id="ac-lon">---</span></div>
+                                        </div>
+                                    </div>
+                                    <div class="nav-cell nav-span-2">
+                                            <span class="nav-label"><i class="fa-solid fa-arrow-up-right-dots"></i> Vertical Speed</span>
+                                            <span class="nav-value large highlight" id="ac-vs">--- <span class="nav-unit">fpm</span></span>
+                                    </div>
+                                    <div class="nav-cell nav-span-2">
+                                        <span class="nav-label"><i class="fa-solid fa-location-arrow"></i> Next Waypoint</span>
+                                        <div class="nav-row">
+                                            <span class="nav-value accent" id="ac-next-wp">---</span>
+                                            <span class="nav-value" id="ac-next-wp-dist">--.- <span class="nav-unit">NM</span></span>
+                                        </div>
+                                    </div>
+                                    <div class="nav-cell nav-span-2">
+                                        <span class="nav-label"><i class="fa-solid fa-flag-checkered"></i> Destination</span>
+                                        <div class="nav-row">
+                                            <div><span class="nav-unit">DIST</span> <span class="nav-value" id="ac-dist">---</span></div>
+                                            <div><span class="nav-unit">ETE</span> <span class="nav-value" id="ac-ete">--:--</span></div>
+                                        </div>
+                                    </div>
+                                </div>
                             </div>
                         </div>
                     </div>
                 </div>
-            </div>
 
-            <div class="tech-module vsd-module-container">
-                <div class="tech-module-header">
-                    <span class="tech-module-title"><i class="fa-solid fa-chart-area"></i> VERTICAL SITUATION DISPLAY</span>
-                    <span class="fms-page-count">VSD</span>
-                </div>
-                <div id="vsd-panel" class="vsd-panel active" data-plan-id="" data-profile-built="false">
-                    <div id="vsd-graph-window" class="vsd-graph-window">
-                        <div id="vsd-aircraft-icon"></div>
-                        <div id="vsd-graph-content">
-                            <svg id="vsd-profile-svg" xmlns="http://www.w3.org/2000/svg">
-                                <path id="vsd-flown-path" d="" />
-                                <path id="vsd-profile-path" d="" />
-                            </svg>
-                            <div id="vsd-waypoint-labels"></div>
-                        </div>
-                    ${planButtonHtml} </div>
-                </div>
-                <div class="vsd-footer">
-                    <div class="vsd-legend-item"><div class="dot-plan"></div> PLANNED</div>
-                    <div class="vsd-legend-item"><div class="dot-flown"></div> FLOWN</div>
-                    <div>ALTITUDE PROFILE</div>
+                <div class="tech-module vsd-module-container">
+                    <div class="tech-module-header">
+                        <span class="tech-module-title"><i class="fa-solid fa-chart-area"></i> VERTICAL SITUATION DISPLAY</span>
+                        <span class="fms-page-count">VSD</span>
+                    </div>
+                    <div id="vsd-panel" class="vsd-panel active" data-plan-id="" data-profile-built="false">
+                        <div id="vsd-graph-window" class="vsd-graph-window">
+                            <div id="vsd-aircraft-icon"></div>
+                            <div id="vsd-graph-content">
+                                <svg id="vsd-profile-svg" xmlns="http://www.w3.org/2000/svg">
+                                    <path id="vsd-flown-path" d="" />
+                                    <path id="vsd-profile-path" d="" />
+                                </svg>
+                                <div id="vsd-waypoint-labels"></div>
+                            </div>
+                        ${planButtonHtml} </div>
+                    </div>
+                    <div class="vsd-footer">
+                        <div class="vsd-legend-item"><div class="dot-plan"></div> PLANNED</div>
+                        <div class="vsd-legend-item"><div class="dot-flown"></div> FLOWN</div>
+                        <div>ALTITUDE PROFILE</div>
+                    </div>
                 </div>
             </div>
         `;
@@ -8396,7 +8500,8 @@ function renderPilotStatsHTML(stats, username) {
 
 
 /**
- * --- [UPDATED STEP 4] Updates the active window with live data (Dual Mode) ---
+ * --- [UPDATED STEP 3] Updates the active window with live data (Dual Mode) ---
+ * Matches the new .nav-unit CSS classes.
  */
 function updateAircraftInfoWindow(baseProps, plan, sortedRoutePoints) {
     // --- Helper function to update all elements matching a selector ---
@@ -8519,9 +8624,7 @@ function updateAircraftInfoWindow(baseProps, plan, sortedRoutePoints) {
         
         const tas = calculateTas(alt, oat, gs);
         
-        // Approx Speed of Sound (knots) = 661.47 * sqrt(T_kelvin / 288.15)
-        // Simplified for display: Mach = TAS / ~570-660 depending on alt. 
-        // Using standard temp lapse rate approximation:
+        // Approx Speed of Sound
         const tempK = 273.15 + oat;
         const speedOfSound = 38.967854 * Math.sqrt(tempK); // m/s
         const speedOfSoundKts = speedOfSound * 1.94384;
@@ -8557,13 +8660,13 @@ function updateAircraftInfoWindow(baseProps, plan, sortedRoutePoints) {
 
         // 1. Update Top Bar Data
         updateAll('#ac-next-wp', nextWpName);
-        updateAll('#ac-next-wp-dist', `${nextWpDistNM}<span class="unit">NM</span>`, true);
-        updateAll('#ac-dist', `${Math.round(distanceToDestNM)}<span class="unit">NM</span>`, true);
+        // FIX: Use 'nav-unit' class from the new CSS
+        updateAll('#ac-next-wp-dist', `${nextWpDistNM} <span class="nav-unit">NM</span>`, true);
+        updateAll('#ac-dist', `${Math.round(distanceToDestNM)} <span class="nav-unit">NM</span>`, true);
         updateAll('#ac-ete', ete);
         styleAll('#ac-progress-bar', 'width', `${progress.toFixed(1)}%`);
 
-        // 2. Calculate flight phase (Heavy logic, only needed for Phase Indicator)
-        // (Reusing your existing phase logic exactly)
+        // 2. Calculate flight phase
         let flightPhase = 'ENROUTE';
         let phaseClass = 'phase-enroute';
         let phaseIcon = 'fa-route';
@@ -8571,8 +8674,6 @@ function updateAircraftInfoWindow(baseProps, plan, sortedRoutePoints) {
         const altitude = baseProps.position.alt_ft || 0;
         const gs = baseProps.position.gs_kt || 0;
         
-        // ... (Keep your existing altitudeAGL / Nearest Runway logic here if desired, 
-        //      or simplified for performance) ...
         if (vs > 300) { flightPhase = 'CLIMB'; phaseClass = 'phase-climb'; phaseIcon = 'fa-arrow-trend-up'; }
         else if (vs < -500) { flightPhase = 'DESCENT'; phaseClass = 'phase-descent'; phaseIcon = 'fa-arrow-trend-down'; }
         else if (altitude > 18000) { flightPhase = 'CRUISE'; phaseClass = 'phase-cruise'; phaseIcon = 'fa-minus'; }
@@ -8596,7 +8697,6 @@ function updateAircraftInfoWindow(baseProps, plan, sortedRoutePoints) {
                 const Y_SCALE_PX_PER_FT = VSD_HEIGHT_PX / MAX_ALT_FT;
                 const currentAltPx = VSD_HEIGHT_PX - (altitude * Y_SCALE_PX_PER_FT);
                 vsdAircraftIcon.style.top = `${currentAltPx}px`;
-                // (Horizontal scrolling logic is handled via CSS transform in standard flow)
             }
         });
 
