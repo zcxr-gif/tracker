@@ -2110,28 +2110,40 @@ function injectCustomStyles() {
 }
 
 /**
- * --- [HYBRID] Advanced Congestion Algorithm ---
- * Merges the "Delay Index" scoring logic with the new ETE Bucket & Ground detection logic.
+ * --- [REPLACED] Advanced Congestion Algorithm v2 ---
+ * Fixes "Extreme" false positives by distinguishing between
+ * Parked (Static) traffic vs. Active Taxiing/Inbound pressure.
  */
 function calculateAirportCongestion(inboundFlightIds, airportCoords) {
-    if (!inboundFlightIds || !airportCoords) return { 
+    // 1. Safety Checks
+    if (!airportCoords) return { 
         level: "LOW", color: "#4ade80", trend: "STEADY", scoreDisplay: "0.0",
         imminent: 0, approach: 0, enroute: 0, ground: 0 
     };
 
-    // --- 1. CONFIGURABLE WEIGHTS (From Original Logic) ---
+    // --- 2. CONFIGURABLE WEIGHTS (Tuned for Realism) ---
+    // Total Score = Sum of (Count * Weight)
+    // Thresholds: > 0.8 (Extreme), > 0.5 (Heavy), > 0.3 (Busy)
     const WEIGHTS = {
-        DELAY: 1 / 25,         // Weight for delayed departures (holding)
-        GROUND: 1 / 30,        // Weight for active ground traffic
-        INBOUND: 1 / 200,      // Weight for inbound pressure sum
-        TIME_DECAY: 0.025      // Decay factor (flights further out count less)
+        STATIC: 0.002,   // Parked at gate (Very low impact) -> 50 planes = 0.1 score
+        TAXI: 0.015,     // Active taxi (Medium impact)      -> 20 planes = 0.3 score
+        FINAL: 0.06,     // < 15min out (High impact)        -> 10 planes = 0.6 score
+        APPROACH: 0.015, // 15-40min out (Medium impact)     -> 20 planes = 0.3 score
+        ENROUTE: 0.001   // > 40min out (Low impact)         -> Negligible
     };
 
-    let groundCount = 0;
-    let delayedCount = 0; // Aircraft holding short or stuck (Speed < 5kts)
-    const outboundSet = new Set(); // To track flight IDs we count as ground
+    // --- 3. BUCKET COUNTERS ---
+    let countStatic = 0; // Ground < 3 kts
+    let countTaxi = 0;   // Ground > 3 kts
+    let countFinal = 0;  // Air < 15 min ETE
+    let countAppr = 0;   // Air 15-40 min ETE
+    let countEnr = 0;    // Air > 40 min ETE
 
-    // --- 2. PRECISE ON-GROUND SCAN (New Logic: 3NM / 500ft) ---
+    // Track processed IDs to prevent double counting inbounds as ground
+    const processedIds = new Set(); 
+
+    // --- 4. GROUND SCAN (Local Map Features) ---
+    // We scan ALL features for ground traffic first
     Object.values(currentMapFeatures).forEach(feature => {
         const props = feature.properties;
         if (!props || !props.position) return;
@@ -2141,106 +2153,111 @@ function calculateAirportCongestion(inboundFlightIds, airportCoords) {
             try { pos = JSON.parse(pos); } catch(e) { return; }
         }
 
-        // Calculate distance
+        // Calculate distance to airport center
         const distKm = getDistanceKm(airportCoords.lat, airportCoords.lon, pos.lat, pos.lon);
         const distNM = distKm / 1.852;
         const airportElev = airportCoords.elevation_ft || 0;
         
-        // Strict Ground Check
-        const isLowAlt = pos.alt_ft < (airportElev + 500); // 500ft buffer
-        const isClose = distNM < 3.0;
+        // Strict Ground Definition: Within 3NM and < 1500ft AGL
+        // (Slightly higher alt buffer to catch pattern work as "Taxi/Active" pressure)
+        const isLowAlt = pos.alt_ft < (airportElev + 1500); 
+        const isClose = distNM < 3.5;
 
         if (isClose && isLowAlt) {
-            groundCount++;
-            outboundSet.add(props.flightId);
-
-            // Heuristic for Delay Index: Very slow ground speed = Holding/Delayed
-            if (pos.gs_kt < 5) {
-                delayedCount++;
+            processedIds.add(props.flightId);
+            
+            // Differentiate Static vs Active Taxi
+            // Speed < 3kts usually means parked or holding short
+            if ((pos.gs_kt || 0) < 3) {
+                countStatic++;
+            } else {
+                countTaxi++;
             }
         }
     });
 
-    // --- 3. INBOUND ANALYSIS (Buckets + Time Decay) ---
-    let imminent = 0; // < 20 mins
-    let approach = 0; // 20 - 60 mins
-    let enroute = 0;  // > 60 mins
-    const inboundEtas = []; // Store ETEs for pressure calculation
+    // --- 5. INBOUND SCAN (Provided Flight IDs) ---
+    if (inboundFlightIds && Array.isArray(inboundFlightIds)) {
+        inboundFlightIds.forEach(id => {
+            if (processedIds.has(id)) return; // Already counted as ground/pattern
 
-    inboundFlightIds.forEach(id => {
-        if (outboundSet.has(id)) return; // Skip if already counted as ground
+            const feature = currentMapFeatures[id];
+            let eteMinutes = 60; // Default if we can't calc
 
-        const feature = currentMapFeatures[id];
-        let eteMinutes = 45; // Default fallback
+            if (feature && feature.properties) {
+                let pos = feature.properties.position;
+                if (typeof pos === 'string') {
+                    try { pos = JSON.parse(pos); } catch(e) {}
+                }
 
-        if (feature && feature.properties) {
-            let pos = feature.properties.position;
-            if (typeof pos === 'string') {
-                try { pos = JSON.parse(pos); } catch(e) {}
+                if (pos) {
+                    const distKm = getDistanceKm(airportCoords.lat, airportCoords.lon, pos.lat, pos.lon);
+                    const distNM = distKm / 1.852;
+                    const speed = Math.max(pos.gs_kt || 0, 100); // Clamp min speed for ETE calc
+                    eteMinutes = (distNM / speed) * 60;
+                }
             }
 
-            if (pos) {
-                const distKm = getDistanceKm(airportCoords.lat, airportCoords.lon, pos.lat, pos.lon);
-                const distNM = distKm / 1.852;
-                const speed = Math.max(pos.gs_kt || 0, 50); // Clamp min speed
-                eteMinutes = (distNM / speed) * 60;
-            }
-        }
-
-        // A. Populate UI Buckets (New Logic)
-        if (eteMinutes <= 20) imminent++;
-        else if (eteMinutes <= 60) approach++;
-        else enroute++;
-
-        // B. Populate Pressure Array (Original Logic)
-        inboundEtas.push(eteMinutes);
-    });
-
-    // --- 4. CALCULATE DELAY INDEX (Original Logic) ---
-    
-    // Helper: Sum pressure for a specific time offset
-    const calcPressure = (timeShift = 0) => {
-        let pressure = 0;
-        inboundEtas.forEach(minutes => {
-            const adjustedMinutes = Math.max(0, minutes - timeShift);
-            pressure += Math.exp(-WEIGHTS.TIME_DECAY * adjustedMinutes);
+            // Bucket by ETE
+            if (eteMinutes < 15) countFinal++;
+            else if (eteMinutes < 40) countAppr++;
+            else countEnr++;
         });
-        return pressure;
-    };
+    }
 
-    const ratioNow = (delayedCount * WEIGHTS.DELAY) + (groundCount * WEIGHTS.GROUND) + (calcPressure(0) * WEIGHTS.INBOUND);
-    const ratio30 = (delayedCount * WEIGHTS.DELAY) + (groundCount * WEIGHTS.GROUND) + (calcPressure(30) * WEIGHTS.INBOUND);
+    // --- 6. CALCULATE SCORE ---
+    let rawScore = 
+        (countStatic * WEIGHTS.STATIC) +
+        (countTaxi * WEIGHTS.TAXI) +
+        (countFinal * WEIGHTS.FINAL) +
+        (countAppr * WEIGHTS.APPROACH) +
+        (countEnr * WEIGHTS.ENROUTE);
 
-    // Dampener for empty airports
-    const finalRatio = (groundCount < 3) ? ratioNow * 0.6 : ratioNow;
-    const finalRatio30 = (groundCount < 3) ? ratio30 * 0.6 : ratio30;
+    // Dampener: If total "Active" aircraft (Taxi + Final + Appr) is very low (< 3),
+    // force the score down to prevent "Busy" flashes from just 1-2 planes.
+    const activeTrafficCount = countTaxi + countFinal + countAppr;
+    if (activeTrafficCount < 3) {
+        rawScore = Math.min(rawScore, 0.25); // Cap at LOW/MODERATE
+    }
 
-    // --- 5. DETERMINE STATUS & TREND ---
+    // --- 7. DETERMINE LEVEL & TREND ---
     let level = "LOW";
     let color = "#4ade80"; // Green
     let trend = "STEADY";
     let trendIcon = "fa-minus";
 
-    // InfiniteView thresholds
-    if (finalRatio > 0.8) { level = "EXTREME"; color = "#ef4444"; }
-    else if (finalRatio > 0.6) { level = "HEAVY"; color = "#f97316"; }
-    else if (finalRatio > 0.35) { level = "BUSY"; color = "#eab308"; }
+    // Thresholds
+    if (rawScore > 0.8) { level = "EXTREME"; color = "#ef4444"; }      // Red
+    else if (rawScore > 0.5) { level = "HEAVY"; color = "#f97316"; }   // Orange
+    else if (rawScore > 0.3) { level = "BUSY"; color = "#eab308"; }    // Yellow
 
-    // Trend Logic
-    const change = finalRatio30 - finalRatio;
-    if (change > 0.1) { trend = "BUILDING"; trendIcon = "fa-arrow-trend-up"; }
-    else if (change < -0.1) { trend = "EASING"; trendIcon = "fa-arrow-trend-down"; }
+    // (Optional) Trend Logic placeholder
+    // Since we don't store history in this specific function scope anymore, 
+    // we default to STEADY or could calculate based on specific inbound pressure delta.
+    // For now, simple heuristic: High FINAL count = Building pressure.
+    if (countFinal > 5 && countFinal > countTaxi) {
+        trend = "BUILDING";
+        trendIcon = "fa-arrow-trend-up";
+    } else if (countStatic > 10 && countFinal === 0) {
+        trend = "EASING"; 
+        trendIcon = "fa-arrow-trend-down";
+    }
+
+    // Map 0.0-1.0 score to 0.0-5.0 display scale for UI
+    let displayScore = Math.min(5.0, rawScore * 5).toFixed(1);
 
     return {
         level,
         color,
         trend,
         trendIcon,
-        scoreDisplay: (finalRatio * 5).toFixed(1), // 0-5 Scale
-        imminent,
-        approach,
-        enroute,
-        ground: groundCount
+        scoreDisplay: displayScore,
+        scoreRaw: rawScore, // Exposed for debugging
+        // UI Counters
+        imminent: countFinal,
+        approach: countAppr,
+        enroute: countEnr,
+        ground: countStatic + countTaxi // Combined for the simple UI counter
     };
 }
 
