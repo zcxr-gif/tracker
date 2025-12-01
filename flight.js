@@ -527,182 +527,223 @@ function injectCustomStyles() {
     if (document.getElementById(styleId)) return;
 
     const css = `
-        /* --- CSS VARIABLES FOR THEMING --- */
+        /* --- CSS VARIABLES & FONTS --- */
         :root {
             --iw-bg-start: rgba(18, 20, 38, 0.95);
             --iw-bg-end: rgba(18, 20, 38, 0.95);
+            --glass-bg: rgba(30, 30, 35, 0.6);
+            --glass-border: rgba(255, 255, 255, 0.08);
+            --glass-blur: blur(10px);
+            --font-main: 'Segoe UI', Inter, -apple-system, sans-serif;
+            --text-muted: #888;
+            --text-bright: #fff;
+            --accent-blue: #00a8ff;
         }
 
-        /* --- VIRTUAL COCKPIT SEAT SENSOR --- */
-        .seat-sensor-wrapper {
-            background: #000; 
-            border: 2px solid #333; 
-            border-radius: 4px; 
-            display: flex;
-            flex-direction: column;
-            box-shadow: inset 0 0 20px rgba(0,0,0,0.8);
+        /* --- GLOBAL OVERRIDES --- */
+        .info-window-content {
+            font-family: var(--font-main);
+        }
+
+        /* --- LAYOUT GRID --- */
+        .pfd-and-location-grid { 
+            display: grid; 
+            grid-template-columns: 1.8fr 1fr; /* Adjusted for better PFD width */
+            gap: 12px;
+            padding: 0;
+        }
+
+        /* --- COMMON CARD STYLE (Glassmorphism) --- */
+        /* Applies to all tech modules, VSD, Nav Panel, FMS */
+        .tech-module, 
+        .vsd-module-container,
+        #location-data-panel,
+        .fms-module-container,
+        .cockpit-view-container {
+            background: var(--glass-bg) !important;
+            border: 1px solid var(--glass-border) !important;
+            border-radius: 12px !important;
+            backdrop-filter: var(--glass-blur);
+            -webkit-backdrop-filter: var(--glass-blur);
+            box-shadow: 0 4px 20px rgba(0,0,0,0.3);
+            margin-bottom: 12px;
             overflow: hidden;
-            position: relative;
-        }
-
-        .sensor-header {
-            background: #111;
-            padding: 6px 10px;
-            border-bottom: 1px solid #333;
-            display: flex;
-            justify-content: space-between;
-            font-size: 0.8rem;
-            font-weight: bold;
-            color: #fff;
-            flex-shrink: 0;
-            font-family: 'Consolas', monospace;
-        }
-
-        .sensor-body {
-            padding: 15px;
             display: flex;
             flex-direction: column;
-            align-items: center;
-            position: relative;
-            background: #0f1115; 
         }
 
-        .cockpit-view {
-            position: relative;
-            width: 140px;
-            height: 80px;
-            background: #1a1a1a;
-            border-radius: 40px 40px 10px 10px;
-            border: 2px solid #444;
+        /* --- HEADER STYLE (Modern Caps) --- */
+        .tech-module-header, 
+        .fms-header, 
+        .nav-header,
+        .sensor-header,
+        .rules-header,
+        .vsd-footer,
+        .fms-footer {
+            background: rgba(255, 255, 255, 0.02) !important;
+            border-bottom: 1px solid rgba(255, 255, 255, 0.05) !important;
+            border-top: none !important;
+            padding: 8px 12px !important;
+            
+            /* Typography */
+            font-family: var(--font-main) !important;
+            font-size: 0.7rem !important;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+            color: var(--text-muted) !important;
+            font-weight: 600 !important;
             display: flex;
             justify-content: space-between;
-            padding: 10px 20px;
-            box-sizing: border-box;
-            margin-bottom: 10px;
-        }
-
-        .cockpit-view::after {
-            content: '';
-            position: absolute;
-            left: 50%;
-            bottom: 10px;
-            transform: translateX(-50%);
-            width: 14px;
-            height: 40px;
-            background: #333;
-            border-radius: 4px;
-            border: 1px solid #555;
-        }
-
-        .seat {
-            width: 35px;
-            height: 40px;
-            background: #222;
-            border-radius: 6px;
-            border: 2px solid #444;
-            transition: all 0.5s ease;
-            position: relative;
-            display: flex;
-            justify-content: center;
             align-items: center;
         }
-
-        .seat::before {
-            content: '';
-            position: absolute;
-            top: -8px;
-            width: 25px;
-            height: 8px;
-            background: inherit;
-            border-radius: 4px;
-            border: 2px solid #444;
+        
+        .tech-module-title, .fms-page-count {
+            color: inherit !important;
+            font-weight: inherit !important;
+            font-size: inherit !important;
         }
 
-        .cockpit-overlay-icon {
-            position: absolute;
-            top: 50%;
-            left: 50%;
-            transform: translate(-50%, -50%);
-            font-size: 2.5rem;
-            z-index: 10;
-            opacity: 0;
-            transition: opacity 0.3s ease, transform 0.3s ease;
-            pointer-events: none;
-            text-shadow: 0 2px 10px rgba(0,0,0,0.8);
+        /* --- NAV DATA / STATS CELLS --- */
+        .nav-grid-container {
+            display: grid;
+            grid-template-columns: repeat(4, 1fr); /* Keep 4 cols to fit data */
+            gap: 8px;
+            padding: 12px;
         }
 
-        .cockpit-overlay-icon.visible {
-            opacity: 1;
-            transform: translate(-50%, -50%) scale(1);
+        .nav-cell {
+            background: rgba(255, 255, 255, 0.03) !important;
+            border: 1px solid transparent;
+            border-radius: 8px !important;
+            padding: 8px 12px !important;
+            display: flex;
+            flex-direction: column;
+            align-items: center; /* Center align for modern look */
+            justify-content: center;
+            text-align: center;
+            min-height: auto;
+            transition: background 0.2s;
+        }
+        
+        .nav-cell:hover {
+            background: rgba(255, 255, 255, 0.06) !important;
         }
 
-        .icon-parking { color: #ff3333; border: 3px solid #ff3333; border-radius: 50%; width: 45px; height: 45px; display: flex; align-items: center; justify-content: center; font-weight: bold; background: rgba(0,0,0,0.6); font-family: sans-serif; }
-        .icon-coffee { color: #ffaa00; }
-        .icon-cloud { color: #00a8ff; }
+        .nav-label {
+            font-size: 0.65rem !important;
+            color: #6c757d !important;
+            margin-bottom: 4px;
+            font-weight: 500 !important;
+            text-transform: uppercase;
+            justify-content: center;
+            display: flex;
+            gap: 4px;
+        }
+        
+        .nav-value {
+            font-family: var(--font-main) !important; 
+            font-size: 1.1rem !important;
+            color: var(--text-bright) !important;
+            font-weight: 700 !important;
+            letter-spacing: -0.5px;
+            line-height: 1.1;
+            white-space: nowrap;
+        }
+        
+        .nav-unit {
+            font-size: 0.7rem;
+            color: #adb5bd;
+            font-weight: normal;
+            margin-left: 2px;
+        }
 
+        /* Handle rows inside nav cells (like lat/lon) */
+        .nav-row {
+            display: flex;
+            flex-direction: row; /* Keep row for space efficiency */
+            gap: 8px;
+            align-items: baseline;
+            justify-content: center;
+            width: 100%;
+            flex-wrap: wrap;
+        }
+
+        /* --- FMS LIST --- */
+        .fms-list-scrollarea {
+            scrollbar-width: thin;
+            scrollbar-color: #333 transparent;
+            padding: 0 !important;
+        }
+        
+        .fms-columns {
+            background: rgba(0,0,0,0.2);
+            padding: 6px 12px;
+            color: #6c757d;
+            font-size: 0.65rem;
+            font-weight: 600;
+            border-bottom: 1px solid rgba(255,255,255,0.05);
+        }
+
+        .fms-row {
+            padding: 8px 12px !important;
+            border-bottom: 1px solid rgba(255,255,255,0.05) !important;
+            align-items: center;
+            font-size: 0.85rem !important;
+            color: #adb5bd !important;
+            font-family: var(--font-main);
+        }
+
+        /* Active Leg: Modern blue gradient strip */
+        .fms-row.active-leg {
+            background: linear-gradient(90deg, rgba(0, 168, 255, 0.1), transparent) !important;
+            border-left: 2px solid var(--accent-blue);
+            color: var(--text-bright) !important;
+            font-weight: 600;
+            padding-left: 10px !important; 
+        }
+
+        /* --- SEAT SENSOR & VISUALS --- */
+        .seat-sensor-wrapper, .cockpit-view {
+            background: transparent !important;
+            border: none !important;
+            box-shadow: none !important;
+        }
+        
+        /* Seat Styling to match dark theme */
+        .seat { 
+            width: 35px; height: 40px; 
+            background: #222; 
+            border-radius: 6px; 
+            border: 2px solid #444; 
+            position: relative; 
+            display: flex; 
+            justify-content: center; 
+            align-items: center; 
+        }
+        .seat::before { 
+            content: ''; position: absolute; top: -8px; width: 25px; height: 8px; 
+            background: inherit; border-radius: 4px; border: 2px solid #444; 
+        }
+        
+        /* Active States */
         .seat.active-green { background: rgba(0, 255, 0, 0.1); border-color: #00ff00; box-shadow: 0 0 15px rgba(0, 255, 0, 0.4); }
         .seat.active-green::before { border-color: #00ff00; background: #003300; }
-
         .seat.active-amber { background: rgba(255, 170, 0, 0.1); border-color: #ffaa00; box-shadow: 0 0 15px rgba(255, 170, 0, 0.4); }
         .seat.active-amber::before { border-color: #ffaa00; background: #442200; }
-
         .seat.active-blue { background: rgba(0, 168, 255, 0.1); border-color: #00a8ff; box-shadow: 0 0 15px rgba(0, 168, 255, 0.4); }
         .seat.active-blue::before { border-color: #00a8ff; background: #002244; }
 
-        .seat::after { content: attr(data-role); font-size: 0.6rem; font-weight: bold; color: #555; margin-top: 2px; }
-        .seat.active-green::after, .seat.active-amber::after, .seat.active-blue::after { color: #fff; text-shadow: 0 0 5px currentColor; }
-
-        .seat-status-display {
-            margin-top: 8px;
-            font-family: 'Consolas', monospace;
-            font-size: 0.75rem;
-            text-align: center;
-            width: 100%;
-            display: flex;
-            justify-content: space-between;
-            color: #888;
-        }
-
-        .status-pill { padding: 2px 8px; border-radius: 4px; background: #222; border: 1px solid #333; }
-        .status-pill.green { color: #00ff00; border-color: #00ff00; }
-        .status-pill.amber { color: #ffaa00; border-color: #ffaa00; }
-        .status-pill.blue { color: #00a8ff; border-color: #00a8ff; }
-        .status-pill.red { color: #ff3333; border-color: #ff3333; }
-
-        #seat-narrative-text {
-            font-family: 'Segoe UI', sans-serif;
-            font-size: 0.7rem;
-            color: #aaa;
-            margin-top: 8px;
-            text-align: center;
-            border-top: 1px solid #333;
-            padding-top: 6px;
-            width: 100%;
-            font-style: italic;
-        }
+        /* Overlays */
+        .cockpit-overlay-icon { position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); font-size: 2.5rem; z-index: 10; opacity: 0; pointer-events: none; }
+        .cockpit-overlay-icon.visible { opacity: 1; }
+        .icon-parking { color: #ff3333; border: 3px solid #ff3333; border-radius: 50%; width: 45px; height: 45px; display: flex; align-items: center; justify-content: center; font-weight: bold; background: rgba(0,0,0,0.6); font-family: sans-serif; }
         
-        #view-rosters.active {
-            position: absolute;
-            inset: 0;
-            width: 100%;
-            height: 100%;
-            padding: 0;
-            overflow: hidden;
-            display: grid;
-            grid-template-columns: 1fr;
-            grid-template-rows: 1fr;
-        }
-        #sector-ops-map-fullscreen {
-            grid-column: 1 / -1;
-            grid-row: 1 / -1;
-        }
-        .main-content:has(#view-rosters.active) {
-            padding: 0; 
-            height: 100dvh; 
-            overflow: hidden; 
-        }
-        
-        /* --- INFO WINDOW STYLES (UPDATED) --- */
+        /* --- SCROLLBARS --- */
+        ::-webkit-scrollbar { width: 6px; }
+        ::-webkit-scrollbar-track { background: transparent; }
+        ::-webkit-scrollbar-thumb { background-color: #333; border-radius: 3px; }
+
+        /* --- INFO WINDOW CONTAINER --- */
         .info-window {
             position: absolute;
             top: 20px; 
@@ -731,1375 +772,36 @@ function injectCustomStyles() {
             transform: translateX(0);
             pointer-events: auto;
         }
-        .info-window-header {
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-            padding: 16px 20px;
-            background: rgba(0, 0, 0, 0.1); 
-            border-bottom: 1px solid rgba(255, 255, 255, 0.05);
-            flex-shrink: 0;
-        }
-        .info-window-header h3 {
-            margin: 0; 
-            font-size: 1.3rem; 
-            color: #fff;
-            font-weight: 600;
-            text-shadow: 0 2px 5px rgba(0,0,0,0.4);
-        }
-        .info-window-actions button {
-            background: rgba(255,255,255,0.05); 
-            border: 1px solid rgba(255,255,255,0.1);
-            color: #c5cae9; 
-            cursor: pointer;
-            font-size: 1rem; 
-            width: 32px; height: 32px;
-            border-radius: 50%;
-            margin-left: 8px;
-            line-height: 1; 
-            display: grid;
-            place-items: center;
-            transition: all 0.2s ease-in-out;
-        }
-        .info-window-actions button:hover { 
-            background: #00a8ff;
-            color: #fff; 
-            transform: scale(1.1) rotate(90deg);
-            border-color: #00a8ff;
-        }
-        .info-window-content { 
-            overflow-y: auto; 
-            flex-grow: 1; 
-            padding: 0;
-            background: transparent; 
-        }
 
-        .pfd-and-location-grid { 
-            display: grid; 
-            grid-template-columns: 2fr 1fr; 
-            gap: 8px;
-        }
-
-        .info-right-col {
-            display: flex;
-            flex-direction: column;
-            gap: 8px;
-        }
+        /* --- PRESERVE ESSENTIAL LAYOUTS (Hidden/Specifics) --- */
+        #view-rosters.active { position: absolute; inset: 0; overflow: hidden; display: grid; }
+        #sector-ops-map-fullscreen { grid-column: 1 / -1; grid-row: 1 / -1; }
+        .mapboxgl-popup-content { background: transparent !important; box-shadow: none !important; padding: 0 !important; }
         
-        .fms-module-container {
-            height: 380px; 
-            max-height: 380px;
-            background: #000;
-            color: #00e600; 
-            font-family: 'Consolas', 'Monaco', 'Courier New', monospace;
-            display: flex;
-            flex-direction: column;
-            border: 2px solid #333;
-            border-radius: 4px;
-            box-shadow: inset 0 0 20px rgba(0,0,0,0.8);
-            box-sizing: border-box;
-            overflow: hidden; 
-        }
-        .fms-header {
-            background: #111;
-            padding: 6px 10px;
-            border-bottom: 1px solid #333;
-            display: flex;
-            justify-content: space-between;
-            font-size: 0.8rem;
-            font-weight: bold;
-            color: #fff;
-            flex-shrink: 0;
-        }
-        .fms-columns {
-            display: grid;
-            grid-template-columns: 2fr 1fr 1fr;
-            padding: 4px 10px;
-            border-bottom: 1px dashed #333;
-            font-size: 0.7rem;
-            color: #00a8ff;
-            flex-shrink: 0;
-        }
-        .fms-list-scrollarea {
-            flex-grow: 1;
-            overflow-y: auto;
-            padding: 5px 0;
-            scrollbar-width: thin;
-            scrollbar-color: #333 #000;
-        }
-        .fms-list-scrollarea::-webkit-scrollbar { width: 6px; }
-        .fms-list-scrollarea::-webkit-scrollbar-track { background: #000; }
-        .fms-list-scrollarea::-webkit-scrollbar-thumb { background-color: #333; border-radius: 3px; border: 1px solid #111; }
-        .fms-list-scrollarea::-webkit-scrollbar-thumb:hover { background-color: #555; }
-        .fms-row {
-            display: grid;
-            grid-template-columns: 2fr 1fr 1fr;
-            padding: 4px 10px;
-            font-size: 0.85rem;
-            border-bottom: 1px solid #111;
-            align-items: center;
-        }
-        .fms-row.active-leg {
-            background: rgba(255, 0, 255, 0.15);
-            color: #ff00ff;
-            font-weight: bold;
-        }
-        .fms-row.passed-leg { color: #555; }
-        .fms-proc-header {
-            padding: 4px 10px;
-            background: #1a1a1a;
-            color: #fff;
-            font-size: 0.75rem;
-            font-weight: bold;
-            border-top: 1px solid #333;
-            border-bottom: 1px solid #333;
-            display: flex;
-            align-items: center;
-            gap: 6px;
-        }
-        .proc-tag {
-            font-size: 0.6rem;
-            padding: 1px 4px;
-            border-radius: 2px;
-            background: #333;
-            color: #ccc;
-        }
-        .proc-tag.sid { background: #004d40; color: #4db6ac; }
-        .proc-tag.star { background: #3e2723; color: #ffab91; }
-        .fms-row.is-child { padding-left: 20px; }
-        .fms-footer {
-            background: #111;
-            padding: 6px 10px;
-            border-top: 1px solid #333;
-            display: flex;
-            justify-content: space-between;
-            flex-shrink: 0;
-        }
-        .fms-stat { display: flex; gap: 8px; font-size: 0.8rem; }
-        .stat-label { color: #aaa; }
-        .stat-value { color: #fff; font-weight: bold; }
-        .fms-empty-state { text-align: center; padding: 20px; color: #555; font-style: italic; }
-
-        /* --- REDESIGNED LOCATION DATA PANEL (No Bleeding) --- */
-        #location-data-panel {
-            background: #0f1115;
-            border-radius: 8px;
-            border: 1px solid #333;
-            box-shadow: 0 4px 20px rgba(0,0,0,0.5);
-            width: 100%;
-            display: flex;
-            flex-direction: column;
-            overflow: visible; /* Allow content to dictate height */
-        }
-        .nav-header {
-            background: #181b21;
-            padding: 8px 12px;
-            border-bottom: 1px solid #333;
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-        }
-        .nav-title { 
-            font-size: 0.7rem; 
-            font-weight: 700; 
-            color: #6b7280; 
-            letter-spacing: 1px; 
-            font-family: 'Segoe UI', sans-serif;
-        }
-        .nav-status-indicator {
-            display: flex; align-items: center; gap: 6px;
-            font-size: 0.65rem; font-weight: 700; letter-spacing: 0.5px;
-            color: #10b981; text-transform: uppercase;
-        }
-        .nav-blink {
-            width: 6px; height: 6px; border-radius: 50%; background: #10b981;
-            box-shadow: 0 0 6px #10b981;
-            animation: navPulse 2s infinite;
-        }
-        @keyframes navPulse { 0% { opacity: 1; } 50% { opacity: 0.4; } 100% { opacity: 1; } }
-        
-        .nav-grid-container {
-            padding: 10px;
-            display: grid;
-            grid-template-columns: repeat(4, 1fr);
-            gap: 8px;
-        }
-        .nav-cell {
-            background: rgba(255, 255, 255, 0.03);
-            border-radius: 4px;
-            padding: 6px 10px;
-            display: flex;
-            flex-direction: column;
-            justify-content: space-between;
-            /* Allow height to grow based on content */
-            height: auto; 
-            min-height: 45px;
-            border: 1px solid transparent;
-            transition: background 0.2s;
-            overflow: visible; /* Prevent cutting off */
-        }
-        .nav-cell:hover {
-            background: rgba(255, 255, 255, 0.06);
-            border-color: rgba(255, 255, 255, 0.1);
-        }
-        .nav-span-2 { grid-column: span 2; }
-        .nav-span-4 { grid-column: span 4; }
-        .nav-label {
-            font-size: 0.6rem;
-            color: #00a8ff;
-            text-transform: uppercase;
-            margin-bottom: 4px;
-            font-weight: 600;
-            letter-spacing: 0.5px;
-            display: flex;
-            align-items: center;
-            gap: 6px;
-            white-space: nowrap; /* Keep label on one line if possible */
-        }
-        .nav-label i { opacity: 0.7; font-size: 0.7rem; }
-        
-        /* FIX FOR BLEEDING: Allow wrapping, remove ellipsis */
-        .nav-value {
-            font-family: 'Consolas', 'Monaco', monospace;
-            font-size: 1.0rem; /* Slightly smaller for better fit */
-            color: #fff;
-            font-weight: 600;
-            
-            /* The Critical Fixes */
-            white-space: normal;  /* Allow text to wrap */
-            overflow: visible;    /* Show all content */
-            text-overflow: clip;  /* Remove ellipsis */
-            word-wrap: break-word; /* Break long words if needed */
-            line-height: 1.2;     /* Tighter line height for wrapped text */
-        }
-        
-        .nav-value.large { font-size: 1.2rem; }
-        .nav-value.small { font-size: 0.85rem; color: #ccc; }
-        .nav-value.highlight { color: #4ade80; text-shadow: 0 0 5px rgba(74, 222, 128, 0.2); }
-        .nav-value.accent { color: #f59e0b; }
-        
-        /* FIX FOR ROWS: Allow wrapping inside rows too */
-        .nav-row {
-            display: flex;
-            justify-content: space-between;
-            align-items: baseline;
-            width: 100%;
-            flex-wrap: wrap; /* Allow items to stack if they hit width limit */
-            gap: 4px; /* Space between wrapped items */
-        }
-        
-        .nav-unit {
-            font-size: 0.7rem;
-            color: #6b7280;
-            margin-left: 2px;
-            font-family: 'Segoe UI', sans-serif;
-            font-weight: 400;
-            white-space: nowrap;
-        }
-
+        /* Mobile Adjustments */
         @media (max-width: 992px) {
-            .info-window { width: 95vw; top: 10px; right: 2.5vw; left: 2.5vw; max-height: calc(100vh - 20px); }
             .pfd-and-location-grid { grid-template-columns: 1fr; } 
-            #fms-legs-module { display: none; }
-            #location-data-panel { min-height: auto; }
-            /* On mobile, switch grid to 2 columns to give more space */
-            .nav-grid-container { grid-template-columns: repeat(2, 1fr); }
+            .nav-grid-container { grid-template-columns: 1fr 1fr; }
             .nav-span-2 { grid-column: span 2; }
         }
         
-        .aircraft-overview-panel { 
-            position: relative; 
-            height: 200px; 
-            background-size: cover; 
-            background-position: center; 
-            border-bottom-left-radius: 0; 
-            border-bottom-right-radius: 0; 
-            color: #fff; 
-            display: flex; 
-            flex-direction: column; 
-            justify-content: space-between; 
-            margin-bottom: -40px; 
-        }
-        
-        .aircraft-overview-panel::before { 
-            content: ''; 
-            position: absolute; 
-            inset: 0; 
-            z-index: 1; 
-            background: linear-gradient(
-                to bottom,
-                rgba(0, 0, 0, 0.7) 0%, 
-                rgba(0, 0, 0, 0) 35%, 
-                rgba(0, 0, 0, 0.2) 80%, 
-                var(--iw-bg-start) 100%
-            ); 
-        }
-        
-        .overview-content { position: relative; z-index: 2; padding: 16px 20px 0 20px; display: flex; justify-content: space-between; align-items: flex-start; }
-        .overview-col-left h3 { margin: 0; font-size: 1.6rem; font-weight: 700; text-shadow: 0 4px 10px rgba(0, 0, 0, 0.7); display: flex; align-items: center; gap: 12px; }
-        .ac-header-logo { height: 1.8rem; width: auto; max-width: 100px; object-fit: contain; filter: drop-shadow(0 2px 4px rgba(0,0,0,0.7)); }
-        .overview-col-left p { position: relative; margin: 0; font-size: 1.0rem; color: #e8eaf6; font-weight: 400; text-shadow: 0 2px 5px rgba(0, 0, 0, 0.6); min-height: 1.2em; margin-top: 4px; }
-        
-        .ac-header-subtext { 
-            position: absolute; 
-            top: 0; 
-            left: 0; 
-            width: 100%; 
-            opacity: 0; 
-            white-space: normal; 
-        }
-        
-        @keyframes primarySubtextAnimation { 0% { opacity: 1; transform: translateY(0); } 40% { opacity: 1; transform: translateY(0); } 50% { opacity: 0; transform: translateY(10px); } 51% { opacity: 0; transform: translateY(-10px); } 90% { opacity: 0; transform: translateY(-10px); } 100% { opacity: 1; transform: translateY(0); } }
-        @keyframes secondarySubtextAnimation { 0% { opacity: 0; transform: translateY(-10px); } 40% { opacity: 0; transform: translateY(-10px); } 50% { opacity: 1; transform: translateY(0); } 90% { opacity: 1; transform: translateY(0); } 100% { opacity: 0; transform: translateY(10px); } }
-        #ac-header-livery { animation: primarySubtextAnimation 8s infinite ease-in-out; }
-        #ac-header-actype { animation: secondarySubtextAnimation 8s infinite ease-in-out; }
-        .overview-actions { position: absolute; top: 16px; right: 16px; z-index: 3; display: flex; gap: 8px; }
-        
-        .route-summary-overlay { 
-            position: relative; 
-            padding: 15px 20px 12px 20px; 
-            background: linear-gradient(180deg, 
-                transparent 0%, 
-                rgba(0, 0, 0, 0.2) 40%, 
-                var(--iw-bg-start) 100%
-            ); 
-            display: grid; 
-            grid-template-columns: auto 1fr auto; 
-            align-items: center; 
-            gap: 16px; 
-            width: 100%; 
-        }
-        
-        .route-summary-airport { display: flex; flex-direction: column; }
-        #route-summary-dep { text-align: left; align-items: center; }
-        #route-summary-arr { text-align: right; align-items: center; }
-        .route-summary-airport .airport-line { display: flex; align-items: center; gap: 8px; }
-        .route-summary-airport .icao { font-family: 'Courier New', monospace; font-size: 1.2rem; font-weight: 700; color: #fff; text-shadow: 0 1px 3px rgba(0,0,0,0.5); }
-        .route-summary-airport .time { font-size: 0.85rem; font-weight: 600; color: #c5cae9; margin-top: 4px; text-align: center; }
-        .country-flag { width: 20px; height: auto; border-radius: 3px; border: 1px solid rgba(255, 255, 255, 0.2); display: none; }
-        .route-progress-container { display: grid; grid-template-columns: 1fr; grid-template-rows: 1fr; align-items: center; justify-items: center; position: relative; min-height: 28px; }
-        .route-progress-bar-container { width: 100%; height: 6px; background: rgba(10, 12, 26, 0.7); border-radius: 3px; overflow: hidden; grid-row: 1; grid-column: 1; z-index: 1; }
-        .progress-bar-fill { height: 100%; width: 0%; background: linear-gradient(90deg, #00a8ff, #89f7fe); transition: width 0.5s ease-out; border-radius: 3px; }
-        .flight-phase-indicator { padding: 4px 12px; border-radius: 20px; font-size: 0.75rem; font-weight: 700; color: #fff; border: 1px solid rgba(255, 255, 255, 0.1); grid-row: 1; grid-column: 1; z-index: 2; box-shadow: 0 4px 15px rgba(0, 0, 0, 0.5); }
-        .phase-climb { background: rgba(34, 139, 34, 0.9); } .phase-cruise { background: rgba(0, 119, 255, 0.9); } .phase-descent { background: rgba(255, 140, 0, 0.9); } .phase-approach { background: rgba(138, 43, 226, 0.9); } .phase-enroute { background: rgba(100, 110, 130, 0.9); }
-        
-        .unified-display-main-content { 
-            padding: 16px; 
-            flex-grow: 1; 
-            display: flex; 
-            flex-direction: column; 
-            gap: 16px; 
-            background: linear-gradient(180deg, var(--iw-bg-start), var(--iw-bg-end));
-            border-top: 1px solid rgba(255, 255, 255, 0.05);
-        }
-
-        .ac-tab-pane { display: none; flex-direction: column; gap: 16px; animation: fadeIn 0.4s; }
-        .ac-tab-pane.active { display: flex; }
-        .ac-profile-card-new { 
-            background: rgba(0, 0, 0, 0.2); 
-            border-radius: 12px; border: 1px solid rgba(255, 255, 255, 0.05); padding: 10px; border-top: 3px solid #a33ea3; display: flex; flex-direction: column; gap: 10px; 
-        }
-        .ac-profile-header { display: flex; justify-content: space-between; align-items: center; padding: 0 5px; }
-        .profile-toggle-buttons { display: flex; background: rgba(0,0,0,0.3); border-radius: 6px; }
-        .profile-toggle-btn { background: transparent; border: none; color: #9fa8da; padding: 6px 10px; font-size: 0.75rem; font-weight: 600; cursor: pointer; border-radius: 6px; transition: all 0.2s; }
-        .profile-toggle-btn:hover { color: #fff; }
-        .profile-toggle-btn.active { background: #00a8ff; color: #fff; box-shadow: 0 2px 5px rgba(0, 168, 255, 0.3); }
-        
-        .pfd-main-panel { 
-            display: flex; 
-            flex-direction: column; 
-            width: 100%; 
-            align-items: center; 
-            gap: 16px; 
-        }
-
+        /* PFD BEZEL */
         .display-bezel { 
-            position: relative; 
-            background-color: #1f2937; 
-            border: 4px solid #374151; 
-            padding: 12px; 
-            border-radius: 1rem; 
-            box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.5); 
-            width: 100%; 
-            box-sizing: border-box; 
-            display: flex;
-            flex-direction: column;
+            background-color: #1f2937; border: 4px solid #374151; padding: 12px; border-radius: 1rem; box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.5); width: 100%; box-sizing: border-box; display: flex; flex-direction: column;
         }
+        .crt-container { border: 2px solid #111827; background: #000; border-radius: 12px; overflow: hidden; }
         
-        .screw { 
-            position: absolute; 
-            width: 0.5rem; 
-            height: 0.5rem; 
-            background-color: #4b5563; 
-            border-radius: 50%; 
-            box-shadow: inset 1px 1px 2px rgba(0,0,0,0.5); 
-            z-index: 5; 
-        }
-        .screw.tl { top: 0.35rem; left: 0.35rem; } 
-        .screw.tr { top: 0.35rem; right: 0.35rem; } 
-        .screw.bl { bottom: 0.35rem; left: 0.35rem; } 
-        .screw.br { bottom: 0.35rem; right: 0.35rem; }
-        
-        .crt-container { 
-            width: 100%; 
-            position: relative; 
-            border: 2px solid #111827; 
-            background: #000; 
-            border-radius: 12px; 
-            overflow: hidden; 
-            box-shadow: inset 0 0 20px rgba(0,0,0,0.8); 
-            display: flex; 
-        }
-        
-        .scanlines::before { 
-            content: " "; 
-            display: block; 
-            position: absolute; 
-            top: 0; left: 0; bottom: 0; right: 0; 
-            background: linear-gradient(rgba(18, 16, 16, 0) 50%, rgba(0, 0, 0, 0.25) 50%), 
-                        linear-gradient(90deg, rgba(255, 0, 0, 0.06), rgba(0, 255, 0, 0.02), rgba(0, 0, 255, 0.06)); 
-            z-index: 10; 
-            background-size: 100% 2px, 3px 100%; 
-            pointer-events: none; 
-        }
-        
-        #pfd-container { width: 100%; }
-        
-        #pfd-container svg { 
-            width: 100%; 
-            height: auto; 
-            display: block;
-            margin: 0; 
-            max-width: none; 
-            aspect-ratio: 787 / 800; 
-            background-color: #1a1a1a; 
-            overflow: hidden; 
-            border-radius: 0; 
-            filter: brightness(1.3) contrast(1.2) drop-shadow(0 0 2px rgba(255, 255, 255, 0.3)); 
-        }
-        
-        #nd-container { 
-            width: 100%;
-            aspect-ratio: 787 / 800; 
-            background: transparent; 
-            overflow: hidden; 
-            display: flex; 
-            justify-content: center; 
-            height: auto; 
-        }
-        
-        #nav-display-frame {
-            width: 100%; 
-            height: 100%; 
-            border: none;
-            display: block;
-        }
-
-        .rules-module-container {
-            background: #000;
-            border: 2px solid #333;
-            border-radius: 4px;
-            display: flex;
-            flex-direction: column;
-            box-shadow: inset 0 0 20px rgba(0,0,0,0.8);
-            overflow: hidden;
-        }
-
-        .rules-header {
-            background: #111;
-            padding: 6px 10px;
-            border-bottom: 1px solid #333;
-            display: flex;
-            justify-content: space-between;
-            font-size: 0.8rem;
-            font-weight: bold;
-            color: #fff;
-            font-family: 'Consolas', monospace;
-        }
-
-        .rules-body {
-            padding: 12px;
-            display: flex;
-            justify-content: center;
-            align-items: center;
-            background: #0f1115; 
-        }
-
-        .flight-rules-badge {
-            padding: 6px 16px;
-            border-radius: 4px;
-            font-family: 'Consolas', monospace;
-            font-weight: bold;
-            font-size: 1.1rem;
-            text-align: center;
-            width: 100%;
-            border: 1px solid rgba(255,255,255,0.1);
-            box-shadow: 0 4px 15px rgba(0,0,0,0.5);
-            text-shadow: 0 1px 2px rgba(0,0,0,0.8);
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            gap: 10px;
-        }
-
-        .badge-ifr {
-            background: linear-gradient(180deg, rgba(0, 119, 255, 0.2) 0%, rgba(0, 60, 130, 0.4) 100%);
-            color: #00a8ff;
-            border-color: #0077ff;
-        }
-
-        .badge-vfr {
-            background: linear-gradient(180deg, rgba(40, 167, 69, 0.2) 0%, rgba(20, 80, 35, 0.4) 100%);
-            color: #28a745;
-            border-color: #28a745;
-        }
-
-        .badge-svfr {
-            background: linear-gradient(180deg, rgba(255, 193, 7, 0.2) 0%, rgba(130, 100, 5, 0.4) 100%);
-            color: #ffc107;
-            border-color: #ffc107;
-        }
-        
-        .vsd-module-container {
-            height: 260px; 
-            max-height: 260px;
-            background: #000;
-            border: 2px solid #333;
-            border-radius: 4px;
-            display: flex;
-            flex-direction: column;
-            box-shadow: inset 0 0 20px rgba(0,0,0,0.8);
-            box-sizing: border-box;
-            overflow: hidden;
-            margin-bottom: 16px; 
-        }
-
-        .vsd-panel { 
-            display: flex; 
-            flex-direction: column; 
-            background: #0f1115; 
-            flex-grow: 1;
-            position: relative;
-            overflow: hidden; 
-            width: 100%; 
-        }
-
-        .vsd-graph-window { 
-            position: relative; 
-            width: 100%; 
-            height: 100%; 
-            overflow: hidden; 
-            padding-left: 35px; 
-            box-sizing: border-box; 
-        }
-
-        #vsd-y-axis {
-            position: absolute;
-            top: 0;
-            left: 0;
-            width: 35px;
-            height: 100%;
-            background: #111;
-            border-right: 1px solid #333;
-            z-index: 10;
-        }
-        .y-axis-label {
-            position: absolute;
-            right: 4px;
-            font-family: 'Consolas', monospace;
-            font-size: 0.65rem;
-            color: #666;
-            transform: translateY(-50%);
-        }
-
-        #vsd-graph-content {
-            position: relative;
-            height: 100%;
-        }
-
-        #vsd-profile-svg {
-            position: absolute;
-            top: 0;
-            left: 0;
-            width: 100%;
-            height: 100%;
-            overflow: visible;
-        }
-
-        #vsd-profile-path {
-            fill: none;
-            stroke: #444; 
-            stroke-width: 2;
-            stroke-dasharray: 4, 2;
-        }
-
-        #vsd-flown-path {
-            fill: none;
-            stroke: #00e600; 
-            stroke-width: 3;
-            filter: drop-shadow(0 0 4px rgba(0, 230, 0, 0.5));
-        }
-
-        #vsd-aircraft-icon {
-            position: absolute;
-            width: 14px;
-            height: 14px;
-            background-image: url('data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><path fill="%2300a8ff" d="M488 256l-112-80v-96l-80 48-80-48v96L104 256 24 288v64l192-48v96l-32 32v32l72-24 72 24v-32l-32-32v-96l192 48v-64l-80-32z"/></svg>');
-            background-size: contain;
-            background-repeat: no-repeat;
-            transform: translate(-50%, -50%);
-            z-index: 20;
-        }
-
-        .vsd-wp-label {
-            position: absolute;
-            transform: translateX(-50%);
-            font-family: 'Consolas', monospace;
-            text-align: center;
-            width: 60px;
-            pointer-events: none;
-        }
-        .vsd-wp-label .wp-name {
-            display: block;
-            font-size: 0.7rem;
-            color: #00a8ff;
-            font-weight: bold;
-            background: rgba(0,0,0,0.7);
-            padding: 1px 3px;
-            border-radius: 2px;
-        }
-        .vsd-wp-label .wp-alt {
-            display: block;
-            font-size: 0.6rem;
-            color: #888;
-            margin-top: 1px;
-        }
-        
-        .vsd-footer {
-            background: #111;
-            padding: 4px 10px;
-            border-top: 1px solid #333;
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-            font-size: 0.7rem;
-            color: #888;
-            flex-shrink: 0;
-        }
-        .vsd-legend-item { display: flex; align-items: center; gap: 5px; }
-        .dot-plan { width: 6px; height: 6px; background: #444; border-radius: 50%; }
-        .dot-flown { width: 6px; height: 6px; background: #00e600; border-radius: 50%; box-shadow: 0 0 4px #00e600; }
-        
-        .ac-info-window-tabs {
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-            background: var(--iw-bg-start);
-            border-bottom: 1px solid rgba(255, 255, 255, 0.1);
-            padding: 0 20px;
-            height: 60px;
-        }
-
-        .ac-tabs-wrapper {
-            display: flex;
-            gap: 20px;
-            height: 100%;
-        }
-
-        .ac-info-tab-logo {
-            height: 32px; 
-            width: auto;
-            object-fit: contain;
-            opacity: 0.8;
-        }
-
-        .ac-info-tab-btn {
-            padding: 0 10px;
-            height: 100%;
-            border: none;
-            background: transparent;
-            color: #9fa8da;
-            cursor: pointer;
-            font-size: 0.95rem;
-            font-family: 'Segoe UI', sans-serif;
-            font-weight: 600;
-            position: relative;
-            display: flex;
-            align-items: center;
-            gap: 10px;
-            transition: all 0.3s ease;
-            border-bottom: 3px solid transparent;
-        }
-
-        .ac-info-tab-btn:hover {
-            color: #fff;
-        }
-
-        .ac-info-tab-btn.active {
-            color: #fff;
-            border-bottom-color: #00a8ff;
-            text-shadow: 0 0 10px rgba(0, 168, 255, 0.5);
-        }
-        .ac-info-tab-btn.active i {
-            color: #00a8ff;
-        }
-
-        .ac-info-tab-btn.pilot-tab-btn {
-            color: #e0e0e0;
-            font-weight: 700;
-            letter-spacing: 0.5px;
-        }
-        .ac-info-tab-btn.pilot-tab-btn i {
-            color: #ffb74d; 
-        }
-        .ac-info-tab-btn.pilot-tab-btn.active {
-            color: #fff;
-            border-bottom-color: #ffb74d; 
-            text-shadow: 0 0 10px rgba(255, 183, 77, 0.5);
-        }
-
-        @media (max-width: 768px) {
-            .ac-info-tab-logo {
-                display: none !important;
-            }
-            .ac-info-window-tabs {
-                justify-content: center;
-                padding: 0 10px;
-            }
-            .ac-tabs-wrapper {
-                width: 100%;
-                justify-content: space-around;
-                gap: 0;
-            }
-        }
-
-        .vsd-disclaimer { background: rgba(10, 12, 26, 0.5); border: 1px solid rgba(255, 255, 255, 0.05); border-radius: 8px; padding: 10px 14px; margin-top: 0; }
-
-        /* --- MAPBOX POPUP OVERRIDES (FIXED) --- */
-        .mapboxgl-popup-content {
-            background: transparent !important;
-            box-shadow: none !important;
-            padding: 0 !important;
-            border: none !important;
-            /* This allows clicks/scrolls to pass through to the map */
-            pointer-events: none !important; 
-        }
-        .mapboxgl-popup-tip {
-            display: none !important;
-        }
-        
-        /* --- FR24 STYLE CARD CONTAINER (MICRO) --- */
-        .fr24-card-container {
-            width: 160px;
-            display: flex;
-            flex-direction: column;
-            gap: 3px;
-            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
-            /* Ensure the card itself doesn't block events either */
-            pointer-events: none; 
-        }
-
-        /* --- TOP IMAGE BUBBLE --- */
-        .fr24-image-box {
-            height: 85px;
-            width: 100%;
-            background-color: #2c2c2e;
-            background-size: cover;
-            background-position: center;
-            border-radius: 8px;
-            position: relative;
-            box-shadow: 0 2px 8px rgba(0,0,0,0.4);
-            overflow: hidden;
-        }
-        
-        .fr24-copyright {
-            position: absolute;
-            bottom: 3px;
-            left: 6px;
-            color: rgba(255, 255, 255, 0.7);
-            font-size: 7px;
-            font-weight: 500;
-            text-shadow: 0 1px 2px rgba(0,0,0,1);
-            z-index: 2;
-        }
-        
-        .fr24-image-overlay {
-            position: absolute;
-            inset: 0;
-            background: linear-gradient(to top, rgba(0,0,0,0.6) 0%, transparent 40%);
-        }
-
-        /* --- BOTTOM INFO BUBBLE --- */
-        .fr24-info-box {
-            background-color: #2c2c2e;
-            border-radius: 8px;
-            padding: 6px 8px;
-            box-shadow: 0 2px 8px rgba(0,0,0,0.4);
-            display: flex;
-            flex-direction: column;
-            gap: 4px;
-            color: #ffffff;
-        }
-
-        .fr24-header-row {
-            display: flex;
-            align-items: center;
-            gap: 6px;
-        }
-
-        .fr24-airline-logo {
-            height: 14px;
-            width: auto;
-            max-width: 35px;
-            object-fit: contain;
-            border-radius: 1px;
-        }
-
-        .fr24-ident-group {
-            display: flex;
-            align-items: center;
-            gap: 4px;
-        }
-
-        .fr24-callsign {
-            font-size: 13px;
-            font-weight: 700;
-            color: #fff;
-            line-height: 1;
-        }
-
-        .fr24-ac-badge {
-            background-color: #3a3a3c;
-            border: 1px solid #48484a;
-            color: #d1d1d6;
-            font-size: 8px;
-            font-weight: 600;
-            padding: 0px 3px;
-            border-radius: 3px;
-            line-height: 1.1;
-        }
-
-        .fr24-route {
-            font-size: 10px;
-            font-weight: 500;
-            color: #d1d1d6;
-            white-space: nowrap;
-            overflow: hidden;
-            text-overflow: ellipsis;
-            max-width: 100px;
-        }
-
-        .fr24-progress-track {
-            height: 3px;
-            width: 100%;
-            background-color: #3a3a3c;
-            border-radius: 1.5px;
-            overflow: hidden;
-            margin-top: 1px;
-        }
-
-        .fr24-progress-fill {
-            height: 100%;
-            background-color: #ff3b30;
-            border-radius: 1.5px;
-        }
-
-        .fr24-stats-row {
-            font-size: 10px;
-            color: #98989d;
-            font-weight: 600;
-            margin-top: 1px;
-        }
-
-        /* --- AIRPORT WINDOW SPECIFIC STYLES --- */
-
-/* 1. Airport Hero Header */
-.airport-hero {
-    background: linear-gradient(135deg, rgba(30, 41, 59, 0.8) 0%, rgba(15, 23, 42, 0.9) 100%);
-    border-bottom: 1px solid rgba(255, 255, 255, 0.1);
-    padding: 20px;
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-    position: relative;
-    overflow: hidden;
-}
-
-/* A subtle pattern overlay for the header */
-.airport-hero::before {
-    content: '';
-    position: absolute;
-    top: 0; right: 0; bottom: 0; left: 0;
-    background-image: radial-gradient(#ffffff 1px, transparent 1px);
-    background-size: 20px 20px;
-    opacity: 0.05;
-    pointer-events: none;
-}
-
-.apt-ident-group {
-    display: flex;
-    flex-direction: column;
-    z-index: 2;
-}
-
-.apt-icao {
-    font-family: 'Consolas', monospace;
-    font-size: 2.5rem;
-    font-weight: 800;
-    color: #fff;
-    line-height: 1;
-    text-shadow: 0 4px 10px rgba(0,0,0,0.5);
-    display: flex;
-    align-items: center;
-    gap: 12px;
-}
-
-.apt-name {
-    font-size: 0.9rem;
-    color: #94a3b8;
-    margin-top: 6px;
-    font-weight: 500;
-}
-
-.apt-meta-badge {
-    background: rgba(255,255,255,0.05);
-    border: 1px solid rgba(255,255,255,0.1);
-    padding: 4px 8px;
-    border-radius: 4px;
-    font-size: 0.75rem;
-    color: #cbd5e1;
-    display: flex;
-    align-items: center;
-    gap: 6px;
-}
-
-/* 2. Weather Module Refactor */
-.weather-module-grid {
-    display: grid;
-    grid-template-columns: repeat(4, 1fr);
-    gap: 8px;
-    margin-top: 12px;
-}
-
-.wx-stat-box {
-    background: rgba(255,255,255,0.03);
-    border-radius: 6px;
-    padding: 8px;
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    text-align: center;
-}
-
-.wx-label {
-    font-size: 0.65rem;
-    color: #64748b;
-    text-transform: uppercase;
-    font-weight: 700;
-    margin-bottom: 4px;
-}
-
-.wx-value {
-    font-family: 'Consolas', monospace;
-    font-size: 0.95rem;
-    color: #e2e8f0;
-    font-weight: 600;
-}
-
-.wx-condition-pill {
-    grid-column: span 4;
-    background: rgba(16, 185, 129, 0.1); 
-    border: 1px solid rgba(16, 185, 129, 0.2);
-    color: #34d399;
-    padding: 8px;
-    border-radius: 6px;
-    text-align: center;
-    font-weight: 700;
-    font-size: 0.9rem;
-    margin-top: 4px;
-    display: flex;
-    justify-content: center;
-    align-items: center;
-    gap: 8px;
-}
-
-/* Dynamic colors for flight rules */
-.wx-vfr { background: rgba(34, 197, 94, 0.1); color: #4ade80; border-color: rgba(34, 197, 94, 0.3); }
-.wx-mvfr { background: rgba(59, 130, 246, 0.1); color: #60a5fa; border-color: rgba(59, 130, 246, 0.3); }
-.wx-ifr { background: rgba(239, 68, 68, 0.1); color: #f87171; border-color: rgba(239, 68, 68, 0.3); }
-.wx-lifr { background: rgba(168, 85, 247, 0.1); color: #c084fc; border-color: rgba(168, 85, 247, 0.3); }
-
-/* 3. Route Cards (Flight Strips) */
-.route-card {
-    background: linear-gradient(to right, rgba(30, 41, 59, 0.4), rgba(30, 41, 59, 0.2));
-    border: 1px solid rgba(255, 255, 255, 0.05);
-    border-left: 3px solid #00a8ff;
-    border-radius: 4px;
-    padding: 10px 14px;
-    margin-bottom: 8px;
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-    transition: all 0.2s;
-}
-
-.route-card:hover {
-    background: rgba(30, 41, 59, 0.7);
-    transform: translateX(2px);
-    border-color: rgba(255, 255, 255, 0.15);
-}
-
-.route-info {
-    display: flex;
-    flex-direction: column;
-    gap: 4px;
-}
-
-.route-callsign {
-    font-family: 'Consolas', monospace;
-    font-size: 1rem;
-    color: #fff;
-    font-weight: 700;
-    display: flex;
-    align-items: center;
-    gap: 8px;
-}
-
-.route-details {
-    font-size: 0.75rem;
-    color: #94a3b8;
-    display: flex;
-    align-items: center;
-    gap: 10px;
-}
-
-.route-ac-badge {
-    background: #1e293b;
-    padding: 2px 6px;
-    border-radius: 3px;
-    color: #cbd5e1;
-    font-weight: 600;
-    font-size: 0.7rem;
-    border: 1px solid rgba(255,255,255,0.1);
-}
-
-.plan-btn-mini {
-    background: rgba(14, 165, 233, 0.1);
-    color: #38bdf8;
-    border: 1px solid rgba(14, 165, 233, 0.3);
-    padding: 6px 12px;
-    border-radius: 4px;
-    font-size: 0.8rem;
-    font-weight: 600;
-    cursor: pointer;
-    transition: all 0.2s;
-}
-
-.plan-btn-mini:hover {
-    background: #0ea5e9;
-    color: #fff;
-}
-
-/* 4. ATC Grid */
-.atc-grid-card {
-    background: #1e293b;
-    border: 1px solid rgba(255,255,255,0.05);
-    border-radius: 6px;
-    padding: 10px;
-    margin-bottom: 8px;
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-}
-
-.atc-type-badge {
-    padding: 4px 8px;
-    border-radius: 4px;
-    font-size: 0.75rem;
-    font-weight: 800;
-    text-transform: uppercase;
-    width: 80px;
-    text-align: center;
-}
-.atc-type-gnd { background: #0f172a; color: #94a3b8; border: 1px solid #334155; }
-.atc-type-twr { background: #1e3a8a; color: #60a5fa; border: 1px solid #2563eb; }
-.atc-type-app { background: #312e81; color: #818cf8; border: 1px solid #4f46e5; }
-.atc-type-obs { background: #3f3f46; color: #a1a1aa; border: 1px solid #52525b; }
-
-.atc-controller {
-    font-weight: 600;
-    color: #e2e8f0;
-    font-size: 0.9rem;
-}
-
-.atc-duration {
-    font-family: monospace;
-    color: #64748b;
-    font-size: 0.8rem;
-}
-
-/* --- [NEW] HERO ACTION BUTTONS --- */
-        .hero-actions {
-            position: absolute;
-            top: 15px;
-            right: 15px;
-            display: flex;
-            gap: 8px;
-            z-index: 10;
-        }
-
-        .hero-btn {
-            background: rgba(0, 0, 0, 0.3);
-            border: 1px solid rgba(255, 255, 255, 0.2);
-            color: #fff;
-            width: 32px;
-            height: 32px;
-            border-radius: 50%;
-            cursor: pointer;
-            display: grid;
-            place-items: center;
-            transition: all 0.2s ease;
-            backdrop-filter: blur(4px);
-        }
-
-        .hero-btn:hover {
-            background: rgba(255, 255, 255, 0.2);
-            transform: scale(1.1);
-        }
-
-        /* --- AIRPORT WINDOW TABS (REDESIGNED) --- */
-        .apt-tabs-header {
-            display: flex;
-            background: rgba(0, 0, 0, 0.2);
-            border-bottom: 1px solid rgba(255, 255, 255, 0.1);
-            margin-bottom: 16px;
-        }
-
-        .apt-tab-btn {
-            flex: 1;
-            padding: 12px 10px;
-            background: transparent;
-            border: none;
-            color: #94a3b8;
-            font-size: 0.85rem;
-            font-weight: 600;
-            text-transform: uppercase;
-            cursor: pointer;
-            border-bottom: 2px solid transparent;
-            transition: all 0.3s ease;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            gap: 8px;
-        }
-
-        .apt-tab-btn:hover {
-            color: #fff;
-            background: rgba(255, 255, 255, 0.05);
-        }
-
-        .apt-tab-btn.active {
-            color: #38bdf8;
-            border-bottom-color: #38bdf8;
-            background: rgba(56, 189, 248, 0.1);
-        }
-
-        .apt-tab-content {
-            display: none;
-            animation: fadeIn 0.3s ease;
-        }
-
-        .apt-tab-content.active {
-            display: block;
-        }
-
-        @keyframes fadeIn {
-            from { opacity: 0; transform: translateY(5px); }
-            to { opacity: 1; transform: translateY(0); }
-        }
-
-        /* --- RUNWAY DROPDOWN STYLES --- */
-        .runway-dropdown-header {
-            cursor: pointer;
-            transition: background 0.2s;
-        }
-        .runway-dropdown-header:hover {
-            background: rgba(255, 255, 255, 0.05);
-        }
-        .runway-dropdown-content {
-            display: none; /* Closed by default */
-            padding: 8px;
-            border-top: 1px solid rgba(255, 255, 255, 0.05);
-        }
-        .runway-dropdown-content.open {
-            display: grid; /* Grid layout when open */
-            grid-template-columns: 1fr 1fr; 
-            gap: 8px;
-            animation: slideDown 0.3s ease-out;
-        }
-        .runway-toggle-icon {
-            color: #94a3b8;
-            transition: transform 0.3s ease;
-        }
-        .runway-dropdown-header.open .runway-toggle-icon {
-            transform: rotate(180deg);
-        }
-        
-        @keyframes slideDown {
-            from { opacity: 0; transform: translateY(-5px); }
-            to { opacity: 1; transform: translateY(0); }
-        }
-
-        /* --- SERVER SELECTOR PILL --- */
-        #server-selector-container {
-            position: absolute;
-            top: 20px;
-            left: 50%;
-            transform: translateX(-50%);
-            background: rgba(15, 23, 42, 0.9);
-            backdrop-filter: blur(10px);
-            border: 1px solid rgba(255, 255, 255, 0.1);
-            border-radius: 999px; /* Pill shape */
-            padding: 4px;
-            display: flex;
-            gap: 4px;
-            z-index: 1050; /* Above map, below modals */
-            box-shadow: 0 4px 20px rgba(0,0,0,0.4);
-        }
-
-        .server-btn {
-            background: transparent;
-            border: none;
-            color: #94a3b8;
-            padding: 6px 16px;
-            font-size: 0.8rem;
-            font-weight: 600;
-            border-radius: 999px;
-            cursor: pointer;
-            transition: all 0.2s ease;
-            white-space: nowrap;
-            font-family: 'Inter', sans-serif;
-        }
-
-        .server-btn:hover {
-            color: #fff;
-            background: rgba(255, 255, 255, 0.05);
-        }
-
-        .server-btn.active {
-            background: #3b82f6; /* Blue active state */
-            color: #fff;
-            box-shadow: 0 2px 10px rgba(59, 130, 246, 0.4);
-        }
-
-        /* Mobile adjustment to drop it below the search bar if needed */
-        @media (max-width: 768px) {
-            #server-selector-container {
-                top: 70px; /* Push down below search bar on mobile */
-                width: auto;
-                max-width: 90vw;
-            }
-            .server-btn {
-                padding: 6px 12px;
-                font-size: 0.75rem;
-            }
-        }
-
-        .apt-quick-info-strip {
-    display: flex;
-    align-items: center;
-    gap: 12px;
-    padding: 10px 16px;
-    background: rgba(0, 0, 0, 0.2);
-    border-bottom: 1px solid rgba(255, 255, 255, 0.05);
-    font-size: 0.75rem;
-    color: #94a3b8;
-    overflow-x: auto;
-    white-space: nowrap;
-}
-
-.apt-feature-pill {
-    display: flex;
-    align-items: center;
-    gap: 6px;
-    background: rgba(255, 255, 255, 0.03);
-    padding: 3px 8px;
-    border-radius: 4px;
-    border: 1px solid rgba(255, 255, 255, 0.05);
-    font-weight: 600;
-}
-
-.apt-dashboard-grid {
-    display: grid;
-    grid-template-columns: 1fr 1fr; /* Two equal columns */
-    gap: 8px;
-    padding: 0 16px; /* Horizontal padding only */
-    margin-bottom: 8px;
-}
-
-/* On mobile, stack them back to 1 column */
-@media (max-width: 600px) {
-    .apt-dashboard-grid {
-        grid-template-columns: 1fr;
-    }
-}
-
-.apt-mini-module {
-    background: rgba(15, 23, 42, 0.6);
-    border: 1px solid rgba(255, 255, 255, 0.08);
-    border-radius: 8px;
-    display: flex;
-    flex-direction: column;
-    overflow: hidden;
-}
-
-.apt-mini-header {
-    background: rgba(255, 255, 255, 0.03);
-    padding: 6px 10px;
-    font-size: 0.7rem;
-    font-weight: 700;
-    color: #94a3b8;
-    text-transform: uppercase;
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-    border-bottom: 1px solid rgba(255, 255, 255, 0.05);
-}
-
-.apt-mini-body {
-    padding: 10px;
-    flex-grow: 1;
-    display: flex;
-    flex-direction: column;
-    justify-content: center;
-}
-
-.stat-grid-compact {
-    display: grid;
-    grid-template-columns: 1fr 1fr;
-    gap: 8px;
-}
-
-.compact-stat-box {
-    text-align: center;
-    background: rgba(255, 255, 255, 0.02);
-    border-radius: 4px;
-    padding: 4px;
-}
-.compact-label { font-size: 0.6rem; color: #64748b; display: block; }
-.compact-value { font-family: 'Consolas', monospace; font-size: 0.9rem; color: #e2e8f0; font-weight: 600; }
-
-.metar-strip {
-    background: rgba(0, 0, 0, 0.3);
-    padding: 8px 16px;
-    font-family: 'Consolas', monospace;
-    font-size: 0.7rem;
-    color: #94a3b8;
-    border-bottom: 1px solid rgba(255, 255, 255, 0.05);
-    white-space: pre-wrap;
-    line-height: 1.3;
-}
-
+        /* Existing Tab Styles (Cleaned) */
+        .ac-info-window-tabs { display: flex; justify-content: space-between; align-items: center; background: rgba(0,0,0,0.2); border-bottom: 1px solid rgba(255, 255, 255, 0.1); padding: 0 20px; height: 50px; }
+        .ac-info-tab-btn { background: transparent; border: none; color: #9fa8da; font-weight: 600; cursor: pointer; height: 100%; border-bottom: 3px solid transparent; }
+        .ac-info-tab-btn.active { color: #fff; border-bottom-color: var(--accent-blue); }
+        .ac-tab-pane { display: none; flex-direction: column; gap: 16px; padding: 16px; }
+        .ac-tab-pane.active { display: flex; }
+
+        /* VSD Graph Specifics */
+        .vsd-graph-window { background: transparent !important; position: relative; width: 100%; height: 100%; overflow: hidden; padding-left: 35px; box-sizing: border-box; }
+        #vsd-y-axis { position: absolute; top: 0; left: 0; width: 35px; height: 100%; background: rgba(255,255,255,0.02); border-right: 1px solid rgba(255,255,255,0.1); z-index: 10; }
+        .y-axis-label { position: absolute; right: 4px; font-family: var(--font-main); font-size: 0.65rem; color: #666; transform: translateY(-50%); }
     `;
 
     const style = document.createElement('style');
@@ -7398,372 +6100,941 @@ function rebuildDynamicLayers() {
     renderAirportMarkers();
 }
 
-function injectModernDashboardStyles() {
-    const css = `
-    /* --- LAYOUT GRID --- */
-    .dashboard-grid {
-        display: grid;
-        grid-template-columns: 1.8fr 1fr; /* PFD Left, Data Right */
-        gap: 12px;
-        padding: 12px;
-        background: #000;
-        font-family: 'Segoe UI', Inter, -apple-system, sans-serif;
-        height: 100%;
-        box-sizing: border-box;
-    }
-
-    /* --- COMMON CARD STYLE --- */
-    .dash-card {
-        background: rgba(30, 30, 35, 0.6);
-        border: 1px solid rgba(255, 255, 255, 0.08);
-        border-radius: 12px;
-        padding: 12px;
-        backdrop-filter: blur(10px);
-        display: flex;
-        flex-direction: column;
-        gap: 8px;
-    }
-
-    .dash-header {
-        font-size: 0.7rem;
-        text-transform: uppercase;
-        letter-spacing: 1px;
-        color: #888;
-        font-weight: 600;
-        display: flex;
-        justify-content: space-between;
-        align-items: center;
-        margin-bottom: 4px;
-        border-bottom: 1px solid rgba(255,255,255,0.05);
-        padding-bottom: 4px;
-    }
-
-    /* --- RIGHT COLUMN STACK --- */
-    .data-stack {
-        display: flex;
-        flex-direction: column;
-        gap: 10px;
-        height: 100%;
-        overflow-y: auto;
-    }
-
-    /* --- STATS ROW (Wind, Speed, OAT) --- */
-    .stats-row {
-        display: grid;
-        grid-template-columns: 1fr 1fr;
-        gap: 8px;
-    }
-    
-    .mini-stat {
-        background: rgba(255, 255, 255, 0.03);
-        border-radius: 8px;
-        padding: 8px;
-        display: flex;
-        flex-direction: column;
-        align-items: center;
-        text-align: center;
-    }
-    
-    .mini-stat-label { font-size: 0.65rem; color: #6c757d; margin-bottom: 2px; font-weight: 500;}
-    .mini-stat-value { font-size: 1.1rem; color: #fff; font-weight: 700; letter-spacing: -0.5px;}
-    .mini-stat-unit { font-size: 0.7rem; color: #adb5bd; font-weight: normal; margin-left: 2px;}
-
-    /* --- PILOT STATUS PILL --- */
-    .pilot-status-container {
-        display: flex;
-        align-items: center;
-        justify-content: space-between;
-        background: rgba(255,255,255,0.03);
-        border-radius: 8px;
-        padding: 10px 12px;
-        border: 1px solid rgba(255,255,255,0.05);
-    }
-    
-    .status-dot {
-        height: 8px; width: 8px;
-        border-radius: 50%;
-        margin-right: 8px;
-        box-shadow: 0 0 8px currentColor;
-    }
-    .status-active { background-color: #2ecc71; color: #2ecc71; } /* Green */
-    .status-monitor { background-color: #f1c40f; color: #f1c40f; } /* Amber */
-    .status-parked { background-color: #e74c3c; color: #e74c3c; } /* Red */
-    
-    .status-text { font-size: 0.9rem; font-weight: 600; color: #fff; }
-
-    /* --- MODERN FLIGHT PLAN LIST --- */
-    .fms-modern-list {
-        display: flex;
-        flex-direction: column;
-        gap: 0;
-        overflow-y: auto;
-        padding-right: 4px;
-        flex-grow: 1;
-        min-height: 150px;
-        
-        /* Scrollbar Styling */
-        scrollbar-width: thin;
-        scrollbar-color: #333 transparent;
-    }
-    
-    .fms-modern-item {
-        display: grid;
-        grid-template-columns: 30px 1fr auto;
-        padding: 8px 4px;
-        border-bottom: 1px solid rgba(255,255,255,0.05);
-        align-items: center;
-        font-size: 0.85rem;
-        color: #adb5bd;
-    }
-    
-    .fms-modern-item.active {
-        background: linear-gradient(90deg, rgba(0, 168, 255, 0.1), transparent);
-        border-left: 2px solid #00a8ff;
-        color: #fff;
-        font-weight: 600;
-    }
-
-    .fms-icon { font-size: 0.7rem; color: #495057; display: flex; justify-content: center;}
-    .fms-modern-item.active .fms-icon { color: #00a8ff; }
-
-    /* --- FOOTER METADATA --- */
-    .meta-footer {
-        margin-top: auto;
-        padding-top: 10px;
-        border-top: 1px solid rgba(255,255,255,0.1);
-        display: flex;
-        justify-content: space-between;
-        font-size: 0.75rem;
-        color: #6c757d;
-    }
-
-    /* PFD Container Wrapper to keep it clean */
-    .pfd-wrapper {
-        background: #000;
-        border-radius: 12px;
-        overflow: hidden;
-        border: 1px solid #222;
-        padding: 2px;
-        position: relative;
-    }
-    `;
-    const style = document.createElement('style');
-    style.type = 'text/css';
-    style.appendChild(document.createTextNode(css));
-    document.head.appendChild(style);
-}
 
 
+/**
+ * --- [UPDATED] Populates the aircraft info window with data from backend lookup.
+ */
 function populateAircraftInfoWindow(baseProps, plan, sortedRoutePoints, communityAircraftData) {
+    // --- Helper function to update all elements matching a selector ---
+    const updateAll = (selector, value, isHTML = false) => {
+        const elements = document.querySelectorAll(selector);
+        elements.forEach(el => {
+            if (isHTML) {
+                el.innerHTML = value;
+            } else {
+                el.textContent = value;
+            }
+        });
+    };
+    
+    // --- Helper for styling ---
+    const styleAll = (selector, property, value) => {
+        const elements = document.querySelectorAll(selector);
+        elements.forEach(el => {
+            el.style[property] = value;
+        });
+    };
+
+    // --- Get Original Data ---
+    const originalFlatWaypoints = (plan && plan.flightPlanItems) ? flattenWaypointsFromPlan(plan.flightPlanItems) : [];
+    const originalFlatWaypointObjects = (plan && plan.flightPlanItems) ? getFlatWaypointObjects(plan.flightPlanItems) : [];
+    const hasPlan = originalFlatWaypoints.length >= 2;
     const windowEl = document.getElementById('aircraft-info-window');
-    
-    // --- 1. DATA PREPARATION ---
-    
+
     // Aircraft Info
     const aircraftName = baseProps.aircraft?.aircraftName || 'Unknown Type';
     const airlineName = baseProps.aircraft?.liveryName || 'Generic Livery';
     const liveryName = baseProps.aircraft?.liveryName || '';
     const reg = baseProps.aircraft?.registration || 'N/A';
     
-    // Logo Logic
+    // Logo Logic (Client-side logic for Airline Logo remains useful)
     const words = liveryName.trim().split(/\s+/);
     let logoName = words.length > 1 && /[^a-zA-Z0-9]/.test(words[1]) ? words[0] : (words[0] + (words[1] ? ' ' + words[1] : ''));
     const sanitizedLogoName = logoName.toLowerCase().replace(/[^a-z0-9\s]/g, '').replace(/\s+/g, '_');
     const logoPath = sanitizedLogoName ? `Images/airline_logos/${sanitizedLogoName}.png` : '';
     const logoHtml = logoPath ? `<img src="${logoPath}" alt="${liveryName}" class="ac-header-logo" onerror="this.style.display='none'">` : '';
 
-    // Route & Times
-    const originalFlatWaypointObjects = (plan && plan.flightPlanItems) ? getFlatWaypointObjects(plan.flightPlanItems) : [];
-    const hasPlan = originalFlatWaypointObjects.length >= 2;
-    
-    const departureIcao = hasPlan ? originalFlatWaypointObjects[0]?.identifier || originalFlatWaypointObjects[0]?.name : 'N/A';
-    const arrivalIcao = hasPlan ? originalFlatWaypointObjects[originalFlatWaypointObjects.length - 1]?.identifier || originalFlatWaypointObjects[originalFlatWaypointObjects.length - 1]?.name : 'N/A';
-    
+    // Times & Flags
     const atdTimestamp = (sortedRoutePoints && sortedRoutePoints.length > 0) ? sortedRoutePoints[0].date : null;
     const atdTime = atdTimestamp ? formatTimeFromTimestamp(atdTimestamp) : '--:--';
-    let etaTime = '--:--'; // Calculated later via JS update
-    
-    // Pilot Status Logic
-    let statusColorClass = 'status-active';
-    let statusText = 'MANUAL CONTROL';
-    let statusIcon = 'fa-gamepad';
+    const etaTime = '--:--'; 
+    const departureIcao = hasPlan ? originalFlatWaypointObjects[0]?.identifier || originalFlatWaypointObjects[0]?.name : 'N/A';
+    const arrivalIcao = hasPlan ? originalFlatWaypointObjects[originalFlatWaypointObjects.length - 1]?.identifier || originalFlatWaypointObjects[originalFlatWaypointObjects.length - 1]?.name : 'N/A';
+    const depCountryCode = airportsData[departureIcao]?.country ? airportsData[departureIcao].country.toLowerCase() : '';
+    const arrCountryCode = airportsData[arrivalIcao]?.country ? airportsData[arrivalIcao].country.toLowerCase() : '';
+    const depFlagSrc = depCountryCode ? `https://flagcdn.com/w20/${depCountryCode}.png` : '';
+    const arrFlagSrc = arrCountryCode ? `https://flagcdn.com/w20/${arrCountryCode}.png` : '';
+    const depFlagDisplay = depCountryCode ? 'block' : 'none';
+    const arrFlagDisplay = arrCountryCode ? 'block' : 'none';
 
-    if (baseProps.pilotState === 1) { // Auto/Monitoring
-        statusColorClass = 'status-monitor';
-        statusText = 'SYSTEMS MONITORING';
-        statusIcon = 'fa-robot';
-    } else if (baseProps.pilotState === 2) { // Parked
-        statusColorClass = 'status-parked';
-        statusText = 'PARKED / SECURED';
-        statusIcon = 'fa-square-parking';
+    // Plan Button
+    const simbriefAircraftValue = findSimbriefAircraftValue(aircraftName);
+    let planButtonHtml = '';
+    if (hasPlan && simbriefAircraftValue) {
+        planButtonHtml = `
+        <button id="plan-this-flight-btn" class="pilot-stats-toggle-btn" 
+                data-departure="${departureIcao}" 
+                data-arrival="${arrivalIcao}" 
+                data-aircraft="${simbriefAircraftValue}"
+                style="width: 100%; margin-top: 16px;">
+            <i class="fa-solid fa-file-invoice"></i> Plan This Flight
+        </button>`;
     }
 
-    // Community Data (Photographer)
+    const pilotUsername = baseProps.username || 'N/A';
+    const pilotReportTabText = (pilotUsername !== 'N/A' && pilotUsername) ? pilotUsername : 'Pilot Report';
+
+    // --- DYNAMIC IMAGE & CONTRIBUTOR LOGIC ---
+    // Default Fallback
+    let techCardImagePath = '/CommunityPlanes/default.png';
     let photographerName = 'IF Community';
-    if (Array.isArray(communityAircraftData)) communityAircraftData = communityAircraftData[0];
-    if (communityAircraftData && communityAircraftData.contributorName) {
-        photographerName = communityAircraftData.contributorName;
+    let techCardTail = reg; // Default to live registration
+
+    // [FIX START] Handle if data comes as an array (common with DB lookups)
+    if (Array.isArray(communityAircraftData)) {
+        communityAircraftData = communityAircraftData.length > 0 ? communityAircraftData[0] : null;
     }
 
-    // Calculate Progress (Initial)
-    let progress = 0;
-    if (hasPlan && baseProps.position) {
-        // Simple initial calc, real-time updates happen in updateAircraftInfoWindow
-        const distFlown = sortedRoutePoints.length; // Approximate using trail length as proxy if needed, or just default 0
-        // We let the update loop handle the exact bar width
+    // If backend returned data, use it
+    if (communityAircraftData && communityAircraftData.imageUrl) {
+        techCardImagePath = communityAircraftData.imageUrl;
+        photographerName = communityAircraftData.contributorName || 'IF Community';
+        // [FIX] Uncommented this to show the tail number from your DB
+        if (communityAircraftData.tailNumber) {
+            techCardTail = communityAircraftData.tailNumber; 
+        }
+    }
+    // [FIX END]
+
+    // --- Distance Calc for TOD Logic ---
+    let distanceToDestNM = 0;
+    if (hasPlan) {
+        let totalDistanceKm = 0;
+        for (let i = 0; i < originalFlatWaypoints.length - 1; i++) {
+            const [lon1, lat1] = originalFlatWaypoints[i];
+            const [lon2, lat2] = originalFlatWaypoints[i + 1];
+            totalDistanceKm += getDistanceKm(lat1, lon1, lat2, lon2);
+        }
+        const totalDistanceNM = totalDistanceKm / 1.852;
+        if (totalDistanceNM > 0) {
+            const [destLon, destLat] = originalFlatWaypoints[originalFlatWaypoints.length - 1];
+            const remainingDistanceKm = getDistanceKm(baseProps.position.lat, baseProps.position.lon, destLat, destLon);
+            distanceToDestNM = remainingDistanceKm / 1.852;
+        }
     }
 
-    // --- 2. HTML INJECTION (Modern Grid Layout) ---
-    windowEl.innerHTML = `
-    <div class="info-window-content" style="background: #000; height: 100%; display: flex; flex-direction: column;">
+    // --- TOD Calculator Logic ---
+    let todHtml = '';
+    
+    // We need a destination and valid physics to calculate TOD
+    if (hasPlan && baseProps.position.alt_ft > 5000 && distanceToDestNM > 20) {
+        // 1. Get Altitudes
+        const currentAlt = baseProps.position.alt_ft;
+        // Try to get destination elevation from plan, default to 0 (Sea Level) if missing
+        const destElev = (plan.destination && plan.destination.elevation_ft) ? parseInt(plan.destination.elevation_ft) : 0;
         
+        // 2. Calculate Descent
+        const altToLose = currentAlt - destElev;
+        // 3:1 Rule: 3nm distance for every 1000ft height
+        const descentDistanceNM = (altToLose / 1000) * 3;
+        
+        // 3. Calculate TOD location relative to us
+        const distToTodNM = distanceToDestNM - descentDistanceNM;
+        
+        // 4. Calculate Time to TOD (based on current GS)
+        let timeToTodStr = '--:--';
+        if (baseProps.position.gs_kt > 50) {
+            const timeHours = distToTodNM / baseProps.position.gs_kt;
+            const minutes = Math.floor(timeHours * 60);
+            const seconds = Math.floor((timeHours * 60 - minutes) * 60);
+            
+            // Format nicely
+            if (distToTodNM > 0) {
+                 timeToTodStr = `${String(minutes).padStart(2, '0')}:${String(seconds).padStart(2, '0')}`;
+            } else {
+                 timeToTodStr = 'NOW';
+            }
+        }
+
+        // 5. Determine State (Cruise vs Descent)
+        const isPastTod = distToTodNM <= 0;
+        const statusColor = isPastTod ? '#ef4444' : '#34d399'; // Red if past, Green if pending
+        const statusText = isPastTod ? 'DESCEND NOW' : 'CRUISING';
+        const distDisplay = isPastTod ? `+${Math.abs(distToTodNM).toFixed(1)} NM` : `${distToTodNM.toFixed(1)} NM`;
+
+        // 6. Build the HTML Module
+        todHtml = `
+        <div class="tech-module" id="tod-calculator-module">
+            <div class="tech-module-header">
+                <span class="tech-module-title"><i class="fa-solid fa-calculator"></i> DESCENT (3:1)</span>
+                <span class="tech-badge" style="background: rgba(16, 185, 129, 0.1); color: ${statusColor}; border-color: ${statusColor};">
+                    ${statusText}
+                </span>
+            </div>
+            <div class="tech-module-body" style="padding: 8px; display: flex; gap: 8px; align-items: center;">
+                
+                <div style="flex: 1; display: flex; flex-direction: column; align-items: center; background: rgba(255,255,255,0.03); border-radius: 6px; padding: 6px;">
+                    <span class="tech-stat-label" style="font-size: 8px; color: #94a3b8; margin-bottom: 2px;">DIST TO TOD</span>
+                    <span class="tech-stat-value" style="font-size: 1.0rem;">${distDisplay}</span>
+                </div>
+
+                <div style="flex: 1; display: flex; flex-direction: column; align-items: center; background: rgba(255,255,255,0.03); border-radius: 6px; padding: 6px;">
+                    <span class="tech-stat-label" style="font-size: 8px; color: #94a3b8; margin-bottom: 2px;">TIME TO TOD</span>
+                    <span class="tech-stat-value" style="font-size: 1.0rem; color: #38bdf8;">${timeToTodStr}</span>
+                </div>
+
+                <div style="flex: 1; display: flex; flex-direction: column; align-items: center; background: rgba(255,255,255,0.03); border-radius: 6px; padding: 6px;">
+                    <span class="tech-stat-label" style="font-size: 8px; color: #94a3b8; margin-bottom: 2px;">REQ. RATE</span>
+                    <span class="tech-stat-value" style="font-size: 1.0rem; color: #fbbf24;">-${Math.round(baseProps.position.gs_kt * 5)}</span>
+                </div>
+
+            </div>
+        </div>
+        `;
+    } else if (hasPlan && baseProps.position.alt_ft <= 5000) {
+         todHtml = `
+        <div class="tech-module">
+            <div class="tech-module-header">
+                <span class="tech-module-title"><i class="fa-solid fa-calculator"></i> DESCENT PHASE</span>
+                <span class="tech-badge" style="color: #38bdf8; border-color: #38bdf8;">ACTIVE</span>
+            </div>
+            <div class="tech-module-body" style="padding: 12px; text-align: center; color: #94a3b8; font-size: 0.8rem;">
+                Aircraft is in terminal phase.
+            </div>
+        </div>`;
+    }
+
+    // --- HTML Construction ---
+    windowEl.innerHTML = `
+    <style>
+        /* --- Shared Tech Style --- */
+        .tech-module {
+            background: #0f172a; /* Solid Dark Slate */
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            border-radius: 12px;
+            overflow: hidden;
+            box-shadow: 0 4px 15px rgba(0, 0, 0, 0.5);
+            margin-bottom: 8px; 
+            display: flex;
+            flex-direction: column;
+        }
+
+        .tech-module-header {
+            background: rgba(30, 41, 59, 0.5); /* Slightly lighter header */
+            padding: 8px 12px;
+            border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+        
+        .tech-module-title {
+            font-size: 0.75rem;
+            font-weight: 700;
+            color: #94a3b8; /* Muted text */
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .tech-module-body {
+            padding: 12px;
+            background: #0f172a;
+            position: relative;
+        }
+
+        /* --- Tech Card Specifics --- */
+        .tech-card {
+            background: #0f172a; 
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            border-radius: 12px; 
+            overflow: hidden;
+            box-shadow: 0 4px 15px rgba(0, 0, 0, 0.5);
+            position: relative;
+            font-family: 'Inter', sans-serif;
+            margin-bottom: 12px; 
+        }
+        .tech-card-header {
+            padding: 12px 16px 4px; 
+            display: flex;
+            justify-content: space-between;
+            align-items: flex-start;
+            position: relative;
+            z-index: 10;
+        }
+        .tech-badge {
+            display: inline-flex;
+            align-items: center;
+            gap: 4px;
+            padding: 1px 6px;
+            border-radius: 999px;
+            background: rgba(16, 185, 129, 0.1);
+            border: 1px solid rgba(16, 185, 129, 0.2);
+            font-size: 9px;
+            font-weight: 700;
+            color: #34d399;
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+        }
+        .tech-ping {
+            position: relative;
+            display: flex;
+            height: 5px;
+            width: 5px;
+        }
+        .tech-ping span {
+            position: absolute;
+            display: inline-flex;
+            height: 100%;
+            width: 100%;
+            border-radius: 50%;
+            background-color: #34d399;
+        }
+        .tech-ping .animate {
+            animation: ping 1s cubic-bezier(0, 0, 0.2, 1) infinite;
+            opacity: 0.75;
+        }
+        @keyframes ping {
+            75%, 100% { transform: scale(2); opacity: 0; }
+        }
+        .tech-model {
+            font-size: 1.1rem;
+            font-weight: 700;
+            color: #fff;
+            letter-spacing: -0.025em;
+            margin: 0;
+            line-height: 1.2;
+        }
+        .tech-airline {
+            font-size: 0.75rem;
+            font-weight: 500;
+            color: rgba(56, 189, 248, 0.9);
+            margin-top: 0px;
+            display: flex;
+            align-items: center;
+            gap: 5px;
+        }
+        .tech-content {
+            padding: 12px;
+            position: relative;
+            z-index: 10;
+        }
+        .tech-image-container {
+            position: relative;
+            width: 100%;
+            aspect-ratio: 21 / 9;
+            border-radius: 8px;
+            overflow: hidden;
+            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.2);
+            border: 1px solid rgba(255, 255, 255, 0.05);
+            background: #000;
+        }
+        .tech-image {
+            width: 100%;
+            height: 100%;
+            object-fit: cover;
+            transition: transform 0.7s ease-out;
+        }
+        .tech-image-container:hover .tech-image {
+            transform: scale(1.05);
+        }
+        .tech-image-overlay {
+            position: absolute;
+            inset: 0;
+            background: linear-gradient(to top, rgba(2, 6, 23, 0.9), transparent, transparent);
+            opacity: 0.8;
+        }
+        .tech-image-info {
+            position: absolute;
+            bottom: 8px;
+            left: 10px;
+            right: 10px;
+            display: flex;
+            justify-content: space-between;
+            align-items: flex-end;
+        }
+        .tech-photographer {
+            display: flex;
+            flex-direction: column;
+        }
+        .tech-photo-label {
+            font-size: 9px;
+            color: #cbd5e1;
+            font-weight: 500;
+            margin-bottom: 0px;
+            line-height: 1;
+        }
+        .tech-photo-name {
+            display: flex;
+            align-items: center;
+            gap: 4px;
+            font-size: 10px;
+            font-weight: 600;
+            color: #fff;
+        }
+        .tech-grid {
+            display: grid;
+            grid-template-columns: repeat(2, 1fr);
+            gap: 8px;
+            margin-top: 12px;
+        }
+        .tech-stat-card {
+            background: rgba(30, 41, 59, 0.5);
+            border: 1px solid rgba(255, 255, 255, 0.05);
+            padding: 8px 10px;
+            border-radius: 6px;
+            transition: background 0.2s;
+        }
+        .tech-stat-card:hover {
+            background: rgba(30, 41, 59, 0.8);
+        }
+        .tech-stat-header {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            margin-bottom: 2px;
+        }
+        .tech-stat-label {
+            font-size: 9px;
+            font-weight: 600;
+            color: #94a3b8;
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+        }
+        .tech-stat-value {
+            font-family: 'Consolas', 'Monaco', monospace;
+            font-size: 0.95rem;
+            color: #fff;
+            font-weight: 600;
+            letter-spacing: -0.025em;
+        }
+        .tech-country-card {
+            grid-column: span 2;
+            background: rgba(30, 41, 59, 0.3);
+            border: 1px solid rgba(255, 255, 255, 0.05);
+            padding: 6px 10px;
+            border-radius: 6px;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+        }
+        .tech-country-left {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+        .tech-country-icon {
+            width: 24px;
+            height: 24px;
+            border-radius: 4px;
+            background: rgba(51, 65, 85, 0.5);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            color: #94a3b8;
+        }
+        .tech-bottom-bar {
+            height: 3px;
+            width: 100%;
+            background: linear-gradient(to right, #0ea5e9, #2563eb, #4f46e5);
+            opacity: 0.8;
+        }
+
+        /* --- FMS Overrides for Tech Style --- */
+        .fms-columns {
+            border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+            color: #94a3b8;
+        }
+        .fms-row {
+            border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+        }
+        .fms-footer {
+            background: rgba(30, 41, 59, 0.3);
+            border-top: 1px solid rgba(255, 255, 255, 0.1);
+        }
+
+        /* --- Nav Data Overrides --- */
+        .nav-header {
+             display: none; /* We use the tech-module-header now */
+        }
+        #location-data-panel {
+            background: transparent;
+            border: none;
+            box-shadow: none;
+        }
+        .nav-grid-container {
+            padding: 0; /* Remove internal padding as body handles it */
+        }
+        .nav-cell {
+            background: rgba(30, 41, 59, 0.5); /* Match tech-stat-card */
+            border: 1px solid rgba(255, 255, 255, 0.05);
+        }
+
+        /* --- VSD Overrides --- */
+        .vsd-module-container {
+             background: transparent; 
+             border: none;
+             box-shadow: none;
+             margin-bottom: 12px;
+        }
+        .vsd-footer {
+            background: rgba(30, 41, 59, 0.3);
+            border-top: 1px solid rgba(255, 255, 255, 0.1);
+        }
+        .vsd-graph-window {
+            background: #0f172a; /* Match background */
+        }
+        #vsd-y-axis {
+            background: #0f172a;
+            border-right: 1px solid rgba(255, 255, 255, 0.1);
+        }
+    </style>
+
+    <div class="info-window-content">
         <div class="aircraft-overview-panel" id="ac-overview-panel">
             <div class="overview-actions">
-                <button class="aircraft-window-hide-btn"><i class="fa-solid fa-compress"></i></button>
-                <button class="aircraft-window-close-btn"><i class="fa-solid fa-xmark"></i></button>
+                <button class="aircraft-window-hide-btn" title="Hide"><i class="fa-solid fa-compress"></i></button>
+                <button class="aircraft-window-close-btn" title="Close"><i class="fa-solid fa-xmark"></i></button>
             </div>
             <div class="overview-content">
                 <div class="overview-col-left">
                     <h3 id="ac-header-callsign">${logoHtml}${baseProps.callsign}</h3>
-                    <p><span class="ac-header-subtext">${airlineName} • ${aircraftName}</span></p>
+                    <p id="ac-header-subtext-container">
+                        <span class="ac-header-subtext" id="ac-header-livery">${airlineName}</span>
+                        <span class="ac-header-subtext" id="ac-header-actype">${aircraftName}</span>
+                    </p>
                 </div>
                 <div class="overview-col-right">
-                    <span class="route-icao">${departureIcao}</span>
-                    <i class="fa-solid fa-arrow-right" style="color: #666; font-size: 0.8rem;"></i>
-                    <span class="route-icao">${arrivalIcao}</span>
+                    <span class="route-icao" id="ac-header-dep">${departureIcao}</span>
+                    <span class="route-icao" id="ac-header-arr">${arrivalIcao}</span>
                 </div>
             </div>
         </div>
 
-        <div style="background: #111; padding: 10px 20px; border-bottom: 1px solid #222;">
-            <div style="display: flex; justify-content: space-between; font-size: 0.8rem; color: #fff; margin-bottom: 5px;">
-                <span>${departureIcao}</span>
-                <span style="color: #00a8ff;" id="ac-progress-text">--%</span>
-                <span>${arrivalIcao}</span>
+        <div class="route-summary-overlay">
+            <div class="route-summary-airport" id="route-summary-dep">
+                <div class="airport-line">
+                    <img src="${depFlagSrc}" class="country-flag" id="ac-bar-dep-flag" alt="${depCountryCode}" style="display: ${depFlagDisplay};">
+                    <span class="icao" id="ac-bar-dep">${departureIcao}</span>
+                </div>
+                <span class="time" id="ac-bar-atd">${atdTime} Z</span>
             </div>
-            <div style="height: 4px; background: #333; border-radius: 2px; overflow: hidden;">
-                <div id="ac-progress-bar" style="width: 0%; height: 100%; background: #00a8ff; box-shadow: 0 0 10px rgba(0,168,255,0.5); transition: width 0.5s;"></div>
+            <div class="route-progress-container">
+                <div class="route-progress-bar-container">
+                    <div class="progress-bar-fill" id="ac-progress-bar"></div>
+                </div>
+                <div class="flight-phase-indicator" id="ac-phase-indicator">ENROUTE</div>
             </div>
-            <div style="display: flex; justify-content: space-between; font-size: 0.7rem; color: #666; margin-top: 4px;">
-                <span>DEP: ${atdTime} Z</span>
-                <span id="ac-bar-eta">ETA: --:-- Z</span>
+            <div class="route-summary-airport" id="route-summary-arr">
+                 <div class="airport-line">
+                    <span class="icao" id="ac-bar-arr">${arrivalIcao}</span>
+                    <img src="${arrFlagSrc}" class="country-flag" id="ac-bar-arr-flag" alt="${arrCountryCode}" style="display: ${arrFlagDisplay};">
+                </div>
+                <span class="time" id="ac-bar-eta">${etaTime} Z</span>
             </div>
         </div>
 
-        <div class="dashboard-grid">
-            
-            <div class="left-col" style="display: flex; flex-direction: column; gap: 8px;">
-                <div class="pfd-wrapper">
-                    <div class="crt-container scanlines" id="pfd-container">
-                        </div>
-                </div>
-                <div class="pfd-wrapper" style="flex-grow: 1;">
-                     <div id="nd-container" style="width: 100%; height: 100%;">
-                        <iframe id="nav-display-frame" src="nav.html" scrolling="no" style="border:none; width:100%; height:100%;"></iframe>
-                     </div>
-                </div>
+        <div class="ac-info-window-tabs">
+            <div class="ac-tabs-wrapper">
+                <button class="ac-info-tab-btn active" data-tab="ac-tab-flight-data">
+                    <i class="fa-solid fa-gauge-high"></i> Flight Display
+                </button>
+                <button class="ac-info-tab-btn pilot-tab-btn" data-tab="ac-tab-pilot-report" data-user-id="${baseProps.userId}" data-username="${pilotUsername}">
+                    <i class="fa-solid fa-chart-simple"></i> ${pilotReportTabText}
+                </button>
             </div>
+            <img src="Images/inflight.png" alt="Inflight Logo" class="ac-info-tab-logo">
+        </div>
 
-            <div class="data-stack">
+        <div class="unified-display-main-content">
+            <div id="ac-tab-flight-data" class="ac-tab-pane active" style="gap: 6px;">
                 
-                <div class="pilot-status-container">
-                    <div style="display: flex; align-items: center;">
-                        <div class="status-dot ${statusColorClass}"></div>
-                        <span class="status-text">${statusText}</span>
-                    </div>
-                    <i class="fa-solid ${statusIcon}" style="color: #666;"></i>
-                </div>
-
-                <div class="dash-card">
-                    <div class="dash-header">
-                        <span>Current Status</span>
-                        <i class="fa-solid fa-satellite-dish"></i>
-                    </div>
-                    <div class="stats-row">
-                        <div class="mini-stat">
-                            <span class="mini-stat-label">GS</span>
-                            <span class="mini-stat-value" id="speed_readout_digital">---<span class="mini-stat-unit">kts</span></span>
+                <div class="pfd-and-location-grid">
+                    <div class="pfd-main-panel">
+                        <div class="display-bezel">
+                            <div class="screw tl"></div><div class="screw tr"></div><div class="screw bl"></div><div class="screw br"></div>
+                            <div class="crt-container scanlines" id="pfd-container">
+                                <svg width="787" height="800" viewBox="0 0 787 800" fill="none" xmlns="http://www.w3.org/2000/svg">
+                                    <g id="PFD" clip-path="url(#clip0_1_2890)">
+                                    <g transform="translate(0, 100)">
+                                        <g id="attitude_group">
+                                            <rect id="Sky" x="-186" y="-222" width="1121" height="600" fill="#0596FF"/>
+                                            <rect id="Ground" x="-138" y="307" width="1024" height="527" fill="#9A4710"/>
+                                        </g>
+                                        <rect id="Rectangle 1" x="-6" y="5" width="191" height="566" fill="#030309"/>
+                                        <rect id="Rectangle 9" x="609" width="185" height="566" fill="#030309"/>
+                                        <path id="Rectangle 2" d="M273.905 84.9424L180.983 183.181L-23 -9.76114L69.9218 -108L273.905 84.9424Z" fill="#030309"/>
+                                        <path id="Rectangle 8" d="M303.215 77.0814L187.591 147.198L42 -92.8829L157.624 -163L303.215 77.0814Z" fill="#030309"/>
+                                        <path id="Rectangle 7" d="M372.606 54.0171L244.59 97.5721L154.152 -168.242L282.169 -211.796L372.606 54.0171Z" fill="#030309"/>
+                                        <rect id="Rectangle 10" x="25" y="487.905" width="168.696" height="262.947" transform="rotate(-31.8041 25 487.905)" fill="#030309"/>
+                                        <rect id="Rectangle 14" width="67.3639" height="53.5561" transform="matrix(-0.972506 0.23288 0.23288 0.972506 482.512 537)" fill="#030309"/>
+                                        <rect id="Rectangle 19" width="80.8905" height="53.5561" transform="matrix(-0.999899 0.0142423 0.0142423 0.999899 442.882 549.506)" fill="#030309"/>
+                                        <rect id="Rectangle 18" width="46.2297" height="53.5561" transform="matrix(-0.988103 -0.153795 -0.153795 0.988103 369.916 549.11)" fill="#030309"/>
+                                        <rect id="Rectangle 17" width="46.2297" height="53.5561" transform="matrix(-0.940186 -0.340662 -0.340662 0.940186 337.709 546.749)" fill="#030309"/>
+                                        <rect id="Rectangle 16" width="46.2297" height="53.5561" transform="matrix(-0.940186 -0.340662 -0.340662 0.940186 299.709 531.749)" fill="#030309"/>
+                                        <rect id="Rectangle 15" x="387" y="587.269" width="168.696" height="262.947" transform="rotate(-27.6434 387 587.269)" fill="#030309"/>
+                                        <rect id="Rectangle 13" x="86" y="584.104" width="168.696" height="262.947" transform="rotate(-46.8648 86 584.104)" fill="#030309"/>
+                                        <rect id="Rectangle 11" x="527" y="532.777" width="168.696" height="262.947" transform="rotate(-51.9135 527 532.777)" fill="#030309"/>
+                                        <rect id="Rectangle 12" x="503" y="527.247" width="168.696" height="262.947" transform="rotate(-31.9408 503 527.247)" fill="#030309"/>
+                                        <rect id="Rectangle 6" x="456.715" y="60.2651" width="131.991" height="278.153" transform="rotate(-177.303 456.715 60.2651)" fill="#030309"/>
+                                        <rect id="Rectangle 5" x="525.118" y="90.4898" width="131.991" height="274.627" transform="rotate(-158.368 525.118 90.4898)" fill="#030309"/>
+                                        <rect id="Rectangle 4" x="570.695" y="127.633" width="109.94" height="223.222" transform="rotate(-142.051 570.695 127.633)" fill="#030309"/>
+                                        <rect id="Rectangle 3" x="613.292" y="189.098" width="99.2768" height="223.222" transform="rotate(-128.125 613.292 189.098)" fill="#030309"/>
+                                        <path id="Vector 3" d="M609 183V422.5" stroke="#E7E6E8" stroke-width="4"/>
+                                        <path id="Vector 1" d="M185.5 425.5L185 180" stroke="#DBDBDC" stroke-width="4"/>
+                                        <path id="Vector 2" d="M185 181.502C185 181.502 269.8 52.0936 397 56.0907C524.2 60.0879 576.603 135.189 609 184" stroke="#DBDBDC" stroke-width="4"/>
+                                        <path id="Vector 4" d="M608.5 424.5C608.5 424.5 557 548 396 550.5C235 553 185 424.5 185 424.5" stroke="#DBDBDC" stroke-width="4"/>
+                                        <path id="Polygon 1" d="M396.252 65.2333L377.848 35.8138L414.647 35.8079L396.252 65.2333Z" fill="#E7F013"/>
+                                        <path id="Polygon 2" d="M407.919 38.9482L396.431 59.4193L384.446 38.7244L407.919 38.9482Z" fill="#030309"/>
+                                        <path id="Vector 6" d="M307 76L302 64.5L312 60.5L317 71" stroke="#E7E6E8" stroke-width="4"/>
+                                        <path id="Vector 7" d="M279.5 91L268.5 73.5L259 79L269.5 97.5" stroke="#E7E6E8" stroke-width="4"/>
+                                        <path id="Vector 8" d="M225 135L206.5 117" stroke="#E7E6E8" stroke-width="4"/>
+                                        <path id="Vector 9" d="M477.153 71.5794L479.366 59.3018L489.886 61.5697L488.226 73.0218" stroke="#E7E6E8" stroke-width="4"/>
+                                        <path id="Vector 10" d="M347.928 61.4888L346.352 49.0483L357.072 48.0112L358.929 59.4917" stroke="#E7E6E8" stroke-width="4"/>
+                                        <path id="Vector 11" d="M435.153 59.5794L437.366 47.3018L447.886 49.5697L446.226 61.0218" stroke="#E7E6E8" stroke-width="4"/>
+                                        <path id="Vector 12" d="M514.032 86.1754L522.756 72.2658L533.956 78.0405L525.5 93.5" stroke="#E7E6E8" stroke-width="4"/>
+                                        <path id="Vector 13" d="M569.5 131.5L585.5 116" stroke="#E7E6E8" stroke-width="4"/>
+                                        <path id="Vector 15" d="M183.5 193.5L173 187" stroke="#029705" stroke-width="4"/>
+                                        <path id="Vector 16" d="M184 203L173.5 196.5" stroke="#029705" stroke-width="4"/>
+                                        <path id="Vector 17" d="M610 193.5L619 188" stroke="#029705" stroke-width="3"/>
+                                        <path id="Vector 18" d="M610 199.5L619 194" stroke="#029705" stroke-width="3"/>
+                                        <line id="Line 1" x1="184" y1="211" x2="184" y2="184" stroke="#DBDBDC" stroke-width="2"/>
+                                        <line id="Line 2" x1="610" y1="211" x2="610" y2="184" stroke="#DBDBDC" stroke-width="2"/>
+                                        <rect id="altitude_bg" x="675" y="73" width="72" height="476" fill="#76767A"/>
+                                        <g clip-path="url(#altTapeClip)">
+                                            <svg x="675" y="73" width="72" height="476"><g id="altitude_tape_group"></g></svg>
+                                        </g>
+                                        <g id="altitude_indicator_static">
+                                            <rect id="altitude_1" x="675" y="280" width="73" height="49" fill="#030309"/>
+                                            <text id="altitude_readout_hundreds" x="740" y="316" fill="#00FF00" font-size="32" text-anchor="end" font-weight="bold">0</text>
+                                            <g id="altitude_tens_reel_container" clip-path="url(#tensReelClip)"><g id="altitude_tens_reel_group"></g></g>
+                                            <line id="Line 8" x1="669" y1="307" x2="618" y2="307" stroke="#DDDF07" stroke-width="8"/>
+                                        </g>
+                                        <path id="limit" d="M636 336.08L621.413 307.511L650.858 307.651L636 336.08Z" fill="#C477C6"/>
+                                        <path id="limit2" d="M636 279L650.722 307.5H621.278L636 279Z" fill="#C477C6"/>
+                                        <path id="limit3" d="M636 285L643.794 303H628.206L636 285Z" fill="#100010"/>
+                                        <path id="limit4" d="M636.191 329.14L628.276 311.242L643.534 310.999L636.191 329.14Z" fill="#030309"/>
+                                        <line id="Line 6" x1="746.5" y1="263" x2="746.5" y2="281" stroke="#ECED06" stroke-width="3"/>
+                                        <line id="Line 4" x1="746.5" y1="329" x2="746.5" y2="347" stroke="#ECED06" stroke-width="3"/>
+                                        <path id="Ellipse 1" d="M636 481C636 484.866 632.866 488 629 488C625.134 488 622 484.866 622 481C622 477.134 625.134 474 629 474C632.866 474 636 477.134 636 481Z" fill="#D9D9D9"/>
+                                        <path id="Ellipse 4" d="M636 147C636 150.866 632.866 154 629 154C625.134 154 622 150.866 622 147C622 143.134 625.134 140 629 140C632.866 140 636 143.134 636 147Z" fill="#D9D9D9"/>
+                                        <g id="Ellipse 3">
+                                            <path d="M636 229C636 232.866 632.866 236 629 236C625.134 236 622 232.866 622 229C622 225.134 625.134 222 629 222C632.866 222 636 225.134 636 229Z" fill="#D9D9D9"/>
+                                            <path d="M636 395C636 398.866 632.866 402 629 402C625.134 402 622 398.866 622 395C622 391.134 625.134 388 629 388C632.866 388 636 391.134 636 395Z" fill="#D9D9D9"/>
+                                        </g>
+                                        <rect id="speed" x="28" y="73" width="97" height="477" fill="#76767A"/>
+                                        <g clip-path="url(#speedTapeClip)">
+                                            <svg x="28" y="73" width="97" height="477"><g id="speed_tape_group"></g></svg>
+                                        </g>
+                                        <g id="speed_indicator_static">
+                                            <path id="Polygon 9" d="M128.036 311.591L150.451 301.561L150.513 321.482L128.036 311.591Z" fill="#FDFD03"/>
+                                            <path id="Vector 20" d="M137 311H96.5" stroke="#FDFD03" stroke-width="4"/>
+                                            <rect x="50" y="296" width="45" height="30" fill="black" stroke="#999" stroke-width="1"/>
+                                            <text id="speed_readout" x="72.5" y="318" fill="#00FF00" font-size="20" text-anchor="middle" font-weight="bold">0</text>
+                                        </g>
+                                        <path id="Vector 19" d="M19.5 311H31" stroke="#FDFD03" stroke-width="4"/>
+                                        <path id="Vector 21" d="M29 73H151.5" stroke="#E7E6E8" stroke-width="4"/>
+                                        <path id="Vector 22" d="M28 549H151.5" stroke="#E7E6E8" stroke-width="4"/>
+                                        <path id="Vector 23" d="M672.5 73H774" stroke="#E7E6E8" stroke-width="4"/>
+                                        <path id="Vector 24" d="M672 548.5H773" stroke="#E7E6E8" stroke-width="4"/>
+                                        <path id="Vector 25" d="M745 549.5L746 347" stroke="#E7E6E8" stroke-width="3"/>
+                                        <path id="Vector 26" d="M745 73V265" stroke="#E7E6E8" stroke-width="3"/>
+                                        <g id="wings">
+                                            <rect id="Rectangle 21" x="280" y="315" width="11" height="25" fill="#030309"/>
+                                            <rect id="Rectangle 23" x="522" y="304" width="71" height="12" fill="#030309"/>
+                                            <rect id="Rectangle 22" x="512" y="305" width="13" height="35" fill="#030309"/>
+                                            <rect id="Rectangle 20" x="208" y="304" width="83" height="13" fill="#030309"/>
+                                            <g id="wing">
+                                                <path d="M278.591 316.857H208V304H291.608V340H278.591V316.857Z" stroke="#FEFE03" stroke-width="3"/>
+                                                <path d="M511.392 340V304H595V316.857H524.409V340H511.392Z" stroke="#FEFE03" stroke-width="3"/>
+                                            </g>
+                                        </g>
+                                        <g id="middle">
+                                            <rect id="middle_2" x="393" y="304" width="17" height="17" fill="#0CC704"/>
+                                            <rect id="Rectangle 24" x="395" y="307" width="13" height="11" fill="#030309"/>
+                                        </g>
+                                        <rect id="Rectangle 25" y="571" width="787" height="140" fill="#030309"/>
+                                        <rect id="header" x="243" y="599" width="326" height="66" fill="#76767A"/>
+                                        <g id="heading_indicator">
+                                            <g id="heading_tape_container" clip-path="url(#headingClip)"><g id="heading_tape_group"></g></g>
+                                            <g id="heading_static_elements">
+                                                <line x1="406" y1="620" x2="406" y2="635" stroke="#FDFD03" stroke-width="3"/>
+                                                <rect x="381" y="599" width="50" height="20" fill="black" stroke="#FFFFFF" stroke-width="1"/>
+                                                <text id="heading_readout" x="406" y="615" fill="#00FF00" font-size="16" text-anchor="middle" font-weight="bold">000</text>
+                                            </g>
+                                        </g>
+                                        <path id="Vector 27" d="M243 599V667" stroke="#FCFCFF" stroke-width="4"/>
+                                        <g id="Line 5"><line id="Line 5_2" x1="745" y1="264.5" x2="787" y2="264.5" stroke="#ECED06" stroke-width="3"/></g>
+                                        <line id="Line 6_2" x1="671" y1="279.5" x2="748" y2="279.5" stroke="#ECED06" stroke-width="3"/>
+                                        <line id="Line 7" x1="671" y1="329.5" x2="748" y2="329.5" stroke="#ECED06" stroke-width="3"/>
+                                        <line id="Line 3" x1="746" y1="345.5" x2="786" y2="345.5" stroke="#ECED06" stroke-width="3"/>
+                                    </g> 
+                                    </g>
+                                    <defs>
+                                        <clipPath id="clip0_1_2890"><rect width="787" height="800" fill="white"/></clipPath>
+                                        <clipPath id="tensReelClip"><rect x="732" y="269" width="50" height="75"/></clipPath>
+                                        <clipPath id="headingClip"><rect x="243" y="620" width="326" height="45"/></clipPath>
+                                        <clipPath id="speedTapeClip"><rect x="28" y="73" width="97" height="477"/></clipPath>
+                                        <clipPath id="altTapeClip"><rect x="675" y="73" width="72" height="476"/></clipPath>
+                                    </defs>
+                                </svg>
+                            </div>
                         </div>
-                        <div class="mini-stat">
-                            <span class="mini-stat-label">ALT</span>
-                            <span class="mini-stat-value" id="alt_readout_digital">---<span class="mini-stat-unit">ft</span></span>
+                        
+                        <div class="display-bezel">
+                            <div class="screw tl"></div><div class="screw tr"></div><div class="screw bl"></div><div class="screw br"></div>
+                            <div class="crt-container scanlines">
+                                <div id="nd-container">
+                                    <iframe id="nav-display-frame" src="nav.html" scrolling="no"></iframe>
+                                </div>
+                            </div>
                         </div>
-                        <div class="mini-stat">
-                            <span class="mini-stat-label">VS</span>
-                            <span class="mini-stat-value" id="ac-vs">---</span>
+
+                    </div>
+                    
+                    <div class="info-right-col">
+                        
+                        <div class="tech-module" id="cockpit-seat-sensor">
+                            <div class="tech-module-header">
+                                <span class="tech-module-title"><i class="fa-solid fa-chair"></i> COCKPIT STATE</span>
+                                <span class="fms-page-count"><i class="fa-solid fa-satellite-dish"></i></span>
+                            </div>
+                            <div class="tech-module-body">
+                                <div class="cockpit-view">
+                                    <div id="seat-cpt" class="seat" data-role="CPT"></div>
+                                    <div id="seat-fo" class="seat" data-role="FO"></div>
+                                    
+                                    <div id="icon-parking-overlay" class="cockpit-overlay-icon icon-parking">P</div>
+                                    <div id="icon-coffee-overlay" class="cockpit-overlay-icon icon-coffee"><i class="fa-solid fa-mug-hot"></i></div>
+                                    <div id="icon-cloud-overlay" class="cockpit-overlay-icon icon-cloud"><i class="fa-solid fa-cloud"></i></div>
+                                </div>
+                                <div class="seat-status-display">
+                                    <span id="status-cpt-text" class="status-pill">CMD: ---</span>
+                                    <span id="status-fo-text" class="status-pill">FO: ---</span>
+                                </div>
+                                <div id="seat-narrative-text">
+                                    Initializing...
+                                </div>
+                            </div>
                         </div>
-                        <div class="mini-stat">
-                            <span class="mini-stat-label">WIND</span>
-                            <span class="mini-stat-value" id="ac-env-wind">--<span class="mini-stat-unit">/--</span></span>
+
+                        ${todHtml}
+
+                        <div id="fms-legs-module" class="tech-module" style="height: 380px; max-height: 380px; display: flex; flex-direction: column; margin-top: 12px;">
+                            <div class="tech-module-header">
+                                <span class="tech-module-title"><i class="fa-solid fa-route"></i> ACTIVE FLIGHT PLAN</span>
+                                <span class="fms-page-count">1/1</span>
+                            </div>
+                            
+                            <div class="fms-columns">
+                                <span class="col-wpt">LEGS</span>
+                                <span class="col-data text-center">CRS</span>
+                                <span class="col-data text-right">DIST</span>
+                            </div>
+
+                            <div id="fms-legs-list" class="fms-list-scrollarea">
+                                <div class="fms-empty-state">NO ROUTE LOADED</div>
+                            </div>
+                            
+                            <div class="fms-footer">
+                                <div class="fms-stat">
+                                    <span class="stat-label">DTG</span>
+                                    <span id="fms-total-dist" class="stat-value">---- NM</span>
+                                </div>
+                                <div class="fms-stat">
+                                    <span class="stat-label">ETE</span>
+                                    <span id="fms-total-ete" class="stat-value">--:--</span>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                
+                <div class="tech-module" id="location-data-panel">
+                    <div class="tech-module-header">
+                        <span class="tech-module-title"><i class="fa-solid fa-location-crosshairs"></i> NAV DATA</span>
+                        <span class="nav-status-indicator"><div class="nav-blink"></div> LIVE</span>
+                    </div>
+                    
+                    <div class="tech-module-body" style="padding: 8px;">
+                        <div class="nav-grid-container">
+                            <div class="nav-cell">
+                                <span class="nav-label"><i class="fa-solid fa-map-location-dot"></i> Region</span>
+                                <span class="nav-value small" id="ac-location">Scanning...</span>
+                            </div>
+                            <div class="nav-cell">
+                                <span class="nav-label"><i class="fa-solid fa-tower-control"></i> Nearest</span>
+                                <div class="nav-row">
+                                    <span class="nav-value highlight" id="ac-nearest-apt">---</span>
+                                    <span class="nav-value" id="ac-nearest-apt-dist">--.- <span class="nav-unit">NM</span></span>
+                                </div>
+                            </div>
+                            <div class="nav-cell">
+                                <span class="nav-label"><i class="fa-solid fa-wind"></i> Wind</span>
+                                <span class="nav-value" id="ac-env-wind">---/--</span>
+                            </div>
+                            <div class="nav-cell">
+                                <span class="nav-label"><i class="fa-solid fa-temperature-half"></i> OAT</span>
+                                <span class="nav-value" id="ac-env-oat">--°C</span>
+                            </div>
+
+                            <div class="nav-cell nav-span-2">
+                                <span class="nav-label"><i class="fa-solid fa-location-crosshairs"></i> Position</span>
+                                <div class="nav-row">
+                                    <div><span class="nav-unit">LAT</span> <span class="nav-value" id="ac-lat">---</span></div>
+                                    <div><span class="nav-unit">LON</span> <span class="nav-value" id="ac-lon">---</span></div>
+                                </div>
+                            </div>
+                            <div class="nav-cell nav-span-2">
+                                 <span class="nav-label"><i class="fa-solid fa-arrow-up-right-dots"></i> Vertical Speed</span>
+                                 <span class="nav-value large highlight" id="ac-vs">--- <span class="nav-unit">fpm</span></span>
+                            </div>
+
+                            <div class="nav-cell nav-span-2">
+                                <span class="nav-label"><i class="fa-solid fa-location-arrow"></i> Next Waypoint</span>
+                                <div class="nav-row">
+                                    <span class="nav-value accent" id="ac-next-wp">---</span>
+                                    <span class="nav-value" id="ac-next-wp-dist">--.- <span class="nav-unit">NM</span></span>
+                                </div>
+                            </div>
+                            <div class="nav-cell nav-span-2">
+                                <span class="nav-label"><i class="fa-solid fa-flag-checkered"></i> Destination</span>
+                                <div class="nav-row">
+                                    <div><span class="nav-unit">DIST</span> <span class="nav-value" id="ac-dist">---</span></div>
+                                    <div><span class="nav-unit">ETE</span> <span class="nav-value" id="ac-ete">--:--</span></div>
+                                </div>
+                            </div>
                         </div>
                     </div>
                 </div>
 
-                <div class="dash-card">
-                    <div class="dash-header">
-                        <span>Next Waypoint</span>
-                        <i class="fa-solid fa-location-arrow"></i>
+                <div class="tech-card">
+                    <div class="tech-card-header">
+                        <div>
+                            <div style="display: flex; align-items: center; gap: 8px; margin-bottom: 4px;">
+                                <div class="tech-badge">
+                                    <span class="tech-ping">
+                                      <span class="animate"></span>
+                                      <span></span>
+                                    </span>
+                                    Active
+                                </div>
+                                <span style="font-size: 10px; font-weight: 600; color: #94a3b8; text-transform: uppercase; letter-spacing: 0.1em;">Flight Data</span>
+                            </div>
+                            <h1 class="tech-model">${aircraftName}</h1>
+                            <p class="tech-airline">
+                                <i class="fa-solid fa-plane" style="font-size: 12px;"></i>
+                                <span>${airlineName}</span>
+                            </p>
+                        </div>
+                        <button style="padding: 8px; color: #94a3b8; background: transparent; border: none; cursor: pointer;">
+                            <i class="fa-solid fa-ellipsis" style="font-size: 16px;"></i>
+                        </button>
                     </div>
-                    <div style="display: flex; justify-content: space-between; align-items: baseline; margin-top: 4px;">
-                        <span style="font-size: 1.3rem; font-weight: 700; color: #00a8ff;" id="ac-next-wp">---</span>
-                        <span style="font-size: 1.1rem; font-weight: 400; color: #fff;"><span id="ac-next-wp-dist">--</span> <span class="mini-stat-unit">NM</span></span>
-                    </div>
-                    <div style="width: 100%; height: 1px; background: rgba(255,255,255,0.1); margin: 8px 0;"></div>
-                    <div style="display: flex; justify-content: space-between;">
-                         <span style="font-size: 0.8rem; color: #888;">Dist to Dest</span>
-                         <span style="font-size: 0.9rem; font-weight: 600; color: #fff;"><span id="ac-dist">--</span> NM</span>
-                    </div>
-                    <div style="display: flex; justify-content: space-between;">
-                         <span style="font-size: 0.8rem; color: #888;">Est. Time Enroute</span>
-                         <span style="font-size: 0.9rem; font-weight: 600; color: #fff;" id="ac-ete">--:--</span>
-                    </div>
-                </div>
 
-                <div class="dash-card" style="flex-grow: 1; min-height: 0;">
-                     <div class="dash-header">
-                        <span>Flight Plan</span>
-                        <span style="font-size: 0.6rem; background: #333; padding: 2px 6px; border-radius: 4px;">LIVE</span>
-                    </div>
-                    <div id="fms-legs-list" class="fms-modern-list">
-                        <div style="padding: 10px; color: #666; font-style: italic; text-align: center;">Loading Route...</div>
-                    </div>
-                </div>
+                    <div class="tech-content">
+                        <div class="tech-image-container">
+                            <img src="${techCardImagePath}" onerror="this.src='/CommunityPlanes/default.png'" class="tech-image" alt="Aircraft">
+                            <div class="tech-image-overlay"></div>
+                            
+                            <div class="tech-image-info">
+                                <div class="tech-photographer">
+                                    <span class="tech-photo-label">Contributor</span>
+                                    <div class="tech-photo-name">
+                                        <i class="fa-solid fa-camera" style="color: #38bdf8; font-size: 12px;"></i>
+                                        <span>${photographerName}</span>
+                                    </div>
+                                </div>
+                                <a href="#" style="padding: 8px; background: rgba(255,255,255,0.1); border-radius: 8px; color: #fff; border: 1px solid rgba(255,255,255,0.1); display: flex;">
+                                    <i class="fa-solid fa-arrow-up-right-from-square" style="font-size: 14px;"></i>
+                                </a>
+                            </div>
+                        </div>
 
-                <div class="meta-footer">
-                    <div>
-                        <div style="font-weight: 600; color: #ccc;">${reg}</div>
-                        <div>${baseProps.username}</div>
-                    </div>
-                    <div style="text-align: right;">
-                        <div style="font-size: 0.7rem;">Photo By</div>
-                        <div style="color: #ccc;">${photographerName}</div>
-                    </div>
-                </div>
+                        <div class="tech-grid">
+                            <div class="tech-stat-card">
+                                <div class="tech-stat-header">
+                                    <span class="tech-stat-label">Registration</span>
+                                    <i class="fa-solid fa-hashtag" style="font-size: 12px; color: #475569;"></i>
+                                </div>
+                                <span class="tech-stat-value">${techCardTail}</span>
+                            </div>
 
-            </div>
+                            <div class="tech-stat-card">
+                                <div class="tech-stat-header">
+                                    <span class="tech-stat-label">Callsign</span>
+                                    <i class="fa-solid fa-tag" style="font-size: 12px; color: #475569;"></i>
+                                </div>
+                                <span class="tech-stat-value">${baseProps.callsign}</span>
+                            </div>
+
+                            <div class="tech-country-card">
+    <div class="tech-country-left">
+        <div class="tech-country-icon">
+            <i class="fa-solid fa-plane-up" style="font-size: 14px;"></i>
+        </div>
+        <div style="display: flex; flex-direction: column;">
+            <span class="tech-stat-label" style="font-size: 9px; margin-bottom: 2px;">Category</span>
+            <span style="font-size: 13px; font-weight: 600; color: #fff; text-transform: capitalize;">${baseProps.category || 'Standard'}</span>
         </div>
     </div>
-    `;
+    <div style="padding: 4px 8px; background: rgba(51, 65, 85, 0.5); border-radius: 4px; border: 1px solid rgba(255, 255, 255, 0.05);">
+        <span style="font-family: monospace; font-size: 10px; color: #cbd5e1;">CLASS</span>
+    </div>
+</div>
+                        </div>
+                    </div>
+                    <div class="tech-bottom-bar"></div>
+                </div>
 
-    // --- 3. POST-RENDER INITIALIZATION ---
+                <div class="tech-module vsd-module-container">
+                    <div class="tech-module-header">
+                        <span class="tech-module-title"><i class="fa-solid fa-chart-area"></i> VERTICAL SITUATION DISPLAY</span>
+                        <span class="fms-page-count">VSD</span>
+                    </div>
+                    
+                    <div id="vsd-panel" class="vsd-panel active" data-plan-id="" data-profile-built="false">
+                        <div id="vsd-graph-window" class="vsd-graph-window">
+                            <div id="vsd-aircraft-icon"></div>
+                            <div id="vsd-graph-content">
+                                <svg id="vsd-profile-svg" xmlns="http://www.w3.org/2000/svg">
+                                    <path id="vsd-flown-path" d="" />
+                                    <path id="vsd-profile-path" d="" />
+                                </svg>
+                                <div id="vsd-waypoint-labels"></div>
+                            </div>
+                        ${planButtonHtml} </div>
+                    </div>
+
+                    <div class="vsd-footer">
+                        <div class="vsd-legend-item"><div class="dot-plan"></div> PLANNED</div>
+                        <div class="vsd-legend-item"><div class="dot-flown"></div> FLOWN</div>
+                        <div>ALTITUDE PROFILE</div>
+                    </div>
+                </div>
+                </div> 
+            
+            <div id="ac-tab-pilot-report" class="ac-tab-pane">
+                <div id="pilot-stats-display"></div>
+            </div>
+        </div> 
+    </div>
+    `;
     
-    // Set Header Image (Using data found in flight.js logic)
-    const imagePath = communityAircraftData?.imageUrl || '/CommunityPlanes/default.png';
+    // --- POST-RENDER LOGIC ---
+    createPfdDisplay();
+    updatePfdDisplay(baseProps.position);
+    updateAircraftInfoWindow(baseProps, plan, sortedRoutePoints, communityAircraftData);
+    
+    // --- FIX IMPLEMENTATION: SET THE DATA ATTRIBUTE ON THE HEADER HERE ---
+    const imagePath = techCardImagePath; 
     const fallbackPath = '/CommunityPlanes/default.png';
     const newImageUrl = `url('${imagePath}'), url('${fallbackPath}')`; 
-    const overviewPanel = document.getElementById('ac-overview-panel');
-    if(overviewPanel) {
-        overviewPanel.style.backgroundImage = newImageUrl;
-        overviewPanel.dataset.currentPath = imagePath;
-    }
 
-    // Initialize PFD
-    createPfdDisplay();
-    // Update PFD with initial position
-    updatePfdDisplay(baseProps.position);
+    const overviewPanels = document.querySelectorAll('#ac-overview-panel');
     
-    // Call the generic update function to fill values immediately
-    updateAircraftInfoWindow(baseProps, plan, sortedRoutePoints);
+    overviewPanels.forEach(overviewPanel => {
+        // Set the background image
+        overviewPanel.style.backgroundImage = newImageUrl;
+        
+        // --- CRITICAL FIX: Set the path to the high-quality image ---
+        overviewPanel.dataset.currentPath = imagePath;
+        // --- END CRITICAL FIX ---
+    });
+
 }
 
 /**
@@ -8634,32 +7905,25 @@ function updateAircraftInfoWindow(baseProps, plan, sortedRoutePoints) {
 
 function updateFmsLegsModule(plan, currentPos) {
     const listContainer = document.getElementById('fms-legs-list');
+    const totalDistEl = document.getElementById('fms-total-dist');
+    const totalEteEl = document.getElementById('fms-total-ete');
     
     if (!listContainer) return;
 
     // 1. Basic Validation
     if (!plan || !plan.flightPlanItems || plan.flightPlanItems.length === 0) {
-        listContainer.innerHTML = '<div style="padding:20px; text-align:center; color:#555;">NO ROUTE LOADED</div>';
+        listContainer.innerHTML = '<div class="fms-empty-state">NO ROUTE LOADED</div>';
+        if(totalDistEl) totalDistEl.textContent = '---- NM';
+        if(totalEteEl) totalEteEl.textContent = '--:--';
         return;
     }
 
+    // --- Capture current scroll position ---
     const previousScrollTop = listContainer.scrollTop;
-    let html = '';
-    let globalLeafIndex = 0; 
-    
-    // Flatten logic needed to find active index
-    const getFlatWaypointObjects = (items) => {
-        const wps = [];
-        const extract = (arr) => {
-            arr.forEach(item => {
-                if (item.children && item.children.length > 0) extract(item.children);
-                else if (item.location) wps.push(item);
-            });
-        };
-        extract(items);
-        return wps;
-    };
 
+    let html = '';
+    let globalLeafIndex = 0; // Tracks index of actual flyable waypoints
+    
     // Find the "Active" waypoint index
     const flatWaypoints = getFlatWaypointObjects(plan.flightPlanItems);
     let activeWpIndex = 0;
@@ -8676,76 +7940,130 @@ function updateFmsLegsModule(plan, currentPos) {
         });
     }
 
-    // Track previous coords for Distance calc
+    // Track previous coords for Distance/Bearing calc
     let prevLat = (plan.origin && plan.origin.latitude) || currentPos.lat;
     let prevLon = (plan.origin && plan.origin.longitude) || currentPos.lon;
 
-    // Helper to Render a Single Waypoint Row
-    function renderLegRow(wp, isChild) {
+    // --- MAIN LOOP: Iterate the Top-Level Items ---
+    plan.flightPlanItems.forEach((item, index) => {
+        const hasChildren = Array.isArray(item.children) && item.children.length > 0;
+        
+        // --- 2. HEADER LOGIC (SID/STAR/APPR detection) ---
+        if (hasChildren) {
+            let typeTag = 'PROC'; 
+            let typeClass = '';
+            const ident = (item.identifier || item.name || '').toUpperCase();
+            
+            // A. SID Logic (Start of plan)
+            if (index <= 1) { 
+                typeTag = 'SID'; 
+                typeClass = 'sid';
+            } 
+            // B. Approach Logic (Pattern match or explicit type)
+            else {
+                // Regex: Starts with exactly 1 Letter [A-Z], followed by 2 digits \d{2}, 
+                // optionally followed by L, R, or C.
+                const isApproachPattern = /^[A-Z]\d{2}[LRC]?$/.test(ident);
+
+                if (isApproachPattern) {
+                    typeTag = 'APPR';
+                    typeClass = 'appr';
+                } else {
+                    typeTag = 'STAR'; 
+                    typeClass = 'star';
+                }
+            }
+
+            // Render The Header Row
+            html += `
+                <div class="fms-proc-header">
+                    <span class="proc-tag ${typeClass}">${typeTag}</span>
+                    <span>${ident}</span>
+                </div>
+            `;
+
+            // --- 3. CHILDREN LOOP (With isLast detection) ---
+            item.children.forEach((child, cIdx) => {
+                const isLast = cIdx === item.children.length - 1;
+                html += renderLegRow(child, true, isLast); 
+            });
+
+        } else {
+            // --- 4. STANDARD ROW ---
+            html += renderLegRow(item, false, false);
+        }
+    });
+
+    // --- Helper to Render a Single Waypoint Row ---
+    function renderLegRow(wp, isChild, isLastChild) {
         if (!wp.location || wp.location.latitude == null) return '';
 
         // Calc Leg Data
         const distKm = getDistanceKm(prevLat, prevLon, wp.location.latitude, wp.location.longitude);
         const distNM = distKm / 1.852;
+        const bearing = getBearing(prevLat, prevLon, wp.location.latitude, wp.location.longitude);
 
         // Determine Row State
         let rowClass = '';
-        if (globalLeafIndex === activeWpIndex) rowClass = 'active';
-        else if (globalLeafIndex < activeWpIndex) rowClass = 'passed'; // Optional CSS for passed
+        if (globalLeafIndex < activeWpIndex) rowClass = 'passed-leg';
+        else if (globalLeafIndex === activeWpIndex) rowClass = 'active-leg';
         
         const ident = wp.identifier || wp.name || 'WPT';
-        const distDisplay = distNM.toFixed(1) + ' NM';
+        const crsDisplay = Math.round(bearing).toString().padStart(3, '0') + '°';
+        const distDisplay = distNM.toFixed(1);
 
         // Update Prev coords for next loop
         prevLat = wp.location.latitude;
         prevLon = wp.location.longitude;
 
         globalLeafIndex++;
+        
+        // --- NEW: Add is-last-child class if applicable ---
+        const childClasses = isChild ? `is-child ${isLastChild ? 'is-last-child' : ''}` : '';
 
-        // --- MODERN ROW HTML ---
         return `
-            <div class="fms-modern-item ${rowClass}" id="leg-${globalLeafIndex}">
-                <div class="fms-icon"><i class="fa-solid fa-location-dot"></i></div>
-                <div style="font-weight: 500;">${ident}</div>
-                <div style="font-family: monospace; font-size: 0.8rem;">${distDisplay}</div>
+            <div class="fms-row ${rowClass} ${childClasses}" id="leg-${globalLeafIndex}">
+                <span class="col-wpt">${ident}</span>
+                <span class="col-data text-center">${crsDisplay}</span>
+                <span class="col-data text-right">${distDisplay}</span>
             </div>
         `;
     }
 
-    // Recursive render
-    const processItems = (items) => {
-        items.forEach(item => {
-            if (item.children && item.children.length > 0) {
-                processItems(item.children);
-            } else {
-                html += renderLegRow(item, false);
-            }
-        });
-    };
-
-    processItems(plan.flightPlanItems);
-
     listContainer.innerHTML = html;
 
-    // Restore scroll position
+    // --- Restore scroll position ---
     if (previousScrollTop > 0) {
         listContainer.scrollTop = previousScrollTop;
     }
 
-    // Scroll Active Leg into View (ONCE)
+    // --- [FIXED] Scroll Active Leg into View (ONCE) without scrolling parent window ---
     if (listContainer.dataset.initialScrollComplete !== 'true') {
         setTimeout(() => {
-            const activeRow = listContainer.querySelector('.active');
+            const activeRow = listContainer.querySelector('.active-leg');
             if (activeRow) {
+                // Calculate position manually to avoid 'scrollIntoView' bubbling up to the main window
                 const rowTop = activeRow.offsetTop;
+                const rowHeight = activeRow.offsetHeight;
                 const containerHeight = listContainer.clientHeight;
+                
+                // Center the row: Row Top - Half Container + Half Row
                 listContainer.scrollTo({
-                    top: rowTop - (containerHeight / 2) + 20,
+                    top: rowTop - (containerHeight / 2) + (rowHeight / 2),
                     behavior: 'smooth'
                 });
+
                 listContainer.dataset.initialScrollComplete = 'true';
             }
         }, 100);
+    }
+
+    // --- Footer Stats ---
+    if(totalDistEl && document.getElementById('ac-dist')) {
+        totalDistEl.innerHTML = document.getElementById('ac-dist').innerHTML;
+    }
+    if(totalEteEl && document.getElementById('ac-ete')) {
+        totalEteEl.textContent = document.getElementById('ac-ete').textContent;
     }
 }
 
@@ -9404,7 +8722,6 @@ async function initializeApp() {
         loadFiltersFromLocalStorage();
 
         // Inject all custom CSS
-        injectModernDashboardStyles();
         injectCustomStyles();
 
         // Fetch essential data in parallel
