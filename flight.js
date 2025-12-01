@@ -2110,98 +2110,192 @@ function injectCustomStyles() {
 }
 
 /**
- * --- [NEW] Calculates airport congestion based on live telemetry ---
- * analyzing the inbound flight list against live map positions.
+ * --- [REPLACED] Advanced Congestion Algorithm (InfiniteView Style) ---
+ * Calculates a "Delay Index" (0.0 to 1.0+) based on ground traffic,
+ * inbound pressure decay, and departure delays.
  */
 function calculateAirportCongestion(inboundFlightIds, airportCoords) {
-    // 1. Setup Buckets & Thresholds
-    const congestion = {
-        imminent: 0,   // < 10 mins (Landing/Final)
-        approach: 0,   // 10-20 mins (Vectoring/STAR)
-        enroute: 0,    // 20+ mins
-        score: 0,      // Calculated "Stress Score"
-        level: 'LOW',  // Display Label
-        color: '#4ade80', // Display Color (Green)
-        trend: 'STEADY',
-        avgHoldTime: 0
+    if (!inboundFlightIds || !airportCoords) return null;
+
+    // --- 1. CONFIGURABLE WEIGHTS (Copied from Source) ---
+    const WEIGHTS = {
+        DELAY: 1 / 25,         // Weight for delayed departures
+        GROUND: 1 / 30,        // Weight for aircraft on ground (taxiing/holding)
+        INBOUND: 1 / 200,      // Weight for inbound pressure sum
+        TIME_DECAY: 0.025      // Exponential decay factor for incoming flights
     };
 
-    if (!inboundFlightIds || inboundFlightIds.length === 0 || !airportCoords) {
-        return congestion;
-    }
-
-    let totalEtaMinutes = 0;
-    let countedFlights = 0;
-
-    // 2. Process Each Inbound Flight
-    inboundFlightIds.forEach(flightId => {
-        // Look up the flight in our live map cache
-        const feature = currentMapFeatures[flightId];
+    // --- 2. ANALYZE GROUND TRAFFIC (Outbound/Ground) ---
+    // Scan live map features for planes near this airport on the ground
+    let groundCount = 0;
+    let delayedCount = 0; // We define "delayed" as sitting on ground > X time or low speed
+    
+    Object.values(currentMapFeatures).forEach(feature => {
+        const props = feature.properties;
+        if (!props || !props.position) return;
         
-        if (feature && feature.properties && feature.properties.position) {
-            try {
-                // Parse position data
-                const pos = typeof feature.properties.position === 'string' 
-                    ? JSON.parse(feature.properties.position) 
-                    : feature.properties.position;
+        let pos;
+        try { pos = JSON.parse(props.position); } catch(e) { return; }
 
-                // Calculate Distance & Speed
-                const distKm = getDistanceKm(airportCoords.lat, airportCoords.lon, pos.lat, pos.lon);
-                const distNM = distKm / 1.852;
-                
-                // Use Ground Speed (clamp minimum to 50kts to avoid infinity for parked/slow planes)
-                const gs = Math.max(pos.gs_kt || 0, 50); 
-                
-                // Calculate ETA in Minutes
-                const minutesToArr = (distNM / gs) * 60;
-
-                // Bucket the Traffic
-                if (minutesToArr < 12) {
-                    congestion.imminent++;
-                } else if (minutesToArr < 25) {
-                    congestion.approach++;
-                } else {
-                    congestion.enroute++;
-                }
-                
-                totalEtaMinutes += minutesToArr;
-                countedFlights++;
-
-            } catch (e) {
-                // Ignore flights with bad data
+        const distKm = getDistanceKm(airportCoords.lat, airportCoords.lon, pos.lat, pos.lon);
+        
+        // Check if within 10km (approx 5.4nm) and on ground
+        if (distKm < 10 && pos.alt_ft < 1500 && pos.gs_kt < 80) {
+            groundCount++;
+            // Simple heuristic: If speed is very low (< 5kts) they are likely holding/delayed
+            if (pos.gs_kt < 5) {
+                delayedCount++;
             }
-        } else {
-            // Flight is "Inbound" according to IF API, but not streamed yet (far out)
-            congestion.enroute++;
         }
     });
 
-    // 3. Calculate "Stress Score" (Weighted algorithm)
-    // Imminent traffic counts 3x more towards stress than approach traffic
-    // Single runway capacity is approx ~1 arrival every 2 mins (conservative)
-    congestion.score = (congestion.imminent * 3) + (congestion.approach * 1);
+    // --- 3. ANALYZE INBOUND PRESSURE (Time Decay) ---
+    // Calculate minutes out for every inbound flight
+    const inboundEtas = [];
+    inboundFlightIds.forEach(id => {
+        const feature = currentMapFeatures[id];
+        if (feature && feature.properties.position) {
+            try {
+                const pos = JSON.parse(feature.properties.position);
+                const distKm = getDistanceKm(airportCoords.lat, airportCoords.lon, pos.lat, pos.lon);
+                const gs = Math.max(pos.gs_kt, 150); // Clamp min speed for calculation
+                const minutesOut = (distKm / 1.852 / gs) * 60;
+                inboundEtas.push(minutesOut);
+            } catch (e) {}
+        } else {
+            // Default for non-visible inbounds (far out)
+            inboundEtas.push(45); 
+        }
+    });
 
-    // 4. Determine Level
-    if (congestion.score >= 15) {
-        congestion.level = 'SEVERE';
-        congestion.color = '#ef4444'; // Red
-        congestion.trend = 'EXPECT HOLDS';
-        congestion.avgHoldTime = Math.round((congestion.score - 10) * 2); // Rough estimate
-    } else if (congestion.score >= 8) {
-        congestion.level = 'HEAVY';
-        congestion.color = '#f59e0b'; // Orange
-        congestion.trend = 'BUSY';
-    } else if (congestion.score >= 4) {
-        congestion.level = 'MODERATE';
-        congestion.color = '#38bdf8'; // Blue
-        congestion.trend = 'STEADY';
-    } else {
-        congestion.level = 'LIGHT';
-        congestion.color = '#4ade80'; // Green
-        congestion.trend = 'FREE FLOW';
+    // Helper: Calculate pressure sum for a specific time offset
+    const calcPressure = (timeShift = 0) => {
+        let pressure = 0;
+        inboundEtas.forEach(minutes => {
+            // How far away will they be in 'timeShift' minutes?
+            // If result is < 0, they have landed (pressure 0). 
+            // Otherwise, they are closer, so pressure is higher.
+            const adjustedMinutes = Math.max(0, minutes - timeShift);
+            
+            // Formula: e^(-0.025 * minutes)
+            // 0 mins away = 1.0 pressure
+            // 30 mins away = 0.47 pressure
+            pressure += Math.exp(-WEIGHTS.TIME_DECAY * adjustedMinutes);
+        });
+        return pressure;
+    };
+
+    // --- 4. CALCULATE RATIOS (Now vs Future) ---
+    const calcRatio = (timeShift = 0) => {
+        const pressure = calcPressure(timeShift);
+        
+        let ratio = (delayedCount * WEIGHTS.DELAY) + 
+                    (groundCount * WEIGHTS.GROUND) + 
+                    (pressure * WEIGHTS.INBOUND);
+        
+        // Dampener for quiet airports to prevent false alarms
+        if (groundCount < 3) ratio *= 0.6;
+        
+        return Math.max(0.0, Math.min(ratio, 1.0)); // Clamp 0-1
+    };
+
+    const ratioNow = calcRatio(0);
+    const ratio30 = calcRatio(30); // Forecast 30 mins from now
+
+    // --- 5. DETERMINE STATUS & TREND ---
+    let level = "LOW";
+    let color = "#4ade80"; // Green
+    let statusText = "Quiet, no delays expected.";
+    let barColor = "bg-green-500"; // Tailwind class ref or hex
+
+    if (ratioNow > 0.8) {
+        level = "SEVERE";
+        color = "#da3633"; // Red
+        statusText = "Very busy, expect delays.";
+    } else if (ratioNow > 0.4) {
+        level = "BUSY";
+        color = "#e3b341"; // Yellow/Orange
+        statusText = "Busy, possible delays.";
     }
 
-    return congestion;
+    // Trend Logic
+    const change = ratio30 - ratioNow;
+    let forecast = "Traffic levels steady.";
+    
+    if (Math.abs(change) > 0.1) {
+        const factor = (ratio30 / Math.max(ratioNow, 0.1)).toFixed(1);
+        if (change > 0) {
+            forecast = `Traffic building up (+${Math.round(change*100)}%).`;
+        } else {
+            forecast = `Traffic easing off (-${Math.round(Math.abs(change)*100)}%).`;
+        }
+    }
+
+    return {
+        score: ratioNow,          // 0.0 - 1.0
+        scoreDisplay: (ratioNow * 5).toFixed(1), // 0.0 - 5.0 scale
+        level: level,
+        color: color,
+        text: statusText,
+        forecast: forecast,
+        stats: {
+            ground: groundCount,
+            inbound: inboundFlightIds.length,
+            delayed: delayedCount
+        }
+    };
+}
+
+/**
+ * --- [REPLACED] Traffic UI Module (InfiniteView Style) ---
+ * Renders the Delay Index bar and the trend forecast.
+ */
+function generateTrafficForecastHTML(congestion) {
+    if (!congestion) return `<div class="apt-mini-module"><div class="apt-mini-body">No Traffic Data</div></div>`;
+
+    const percent = Math.min(congestion.score * 100, 100);
+    
+    return `
+    <div class="apt-mini-module">
+        <div class="apt-mini-header">
+            <span><i class="fa-solid fa-chart-line"></i> DELAY INDEX</span>
+            <div class="nav-status-indicator" style="color: ${congestion.color}; font-size: 0.8rem;">
+                ${congestion.scoreDisplay} / 5.0
+            </div>
+        </div>
+        <div class="apt-mini-body" style="gap: 8px;">
+            <div style="display:flex; justify-content:space-between; align-items:end;">
+                <span style="font-size: 0.7rem; color: #94a3b8; font-weight:600;">STATUS</span>
+                <span style="font-size: 0.75rem; color: #fff; font-weight:600;">${congestion.level}</span>
+            </div>
+
+            <div style="height: 8px; width: 100%; background: rgba(255,255,255,0.1); border-radius: 4px; overflow: hidden; border: 1px solid rgba(255,255,255,0.1);">
+                <div style="width: ${percent}%; height: 100%; background-color: ${congestion.color}; transition: width 0.5s ease;"></div>
+            </div>
+
+            <div style="display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 4px; margin-top: 4px;">
+                <div class="compact-stat-box">
+                    <span class="compact-value" style="color:#fff;">${congestion.stats.inbound}</span>
+                    <span class="compact-label">ARR</span>
+                </div>
+                <div class="compact-stat-box">
+                    <span class="compact-value" style="color:#fff;">${congestion.stats.ground}</span>
+                    <span class="compact-label">GND</span>
+                </div>
+                <div class="compact-stat-box">
+                    <span class="compact-value" style="color:${congestion.stats.delayed > 2 ? '#ef4444' : '#94a3b8'};">${congestion.stats.delayed}</span>
+                    <span class="compact-label">HOLD</span>
+                </div>
+            </div>
+
+            <div style="border-top: 1px solid rgba(255,255,255,0.05); padding-top: 6px; margin-top: 2px;">
+                <p style="font-size: 0.65rem; color: #94a3b8; margin: 0; display: flex; align-items: center; gap: 6px;">
+                    <i class="fa-solid fa-crystal-ball"></i> ${congestion.forecast}
+                </p>
+            </div>
+        </div>
+    </div>
+    `;
 }
 
 /**
