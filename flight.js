@@ -2190,6 +2190,273 @@ function injectCustomStyles() {
     document.head.appendChild(style);
 }
 
+function injectNewSettingsStyles() {
+    const styleId = 'new-settings-modal-styles';
+    if (document.getElementById(styleId)) return;
+
+    const css = `
+        /* --- SETTINGS MODAL LAYOUT --- */
+        #filter-settings-window {
+            width: 800px !important; /* Wider to accommodate sidebar */
+            height: 500px !important;
+            max-width: 95vw;
+            max-height: 85vh;
+            display: flex;
+            flex-direction: column;
+            padding: 0;
+            background: #1e1e1e; /* Dark background from screenshot */
+            overflow: hidden;
+            border: 1px solid #333;
+            box-shadow: 0 20px 60px rgba(0,0,0,0.8);
+        }
+
+        #filter-settings-window .info-window-header {
+            background: #1e1e1e;
+            border-bottom: 1px solid #333;
+            padding: 15px 20px;
+        }
+
+        #filter-settings-window .info-window-content {
+            display: flex;
+            flex-direction: row;
+            padding: 0;
+            height: 100%;
+            overflow: hidden;
+        }
+
+        /* --- SIDEBAR NAVIGATION --- */
+        .settings-sidebar {
+            width: 240px;
+            background: #1e1e1e;
+            border-right: 1px solid #333;
+            padding: 15px 0;
+            display: flex;
+            flex-direction: column;
+            flex-shrink: 0;
+        }
+
+        .settings-category-label {
+            font-size: 0.75rem;
+            color: #888;
+            text-transform: uppercase;
+            padding: 10px 20px 5px 20px;
+            font-weight: 600;
+            letter-spacing: 0.5px;
+        }
+
+        .settings-nav-item {
+            padding: 10px 20px;
+            cursor: pointer;
+            color: #ccc;
+            font-size: 0.9rem;
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            transition: all 0.2s;
+            border-left: 3px solid transparent;
+        }
+
+        .settings-nav-item:hover {
+            background: rgba(255,255,255,0.05);
+            color: #fff;
+        }
+
+        .settings-nav-item.active {
+            background: rgba(255,255,255,0.08);
+            color: #fff;
+            border-left-color: #00a8ff; /* Active Blue Accent */
+            font-weight: 500;
+        }
+
+        /* --- MAIN CONTENT AREA --- */
+        .settings-main-panel {
+            flex-grow: 1;
+            padding: 25px 40px;
+            overflow-y: auto;
+            background: #1e1e1e;
+        }
+
+        .settings-section-title {
+            font-size: 1.1rem;
+            color: #fff;
+            font-weight: 600;
+            margin-bottom: 20px;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+        }
+
+        .settings-group-label {
+            font-size: 0.85rem;
+            color: #999;
+            margin-bottom: 10px;
+            margin-top: 20px;
+            font-weight: 500;
+        }
+        .settings-group-label:first-child { margin-top: 0; }
+
+        /* --- VISUAL SELECTION CARDS (For Markers/Map Type) --- */
+        .visual-selector-container {
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+        }
+
+        .visual-card {
+            background: #252525;
+            border: 1px solid #3a3a3a;
+            border-radius: 8px;
+            padding: 15px;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            cursor: pointer;
+            transition: all 0.2s ease;
+        }
+
+        .visual-card:hover {
+            border-color: #555;
+            background: #2a2a2a;
+        }
+
+        .visual-card.active {
+            border-color: #007acc; /* Blue border for active */
+            background: rgba(0, 122, 204, 0.05);
+        }
+
+        .visual-card-left {
+            display: flex;
+            align-items: center;
+            gap: 15px;
+        }
+
+        .visual-preview-box {
+            width: 50px;
+            height: 50px;
+            background: #111;
+            border-radius: 6px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            border: 1px solid #333;
+        }
+
+        /* Simulating the radio circle on the right */
+        .custom-radio-circle {
+            width: 18px;
+            height: 18px;
+            border-radius: 50%;
+            border: 2px solid #555;
+            position: relative;
+        }
+
+        .visual-card.active .custom-radio-circle {
+            border-color: #007acc;
+        }
+        
+        .visual-card.active .custom-radio-circle::after {
+            content: '';
+            position: absolute;
+            top: 50%; left: 50%;
+            transform: translate(-50%, -50%);
+            width: 10px; height: 10px;
+            background: #007acc;
+            border-radius: 50%;
+        }
+
+        /* --- MAP TYPE GRID (Satellite vs Default) --- */
+        .map-type-grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 15px;
+        }
+        
+        .map-type-card {
+            background: #252525;
+            border: 1px solid #3a3a3a;
+            border-radius: 8px;
+            overflow: hidden;
+            cursor: pointer;
+            transition: all 0.2s;
+            position: relative;
+        }
+
+        .map-type-card.active {
+            border-color: #007acc;
+        }
+
+        .map-type-preview {
+            height: 80px;
+            width: 100%;
+            background-size: cover;
+            background-position: center;
+        }
+
+        .map-type-label {
+            padding: 10px;
+            color: #ddd;
+            font-size: 0.9rem;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        /* --- TOGGLE SWITCH ROW STYLING (Matches Screenshot) --- */
+        .settings-toggle-row {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 12px 0;
+            border-bottom: 1px solid #2a2a2a;
+        }
+        .settings-toggle-row:last-child { border-bottom: none; }
+
+        .settings-toggle-text h4 {
+            margin: 0;
+            font-size: 0.95rem;
+            color: #eee;
+            font-weight: 500;
+        }
+        .settings-toggle-text p {
+            margin: 4px 0 0 0;
+            font-size: 0.8rem;
+            color: #888;
+        }
+
+        /* HIDE TAB CONTENT BY DEFAULT */
+        .settings-tab-content {
+            display: none;
+            animation: fadeIn 0.2s ease;
+        }
+        .settings-tab-content.active {
+            display: block;
+        }
+        
+        /* Mobile adjustment */
+        @media (max-width: 768px) {
+            #filter-settings-window {
+                width: 100% !important;
+                height: 100% !important;
+                top: 0 !important; right: 0 !important; 
+                max-width: 100vw; max-height: 100vh;
+                border-radius: 0;
+            }
+            .settings-sidebar {
+                width: 60px; /* Collapse sidebar */
+            }
+            .settings-nav-item span { display: none; } /* Hide text */
+            .settings-category-label { display: none; }
+            .settings-main-panel { padding: 15px; }
+        }
+    `;
+
+    const style = document.createElement('style');
+    style.id = styleId;
+    style.type = 'text/css';
+    style.appendChild(document.createTextNode(css));
+    document.head.appendChild(style);
+}
+
 /**
  * --- [NEW] Calculates airport congestion based on live telemetry ---
  * analyzing the inbound flight list against live map positions.
@@ -5984,118 +6251,204 @@ function getIconImageExpression(colorMode = 'default') {
             }
 
             // --- 6. Inject Filter Settings Window (Updated with Simple Mode) ---
+            // --- 6. Inject NEW Filter Settings Window (Redesigned) ---
             if (!document.getElementById('filter-settings-window')) {
                 const windowHtml = `
                     <div id="filter-settings-window" class="info-window">
+                        
                         <div class="info-window-header">
-                            <h3><i class="fa-solid fa-filter" style="margin-right: 10px;"></i> Map Filters</h3>
-                            <div class="info-window-actions">
-                                <button class="filter-window-hide-btn" title="Hide"><i class="fa-solid fa-compress"></i></button>
-                                <button class="filter-window-close-btn" title="Close"><i class="fa-solid fa-xmark"></i></button>
-                            </div>
+                            <h3 style="margin:0; font-size:1.1rem; display: flex; justify-content: space-between; align-items: center; width: 100%;">
+                                <span>Settings</span>
+                                <button class="filter-window-close-btn" title="Close" style="background:none; border:none; color:#fff; cursor:pointer;">
+                                    <i class="fa-solid fa-xmark" style="font-size: 1.2rem;"></i>
+                                </button>
+                            </h3>
                         </div>
-                        <div id="filter-window-content" class="info-window-content">
-                            <ul class="filter-toggle-list">
-                                <li class="filter-toggle-item">
-                                    <span class="filter-toggle-label"><i class="fa-solid fa-table-list"></i> Simplified Flight View</span>
-                                    <label class="toggle-switch">
-                                        <input type="checkbox" id="filter-toggle-simple-mode">
-                                        <span class="toggle-slider"></span>
-                                    </label>
-                                </li>
 
-                                <li class="filter-toggle-item">
-                                    <span class="filter-toggle-label"><i class="fa-solid fa-tower-broadcast"></i> Hide Staffed Airports</span>
-                                    <label class="toggle-switch">
-                                        <input type="checkbox" id="filter-toggle-atc">
-                                        <span class="toggle-slider"></span>
-                                    </label>
-                                </li>
-
-                                <li class="filter-toggle-item">
-                                    <span class="filter-toggle-label"><i class="fa-solid fa-satellite"></i> Satellite Mode</span>
-                                    <label class="toggle-switch">
-                                        <input type="checkbox" id="filter-toggle-satellite-mode">
-                                        <span class="toggle-slider"></span>
-                                    </label>
-                                </li>
-                                
-                                <li class="filter-toggle-item">
-                                    <span class="filter-toggle-label"><i class="fa-solid fa-tags"></i> Show Aircraft Labels</span>
-                                    <label class="toggle-switch">
-                                        <input type="checkbox" id="filter-toggle-aircraft-labels">
-                                        <span class="toggle-slider"></span>
-                                    </label>
-                                </li>
-                            </ul>
-
-                            <div class="filter-section-divider">
-                                <span class="filter-section-title">Aircraft Icon Color</span>
-                            </div>
-                            <ul class="filter-toggle-list" id="icon-color-filter-group" style="padding-top: 8px;">
-                                <li class="filter-radio-item">
-                                    <input type="radio" id="icon-color-default" name="icon-color-mode" value="default" checked>
-                                    <label for="icon-color-default"><i class="fa-solid fa-plane" style="color: #fff;"></i> Default (White)</label>
-                                </li>
-                                <li class="filter-radio-item">
-                                    <input type="radio" id="icon-color-blue" name="icon-color-mode" value="blue">
-                                    <label for="icon-color-blue"><i class="fa-solid fa-plane" style="color: #00a8ff;"></i> Blue</label>
-                                </li>
-                                <li class="filter-radio-item">
-                                    <input type="radio" id="icon-color-orange" name="icon-color-mode" value="orange">
-                                    <label for="icon-color-orange"><i class="fa-solid fa-plane" style="color: #ff9900;"></i> Orange</label>
-                                </li>
-                            </ul>
+                        <div class="info-window-content">
                             
-                            <div class="filter-section-divider">
-                                <span class="filter-section-title">Active Flight Plan Display</span>
-                            </div>
-                            <ul class="filter-toggle-list" id="plan-filter-group" style="padding-top: 8px;">
-                                <li class="filter-radio-item">
-                                    <input type="radio" id="plan-filter-none" name="plan-display-mode" value="none" checked>
-                                    <label for="plan-filter-none"><i class="fa-solid fa-eye-slash"></i> Hide Plan</label>
-                                </li>
-                                <li class="filter-radio-item">
-                                    <input type="radio" id="plan-filter-direct" name="plan-display-mode" value="direct">
-                                    <label for="plan-filter-direct"><i class="fa-solid fa-route"></i> Direct to Destination</label>
-                                </li>
-                                <li class="filter-radio-item">
-                                    <input type="radio" id="plan-filter-full" name="plan-display-mode" value="full">
-                                    <label for="plan-filter-full"><i class="fa-solid fa-diagram-project"></i> Full Filed Plan</label>
-                                </li>
-                            </ul>
-
-                            <div class="mobile-only-filter-section">
-                                <div class="filter-section-divider">
-                                    <span class="filter-section-title">Mobile Display Mode</span>
+                            <div class="settings-sidebar">
+                                <div class="settings-category-label">Customisation</div>
+                                
+                                <div class="settings-nav-item" data-tab-target="tab-labels">
+                                    <i class="fa-solid fa-comment-dots" style="width: 20px; text-align: center;"></i> 
+                                    <span>Aircraft Labels</span>
                                 </div>
-                                <ul class="filter-toggle-list" id="mobile-mode-filter-group" style="padding-top: 8px;">
-                                    <li class="filter-radio-item">
-                                        <input type="radio" id="mobile-mode-hud" name="mobile-display-mode" value="hud" checked>
-                                        <label for="mobile-mode-hud"><i class="fa-solid fa-rocket"></i> HUD View</label>
-                                    </li>
-                                    <li class="filter-radio-item">
-                                        <input type="radio" id="mobile-mode-legacy" name="mobile-display-mode" value="legacy">
-                                        <label for="mobile-mode-legacy"><i class="fa-solid fa-layer-group"></i> Legacy Sheet</label>
-                                    </li>
-                                </ul>
+                                <div class="settings-nav-item active" data-tab-target="tab-map-markers">
+                                    <i class="fa-solid fa-map" style="width: 20px; text-align: center;"></i> 
+                                    <span>Map & Markers</span>
+                                </div>
+                                <div class="settings-nav-item" data-tab-target="tab-weather">
+                                    <i class="fa-solid fa-cloud" style="width: 20px; text-align: center;"></i> 
+                                    <span>Weather</span>
+                                </div>
+
+                                <div class="settings-category-label">App Settings</div>
+                                <div class="settings-nav-item" data-tab-target="tab-filters">
+                                    <i class="fa-solid fa-filter" style="width: 20px; text-align: center;"></i> 
+                                    <span>Filters</span>
+                                </div>
+                                
+                                <div class="settings-category-label" style="margin-top: auto;">Help & Support</div>
+                                <div class="settings-nav-item">
+                                    <i class="fa-solid fa-bolt" style="width: 20px; text-align: center;"></i> 
+                                    <span>Keyboard Shortcuts</span>
+                                </div>
                             </div>
 
-                            <div class="filter-section-divider">
-                                <span class="filter-section-title">Window Appearance</span>
-                            </div>
-                            <div class="filter-appearance-controls" style="padding: 10px; display: flex; flex-direction: column; gap: 10px;">
-                                <div style="display: flex; justify-content: space-between; align-items: center;">
-                                    <span style="color: #ccc; font-size: 0.9rem;">Gradient Start Color</span>
-                                    <input type="color" id="theme-color-start" value="#121426" style="background: none; border: none; width: 50px; height: 30px; cursor: pointer;">
+                            <div class="settings-main-panel">
+                                
+                                <div id="tab-map-markers" class="settings-tab-content active">
+                                    <div class="settings-section-title">Map & Markers</div>
+
+                                    <div class="settings-group-label">Marker Colours</div>
+                                    <div class="visual-selector-container">
+                                        <div class="visual-card active" data-setting="icon-color" data-value="default">
+                                            <div class="visual-card-left">
+                                                <div class="visual-preview-box">
+                                                    <i class="fa-solid fa-plane" style="color: #ffffff; font-size: 1.2rem;"></i>
+                                                </div>
+                                                <span style="font-weight: 500; color: #fff;">White (Default)</span>
+                                            </div>
+                                            <div class="custom-radio-circle"></div>
+                                        </div>
+
+                                        <div class="visual-card" data-setting="icon-color" data-value="blue">
+                                            <div class="visual-card-left">
+                                                <div class="visual-preview-box">
+                                                    <i class="fa-solid fa-plane" style="color: #00a8ff; font-size: 1.2rem;"></i>
+                                                </div>
+                                                <span style="font-weight: 500; color: #fff;">Blue</span>
+                                            </div>
+                                            <div class="custom-radio-circle"></div>
+                                        </div>
+                                        
+                                        <div class="visual-card" data-setting="icon-color" data-value="orange">
+                                            <div class="visual-card-left">
+                                                <div class="visual-preview-box">
+                                                    <i class="fa-solid fa-plane" style="color: #ff9900; font-size: 1.2rem;"></i>
+                                                </div>
+                                                <span style="font-weight: 500; color: #fff;">Yellow</span>
+                                            </div>
+                                            <div class="custom-radio-circle"></div>
+                                        </div>
+                                    </div>
+
+                                    <div style="margin-top: 30px; margin-bottom: 10px; border-top: 1px solid #333;"></div>
+
+                                    <div class="settings-group-label">Map Type</div>
+                                    <div class="map-type-grid">
+                                        <div class="map-type-card active" data-setting="map-style" data-value="dark">
+                                            <div class="map-type-preview" style="background-color: #222; background-image: radial-gradient(#444 1px, transparent 1px); background-size: 10px 10px;"></div>
+                                            <div class="map-type-label">
+                                                <span>Detailed (Default)</span>
+                                                <div class="custom-radio-circle" style="width: 16px; height: 16px;"></div>
+                                            </div>
+                                        </div>
+                                        
+                                        <div class="map-type-card" data-setting="map-style" data-value="satellite">
+                                            <div class="map-type-preview" style="background-color: #003300; background-image: url('https://docs.mapbox.com/mapbox-gl-js/assets/satellite.png');"></div>
+                                            <div class="map-type-label">
+                                                <span>Satellite</span>
+                                                <div class="custom-radio-circle" style="width: 16px; height: 16px;"></div>
+                                            </div>
+                                        </div>
+                                    </div>
                                 </div>
-                                <div style="display: flex; justify-content: space-between; align-items: center;">
-                                    <span style="color: #ccc; font-size: 0.9rem;">Gradient End Color</span>
-                                    <input type="color" id="theme-color-end" value="#121426" style="background: none; border: none; width: 50px; height: 30px; cursor: pointer;">
+
+                                <div id="tab-labels" class="settings-tab-content">
+                                    <div class="settings-section-title">Aircraft Labels</div>
+                                    
+                                    <div class="settings-toggle-row">
+                                        <div class="settings-toggle-text">
+                                            <h4>Show Labels</h4>
+                                            <p>Display callsign and flight phase above aircraft.</p>
+                                        </div>
+                                        <label class="toggle-switch">
+                                            <input type="checkbox" id="setting-toggle-labels">
+                                            <span class="toggle-slider"></span>
+                                        </label>
+                                    </div>
                                 </div>
-                                <div style="display: flex; gap: 10px;">
-                                     <button id="theme-reset-btn" class="cta-button" style="width: 100%; padding: 8px; font-size: 0.85rem; border-radius: 4px; background: rgba(255,255,255,0.1); border: 1px solid #444; color: #fff; cursor: pointer;">Reset Default Theme</button>
+
+                                <div id="tab-weather" class="settings-tab-content">
+                                    <div class="settings-section-title">Weather Layers</div>
+                                    
+                                    <div class="settings-toggle-row">
+                                        <div class="settings-toggle-text">
+                                            <h4>Precipitation</h4>
+                                            <p>Show rain and snow radar.</p>
+                                        </div>
+                                        <label class="toggle-switch">
+                                            <input type="checkbox" id="setting-toggle-precip">
+                                            <span class="toggle-slider"></span>
+                                        </label>
+                                    </div>
+                                    <div class="settings-toggle-row">
+                                        <div class="settings-toggle-text">
+                                            <h4>Cloud Cover</h4>
+                                            <p>Show global cloud density.</p>
+                                        </div>
+                                        <label class="toggle-switch">
+                                            <input type="checkbox" id="setting-toggle-clouds">
+                                            <span class="toggle-slider"></span>
+                                        </label>
+                                    </div>
+                                    <div class="settings-toggle-row">
+                                        <div class="settings-toggle-text">
+                                            <h4>Wind</h4>
+                                            <p>Show global wind patterns.</p>
+                                        </div>
+                                        <label class="toggle-switch">
+                                            <input type="checkbox" id="setting-toggle-wind">
+                                            <span class="toggle-slider"></span>
+                                        </label>
+                                    </div>
                                 </div>
+
+                                <div id="tab-filters" class="settings-tab-content">
+                                    <div class="settings-section-title">Global Filters</div>
+
+                                    <div class="settings-toggle-row">
+                                        <div class="settings-toggle-text">
+                                            <h4>Hide Staffed Airports</h4>
+                                            <p>Do not show red markers for active ATC.</p>
+                                        </div>
+                                        <label class="toggle-switch">
+                                            <input type="checkbox" id="setting-toggle-hide-atc">
+                                            <span class="toggle-slider"></span>
+                                        </label>
+                                    </div>
+                                    <div class="settings-toggle-row">
+                                        <div class="settings-toggle-text">
+                                            <h4>Simplified Aircraft View</h4>
+                                            <p>Use a clean list view instead of the realistic cockpit.</p>
+                                        </div>
+                                        <label class="toggle-switch">
+                                            <input type="checkbox" id="setting-toggle-simple-mode">
+                                            <span class="toggle-slider"></span>
+                                        </label>
+                                    </div>
+                                    
+                                    <div class="settings-group-label">Route Display</div>
+                                    <div class="visual-selector-container">
+                                        <div class="visual-card active" data-setting="plan-mode" data-value="none">
+                                            <div class="visual-card-left">
+                                                <i class="fa-solid fa-eye-slash"></i>
+                                                <span>Hide Flight Plan</span>
+                                            </div>
+                                            <div class="custom-radio-circle"></div>
+                                        </div>
+                                        <div class="visual-card" data-setting="plan-mode" data-value="full">
+                                            <div class="visual-card-left">
+                                                <i class="fa-solid fa-route"></i>
+                                                <span>Show Full Route</span>
+                                            </div>
+                                            <div class="custom-radio-circle"></div>
+                                        </div>
+                                    </div>
+                                </div>
+
                             </div>
                         </div>
                     </div>
@@ -9101,116 +9454,158 @@ function setupFilterSettingsWindowEvents() {
         return;
     }
 
-    // --- Helper: Convert Hex to RGBA ---
-    const hexToRgba = (hex, alpha) => {
-        const r = parseInt(hex.slice(1, 3), 16);
-        const g = parseInt(hex.slice(3, 5), 16);
-        const b = parseInt(hex.slice(5, 7), 16);
-        return `rgba(${r}, ${g}, ${b}, ${alpha})`;
-    };
+    // --- Helper: Update Active State of Visual Cards ---
+    const updateCardVisuals = (settingType, activeValue) => {
+        // Handle standard visual cards (colors, plan mode)
+        const cards = filterSettingsWindow.querySelectorAll(`.visual-card[data-setting="${settingType}"]`);
+        cards.forEach(card => {
+            if (card.dataset.value === activeValue) card.classList.add('active');
+            else card.classList.remove('active');
+        });
 
-    // --- Helper: Apply Theme to CSS Vars ---
-    const applyWindowTheme = (startHex, endHex) => {
-        const root = document.documentElement;
-        const opacity = (mapFilters.themeOpacity || 95) / 100;
-        
-        root.style.setProperty('--iw-bg-start', hexToRgba(startHex, opacity));
-        root.style.setProperty('--iw-bg-end', hexToRgba(endHex, opacity));
-    };
-
-    // --- Helper: Set UI from State ---
-    const setUIFromState = () => {
-        // Toggles
-        document.getElementById('filter-toggle-atc').checked = mapFilters.hideAtcMarkers;
-        document.getElementById('filter-toggle-satellite-mode').checked = (currentMapStyle === MAP_STYLE_SATELLITE);
-        document.getElementById('filter-toggle-aircraft-labels').checked = mapFilters.showAircraftLabels;
-        // NEW: Set Simple Mode state
-        document.getElementById('filter-toggle-simple-mode').checked = mapFilters.simplifyAircraftView;
-
-        // Radios
-        const colorRadio = document.querySelector(`input[name="icon-color-mode"][value="${mapFilters.iconColorMode}"]`);
-        if (colorRadio) colorRadio.checked = true;
-        
-        const planRadio = document.querySelector(`input[name="plan-display-mode"][value="${mapFilters.planDisplayMode}"]`);
-        if (planRadio) planRadio.checked = true;
-
-        // Colors
-        document.getElementById('theme-color-start').value = mapFilters.themeStartColor || '#121426';
-        document.getElementById('theme-color-end').value = mapFilters.themeEndColor || '#121426';
-        
-        // Apply immediately on load
-        applyWindowTheme(mapFilters.themeStartColor, mapFilters.themeEndColor);
-
-        // Mobile-specific
-        const currentMobileMode = localStorage.getItem('mobileDisplayMode') || 'hud';
-        const mobileModeHud = document.getElementById('mobile-mode-hud');
-        const mobileModeLegacy = document.getElementById('mobile-mode-legacy');
-        if (mobileModeHud && mobileModeLegacy) {
-            if (currentMobileMode === 'legacy') {
-                mobileModeLegacy.checked = true;
-            } else {
-                mobileModeHud.checked = true;
-            }
+        // Handle Map Type cards (Satellite vs Detailed)
+        if (settingType === 'map-style') {
+            const mapCards = filterSettingsWindow.querySelectorAll(`.map-type-card[data-setting="map-style"]`);
+            mapCards.forEach(card => {
+                if (card.dataset.value === activeValue) card.classList.add('active');
+                else card.classList.remove('active');
+            });
         }
     };
-    
-    // --- Set the UI when the window is first set up ---
-    setUIFromState();
 
-    // --- Event Listener: Color Inputs (Input = Realtime Preview) ---
-    const startPicker = document.getElementById('theme-color-start');
-    const endPicker = document.getElementById('theme-color-end');
-    const resetBtn = document.getElementById('theme-reset-btn');
+    // --- 1. INITIALIZE UI STATE FROM SAVED FILTERS ---
+    const initSettingsUI = () => {
+        // Toggles
+        document.getElementById('setting-toggle-labels').checked = mapFilters.showAircraftLabels;
+        document.getElementById('setting-toggle-hide-atc').checked = mapFilters.hideAtcMarkers;
+        document.getElementById('setting-toggle-simple-mode').checked = mapFilters.simplifyAircraftView;
+        
+        // Weather Toggles (Check if layers are active)
+        const isPrecip = document.getElementById('weather-toggle-precip')?.checked || false; 
+        const isCloud = document.getElementById('weather-toggle-clouds')?.checked || false;
+        const isWind = document.getElementById('weather-toggle-wind')?.checked || false;
+        
+        // Sync new IDs with old state if possible, or default to false
+        if(document.getElementById('setting-toggle-precip')) document.getElementById('setting-toggle-precip').checked = isPrecip;
+        if(document.getElementById('setting-toggle-clouds')) document.getElementById('setting-toggle-clouds').checked = isCloud;
+        if(document.getElementById('setting-toggle-wind')) document.getElementById('setting-toggle-wind').checked = isWind;
 
-    const handleColorChange = () => {
-        const s = startPicker.value;
-        const e = endPicker.value;
-        applyWindowTheme(s, e);
-        // Update state
-        mapFilters.themeStartColor = s;
-        mapFilters.themeEndColor = e;
-        saveFiltersToLocalStorage();
+        // Visual Cards
+        updateCardVisuals('icon-color', mapFilters.iconColorMode);
+        updateCardVisuals('plan-mode', mapFilters.planDisplayMode);
+        
+        // Map Style
+        const currentStyleVal = (currentMapStyle === MAP_STYLE_SATELLITE) ? 'satellite' : 'dark';
+        updateCardVisuals('map-style', currentStyleVal);
     };
 
-    if (startPicker) startPicker.addEventListener('input', handleColorChange);
-    if (endPicker) endPicker.addEventListener('input', handleColorChange);
+    // Run initialization
+    initSettingsUI();
 
-    if (resetBtn) {
-        resetBtn.addEventListener('click', () => {
-            const defColor = '#121426';
-            startPicker.value = defColor;
-            endPicker.value = defColor;
-            applyWindowTheme(defColor, defColor);
-            
-            mapFilters.themeStartColor = defColor;
-            mapFilters.themeEndColor = defColor;
-            saveFiltersToLocalStorage();
-            showNotification("Window theme reset to default.", "success");
-        });
-    }
-
-    // Use a single listener on the window for better performance
+    // --- 2. EVENT DELEGATION FOR CLICKS ---
     filterSettingsWindow.addEventListener('click', (e) => {
         const target = e.target;
-        if (target.closest('.filter-window-close-btn') || target.closest('.filter-window-hide-btn')) {
+
+        // A. Handle Close Button
+        if (target.closest('.filter-window-close-btn')) {
             filterSettingsWindow.classList.remove('visible');
-            MobileUIHandler.closeActiveWindow();
+            if (typeof MobileUIHandler !== 'undefined') MobileUIHandler.closeActiveWindow();
+            return;
+        }
+
+        // B. Handle Sidebar Navigation
+        const navItem = target.closest('.settings-nav-item');
+        if (navItem) {
+            // Remove active class from all nav items
+            filterSettingsWindow.querySelectorAll('.settings-nav-item').forEach(el => el.classList.remove('active'));
+            // Add active class to clicked item
+            navItem.classList.add('active');
+
+            // Hide all tab contents
+            filterSettingsWindow.querySelectorAll('.settings-tab-content').forEach(el => el.classList.remove('active'));
+            
+            // Show target tab
+            const targetId = navItem.dataset.tabTarget;
+            const targetTab = document.getElementById(targetId);
+            if (targetTab) targetTab.classList.add('active');
+            return;
+        }
+
+        // C. Handle Visual Card Selection (Icon Color & Plan Mode)
+        const visualCard = target.closest('.visual-card');
+        if (visualCard) {
+            const setting = visualCard.dataset.setting;
+            const value = visualCard.dataset.value;
+
+            if (setting === 'icon-color') {
+                mapFilters.iconColorMode = value;
+                updateCardVisuals('icon-color', value);
+                
+                // Update Map
+                const newExpression = getIconImageExpression(value);
+                if (sectorOpsMap && sectorOpsMap.getLayer('sector-ops-live-flights-layer')) {
+                    sectorOpsMap.setLayoutProperty('sector-ops-live-flights-layer', 'icon-image', newExpression);
+                }
+                saveFiltersToLocalStorage();
+            }
+            
+            if (setting === 'plan-mode') {
+                mapFilters.planDisplayMode = value;
+                updateCardVisuals('plan-mode', value);
+                saveFiltersToLocalStorage();
+                
+                // Refresh lines if aircraft selected
+                if (currentFlightInWindow && cachedFlightDataForStatsView.plan) {
+                    const { flightProps, plan } = cachedFlightDataForStatsView;
+                    const position = currentAircraftPositionForGeocode || flightProps.position;
+                    updateFlightPlanLayer(currentFlightInWindow, plan, position);
+                }
+            }
+            return;
+        }
+
+        // D. Handle Map Type Selection
+        const mapCard = target.closest('.map-type-card');
+        if (mapCard) {
+            const value = mapCard.dataset.value;
+            const newStyle = (value === 'satellite') ? MAP_STYLE_SATELLITE : MAP_STYLE_DARK;
+
+            if (newStyle !== currentMapStyle) {
+                currentMapStyle = newStyle;
+                updateCardVisuals('map-style', value);
+                sectorOpsMap.setStyle(currentMapStyle);
+                // Note: 'style.load' listener in initMap will handle rebuilding layers
+            }
+            return;
         }
     });
 
-    // Use a 'change' listener for all toggles and radios
+    // --- 3. EVENT LISTENERS FOR TOGGLES (Change Event) ---
     filterSettingsWindow.addEventListener('change', (e) => {
         const target = e.target;
+        if (target.type !== 'checkbox') return;
+
+        // Aircraft Labels
+        if (target.id === 'setting-toggle-labels') {
+            mapFilters.showAircraftLabels = target.checked;
+            updateAircraftLabelVisibility();
+            saveFiltersToLocalStorage();
+        }
         
-        // Handle Simple Mode Toggle
-        if (target.id === 'filter-toggle-simple-mode') {
+        // Hide ATC Markers
+        if (target.id === 'setting-toggle-hide-atc') {
+            mapFilters.hideAtcMarkers = target.checked;
+            renderAirportMarkers();
+            saveFiltersToLocalStorage();
+        }
+
+        // Simplified View
+        if (target.id === 'setting-toggle-simple-mode') {
             mapFilters.simplifyAircraftView = target.checked;
             saveFiltersToLocalStorage();
-            
-            // If window is open, immediately refresh it to show the new view
+            // Refresh window if open
             if (aircraftInfoWindow.classList.contains('visible') && currentFlightInWindow && cachedFlightDataForStatsView.flightProps) {
                 const { flightProps } = cachedFlightDataForStatsView;
-                // Fetch fresh session ID to be safe, then re-open
                 fetch('https://site--acars-backend--6dmjph8ltlhv.code.run/if-sessions')
                     .then(res => res.json())
                     .then(data => {
@@ -9218,84 +9613,12 @@ function setupFilterSettingsWindowEvents() {
                         if (sessionId) handleAircraftClick(flightProps, sessionId);
                     });
             }
-            return;
         }
 
-        // Handle Flight Plan Radio Logic
-        if (target.name === 'plan-display-mode') {
-            mapFilters.planDisplayMode = target.value;
-            saveFiltersToLocalStorage(); 
-            if (currentFlightInWindow && cachedFlightDataForStatsView.plan) {
-                const { flightProps, plan } = cachedFlightDataForStatsView;
-                const position = currentAircraftPositionForGeocode || flightProps.position;
-                updateFlightPlanLayer(currentFlightInWindow, plan, position);
-            }
-            return;
-        }
-        
-        // Handle Icon Color Radio Logic
-        if (target.name === 'icon-color-mode') {
-            mapFilters.iconColorMode = target.value;
-            saveFiltersToLocalStorage(); 
-            const newExpression = getIconImageExpression(mapFilters.iconColorMode);
-            if (sectorOpsMap && sectorOpsMap.getLayer('sector-ops-live-flights-layer')) {
-                sectorOpsMap.setLayoutProperty('sector-ops-live-flights-layer', 'icon-image', newExpression);
-            }
-            return; 
-        }
-        
-        // Handle Mobile Display Mode Radio Logic
-        if (target.name === 'mobile-display-mode') {
-            const newMode = target.value;
-            localStorage.setItem('mobileDisplayMode', newMode);
-            if (!document.getElementById('mobile-mode-note')) {
-                document.getElementById('mobile-mode-filter-group').insertAdjacentHTML(
-                    'beforeend',
-                    '<p id="mobile-mode-note" class="muted-text" style="padding: 10px 0 0 0; text-align: left; font-size: 0.8rem;">Changes will apply the next time you open an aircraft window.</p>'
-                );
-            }
-            return; 
-        }
-
-        if (target.type !== 'checkbox') return;
-
-        // Handle Aircraft Label Toggle
-        if (target.id === 'filter-toggle-aircraft-labels') {
-            mapFilters.showAircraftLabels = target.checked;
-            saveFiltersToLocalStorage(); 
-            updateAircraftLabelVisibility(); 
-            return;
-        }
-
-        // Handle Map Style Logic
-        const satelliteModeToggle = document.getElementById('filter-toggle-satellite-mode');
-        let styleChanged = false;
-        let newMapStyle = currentMapStyle;
-
-        if (target.id === 'filter-toggle-satellite-mode') {
-            if (target.checked) {
-                newMapStyle = MAP_STYLE_SATELLITE;
-            } else {
-                newMapStyle = MAP_STYLE_DARK; 
-            }
-            styleChanged = true;
-        }
-
-        // Update mapFilters state
-        mapFilters.showVaOnly = document.getElementById('filter-toggle-members-only')?.checked || false;
-        mapFilters.hideAtcMarkers = document.getElementById('filter-toggle-atc')?.checked || false;
-        mapFilters.hideNoAtcMarkers = document.getElementById('filter-toggle-no-atc')?.checked || false;
-        
-        if (styleChanged && newMapStyle !== currentMapStyle) {
-            console.log(`Changing map style to: ${newMapStyle}`);
-            currentMapStyle = newMapStyle;
-            sectorOpsMap.setStyle(currentMapStyle);
-        } else if (!styleChanged) {
-            saveFiltersToLocalStorage(); 
-            updateMapFilters();
-        }
-
-        updateToolbarButtonStates(); 
+        // Weather Toggles (Directly call existing functions)
+        if (target.id === 'setting-toggle-precip') toggleWeatherLayer(target.checked);
+        if (target.id === 'setting-toggle-clouds') toggleCloudLayer(target.checked);
+        if (target.id === 'setting-toggle-wind') toggleWindLayer(target.checked);
     });
 
     filterSettingsWindow.dataset.eventsAttached = 'true';
@@ -9561,6 +9884,7 @@ async function initializeApp() {
         loadFiltersFromLocalStorage();
 
         // Inject all custom CSS
+        injectNewSettingsStyles()
         injectCustomStyles();
 
         // Fetch essential data in parallel
