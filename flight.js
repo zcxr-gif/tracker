@@ -7620,7 +7620,7 @@ async function handleAircraftClick(flightProps, sessionId) {
             // A. SIMPLE VIEW (IFRAME)
             
             // [WIDTH ADJUSTMENT] Set specifically for Simple Mode
-            windowEl.style.width = '360px'; 
+            windowEl.style.width = '420px'; 
 
             windowEl.innerHTML = `
                 <div style="width: 100%; height: 70vh; min-height: 550px; overflow: hidden; background: transparent; display: flex; flex-direction: column;">
