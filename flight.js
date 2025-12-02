@@ -78,6 +78,7 @@ document.addEventListener('DOMContentLoaded', async () => {
         planDisplayMode: 'none',
         iconColorMode: 'default',
         showAircraftLabels: false,
+        useSimpleFlightWindow: false,
         themeStartColor: '#121426', // Default Dark Blue/Black
         themeEndColor: '#121426',   // Default Dark Blue/Black
         themeOpacity: 95            // Default 95% opacity
@@ -2098,6 +2099,12 @@ function injectCustomStyles() {
     border-bottom: 1px solid rgba(255, 255, 255, 0.05);
     white-space: pre-wrap;
     line-height: 1.3;
+}
+
+/* Add to injectCustomStyles css string */
+#simple-flight-window-frame {
+    border-radius: 12px; /* Match your UI radius */
+    background: rgba(16, 18, 27, 0.95); /* Avoid white flashes */
 }
 
     `;
@@ -4128,27 +4135,18 @@ function handleSocketFlightUpdate(data) {
         };
 
         // --- START: ASYNCHRONOUS LOOKUP LOGIC FOR HOVER CARD ---
-        // Only run lookup if we don't have cached data yet and the aircraft info is present.
         if (acName && livName && !existingProps.communityImageUrl) {
-            
-            // Check the main cache map for instant hit
             const cachedData = communityAircraftCache.get(lookupKey);
-            
             if (cachedData) {
-                // If found in the main cache, apply immediately
                 newProperties.communityImageUrl = cachedData.communityImageUrl;
                 newProperties.contributorName = cachedData.contributorName;
             } else if (!lookupQueue.has(lookupKey)) {
-                // If not in main cache AND not already in the queue, trigger the fetch.
                 fetchCommunityAircraftDetails(acName, livName)
                     .then(result => {
-                        // Once resolved, immediately update the feature in the cache
                         if (result && currentMapFeatures[flightId]) {
                             currentMapFeatures[flightId].properties.communityImageUrl = result.communityImageUrl;
                             currentMapFeatures[flightId].properties.contributorName = result.contributorName;
-                            // Trigger a map redraw on the layer source if necessary (MapAnimator does this, but good practice)
                             if (isMapReady && sectorOpsMap.getSource('sector-ops-live-flights-source')) {
-                                // Only need to update the source data if the properties changed
                                 sectorOpsMap.getSource('sector-ops-live-flights-source').setData({
                                     type: 'FeatureCollection', 
                                     features: Object.values(currentMapFeatures)
@@ -4158,12 +4156,10 @@ function handleSocketFlightUpdate(data) {
                     })
                     .catch(err => console.error("Aircraft lookup failed:", err));
             }
-            // If in queue, wait for it to resolve and update later.
         }
         // --- END: ASYNCHRONOUS LOOKUP LOGIC ---
 
-
-        // Manually update the data cache (currentMapFeatures) immediately.
+        // Manually update the data cache
         if (!currentMapFeatures[flightId]) {
             currentMapFeatures[flightId] = {
                 type: 'Feature',
@@ -4174,13 +4170,12 @@ function handleSocketFlightUpdate(data) {
                 properties: newProperties
             };
         } else {
-            // Update existing entry
             currentMapFeatures[flightId].properties = newProperties;
             currentMapFeatures[flightId].geometry.coordinates = [flight.position.lon, flight.position.lat];
         }
 
         // ================================================================
-        // === SELECTED AIRCRAFT UPDATE LOGIC (UNCHANGED) ===
+        // === SELECTED AIRCRAFT UPDATE LOGIC ===
         // ================================================================
         if (flightId === currentFlightInWindow) {
             
@@ -4218,20 +4213,44 @@ function handleSocketFlightUpdate(data) {
                 localTrail.push(newRoutePoint);
                 liveTrailCache.set(flightId, localTrail);
 
-                // 5. Update PFD Display
-                updatePfdDisplay(flight.position);
+                // --- [NEW] Update Simple Iframe if Active ---
+                const simpleIframe = document.getElementById('simple-flight-window-frame');
+                if (mapFilters.useSimpleFlightWindow && simpleIframe && simpleIframe.contentWindow) {
+                    // We need to re-format the data with the newest position/telemetry
+                    const freshData = formatDataForSimpleWindow(
+                        fullFlightProps, 
+                        cachedFlightDataForStatsView.plan, 
+                        liveTrailCache.get(flightId),
+                        { 
+                            imageUrl: fullFlightProps.communityImageUrl, 
+                            contributorName: fullFlightProps.contributorName 
+                        }
+                    );
+                    
+                    simpleIframe.contentWindow.postMessage({
+                        type: 'FLIGHT_DATA_UPDATE',
+                        payload: freshData
+                    }, '*');
+                } 
+                else if (!mapFilters.useSimpleFlightWindow) {
+                    // 5. Update PFD Display (Standard View)
+                    updatePfdDisplay(flight.position);
 
-                // Update Nav Panel
-                updateNavPanelData(
-                    flight.position.lat,
-                    flight.position.lon,
-                    flight.position.heading_deg,
-                    cachedOat,
-                    cachedWindDir,
-                    cachedWindSpd
-                );
-                
-                // 6. Update Navigation Display Iframe (Traffic, Plan, Wind)
+                    // Update Nav Panel (Standard View)
+                    updateNavPanelData(
+                        flight.position.lat,
+                        flight.position.lon,
+                        flight.position.heading_deg,
+                        cachedOat,
+                        cachedWindDir,
+                        cachedWindSpd
+                    );
+                    
+                    // 6. Update Info Window UI (Standard View)
+                    updateAircraftInfoWindow(fullFlightProps, cachedFlightDataForStatsView.plan, localTrail);
+                }
+
+                // 6.5 Update Navigation Display Iframe (Traffic, Plan, Wind) - Runs for both views
                 const navIframe = document.getElementById('nav-display-frame');
                 if (navIframe && navIframe.contentWindow) {
                     
@@ -4349,10 +4368,7 @@ function handleSocketFlightUpdate(data) {
                     }, '*');
                 }
 
-                // 7. Update Info Window UI
-                updateAircraftInfoWindow(fullFlightProps, cachedFlightDataForStatsView.plan, localTrail);
-
-                // 8. Update Map Trail
+                // 8. Update Map Trail (Standard for both views)
                 if (isMapReady) {
                     const layerId = sectorOpsLiveFlightPathLayers[flightId]?.flown;
                     const source = layerId ? sectorOpsMap.getSource(layerId) : null;
@@ -4363,7 +4379,7 @@ function handleSocketFlightUpdate(data) {
                 }
             }
 
-            // 9. Update Planned Route Line
+            // 9. Update Planned Route Line (Standard for both views)
             if (cachedFlightDataForStatsView.plan && mapFilters.planDisplayMode !== 'none' && isMapReady) {
                 updateFlightPlanLayer(flightId, cachedFlightDataForStatsView.plan, flight.position);
             }
@@ -4378,7 +4394,6 @@ function handleSocketFlightUpdate(data) {
     // Clean up old flights
     for (const flightId in currentMapFeatures) {
         if (!updatedFlightIds.has(String(flightId))) {
-            // Clean visual and data cache
             if (isMapReady) {
                 mapAnimator.removeFlight(flightId);
             }
@@ -5929,7 +5944,110 @@ function getIconImageExpression(colorMode = 'default') {
     ];
 }
 
+/**
+ * --- [NEW] Formats data for the Simple Flight Info Iframe ---
+ */
+function formatDataForSimpleWindow(flightProps, plan, routePoints, communityData) {
+    if (!flightProps) return null;
 
+    // 1. Parsing
+    const pos = flightProps.position || {};
+    const aircraft = (typeof flightProps.aircraft === 'string') ? JSON.parse(flightProps.aircraft) : (flightProps.aircraft || {});
+    
+    // 2. Route Calculations
+    let originIcao = '---', destIcao = '---';
+    let progress = 0, elapsed = '--:--', eta = '--:--', ete = '--:--';
+    let originCountry = '', destCountry = '';
+
+    if (plan && plan.flightPlanItems && plan.flightPlanItems.length > 1) {
+        originIcao = plan.origin?.icao || plan.flightPlanItems[0].identifier || '---';
+        destIcao = plan.destination?.icao || plan.flightPlanItems[plan.flightPlanItems.length - 1].identifier || '---';
+        
+        // Country Codes (assuming airportsData is available globally)
+        if (airportsData[originIcao]) originCountry = airportsData[originIcao].country;
+        if (airportsData[destIcao]) destCountry = airportsData[destIcao].country;
+
+        // Progress & Time
+        const flatWaypoints = flattenWaypointsFromPlan(plan.flightPlanItems);
+        let totalDist = 0;
+        for (let i = 0; i < flatWaypoints.length - 1; i++) {
+            totalDist += getDistanceKm(flatWaypoints[i][1], flatWaypoints[i][0], flatWaypoints[i+1][1], flatWaypoints[i+1][0]);
+        }
+        
+        if (totalDist > 0) {
+            const destLat = flatWaypoints[flatWaypoints.length - 1][1];
+            const destLon = flatWaypoints[flatWaypoints.length - 1][0];
+            const distRemaining = getDistanceKm(pos.lat, pos.lon, destLat, destLon);
+            
+            // Calc Progress
+            progress = Math.max(0, Math.min(100, (1 - (distRemaining / totalDist)) * 100));
+            
+            // Calc ETA/ETE
+            const speedKts = pos.gs_kt || 0;
+            if (speedKts > 50) {
+                const hours = (distRemaining / 1.852) / speedKts;
+                const h = Math.floor(hours);
+                const m = Math.round((hours - h) * 60);
+                ete = `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}`;
+                
+                const arrivalDate = new Date(Date.now() + (hours * 3600000));
+                eta = arrivalDate.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit', timeZone: 'UTC' });
+            }
+        }
+    }
+
+    // 3. Waypoints (Simplified for the list)
+    const waypoints = [];
+    if (plan && plan.flightPlanItems) {
+        // Simple logic: flatten and check if passed based on progress index or distance
+        // For simplicity, we just pass the raw list. You might want to add "active" logic here.
+        getFlatWaypointObjects(plan.flightPlanItems).forEach((wp, idx) => {
+            waypoints.push({
+                ident: wp.identifier || wp.name,
+                name: wp.name,
+                type: wp.type, // e.g. Airport, VOR
+                active: false, // Logic to determine if active
+                passed: false  // Logic to determine if passed
+            });
+        });
+    }
+
+    // 4. Construct Payload
+    return {
+        username: flightProps.username,
+        callsign: flightProps.callsign,
+        phase: flightProps.phase || 'ENROUTE',
+        telemetry: {
+            altitude: pos.alt_ft,
+            groundSpeed: pos.gs_kt,
+            verticalSpeed: pos.vs_fpm,
+            heading: pos.heading_deg,
+            squawk: '2000', // Default or fetch if available
+            windDir: flightProps.wind_dir || 0,
+            windSpd: flightProps.wind_spd_kts || 0
+        },
+        aircraft: {
+            aircraftName: aircraft.aircraftName,
+            liveryName: aircraft.liveryName,
+            registration: aircraft.registration || '---'
+        },
+        images: {
+            url: communityData ? communityData.imageUrl : (flightProps.communityImageUrl || ''),
+            credit: communityData ? communityData.contributorName : (flightProps.contributorName || '')
+        },
+        route: {
+            originIcao, originCountry,
+            destIcao, destCountry,
+            originTime: '--:--', // Actual departure time logic if available
+            destTime: eta,
+            progress: progress,
+            elapsed: elapsed,
+            eta: eta,
+            ete: ete
+        },
+        waypoints: waypoints
+    };
+}
 
 /**
      * --- [NEW FUNCTION] ---
@@ -6181,9 +6299,8 @@ function getIconImageExpression(colorMode = 'default') {
                 mapContainer.insertAdjacentHTML('beforeend', windowHtml);
             }
 
-            // --- 6. Inject Filter Settings Window (Existing) ---
+            // --- 6. Inject Filter Settings Window (Updated with Simple Window Toggle) ---
             if (!document.getElementById('filter-settings-window')) {
-                // ... (Keep existing Filter Window HTML logic exactly as is) ...
                 const windowHtml = `
                     <div id="filter-settings-window" class="info-window">
                         <div class="info-window-header">
@@ -6215,6 +6332,19 @@ function getIconImageExpression(colorMode = 'default') {
                                     <span class="filter-toggle-label"><i class="fa-solid fa-tags"></i> Show Aircraft Labels</span>
                                     <label class="toggle-switch">
                                         <input type="checkbox" id="filter-toggle-aircraft-labels">
+                                        <span class="toggle-slider"></span>
+                                    </label>
+                                </li>
+                            </ul>
+
+                            <div class="filter-section-divider">
+                                <span class="filter-section-title">Interface Style</span>
+                            </div>
+                            <ul class="filter-toggle-list" style="padding-top: 8px;">
+                                <li class="filter-toggle-item">
+                                    <span class="filter-toggle-label"><i class="fa-solid fa-tablet-screen-button"></i> Simple Flight Window</span>
+                                    <label class="toggle-switch">
+                                        <input type="checkbox" id="filter-toggle-simple-window">
                                         <span class="toggle-slider"></span>
                                     </label>
                                 </li>
@@ -7385,10 +7515,6 @@ function generateAltitudeColoredRoute(sortedPoints, currentPosition, flightPlan 
 
 
 
-/**
- * --- [UPDATED] Handles the click on an aircraft, fetches data, and opens the window.
- * Now fetches Community Aircraft details from the backend.
- */
 async function handleAircraftClick(flightProps, sessionId) {
     if (!flightProps || !flightProps.flightId) return;
 
@@ -7459,7 +7585,6 @@ async function handleAircraftClick(flightProps, sessionId) {
         const [planRes, routeRes, aircraftLookupRes] = await Promise.all([
             fetch(`${LIVE_FLIGHTS_API_URL}/${sessionId}/${flightProps.flightId}/plan`),
             fetch(`${LIVE_FLIGHTS_API_URL}/${sessionId}/${flightProps.flightId}/route`),
-            // Fetch from your custom backend without sanitizing, just encoding for URL safety
             fetch(`${API_BASE_URL}/api/aircraft/lookup?type=${encodeURIComponent(acName)}&livery=${encodeURIComponent(livName)}`)
         ]);
         
@@ -7490,8 +7615,43 @@ async function handleAircraftClick(flightProps, sessionId) {
         // Cache data for stats view
         cachedFlightDataForStatsView = { flightProps, plan };
         
-        // --- [RENDER] Populate the new Window UI (Pass the new data) ---
-        populateAircraftInfoWindow(flightProps, plan, sortedRoutePoints, communityAircraftData);
+        // --- [MODIFIED] Choose View Mode ---
+        if (mapFilters.useSimpleFlightWindow) {
+            // A. SIMPLE VIEW (IFRAME)
+            windowEl.innerHTML = `
+                <div style="width: 100%; height: 100%; overflow: hidden; background: transparent;">
+                    <iframe id="simple-flight-window-frame" src="flightinfo.html" 
+                            style="width:100%; height:100%; border:none; display: block;" 
+                            scrolling="no"></iframe>
+                </div>
+            `;
+            
+            // Format initial data
+            const simpleData = formatDataForSimpleWindow(flightProps, plan, sortedRoutePoints, communityAircraftData);
+            
+            // Send data once Iframe loads
+            const iframe = document.getElementById('simple-flight-window-frame');
+            iframe.onload = () => {
+                iframe.contentWindow.postMessage({
+                    type: 'FLIGHT_DATA_UPDATE',
+                    payload: simpleData
+                }, '*');
+            };
+            
+            // Also try sending immediately in case it's cached/fast
+            setTimeout(() => {
+                if(iframe && iframe.contentWindow) {
+                    iframe.contentWindow.postMessage({
+                        type: 'FLIGHT_DATA_UPDATE',
+                        payload: simpleData
+                    }, '*');
+                }
+            }, 500);
+
+        } else {
+            // B. STANDARD VIEW (Your existing function)
+            populateAircraftInfoWindow(flightProps, plan, sortedRoutePoints, communityAircraftData);
+        }
         
         // --- [GEOCODE] Initial Fetch ---
         fetchAndDisplayGeocode(flightProps.position.lat, flightProps.position.lon);
@@ -9883,6 +10043,12 @@ function setupFilterSettingsWindowEvents() {
         document.getElementById('filter-toggle-atc').checked = mapFilters.hideAtcMarkers;
         document.getElementById('filter-toggle-satellite-mode').checked = (currentMapStyle === MAP_STYLE_SATELLITE);
         document.getElementById('filter-toggle-aircraft-labels').checked = mapFilters.showAircraftLabels;
+        
+        // NEW: Simple Window Toggle
+        const simpleWindowToggle = document.getElementById('filter-toggle-simple-window');
+        if (simpleWindowToggle) {
+            simpleWindowToggle.checked = mapFilters.useSimpleFlightWindow;
+        }
 
         // Radios
         const colorRadio = document.querySelector(`input[name="icon-color-mode"][value="${mapFilters.iconColorMode}"]`);
@@ -9959,6 +10125,19 @@ function setupFilterSettingsWindowEvents() {
     filterSettingsWindow.addEventListener('change', (e) => {
         const target = e.target;
         
+        // Handle Simple Window Toggle
+        if (target.id === 'filter-toggle-simple-window') {
+            mapFilters.useSimpleFlightWindow = target.checked;
+            saveFiltersToLocalStorage();
+            
+            // If a window is currently open, reload it to reflect changes
+            if (currentFlightInWindow) {
+                const closeBtn = document.querySelector('.aircraft-window-close-btn');
+                if (closeBtn) closeBtn.click();
+            }
+            return;
+        }
+
         // Handle Flight Plan Radio Logic
         if (target.name === 'plan-display-mode') {
             mapFilters.planDisplayMode = target.value;

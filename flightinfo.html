@@ -1,0 +1,885 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>NextGen Flight Info Interface</title>
+    
+    <!-- Fonts: Inter for UI, JetBrains Mono for Data -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
+    
+    <!-- Icons: FontAwesome -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+
+    <style>
+        /* --- CSS VARIABLES & RESET --- */
+        :root {
+            /* Aviation Dark Mode Palette */
+            --glass-bg: rgba(16, 18, 27, 0.90);
+            --glass-border: rgba(255, 255, 255, 0.1);
+            --glass-highlight: rgba(255, 255, 255, 0.05);
+            
+            --line-fade: radial-gradient(ellipse at center, rgba(255,255,255,0.25) 0%, transparent 70%);
+            --line-fade-vertical: rgba(255, 255, 255, 0.1);
+            
+            --text-primary: #ffffff;
+            --text-secondary: #9ca3af;
+            --text-muted: #6b7280;
+            
+            --accent-cyan: #00e5ff; 
+            --accent-green: #10b981; 
+            --accent-amber: #f59e0b; 
+            
+            --font-ui: 'Inter', sans-serif;
+            --font-data: 'JetBrains Mono', monospace;
+            
+            --sidebar-width: 400px; 
+            --radius-xl: 24px;
+            --radius-md: 12px;
+        }
+
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+        }
+
+        body {
+            background-color: transparent; /* Ready for iframe overlay */
+            height: 100vh;
+            font-family: var(--font-ui);
+            overflow: hidden;
+            display: flex;
+            align-items: center;
+            justify-content: center; /* Centered for standalone, or right-aligned via parent */
+        }
+
+        /* --- THE FLIGHT WINDOW (FLOATING PANEL) --- */
+        .flight-window {
+            width: 100%;
+            height: 100%;
+            /* If used as an iframe, we take full width. If standalone, we'd limit it. */
+            
+            background: var(--glass-bg);
+            backdrop-filter: blur(32px) saturate(140%);
+            -webkit-backdrop-filter: blur(32px) saturate(140%);
+            
+            display: flex;
+            flex-direction: column;
+            color: var(--text-primary);
+            position: relative;
+            z-index: 1000;
+            overflow: hidden;
+        }
+
+        /* --- SCROLLBAR CUSTOMIZATION --- */
+        .scroll-container {
+            flex: 1;
+            overflow-y: auto;
+            overflow-x: hidden;
+            padding-bottom: 0;
+        }
+
+        .scroll-container::-webkit-scrollbar { width: 6px; }
+        .scroll-container::-webkit-scrollbar-track { background: transparent; }
+        .scroll-container::-webkit-scrollbar-thumb {
+            background: rgba(255, 255, 255, 0.1);
+            border-radius: 10px;
+        }
+
+        /* --- HEADER SECTION --- */
+        .fw-header {
+            padding: 16px 20px; 
+            position: relative;
+            background: linear-gradient(to bottom, rgba(255,255,255,0.08), transparent);
+            transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+            z-index: 10;
+        }
+        
+        .fw-header::after {
+            content: '';
+            position: absolute;
+            bottom: 0;
+            left: 0;
+            width: 100%;
+            height: 1px;
+            background: var(--line-fade);
+        }
+
+        .flight-window.scrolled .fw-header {
+            padding: 10px 20px;
+            background: rgba(16, 18, 27, 0.95);
+        }
+
+        .identity-row {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 12px;
+            transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+        }
+        
+        .flight-window.scrolled .identity-row { margin-bottom: 0; }
+
+        .airline-brand {
+            display: flex;
+            align-items: center;
+            gap: 16px;
+        }
+
+        .clickable-username {
+            cursor: pointer;
+            position: relative;
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+            transition: color 0.2s;
+        }
+        .clickable-username:hover { color: var(--accent-cyan); }
+
+        .callsign-group h1 {
+            font-size: 28px;
+            font-weight: 800;
+            letter-spacing: -0.5px;
+            line-height: 1;
+            margin-bottom: 2px;
+            color: #ffffff;
+            transition: all 0.3s ease;
+        }
+
+        .flight-window.scrolled .callsign-group h1 { font-size: 18px; margin-bottom: 0; }
+
+        .callsign-group .sub-text {
+            font-size: 14px;
+            color: var(--text-secondary);
+            font-weight: 500;
+            display: block;
+            max-height: 20px;
+            opacity: 1;
+            transition: all 0.3s ease;
+        }
+
+        .flight-window.scrolled .callsign-group .sub-text {
+            max-height: 0; opacity: 0; margin: 0; overflow: hidden;
+        }
+
+        .state-badge {
+            background: rgba(16, 185, 129, 0.1);
+            color: #ffffff;
+            padding: 6px 12px;
+            border-radius: 20px;
+            font-size: 11px;
+            font-weight: 700;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            border: 1px solid rgba(16, 185, 129, 0.2);
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            transition: all 0.3s ease;
+        }
+
+        /* State Variants */
+        .state-badge.state-ground { background: rgba(148, 163, 184, 0.1); border-color: rgba(148, 163, 184, 0.2); }
+        .state-badge.state-taxi { background: rgba(245, 158, 11, 0.1); border-color: rgba(245, 158, 11, 0.2); }
+        .state-badge.state-takeoff { background: rgba(0, 229, 255, 0.1); border-color: rgba(0, 229, 255, 0.2); }
+        .state-badge.state-landing { background: rgba(217, 70, 239, 0.1); border-color: rgba(217, 70, 239, 0.2); }
+
+        .live-dot {
+            width: 6px; height: 6px;
+            background: #ffffff;
+            border-radius: 50%;
+            box-shadow: 0 0 4px rgba(255,255,255,0.5);
+            animation: pulse 2s infinite;
+        }
+
+        @keyframes pulse {
+            0% { opacity: 1; transform: scale(1); }
+            50% { opacity: 0.5; transform: scale(0.8); }
+            100% { opacity: 1; transform: scale(1); }
+        }
+
+        /* --- ROUTE SUMMARY --- */
+        .route-visual {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            background: rgba(0,0,0,0.25);
+            padding: 10px 14px;
+            border-radius: var(--radius-md);
+            margin-top: 8px;
+            border: 1px solid rgba(255,255,255,0.03);
+            transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+            max-height: 120px;
+            opacity: 1;
+            transform: translateY(0);
+            overflow: hidden;
+        }
+
+        .flight-window.scrolled .route-visual {
+            max-height: 0; opacity: 0; margin-top: 0; padding: 0; border: none; transform: translateY(-10px);
+        }
+
+        .route-info-group { display: flex; flex-direction: column; gap: 2px; }
+        .route-info-group.text-right { align-items: flex-end; }
+
+        .airport-row { display: flex; align-items: center; gap: 8px; }
+
+        .flag-icon {
+            width: 22px; height: auto;
+            border-radius: 3px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.3);
+            opacity: 0.9;
+        }
+
+        .airport-code {
+            font-family: var(--font-data);
+            font-weight: 700;
+            font-size: 20px;
+            color: #ffffff;
+            line-height: 1;
+        }
+
+        .zulu-time {
+            font-family: var(--font-data);
+            font-size: 11px;
+            color: var(--text-muted);
+            font-weight: 600;
+            margin-top: 2px;
+        }
+
+        .route-line-container {
+            flex: 1; margin: 0 20px; position: relative;
+            height: 2px; background: rgba(255,255,255,0.1);
+            border-radius: 2px; top: -6px;
+        }
+
+        .route-progress {
+            position: absolute; left: 0; top: 0; height: 100%;
+            background: #ffffff; width: 0%; border-radius: 2px;
+            transition: width 0.5s ease;
+        }
+
+        .plane-icon-path {
+            position: absolute; top: 50%; left: 0%;
+            transform: translate(-50%, -50%);
+            color: white; font-size: 14px;
+            transition: left 0.5s ease;
+        }
+
+        /* --- MODULES COMMON --- */
+        .module {
+            padding: 16px 20px;
+            position: relative;
+        }
+        
+        .module::after {
+            content: ''; position: absolute; bottom: 0; left: 0;
+            width: 100%; height: 1px; background: var(--line-fade);
+        }
+
+        .module:last-child::after { display: none; }
+
+        .module-title {
+            font-size: 12px; text-transform: uppercase;
+            letter-spacing: 1.2px; color: var(--text-muted);
+            font-weight: 700; margin-bottom: 12px;
+            display: flex; justify-content: space-between;
+        }
+
+        /* --- HERO IMAGE --- */
+        .hero-module {
+            padding: 0; position: relative; height: 200px;
+            overflow: hidden; border-bottom: none;
+        }
+        
+        .hero-module::after {
+            content: ''; position: absolute; bottom: 0; left: 0;
+            width: 100%; height: 1px; background: var(--line-fade); z-index: 10;
+        }
+
+        .aircraft-photo {
+            width: 100%; height: 100%; object-fit: cover;
+            transition: transform 10s ease;
+        }
+        
+        .hero-module:hover .aircraft-photo { transform: scale(1.05); }
+
+        .photo-credit {
+            position: absolute; top: 12px; right: 12px;
+            background: rgba(0, 0, 0, 0.6); backdrop-filter: blur(4px);
+            padding: 4px 8px; border-radius: 4px;
+            font-size: 10px; color: rgba(255, 255, 255, 0.8);
+            z-index: 5; display: flex; align-items: center; gap: 6px;
+            pointer-events: none; border: 1px solid rgba(255,255,255,0.1);
+        }
+
+        .aircraft-info-overlay {
+            position: absolute; bottom: 0; left: 0; width: 100%;
+            padding: 30px 20px 12px;
+            background: linear-gradient(to top, rgba(16, 18, 27, 0.95), transparent);
+            display: flex; align-items: flex-end; justify-content: space-between;
+        }
+
+        .ac-type {
+            font-size: 11px; font-weight: 600; color: var(--text-secondary);
+            text-transform: uppercase; letter-spacing: 0.5px;
+            display: block; margin-bottom: 2px;
+        }
+        
+        .ac-model-detail {
+            font-size: 15px; color: white; font-weight: 700; display: block;
+        }
+
+        .ac-reg {
+            font-family: var(--font-data); font-size: 13px; color: rgba(255,255,255,0.9);
+            background: rgba(255,255,255,0.15); padding: 4px 8px;
+            border-radius: 6px; backdrop-filter: blur(4px);
+            border: 1px solid rgba(255,255,255,0.1);
+        }
+
+        /* --- TELEMETRY GRID --- */
+        .telemetry-grid {
+            display: grid; grid-template-columns: 1fr 1fr; gap: 8px;
+        }
+
+        .t-card {
+            background: var(--glass-highlight);
+            border-radius: var(--radius-md); padding: 12px;
+            display: flex; flex-direction: column;
+            border: 1px solid rgba(255,255,255,0.03);
+            transition: all 0.2s ease;
+        }
+
+        .t-card:hover {
+            border-color: rgba(255,255,255,0.15); background: rgba(255,255,255,0.08);
+            transform: translateY(-2px); box-shadow: 0 4px 12px rgba(0,0,0,0.2);
+        }
+
+        .t-label {
+            font-size: 11px; color: var(--text-secondary);
+            text-transform: uppercase; letter-spacing: 0.5px;
+            margin-bottom: 8px; display: flex; justify-content: space-between;
+        }
+
+        .t-value-group {
+            display: flex; align-items: baseline; gap: 6px;
+        }
+
+        .t-value {
+            font-family: var(--font-data); font-size: 24px;
+            font-weight: 600; color: white; letter-spacing: -0.5px;
+        }
+
+        .t-unit {
+            font-size: 12px; color: var(--text-muted); font-weight: 500;
+        }
+
+        .vs-indicator {
+            display: flex; align-items: center; justify-content: center;
+            font-size: 14px; width: 24px; height: 24px;
+            background: rgba(255, 255, 255, 0.1); border-radius: 50%;
+            color: #ffffff; margin-right: 6px;
+            transition: transform 0.3s ease;
+        }
+
+        .heading-visual {
+            width: 32px; height: 32px;
+            border: 2px solid rgba(255,255,255,0.1);
+            border-radius: 50%; margin-left: auto;
+            position: relative; display: flex;
+            align-items: center; justify-content: center;
+        }
+        
+        .heading-arrow {
+            font-size: 12px; color: #ffffff;
+            transition: transform 0.3s ease;
+        }
+
+        /* --- ACCORDION ROUTE --- */
+        .accordion {
+            border: 1px solid var(--glass-border);
+            border-radius: var(--radius-md); overflow: hidden;
+            background: rgba(0,0,0,0.15);
+        }
+
+        .accordion-header {
+            padding: 10px 16px; cursor: pointer;
+            display: flex; justify-content: space-between; align-items: center;
+            background: rgba(255,255,255,0.03); transition: background 0.2s;
+        }
+
+        .accordion-header:hover { background: rgba(255,255,255,0.06); }
+
+        .accordion-title { font-size: 13px; font-weight: 600; color: var(--text-primary); }
+        .accordion-icon { font-size: 12px; color: var(--text-secondary); transition: transform 0.3s; }
+        
+        .accordion-content { display: none; padding: 0; }
+        .accordion.active .accordion-content { display: block; }
+        .accordion.active .accordion-icon { transform: rotate(180deg); }
+
+        .waypoint-item {
+            display: flex; align-items: center;
+            padding: 8px 16px; position: relative;
+        }
+        
+        .waypoint-item::before {
+            content: ''; position: absolute; top: 0; left: 0;
+            width: 100%; height: 1px; background: var(--line-fade);
+        }
+
+        .wp-status-line {
+            position: absolute; left: 24px; top: 0; bottom: 0;
+            width: 2px; background: var(--line-fade-vertical); z-index: 1;
+        }
+
+        .wp-dot {
+            width: 10px; height: 10px; border-radius: 50%;
+            background: var(--text-muted); margin-right: 16px;
+            position: relative; z-index: 2; border: 2px solid var(--glass-bg);
+        }
+
+        .waypoint-item.passed .wp-dot { background: #ffffff; opacity: 0.5; }
+        .waypoint-item.active .wp-dot { 
+            background: #ffffff; box-shadow: 0 0 8px rgba(255,255,255,0.5); transform: scale(1.2);
+        }
+
+        .wp-info { flex: 1; }
+        .wp-name { display: block; font-size: 14px; font-weight: 600; color: #fff; }
+        .wp-coords { display: block; font-size: 11px; color: var(--text-muted); font-family: var(--font-data); margin-top: 2px; }
+        .wp-time { font-family: var(--font-data); font-size: 13px; color: var(--text-secondary); }
+
+        /* --- FOOTER: TIME STATS --- */
+        .stats-footer {
+            padding: 0; border-top: none; position: relative;
+            background: rgba(0,0,0,0.3);
+        }
+        
+        .stats-footer::before {
+            content: ''; position: absolute; top: 0; left: 0;
+            width: 100%; height: 1px; background: var(--line-fade);
+        }
+
+        .time-grid-footer {
+            display: grid; grid-template-columns: 1fr 1fr 1fr;
+            width: 100%; gap: 1px; background: rgba(255,255,255,0.1);
+        }
+
+        .time-cell {
+            background: rgba(16, 18, 27, 0.6); padding: 8px;
+            text-align: center; display: flex; flex-direction: column;
+            justify-content: center; height: 60px;
+        }
+
+        .time-cell .label {
+            display: block; font-size: 10px; color: var(--text-secondary);
+            margin-bottom: 4px; text-transform: uppercase; font-weight: 600;
+        }
+
+        .time-cell .value {
+            font-family: var(--font-data); font-size: 16px;
+            font-weight: 600; color: white;
+        }
+
+        /* --- UTILS --- */
+        .hidden { display: none !important; }
+        
+    </style>
+</head>
+<body>
+
+    <aside class="flight-window">
+        <!-- HEADER -->
+        <header class="fw-header">
+            <div class="identity-row">
+                <div class="airline-brand">
+                    <div class="callsign-group">
+                        <h1 id="username" class="clickable-username" onclick="parent.postMessage({type: 'OPEN_PROFILE'}, '*')">
+                            Waiting for Data...
+                            <i class="fa-solid fa-chevron-right username-icon"></i>
+                        </h1>
+                        <span id="header-callsign" class="sub-text">--- · ---</span>
+                    </div>
+                </div>
+                <!-- Status Badge -->
+                <div class="state-badge" id="state-badge">
+                    <div class="live-dot"></div> 
+                    <span id="state-text">Standby</span>
+                </div>
+            </div>
+
+            <!-- Route Visual -->
+            <div class="route-visual" id="route-visual-container">
+                <!-- Origin Group -->
+                <div class="route-info-group">
+                    <div class="airport-row">
+                        <img id="origin-flag" src="" class="flag-icon" style="display: none;">
+                        <span id="origin-icao" class="airport-code">---</span>
+                    </div>
+                    <span id="origin-time" class="zulu-time">--:--</span>
+                </div>
+
+                <!-- Progress Line -->
+                <div class="route-line-container">
+                    <div class="route-progress" id="route-progress-bar"></div>
+                    <i class="fa-solid fa-plane plane-icon-path" id="plane-icon-bar"></i>
+                </div>
+
+                <!-- Destination Group -->
+                <div class="route-info-group text-right">
+                    <div class="airport-row">
+                        <span id="dest-icao" class="airport-code">---</span>
+                        <img id="dest-flag" src="" class="flag-icon" style="display: none;">
+                    </div>
+                    <span id="dest-time" class="zulu-time">--:--</span>
+                </div>
+            </div>
+        </header>
+
+        <!-- SCROLLABLE CONTENT -->
+        <div class="scroll-container">
+            
+            <!-- Hero Image -->
+            <section class="hero-module">
+                <div class="photo-credit">
+                    <i class="fa-solid fa-camera"></i>
+                    <span id="photo-credit-name">IF Community</span>
+                </div>
+                <img id="ac-photo" src="" alt="Aircraft" class="aircraft-photo">
+                <div class="aircraft-info-overlay">
+                    <div>
+                        <span id="ac-type-name" class="ac-type">Unknown</span>
+                        <span id="ac-livery-name" class="ac-model-detail">Unknown</span>
+                    </div>
+                    <span id="ac-registration" class="ac-reg">---</span>
+                </div>
+            </section>
+
+            <!-- Telemetry Six Pack -->
+            <section class="module">
+                <div class="module-title">Telemetry</div>
+                <div class="telemetry-grid">
+                    
+                    <!-- Altitude -->
+                    <div class="t-card alt-card">
+                        <div class="t-label">
+                            <span>Altitude</span>
+                            <i class="fa-solid fa-cloud" style="opacity: 0.3;"></i>
+                        </div>
+                        <div class="t-value-group">
+                            <span class="t-value" id="val-alt">---</span>
+                            <span class="t-unit">ft</span>
+                        </div>
+                    </div>
+
+                    <!-- Speed -->
+                    <div class="t-card spd-card">
+                        <div class="t-label">
+                            <span>Ground Speed</span>
+                            <i class="fa-solid fa-gauge-high" style="opacity: 0.3;"></i>
+                        </div>
+                        <div class="t-value-group">
+                            <span class="t-value" id="val-spd">---</span>
+                            <span class="t-unit">kts</span>
+                        </div>
+                    </div>
+
+                    <!-- Vertical Speed -->
+                    <div class="t-card">
+                        <div class="t-label">
+                            <span>Vertical Spd</span>
+                        </div>
+                        <div class="t-value-group">
+                            <div class="vs-indicator">
+                                <i id="val-vs-arrow" class="fa-solid fa-minus"></i>
+                            </div>
+                            <span class="t-value" id="val-vs">0</span>
+                            <span class="t-unit">fpm</span>
+                        </div>
+                    </div>
+
+                    <!-- Heading -->
+                    <div class="t-card">
+                        <div class="t-label">
+                            <span>Heading</span>
+                        </div>
+                        <div class="t-value-group">
+                            <span class="t-value" id="val-hdg">---</span>
+                            <div class="heading-visual">
+                                <i id="val-hdg-arrow" class="fa-solid fa-location-arrow heading-arrow"></i>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Squawk -->
+                    <div class="t-card">
+                        <div class="t-label">
+                            <span>Squawk</span>
+                            <i class="fa-solid fa-tower-broadcast" style="opacity: 0.3;"></i>
+                        </div>
+                        <div class="t-value-group">
+                            <span class="t-value" id="val-squawk">----</span>
+                        </div>
+                    </div>
+
+                    <!-- Wind -->
+                    <div class="t-card">
+                        <div class="t-label">
+                            <span>Wind</span>
+                            <i class="fa-solid fa-wind" style="opacity: 0.3;"></i>
+                        </div>
+                        <div class="t-value-group">
+                            <span class="t-value" id="val-wind">--- / --</span>
+                        </div>
+                    </div>
+
+                </div>
+            </section>
+
+            <!-- Route Accordion -->
+            <section class="module">
+                <div class="module-title">
+                    <span>Flight Plan</span>
+                    <span id="rules-label">IFR</span>
+                </div>
+                
+                <div class="accordion active" id="route-accordion">
+                    <div class="accordion-header" onclick="toggleAccordion()">
+                        <div class="accordion-title">Active Route</div>
+                        <i class="fa-solid fa-chevron-up accordion-icon"></i>
+                    </div>
+                    <div class="accordion-content" id="route-list-container">
+                        <!-- Dynamic Waypoints Injected Here -->
+                        <div style="padding: 15px; color: var(--text-muted); font-size: 12px; text-align: center;">No Route Loaded</div>
+                    </div>
+                </div>
+            </section>
+
+        </div>
+
+        <!-- FOOTER: Progress Stats -->
+        <footer class="stats-footer">
+            <div class="time-grid-footer">
+                <div class="time-cell">
+                    <span class="label">Elapsed</span>
+                    <span class="value" id="val-elapsed">--:--</span>
+                </div>
+                <div class="time-cell">
+                    <span class="label">ETA</span>
+                    <span class="value" id="val-eta">--:--</span>
+                </div>
+                <div class="time-cell">
+                    <span class="label">Remain</span>
+                    <span class="value" id="val-ete">--:--</span>
+                </div>
+            </div>
+        </footer>
+
+    </aside>
+
+    <script>
+        // --- SCROLL HANDLING ---
+        const scrollContainer = document.querySelector('.scroll-container');
+        const flightWindow = document.querySelector('.flight-window');
+        
+        scrollContainer.addEventListener('scroll', () => {
+            if (scrollContainer.scrollTop > 20) {
+                flightWindow.classList.add('scrolled');
+            } else {
+                flightWindow.classList.remove('scrolled');
+            }
+        });
+
+        function toggleAccordion() {
+            const acc = document.getElementById('route-accordion');
+            acc.classList.toggle('active');
+        }
+
+        // --- DATA BINDING LOGIC ---
+        // This function is ready to be called by parent window or message listener
+        window.updateFlightInterface = function(data) {
+            if (!data) return;
+
+            // 1. User & Identity
+            safeText('#username', data.username || 'Unknown Pilot');
+            // If we have userID, update the clickable profile logic (assumed handled by parent via ID)
+            
+            const callsign = data.callsign || 'N/A';
+            const heavy = (data.aircraft && data.aircraft.aircraftName && data.aircraft.aircraftName.includes('Heavy')) ? ' · Heavy' : '';
+            safeText('#header-callsign', `${callsign}${heavy}`);
+
+            // 2. Flight Phase / State
+            const phase = data.phase || 'ENROUTE';
+            safeText('#state-text', phase);
+            updateStateBadge(phase);
+
+            // 3. Telemetry
+            if (data.telemetry) {
+                safeText('#val-alt', formatNumber(data.telemetry.altitude));
+                safeText('#val-spd', Math.round(data.telemetry.groundSpeed || 0));
+                
+                // Vertical Speed
+                const vs = Math.round(data.telemetry.verticalSpeed || 0);
+                safeText('#val-vs', Math.abs(vs));
+                updateVsArrow(vs);
+
+                // Heading
+                const hdg = Math.round(data.telemetry.heading || 0);
+                safeText('#val-hdg', String(hdg).padStart(3, '0') + '°');
+                const hdgArrow = document.getElementById('val-hdg-arrow');
+                if(hdgArrow) hdgArrow.style.transform = `rotate(${hdg - 45}deg)`; // -45 because icon is NE pointing
+
+                // Squawk / Wind
+                safeText('#val-squawk', data.telemetry.squawk || '----');
+                
+                const windDir = data.telemetry.windDir || 0;
+                const windSpd = data.telemetry.windSpd || 0;
+                safeText('#val-wind', `${String(windDir).padStart(3, '0')} / ${windSpd}kt`);
+            }
+
+            // 4. Aircraft Info
+            if (data.aircraft) {
+                safeText('#ac-type-name', data.aircraft.aircraftName || 'Unknown Aircraft');
+                safeText('#ac-livery-name', data.aircraft.liveryName || 'Unknown Livery');
+                safeText('#ac-registration', data.aircraft.registration || '---');
+            }
+
+            // 5. Images
+            if (data.images) {
+                const img = document.getElementById('ac-photo');
+                if (img) img.src = data.images.url || '';
+                safeText('#photo-credit-name', data.images.credit || 'IF Community');
+            }
+
+            // 6. Route & Times
+            if (data.route) {
+                // Origin
+                safeText('#origin-icao', data.route.originIcao || '---');
+                safeText('#origin-time', data.route.originTime || '--:--');
+                updateFlag('#origin-flag', data.route.originCountry);
+
+                // Dest
+                safeText('#dest-icao', data.route.destIcao || '---');
+                safeText('#dest-time', data.route.destTime || '--:--');
+                updateFlag('#dest-flag', data.route.destCountry);
+
+                // Progress Bar
+                const prog = data.route.progress || 0;
+                const bar = document.getElementById('route-progress-bar');
+                const plane = document.getElementById('plane-icon-bar');
+                if(bar) bar.style.width = `${prog}%`;
+                if(plane) plane.style.left = `${prog}%`;
+
+                // Footer Stats
+                safeText('#val-elapsed', data.route.elapsed || '--:--');
+                safeText('#val-eta', data.route.eta || '--:--');
+                safeText('#val-ete', data.route.ete || '--:--');
+            }
+
+            // 7. Waypoints List (Regenerate)
+            if (data.waypoints && Array.isArray(data.waypoints)) {
+                renderWaypoints(data.waypoints);
+            }
+        };
+
+        // --- HELPERS ---
+
+        function safeText(selector, text) {
+            const el = document.querySelector(selector);
+            if (el) el.textContent = text;
+        }
+
+        function formatNumber(num) {
+            return num ? Math.round(num).toLocaleString() : '---';
+        }
+
+        function updateFlag(selector, countryCode) {
+            const el = document.querySelector(selector);
+            if (!el) return;
+            if (countryCode) {
+                el.src = `https://flagcdn.com/w40/${countryCode.toLowerCase()}.png`;
+                el.style.display = 'block';
+            } else {
+                el.style.display = 'none';
+            }
+        }
+
+        function updateStateBadge(phase) {
+            const badge = document.getElementById('state-badge');
+            if (!badge) return;
+            
+            // Reset classes
+            badge.className = 'state-badge';
+            
+            const p = phase.toUpperCase();
+            if (p.includes('TAXI')) badge.classList.add('state-taxi');
+            else if (p.includes('TAKEOFF') || p.includes('CLIMB')) badge.classList.add('state-takeoff');
+            else if (p.includes('LANDING') || p.includes('FINAL') || p.includes('APPROACH')) badge.classList.add('state-landing');
+            else if (p.includes('PARKED') || p.includes('GROUND')) badge.classList.add('state-ground');
+        }
+
+        function updateVsArrow(vs) {
+            const arrow = document.getElementById('val-vs-arrow');
+            if (!arrow) return;
+            
+            arrow.className = 'fa-solid'; // Reset
+            
+            if (vs > 50) {
+                arrow.classList.add('fa-arrow-up');
+                arrow.style.transform = 'rotate(45deg)';
+                arrow.style.color = '#10b981'; // Green
+            } else if (vs < -50) {
+                arrow.classList.add('fa-arrow-down');
+                arrow.style.transform = 'rotate(45deg)';
+                arrow.style.color = '#f59e0b'; // Amber
+            } else {
+                arrow.classList.add('fa-minus');
+                arrow.style.transform = 'none';
+                arrow.style.color = '#ffffff';
+            }
+        }
+
+        function renderWaypoints(waypoints) {
+            const container = document.getElementById('route-list-container');
+            if (!container) return;
+            
+            if (waypoints.length === 0) {
+                container.innerHTML = '<div style="padding: 15px; color: var(--text-muted); font-size: 12px; text-align: center;">No Route Loaded</div>';
+                return;
+            }
+
+            let html = '';
+            
+            waypoints.forEach(wp => {
+                const statusClass = wp.active ? 'active' : (wp.passed ? 'passed' : '');
+                const timeDisplay = wp.time || '--:--';
+                
+                html += `
+                <div class="waypoint-item ${statusClass}">
+                    <div class="wp-status-line"></div>
+                    <div class="wp-dot"></div>
+                    <div class="wp-info">
+                        <span class="wp-name">${wp.ident}</span>
+                        <span class="wp-coords">${wp.name || ''}</span>
+                    </div>
+                    <span class="wp-time">${timeDisplay}</span>
+                </div>
+                `;
+            });
+            
+            container.innerHTML = html;
+        }
+
+        // --- LISTENER FOR EXTERNAL DATA ---
+        window.addEventListener('message', (event) => {
+            // Validate origin if necessary in production
+            if (event.data && event.data.type === 'FLIGHT_DATA_UPDATE') {
+                window.updateFlightInterface(event.data.payload);
+            }
+        });
+
+    </script>
+</body>
+</html>
