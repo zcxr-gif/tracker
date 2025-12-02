@@ -7618,10 +7618,12 @@ async function handleAircraftClick(flightProps, sessionId) {
         // --- [MODIFIED] Choose View Mode ---
         if (mapFilters.useSimpleFlightWindow) {
             // A. SIMPLE VIEW (IFRAME)
+            // FIX: Changed height from 100% to 70vh (approx 70% of viewport height)
+            // This forces the container to open up, allowing the iframe to render.
             windowEl.innerHTML = `
-                <div style="width: 100%; height: 100%; overflow: hidden; background: transparent;">
+                <div style="width: 100%; height: 70vh; min-height: 550px; overflow: hidden; background: transparent; display: flex; flex-direction: column;">
                     <iframe id="simple-flight-window-frame" src="flightinfo.html" 
-                            style="width:100%; height:100%; border:none; display: block;" 
+                            style="width:100%; flex-grow: 1; border:none; display: block;" 
                             scrolling="no"></iframe>
                 </div>
             `;
