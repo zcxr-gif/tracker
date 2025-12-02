@@ -7618,8 +7618,10 @@ async function handleAircraftClick(flightProps, sessionId) {
         // --- [MODIFIED] Choose View Mode ---
         if (mapFilters.useSimpleFlightWindow) {
             // A. SIMPLE VIEW (IFRAME)
-            // FIX: Changed height from 100% to 70vh (approx 70% of viewport height)
-            // This forces the container to open up, allowing the iframe to render.
+            
+            // [WIDTH ADJUSTMENT] Set specifically for Simple Mode
+            windowEl.style.width = '360px'; 
+
             windowEl.innerHTML = `
                 <div style="width: 100%; height: 70vh; min-height: 550px; overflow: hidden; background: transparent; display: flex; flex-direction: column;">
                     <iframe id="simple-flight-window-frame" src="flightinfo.html" 
@@ -7652,6 +7654,10 @@ async function handleAircraftClick(flightProps, sessionId) {
 
         } else {
             // B. STANDARD VIEW (Your existing function)
+            
+            // [WIDTH RESET] Remove inline width so CSS (600px) takes over
+            windowEl.style.width = ''; 
+
             populateAircraftInfoWindow(flightProps, plan, sortedRoutePoints, communityAircraftData);
         }
         
