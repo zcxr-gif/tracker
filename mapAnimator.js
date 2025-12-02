@@ -2,121 +2,204 @@
  * ===================================================================
  * MapAnimator.js
  * -------------------------------------------------------------------
- * A module to handle updating flight positions on a Mapbox GL JS map.
+ * Handles smooth animation of flight positions on a Mapbox GL JS map.
  *
- * --- [USER-REQUESTED REWRITE: Teleport-Only Model] ---
+ * --- [REWRITE: Interpolation Model] ---
  *
- * This model provides *no animation or interpolation*.
+ * This version smoothly interpolates (slides) the aircraft from its
+ * previous position to the new position over the estimated duration
+ * of the update interval.
  *
- * When new flight data arrives, the GeoJSON feature is
- * immediately "teleported" to the new coordinates and its
- * properties (like heading) are updated.
- *
- * This version includes a timestamp check to prevent
- * out-of-order data from moving planes backward.
+ * Features:
+ * 1. Smooth Lat/Lon interpolation.
+ * 2. Smart Heading rotation (takes shortest path, e.g., 350° -> 10°).
+ * 3. Dynamic Duration: Adapts to the actual speed of incoming data.
+ * 4. Timestamp Guard: Prevents out-of-order packets from causing jumps.
  * ===================================================================
  */
 
-/**
- * Main manager for the Mapbox map.
- * In this version, it does not "animate", it only handles
- * updating the map source when data changes.
- */
 export class MapAnimator {
     /**
      * @param {mapboxgl.Map} map - The Mapbox map instance.
      * @param {string} sourceName - The name of the GeoJSON source to update.
-     * @param {Object} featuresObject - A *reference* to the master features object (currentMapFeatures) in flight.js.
+     * @param {Object} featuresObject - A reference to the master features object (currentMapFeatures) in flight.js.
      */
     constructor(map, sourceName, featuresObject) {
         this.map = map;
         this.sourceName = sourceName;
-        this.currentMapFeatures = featuresObject; // This is a SHARED REFERENCE
+        this.currentMapFeatures = featuresObject; // Shared reference
+        
+        // Stores animation state for each flight:
+        // { startCoords, endCoords, startTime, duration, startHeading, endHeading }
+        this.animationStates = {}; 
+        
+        this.isActive = false;
+        this.animationFrameId = null;
+
+        // Configuration
+        this.defaultDuration = 3000; // Fallback duration in ms
+        this.minDuration = 500;      // Minimum animation time
+        this.lastFrameTime = 0;
     }
 
     /**
-     * Starts the animator. (No-op in teleport mode).
+     * Starts the animation loop.
      */
     start() {
-        console.log('MapAnimator (Teleport) started.');
+        if (!this.isActive) {
+            console.log('MapAnimator (Interpolation) started.');
+            this.isActive = true;
+            this._animate();
+        }
     }
 
     /**
-     * Stops the animator. (No-op in teleport mode).
+     * Stops the animation loop.
      */
     stop() {
-        console.log('MapAnimator (Teleport) stopped.');
+        this.isActive = false;
+        if (this.animationFrameId) {
+            cancelAnimationFrame(this.animationFrameId);
+            this.animationFrameId = null;
+        }
+        console.log('MapAnimator (Interpolation) stopped.');
     }
 
     /**
-     * Updates or creates a flight's state based on new data.
-     * This will "teleport" the feature to the new position.
-     * @param {object} newPosition - {lon, lat, heading_deg}
+     * Updates a flight's target position and sets up the interpolation.
+     * @param {object} newPosition - {lon, lat, heading_deg, lastReport}
      * @param {object} newProperties - The full properties object.
      */
     updateFlight(newPosition, newProperties) {
         const flightId = newProperties.flightId;
+        const now = performance.now();
+        const newTimestamp = newProperties.last_update || Date.now();
 
-        // --- [THE FIX: TIMESTAMP GUARD] ---
+        // 1. Guard against out-of-order data
+        // We check our own animation state to see the last timestamp we processed
+        const currentState = this.animationStates[flightId];
         
-        // 1. Get the timestamp from the new data.
-        //    !!! IMPORTANT: Change 'last_update' to your data's actual timestamp property !!!
-        const newTimestamp = newProperties.last_update;
-
-        // 2. Check if the flight already exists in our master list
-        const existingFeature = this.currentMapFeatures[flightId];
-
-        if (existingFeature) {
-            // 3. Get the timestamp of the *current* data on the map
-            //    This assumes the timestamp is also stored in the feature's properties.
-            const currentTimestamp = existingFeature.properties.last_update;
-
-            // 4. The Guard Clause:
-            //    If the new data is older than (or equal to) the current data,
-            //    stop right here. Do not process this "old" packet.
-            if (newTimestamp <= currentTimestamp) {
-                // You can uncomment this for debugging
-                // console.warn(`Ignoring out-of-order data for ${flightId}`);
-                return; // Do nothing
+        if (currentState) {
+            if (newTimestamp <= currentState.dataTimestamp) {
+                // Ignore old or duplicate packets
+                return;
             }
         }
-        // --- [END OF FIX] ---
 
-        // If we are here, it's either:
-        // a) A brand new flight (existingFeature was false)
-        // b) Newer data for an existing flight (newTimestamp > currentTimestamp)
+        // 2. Determine Start Position (Visual Continuity)
+        // If we are already animating, start from the *current visually interpolated* position
+        // so the plane doesn't snap back. If it's new, start from the new position.
+        let startCoords = [newPosition.lon, newPosition.lat];
+        let startHeading = newPosition.heading_deg;
+        let calculatedDuration = this.defaultDuration;
 
-        // Proceed with the "teleport"
-        const newApiLon = newPosition.lon;
-        const newApiLat = newPosition.lat;
+        if (currentState) {
+            // Get the exact position where the icon is *right now*
+            startCoords = currentState.currentCoords || currentState.endCoords;
+            startHeading = currentState.currentHeading || currentState.endHeading;
 
+            // Calculate dynamic duration based on how much time passed since last update
+            const timeSinceLastUpdate = now - currentState.updateReceivedTime;
+            // Smooth it slightly (avg of current gap and default) to avoid jitter
+            if (timeSinceLastUpdate > this.minDuration && timeSinceLastUpdate < 10000) {
+                calculatedDuration = timeSinceLastUpdate;
+            }
+        }
+
+        // 3. Update the Master Feature immediately with new properties (text, etc.)
+        // But keep coordinates at the "start" for now, the loop will move them.
         this.currentMapFeatures[flightId] = {
             type: 'Feature',
             geometry: {
                 type: 'Point',
-                coordinates: [newApiLon, newApiLat]
+                coordinates: startCoords
             },
-            properties: newProperties // This stores the new properties, including the new, later timestamp
+            properties: {
+                ...newProperties,
+                heading: startHeading // Start with current visual heading
+            }
         };
 
-        // Trigger an immediate update of the map source.
-        this._updateMapSource();
+        // 4. Store Animation Target
+        this.animationStates[flightId] = {
+            startCoords: startCoords,
+            endCoords: [newPosition.lon, newPosition.lat],
+            startHeading: startHeading,
+            endHeading: newPosition.heading_deg,
+            startTime: now,
+            duration: calculatedDuration,
+            dataTimestamp: newTimestamp,
+            updateReceivedTime: now,
+            currentCoords: startCoords, // Track for next update continuity
+            currentHeading: startHeading
+        };
     }
 
     /**
-     * Removes a flight from the map.
+     * Removes a flight from the map and animation state.
      * @param {string} flightId 
      */
     removeFlight(flightId) {
         delete this.currentMapFeatures[flightId];
+        delete this.animationStates[flightId];
+        // We don't trigger an update here; the loop handles it efficiently.
+    }
 
-        // Trigger an immediate update to remove it from the map.
-        this._updateMapSource();
+    /**
+     * The main animation loop running at ~60fps.
+     */
+    _animate() {
+        if (!this.isActive) return;
+
+        const now = performance.now();
+        let needsUpdate = false;
+
+        // Iterate over all active animations
+        for (const flightId in this.animationStates) {
+            const state = this.animationStates[flightId];
+            
+            // Calculate progress (0.0 to 1.0)
+            const elapsed = now - state.startTime;
+            let t = elapsed / state.duration;
+
+            // Clamp progress to 1.0 to prevent overshooting if data lags slightly
+            if (t > 1) t = 1;
+
+            // --- Interpolate Coordinates (Linear) ---
+            const currentLon = state.startCoords[0] + (state.endCoords[0] - state.startCoords[0]) * t;
+            const currentLat = state.startCoords[1] + (state.endCoords[1] - state.startCoords[1]) * t;
+            
+            // --- Interpolate Heading (Shortest Path) ---
+            // Fix 350 -> 10 jumping the long way around
+            let dHeading = state.endHeading - state.startHeading;
+            if (dHeading > 180) dHeading -= 360;
+            if (dHeading < -180) dHeading += 360;
+            
+            const currentHeading = state.startHeading + dHeading * t;
+
+            // Store current state for visual continuity on next update
+            state.currentCoords = [currentLon, currentLat];
+            state.currentHeading = currentHeading;
+
+            // Update the GeoJSON Feature
+            const feature = this.currentMapFeatures[flightId];
+            if (feature) {
+                feature.geometry.coordinates = [currentLon, currentLat];
+                feature.properties.heading = currentHeading;
+                needsUpdate = true;
+            }
+        }
+
+        // Push to Mapbox ONLY if something changed
+        if (needsUpdate) {
+            this._updateMapSource();
+        }
+
+        this.animationFrameId = requestAnimationFrame(() => this._animate());
     }
 
     /**
      * Pushes the current state of *all* features to the map source.
-     * This is called by updateFlight and removeFlight.
      */
     _updateMapSource() {
         const source = this.map.getSource(this.sourceName);
