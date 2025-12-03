@@ -7652,6 +7652,7 @@ function generateAltitudeColoredRoute(sortedPoints, currentPosition, flightPlan 
         const segDist = getDistanceKm(p1.latitude, p1.unwrappedLongitude, smoothPoints[i+1].latitude, smoothPoints[i+1].unwrappedLongitude);
         distSinceLastLabel += segDist;
 
+        // Label every 25km, only if above 1000ft
         if (distSinceLastLabel > LABEL_INTERVAL_KM && avgAltFt > 1000) {
             
             // Calculate Middle of the Wall (Half altitude)
@@ -7660,13 +7661,8 @@ function generateAltitudeColoredRoute(sortedPoints, currentPosition, flightPlan 
             threeJsPoints.push({
                 lat: p1.latitude,
                 lon: p1.unwrappedLongitude,
-                
-                // Position text in the vertical center of the curtain
-                alt: midAltitude, 
-                
-                // Text: "FL350"
+                alt: midAltitude, // This puts it vertically centered in the curtain
                 text: `FL${Math.round(avgAltFt/100)}`, 
-                
                 bearing: p1.bearing
             });
             distSinceLastLabel = 0;
