@@ -84,8 +84,9 @@ document.addEventListener('DOMContentLoaded', async () => {
         themeOpacity: 95            // Default 95% opacity
     };
 
-    /**
- * --- [NEW] Three.js Custom Layer for 3D Flight Labels ---
+ /**
+ * --- [FIXED v2] Three.js Custom Layer for 3D Flight Labels ---
+ * Fixes Z-fighting artifacts and ensures text visibility.
  */
 class ThreeFlightLabelLayer {
     constructor(id) {
@@ -95,17 +96,8 @@ class ThreeFlightLabelLayer {
         this.camera = new THREE.Camera();
         this.scene = new THREE.Scene();
         this.map = null;
-        this.font = null;
-        this.dataPoints = []; // Stores {lat, lon, alt, text, bearing}
-        this.textMeshes = [];
-        
-        // Load the font immediately
-        const loader = new THREE.FontLoader();
-        loader.load('https://unpkg.com/three@0.126.0/examples/fonts/helvetiker_regular.typeface.json', (font) => {
-            this.font = font;
-            // If data was waiting, render it now
-            if (this.dataPoints.length > 0) this.updateMeshes(); 
-        });
+        this.dataPoints = []; 
+        this.meshes = [];
     }
 
     onAdd(map, gl) {
@@ -113,97 +105,137 @@ class ThreeFlightLabelLayer {
         this.renderer = new THREE.WebGLRenderer({
             canvas: map.getCanvas(),
             context: gl,
-            antialias: true
+            antialias: true,
+            alpha: true
         });
         this.renderer.autoClear = false;
     }
 
     render(gl, matrix) {
-        // Sync Mapbox camera matrix with Three.js camera
         const m = new THREE.Matrix4().fromArray(matrix);
+        // Mapbox Y is inverted compared to Three.js
         const l = new THREE.Matrix4().makeTranslation(0, 0, 0)
-            .scale(new THREE.Vector3(1, -1, 1)); // Mapbox Y is inverted compared to Three.js
+            .scale(new THREE.Vector3(1, -1, 1)); 
         
         this.camera.projectionMatrix = m.multiply(l);
         this.renderer.resetState();
         this.renderer.render(this.scene, this.camera);
-        this.map.triggerRepaint();
+        // NOTE: Removed triggerRepaint() from here to prevent infinite loop/glitches
     }
 
     onRemove() {
         this.clearMeshes();
-        this.renderer.dispose();
+        if (this.renderer) {
+            this.renderer.dispose();
+        }
     }
 
     setData(points) {
         this.dataPoints = points;
-        if (this.font) this.updateMeshes();
+        this.updateMeshes();
+        // Trigger repaint once when data changes
+        if (this.map) this.map.triggerRepaint();
     }
 
     clearMeshes() {
-        this.textMeshes.forEach(mesh => {
+        this.meshes.forEach(mesh => {
             if (mesh.geometry) mesh.geometry.dispose();
-            if (mesh.material) mesh.material.dispose();
+            if (mesh.material) {
+                if (mesh.material.map) mesh.material.map.dispose();
+                mesh.material.dispose();
+            }
             this.scene.remove(mesh);
         });
-        this.textMeshes = [];
+        this.meshes = [];
+    }
+
+    createLabelTexture(text) {
+        const canvas = document.createElement('canvas');
+        const ctx = canvas.getContext('2d');
+        
+        // Use a power of 2 texture size for better support
+        const fontSize = 40;
+        ctx.font = `bold ${fontSize}px "Consolas", "Monaco", monospace`;
+        
+        const textMetrics = ctx.measureText(text);
+        const padding = 20;
+        const textWidth = textMetrics.width;
+        
+        // Calculate canvas size
+        const canvasWidth = textWidth + (padding * 2);
+        const canvasHeight = fontSize + (padding * 2);
+        
+        canvas.width = canvasWidth;
+        canvas.height = canvasHeight;
+        
+        // 1. Clear Background (Critical)
+        ctx.clearRect(0, 0, canvasWidth, canvasHeight);
+
+        // 2. Draw Semi-transparent Background Box
+        ctx.fillStyle = "rgba(0, 0, 0, 0.7)";
+        ctx.roundRect(0, 0, canvasWidth, canvasHeight, 10);
+        ctx.fill();
+        
+        // 3. Draw Text
+        ctx.font = `bold ${fontSize}px "Consolas", "Monaco", monospace`;
+        ctx.textBaseline = 'middle';
+        ctx.textAlign = 'center';
+        ctx.fillStyle = '#00FFFF'; // Cyan text
+        ctx.fillText(text, canvasWidth / 2, canvasHeight / 2);
+        
+        const texture = new THREE.CanvasTexture(canvas);
+        texture.minFilter = THREE.LinearFilter; // Smooth scaling
+        texture.magFilter = THREE.LinearFilter;
+        texture.needsUpdate = true;
+        
+        return { texture, aspectRatio: canvasWidth / canvasHeight };
     }
 
     updateMeshes() {
         this.clearMeshes();
-        if (!this.dataPoints || this.dataPoints.length === 0 || !this.font) return;
-
-        // CYAN Color for high contrast against the curtain
-        const material = new THREE.MeshBasicMaterial({ color: 0x00FFFF });
+        if (!this.dataPoints || this.dataPoints.length === 0) return;
 
         this.dataPoints.forEach(pt => {
             if (!pt.text) return;
 
-            // 1. Create Text Geometry
-            // SIZE INCREASED to 1500 (approx 4500ft tall letters) to be visible
-            const geometry = new THREE.TextGeometry(pt.text, {
-                font: this.font,
-                size: 1500,      
-                height: 50,      // Thickness of the 3D text
-                curveSegments: 4,
+            const { texture, aspectRatio } = this.createLabelTexture(pt.text);
+            
+            // Text Size: 1200m tall (approx 4000ft)
+            const labelHeight = 1200; 
+            const labelWidth = labelHeight * aspectRatio;
+            
+            const geometry = new THREE.PlaneGeometry(labelWidth, labelHeight);
+            
+            const material = new THREE.MeshBasicMaterial({ 
+                map: texture, 
+                transparent: true,
+                side: THREE.DoubleSide,
+                depthTest: false, // Force draw on top of curtain
+                depthWrite: false // Don't mess up depth buffer
             });
-
-            // Center the text geometry so it rotates around its middle
-            geometry.computeBoundingBox();
-            const xOffset = -0.5 * (geometry.boundingBox.max.x - geometry.boundingBox.min.x);
-            const yOffset = -0.5 * (geometry.boundingBox.max.y - geometry.boundingBox.min.y);
-            geometry.translate(xOffset, yOffset, 0);
 
             const mesh = new THREE.Mesh(geometry, material);
 
-            // 2. Convert Lat/Lon/Alt to Mapbox Mercator Coordinates
             const modelOrigin = mapboxgl.MercatorCoordinate.fromLngLat(
                 [pt.lon, pt.lat], 
-                pt.alt * 0.3048 // Convert feet to meters
+                pt.alt * 0.3048
             );
 
-            // 3. Position the Mesh
             mesh.position.set(modelOrigin.x, modelOrigin.y, modelOrigin.z);
 
-            // 4. Orientation FIX
-            // A. Rotate X 90 degrees to make it "stand up" (vertical) instead of laying flat
-            mesh.rotateX(Math.PI / 2);
-            
-            // B. Rotate Z to align with the path bearing
-            // Mapbox 0 is North, Three.js rotation is counter-clockwise radians.
-            // We adjust by -bearing.
+            // Orientation
+            mesh.rotateX(Math.PI / 2); // Stand up
             const rotationRad = -pt.bearing * (Math.PI / 180); 
-            // We rotate around World Z (Up)
             mesh.rotateOnWorldAxis(new THREE.Vector3(0, 0, 1), rotationRad);
             
-            // 5. Scale Correction
-            // This is critical: Convert "World Meters" to "Mapbox Mercator Units"
             const scale = modelOrigin.meterInMercatorCoordinateUnits();
             mesh.scale.set(scale, scale, scale); 
 
             this.scene.add(mesh);
-            this.textMeshes.push(mesh);
+            this.meshes.push(mesh);
         });
+        
+        if(this.map) this.map.triggerRepaint();
     }
 }
 
@@ -7652,16 +7684,25 @@ function generateAltitudeColoredRoute(sortedPoints, currentPosition, flightPlan 
         const segDist = getDistanceKm(p1.latitude, p1.unwrappedLongitude, smoothPoints[i+1].latitude, smoothPoints[i+1].unwrappedLongitude);
         distSinceLastLabel += segDist;
 
-        // Label every 25km, only if above 1000ft
-        if (distSinceLastLabel > LABEL_INTERVAL_KM && avgAltFt > 1000) {
+        const midAltitude = avgAltFt / 2;
             
-            // Calculate Middle of the Wall (Half altitude)
-            const midAltitude = avgAltFt / 2;
+            // --- FIX: Offset Calculation ---
+            // Push the label 200 meters to the right of the path relative to bearing
+            // This ensures it sits OUTSIDE the curtain wall (which is 120m wide total)
+            const offsetDistKm = (PATH_WIDTH_KM / 2) + 0.2; // Half width + 200m buffer
+            
+            // Calculate new Lat/Lon for the label
+            const labelPos = getDestinationPoint(
+                p1.latitude, 
+                p1.unwrappedLongitude, 
+                p1.bearing + 90, // 90 degrees to the right
+                offsetDistKm
+            );
 
             threeJsPoints.push({
-                lat: p1.latitude,
-                lon: p1.unwrappedLongitude,
-                alt: midAltitude, // This puts it vertically centered in the curtain
+                lat: labelPos.lat,        // Use offset Lat
+                lon: labelPos.lon,        // Use offset Lon
+                alt: midAltitude, 
                 text: `FL${Math.round(avgAltFt/100)}`, 
                 bearing: p1.bearing
             });
