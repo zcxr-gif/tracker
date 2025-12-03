@@ -3274,8 +3274,8 @@ function updateAircraftLabelVisibility() {
 }
 
 /**
- * --- [UPDATED] Volanta-Style Radar Layer (RainViewer) ---
- * Fetches the dynamic path from RainViewer's API to ensure validity.
+ * --- [UPDATED] Premium RainViewer Layer ---
+ * Uses 'Titan' color scheme (4) + Snow Cover (1_1) for a pro aviation look.
  */
 async function toggleWeatherLayer(show) {
     if (!sectorOpsMap) return;
@@ -3285,47 +3285,45 @@ async function toggleWeatherLayer(show) {
 
     if (show && !isWeatherLayerAdded) {
         try {
-            // 1. Fetch the official configuration to get the current valid "path"
-            // This is required because RainViewer changes these hashes periodically.
+            // 1. Fetch official configuration
             const res = await fetch('https://api.rainviewer.com/public/weather-maps.json');
             const data = await res.json();
 
-            // 2. Get the host URL (usually https://tilecache.rainviewer.com)
             const host = data.host; 
             
-            // 3. Get the latest available "past" radar frame path
-            // We use the last entry in the 'past' array for the most recent data
+            // Get the very latest frame
             const latestFrame = data.radar.past[data.radar.past.length - 1];
             const path = latestFrame.path;
 
-            // 4. Construct the Tile URL according to docs:
-            // Format: {host}{path}/{size}/{z}/{x}/{y}/{color}/{options}.png
-            // 512 = High DPI tiles (sharper)
-            // 2   = Universal Blue Color Scheme (Volanta style)
-            // 1_0 = Smoothed (1) + No Snow Mask (0)
-            const tileUrl = `${host}${path}/512/{z}/{x}/{y}/2/1_0.png`;
+            // --- PREMIUM SETTINGS ---
+            // 512 = High DPI
+            // 4   = 'Titan' Color Scheme (Professional Aviation Look)
+            //       Alternatives: 6 = NEXRAD, 2 = Blue (Default), 1 = Original
+            // 1_1 = Smoothed (1) + Snow Mask ENABLED (1)
+            const tileUrl = `${host}${path}/512/{z}/{x}/{y}/4/1_1.png`;
 
-            // 5. Add Source
+            // 2. Add Source
             sectorOpsMap.addSource(SOURCE_ID, {
                 'type': 'raster',
                 'tiles': [tileUrl],
                 'tileSize': 512,
-                'maxzoom': 10 // ⚠️ Forced limit by RainViewer for free users
+                'maxzoom': 12,
+                'attribution': '&copy; RainViewer'
             });
 
-            // 6. Add Layer
+            // 3. Add Layer (with better opacity handling)
             sectorOpsMap.addLayer({
                 'id': LAYER_ID,
                 'type': 'raster',
                 'source': SOURCE_ID,
                 'paint': {
-                    'raster-opacity': 0.60, // Slight transparency looks best
-                    'raster-fade-duration': 300
+                    'raster-opacity': 0.75, // Higher opacity for clearer reading
+                    'raster-fade-duration': 0
                 }
             }, 'sector-ops-live-flights-layer'); // Draw underneath aircraft
 
             isWeatherLayerAdded = true;
-            console.log(`Radar layer added using dynamic path: ${path}`);
+            console.log(`Premium Radar layer added: Titan Scheme`);
 
         } catch (error) {
             console.error("Failed to init weather layer:", error);
@@ -3333,7 +3331,6 @@ async function toggleWeatherLayer(show) {
         }
 
     } else if (isWeatherLayerAdded) {
-        // Simple toggle if already loaded
         const visibility = show ? 'visible' : 'none';
         if (sectorOpsMap.getLayer(LAYER_ID)) {
             sectorOpsMap.setLayoutProperty(LAYER_ID, 'visibility', visibility);
