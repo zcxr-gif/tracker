@@ -7349,6 +7349,7 @@ function calculateTurnAngle(p1, p2, p3) {
 
 /**
  * --- [HELPER] Generates a smoothed coordinate array using Cubic Hermite Splines ---
+ * UPDATED: Increased segment resolution for smoother curves.
  */
 function generateSmoothPath(points) {
     if (points.length < 3) return points;
@@ -7367,8 +7368,11 @@ function generateSmoothPath(points) {
         const p3 = mathPoints[i + 3];
 
         const dist = Math.sqrt(Math.pow(p2.x - p1.x, 2) + Math.pow(p2.y - p1.y, 2));
-        // Dynamic resolution: more segments for longer lines to keep curvature smooth
-        const segments = Math.max(2, Math.floor(dist * 8)); 
+        
+        // --- SMOOTHING FIX 1: Higher Resolution Splines ---
+        // Increased multiplier from 8 to 20. 
+        // This generates more points per degree of lat/lon, creating a silky smooth baseline.
+        const segments = Math.max(5, Math.floor(dist * 20)); 
 
         if (i === 0) {
             smoothPoints.push({ unwrappedLongitude: p1.x, latitude: p1.y, altitude: p1.alt });
@@ -7390,20 +7394,22 @@ function generateSmoothPath(points) {
 }
 
 /**
- * --- [FIXED v7] High-Fidelity 3D Ribbon Generator ---
- * Fixes "Stepping" by increasing resolution and fixes "Gaps" by linking vertices.
+ * --- [FIXED v8] High-Fidelity 3D Ribbon Generator ---
+ * SMOOTHING UPDATE: Increased polygon density to remove blocky artifacts.
  */
 function generateAltitudeColoredRoute(sortedPoints, currentPosition, flightPlan = null) {
     const features = [];
     const GAP_THRESHOLD_KM = 20;
     const MIN_DIST_FROM_NOSE_KM = 0.2;
     
-    // --- KEY FIX 1: High Resolution ---
-    // Reduced from 50km to 0.5km. 
-    // This creates many small blocks instead of few large ones, making the slope look smooth.
-    const MAX_RENDER_SEGMENT_KM = 0.5; 
+    // --- SMOOTHING FIX 2: Ultra-High Resolution Geometry ---
+    // Reduced from 0.5km to 0.15km. 
+    // This creates very short, frequent segments. 
+    // The "kinks" between segments become virtually invisible to the eye.
+    const MAX_RENDER_SEGMENT_KM = 0.15; 
     
-    const PATH_WIDTH_KM = 0.6; 
+    // Adjusted width slightly to maintain proportion with the tighter segments
+    const PATH_WIDTH_KM = 0.5; 
     const RIBBON_THICKNESS_METERS = 150;
 
     // --- 1. PREPARE FLIGHT PLAN WAYPOINTS ---
@@ -7539,7 +7545,9 @@ function generateAltitudeColoredRoute(sortedPoints, currentPosition, flightPlan 
         );
     }
     const avgSegmentDist = totalPathDist / (finalPoints.length - 1);
-    const shouldDisableSmoothing = (maxLatitude > 60) || (avgSegmentDist > 20);
+    
+    // Only disable smoothing if we are really high up (polar) or segments are massive gaps
+    const shouldDisableSmoothing = (maxLatitude > 75) || (avgSegmentDist > 50);
 
     let smoothPoints;
     if (shouldDisableSmoothing) {
@@ -7555,13 +7563,13 @@ function generateAltitudeColoredRoute(sortedPoints, currentPosition, flightPlan 
         const p1 = smoothPoints[i];
         const p2 = smoothPoints[i + 1];
 
+        // Skip massive jumps (e.g. data glitches)
         if (Math.abs(p1.latitude - p2.latitude) > 40 || Math.abs(p1.unwrappedLongitude - p2.unwrappedLongitude) > 100) continue;
 
         const distKm = getDistanceKm(p1.latitude, p1.unwrappedLongitude, p2.latitude, p2.unwrappedLongitude);
         const steps = Math.ceil(distKm / MAX_RENDER_SEGMENT_KM); 
 
-        // --- KEY FIX 2: Continuity Variables ---
-        // We store the end points of the previous sub-segment to reuse as start points.
+        // Continuity Variables
         let prevRight = null;
         let prevLeft = null;
 
@@ -7600,8 +7608,7 @@ function generateAltitudeColoredRoute(sortedPoints, currentPosition, flightPlan 
             const currentLeft = getDestinationPoint(c2.lat, lon2, bearing - 90, PATH_WIDTH_KM / 2);
 
             // Determine START points
-            // If it's the very first sub-segment, calculate fresh.
-            // Otherwise, reuse the previous end points to ensure zero gap.
+            // Connectivity Logic: Ensure this segment starts EXACTLY where the last one ended
             let startRight, startLeft;
             
             if (prevRight && prevLeft) {
