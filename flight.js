@@ -3899,6 +3899,37 @@ async function fetchAndDisplayWeather() {
       return R * c;
     }
 
+/**
+ * --- [NEW] Unwraps coordinates to prevent Date Line issues ---
+ * Converts a raw [-180, 180] line string into a continuous world-space line
+ * (e.g., converts a jump from 179 to -179 into 179 to 181).
+ */
+function unwrapLineCoordinates(coords) {
+    if (!coords || coords.length < 2) return coords;
+
+    const newCoords = [coords[0]]; // Start with first point
+    let lastLon = coords[0][0]; // Track the "unwrapped" longitude
+
+    for (let i = 1; i < coords.length; i++) {
+        const [rawLon, lat] = coords[i];
+        
+        // Calculate the jump from the previous *unwrapped* longitude
+        // We use modulo to compare against the raw equivalent of the last point
+        let delta = rawLon - (lastLon % 360);
+
+        // Normalize delta to be the shortest path (-180 to 180)
+        if (delta > 180) delta -= 360;
+        if (delta < -180) delta += 360;
+
+        // Apply the delta to the continuous chain
+        const newLon = lastLon + delta;
+        newCoords.push([newLon, lat]);
+        
+        lastLon = newLon;
+    }
+    return newCoords;
+}
+
     /**
  * Calculates True Airspeed (TAS) in knots based on Pressure Altitude and OAT.
  * Uses the approximate TAS formula derived from the speed of sound ratio.
@@ -7005,7 +7036,7 @@ function updateFlightPlanLayer(flightId, plan, currentPosition) {
             type: 'Feature',
             geometry: {
                 type: 'LineString',
-                coordinates: [currentCoords, destinationCoords]
+                coordinates: unwrappedDirect
             }
         };
 
@@ -7040,7 +7071,10 @@ function updateFlightPlanLayer(flightId, plan, currentPosition) {
             // This layer is static, so we only create it once
             
             // Get coordinates for the line
-            const allWaypoints = flattenWaypointsFromPlan(plan.flightPlanItems);
+            let rawWaypoints = flattenWaypointsFromPlan(plan.flightPlanItems);
+
+// --- [FIX] UNWRAP COORDINATES FOR DATE LINE SAFETY ---
+           const allWaypoints = unwrapLineCoordinates(rawWaypoints);
             // Get objects for the points/labels
             const waypointObjects = getFlatWaypointObjects(plan.flightPlanItems);
 
