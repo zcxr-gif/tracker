@@ -7532,7 +7532,11 @@ function generateAltitudeColoredRoute(sortedPoints, currentPosition, flightPlan 
         const v1 = ribbonVertices[i];
         const v2 = ribbonVertices[i + 1];
 
-        const avgAltFt = (p1.altitude + p2.altitude) / 2;
+        // [SAFETY FIX] Ensure valid altitudes
+        const alt1 = (p1.altitude !== undefined && !isNaN(p1.altitude)) ? p1.altitude : 0;
+        const alt2 = (p2.altitude !== undefined && !isNaN(p2.altitude)) ? p2.altitude : 0;
+        const avgAltFt = (alt1 + alt2) / 2;
+        
         const baseHeightMeters = avgAltFt * 0.3048; 
         const topHeightMeters = baseHeightMeters + RIBBON_THICKNESS_METERS;
 
@@ -7735,7 +7739,8 @@ async function handleAircraftClick(flightProps, sessionId) {
         if (!sectorOpsMap.getSource(flownLayerId)) {
             sectorOpsMap.addSource(flownLayerId, {
                 type: 'geojson',
-                data: routeFeatureCollection
+                data: routeFeatureCollection,
+                tolerance: 0 // <--- CRITICAL FIX: Prevents path simplification/disappearance at low zoom
             });
             
             // 1. 3D Fill Extrusion Layer (The Ribbon) - Filters for Polygons
@@ -7779,7 +7784,12 @@ async function handleAircraftClick(flightProps, sessionId) {
                         29000, '#00BFFF',
                         38000, '#9400D3'
                     ],
-                    'line-width': 2.5, // Constant pixel width
+                    // [UPDATED] Thicker line at low zoom to ensure visibility
+                    'line-width': [
+                        'interpolate', ['linear'], ['zoom'],
+                        3, 4,   // At zoom 3, line is 4px wide
+                        10, 2.5 // At zoom 10, line is 2.5px wide
+                    ],
                     'line-opacity': 1.0
                 }
             }, 'sector-ops-live-flights-layer');
@@ -7879,7 +7889,8 @@ function rebuildDynamicLayers() {
             // Re-add source
             sectorOpsMap.addSource(flownLayerId, {
                 type: 'geojson',
-                data: routeFeatureCollection
+                data: routeFeatureCollection,
+                tolerance: 0 // <--- CRITICAL FIX
             });
             
             // Re-add 3D Ribbon Layer (Polygon)
@@ -7922,7 +7933,12 @@ function rebuildDynamicLayers() {
                         29000, '#00BFFF',
                         38000, '#9400D3'
                     ],
-                    'line-width': 2.5,
+                    // [UPDATED] Thicker line at low zoom
+                    'line-width': [
+                        'interpolate', ['linear'], ['zoom'],
+                        3, 4,
+                        10, 2.5
+                    ],
                     'line-opacity': 1.0
                 }
             }, 'sector-ops-live-flights-layer');
