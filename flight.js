@@ -3274,166 +3274,162 @@ function updateAircraftLabelVisibility() {
 }
 
 /**
-     * --- [FIXED] Toggles the OpenWeatherMap Precipitation Layer ---
-     * Switched from the paid Maps 2.0 API to the free Maps 1.0 API endpoint.
-     */
-    function toggleWeatherLayer(show) {
-        if (!sectorOpsMap) return;
+ * --- [UPDATED] Volanta-Style Radar Layer (RainViewer) ---
+ * Fetches the dynamic path from RainViewer's API to ensure validity.
+ */
+async function toggleWeatherLayer(show) {
+    if (!sectorOpsMap) return;
 
-        const SOURCE_ID = 'owm-precipitation-source'; // Renamed for clarity
-        const LAYER_ID = 'owm-precipitation-layer';   // Renamed for clarity
+    const SOURCE_ID = 'rainviewer-radar-source';
+    const LAYER_ID = 'rainviewer-radar-layer';
 
-        // 1. First-time creation
-        if (show && !isWeatherLayerAdded) {
-            if (!OWM_API_KEY) {
-                console.error('OWM API Key is not loaded. Cannot add weather layer.');
-                showNotification('Weather service is unavailable (No API Key).', 'error');
-                return;
-            }
+    if (show && !isWeatherLayerAdded) {
+        try {
+            // 1. Fetch the official configuration to get the current valid "path"
+            // This is required because RainViewer changes these hashes periodically.
+            const res = await fetch('https://api.rainviewer.com/public/weather-maps.json');
+            const data = await res.json();
 
-            // --- [FIX] Define the OWM tile URL for the FREE Maps 1.0 API ---
-            const owmTileUrl = `https://tile.openweathermap.org/map/precipitation_new/{z}/{x}/{y}.png?appid=${OWM_API_KEY}`;
+            // 2. Get the host URL (usually https://tilecache.rainviewer.com)
+            const host = data.host; 
             
-            // --- Add the source ---
+            // 3. Get the latest available "past" radar frame path
+            // We use the last entry in the 'past' array for the most recent data
+            const latestFrame = data.radar.past[data.radar.past.length - 1];
+            const path = latestFrame.path;
+
+            // 4. Construct the Tile URL according to docs:
+            // Format: {host}{path}/{size}/{z}/{x}/{y}/{color}/{options}.png
+            // 512 = High DPI tiles (sharper)
+            // 2   = Universal Blue Color Scheme (Volanta style)
+            // 1_0 = Smoothed (1) + No Snow Mask (0)
+            const tileUrl = `${host}${path}/512/{z}/{x}/{y}/2/1_0.png`;
+
+            // 5. Add Source
             sectorOpsMap.addSource(SOURCE_ID, {
                 'type': 'raster',
-                'tiles': [owmTileUrl],
-                'tileSize': 256,
-                'maxzoom': 9 
+                'tiles': [tileUrl],
+                'tileSize': 512,
+                'maxzoom': 10 // ⚠️ Forced limit by RainViewer for free users
             });
 
-            // --- Add the layer ---
+            // 6. Add Layer
             sectorOpsMap.addLayer({
                 'id': LAYER_ID,
                 'type': 'raster',
                 'source': SOURCE_ID,
                 'paint': {
-                    'raster-opacity': 0.7, // Precipitation can be a bit darker
+                    'raster-opacity': 0.60, // Slight transparency looks best
                     'raster-fade-duration': 300
                 }
-            }, 
-            'sector-ops-live-flights-layer' // Draw under aircraft
-            ); 
-            
-            isWeatherLayerAdded = true;
-            console.log('Precipitation layer added (using free Maps 1.0).');
+            }, 'sector-ops-live-flights-layer'); // Draw underneath aircraft
 
-        // 2. Toggle visibility
-        } else if (isWeatherLayerAdded) {
-            sectorOpsMap.setLayoutProperty(
-                LAYER_ID,
-                'visibility',
-                show ? 'visible' : 'none'
-            );
+            isWeatherLayerAdded = true;
+            console.log(`Radar layer added using dynamic path: ${path}`);
+
+        } catch (error) {
+            console.error("Failed to init weather layer:", error);
+            showNotification('Could not load radar data.', 'error');
+        }
+
+    } else if (isWeatherLayerAdded) {
+        // Simple toggle if already loaded
+        const visibility = show ? 'visible' : 'none';
+        if (sectorOpsMap.getLayer(LAYER_ID)) {
+            sectorOpsMap.setLayoutProperty(LAYER_ID, 'visibility', visibility);
         }
     }
+}
 
 /**
-     * --- [NEW] Toggles the OpenWeatherMap Cloud Layer ---
-     * Uses the free 'clouds_new' layer from the Maps 1.0 API.
-     */
-    function toggleCloudLayer(show) {
-        if (!sectorOpsMap) return;
+ * --- [NEW] SIGMET Vector Layer (Volanta Style) ---
+ * Fetches active aviation hazards (Turbulence, Icing, Convection).
+ */
+let isSigmetLayerAdded = false;
 
-        const SOURCE_ID = 'owm-cloud-source';
-        const LAYER_ID = 'owm-cloud-layer';
+async function toggleSigmetLayer(show) {
+    if (!sectorOpsMap) return;
 
-        // 1. First-time creation
-        if (show && !isCloudLayerAdded) {
-            if (!OWM_API_KEY) {
-                console.error('OWM API Key is not loaded. Cannot add cloud layer.');
-                showNotification('Weather service is unavailable (No API Key).', 'error');
-                return;
-            }
+    const SOURCE_ID = 'aviation-sigmet-source';
+    const FILL_LAYER_ID = 'aviation-sigmet-fill';
+    const LINE_LAYER_ID = 'aviation-sigmet-outline';
 
-            // --- Use the 'clouds_new' layer ---
-            const owmTileUrl = `https://tile.openweathermap.org/map/clouds_new/{z}/{x}/{y}.png?appid=${OWM_API_KEY}`;
-            
+    if (show && !isSigmetLayerAdded) {
+        try {
+            // Fetch GeoJSON from NOAA Aviation Weather Center
+            const response = await fetch('https://aviationweather.gov/api/data/isigmet?format=geojson');
+            const geojson = await response.json();
+
             sectorOpsMap.addSource(SOURCE_ID, {
-                'type': 'raster',
-                'tiles': [owmTileUrl],
-                'tileSize': 256,
-                'maxzoom': 9
+                'type': 'geojson',
+                'data': geojson
             });
 
+            // 1. Fill Layer (Transparent Colors)
             sectorOpsMap.addLayer({
-                'id': LAYER_ID,
-                'type': 'raster',
+                'id': FILL_LAYER_ID,
+                'type': 'fill',
                 'source': SOURCE_ID,
                 'paint': {
-                    'raster-opacity': 0.6, // Slightly more transparent for layering
-                    'raster-fade-duration': 300
+                    'fill-color': [
+                        'match',
+                        ['get', 'hazard'],
+                        'CONVECTIVE', '#ff0000', // Red for storms
+                        'TURB', '#ffa500',       // Orange for turbulence
+                        'ICING', '#00bfff',      // Blue for icing
+                        '#888888'                // Fallback
+                    ],
+                    'fill-opacity': 0.20
                 }
-            }, 
-            'sector-ops-live-flights-layer' // Draw under aircraft
-            ); 
-            
-            isCloudLayerAdded = true;
-            console.log('Cloud layer added (using free Maps 1.0).');
+            }, 'sector-ops-live-flights-layer'); 
 
-        // 2. Toggle visibility
-        } else if (isCloudLayerAdded) {
-            sectorOpsMap.setLayoutProperty(
-                LAYER_ID,
-                'visibility',
-                show ? 'visible' : 'none'
-            );
-        }
-    }
+            // 2. Outline Layer (Solid Lines)
+            sectorOpsMap.addLayer({
+                'id': LINE_LAYER_ID,
+                'type': 'line',
+                'source': SOURCE_ID,
+                'paint': {
+                    'line-color': [
+                        'match',
+                        ['get', 'hazard'],
+                        'CONVECTIVE', '#ff0000',
+                        'TURB', '#ffa500',
+                        'ICING', '#00bfff',
+                        '#888888'
+                    ],
+                    'line-width': 1.5,
+                    'line-opacity': 0.8
+                }
+            }, 'sector-ops-live-flights-layer');
 
-    /**
-     * --- [NEW] Toggles the OpenWeatherMap Wind Speed Layer ---
-     * Uses the free 'wind_new' layer from the Maps 1.0 API.
-     */
-    function toggleWindLayer(show) {
-        if (!sectorOpsMap) return;
-
-        const SOURCE_ID = 'owm-wind-source';
-        const LAYER_ID = 'owm-wind-layer';
-
-        // 1. First-time creation
-        if (show && !isWindLayerAdded) {
-            if (!OWM_API_KEY) {
-                console.error('OWM API Key is not loaded. Cannot add wind layer.');
-                showNotification('Weather service is unavailable (No API Key).', 'error');
-                return;
-            }
-
-            // --- Use the 'wind_new' layer ---
-            const owmTileUrl = `https://tile.openweathermap.org/map/wind_new/{z}/{x}/{y}.png?appid=${OWM_API_KEY}`;
-            
-            sectorOpsMap.addSource(SOURCE_ID, {
-                'type': 'raster',
-                'tiles': [owmTileUrl],
-                'tileSize': 256,
-                'maxzoom': 9
+            // 3. Click interaction for details
+            sectorOpsMap.on('click', FILL_LAYER_ID, (e) => {
+                const props = e.features[0].properties;
+                new mapboxgl.Popup()
+                    .setLngLat(e.lngLat)
+                    .setHTML(`
+                        <div style="color:#333; padding:5px;">
+                            <strong>${props.hazard || 'SIGMET'}</strong><br>
+                            <span style="font-size: 0.8em; color: #555;">${props.rawSigmet || 'No details'}</span>
+                        </div>
+                    `)
+                    .addTo(sectorOpsMap);
             });
 
-            sectorOpsMap.addLayer({
-                'id': LAYER_ID,
-                'type': 'raster',
-                'source': SOURCE_ID,
-                'paint': {
-                    'raster-opacity': 0.6, // Slightly more transparent for layering
-                    'raster-fade-duration': 300
-                }
-            }, 
-            'sector-ops-live-flights-layer' // Draw under aircraft
-            ); 
-            
-            isWindLayerAdded = true;
-            console.log('Wind layer added (using free Maps 1.0).');
+            isSigmetLayerAdded = true;
+            console.log('SIGMET vector layer added.');
 
-        // 2. Toggle visibility
-        } else if (isWindLayerAdded) {
-            sectorOpsMap.setLayoutProperty(
-                LAYER_ID,
-                'visibility',
-                show ? 'visible' : 'none'
-            );
+        } catch (error) {
+            console.error('Failed to load SIGMETs:', error);
+            // Fallback notification or silent fail
         }
-    }
 
+    } else if (isSigmetLayerAdded) {
+        const vis = show ? 'visible' : 'none';
+        if (sectorOpsMap.getLayer(FILL_LAYER_ID)) sectorOpsMap.setLayoutProperty(FILL_LAYER_ID, 'visibility', vis);
+        if (sectorOpsMap.getLayer(LINE_LAYER_ID)) sectorOpsMap.setLayoutProperty(LINE_LAYER_ID, 'visibility', vis);
+    }
+}
 /**
      * --- [NEW] Applies all active map filters.
      * This function calls the specific sub-functions to update
@@ -6203,7 +6199,7 @@ function formatDataForSimpleWindow(flightProps, plan, routePoints, communityData
         mainContentLoader.classList.add('active');
 
         try {
-            // --- 1. [NEW] Inject Server Selector Pill ---
+            // --- 1. Inject Server Selector Pill ---
             if (!document.getElementById('server-selector-container')) {
                 const selectorHtml = `
                     <div id="server-selector-container">
@@ -6215,7 +6211,7 @@ function formatDataForSimpleWindow(flightProps, plan, routePoints, communityData
                 mapContainer.insertAdjacentHTML('beforeend', selectorHtml);
             }
 
-            // --- 2. Inject the Search Bar (Existing) ---
+            // --- 2. Inject the Search Bar ---
             if (!document.getElementById('sector-ops-search-container')) {
                 const searchHtml = `
                     <div id="sector-ops-search-container" class="sector-ops-search">
@@ -6234,7 +6230,7 @@ function formatDataForSimpleWindow(flightProps, plan, routePoints, communityData
                 mapContainer.insertAdjacentHTML('beforeend', searchHtml);
             }
 
-            // --- 3. Inject Airport Info Window (Existing) ---
+            // --- 3. Inject Airport Info Window ---
             if (!document.getElementById('airport-info-window')) {
                  const windowHtml = `
                     <div id="airport-info-window" class="info-window">
@@ -6244,7 +6240,7 @@ function formatDataForSimpleWindow(flightProps, plan, routePoints, communityData
                 mapContainer.insertAdjacentHTML('beforeend', windowHtml);
             }
 
-            // --- 4. Inject Aircraft Info Window (Existing) ---
+            // --- 4. Inject Aircraft Info Window ---
             if (!document.getElementById('aircraft-info-window')) {
                  const windowHtml = `
                     <div id="aircraft-info-window" class="info-window">
@@ -6254,7 +6250,7 @@ function formatDataForSimpleWindow(flightProps, plan, routePoints, communityData
                 mapContainer.insertAdjacentHTML('beforeend', windowHtml);
             }
 
-            // --- 5. Inject Weather Settings Window (Existing) ---
+            // --- 5. Inject Weather Settings Window (UPDATED WITH SIGMETS) ---
             if (!document.getElementById('weather-settings-window')) {
                 const windowHtml = `
                     <div id="weather-settings-window" class="info-window">
@@ -6268,9 +6264,16 @@ function formatDataForSimpleWindow(flightProps, plan, routePoints, communityData
                         <div id="weather-window-content" class="info-window-content">
                             <ul class="weather-toggle-list">
                                 <li class="weather-toggle-item">
-                                    <span class="weather-toggle-label"><i class="fa-solid fa-cloud-rain"></i> Precipitation</span>
+                                    <span class="weather-toggle-label"><i class="fa-solid fa-cloud-rain"></i> Radar (Precip)</span>
                                     <label class="toggle-switch">
                                         <input type="checkbox" id="weather-toggle-precip">
+                                        <span class="toggle-slider"></span>
+                                    </label>
+                                </li>
+                                <li class="weather-toggle-item">
+                                    <span class="weather-toggle-label"><i class="fa-solid fa-triangle-exclamation"></i> SIGMETs</span>
+                                    <label class="toggle-switch">
+                                        <input type="checkbox" id="weather-toggle-sigmets">
                                         <span class="toggle-slider"></span>
                                     </label>
                                 </li>
@@ -6291,7 +6294,7 @@ function formatDataForSimpleWindow(flightProps, plan, routePoints, communityData
                             </ul>
                             <div class="weather-disclaimer-note">
                                 <i class="fa-solid fa-server"></i>
-                                <strong>Note:</strong> These layers are provided by a free service. Please use them gently as resources are limited.
+                                <strong>Note:</strong> Radar provided by RainViewer. SIGMETs provided by NOAA AWC.
                             </div>
                         </div>
                     </div>
@@ -6299,7 +6302,7 @@ function formatDataForSimpleWindow(flightProps, plan, routePoints, communityData
                 mapContainer.insertAdjacentHTML('beforeend', windowHtml);
             }
 
-            // --- 6. Inject Filter Settings Window (Updated with Simple Window Toggle) ---
+            // --- 6. Inject Filter Settings Window ---
             if (!document.getElementById('filter-settings-window')) {
                 const windowHtml = `
                     <div id="filter-settings-window" class="info-window">
@@ -6852,112 +6855,116 @@ function initializeSectorOpsMap(centerICAO) {
     
 
  /**
- * --- [NEW] Rebuilds all dynamic layers after a map style change.
- * This includes weather, airport routes, and the active aircraft trail.
- */
-function rebuildDynamicLayers() {
-    console.log("Rebuilding dynamic layers...");
+     * --- [UPDATED] Rebuilds all dynamic layers after a map style change.
+     * Ensures Volanta-style Radar and SIGMETs are restored correctly.
+     */
+    function rebuildDynamicLayers() {
+        console.log("Rebuilding dynamic layers...");
 
-    // 1. Re-apply weather layers
-    if (document.getElementById('weather-toggle-precip')?.checked) {
-        isWeatherLayerAdded = false; // Force re-creation
-        toggleWeatherLayer(true);
-    }
-    if (document.getElementById('weather-toggle-clouds')?.checked) {
-        isCloudLayerAdded = false; // Force re-creation
-        toggleCloudLayer(true);
-    }
-    if (document.getElementById('weather-toggle-wind')?.checked) {
-        isWindLayerAdded = false; // Force re-creation
-        toggleWindLayer(true);
-    }
-
-    // 2. Re-apply airport routes
-    if (currentAirportInWindow) {
-        // This function already clears old layers and re-adds new ones
-        plotRoutesFromAirport(currentAirportInWindow);
-    }
-
-    // 3. Re-apply active flight trail
-    if (currentFlightInWindow) {
-        const flightId = currentFlightInWindow;
-        
-        // Clear any stray map state
-        clearLiveFlightPath(flightId); 
-        delete sectorOpsLiveFlightPathLayers[flightId]; 
-
-        // Get cached data from when the window was opened
-        const { flightProps, plan } = cachedFlightDataForStatsView; // <-- Add 'plan'
-        if (flightProps) {
-            const localTrail = liveTrailCache.get(flightId) || [];
-            const currentPosition = currentAircraftPositionForGeocode || flightProps.position;
-            // --- [MODIFIED] Pass plan ---
-            const routeFeatureCollection = generateAltitudeColoredRoute(localTrail, currentPosition, plan);
-
-            // Re-add source
-            sectorOpsMap.addSource(`flown-path-${flightId}`, { // Use base ID
-                type: 'geojson',
-                data: routeFeatureCollection
-            });
-            
-            // Re-add layer (copying paint properties from handleAircraftClick)
-            sectorOpsMap.addLayer({
-                id: `flown-path-${flightId}`, // Use base ID
-                type: 'line',
-                source: `flown-path-${flightId}`, // Use base ID
-                paint: {
-                    'line-color': [
-                        'interpolate',
-                        ['linear'],
-                        ['get', 'avgAltitude'],
-                        0,     '#e6e600',
-                        10000, '#ff9900',
-                        20000, '#ff3300',
-                        29000, '#00BFFF',
-                        38000, '#9400D3'
-                    ],
-                    'line-width': 4,
-                    // --- [MODIFIED] Include new opacity and dash logic ---
-                    'line-opacity': [
-                        'case',
-                        ['boolean', ['get', 'simulated'], false],
-                        0.6,
-                        0.9
-                    ],
-                    'line-dasharray': [
-                        'case',
-                        ['boolean', ['get', 'simulated'], false],
-                        ['literal', [2, 2]],
-                        ['literal', [1, 0]]
-                    ],
-                    
-                    // ##### FIX START #####
-                    // This is the fix for the "termites" / Z-fighting glitch.
-                    'line-translate': [0, -2],
-                    'line-translate-anchor': 'viewport'
-                    // ##### FIX END #####
-                }
-            }, 'sector-ops-live-flights-layer'); // Draw below aircraft
-            
-            sectorOpsLiveFlightPathLayers[flightId] = { flown: `flown-path-${flightId}` };
-            console.log(`Rebuilt active trail for ${flightId}`);
-
-            // --- [START NEW] ---
-            // Re-draw the planned route line based on filter state
-            if (plan) {
-                const position = currentAircraftPositionForGeocode || flightProps.position;
-                updateFlightPlanLayer(flightId, plan, position);
-            }
-            // --- [END NEW] ---
+        // 1. Re-apply SIGMETS (Volanta Style)
+        if (document.getElementById('weather-toggle-sigmets')?.checked) {
+            isSigmetLayerAdded = false; // Force re-fetch/re-add
+            toggleSigmetLayer(true);
         }
-    }
-    
-    // 4. Re-apply aircraft filters
-    updateAircraftLayerFilter();
 
-    // 5. Re-render airport markers
-    renderAirportMarkers();
-}
+        // 2. Re-apply Radar (Precip - RainViewer)
+        // We set isWeatherLayerAdded = false to force it to re-fetch the dynamic RainViewer path
+        if (document.getElementById('weather-toggle-precip')?.checked) {
+            isWeatherLayerAdded = false; 
+            toggleWeatherLayer(true);
+        }
+
+        // 3. Re-apply Clouds
+        if (document.getElementById('weather-toggle-clouds')?.checked) {
+            isCloudLayerAdded = false; // Force re-creation
+            toggleCloudLayer(true);
+        }
+
+        // 4. Re-apply Wind
+        if (document.getElementById('weather-toggle-wind')?.checked) {
+            isWindLayerAdded = false; // Force re-creation
+            toggleWindLayer(true);
+        }
+
+        // 5. Re-apply airport routes
+        if (currentAirportInWindow) {
+            // This function already clears old layers and re-adds new ones
+            plotRoutesFromAirport(currentAirportInWindow);
+        }
+
+        // 6. Re-apply active flight trail
+        if (currentFlightInWindow) {
+            const flightId = currentFlightInWindow;
+            
+            // Clear any stray map state
+            clearLiveFlightPath(flightId); 
+            delete sectorOpsLiveFlightPathLayers[flightId]; 
+
+            // Get cached data from when the window was opened
+            const { flightProps, plan } = cachedFlightDataForStatsView;
+            if (flightProps) {
+                const localTrail = liveTrailCache.get(flightId) || [];
+                const currentPosition = currentAircraftPositionForGeocode || flightProps.position;
+                
+                const routeFeatureCollection = generateAltitudeColoredRoute(localTrail, currentPosition, plan);
+
+                // Re-add source
+                sectorOpsMap.addSource(`flown-path-${flightId}`, {
+                    type: 'geojson',
+                    data: routeFeatureCollection
+                });
+                
+                // Re-add layer
+                sectorOpsMap.addLayer({
+                    id: `flown-path-${flightId}`,
+                    type: 'line',
+                    source: `flown-path-${flightId}`,
+                    paint: {
+                        'line-color': [
+                            'interpolate',
+                            ['linear'],
+                            ['get', 'avgAltitude'],
+                            0,     '#e6e600',
+                            10000, '#ff9900',
+                            20000, '#ff3300',
+                            29000, '#00BFFF',
+                            38000, '#9400D3'
+                        ],
+                        'line-width': 4,
+                        'line-opacity': [
+                            'case',
+                            ['boolean', ['get', 'simulated'], false],
+                            0.6,
+                            0.9
+                        ],
+                        'line-dasharray': [
+                            'case',
+                            ['boolean', ['get', 'simulated'], false],
+                            ['literal', [2, 2]],
+                            ['literal', [1, 0]]
+                        ],
+                        'line-translate': [0, -2],
+                        'line-translate-anchor': 'viewport'
+                    }
+                }, 'sector-ops-live-flights-layer'); // Draw below aircraft
+                
+                sectorOpsLiveFlightPathLayers[flightId] = { flown: `flown-path-${flightId}` };
+                console.log(`Rebuilt active trail for ${flightId}`);
+
+                // Re-draw the planned route line based on filter state
+                if (plan) {
+                    const position = currentAircraftPositionForGeocode || flightProps.position;
+                    updateFlightPlanLayer(flightId, plan, position);
+                }
+            }
+        }
+        
+        // 7. Re-apply aircraft filters
+        updateAircraftLayerFilter();
+
+        // 8. Re-render airport markers
+        renderAirportMarkers();
+    }
 
 /**
  * --- [MODIFIED] Draws or updates the filed flight plan layers (direct or full)
@@ -9980,7 +9987,7 @@ function setupSectorOpsEventListeners() {
     }
 
     /**
-     * Sets up event listeners for the new Weather Settings info window.
+     * Sets up event listeners for the Weather Settings info window.
      */
     function setupWeatherSettingsWindowEvents() {
         if (!weatherSettingsWindow || weatherSettingsWindow.dataset.eventsAttached === 'true') {
@@ -9994,7 +10001,7 @@ function setupSectorOpsEventListeners() {
             // Handle Close or Hide buttons
             if (target.closest('.weather-window-close-btn') || target.closest('.weather-window-hide-btn')) {
                 weatherSettingsWindow.classList.remove('visible');
-                MobileUIHandler.closeActiveWindow();
+                if (typeof MobileUIHandler !== 'undefined') MobileUIHandler.closeActiveWindow();
             }
         });
 
@@ -10009,6 +10016,9 @@ function setupSectorOpsEventListeners() {
                     case 'weather-toggle-precip':
                         toggleWeatherLayer(isChecked);
                         break;
+                    case 'weather-toggle-sigmets':
+                        toggleSigmetLayer(isChecked);
+                        break;
                     case 'weather-toggle-clouds':
                         toggleCloudLayer(isChecked);
                         break;
@@ -10018,7 +10028,12 @@ function setupSectorOpsEventListeners() {
                 }
                 
                 // Update the toolbar button's active state
-                updateWeatherToolbarButtonState();
+                // This assumes updateWeatherToolbarButtonState() checks all boxes including the new SIGMET one
+                const openWeatherBtn = document.getElementById('open-weather-settings-btn');
+                if (openWeatherBtn) {
+                    const isAnyActive = document.querySelectorAll('.weather-toggle-list input[type="checkbox"]:checked').length > 0;
+                    openWeatherBtn.classList.toggle('active', isAnyActive);
+                }
             }
         });
 
