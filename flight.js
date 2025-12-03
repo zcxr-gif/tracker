@@ -7452,15 +7452,14 @@ function densifyFlightPathPoints(points, maxDistKm = 0.2, maxAltDiffFt = 30) {
 }
 
 /**
- * --- [FIXED v11] Ultra-Smooth 3D Ribbon Generator ---
- * Uses pre-densification to eliminate "staircase" artifacts on altitude changes.
+ * --- [FIXED v12] Ultra-Smooth 3D Ribbon + Waypoint Beams + Curtain Support ---
+ * Generates the 3D path, a ground curtain, and vertical beams at passed waypoints.
  */
 function generateAltitudeColoredRoute(sortedPoints, currentPosition, flightPlan = null) {
     const features = [];
-    const GAP_THRESHOLD_KM = 20;
-    const MIN_DIST_FROM_NOSE_KM = 0.2;
     const PATH_WIDTH_KM = 0.12; 
     const RIBBON_THICKNESS_METERS = 150;
+    const PILLAR_WIDTH_KM = 0.5; // Width of the waypoint beams
 
     // --- 1. PREPARE FLIGHT PLAN WAYPOINTS ---
     let flatPlan = [];
@@ -7469,7 +7468,12 @@ function generateAltitudeColoredRoute(sortedPoints, currentPosition, flightPlan 
             let res = [];
             items.forEach(item => {
                 if (item.children && item.children.length) res = res.concat(extract(item.children));
-                else if (item.location) res.push({ lat: item.location.latitude, lon: item.location.longitude, alt: item.altitude || 0 });
+                else if (item.location) res.push({ 
+                    lat: item.location.latitude, 
+                    lon: item.location.longitude, 
+                    alt: item.altitude || 0,
+                    ident: item.identifier || item.name || 'WPT'
+                });
             });
             return res;
         };
@@ -7488,8 +7492,8 @@ function generateAltitudeColoredRoute(sortedPoints, currentPosition, flightPlan 
     // --- 2. SANITIZATION ---
     const cleanHistory = sortedPoints.filter((p, i) => {
         if (!p.latitude || !p.longitude) return false;
-        // Don't draw points literally inside the plane
-        if (getDistanceKm(p.latitude, p.longitude, currentPosition.lat, currentPosition.lon) < MIN_DIST_FROM_NOSE_KM) return false;
+        // Don't draw points literally inside the plane (avoids graphical glitches)
+        if (getDistanceKm(p.latitude, p.longitude, currentPosition.lat, currentPosition.lon) < 0.2) return false;
         // Filter tiny jitters
         if (i > 0) {
             const prev = sortedPoints[i - 1];
@@ -7513,13 +7517,10 @@ function generateAltitudeColoredRoute(sortedPoints, currentPosition, flightPlan 
 
     // --- 4. UNWRAP ---
     const rawPoints = [];
-    let prevPoint = null;
     
     // Add history
     effectiveHistory.forEach(p => {
-        const point = { ...p, unwrappedLongitude: p.longitude };
-        rawPoints.push(point);
-        prevPoint = point;
+        rawPoints.push({ ...p, unwrappedLongitude: p.longitude });
     });
 
     // Add current aircraft position (The Nose)
@@ -7550,10 +7551,9 @@ function generateAltitudeColoredRoute(sortedPoints, currentPosition, flightPlan 
     const densePoints = densifyFlightPathPoints(rawPoints, 0.2, 30); // 200m or 30ft steps
 
     // --- 6. SMOOTHING (CHAIKIN) ---
-    // We use fewer iterations now because we already densified
     const smoothPoints = generateSmoothPath(densePoints, 2); 
 
-    // --- 7. CALCULATE JOINT GEOMETRY ---
+    // --- 7. CALCULATE RIBBON GEOMETRY ---
     const ribbonVertices = []; 
 
     for (let i = 0; i < smoothPoints.length; i++) {
@@ -7602,7 +7602,7 @@ function generateAltitudeColoredRoute(sortedPoints, currentPosition, flightPlan 
         const r2Lon = normLon(v2.right.lon, p1.unwrappedLongitude);
         const l2Lon = normLon(v2.left.lon, p1.unwrappedLongitude);
 
-        // A. The 3D Ribbon (Polygon)
+        // A. The 3D Ribbon (Polygon) - Type: 'ribbon'
         features.push({
             type: 'Feature',
             geometry: {
@@ -7616,6 +7616,7 @@ function generateAltitudeColoredRoute(sortedPoints, currentPosition, flightPlan 
                 ]]
             },
             properties: {
+                feature_type: 'ribbon', // <--- Identify this as part of the ribbon
                 avgAltitude: avgAltFt,
                 heightM: topHeightMeters,
                 baseM: baseHeightMeters,
@@ -7634,8 +7635,63 @@ function generateAltitudeColoredRoute(sortedPoints, currentPosition, flightPlan 
                 ]
             },
             properties: {
+                feature_type: 'centerline',
                 avgAltitude: avgAltFt,
                 simulated: false
+            }
+        });
+    }
+
+    // --- 9. GENERATE WAYPOINT BEAMS (Pillars) ---
+    // Create a vertical pillar for every passed waypoint in the flight plan
+    if (flatPlan.length > 0) {
+        // Simple bounding box check to find passed waypoints close to the flown path
+        // For performance, we check passed waypoints against the flown path history
+        
+        flatPlan.forEach(wp => {
+            // Find closest point in history to this waypoint
+            let minDist = Infinity;
+            let closestAlt = 0;
+            
+            // Check only points that are reasonably close to save perf
+            for(let i=0; i<smoothPoints.length; i+=5) { // Check every 5th point
+                const p = smoothPoints[i];
+                const d = getDistanceKm(wp.lat, wp.lon, p.latitude, p.unwrappedLongitude);
+                if (d < minDist) {
+                    minDist = d;
+                    closestAlt = p.altitude;
+                }
+            }
+
+            // If we flew within 2km of the waypoint, draw a beam
+            if (minDist < 2.0) {
+                // Generate a small square polygon for the pillar
+                // 0.5km wide square
+                const halfWidth = PILLAR_WIDTH_KM / 2;
+                const p1 = getDestinationPoint(wp.lat, wp.lon, 45, halfWidth * 1.414);
+                const p2 = getDestinationPoint(wp.lat, wp.lon, 135, halfWidth * 1.414);
+                const p3 = getDestinationPoint(wp.lat, wp.lon, 225, halfWidth * 1.414);
+                const p4 = getDestinationPoint(wp.lat, wp.lon, 315, halfWidth * 1.414);
+
+                features.push({
+                    type: 'Feature',
+                    geometry: {
+                        type: 'Polygon',
+                        coordinates: [[
+                            [p1.lon, p1.lat],
+                            [p2.lon, p2.lat],
+                            [p3.lon, p3.lat],
+                            [p4.lon, p4.lat],
+                            [p1.lon, p1.lat]
+                        ]]
+                    },
+                    properties: {
+                        feature_type: 'pillar',
+                        name: wp.ident,
+                        heightM: closestAlt * 0.3048, // Top of pillar matches flown altitude
+                        baseM: 0 // Starts at ground
+                    }
+                });
             }
         });
     }
@@ -7647,45 +7703,32 @@ function generateAltitudeColoredRoute(sortedPoints, currentPosition, flightPlan 
 async function handleAircraftClick(flightProps, sessionId) {
     if (!flightProps || !flightProps.flightId) return;
 
-    // [RESILIENCE] Prevent new clicks if one is already loading
     if (isAircraftWindowLoading) {
         console.warn("Aircraft click ignored: window is already loading.");
         return;
     }
 
-    // [ORIGINAL] Prevent re-opening an already open window for the same flight
     if (currentFlightInWindow === flightProps.flightId && aircraftInfoWindow.classList.contains('visible')) {
         return;
     }
 
-    // [RESILIENCE] Set loading flag
     isAircraftWindowLoading = true;
 
-    // --- [CRITICAL] Clear ALL existing intervals first ---
-    if (activePfdUpdateInterval) {
-        clearInterval(activePfdUpdateInterval);
-        activePfdUpdateInterval = null;
-    }
-    if (activeGeocodeUpdateInterval) {
-        clearInterval(activeGeocodeUpdateInterval);
-        activeGeocodeUpdateInterval = null;
-    }
+    if (activePfdUpdateInterval) { clearInterval(activePfdUpdateInterval); activePfdUpdateInterval = null; }
+    if (activeGeocodeUpdateInterval) { clearInterval(activeGeocodeUpdateInterval); activeGeocodeUpdateInterval = null; }
 
     resetPfdState();
 
-    // [ORIGINAL] Clear previous flight's path/cache
     if (currentFlightInWindow && currentFlightInWindow !== flightProps.flightId) {
         clearLiveFlightPath(currentFlightInWindow);
         liveTrailCache.delete(currentFlightInWindow);
     }
 
-    // --- Set State ---
     currentFlightInWindow = flightProps.flightId; 
     currentAircraftPositionForGeocode = flightProps.position; 
     lastGeocodeCoords = { lat: 0, lon: 0 }; 
     cachedFlightDataForStatsView = { flightProps: null, plan: null };
 
-    // [UI] Show Window
     if (window.MobileUIHandler && window.MobileUIHandler.isMobile()) {
         window.MobileUIHandler.openWindow(aircraftInfoWindow);
     } else {
@@ -7693,7 +7736,6 @@ async function handleAircraftClick(flightProps, sessionId) {
     }
     aircraftInfoWindowRecallBtn.classList.remove('visible');
     
-    // [UI] Loading State (Center spinner)
     const windowEl = document.getElementById('aircraft-info-window');
     windowEl.innerHTML = `
         <div style="display: flex; flex-direction: column; align-items: center; justify-content: center; height: 300px; color: #fff;">
@@ -7703,15 +7745,16 @@ async function handleAircraftClick(flightProps, sessionId) {
     `;
 
     try {
-        // Define layer IDs for flown path (Ribbon + Line)
-        const flownLayerId = `flown-path-${flightProps.flightId}`;
-        const flownLineLayerId = `flown-path-line-${flightProps.flightId}`;
+        // Define layer IDs 
+        const sourceId = `flown-path-${flightProps.flightId}`;
+        const ribbonLayerId = `flown-path-ribbon-${flightProps.flightId}`;
+        const curtainLayerId = `flown-path-curtain-${flightProps.flightId}`; // New
+        const pillarLayerId = `flown-path-pillar-${flightProps.flightId}`;   // New
+        const lineLayerId = `flown-path-line-${flightProps.flightId}`;
         
-        // --- PREPARE DATA FOR LOOKUP ---
         const acName = flightProps.aircraft?.aircraftName || '';
         const livName = flightProps.aircraft?.liveryName || '';
 
-        // --- FETCH DATA (Parallel: Plan, Route, AND Aircraft Details) ---
         const [planRes, routeRes, aircraftLookupRes] = await Promise.all([
             fetch(`${LIVE_FLIGHTS_API_URL}/${sessionId}/${flightProps.flightId}/plan`),
             fetch(`${LIVE_FLIGHTS_API_URL}/${sessionId}/${flightProps.flightId}/route`),
@@ -7722,15 +7765,11 @@ async function handleAircraftClick(flightProps, sessionId) {
         const plan = (planData && planData.ok) ? planData.plan : null;
         const routeData = routeRes.ok ? await routeRes.json() : null;
 
-        // Process Aircraft Lookup Result
         let communityAircraftData = null;
         if (aircraftLookupRes.ok) {
             communityAircraftData = await aircraftLookupRes.json();
-        } else {
-            console.warn(`Aircraft lookup failed or no match found for ${acName} / ${livName}`);
-        }
+        } 
         
-        // --- Process Route History ---
         let sortedRoutePoints = [];
         if (routeData && routeData.ok && Array.isArray(routeData.route) && routeData.route.length > 0) {
             sortedRoutePoints = routeData.route.sort((a, b) => {
@@ -7740,82 +7779,84 @@ async function handleAircraftClick(flightProps, sessionId) {
             });
         }
         
-        // Seed the cache
         liveTrailCache.set(flightProps.flightId, sortedRoutePoints);
-        // Cache data for stats view
         cachedFlightDataForStatsView = { flightProps, plan };
         
-        // --- [MODIFIED] Choose View Mode ---
         if (mapFilters.useSimpleFlightWindow) {
-            // A. SIMPLE VIEW (IFRAME)
             windowEl.style.width = '420px'; 
             windowEl.style.height = 'calc(100vh - 40px)';
-
             windowEl.innerHTML = `
                 <div style="width: 100%; height: 100%; overflow: hidden; background: transparent; display: flex; flex-direction: column;">
-                    <iframe id="simple-flight-window-frame" src="flightinfo.html" 
-                            style="width:100%; flex-grow: 1; border:none; display: block;" 
-                            scrolling="no"></iframe>
+                    <iframe id="simple-flight-window-frame" src="flightinfo.html" style="width:100%; flex-grow: 1; border:none; display: block;" scrolling="no"></iframe>
                 </div>
             `;
-            
             const simpleData = formatDataForSimpleWindow(flightProps, plan, sortedRoutePoints, communityAircraftData);
             const iframe = document.getElementById('simple-flight-window-frame');
-            iframe.onload = () => {
-                iframe.contentWindow.postMessage({ type: 'FLIGHT_DATA_UPDATE', payload: simpleData }, '*');
-            };
-            setTimeout(() => {
-                if(iframe && iframe.contentWindow) {
-                    iframe.contentWindow.postMessage({ type: 'FLIGHT_DATA_UPDATE', payload: simpleData }, '*');
-                }
-            }, 500);
-
+            iframe.onload = () => { iframe.contentWindow.postMessage({ type: 'FLIGHT_DATA_UPDATE', payload: simpleData }, '*'); };
+            setTimeout(() => { if(iframe && iframe.contentWindow) iframe.contentWindow.postMessage({ type: 'FLIGHT_DATA_UPDATE', payload: simpleData }, '*'); }, 500);
         } else {
-            // B. STANDARD VIEW (Your existing function)
             windowEl.style.width = ''; 
             windowEl.style.height = ''; 
             populateAircraftInfoWindow(flightProps, plan, sortedRoutePoints, communityAircraftData);
         }
         
-        // --- [GEOCODE] Initial Fetch ---
         fetchAndDisplayGeocode(flightProps.position.lat, flightProps.position.lon);
+        updateNavPanelData(flightProps.position.lat, flightProps.position.lon, flightProps.position.heading_deg, flightProps.position.oat_c || 15, flightProps.position.wind_dir || 0, flightProps.position.wind_spd_kts || 0);
 
-        // --- [NAV PANEL] Initial Update ---
-        updateNavPanelData(
-            flightProps.position.lat,
-            flightProps.position.lon,
-            flightProps.position.heading_deg,
-            flightProps.position.oat_c || 15,
-            flightProps.position.wind_dir || 0,
-            flightProps.position.wind_spd_kts || 0
-        );
-
-        // --- [MAP] Generate Altitude Colored Route ---
+        // --- [MAP] Generate Route Data ---
         const routeFeatureCollection = generateAltitudeColoredRoute(sortedRoutePoints, flightProps.position, plan);
 
-        if (!sectorOpsMap.getSource(flownLayerId)) {
-            sectorOpsMap.addSource(flownLayerId, {
+        if (!sectorOpsMap.getSource(sourceId)) {
+            sectorOpsMap.addSource(sourceId, {
                 type: 'geojson',
                 data: routeFeatureCollection,
-                tolerance: 0 // <--- CRITICAL FIX: Prevents path simplification/disappearance at low zoom
+                tolerance: 0
             });
             
-            // 1. 3D Fill Extrusion Layer (The Ribbon) - Filters for Polygons
+            // 1. THE CURTAIN (Transparent Wall) - New Layer
             sectorOpsMap.addLayer({
-                id: flownLayerId,
-                type: 'fill-extrusion', 
-                source: flownLayerId,
-                filter: ['==', '$type', 'Polygon'], // Only draw the ribbon polygons
+                id: curtainLayerId,
+                type: 'fill-extrusion',
+                source: sourceId,
+                filter: ['==', 'feature_type', 'ribbon'], // Use same polygon as ribbon
                 paint: {
                     'fill-extrusion-color': [
-                        'interpolate',
-                        ['linear'],
-                        ['get', 'avgAltitude'],
-                        0,     '#e6e600',
-                        10000, '#ff9900',
-                        20000, '#ff3300',
-                        29000, '#00BFFF',
-                        38000, '#9400D3'
+                        'interpolate', ['linear'], ['get', 'avgAltitude'],
+                        0, '#e6e600', 10000, '#ff9900', 20000, '#ff3300', 29000, '#00BFFF', 38000, '#9400D3'
+                    ],
+                    // Top is the bottom of the ribbon
+                    'fill-extrusion-height': ['get', 'baseM'], 
+                    // Base is 0 (Ground)
+                    'fill-extrusion-base': 0,
+                    // Very transparent
+                    'fill-extrusion-opacity': 0.15 
+                }
+            }, 'sector-ops-live-flights-layer');
+
+            // 2. THE PILLARS (Waypoint Beams) - New Layer
+            sectorOpsMap.addLayer({
+                id: pillarLayerId,
+                type: 'fill-extrusion',
+                source: sourceId,
+                filter: ['==', 'feature_type', 'pillar'],
+                paint: {
+                    'fill-extrusion-color': '#ffffff', // White beams
+                    'fill-extrusion-height': ['get', 'heightM'],
+                    'fill-extrusion-base': 0,
+                    'fill-extrusion-opacity': 0.3
+                }
+            }, 'sector-ops-live-flights-layer');
+
+            // 3. THE RIBBON (Solid Top)
+            sectorOpsMap.addLayer({
+                id: ribbonLayerId,
+                type: 'fill-extrusion', 
+                source: sourceId,
+                filter: ['==', 'feature_type', 'ribbon'],
+                paint: {
+                    'fill-extrusion-color': [
+                        'interpolate', ['linear'], ['get', 'avgAltitude'],
+                        0, '#e6e600', 10000, '#ff9900', 20000, '#ff3300', 29000, '#00BFFF', 38000, '#9400D3'
                     ],
                     'fill-extrusion-height': ['get', 'heightM'],
                     'fill-extrusion-base': ['get', 'baseM'],
@@ -7823,72 +7864,53 @@ async function handleAircraftClick(flightProps, sessionId) {
                 }
             }, 'sector-ops-live-flights-layer');
 
-            // 2. Line Layer (The Skeleton) - Filters for LineStrings
-            // This ensures visibility when zoomed out or looking from top-down high altitude
+            // 4. THE CENTERLINE (For visibility)
             sectorOpsMap.addLayer({
-                id: flownLineLayerId,
+                id: lineLayerId,
                 type: 'line',
-                source: flownLayerId, // Use SAME source
-                filter: ['==', '$type', 'LineString'], // Only draw the centerline
+                source: sourceId, 
+                filter: ['==', 'feature_type', 'centerline'],
                 paint: {
                     'line-color': [
-                        'interpolate',
-                        ['linear'],
-                        ['get', 'avgAltitude'],
-                        0,     '#e6e600',
-                        10000, '#ff9900',
-                        20000, '#ff3300',
-                        29000, '#00BFFF',
-                        38000, '#9400D3'
+                        'interpolate', ['linear'], ['get', 'avgAltitude'],
+                        0, '#e6e600', 10000, '#ff9900', 20000, '#ff3300', 29000, '#00BFFF', 38000, '#9400D3'
                     ],
-                    // [UPDATED] Thicker line at low zoom to ensure visibility
-                    'line-width': [
-                        'interpolate', ['linear'], ['zoom'],
-                        3, 4,   // At zoom 3, line is 4px wide
-                        10, 2.5 // At zoom 10, line is 2.5px wide
-                    ],
+                    'line-width': ['interpolate', ['linear'], ['zoom'], 3, 4, 10, 2.5],
                     'line-opacity': 1.0
                 }
             }, 'sector-ops-live-flights-layer');
 
         } else {
-             sectorOpsMap.getSource(flownLayerId).setData(routeFeatureCollection);
+             sectorOpsMap.getSource(sourceId).setData(routeFeatureCollection);
         }
 
-        // Store layer IDs for cleanup (auto-cleaned by Object.values)
         sectorOpsLiveFlightPathLayers[flightProps.flightId] = {
-            flown: flownLayerId,
-            flownLine: flownLineLayerId
+            ribbon: ribbonLayerId,
+            curtain: curtainLayerId,
+            pillar: pillarLayerId,
+            flownLine: lineLayerId
         };
         
-        // --- [MAP] Draw Planned Route (if exists) ---
         if (plan) {
             updateFlightPlanLayer(flightProps.flightId, plan, flightProps.position);
         }
         
-        // --- [INTERVALS] Start Updates ---
         const FIVE_MINUTES_MS = 300000; 
         activeGeocodeUpdateInterval = setInterval(() => {
             if (currentAircraftPositionForGeocode) {
-                fetchAndDisplayGeocode(
-                    currentAircraftPositionForGeocode.lat,
-                    currentAircraftPositionForGeocode.lon
-                );
+                fetchAndDisplayGeocode(currentAircraftPositionForGeocode.lat, currentAircraftPositionForGeocode.lon);
             }
         }, FIVE_MINUTES_MS);
         
         fetchAndDisplayWeather();
         if (activeWeatherUpdateInterval) clearInterval(activeWeatherUpdateInterval);
-        activeWeatherUpdateInterval = setInterval(() => {
-             fetchAndDisplayWeather();
-        }, FIVE_MINUTES_MS);
+        activeWeatherUpdateInterval = setInterval(() => { fetchAndDisplayWeather(); }, FIVE_MINUTES_MS);
 
         isAircraftWindowLoading = false;
 
     } catch (error) {
         console.error("Error fetching or plotting aircraft details:", error);
         windowEl.innerHTML = `<p class="error-text" style="padding: 2rem; color: #ef4444;">Could not retrieve complete flight details. The aircraft may have landed or disconnected.</p>`;
-        
         isAircraftWindowLoading = false; 
         currentFlightInWindow = null; 
         cachedFlightDataForStatsView = { flightProps: null, plan: null };
@@ -7897,75 +7919,85 @@ async function handleAircraftClick(flightProps, sessionId) {
 }
 
 /**
- * --- [UPDATED] Rebuilds all dynamic layers after a map style change.
- * This includes weather, airport routes, and the active aircraft trail (Ribbon + Line).
+ * --- [UPDATED v2] Rebuilds all dynamic layers after a map style change.
+ * Restores Ribbon, Curtain, Pillars, and Weather.
  */
 function rebuildDynamicLayers() {
     console.log("Rebuilding dynamic layers...");
 
-    // 1. Re-apply weather layers
-    if (document.getElementById('weather-toggle-precip')?.checked) {
-        isWeatherLayerAdded = false; 
-        toggleWeatherLayer(true);
-    }
-    if (document.getElementById('weather-toggle-sigmets')?.checked) {
-        isSigmetLayerAdded = false;
-        toggleSigmetLayer(true);
-    }
-    if (document.getElementById('weather-toggle-clouds')?.checked) {
-        isCloudLayerAdded = false; 
-        toggleCloudLayer(true);
-    }
-    if (document.getElementById('weather-toggle-wind')?.checked) {
-        isWindLayerAdded = false; 
-        toggleWindLayer(true);
-    }
+    if (document.getElementById('weather-toggle-precip')?.checked) { isWeatherLayerAdded = false; toggleWeatherLayer(true); }
+    if (document.getElementById('weather-toggle-sigmets')?.checked) { isSigmetLayerAdded = false; toggleSigmetLayer(true); }
+    if (document.getElementById('weather-toggle-clouds')?.checked) { isCloudLayerAdded = false; toggleCloudLayer(true); }
+    if (document.getElementById('weather-toggle-wind')?.checked) { isWindLayerAdded = false; toggleWindLayer(true); }
 
-    // 2. Re-apply airport routes
     if (currentAirportInWindow) {
         plotRoutesFromAirport(currentAirportInWindow);
     }
 
-    // 3. Re-apply active flight trail
     if (currentFlightInWindow) {
         const flightId = currentFlightInWindow;
-        const flownLayerId = `flown-path-${flightId}`;
-        const flownLineLayerId = `flown-path-line-${flightId}`;
+        const sourceId = `flown-path-${flightId}`;
+        const ribbonLayerId = `flown-path-ribbon-${flightId}`;
+        const curtainLayerId = `flown-path-curtain-${flightId}`;
+        const pillarLayerId = `flown-path-pillar-${flightId}`;
+        const lineLayerId = `flown-path-line-${flightId}`;
         
-        // Clear any stray map state
         clearLiveFlightPath(flightId); 
         delete sectorOpsLiveFlightPathLayers[flightId]; 
 
-        // Get cached data from when the window was opened
         const { flightProps, plan } = cachedFlightDataForStatsView; 
         if (flightProps) {
             const localTrail = liveTrailCache.get(flightId) || [];
             const currentPosition = currentAircraftPositionForGeocode || flightProps.position;
             const routeFeatureCollection = generateAltitudeColoredRoute(localTrail, currentPosition, plan);
 
-            // Re-add source
-            sectorOpsMap.addSource(flownLayerId, {
+            sectorOpsMap.addSource(sourceId, {
                 type: 'geojson',
                 data: routeFeatureCollection,
-                tolerance: 0 // <--- CRITICAL FIX
+                tolerance: 0 
             });
             
-            // Re-add 3D Ribbon Layer (Polygon)
+            // 1. Curtain
             sectorOpsMap.addLayer({
-                id: flownLayerId,
-                type: 'fill-extrusion', 
-                source: flownLayerId,
-                filter: ['==', '$type', 'Polygon'],
+                id: curtainLayerId,
+                type: 'fill-extrusion',
+                source: sourceId,
+                filter: ['==', 'feature_type', 'ribbon'],
                 paint: {
                     'fill-extrusion-color': [
-                        'interpolate',
-                        ['linear'],
-                        ['get', 'avgAltitude'],
-                        0,     '#e6e600',
-                        10000, '#ff9900',
-                        20000, '#ff3300',
-                        29000, '#00BFFF',
-                        38000, '#9400D3'
+                        'interpolate', ['linear'], ['get', 'avgAltitude'],
+                        0, '#e6e600', 10000, '#ff9900', 20000, '#ff3300', 29000, '#00BFFF', 38000, '#9400D3'
+                    ],
+                    'fill-extrusion-height': ['get', 'baseM'], 
+                    'fill-extrusion-base': 0,
+                    'fill-extrusion-opacity': 0.15 
+                }
+            }, 'sector-ops-live-flights-layer');
+
+            // 2. Pillars
+            sectorOpsMap.addLayer({
+                id: pillarLayerId,
+                type: 'fill-extrusion',
+                source: sourceId,
+                filter: ['==', 'feature_type', 'pillar'],
+                paint: {
+                    'fill-extrusion-color': '#ffffff',
+                    'fill-extrusion-height': ['get', 'heightM'],
+                    'fill-extrusion-base': 0,
+                    'fill-extrusion-opacity': 0.3
+                }
+            }, 'sector-ops-live-flights-layer');
+
+            // 3. Ribbon
+            sectorOpsMap.addLayer({
+                id: ribbonLayerId,
+                type: 'fill-extrusion', 
+                source: sourceId,
+                filter: ['==', 'feature_type', 'ribbon'],
+                paint: {
+                    'fill-extrusion-color': [
+                        'interpolate', ['linear'], ['get', 'avgAltitude'],
+                        0,     '#e6e600', 10000, '#ff9900', 20000, '#ff3300', 29000, '#00BFFF', 38000, '#9400D3'
                     ],
                     'fill-extrusion-height': ['get', 'heightM'],
                     'fill-extrusion-base': ['get', 'baseM'],
@@ -7973,40 +8005,30 @@ function rebuildDynamicLayers() {
                 }
             }, 'sector-ops-live-flights-layer');
 
-            // Re-add Centerline Layer (LineString) - For zoom out visibility
+            // 4. Line
             sectorOpsMap.addLayer({
-                id: flownLineLayerId,
+                id: lineLayerId,
                 type: 'line',
-                source: flownLayerId,
-                filter: ['==', '$type', 'LineString'],
+                source: sourceId,
+                filter: ['==', 'feature_type', 'centerline'],
                 paint: {
                     'line-color': [
-                        'interpolate',
-                        ['linear'],
-                        ['get', 'avgAltitude'],
-                        0,     '#e6e600',
-                        10000, '#ff9900',
-                        20000, '#ff3300',
-                        29000, '#00BFFF',
-                        38000, '#9400D3'
+                        'interpolate', ['linear'], ['get', 'avgAltitude'],
+                        0,     '#e6e600', 10000, '#ff9900', 20000, '#ff3300', 29000, '#00BFFF', 38000, '#9400D3'
                     ],
-                    // [UPDATED] Thicker line at low zoom
-                    'line-width': [
-                        'interpolate', ['linear'], ['zoom'],
-                        3, 4,
-                        10, 2.5
-                    ],
+                    'line-width': ['interpolate', ['linear'], ['zoom'], 3, 4, 10, 2.5],
                     'line-opacity': 1.0
                 }
             }, 'sector-ops-live-flights-layer');
             
             sectorOpsLiveFlightPathLayers[flightId] = { 
-                flown: flownLayerId,
-                flownLine: flownLineLayerId
+                ribbon: ribbonLayerId,
+                curtain: curtainLayerId,
+                pillar: pillarLayerId,
+                flownLine: lineLayerId
             };
             console.log(`Rebuilt active trail for ${flightId}`);
 
-            // Re-draw the planned route line based on filter state
             if (plan) {
                 const position = currentAircraftPositionForGeocode || flightProps.position;
                 updateFlightPlanLayer(flightId, plan, position);
@@ -8014,10 +8036,7 @@ function rebuildDynamicLayers() {
         }
     }
     
-    // 4. Re-apply aircraft filters
     updateAircraftLayerFilter();
-
-    // 5. Re-render airport markers
     renderAirportMarkers();
 }
 
