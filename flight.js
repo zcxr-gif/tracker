@@ -7,7 +7,6 @@ document.addEventListener('DOMContentLoaded', async () => {
     const ACARS_USER_API_URL = 'https://site--acars-backend--6dmjph8ltlhv.code.run/users'; // NEW: For user stats
     let currentServerName = localStorage.getItem('preferredServer') || 'Expert Server';
     const CURRENT_SITE_URL = window.location.origin;
-    let activeCurtainMarkers = [];
 
 
     // --- State Variables ---
@@ -2107,37 +2106,6 @@ function injectCustomStyles() {
     border-radius: 12px; /* Match your UI radius */
     background: rgba(16, 18, 27, 0.95); /* Avoid white flashes */
 }
-
-/* --- 3D CURTAIN DATA MARKERS --- */
-        .curtain-data-marker {
-            background: rgba(15, 23, 42, 0.85);
-            border: 1px solid rgba(255, 255, 255, 0.15);
-            border-left: 2px solid #00a8ff; /* Blue accent */
-            border-radius: 3px;
-            padding: 2px 6px;
-            color: #e2e8f0;
-            font-family: 'Consolas', monospace;
-            font-size: 0.65rem;
-            pointer-events: none; /* Let clicks pass through to map */
-            text-align: left;
-            backdrop-filter: blur(4px);
-            box-shadow: 0 4px 10px rgba(0,0,0,0.5);
-            line-height: 1.1;
-            display: flex;
-            flex-direction: column;
-            gap: 1px;
-            opacity: 0.9;
-            transform: translateZ(0); /* HW accel */
-        }
-        .curtain-data-row {
-            display: flex;
-            justify-content: space-between;
-            gap: 6px;
-        }
-        .curtain-label { color: #94a3b8; font-weight: 400; font-size: 0.55rem; text-transform: uppercase; }
-        .curtain-value { color: #fff; font-weight: 700; }
-        .curtain-value.alt { color: #34d399; }
-        .curtain-value.spd { color: #fbbf24; }
 
     `;
 
@@ -6940,71 +6908,6 @@ function initializeSectorOpsMap(centerICAO) {
         sectorOpsMapRouteLayers = [];
     }
 
-    /**
- * --- [NEW] Renders sparse data tags floating in the 3D curtain ---
- */
-function renderCurtainMarkers(points) {
-    // 1. Clear old markers
-    activeCurtainMarkers.forEach(m => m.remove());
-    activeCurtainMarkers = [];
-
-    if (!points || points.length < 2) return;
-
-    // 2. Filter points to avoid clutter (e.g., every 20th point or distance check)
-    // We want a tag roughly every 15-20km to keep it readable
-    let lastMarkerDist = 0;
-    let totalDist = 0;
-
-    points.forEach((p, i) => {
-        // Skip the very first and last point (avoids overlap with icons)
-        if (i === 0 || i === points.length - 1) return;
-
-        // Calculate distance from previous point
-        const prev = points[i-1];
-        const dist = getDistanceKm(prev.latitude, prev.longitude, p.latitude, p.longitude);
-        totalDist += dist;
-
-        // Place a marker every ~15km (approx 8 NM)
-        if (totalDist - lastMarkerDist > 15) {
-            lastMarkerDist = totalDist;
-
-            // Create Content
-            const el = document.createElement('div');
-            el.className = 'curtain-data-marker';
-            el.innerHTML = `
-                <div class="curtain-data-row">
-                    <span class="curtain-label">ALT</span>
-                    <span class="curtain-value alt">${Math.round(p.altitude).toLocaleString()}</span>
-                </div>
-                <div class="curtain-data-row">
-                    <span class="curtain-label">GS</span>
-                    <span class="curtain-value spd">${Math.round(p.groundSpeed||0)}</span>
-                </div>
-            `;
-
-            // Create Marker
-            // We set altitude to HALF the flight altitude to float it in the middle of the curtain
-            const marker = new mapboxgl.Marker({
-                element: el,
-                anchor: 'center'
-            })
-            .setLngLat([p.longitude, p.latitude])
-            .setAltitude(p.altitude / 2) // <--- FLOAT IN MIDDLE
-            .addTo(sectorOpsMap);
-
-            activeCurtainMarkers.push(marker);
-        }
-    });
-}
-
-/**
- * --- [NEW] Helper to clear curtain markers ---
- */
-function clearCurtainMarkers() {
-    activeCurtainMarkers.forEach(m => m.remove());
-    activeCurtainMarkers = [];
-}
-
     // NEW: Helper to clear the live flight trail from the map
     function clearLiveFlightPath(flightId) {
         if (!sectorOpsMap || !flightId) return;
@@ -7818,8 +7721,6 @@ async function handleAircraftClick(flightProps, sessionId) {
 
     if (currentFlightInWindow && currentFlightInWindow !== flightProps.flightId) {
         clearLiveFlightPath(currentFlightInWindow);
-        // --- ADDED: Clear markers for previous flight ---
-        clearCurtainMarkers(); 
         liveTrailCache.delete(currentFlightInWindow);
     }
 
@@ -7844,10 +7745,11 @@ async function handleAircraftClick(flightProps, sessionId) {
     `;
 
     try {
+        // Define layer IDs 
         const sourceId = `flown-path-${flightProps.flightId}`;
         const ribbonLayerId = `flown-path-ribbon-${flightProps.flightId}`;
-        const curtainLayerId = `flown-path-curtain-${flightProps.flightId}`;
-        const pillarLayerId = `flown-path-pillar-${flightProps.flightId}`;
+        const curtainLayerId = `flown-path-curtain-${flightProps.flightId}`; // New
+        const pillarLayerId = `flown-path-pillar-${flightProps.flightId}`;   // New
         const lineLayerId = `flown-path-line-${flightProps.flightId}`;
         
         const acName = flightProps.aircraft?.aircraftName || '';
@@ -7880,9 +7782,6 @@ async function handleAircraftClick(flightProps, sessionId) {
         liveTrailCache.set(flightProps.flightId, sortedRoutePoints);
         cachedFlightDataForStatsView = { flightProps, plan };
         
-        // --- ADDED: Render Curtain Markers ---
-        renderCurtainMarkers(sortedRoutePoints); 
-
         if (mapFilters.useSimpleFlightWindow) {
             windowEl.style.width = '420px'; 
             windowEl.style.height = 'calc(100vh - 40px)';
@@ -7904,6 +7803,7 @@ async function handleAircraftClick(flightProps, sessionId) {
         fetchAndDisplayGeocode(flightProps.position.lat, flightProps.position.lon);
         updateNavPanelData(flightProps.position.lat, flightProps.position.lon, flightProps.position.heading_deg, flightProps.position.oat_c || 15, flightProps.position.wind_dir || 0, flightProps.position.wind_spd_kts || 0);
 
+        // --- [MAP] Generate Route Data ---
         const routeFeatureCollection = generateAltitudeColoredRoute(sortedRoutePoints, flightProps.position, plan);
 
         if (!sectorOpsMap.getSource(sourceId)) {
@@ -7913,38 +7813,41 @@ async function handleAircraftClick(flightProps, sessionId) {
                 tolerance: 0
             });
             
-            // 1. THE CURTAIN
+            // 1. THE CURTAIN (Transparent Wall) - New Layer
             sectorOpsMap.addLayer({
                 id: curtainLayerId,
                 type: 'fill-extrusion',
                 source: sourceId,
-                filter: ['==', 'feature_type', 'ribbon'], 
+                filter: ['==', 'feature_type', 'ribbon'], // Use same polygon as ribbon
                 paint: {
                     'fill-extrusion-color': [
                         'interpolate', ['linear'], ['get', 'avgAltitude'],
                         0, '#e6e600', 10000, '#ff9900', 20000, '#ff3300', 29000, '#00BFFF', 38000, '#9400D3'
                     ],
+                    // Top is the bottom of the ribbon
                     'fill-extrusion-height': ['get', 'baseM'], 
+                    // Base is 0 (Ground)
                     'fill-extrusion-base': 0,
+                    // Very transparent
                     'fill-extrusion-opacity': 0.15 
                 }
             }, 'sector-ops-live-flights-layer');
 
-            // 2. THE PILLARS
+            // 2. THE PILLARS (Waypoint Beams) - New Layer
             sectorOpsMap.addLayer({
                 id: pillarLayerId,
                 type: 'fill-extrusion',
                 source: sourceId,
                 filter: ['==', 'feature_type', 'pillar'],
                 paint: {
-                    'fill-extrusion-color': '#ffffff',
+                    'fill-extrusion-color': '#ffffff', // White beams
                     'fill-extrusion-height': ['get', 'heightM'],
                     'fill-extrusion-base': 0,
                     'fill-extrusion-opacity': 0.3
                 }
             }, 'sector-ops-live-flights-layer');
 
-            // 3. THE RIBBON
+            // 3. THE RIBBON (Solid Top)
             sectorOpsMap.addLayer({
                 id: ribbonLayerId,
                 type: 'fill-extrusion', 
@@ -7961,7 +7864,7 @@ async function handleAircraftClick(flightProps, sessionId) {
                 }
             }, 'sector-ops-live-flights-layer');
 
-            // 4. THE CENTERLINE
+            // 4. THE CENTERLINE (For visibility)
             sectorOpsMap.addLayer({
                 id: lineLayerId,
                 type: 'line',
@@ -8016,8 +7919,8 @@ async function handleAircraftClick(flightProps, sessionId) {
 }
 
 /**
- * --- [UPDATED v3] Rebuilds all dynamic layers after a map style change.
- * Restores Ribbon, Curtain, Pillars, Markers, and Weather.
+ * --- [UPDATED v2] Rebuilds all dynamic layers after a map style change.
+ * Restores Ribbon, Curtain, Pillars, and Weather.
  */
 function rebuildDynamicLayers() {
     console.log("Rebuilding dynamic layers...");
@@ -8040,8 +7943,6 @@ function rebuildDynamicLayers() {
         const lineLayerId = `flown-path-line-${flightId}`;
         
         clearLiveFlightPath(flightId); 
-        // --- ADDED: Clear old markers before rebuilding ---
-        clearCurtainMarkers(); 
         delete sectorOpsLiveFlightPathLayers[flightId]; 
 
         const { flightProps, plan } = cachedFlightDataForStatsView; 
@@ -8050,15 +7951,13 @@ function rebuildDynamicLayers() {
             const currentPosition = currentAircraftPositionForGeocode || flightProps.position;
             const routeFeatureCollection = generateAltitudeColoredRoute(localTrail, currentPosition, plan);
 
-            // --- ADDED: Re-render Curtain Markers ---
-            renderCurtainMarkers(localTrail);
-
             sectorOpsMap.addSource(sourceId, {
                 type: 'geojson',
                 data: routeFeatureCollection,
                 tolerance: 0 
             });
             
+            // 1. Curtain
             sectorOpsMap.addLayer({
                 id: curtainLayerId,
                 type: 'fill-extrusion',
@@ -8075,6 +7974,7 @@ function rebuildDynamicLayers() {
                 }
             }, 'sector-ops-live-flights-layer');
 
+            // 2. Pillars
             sectorOpsMap.addLayer({
                 id: pillarLayerId,
                 type: 'fill-extrusion',
@@ -8088,6 +7988,7 @@ function rebuildDynamicLayers() {
                 }
             }, 'sector-ops-live-flights-layer');
 
+            // 3. Ribbon
             sectorOpsMap.addLayer({
                 id: ribbonLayerId,
                 type: 'fill-extrusion', 
@@ -8104,6 +8005,7 @@ function rebuildDynamicLayers() {
                 }
             }, 'sector-ops-live-flights-layer');
 
+            // 4. Line
             sectorOpsMap.addLayer({
                 id: lineLayerId,
                 type: 'line',
