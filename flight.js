@@ -7320,15 +7320,15 @@ function generateSmoothPath(points) {
 }
 
 /**
- * --- [UPDATED] Smart Route Generator ---
- * Features: Noise Filtering, Spike Removal, Flight Plan Bridging, Smoothing, and Nose Locking.
+ * --- [FIXED] Smart Route Generator ---
+ * Fixes: High-latitude breaking, Date Line render artifacts, and Spline overshoots.
  */
 function generateAltitudeColoredRoute(sortedPoints, currentPosition, flightPlan = null) {
     const features = [];
-    const GAP_THRESHOLD_KM = 50; // Distance to trigger "Plan Bridging"
+    const GAP_THRESHOLD_KM = 50; 
     const MIN_DIST_FROM_NOSE_KM = 0.2; 
 
-    // --- 1. PREPARE FLIGHT PLAN WAYPOINTS (For Bridging) ---
+    // --- 1. PREPARE FLIGHT PLAN WAYPOINTS ---
     let flatPlan = [];
     if (flightPlan && flightPlan.flightPlanItems) {
         const extract = (items) => {
@@ -7342,13 +7342,11 @@ function generateAltitudeColoredRoute(sortedPoints, currentPosition, flightPlan 
         flatPlan = extract(flightPlan.flightPlanItems);
     }
 
-    // Helper to find where a point "fits" in the flight plan sequence
     const getPlanIndex = (lat, lon) => {
         let bestIdx = -1, minD = Infinity;
-        // Search mostly forward to avoid checking entire plan every time
         for(let i=0; i<flatPlan.length; i++) {
             const d = getDistanceKm(lat, lon, flatPlan[i].lat, flatPlan[i].lon);
-            if (d < minD && d < 100) { // Only snap if reasonably close (100km)
+            if (d < minD && d < 100) { 
                 minD = d;
                 bestIdx = i;
             }
@@ -7356,13 +7354,10 @@ function generateAltitudeColoredRoute(sortedPoints, currentPosition, flightPlan 
         return bestIdx;
     };
 
-    // --- 2. BASIC SANITIZATION (Filter Noise) ---
-    // Remove duplicates and points too close to the live position
+    // --- 2. SANITIZATION ---
     const cleanHistory = sortedPoints.filter((p, i) => {
         if (!p.latitude || !p.longitude) return false;
-        // Nose check: ensure path doesn't visually "pass" the plane icon
         if (getDistanceKm(p.latitude, p.longitude, currentPosition.lat, currentPosition.lon) < MIN_DIST_FROM_NOSE_KM) return false;
-        // Jitter check
         if (i > 0) {
             const prev = sortedPoints[i-1];
             if (getDistanceKm(p.latitude, p.longitude, prev.latitude, prev.longitude) < 0.2) return false;
@@ -7370,8 +7365,7 @@ function generateAltitudeColoredRoute(sortedPoints, currentPosition, flightPlan 
         return true;
     });
 
-    // --- 3. SPIKE REMOVAL (De-Glitch) ---
-    // Remove points that form impossible sharp angles (> 130 degrees zig-zag)
+    // --- 3. SPIKE REMOVAL ---
     const deSpikedHistory = [];
     if (cleanHistory.length > 0) deSpikedHistory.push(cleanHistory[0]);
 
@@ -7379,61 +7373,45 @@ function generateAltitudeColoredRoute(sortedPoints, currentPosition, flightPlan 
         const prev = deSpikedHistory[deSpikedHistory.length - 1];
         const curr = cleanHistory[i];
         const next = cleanHistory[i+1];
-
-        // If turn is sharper than ~130 degrees (zig-zag), skip 'curr'
-        // This effectively deletes the bad waypoint, creating a GAP which step 4 will fill.
         const turnAngle = calculateTurnAngle(prev, curr, next); 
-        
-        // Threshold: 0=Straight, 180=U-Turn. We discard anything > 130 (sharp V)
         if (Math.abs(turnAngle) < 130) { 
             deSpikedHistory.push(curr);
         }
     }
-    // Always keep the last historical point if it exists
     if (cleanHistory.length > 1) deSpikedHistory.push(cleanHistory[cleanHistory.length - 1]);
 
-
-    // --- 4. CONSTRUCT FINAL ARRAY (With Plan Bridging) ---
+    // --- 4. CONSTRUCT FINAL ARRAY ---
     const finalPoints = [];
     let prevPoint = null;
 
-    // A. Add sanitized history points
-    deSpikedHistory.forEach((p, i) => {
-        const point = { ...p, unwrappedLongitude: p.longitude }; // Unwrap logic happens later if needed, simple copy for now
+    deSpikedHistory.forEach((p) => {
+        const point = { ...p, unwrappedLongitude: p.longitude };
         
         if (prevPoint) {
             const dist = getDistanceKm(prevPoint.latitude, prevPoint.longitude, point.latitude, point.longitude);
-            
-            // --- THE SMART BRIDGE LOGIC ---
-            // If there is a large gap (due to spike removal or data loss), fill it with the Flight Plan
             if (dist > GAP_THRESHOLD_KM && flatPlan.length > 0) {
                 const startIdx = getPlanIndex(prevPoint.latitude, prevPoint.longitude);
                 const endIdx = getPlanIndex(point.latitude, point.longitude);
 
-                // If we found both points in the plan and they are in order
                 if (startIdx !== -1 && endIdx !== -1 && endIdx > startIdx) {
-                    // Inject the plan waypoints between them
                     for (let k = startIdx + 1; k < endIdx; k++) {
                         const wp = flatPlan[k];
-                        // Interpolate altitude if missing
                         const injectedAlt = wp.alt > 100 ? wp.alt : (prevPoint.altitude + point.altitude) / 2;
-                        
                         finalPoints.push({
                             latitude: wp.lat,
                             longitude: wp.lon,
-                            unwrappedLongitude: wp.lon, // Will fix 180 crossing below
+                            unwrappedLongitude: wp.lon,
                             altitude: injectedAlt
                         });
                     }
                 }
             }
         }
-        
         finalPoints.push(point);
         prevPoint = point;
     });
 
-    // B. Add Current Position (The "Nose")
+    // Add Nose
     finalPoints.push({
         latitude: currentPosition.lat,
         longitude: currentPosition.lon,
@@ -7443,35 +7421,69 @@ function generateAltitudeColoredRoute(sortedPoints, currentPosition, flightPlan 
 
     if (finalPoints.length < 2) return { type: 'FeatureCollection', features: [] };
 
-    // --- 5. UNWRAP LONGITUDES (Antimeridian Fix) ---
+    // --- 5. UNWRAP LONGITUDES (Continuous Path Fix) ---
+    // We unwrap relative to the previous point to ensure no 180-degree jumps
     let lastLon = finalPoints[0].longitude;
+    let isHighLat = false; // Flag to detect polar operations
+
     for (let i = 0; i < finalPoints.length; i++) {
         let lon = finalPoints[i].longitude;
         const dLon = lon - lastLon;
+        
+        // Classic unwrap
         if (dLon > 180) lon -= 360;
         else if (dLon < -180) lon += 360;
+        
         finalPoints[i].unwrappedLongitude = lon;
         lastLon = lon;
+
+        // Detect High Latitude (> 75 degrees)
+        // If ANY part of the route is near the pole, we disable smoothing to prevent breaking.
+        if (Math.abs(finalPoints[i].latitude) > 75) {
+            isHighLat = true;
+        }
     }
 
-    // --- 6. SMOOTHING (Spline) ---
-    // Generate a dense, curved set of points
-    const smoothPoints = generateSmoothPath(finalPoints);
+    // --- 6. NORMALIZE STRIP (Date Line Fix) ---
+    // Shift the entire line so the Aircraft (Head) is within standard [-180, 180] range.
+    // This prevents coordinate drift (e.g. 900 degrees) which breaks Mapbox rendering.
+    const headLon = finalPoints[finalPoints.length - 1].unwrappedLongitude;
+    const shift = Math.round(headLon / 360) * 360;
+    
+    if (shift !== 0) {
+        for (let i = 0; i < finalPoints.length; i++) {
+            finalPoints[i].unwrappedLongitude -= shift;
+        }
+    }
 
-    // --- 7. NOSE LOCK (Critical) ---
-    // Overwrite the very last point of the smoothed line to ensure it connects EXACTLY to the plane
+    // --- 7. SMOOTHING (With High Lat Guard) ---
+    let smoothPoints;
+    
+    if (isHighLat) {
+        // LINEAR MODE: Near poles, splines create artifacts. Use straight lines.
+        smoothPoints = finalPoints.map(p => ({
+            unwrappedLongitude: p.unwrappedLongitude,
+            latitude: p.latitude,
+            altitude: p.altitude
+        }));
+    } else {
+        // SMOOTH MODE: Standard operation
+        smoothPoints = generateSmoothPath(finalPoints);
+    }
+
+    // --- 8. NOSE LOCK ---
+    // Ensure exact connection to aircraft
     const trueEnd = finalPoints[finalPoints.length - 1];
     const smoothEnd = smoothPoints[smoothPoints.length - 1];
     smoothEnd.latitude = trueEnd.latitude;
     smoothEnd.unwrappedLongitude = trueEnd.unwrappedLongitude;
     smoothEnd.altitude = trueEnd.altitude;
 
-    // --- 8. BUILD GEOJSON SEGMENTS ---
+    // --- 9. BUILD GEOJSON ---
     for (let i = 0; i < smoothPoints.length - 1; i++) {
         const p1 = smoothPoints[i];
         const p2 = smoothPoints[i+1];
 
-        // Sanity Check: If spline hallucinated a massive jump (rare), skip
         if (Math.abs(p1.latitude - p2.latitude) > 20) continue;
 
         const avgAlt = (p1.altitude + p2.altitude) / 2;
