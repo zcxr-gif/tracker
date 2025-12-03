@@ -4494,33 +4494,60 @@ function initializeSectorOpsSocket() {
 }
 
 /**
- * Densifies a route by adding intermediate points between each coordinate pair.
- * @param {Array<[number, number]>} coordinates - The original array of [lon, lat] points.
- * @param {number} numPoints - The number of intermediate points to add between each original point.
- * @returns {Array<[number, number]>} The new, densified array of [lon, lat] points.
+ * --- [UPDATED] Smart Route Densification ---
+ * Adds intermediate points along the Great Circle path between coordinates.
+ * Prevents lines from "cutting through" the globe on long segments.
+ * @param {Array<[number, number]>} coordinates - Array of [lon, lat] points.
+ * @param {number} maxSegmentLengthKm - Max distance between points (default 100km).
+ * @returns {Array<[number, number]>} Densified coordinates.
  */
-function densifyRoute(coordinates, numPoints = 20) {
-    if (coordinates.length < 2) {
-        return coordinates;
-    }
+function densifyRoute(coordinates, maxSegmentLengthKm = 100) {
+    if (!coordinates || coordinates.length < 2) return coordinates || [];
 
-    const densified = [];
-    densified.push(coordinates[0]); // Start with the first point
+    const densified = [coordinates[0]];
 
     for (let i = 0; i < coordinates.length - 1; i++) {
-        const [lon1, lat1] = coordinates[i];
-        const [lon2, lat2] = coordinates[i + 1];
+        const start = coordinates[i];
+        const end = coordinates[i + 1];
+        
+        // Handle potential unwrapped coordinates (if > 180 or < -180)
+        // We normalize them for the distance calc, but keep the raw value for the array
+        const lon1 = start[0];
+        const lat1 = start[1];
+        const lon2 = end[0];
+        const lat2 = end[1];
 
-        // Only densify if the points are reasonably far apart
-        if (getDistanceKm(lat1, lon1, lat2, lon2) > 5) { // e.g., don't densify short taxi segments
-            for (let j = 1; j <= numPoints; j++) {
-                const fraction = j / (numPoints + 1);
+        const distKm = getDistanceKm(lat1, lon1, lat2, lon2);
+
+        // If segment is long, add intermediate points
+        if (distKm > maxSegmentLengthKm) {
+            const numSteps = Math.ceil(distKm / maxSegmentLengthKm);
+            
+            for (let j = 1; j < numSteps; j++) {
+                const fraction = j / numSteps;
+                // getIntermediatePoint calculates the Great Circle position
                 const intermediate = getIntermediatePoint(lat1, lon1, lat2, lon2, fraction);
-                densified.push([intermediate.lon, intermediate.lat]);
+                
+                // --- [FIX] Handle Date Line Unwrapping during interpolation ---
+                // If the original segment was crossing the date line (unwrapped),
+                // we need to ensure the intermediate points follow that unwrap logic.
+                let newLon = intermediate.lon;
+                
+                // Simple check: if start is ~179 and end is ~181 (unwrapped), 
+                // intermediate shouldn't be -179.
+                // We assume getIntermediatePoint returns normalized -180 to 180.
+                // We re-apply the unwrap logic relative to the previous point.
+                const prevLon = densified[densified.length - 1][0];
+                let delta = newLon - (prevLon % 360);
+                if (delta > 180) delta -= 360;
+                if (delta < -180) delta += 360;
+                
+                densified.push([prevLon + delta, intermediate.lat]);
             }
         }
         
-        densified.push(coordinates[i + 1]); // Add the next original point
+        // Always add the original end point
+        densified.push(end);
     }
 
     return densified;
@@ -6999,10 +7026,7 @@ function initializeSectorOpsMap(centerICAO) {
 
 /**
  * --- [MODIFIED] Draws or updates the filed flight plan layers (direct or full)
- * based on the current filter settings.
- * @param {string} flightId - The flightId of the selected aircraft.
- * @param {object} plan - The parsed flight plan object.
- * @param {object} currentPosition - The aircraft's current position { lat, lon }.
+ * based on the current filter settings. Now uses DENSIFICATION for 3D paths.
  */
 function updateFlightPlanLayer(flightId, plan, currentPosition) {
     if (!sectorOpsMap || !plan || !plan.flightPlanItems || plan.flightPlanItems.length < 2) {
@@ -7011,32 +7035,34 @@ function updateFlightPlanLayer(flightId, plan, currentPosition) {
 
     const layerIdDirect = `plan-path-direct-${flightId}`;
     const layerIdFull = `plan-path-full-${flightId}`;
-    
-    // --- [MODIFICATION] Add new layer ID for labels ---
-    const layerIdFullLabels = layerIdFull + '-labels'; // e.g., 'plan-path-full-FLIGHTID-labels'
+    const layerIdFullLabels = layerIdFull + '-labels';
 
-    // --- Ensure layer IDs are tracked ---
     if (!sectorOpsLiveFlightPathLayers[flightId]) {
         sectorOpsLiveFlightPathLayers[flightId] = {};
     }
     sectorOpsLiveFlightPathLayers[flightId].planDirect = layerIdDirect;
     sectorOpsLiveFlightPathLayers[flightId].planFull = layerIdFull;
-    // --- [NEW] Track the label layer ID ---
     sectorOpsLiveFlightPathLayers[flightId].planFullLabels = layerIdFullLabels;
     
-    // --- Get destination coordinates ---
-    const allWaypointsForLine = flattenWaypointsFromPlan(plan.flightPlanItems); // Kept for 'direct' mode
+    // --- Get coords ---
+    const allWaypointsForLine = flattenWaypointsFromPlan(plan.flightPlanItems);
     if (allWaypointsForLine.length < 2) return;
-    const destinationCoords = allWaypointsForLine[allWaypointsForLine.length - 1];
+    
+    // Unwrap destination for direct line calculation
     const currentCoords = [currentPosition.lon, currentPosition.lat];
+    const destinationCoords = unwrapLineCoordinates([currentCoords, allWaypointsForLine[allWaypointsForLine.length - 1]])[1];
 
     // --- 1. Handle "Direct to Destination" Line ---
     if (mapFilters.planDisplayMode === 'direct') {
+        
+        // [FIX] Densify the single long segment into a curve
+        const directPath = densifyRoute([currentCoords, destinationCoords], 100); // 100km segments
+
         const directLineData = {
             type: 'Feature',
             geometry: {
                 type: 'LineString',
-                coordinates: unwrappedDirect
+                coordinates: directPath
             }
         };
 
@@ -7053,12 +7079,11 @@ function updateFlightPlanLayer(flightId, plan, currentPosition) {
                     'line-color': '#00a8ff',
                     'line-width': 2,
                     'line-opacity': 0.8,
-                    'line-dasharray': [2, 2] // Dashed line
+                    'line-dasharray': [2, 2]
                 }
-            }, 'sector-ops-live-flights-layer'); // Below aircraft
+            }, 'sector-ops-live-flights-layer');
         }
     } else {
-        // Remove the layer if the mode is not 'direct'
         if (sectorOpsMap.getLayer(layerIdDirect)) sectorOpsMap.removeLayer(layerIdDirect);
         if (sectorOpsMap.getSource(layerIdDirect)) sectorOpsMap.removeSource(layerIdDirect);
     }
@@ -7067,31 +7092,29 @@ function updateFlightPlanLayer(flightId, plan, currentPosition) {
     if (mapFilters.planDisplayMode === 'full') {
         const source = sectorOpsMap.getSource(layerIdFull);
         if (!source) {
-            // --- [START MODIFICATION] ---
-            // This layer is static, so we only create it once
-            
-            // Get coordinates for the line
+            // Get coordinates and unwrap them for date line safety
             let rawWaypoints = flattenWaypointsFromPlan(plan.flightPlanItems);
+            let unwrappedWaypoints = unwrapLineCoordinates(rawWaypoints);
 
-// --- [FIX] UNWRAP COORDINATES FOR DATE LINE SAFETY ---
-           const allWaypoints = unwrapLineCoordinates(rawWaypoints);
-            // Get objects for the points/labels
+            // [FIX] Densify the segments between waypoints (e.g. oceanic legs)
+            const densifiedWaypoints = densifyRoute(unwrappedWaypoints, 100);
+
+            // Get points for labels (original waypoints only, don't label the densified dots)
             const waypointObjects = getFlatWaypointObjects(plan.flightPlanItems);
 
             const features = [];
 
-            // 1. Add the LineString feature
+            // 1. LineString (Densified Curve)
             features.push({
                 type: 'Feature',
                 geometry: {
                     type: 'LineString',
-                    coordinates: allWaypoints
+                    coordinates: densifiedWaypoints
                 }
             });
 
-            // 2. Add all the Point features for labels
+            // 2. Points (Labels)
             waypointObjects.forEach(wp => {
-                // Only add if it has a valid location
                 if (wp.location && wp.location.longitude != null && wp.location.latitude != null) {
                     features.push({
                         type: 'Feature',
@@ -7100,69 +7123,56 @@ function updateFlightPlanLayer(flightId, plan, currentPosition) {
                             coordinates: [wp.location.longitude, wp.location.latitude]
                         },
                         properties: {
-                            // Use identifier first (e.g., "KLAX", "VDOT"), fallback to name (e.g., "Los Angeles Intl")
                             name: wp.identifier || wp.name || '' 
                         }
                     });
                 }
             });
             
-            const fullLineData = {
-                type: 'FeatureCollection',
-                features: features
-            };
+            const fullLineData = { type: 'FeatureCollection', features: features };
             
             sectorOpsMap.addSource(layerIdFull, { type: 'geojson', data: fullLineData });
             
-            // Add the LINE layer (as requested by user)
+            // Add LINE Layer
             sectorOpsMap.addLayer({
                 id: layerIdFull,
                 type: 'line',
                 source: layerIdFull,
-                // Filter so this layer only draws the LineString
                 'filter': ['==', '$type', 'LineString'], 
                 paint: {
-                    'line-color': '#aaaaaa',      // Light grey color
+                    'line-color': '#aaaaaa',
                     'line-width': 2,
-                    'line-opacity': 0.7,        // Not too showy
-                    'line-dasharray': [3, 3]    // Dashed line
+                    'line-opacity': 0.7,
+                    'line-dasharray': [3, 3]
                 }
-            }, 'sector-ops-live-flights-layer'); // Below aircraft
+            }, 'sector-ops-live-flights-layer');
 
-            // Add the LABEL layer
+            // Add LABEL Layer
             sectorOpsMap.addLayer({
-                id: layerIdFullLabels, // Use the new ID
+                id: layerIdFullLabels,
                 type: 'symbol',
                 source: layerIdFull,
-                // Filter so this layer only draws the Points
                 'filter': ['==', '$type', 'Point'],
                 layout: {
                     'text-field': ['get', 'name'],
                     'text-font': ['Mapbox Txt Regular', 'Arial Unicode MS Regular'],
-                    'text-size': 10, // "not too big"
-                    'text-offset': [0, 0.8], // Offset slightly above the point
+                    'text-size': 10,
+                    'text-offset': [0, 0.8],
                     'text-anchor': 'top',
-                    'text-allow-overlap': false, // Prevent clutter
+                    'text-allow-overlap': false,
                     'text-ignore-placement': false
                 },
                 paint: {
-                    // --- [START OF FIX] ---
-                    'text-color': '#ffffff', // Keep text white
-                    'text-halo-color': 'rgba(10, 12, 26, 0.9)', // Use a dark, opaque UI color for the halo
-                    'text-halo-width': 2, // Make the halo thicker to act as a background
-                    'text-halo-blur': 1   // Add a slight blur to soften it
-                    // --- [END OF FIX] ---
+                    'text-color': '#ffffff',
+                    'text-halo-color': 'rgba(10, 12, 26, 0.9)',
+                    'text-halo-width': 2,
+                    'text-halo-blur': 1
                 }
-            }, 'sector-ops-live-flights-layer'); // Below aircraft
-            
-            // --- [END MODIFICATION] ---
+            }, 'sector-ops-live-flights-layer');
         }
     } else {
-        // Remove the layer if the mode is not 'full'
-        if (sectorOpsMap.getLayer(layerIdFull)) sectorOpsMap.removeLayer(layerDetails);
-        // --- [NEW] Also remove the label layer ---
         if (sectorOpsMap.getLayer(layerIdFullLabels)) sectorOpsMap.removeLayer(layerIdFullLabels);
-        
+        if (sectorOpsMap.getLayer(layerIdFull)) sectorOpsMap.removeLayer(layerIdFull);
         if (sectorOpsMap.getSource(layerIdFull)) sectorOpsMap.removeSource(layerIdFull);
     }
 }
@@ -7566,19 +7576,24 @@ function generateAltitudeColoredRoute(sortedPoints, currentPosition, flightPlan 
         const p1 = smoothPoints[i];
         const p2 = smoothPoints[i+1];
 
-        // Sanity Check: If a segment is still somehow huge (e.g. glitch), skip it
+        // Sanity Check
         if (Math.abs(p1.latitude - p2.latitude) > 40 || Math.abs(p1.unwrappedLongitude - p2.unwrappedLongitude) > 100) continue;
 
         const avgAlt = (p1.altitude + p2.altitude) / 2;
+
+        // [FIX] Densify this specific segment if it's long
+        // This handles cases where smoothPoints spline didn't create enough points 
+        // (e.g. straight line mode near poles)
+        const segmentCoords = [[p1.unwrappedLongitude, p1.latitude], [p2.unwrappedLongitude, p2.latitude]];
+        
+        // Use a smaller threshold (e.g. 50km) for the flown path to ensure it hugs the terrain/globe
+        const densifiedSegment = densifyRoute(segmentCoords, 50);
 
         features.push({
             type: 'Feature',
             geometry: {
                 type: 'LineString',
-                coordinates: [
-                    [p1.unwrappedLongitude, p1.latitude],
-                    [p2.unwrappedLongitude, p2.latitude]
-                ]
+                coordinates: densifiedSegment // Use the densified array
             },
             properties: {
                 avgAltitude: avgAlt,
