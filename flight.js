@@ -7390,17 +7390,21 @@ function generateSmoothPath(points) {
 }
 
 /**
- * --- [FIXED v6] 3D Ribbon Generator ---
- * Generates a 3D polygonal ribbon representing the flight path.
- * The path floats at the actual altitude using fill-extrusion.
+ * --- [FIXED v7] High-Fidelity 3D Ribbon Generator ---
+ * Fixes "Stepping" by increasing resolution and fixes "Gaps" by linking vertices.
  */
 function generateAltitudeColoredRoute(sortedPoints, currentPosition, flightPlan = null) {
     const features = [];
     const GAP_THRESHOLD_KM = 20;
     const MIN_DIST_FROM_NOSE_KM = 0.2;
-    const MAX_RENDER_SEGMENT_KM = 50;
-    const PATH_WIDTH_KM = 0.6; // Width of the 3D ribbon (600m)
-    const RIBBON_THICKNESS_METERS = 150; // Vertical thickness of the ribbon
+    
+    // --- KEY FIX 1: High Resolution ---
+    // Reduced from 50km to 0.5km. 
+    // This creates many small blocks instead of few large ones, making the slope look smooth.
+    const MAX_RENDER_SEGMENT_KM = 0.5; 
+    
+    const PATH_WIDTH_KM = 0.6; 
+    const RIBBON_THICKNESS_METERS = 150;
 
     // --- 1. PREPARE FLIGHT PLAN WAYPOINTS ---
     let flatPlan = [];
@@ -7546,29 +7550,26 @@ function generateAltitudeColoredRoute(sortedPoints, currentPosition, flightPlan 
         smoothPoints = generateSmoothPath(finalPoints);
     }
 
-    const trueEnd = finalPoints[finalPoints.length - 1];
-    const smoothEnd = smoothPoints[smoothPoints.length - 1];
-    smoothEnd.latitude = trueEnd.latitude;
-    smoothEnd.unwrappedLongitude = trueEnd.unwrappedLongitude;
-    smoothEnd.altitude = trueEnd.altitude;
-
-    // --- 8. BUILD 3D POLYGONS (RIBBON GENERATION) ---
+    // --- 8. BUILD 3D POLYGONS (CONTINUOUS RIBBON) ---
     for (let i = 0; i < smoothPoints.length - 1; i++) {
         const p1 = smoothPoints[i];
         const p2 = smoothPoints[i + 1];
 
-        // Basic Check
         if (Math.abs(p1.latitude - p2.latitude) > 40 || Math.abs(p1.unwrappedLongitude - p2.unwrappedLongitude) > 100) continue;
 
         const distKm = getDistanceKm(p1.latitude, p1.unwrappedLongitude, p2.latitude, p2.unwrappedLongitude);
-        // Determine number of segments based on length to keep ribbon smooth
         const steps = Math.ceil(distKm / MAX_RENDER_SEGMENT_KM); 
+
+        // --- KEY FIX 2: Continuity Variables ---
+        // We store the end points of the previous sub-segment to reuse as start points.
+        let prevRight = null;
+        let prevLeft = null;
 
         for (let j = 0; j < steps; j++) {
             const f1 = j / steps;
             const f2 = (j + 1) / steps;
 
-            // Interpolate points
+            // Interpolate center points
             const c1 = getIntermediatePoint(p1.latitude, p1.unwrappedLongitude, p2.latitude, p2.unwrappedLongitude, f1);
             const c2 = getIntermediatePoint(p1.latitude, p1.unwrappedLongitude, p2.latitude, p2.unwrappedLongitude, f2);
 
@@ -7577,11 +7578,10 @@ function generateAltitudeColoredRoute(sortedPoints, currentPosition, flightPlan 
             const alt2 = p1.altitude + (p2.altitude - p1.altitude) * f2;
             const avgAltFt = (alt1 + alt2) / 2;
             
-            // Convert Altitude to Meters for Mapbox Extrusion
             const baseHeightMeters = avgAltFt * 0.3048; 
             const topHeightMeters = baseHeightMeters + RIBBON_THICKNESS_METERS;
 
-            // Normalize Longitude for wrapping
+            // Normalize Longitude
             const normLon = (lon, ref) => {
                 let d = lon - (ref % 360);
                 if (d > 180) d -= 360;
@@ -7592,24 +7592,36 @@ function generateAltitudeColoredRoute(sortedPoints, currentPosition, flightPlan 
             const lon1 = normLon(c1.lon, p1.unwrappedLongitude);
             const lon2 = normLon(c2.lon, p1.unwrappedLongitude);
 
-            // Calculate Ribbon Corners (Perpendicular Offset)
+            // Calculate bearing for this specific micro-segment
             const bearing = getBearing(c1.lat, lon1, c2.lat, lon2);
             
-            const p1_left = getDestinationPoint(c1.lat, lon1, bearing - 90, PATH_WIDTH_KM / 2);
-            const p1_right = getDestinationPoint(c1.lat, lon1, bearing + 90, PATH_WIDTH_KM / 2);
-            const p2_left = getDestinationPoint(c2.lat, lon2, bearing - 90, PATH_WIDTH_KM / 2);
-            const p2_right = getDestinationPoint(c2.lat, lon2, bearing + 90, PATH_WIDTH_KM / 2);
+            // Calculate END points for this segment
+            const currentRight = getDestinationPoint(c2.lat, lon2, bearing + 90, PATH_WIDTH_KM / 2);
+            const currentLeft = getDestinationPoint(c2.lat, lon2, bearing - 90, PATH_WIDTH_KM / 2);
+
+            // Determine START points
+            // If it's the very first sub-segment, calculate fresh.
+            // Otherwise, reuse the previous end points to ensure zero gap.
+            let startRight, startLeft;
+            
+            if (prevRight && prevLeft) {
+                startRight = prevRight;
+                startLeft = prevLeft;
+            } else {
+                startRight = getDestinationPoint(c1.lat, lon1, bearing + 90, PATH_WIDTH_KM / 2);
+                startLeft = getDestinationPoint(c1.lat, lon1, bearing - 90, PATH_WIDTH_KM / 2);
+            }
 
             features.push({
                 type: 'Feature',
                 geometry: {
                     type: 'Polygon',
                     coordinates: [[
-                        [p1_left.lon, p1_left.lat],
-                        [p1_right.lon, p1_right.lat],
-                        [p2_right.lon, p2_right.lat],
-                        [p2_left.lon, p2_left.lat],
-                        [p1_left.lon, p1_left.lat] // Close Loop
+                        [startLeft.lon, startLeft.lat],
+                        [startRight.lon, startRight.lat],
+                        [currentRight.lon, currentRight.lat],
+                        [currentLeft.lon, currentLeft.lat],
+                        [startLeft.lon, startLeft.lat] // Close Loop
                     ]]
                 },
                 properties: {
@@ -7619,6 +7631,10 @@ function generateAltitudeColoredRoute(sortedPoints, currentPosition, flightPlan 
                     simulated: false
                 }
             });
+
+            // Pass forward the end points
+            prevRight = currentRight;
+            prevLeft = currentLeft;
         }
     }
 
