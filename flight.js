@@ -3274,8 +3274,9 @@ function updateAircraftLabelVisibility() {
 }
 
 /**
- * --- [UPDATED] Premium RainViewer Layer ---
- * Uses 'Titan' color scheme (4) + Snow Cover (1_1) for a pro aviation look.
+ * --- [UPDATED] "Pro Smooth" RainViewer Layer ---
+ * Uses Source Clamping (maxzoom: 8) to force smooth interpolation
+ * instead of pixelated blocks when zooming in.
  */
 async function toggleWeatherLayer(show) {
     if (!sectorOpsMap) return;
@@ -3288,42 +3289,44 @@ async function toggleWeatherLayer(show) {
             // 1. Fetch official configuration
             const res = await fetch('https://api.rainviewer.com/public/weather-maps.json');
             const data = await res.json();
-
             const host = data.host; 
             
             // Get the very latest frame
             const latestFrame = data.radar.past[data.radar.past.length - 1];
             const path = latestFrame.path;
 
-            // --- PREMIUM SETTINGS ---
-            // 512 = High DPI
-            // 4   = 'Titan' Color Scheme (Professional Aviation Look)
-            //       Alternatives: 6 = NEXRAD, 2 = Blue (Default), 1 = Original
-            // 1_1 = Smoothed (1) + Snow Mask ENABLED (1)
+            // --- SETTINGS ---
+            // 512 = High DPI (Retina)
+            // 4   = 'Titan' Color Scheme (Professional Aviation)
+            // 1_1 = Smooth (1) + Snow (1)
             const tileUrl = `${host}${path}/512/{z}/{x}/{y}/4/1_1.png`;
 
-            // 2. Add Source
+            // 2. Add Source with "Clamped" Zoom
             sectorOpsMap.addSource(SOURCE_ID, {
                 'type': 'raster',
                 'tiles': [tileUrl],
                 'tileSize': 512,
-                'maxzoom': 12,
-                'attribution': '&copy; RainViewer'
+                
+                // --- THE TRICK IS HERE ---
+                // We tell Mapbox the server only has data up to zoom 8.
+                // When you zoom past 8, Mapbox will stretch these tiles smoothly.
+                'maxzoom': 8 
             });
 
-            // 3. Add Layer (with better opacity handling)
+            // 3. Add Layer
             sectorOpsMap.addLayer({
                 'id': LAYER_ID,
                 'type': 'raster',
                 'source': SOURCE_ID,
                 'paint': {
-                    'raster-opacity': 0.75, // Higher opacity for clearer reading
+                    'raster-opacity': 0.65,       // Slightly transparent for modern look
+                    'raster-resampling': 'linear', // FORCE smooth gradient scaling
                     'raster-fade-duration': 0
                 }
             }, 'sector-ops-live-flights-layer'); // Draw underneath aircraft
 
             isWeatherLayerAdded = true;
-            console.log(`Premium Radar layer added: Titan Scheme`);
+            console.log(`Premium Smooth Radar layer added.`);
 
         } catch (error) {
             console.error("Failed to init weather layer:", error);
