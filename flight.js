@@ -7364,20 +7364,20 @@ function generateSmoothPath(points) {
 }
 
 /**
- * --- [FIXED v4] Smart Route Generator ---
+ * --- [FIXED v5] Smart Route Generator ---
  * Fixes:
  * 1. Intelligent Plan Backfill (Simulated History).
  * 2. Gap Filling.
  * 3. Date Line Safety.
- * 4. [NEW] 3D Great Circle Densification for ALL segments (Simulated & Real).
+ * 4. 3D Great Circle Densification.
+ * 5. [NEW] Disables Spline Smoothing for sparse/simulated paths to prevent "bowing".
  */
 function generateAltitudeColoredRoute(sortedPoints, currentPosition, flightPlan = null) {
     const features = [];
     const GAP_THRESHOLD_KM = 20; 
     const MIN_DIST_FROM_NOSE_KM = 0.2; 
     
-    // [NEW] Maximum segment length for 3D rendering. 
-    // Any line longer than this will be subdivided to hug the globe.
+    // Maximum segment length for 3D rendering. 
     const MAX_RENDER_SEGMENT_KM = 50; 
 
     // --- 1. PREPARE FLIGHT PLAN WAYPOINTS ---
@@ -7509,7 +7509,7 @@ function generateAltitudeColoredRoute(sortedPoints, currentPosition, flightPlan 
     // --- 6. UNWRAP LONGITUDES ---
     let lastUnwrappedLon = finalPoints[0].longitude; 
     finalPoints[0].unwrappedLongitude = lastUnwrappedLon;
-    let isHighLat = false;
+    let maxLatitude = 0; // Track max lat for safety
 
     for (let i = 1; i < finalPoints.length; i++) {
         let currentRawLon = finalPoints[i].longitude;
@@ -7519,7 +7519,9 @@ function generateAltitudeColoredRoute(sortedPoints, currentPosition, flightPlan 
         let newUnwrappedLon = lastUnwrappedLon + delta;
         finalPoints[i].unwrappedLongitude = newUnwrappedLon;
         lastUnwrappedLon = newUnwrappedLon;
-        if (Math.abs(finalPoints[i].latitude) > 75) isHighLat = true;
+        
+        const absLat = Math.abs(finalPoints[i].latitude);
+        if (absLat > maxLatitude) maxLatitude = absLat;
     }
 
     // --- 7. NORMALIZE STRIP ---
@@ -7531,9 +7533,26 @@ function generateAltitudeColoredRoute(sortedPoints, currentPosition, flightPlan 
         }
     }
 
-    // --- 8. SMOOTHING ---
+    // --- 8. SMOOTHING (WITH SAFETY CHECK) ---
+    // [FIX] Calculate average segment distance.
+    // If points are far apart (e.g. > 20km), it means this is a simulated plan (not live breadcrumbs).
+    // Applying spline smoothing to points 500km apart creates massive distortions (the "bowing" issue).
+    let totalPathDist = 0;
+    for(let i=0; i<finalPoints.length-1; i++) {
+        totalPathDist += getDistanceKm(
+            finalPoints[i].latitude, finalPoints[i].unwrappedLongitude, 
+            finalPoints[i+1].latitude, finalPoints[i+1].unwrappedLongitude
+        );
+    }
+    const avgSegmentDist = totalPathDist / (finalPoints.length - 1);
+    
+    // Disable smoothing if:
+    // 1. We are at high latitudes (> 60 deg) where Mercator distortion breaks splines.
+    // 2. The data is sparse (> 20km gaps), meaning we should rely on Great Circle densification (Step 9) instead.
+    const shouldDisableSmoothing = (maxLatitude > 60) || (avgSegmentDist > 20);
+
     let smoothPoints;
-    if (isHighLat) {
+    if (shouldDisableSmoothing) {
         smoothPoints = finalPoints.map(p => ({
             unwrappedLongitude: p.unwrappedLongitude,
             latitude: p.latitude,
@@ -7551,9 +7570,6 @@ function generateAltitudeColoredRoute(sortedPoints, currentPosition, flightPlan 
     smoothEnd.altitude = trueEnd.altitude;
 
     // --- 9. BUILD GEOJSON (WITH 3D DENSIFICATION) ---
-    // This loop now checks every segment. If it's too long (e.g. simulated plan leg),
-    // it breaks it down into small Great Circle chunks with interpolated altitude.
-    
     for (let i = 0; i < smoothPoints.length - 1; i++) {
         const p1 = smoothPoints[i];
         const p2 = smoothPoints[i+1];
@@ -7563,11 +7579,9 @@ function generateAltitudeColoredRoute(sortedPoints, currentPosition, flightPlan 
 
         const distKm = getDistanceKm(p1.latitude, p1.unwrappedLongitude, p2.latitude, p2.unwrappedLongitude);
 
-        // --- [FIX] If segment is long, densify it ---
         if (distKm > MAX_RENDER_SEGMENT_KM) {
             const steps = Math.ceil(distKm / MAX_RENDER_SEGMENT_KM);
             
-            // Generate intermediate chunks
             for (let j = 0; j < steps; j++) {
                 const fractionStart = j / steps;
                 const fractionEnd = (j + 1) / steps;
@@ -7581,8 +7595,6 @@ function generateAltitudeColoredRoute(sortedPoints, currentPosition, flightPlan 
                 const endAlt = p1.altitude + (p2.altitude - p1.altitude) * fractionEnd;
                 const avgChunkAlt = (startAlt + endAlt) / 2;
 
-                // Handle Unwrap for intermediate points (relative to p1)
-                // getIntermediatePoint might return raw -180/180. We need to shift it to match p1's unwrap "domain".
                 const normalizeLon = (lon, ref) => {
                     let d = lon - (ref % 360);
                     if (d > 180) d -= 360;
@@ -7606,7 +7618,6 @@ function generateAltitudeColoredRoute(sortedPoints, currentPosition, flightPlan 
                 });
             }
         } else {
-            // Short segment, draw as is
             const avgAlt = (p1.altitude + p2.altitude) / 2;
             features.push({
                 type: 'Feature',
