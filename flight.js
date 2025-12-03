@@ -7364,20 +7364,19 @@ function generateSmoothPath(points) {
 }
 
 /**
- * --- [FIXED v5] Smart Route Generator ---
- * Fixes:
- * 1. Intelligent Plan Backfill (Simulated History).
+ * --- [FIXED v5.1 - 3D ENABLED] Smart Route Generator ---
+ * Updates:
+ * 1. Intelligent Plan Backfill.
  * 2. Gap Filling.
  * 3. Date Line Safety.
  * 4. 3D Great Circle Densification.
- * 5. [NEW] Disables Spline Smoothing for sparse/simulated paths to prevent "bowing".
+ * 5. Disables Spline Smoothing for sparse paths.
+ * 6. [NEW] Adds Altitude (Z) to geometry for 3D rendering.
  */
 function generateAltitudeColoredRoute(sortedPoints, currentPosition, flightPlan = null) {
     const features = [];
     const GAP_THRESHOLD_KM = 20; 
     const MIN_DIST_FROM_NOSE_KM = 0.2; 
-    
-    // Maximum segment length for 3D rendering. 
     const MAX_RENDER_SEGMENT_KM = 50; 
 
     // --- 1. PREPARE FLIGHT PLAN WAYPOINTS ---
@@ -7440,7 +7439,6 @@ function generateAltitudeColoredRoute(sortedPoints, currentPosition, flightPlan 
         const currentPlanIdx = getPlanIndex(currentPosition.lat, currentPosition.lon);
         
         if (effectiveHistory.length < 5 && currentPlanIdx > 0) {
-            // Case A: Missing history -> Simulate from plan
             const simulated = flatPlan.slice(0, currentPlanIdx + 1).map(wp => ({
                 latitude: wp.lat,
                 longitude: wp.lon,
@@ -7450,7 +7448,6 @@ function generateAltitudeColoredRoute(sortedPoints, currentPosition, flightPlan 
             effectiveHistory = simulated;
         } 
         else if (effectiveHistory.length >= 5) {
-            // Case B: Partial history -> Prepend plan
             const firstHist = effectiveHistory[0];
             const startPlanIdx = getPlanIndex(firstHist.latitude, firstHist.longitude);
             
@@ -7509,7 +7506,7 @@ function generateAltitudeColoredRoute(sortedPoints, currentPosition, flightPlan 
     // --- 6. UNWRAP LONGITUDES ---
     let lastUnwrappedLon = finalPoints[0].longitude; 
     finalPoints[0].unwrappedLongitude = lastUnwrappedLon;
-    let maxLatitude = 0; // Track max lat for safety
+    let maxLatitude = 0; 
 
     for (let i = 1; i < finalPoints.length; i++) {
         let currentRawLon = finalPoints[i].longitude;
@@ -7534,9 +7531,6 @@ function generateAltitudeColoredRoute(sortedPoints, currentPosition, flightPlan 
     }
 
     // --- 8. SMOOTHING (WITH SAFETY CHECK) ---
-    // [FIX] Calculate average segment distance.
-    // If points are far apart (e.g. > 20km), it means this is a simulated plan (not live breadcrumbs).
-    // Applying spline smoothing to points 500km apart creates massive distortions (the "bowing" issue).
     let totalPathDist = 0;
     for(let i=0; i<finalPoints.length-1; i++) {
         totalPathDist += getDistanceKm(
@@ -7546,9 +7540,7 @@ function generateAltitudeColoredRoute(sortedPoints, currentPosition, flightPlan 
     }
     const avgSegmentDist = totalPathDist / (finalPoints.length - 1);
     
-    // Disable smoothing if:
-    // 1. We are at high latitudes (> 60 deg) where Mercator distortion breaks splines.
-    // 2. The data is sparse (> 20km gaps), meaning we should rely on Great Circle densification (Step 9) instead.
+    // Disable smoothing if at high latitudes or data is sparse (simulated)
     const shouldDisableSmoothing = (maxLatitude > 60) || (avgSegmentDist > 20);
 
     let smoothPoints;
@@ -7569,7 +7561,7 @@ function generateAltitudeColoredRoute(sortedPoints, currentPosition, flightPlan 
     smoothEnd.unwrappedLongitude = trueEnd.unwrappedLongitude;
     smoothEnd.altitude = trueEnd.altitude;
 
-    // --- 9. BUILD GEOJSON (WITH 3D DENSIFICATION) ---
+    // --- 9. BUILD 3D GEOJSON (WITH DENSIFICATION) ---
     for (let i = 0; i < smoothPoints.length - 1; i++) {
         const p1 = smoothPoints[i];
         const p2 = smoothPoints[i+1];
@@ -7595,6 +7587,10 @@ function generateAltitudeColoredRoute(sortedPoints, currentPosition, flightPlan 
                 const endAlt = p1.altitude + (p2.altitude - p1.altitude) * fractionEnd;
                 const avgChunkAlt = (startAlt + endAlt) / 2;
 
+                // --- 3D CONVERSION (Meters) ---
+                const startAltM = startAlt * 0.3048;
+                const endAltM = endAlt * 0.3048;
+
                 const normalizeLon = (lon, ref) => {
                     let d = lon - (ref % 360);
                     if (d > 180) d -= 360;
@@ -7607,8 +7603,8 @@ function generateAltitudeColoredRoute(sortedPoints, currentPosition, flightPlan 
                     geometry: {
                         type: 'LineString',
                         coordinates: [
-                            [normalizeLon(startCoord.lon, p1.unwrappedLongitude), startCoord.lat],
-                            [normalizeLon(endCoord.lon, p1.unwrappedLongitude), endCoord.lat]
+                            [normalizeLon(startCoord.lon, p1.unwrappedLongitude), startCoord.lat, startAltM],
+                            [normalizeLon(endCoord.lon, p1.unwrappedLongitude), endCoord.lat, endAltM]
                         ]
                     },
                     properties: {
@@ -7619,13 +7615,17 @@ function generateAltitudeColoredRoute(sortedPoints, currentPosition, flightPlan 
             }
         } else {
             const avgAlt = (p1.altitude + p2.altitude) / 2;
+            // --- 3D CONVERSION (Meters) ---
+            const startAltM = p1.altitude * 0.3048;
+            const endAltM = p2.altitude * 0.3048;
+
             features.push({
                 type: 'Feature',
                 geometry: {
                     type: 'LineString',
                     coordinates: [
-                        [p1.unwrappedLongitude, p1.latitude],
-                        [p2.unwrappedLongitude, p2.latitude]
+                        [p1.unwrappedLongitude, p1.latitude, startAltM],
+                        [p2.unwrappedLongitude, p2.latitude, endAltM]
                     ]
                 },
                 properties: {
