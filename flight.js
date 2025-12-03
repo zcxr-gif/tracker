@@ -7260,258 +7260,233 @@ function getFlatWaypointObjects(items) {
     }
 
 
+function calculateTurnAngle(p1, p2, p3) {
+    // Vectors
+    const v1 = { x: p2.longitude - p1.longitude, y: p2.latitude - p1.latitude };
+    const v2 = { x: p3.longitude - p2.longitude, y: p3.latitude - p2.latitude };
+
+    // Dot product & Magnitudes
+    const dot = (v1.x * v2.x) + (v1.y * v2.y);
+    const mag1 = Math.sqrt(v1.x * v1.x + v1.y * v1.y);
+    const mag2 = Math.sqrt(v2.x * v2.x + v2.y * v2.y);
+
+    if (mag1 === 0 || mag2 === 0) return 0;
+
+    // Angle in radians
+    const angleRad = Math.acos(Math.max(-1, Math.min(1, dot / (mag1 * mag2))));
+    return angleRad * (180 / Math.PI); // Convert to degrees
+}
 
 /**
- * --- [UPDATED v3] Generates an altitude-segmented GeoJSON FeatureCollection.
- * Includes Smart Gap Detection, Anti-Backtracking Logic, and Altitude Smoothing.
+ * --- [HELPER] Generates a smoothed coordinate array using Cubic Hermite Splines ---
+ */
+function generateSmoothPath(points) {
+    if (points.length < 3) return points;
+
+    const smoothPoints = [];
+    const mathPoints = points.map(p => ({ x: p.unwrappedLongitude, y: p.latitude, alt: p.altitude }));
+
+    // Add phantom points for spline continuity
+    mathPoints.unshift(mathPoints[0]);
+    mathPoints.push(mathPoints[mathPoints.length - 1]);
+
+    for (let i = 0; i < mathPoints.length - 3; i++) {
+        const p0 = mathPoints[i];
+        const p1 = mathPoints[i + 1];
+        const p2 = mathPoints[i + 2];
+        const p3 = mathPoints[i + 3];
+
+        const dist = Math.sqrt(Math.pow(p2.x - p1.x, 2) + Math.pow(p2.y - p1.y, 2));
+        // Dynamic resolution: more segments for longer lines to keep curvature smooth
+        const segments = Math.max(2, Math.floor(dist * 8)); 
+
+        if (i === 0) {
+            smoothPoints.push({ unwrappedLongitude: p1.x, latitude: p1.y, altitude: p1.alt });
+        }
+
+        for (let j = 1; j <= segments; j++) {
+            const t = j / segments;
+            const t2 = t * t, t3 = t2 * t;
+
+            // Cardinal Spline / Catmull-Rom Simplified
+            const x = 0.5 * ((2 * p1.x) + (-p0.x + p2.x) * t + (2 * p0.x - 5 * p1.x + 4 * p2.x - p3.x) * t2 + (-p0.x + 3 * p1.x - 3 * p2.x + p3.x) * t3);
+            const y = 0.5 * ((2 * p1.y) + (-p0.y + p2.y) * t + (2 * p0.y - 5 * p1.y + 4 * p2.y - p3.y) * t2 + (-p0.y + 3 * p1.y - 3 * p2.y + p3.y) * t3);
+            const alt = p1.alt + (p2.alt - p1.alt) * t;
+
+            smoothPoints.push({ unwrappedLongitude: x, latitude: y, altitude: alt });
+        }
+    }
+    return smoothPoints;
+}
+
+/**
+ * --- [UPDATED] Smart Route Generator ---
+ * Features: Noise Filtering, Spike Removal, Flight Plan Bridging, Smoothing, and Nose Locking.
  */
 function generateAltitudeColoredRoute(sortedPoints, currentPosition, flightPlan = null) {
     const features = [];
-    
-    // 1. Create a single array of all points
-    const allPoints = [
-        ...sortedPoints.map(p => ({
-            longitude: p.longitude,
-            latitude: p.latitude,
-            altitude: p.altitude
-        })),
-        {
-            longitude: currentPosition.lon,
-            latitude: currentPosition.lat,
-            altitude: currentPosition.alt_ft
-        }
-    ];
+    const GAP_THRESHOLD_KM = 50; // Distance to trigger "Plan Bridging"
+    const MIN_DIST_FROM_NOSE_KM = 0.2; 
 
-    if (allPoints.length < 2) {
-        return { type: 'FeatureCollection', features: [] };
-    }
-
-    // 2. Create a new array of "unwrapped" points (Antimeridian fix)
-    const unwrappedPoints = [];
-    let firstValidIndex = allPoints.findIndex(p => p.longitude != null);
-    
-    if (firstValidIndex === -1) {
-        return { type: 'FeatureCollection', features: [] };
-    }
-    
-    let prevLon = allPoints[firstValidIndex].longitude;
-
-    // Add points up to the first valid one
-    for (let i = 0; i <= firstValidIndex; i++) {
-        unwrappedPoints.push({
-            ...allPoints[i],
-            unwrappedLongitude: allPoints[i].longitude
-        });
-    }
-
-    // Unwrap the rest
-    for (let i = firstValidIndex + 1; i < allPoints.length; i++) {
-        const currentPoint = allPoints[i];
-        let currentLon = currentPoint.longitude;
-
-        if (currentLon == null || prevLon == null) {
-            unwrappedPoints.push({ ...currentPoint, unwrappedLongitude: currentLon });
-            prevLon = currentLon;
-            continue;
-        }
-
-        const dLon = currentLon - prevLon;
-
-        // Fix crossing the 180th meridian
-        if (dLon > 180) {
-            currentLon -= 360; 
-        } else if (dLon < -180) {
-            currentLon += 360;
-        }
-        
-        unwrappedPoints.push({
-            ...currentPoint,
-            unwrappedLongitude: currentLon
-        });
-        
-        prevLon = currentLon; 
-    }
-
-    // 3. Prepare Flight Plan Waypoints for Gap Filling
-    let planWaypoints = [];
+    // --- 1. PREPARE FLIGHT PLAN WAYPOINTS (For Bridging) ---
+    let flatPlan = [];
     if (flightPlan && flightPlan.flightPlanItems) {
-        // Flatten plan into simple objects with lat/lon/alt
-        const flatten = (items) => {
+        const extract = (items) => {
             let res = [];
             items.forEach(item => {
-                if (item.children && item.children.length > 0) {
-                    res = res.concat(flatten(item.children));
-                } else if (item.location) {
-                    res.push({
-                        lat: item.location.latitude,
-                        lon: item.location.longitude,
-                        alt: parseInt(item.altitude) || 0 
-                    });
-                }
+                if (item.children && item.children.length) res = res.concat(extract(item.children));
+                else if (item.location) res.push({ lat: item.location.latitude, lon: item.location.longitude, alt: item.altitude || 0 });
             });
             return res;
         };
-        planWaypoints = flatten(flightPlan.flightPlanItems);
+        flatPlan = extract(flightPlan.flightPlanItems);
     }
 
-    // Helper to find closest plan index
-    const getClosestPlanIndex = (lat, lon) => {
-        let minDist = Infinity;
-        let index = -1;
-        for(let i=0; i<planWaypoints.length; i++) {
-            const d = getDistanceKm(lat, lon, planWaypoints[i].lat, planWaypoints[i].lon);
-            if(d < minDist) {
-                minDist = d;
-                index = i;
+    // Helper to find where a point "fits" in the flight plan sequence
+    const getPlanIndex = (lat, lon) => {
+        let bestIdx = -1, minD = Infinity;
+        // Search mostly forward to avoid checking entire plan every time
+        for(let i=0; i<flatPlan.length; i++) {
+            const d = getDistanceKm(lat, lon, flatPlan[i].lat, flatPlan[i].lon);
+            if (d < minD && d < 100) { // Only snap if reasonably close (100km)
+                minD = d;
+                bestIdx = i;
             }
         }
-        return { index, dist: minDist };
+        return bestIdx;
     };
 
-    const GAP_THRESHOLD_KM = 100;
-
-    for (let i = 0; i < unwrappedPoints.length - 1; i++) {
-        const p1 = unwrappedPoints[i];
-        const p2 = unwrappedPoints[i+1];
-
-        if (!p1 || !p2 || p1.unwrappedLongitude == null || p1.latitude == null || p2.unwrappedLongitude == null || p2.latitude == null) {
-            continue;
+    // --- 2. BASIC SANITIZATION (Filter Noise) ---
+    // Remove duplicates and points too close to the live position
+    const cleanHistory = sortedPoints.filter((p, i) => {
+        if (!p.latitude || !p.longitude) return false;
+        // Nose check: ensure path doesn't visually "pass" the plane icon
+        if (getDistanceKm(p.latitude, p.longitude, currentPosition.lat, currentPosition.lon) < MIN_DIST_FROM_NOSE_KM) return false;
+        // Jitter check
+        if (i > 0) {
+            const prev = sortedPoints[i-1];
+            if (getDistanceKm(p.latitude, p.longitude, prev.latitude, prev.longitude) < 0.2) return false;
         }
+        return true;
+    });
 
-        const distKm = getDistanceKm(p1.latitude, p1.longitude, p2.latitude, p2.longitude);
+    // --- 3. SPIKE REMOVAL (De-Glitch) ---
+    // Remove points that form impossible sharp angles (> 130 degrees zig-zag)
+    const deSpikedHistory = [];
+    if (cleanHistory.length > 0) deSpikedHistory.push(cleanHistory[0]);
+
+    for (let i = 1; i < cleanHistory.length - 1; i++) {
+        const prev = deSpikedHistory[deSpikedHistory.length - 1];
+        const curr = cleanHistory[i];
+        const next = cleanHistory[i+1];
+
+        // If turn is sharper than ~130 degrees (zig-zag), skip 'curr'
+        // This effectively deletes the bad waypoint, creating a GAP which step 4 will fill.
+        const turnAngle = calculateTurnAngle(prev, curr, next); 
         
-        // --- GAP DETECTION & SIMULATION ---
-        if (distKm > GAP_THRESHOLD_KM) {
+        // Threshold: 0=Straight, 180=U-Turn. We discard anything > 130 (sharp V)
+        if (Math.abs(turnAngle) < 130) { 
+            deSpikedHistory.push(curr);
+        }
+    }
+    // Always keep the last historical point if it exists
+    if (cleanHistory.length > 1) deSpikedHistory.push(cleanHistory[cleanHistory.length - 1]);
+
+
+    // --- 4. CONSTRUCT FINAL ARRAY (With Plan Bridging) ---
+    const finalPoints = [];
+    let prevPoint = null;
+
+    // A. Add sanitized history points
+    deSpikedHistory.forEach((p, i) => {
+        const point = { ...p, unwrappedLongitude: p.longitude }; // Unwrap logic happens later if needed, simple copy for now
+        
+        if (prevPoint) {
+            const dist = getDistanceKm(prevPoint.latitude, prevPoint.longitude, point.latitude, point.longitude);
             
-            // Try to bridge the gap using the flight plan
-            let gapBridged = false;
+            // --- THE SMART BRIDGE LOGIC ---
+            // If there is a large gap (due to spike removal or data loss), fill it with the Flight Plan
+            if (dist > GAP_THRESHOLD_KM && flatPlan.length > 0) {
+                const startIdx = getPlanIndex(prevPoint.latitude, prevPoint.longitude);
+                const endIdx = getPlanIndex(point.latitude, point.longitude);
 
-            if (planWaypoints.length > 0) {
-                const startMatch = getClosestPlanIndex(p1.latitude, p1.longitude);
-                const endMatch = getClosestPlanIndex(p2.latitude, p2.longitude);
-
-                // If we found sequential waypoints between the gap start and end
-                if (startMatch.index !== -1 && endMatch.index !== -1 && endMatch.index > startMatch.index) {
-                    
-                    let prevGapPoint = p1;
-                    
-                    // --- [SMARTER SMOOTHING LOGIC] ---
-                    // Determine where to start in the plan.
-                    // If the closest waypoint is BEHIND us, we should skip it to avoid a "hook" shape.
-                    let loopStartIndex = startMatch.index;
-
-                    // Check if we have a "next" waypoint to compare against
-                    if (loopStartIndex + 1 <= endMatch.index) {
-                        const wpCurrent = planWaypoints[loopStartIndex];
-                        const wpNext = planWaypoints[loopStartIndex + 1];
-
-                        // Distance from Waypoint A -> Waypoint B
-                        const legDist = getDistanceKm(wpCurrent.lat, wpCurrent.lon, wpNext.lat, wpNext.lon);
-                        // Distance from Plane (p1) -> Waypoint B
-                        const distToNext = getDistanceKm(p1.latitude, p1.longitude, wpNext.lat, wpNext.lon);
-
-                        // If the Plane is closer to Waypoint B than Waypoint A is, 
-                        // it means we are "past" Waypoint A. Skip A.
-                        if (distToNext < legDist) {
-                            loopStartIndex++;
-                        }
-                    }
-
-                    // Iterate through the valid plan points
-                    for (let j = loopStartIndex; j <= endMatch.index; j++) {
-                        const wp = planWaypoints[j];
+                // If we found both points in the plan and they are in order
+                if (startIdx !== -1 && endIdx !== -1 && endIdx > startIdx) {
+                    // Inject the plan waypoints between them
+                    for (let k = startIdx + 1; k < endIdx; k++) {
+                        const wp = flatPlan[k];
+                        // Interpolate altitude if missing
+                        const injectedAlt = wp.alt > 100 ? wp.alt : (prevPoint.altitude + point.altitude) / 2;
                         
-                        // Smart Altitude: Inherit previous if current is 0/missing
-                        let prevAlt = prevGapPoint.altitude || 0;
-                        let targetAlt = wp.alt;
-                        if (targetAlt <= 100) { 
-                            targetAlt = prevAlt; 
-                        }
-
-                        // Create segment from Prev -> Plan WP
-                        features.push({
-                            type: 'Feature',
-                            geometry: {
-                                type: 'LineString',
-                                coordinates: [
-                                    [prevGapPoint.unwrappedLongitude || prevGapPoint.longitude, prevGapPoint.latitude],
-                                    [wp.lon, wp.lat]
-                                ]
-                            },
-                            properties: {
-                                avgAltitude: (prevAlt + targetAlt) / 2,
-                                simulated: true 
-                            }
+                        finalPoints.push({
+                            latitude: wp.lat,
+                            longitude: wp.lon,
+                            unwrappedLongitude: wp.lon, // Will fix 180 crossing below
+                            altitude: injectedAlt
                         });
-                        
-                        // Update Prev for next loop
-                        prevGapPoint = { 
-                            latitude: wp.lat, 
-                            longitude: wp.lon, 
-                            unwrappedLongitude: wp.lon, 
-                            altitude: targetAlt 
-                        };
                     }
-
-                    // Final segment: Last Plan WP -> p2 (Connect nicely to current location)
-                    features.push({
-                        type: 'Feature',
-                        geometry: {
-                            type: 'LineString',
-                            coordinates: [
-                                [prevGapPoint.unwrappedLongitude || prevGapPoint.longitude, prevGapPoint.latitude],
-                                [p2.unwrappedLongitude, p2.latitude]
-                            ]
-                        },
-                        properties: {
-                            avgAltitude: ( (prevGapPoint.altitude||0) + (p2.altitude||0) ) / 2,
-                            simulated: true
-                        }
-                    });
-                    
-                    gapBridged = true;
                 }
             }
-
-            // Fallback: If no plan or plan matching failed, draw a direct simulated line
-            if (!gapBridged) {
-                features.push({
-                    type: 'Feature',
-                    geometry: {
-                        type: 'LineString',
-                        coordinates: [
-                            [p1.unwrappedLongitude, p1.latitude],
-                            [p2.unwrappedLongitude, p2.latitude]
-                        ]
-                    },
-                    properties: {
-                        avgAltitude: ((p1.altitude || 0) + (p2.altitude || 0)) / 2,
-                        simulated: true
-                    }
-                });
-            }
-
-            continue; // Move to next iteration
         }
         
-        // --- NORMAL FLOWN PATH ---
-        const coords = [
-            [p1.unwrappedLongitude, p1.latitude],
-            [p2.unwrappedLongitude, p2.latitude]
-        ];
-        
-        const alt1 = p1.altitude || 0;
-        const alt2 = p2.altitude || 0;
-        const avgAltitude = (alt1 + alt2) / 2;
+        finalPoints.push(point);
+        prevPoint = point;
+    });
+
+    // B. Add Current Position (The "Nose")
+    finalPoints.push({
+        latitude: currentPosition.lat,
+        longitude: currentPosition.lon,
+        unwrappedLongitude: currentPosition.lon,
+        altitude: currentPosition.alt_ft
+    });
+
+    if (finalPoints.length < 2) return { type: 'FeatureCollection', features: [] };
+
+    // --- 5. UNWRAP LONGITUDES (Antimeridian Fix) ---
+    let lastLon = finalPoints[0].longitude;
+    for (let i = 0; i < finalPoints.length; i++) {
+        let lon = finalPoints[i].longitude;
+        const dLon = lon - lastLon;
+        if (dLon > 180) lon -= 360;
+        else if (dLon < -180) lon += 360;
+        finalPoints[i].unwrappedLongitude = lon;
+        lastLon = lon;
+    }
+
+    // --- 6. SMOOTHING (Spline) ---
+    // Generate a dense, curved set of points
+    const smoothPoints = generateSmoothPath(finalPoints);
+
+    // --- 7. NOSE LOCK (Critical) ---
+    // Overwrite the very last point of the smoothed line to ensure it connects EXACTLY to the plane
+    const trueEnd = finalPoints[finalPoints.length - 1];
+    const smoothEnd = smoothPoints[smoothPoints.length - 1];
+    smoothEnd.latitude = trueEnd.latitude;
+    smoothEnd.unwrappedLongitude = trueEnd.unwrappedLongitude;
+    smoothEnd.altitude = trueEnd.altitude;
+
+    // --- 8. BUILD GEOJSON SEGMENTS ---
+    for (let i = 0; i < smoothPoints.length - 1; i++) {
+        const p1 = smoothPoints[i];
+        const p2 = smoothPoints[i+1];
+
+        // Sanity Check: If spline hallucinated a massive jump (rare), skip
+        if (Math.abs(p1.latitude - p2.latitude) > 20) continue;
+
+        const avgAlt = (p1.altitude + p2.altitude) / 2;
 
         features.push({
             type: 'Feature',
             geometry: {
                 type: 'LineString',
-                coordinates: coords
+                coordinates: [
+                    [p1.unwrappedLongitude, p1.latitude],
+                    [p2.unwrappedLongitude, p2.latitude]
+                ]
             },
             properties: {
-                avgAltitude: avgAltitude,
+                avgAltitude: avgAlt,
                 simulated: false 
             }
         });
