@@ -7396,14 +7396,69 @@ function generateSmoothPath(points, iterations = 3) {
 }
 
 /**
- * --- [FIXED v10] Continuous Ribbon + Centerline Generator ---
- * Creates a thinner 3D ribbon for close-ups and a centerline for distant visibility.
+ * --- [NEW HELPER] Densifies points based on distance and altitude thresholds ---
+ * Ensures segments are short enough to create a smooth "ramp" instead of stairs.
+ */
+function densifyFlightPathPoints(points, maxDistKm = 0.2, maxAltDiffFt = 30) {
+    if (!points || points.length < 2) return points;
+
+    const result = [points[0]];
+
+    for (let i = 0; i < points.length - 1; i++) {
+        const p1 = points[i];
+        const p2 = points[i + 1];
+
+        // Calculate deltas
+        const dist = getDistanceKm(p1.latitude, p1.longitude, p2.latitude, p2.longitude);
+        const altDiff = Math.abs(p1.altitude - p2.altitude);
+
+        // Determine how many subdivisions we need
+        // 1. Distance check (force points every 0.2km)
+        const distSteps = Math.ceil(dist / maxDistKm);
+        // 2. Altitude check (force points every 30ft of vertical change)
+        const altSteps = Math.ceil(altDiff / maxAltDiffFt);
+        
+        // Use the stricter of the two constraints
+        const steps = Math.max(distSteps, altSteps, 1);
+
+        if (steps > 1) {
+            for (let j = 1; j < steps; j++) {
+                const fraction = j / steps;
+                
+                // Linear Interpolation
+                const lat = p1.latitude + (p2.latitude - p1.latitude) * fraction;
+                const lon = p1.longitude + (p2.longitude - p1.longitude) * fraction; 
+                // Handle unwrapped longitude for date line safety
+                const unwrappedLon = p1.unwrappedLongitude + (p2.unwrappedLongitude - p1.unwrappedLongitude) * fraction;
+                const alt = p1.altitude + (p2.altitude - p1.altitude) * fraction;
+                
+                // Optional: Interp speed for completeness
+                const gs = (p1.groundSpeed || 0) + ((p2.groundSpeed || 0) - (p1.groundSpeed || 0)) * fraction;
+
+                result.push({
+                    latitude: lat,
+                    longitude: lon,
+                    unwrappedLongitude: unwrappedLon,
+                    altitude: alt,
+                    groundSpeed: gs
+                });
+            }
+        }
+        
+        result.push(p2);
+    }
+
+    return result;
+}
+
+/**
+ * --- [FIXED v11] Ultra-Smooth 3D Ribbon Generator ---
+ * Uses pre-densification to eliminate "staircase" artifacts on altitude changes.
  */
 function generateAltitudeColoredRoute(sortedPoints, currentPosition, flightPlan = null) {
     const features = [];
     const GAP_THRESHOLD_KM = 20;
     const MIN_DIST_FROM_NOSE_KM = 0.2;
-    // [MODIFIED] Reduced width from 0.6 to 0.12 to be thinner than the plane icon when near
     const PATH_WIDTH_KM = 0.12; 
     const RIBBON_THICKNESS_METERS = 150;
 
@@ -7456,16 +7511,13 @@ function generateAltitudeColoredRoute(sortedPoints, currentPosition, flightPlan 
         }
     }
 
-    // --- 4. UNWRAP & NORMALIZE ---
+    // --- 4. UNWRAP ---
     const rawPoints = [];
     let prevPoint = null;
     
     // Add history
     effectiveHistory.forEach(p => {
         const point = { ...p, unwrappedLongitude: p.longitude };
-        if (prevPoint && getDistanceKm(prevPoint.latitude, prevPoint.longitude, point.latitude, point.longitude) > GAP_THRESHOLD_KM && flatPlan.length > 0) {
-             // Gap filling logic omitted for brevity, keeping standard flow
-        }
         rawPoints.push(point);
         prevPoint = point;
     });
@@ -7493,10 +7545,15 @@ function generateAltitudeColoredRoute(sortedPoints, currentPosition, flightPlan 
         lastUnwrappedLon = newLon;
     }
 
-    // --- 5. SMOOTHING (CHAIKIN) ---
-    const smoothPoints = generateSmoothPath(rawPoints, 4);
+    // --- 5. PRE-PROCESS: DENSIFY (The Anti-Stair Fix) ---
+    // This breaks long segments into tiny ones so altitude changes appear continuous
+    const densePoints = densifyFlightPathPoints(rawPoints, 0.2, 30); // 200m or 30ft steps
 
-    // --- 6. CALCULATE JOINT GEOMETRY ---
+    // --- 6. SMOOTHING (CHAIKIN) ---
+    // We use fewer iterations now because we already densified
+    const smoothPoints = generateSmoothPath(densePoints, 2); 
+
+    // --- 7. CALCULATE JOINT GEOMETRY ---
     const ribbonVertices = []; 
 
     for (let i = 0; i < smoothPoints.length; i++) {
@@ -7517,7 +7574,7 @@ function generateAltitudeColoredRoute(sortedPoints, currentPosition, flightPlan 
         ribbonVertices.push({ left, right });
     }
 
-    // --- 7. BUILD FEATURES (POLYGONS + LINESTRINGS) ---
+    // --- 8. BUILD FEATURES ---
     const normLon = (lon, ref) => {
         let d = lon - (ref % 360);
         if (d > 180) d -= 360;
@@ -7532,7 +7589,7 @@ function generateAltitudeColoredRoute(sortedPoints, currentPosition, flightPlan 
         const v1 = ribbonVertices[i];
         const v2 = ribbonVertices[i + 1];
 
-        // [SAFETY FIX] Ensure valid altitudes
+        // Safety check for altitudes
         const alt1 = (p1.altitude !== undefined && !isNaN(p1.altitude)) ? p1.altitude : 0;
         const alt2 = (p2.altitude !== undefined && !isNaN(p2.altitude)) ? p2.altitude : 0;
         const avgAltFt = (alt1 + alt2) / 2;
@@ -7566,7 +7623,7 @@ function generateAltitudeColoredRoute(sortedPoints, currentPosition, flightPlan 
             }
         });
 
-        // B. The Centerline (LineString) - Ensures visibility at low zoom
+        // B. The Centerline (LineString)
         features.push({
             type: 'Feature',
             geometry: {
