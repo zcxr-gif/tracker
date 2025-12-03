@@ -7681,10 +7681,13 @@ function generateAltitudeColoredRoute(sortedPoints, currentPosition, flightPlan 
         });
 
         // --- D. THREE.JS DATA GENERATION ---
+        // --- D. THREE.JS DATA GENERATION ---
         const segDist = getDistanceKm(p1.latitude, p1.unwrappedLongitude, smoothPoints[i+1].latitude, smoothPoints[i+1].unwrappedLongitude);
         distSinceLastLabel += segDist;
 
-        const midAltitude = avgAltFt / 2;
+        if (distSinceLastLabel > LABEL_INTERVAL_KM && avgAltFt > 1000) {
+            
+            const midAltitude = avgAltFt / 2;
             
             // --- FIX: Offset Calculation ---
             // Push the label 200 meters to the right of the path relative to bearing
