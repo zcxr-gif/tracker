@@ -7320,12 +7320,16 @@ function generateSmoothPath(points) {
 }
 
 /**
- * --- [FIXED] Smart Route Generator ---
- * Fixes: High-latitude breaking, Date Line render artifacts, and Spline overshoots.
+ * --- [FIXED v3] Smart Route Generator ---
+ * Fixes:
+ * 1. Intelligent Plan Backfill: Simulates missing history using the flight plan.
+ * 2. Aggressive Gap Filling: Snaps to plan if gaps > 20km detected.
+ * 3. Date Line & Polar Safety: Prevents "weird ways" (zig-zags) across the 180th meridian.
  */
 function generateAltitudeColoredRoute(sortedPoints, currentPosition, flightPlan = null) {
     const features = [];
-    const GAP_THRESHOLD_KM = 50; 
+    // [MODIFIED] Reduced threshold to 20km to aggressively fill gaps with plan data
+    const GAP_THRESHOLD_KM = 20; 
     const MIN_DIST_FROM_NOSE_KM = 0.2; 
 
     // --- 1. PREPARE FLIGHT PLAN WAYPOINTS ---
@@ -7342,11 +7346,13 @@ function generateAltitudeColoredRoute(sortedPoints, currentPosition, flightPlan 
         flatPlan = extract(flightPlan.flightPlanItems);
     }
 
+    // Helper: Find closest waypoint index in plan
     const getPlanIndex = (lat, lon) => {
         let bestIdx = -1, minD = Infinity;
         for(let i=0; i<flatPlan.length; i++) {
             const d = getDistanceKm(lat, lon, flatPlan[i].lat, flatPlan[i].lon);
-            if (d < minD && d < 100) { 
+            // [MODIFIED] Increased search radius to 500km to catch long-haul segments
+            if (d < minD && d < 500) { 
                 minD = d;
                 bestIdx = i;
             }
@@ -7357,6 +7363,7 @@ function generateAltitudeColoredRoute(sortedPoints, currentPosition, flightPlan 
     // --- 2. SANITIZATION ---
     const cleanHistory = sortedPoints.filter((p, i) => {
         if (!p.latitude || !p.longitude) return false;
+        // Keep points reasonably far from nose to avoid plotting loop-backs
         if (getDistanceKm(p.latitude, p.longitude, currentPosition.lat, currentPosition.lon) < MIN_DIST_FROM_NOSE_KM) return false;
         if (i > 0) {
             const prev = sortedPoints[i-1];
@@ -7366,7 +7373,7 @@ function generateAltitudeColoredRoute(sortedPoints, currentPosition, flightPlan 
     });
 
     // --- 3. SPIKE REMOVAL ---
-    const deSpikedHistory = [];
+    let deSpikedHistory = [];
     if (cleanHistory.length > 0) deSpikedHistory.push(cleanHistory[0]);
 
     for (let i = 1; i < cleanHistory.length - 1; i++) {
@@ -7380,15 +7387,50 @@ function generateAltitudeColoredRoute(sortedPoints, currentPosition, flightPlan 
     }
     if (cleanHistory.length > 1) deSpikedHistory.push(cleanHistory[cleanHistory.length - 1]);
 
-    // --- 4. CONSTRUCT FINAL ARRAY ---
+    // --- [LOGIC] INTELLIGENT PLAN BACKFILL ---
+    let effectiveHistory = [...deSpikedHistory];
+
+    if (flatPlan.length > 0) {
+        const currentPlanIdx = getPlanIndex(currentPosition.lat, currentPosition.lon);
+        
+        // CASE A: Sparse/Missing History (e.g. new spawn, API gap)
+        if (effectiveHistory.length < 5 && currentPlanIdx > 0) {
+            const simulated = flatPlan.slice(0, currentPlanIdx + 1).map(wp => ({
+                latitude: wp.lat,
+                longitude: wp.lon,
+                altitude: wp.alt,
+                groundSpeed: 0 // Dummy value
+            }));
+            effectiveHistory = simulated;
+        } 
+        // CASE B: Partial History (e.g. app opened mid-flight)
+        else if (effectiveHistory.length >= 5) {
+            const firstHist = effectiveHistory[0];
+            const startPlanIdx = getPlanIndex(firstHist.latitude, firstHist.longitude);
+            
+            if (startPlanIdx > 2) {
+                const prefix = flatPlan.slice(0, startPlanIdx).map(wp => ({
+                    latitude: wp.lat,
+                    longitude: wp.lon,
+                    altitude: wp.alt
+                }));
+                effectiveHistory = [...prefix, ...effectiveHistory];
+            }
+        }
+    }
+
+    // --- 4. CONSTRUCT FINAL ARRAY (With Gap Filling) ---
     const finalPoints = [];
     let prevPoint = null;
 
-    deSpikedHistory.forEach((p) => {
+    effectiveHistory.forEach((p) => {
+        // [FIX] Ensure point has unwrappedLongitude property initialized
         const point = { ...p, unwrappedLongitude: p.longitude };
         
         if (prevPoint) {
             const dist = getDistanceKm(prevPoint.latitude, prevPoint.longitude, point.latitude, point.longitude);
+            
+            // Aggressively inject flight plan waypoints into gaps > 20km
             if (dist > GAP_THRESHOLD_KM && flatPlan.length > 0) {
                 const startIdx = getPlanIndex(prevPoint.latitude, prevPoint.longitude);
                 const endIdx = getPlanIndex(point.latitude, point.longitude);
@@ -7396,11 +7438,12 @@ function generateAltitudeColoredRoute(sortedPoints, currentPosition, flightPlan 
                 if (startIdx !== -1 && endIdx !== -1 && endIdx > startIdx) {
                     for (let k = startIdx + 1; k < endIdx; k++) {
                         const wp = flatPlan[k];
+                        // Interpolate altitude if plan altitude is missing/zero
                         const injectedAlt = wp.alt > 100 ? wp.alt : (prevPoint.altitude + point.altitude) / 2;
                         finalPoints.push({
                             latitude: wp.lat,
                             longitude: wp.lon,
-                            unwrappedLongitude: wp.lon,
+                            unwrappedLongitude: wp.lon, // Initialize
                             altitude: injectedAlt
                         });
                     }
@@ -7411,42 +7454,48 @@ function generateAltitudeColoredRoute(sortedPoints, currentPosition, flightPlan 
         prevPoint = point;
     });
 
-    // Add Nose
+    // Add Nose (Current Position)
     finalPoints.push({
         latitude: currentPosition.lat,
         longitude: currentPosition.lon,
-        unwrappedLongitude: currentPosition.lon,
+        unwrappedLongitude: currentPosition.lon, // Initialize
         altitude: currentPosition.alt_ft
     });
 
     if (finalPoints.length < 2) return { type: 'FeatureCollection', features: [] };
 
-    // --- 5. UNWRAP LONGITUDES (Continuous Path Fix) ---
-    // We unwrap relative to the previous point to ensure no 180-degree jumps
-    let lastLon = finalPoints[0].longitude;
-    let isHighLat = false; // Flag to detect polar operations
+    // --- 5. UNWRAP LONGITUDES & DATE LINE FIX ---
+    // [CRITICAL FIX] We must unwrap based on the *previous unwrapped point*, not the raw previous point.
+    // This creates a continuous coordinate space (e.g. 179 -> 181 instead of 179 -> -179).
+    
+    // Initialize first point
+    let lastUnwrappedLon = finalPoints[0].longitude; 
+    finalPoints[0].unwrappedLongitude = lastUnwrappedLon;
+    
+    let isHighLat = false;
 
-    for (let i = 0; i < finalPoints.length; i++) {
-        let lon = finalPoints[i].longitude;
-        const dLon = lon - lastLon;
+    for (let i = 1; i < finalPoints.length; i++) {
+        let currentRawLon = finalPoints[i].longitude;
+        let delta = currentRawLon - (lastUnwrappedLon % 360);
         
-        // Classic unwrap
-        if (dLon > 180) lon -= 360;
-        else if (dLon < -180) lon += 360;
+        // Normalize delta to be between -180 and 180
+        if (delta > 180) delta -= 360;
+        if (delta < -180) delta += 360;
         
-        finalPoints[i].unwrappedLongitude = lon;
-        lastLon = lon;
+        // Calculate the new continuous longitude
+        let newUnwrappedLon = lastUnwrappedLon + delta;
+        
+        finalPoints[i].unwrappedLongitude = newUnwrappedLon;
+        lastUnwrappedLon = newUnwrappedLon;
 
         // Detect High Latitude (> 75 degrees)
-        // If ANY part of the route is near the pole, we disable smoothing to prevent breaking.
-        if (Math.abs(finalPoints[i].latitude) > 75) {
-            isHighLat = true;
-        }
+        if (Math.abs(finalPoints[i].latitude) > 75) isHighLat = true;
     }
 
-    // --- 6. NORMALIZE STRIP (Date Line Fix) ---
-    // Shift the entire line so the Aircraft (Head) is within standard [-180, 180] range.
-    // This prevents coordinate drift (e.g. 900 degrees) which breaks Mapbox rendering.
+    // --- 6. NORMALIZE STRIP (Prevent Infinite Scroll Issues) ---
+    // Shift the entire line so the "Nose" is within standard [-180, 180] range if possible,
+    // or just keep it contiguous. Mapbox handles >180 fine, but huge numbers (900+) can be buggy.
+    // We normalize based on the head (aircraft position).
     const headLon = finalPoints[finalPoints.length - 1].unwrappedLongitude;
     const shift = Math.round(headLon / 360) * 360;
     
@@ -7458,9 +7507,8 @@ function generateAltitudeColoredRoute(sortedPoints, currentPosition, flightPlan 
 
     // --- 7. SMOOTHING (With High Lat Guard) ---
     let smoothPoints;
-    
     if (isHighLat) {
-        // LINEAR MODE: Near poles, splines create artifacts. Use straight lines.
+        // LINEAR MODE: Near poles/Date Line crossings, splines create artifacts. Use straight lines.
         smoothPoints = finalPoints.map(p => ({
             unwrappedLongitude: p.unwrappedLongitude,
             latitude: p.latitude,
@@ -7484,7 +7532,8 @@ function generateAltitudeColoredRoute(sortedPoints, currentPosition, flightPlan 
         const p1 = smoothPoints[i];
         const p2 = smoothPoints[i+1];
 
-        if (Math.abs(p1.latitude - p2.latitude) > 20) continue;
+        // Sanity Check: If a segment is still somehow huge (e.g. glitch), skip it
+        if (Math.abs(p1.latitude - p2.latitude) > 40 || Math.abs(p1.unwrappedLongitude - p2.unwrappedLongitude) > 100) continue;
 
         const avgAlt = (p1.altitude + p2.altitude) / 2;
 
