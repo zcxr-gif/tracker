@@ -7739,6 +7739,7 @@ async function handleAircraftClick(flightProps, sessionId) {
             });
             
             // 1. 3D Fill Extrusion Layer (The Ribbon) - Filters for Polygons
+            // This creates the nice 3D wall when zoomed in
             sectorOpsMap.addLayer({
                 id: flownLayerId,
                 type: 'fill-extrusion', 
@@ -7749,11 +7750,11 @@ async function handleAircraftClick(flightProps, sessionId) {
                         'interpolate',
                         ['linear'],
                         ['get', 'avgAltitude'],
-                        0,     '#e6e600',
+                        0,     '#ffe600',
                         10000, '#ff9900',
                         20000, '#ff3300',
                         29000, '#00BFFF',
-                        38000, '#9400D3'
+                        38000, '#d946ef'
                     ],
                     'fill-extrusion-height': ['get', 'heightM'],
                     'fill-extrusion-base': ['get', 'baseM'],
@@ -7762,7 +7763,7 @@ async function handleAircraftClick(flightProps, sessionId) {
             }, 'sector-ops-live-flights-layer');
 
             // 2. Line Layer (The Skeleton) - Filters for LineStrings
-            // This ensures visibility when zoomed out or looking from top-down high altitude
+            // [FIXED] Dynamic width ensures visibility when zoomed out
             sectorOpsMap.addLayer({
                 id: flownLineLayerId,
                 type: 'line',
@@ -7773,13 +7774,20 @@ async function handleAircraftClick(flightProps, sessionId) {
                         'interpolate',
                         ['linear'],
                         ['get', 'avgAltitude'],
-                        0,     '#e6e600',
-                        10000, '#ff9900',
-                        20000, '#ff3300',
-                        29000, '#00BFFF',
-                        38000, '#9400D3'
+                        0,     '#ffe600', // Bright Yellow
+                        10000, '#ff9900', // Orange
+                        20000, '#ff3300', // Red
+                        29000, '#00BFFF', // Deep Sky Blue
+                        38000, '#d946ef'  // Bright Fuchsia (Visible against dark maps)
                     ],
-                    'line-width': 2.5, // Constant pixel width
+                    'line-width': [
+                        'interpolate', 
+                        ['linear'], 
+                        ['zoom'],
+                        2, 6,   // Very thick (6px) when zoomed far out
+                        5, 4,   // Thicker (4px) at mid zoom
+                        10, 2.5 // Standard (2.5px) when zoomed in
+                    ],
                     'line-opacity': 1.0
                 }
             }, 'sector-ops-live-flights-layer');
@@ -7893,11 +7901,11 @@ function rebuildDynamicLayers() {
                         'interpolate',
                         ['linear'],
                         ['get', 'avgAltitude'],
-                        0,     '#e6e600',
+                        0,     '#ffe600',
                         10000, '#ff9900',
                         20000, '#ff3300',
                         29000, '#00BFFF',
-                        38000, '#9400D3'
+                        38000, '#d946ef'
                     ],
                     'fill-extrusion-height': ['get', 'heightM'],
                     'fill-extrusion-base': ['get', 'baseM'],
@@ -7906,6 +7914,7 @@ function rebuildDynamicLayers() {
             }, 'sector-ops-live-flights-layer');
 
             // Re-add Centerline Layer (LineString) - For zoom out visibility
+            // [FIXED] Dynamic width scaling and brighter colors
             sectorOpsMap.addLayer({
                 id: flownLineLayerId,
                 type: 'line',
@@ -7916,13 +7925,20 @@ function rebuildDynamicLayers() {
                         'interpolate',
                         ['linear'],
                         ['get', 'avgAltitude'],
-                        0,     '#e6e600',
-                        10000, '#ff9900',
-                        20000, '#ff3300',
-                        29000, '#00BFFF',
-                        38000, '#9400D3'
+                        0,     '#ffe600', // Bright Yellow
+                        10000, '#ff9900', // Orange
+                        20000, '#ff3300', // Red
+                        29000, '#00BFFF', // Deep Sky Blue
+                        38000, '#d946ef'  // Bright Fuchsia
                     ],
-                    'line-width': 2.5,
+                    'line-width': [
+                        'interpolate', 
+                        ['linear'], 
+                        ['zoom'],
+                        2, 6,   // Thicker (6px) at low zoom
+                        5, 4,
+                        10, 2.5 // Standard at high zoom
+                    ],
                     'line-opacity': 1.0
                 }
             }, 'sector-ops-live-flights-layer');
