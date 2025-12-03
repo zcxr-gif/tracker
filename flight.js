@@ -96,10 +96,10 @@ class ThreeFlightLabelLayer {
         this.scene = new THREE.Scene();
         this.map = null;
         this.font = null;
-        this.dataPoints = []; // Stores {lat, lon, alt, text}
+        this.dataPoints = []; // Stores {lat, lon, alt, text, bearing}
         this.textMeshes = [];
         
-        // Load the font immediately so it's ready
+        // Load the font immediately
         const loader = new THREE.FontLoader();
         loader.load('https://unpkg.com/three@0.126.0/examples/fonts/helvetiker_regular.typeface.json', (font) => {
             this.font = font;
@@ -151,31 +151,32 @@ class ThreeFlightLabelLayer {
 
     updateMeshes() {
         this.clearMeshes();
-        if (!this.dataPoints || this.dataPoints.length === 0) return;
+        if (!this.dataPoints || this.dataPoints.length === 0 || !this.font) return;
 
-        const material = new THREE.MeshBasicMaterial({ color: 0xffffff });
+        // CYAN Color for high contrast against the curtain
+        const material = new THREE.MeshBasicMaterial({ color: 0x00FFFF });
 
         this.dataPoints.forEach(pt => {
             if (!pt.text) return;
 
             // 1. Create Text Geometry
+            // SIZE INCREASED to 1500 (approx 4500ft tall letters) to be visible
             const geometry = new THREE.TextGeometry(pt.text, {
                 font: this.font,
-                size: 200,      // Scale relative to world units (adjust as needed)
-                height: 5,      // Thickness of the 3D text
-                curveSegments: 12,
+                size: 1500,      
+                height: 50,      // Thickness of the 3D text
+                curveSegments: 4,
             });
 
-            // Center the text
+            // Center the text geometry so it rotates around its middle
             geometry.computeBoundingBox();
             const xOffset = -0.5 * (geometry.boundingBox.max.x - geometry.boundingBox.min.x);
-            geometry.translate(xOffset, 0, 0);
+            const yOffset = -0.5 * (geometry.boundingBox.max.y - geometry.boundingBox.min.y);
+            geometry.translate(xOffset, yOffset, 0);
 
             const mesh = new THREE.Mesh(geometry, material);
 
             // 2. Convert Lat/Lon/Alt to Mapbox Mercator Coordinates
-            // Note: Mapbox Z is in "Mercator Meters" (0-1 scale usually), but we need to match the scale.
-            // We use the helper to get the flat (x,y) and z.
             const modelOrigin = mapboxgl.MercatorCoordinate.fromLngLat(
                 [pt.lon, pt.lat], 
                 pt.alt * 0.3048 // Convert feet to meters
@@ -184,22 +185,21 @@ class ThreeFlightLabelLayer {
             // 3. Position the Mesh
             mesh.position.set(modelOrigin.x, modelOrigin.y, modelOrigin.z);
 
-            // 4. Orientation: Make it face "Out" or "Along" the path?
-            // For "inside the curtain", we usually want it perpendicular to the path direction.
-            // We can rotate it on the Z axis (which is Up in Mapbox's adjusted camera matrix)
-            // bearing is 0-360. Three.js rotation is radians.
-            // Mapbox 0 deg = North (Up). Three.js 0 rad = East (Right).
+            // 4. Orientation FIX
+            // A. Rotate X 90 degrees to make it "stand up" (vertical) instead of laying flat
+            mesh.rotateX(Math.PI / 2);
+            
+            // B. Rotate Z to align with the path bearing
+            // Mapbox 0 is North, Three.js rotation is counter-clockwise radians.
+            // We adjust by -bearing.
             const rotationRad = -pt.bearing * (Math.PI / 180); 
-            mesh.rotation.z = rotationRad;
+            // We rotate around World Z (Up)
+            mesh.rotateOnWorldAxis(new THREE.Vector3(0, 0, 1), rotationRad);
             
             // 5. Scale Correction
-            // Mapbox Mercator units are tiny (0 to 1 for the whole world). 
-            // We must scale the mesh down drastically to fit, OR scale based on latitude.
+            // This is critical: Convert "World Meters" to "Mapbox Mercator Units"
             const scale = modelOrigin.meterInMercatorCoordinateUnits();
             mesh.scale.set(scale, scale, scale); 
-            
-            // Lift text slightly if needed (it's centered on altitude)
-            // No action needed if alt is correct.
 
             this.scene.add(mesh);
             this.textMeshes.push(mesh);
@@ -7556,7 +7556,8 @@ function densifyFlightPathPoints(points, maxDistKm = 0.2, maxAltDiffFt = 30) {
 }
 
 /**
- * --- [UPDATED v14] Returns GeoJSON for Mapbox AND Data Points for Three.js ---
+ * --- [UPDATED v15] Returns GeoJSON for Mapbox AND Data Points for Three.js ---
+ * Places text INSIDE the curtain (Vertically Centered).
  */
 function generateAltitudeColoredRoute(sortedPoints, currentPosition, flightPlan = null) {
     const features = [];
@@ -7564,37 +7565,21 @@ function generateAltitudeColoredRoute(sortedPoints, currentPosition, flightPlan 
     
     const PATH_WIDTH_KM = 0.12; 
     const RIBBON_THICKNESS_METERS = 150;
-    const PILLAR_WIDTH_KM = 0.5;
-
-    // --- 1. FLIGHT PLAN EXTRACTION (Unchanged) ---
-    let flatPlan = [];
-    if (flightPlan && flightPlan.flightPlanItems) {
-        const extract = (items) => {
-            let res = [];
-            items.forEach(item => {
-                if (item.children && item.children.length) res = res.concat(extract(item.children));
-                else if (item.location) res.push({ 
-                    lat: item.location.latitude, lon: item.location.longitude, alt: item.altitude || 0, ident: item.identifier || item.name || 'WPT'
-                });
-            });
-            return res;
-        };
-        flatPlan = extract(flightPlan.flightPlanItems);
-    }
-
-    // --- 2. DATA CLEANUP & SMOOTHING (Condensed for brevity - use previous logic) ---
-    // [Use the exact same sanitization/densify/smooth logic from previous steps]
-    // ...
-    // ... Let's assume `smoothPoints` is generated here ...
     
-    // !!! CRITICAL: Ensure you keep steps 2-6 from previous versions to get smoothPoints !!!
-    
-    // (Re-pasting minimal necessary logic for smoothPoints context)
+    // --- 1. DATA PREPARATION (Sanitize & Smooth) ---
+    // Combine trail + current position
     const rawPoints = [];
-    sortedPoints.forEach(p => { if(p.latitude && p.longitude) rawPoints.push({...p, unwrappedLongitude: p.longitude}) });
-    rawPoints.push({ latitude: currentPosition.lat, longitude: currentPosition.lon, unwrappedLongitude: currentPosition.lon, altitude: currentPosition.alt_ft });
+    sortedPoints.forEach(p => { 
+        if(p.latitude && p.longitude) rawPoints.push({...p, unwrappedLongitude: p.longitude}) 
+    });
+    rawPoints.push({ 
+        latitude: currentPosition.lat, 
+        longitude: currentPosition.lon, 
+        unwrappedLongitude: currentPosition.lon, 
+        altitude: currentPosition.alt_ft 
+    });
     
-    // Unwrap
+    // Unwrap Longitudes (Date Line Fix)
     if(rawPoints.length > 1) {
         let last = rawPoints[0].longitude;
         rawPoints[0].unwrappedLongitude = last;
@@ -7604,20 +7589,22 @@ function generateAltitudeColoredRoute(sortedPoints, currentPosition, flightPlan 
             rawPoints[i].unwrappedLongitude = last+d; last = last+d;
         }
     }
+
+    // Densify and Smooth
     const densePoints = densifyFlightPathPoints(rawPoints, 0.2, 30);
     const smoothPoints = generateSmoothPath(densePoints, 2);
-    // (End minimal logic)
 
-    // --- 7. RIBBON GEOMETRY ---
+    // --- 2. RIBBON GEOMETRY ---
     const ribbonVertices = []; 
     for (let i = 0; i < smoothPoints.length; i++) {
         const p = smoothPoints[i];
         let bearing;
+        
+        // Calculate bearing for ribbon width
         if (i === 0) bearing = getBearing(p.latitude, p.unwrappedLongitude, smoothPoints[i+1].latitude, smoothPoints[i+1].unwrappedLongitude);
         else if (i === smoothPoints.length - 1) bearing = getBearing(smoothPoints[i-1].latitude, smoothPoints[i-1].unwrappedLongitude, p.latitude, p.unwrappedLongitude);
         else bearing = getBearing(smoothPoints[i-1].latitude, smoothPoints[i-1].unwrappedLongitude, smoothPoints[i+1].latitude, smoothPoints[i+1].unwrappedLongitude);
         
-        // Save bearing for Three.js rotation
         p.bearing = bearing; 
 
         const left = getDestinationPoint(p.latitude, p.unwrappedLongitude, bearing - 90, PATH_WIDTH_KM / 2);
@@ -7625,10 +7612,11 @@ function generateAltitudeColoredRoute(sortedPoints, currentPosition, flightPlan 
         ribbonVertices.push({ left, right });
     }
 
-    // --- 8. BUILD FEATURES & THREE.JS POINTS ---
+    // --- 3. BUILD FEATURES & THREE.JS POINTS ---
     const normLon = (lon, ref) => { let d = lon-(ref%360); if(d>180)d-=360; if(d<-180)d+=360; return ref+d; };
+    
     let distSinceLastLabel = 0;
-    const LABEL_INTERVAL_KM = 30;
+    const LABEL_INTERVAL_KM = 25; // More frequent labels
 
     for (let i = 0; i < smoothPoints.length - 1; i++) {
         const p1 = smoothPoints[i];
@@ -7639,31 +7627,51 @@ function generateAltitudeColoredRoute(sortedPoints, currentPosition, flightPlan 
         const baseHeightMeters = avgAltFt * 0.3048; 
         const topHeightMeters = baseHeightMeters + RIBBON_THICKNESS_METERS;
 
-        // ... [Push Ribbon & Centerline Features as before] ...
+        // A. Curtain (Transparent Wall)
+        features.push({
+            type: 'Feature',
+            geometry: { type: 'Polygon', coordinates: [[ [normLon(v1.left.lon, p1.unwrappedLongitude), v1.left.lat], [normLon(v1.right.lon, p1.unwrappedLongitude), v1.right.lat], [normLon(v2.right.lon, p1.unwrappedLongitude), v2.right.lat], [normLon(v2.left.lon, p1.unwrappedLongitude), v2.left.lat], [normLon(v1.left.lon, p1.unwrappedLongitude), v1.left.lat] ]] },
+            properties: { feature_type: 'ribbon', avgAltitude: avgAltFt, heightM: topHeightMeters, baseM: 0, simulated: false } // Note: baseM is 0 for curtain to reach ground
+        });
+
+        // B. Ribbon (Solid Top)
         features.push({
             type: 'Feature',
             geometry: { type: 'Polygon', coordinates: [[ [normLon(v1.left.lon, p1.unwrappedLongitude), v1.left.lat], [normLon(v1.right.lon, p1.unwrappedLongitude), v1.right.lat], [normLon(v2.right.lon, p1.unwrappedLongitude), v2.right.lat], [normLon(v2.left.lon, p1.unwrappedLongitude), v2.left.lat], [normLon(v1.left.lon, p1.unwrappedLongitude), v1.left.lat] ]] },
             properties: { feature_type: 'ribbon', avgAltitude: avgAltFt, heightM: topHeightMeters, baseM: baseHeightMeters, simulated: false }
         });
 
-        // --- THREE.JS DATA GENERATION ---
+        // C. Centerline
+        features.push({
+            type: 'Feature',
+            geometry: { type: 'LineString', coordinates: [[p1.unwrappedLongitude, p1.latitude], [smoothPoints[i+1].unwrappedLongitude, smoothPoints[i+1].latitude]] },
+            properties: { feature_type: 'centerline', avgAltitude: avgAltFt }
+        });
+
+        // --- D. THREE.JS DATA GENERATION ---
         const segDist = getDistanceKm(p1.latitude, p1.unwrappedLongitude, smoothPoints[i+1].latitude, smoothPoints[i+1].unwrappedLongitude);
         distSinceLastLabel += segDist;
 
-        if (distSinceLastLabel > LABEL_INTERVAL_KM || i === smoothPoints.length - 2) {
-            // Push data to the array we will pass to the custom layer
+        if (distSinceLastLabel > LABEL_INTERVAL_KM && avgAltFt > 1000) {
+            
+            // Calculate Middle of the Wall (Half altitude)
+            const midAltitude = avgAltFt / 2;
+
             threeJsPoints.push({
                 lat: p1.latitude,
                 lon: p1.unwrappedLongitude,
-                alt: avgAltFt + 500, // Float slightly above/inside the curtain
-                text: `${Math.round(p1.altitude/100)}0`, // Simple text for 3D (e.g., "32000")
+                
+                // Position text in the vertical center of the curtain
+                alt: midAltitude, 
+                
+                // Text: "FL350"
+                text: `FL${Math.round(avgAltFt/100)}`, 
+                
                 bearing: p1.bearing
             });
             distSinceLastLabel = 0;
         }
     }
-
-    // ... [Keep Pillar Logic] ...
 
     return { 
         geoJson: { type: 'FeatureCollection', features: features }, 
