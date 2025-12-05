@@ -358,6 +358,22 @@
     }
     
     .route-airport { text-align: center; }
+    
+    /* --- NEW: Route Airport Layout with Flags --- */
+    .route-airport-row {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        gap: 8px;
+    }
+    .country-flag {
+        height: 14px;
+        width: auto;
+        border-radius: 2px;
+        box-shadow: 0 1px 2px rgba(0,0,0,0.5);
+        display: none; /* Hidden by default if no src */
+    }
+
     .route-icao { 
         display: block; font-family: var(--font-data); 
         font-size: 20px; font-weight: 700; color: #fff; line-height: 1.2;
@@ -553,7 +569,11 @@
                         <i class="fa-solid fa-chevron-down route-toggle-icon"></i> <!-- Icon -->
                         
                         <div class="route-airport">
-                            <span class="route-icao" id="dep-icao">---</span>
+                            <!-- NEW: Flex container for flag + ICAO -->
+                            <div class="route-airport-row">
+                                <img id="dep-flag" class="country-flag" src="" alt="Origin Flag">
+                                <span class="route-icao" id="dep-icao">---</span>
+                            </div>
                             <span class="route-time" id="dep-time">--:--</span>
                         </div>
                         
@@ -564,7 +584,11 @@
                         </div>
 
                         <div class="route-airport">
-                            <span class="route-icao" id="arr-icao">---</span>
+                            <!-- NEW: Flex container for ICAO + flag -->
+                            <div class="route-airport-row">
+                                <span class="route-icao" id="arr-icao">---</span>
+                                <img id="arr-flag" class="country-flag" src="" alt="Dest Flag">
+                            </div>
                             <span class="route-time" id="arr-time">--:--</span>
                         </div>
                     </div>
@@ -749,6 +773,10 @@
                 updateText('arr-icao', data.route.destIcao || '---');
                 updateText('arr-time', data.route.destTime || '--:--');
 
+                // --- NEW: Update Flags ---
+                updateFlag('dep-flag', data.route.originCountry);
+                updateFlag('arr-flag', data.route.destCountry);
+
                 // Progress
                 const pct = Math.min(100, Math.max(0, data.route.progress || 0));
                 document.getElementById('route-progress').style.width = `${pct}%`;
@@ -821,6 +849,19 @@
         }
         function formatNumber(num) {
             return num ? Math.round(num).toLocaleString() : '---';
+        }
+
+        // --- NEW: Helper for Flags ---
+        function updateFlag(id, countryCode) {
+            const el = document.getElementById(id);
+            if (!el) return;
+            if (countryCode) {
+                // Convert country code to lowercase for flagcdn
+                el.src = `https://flagcdn.com/w40/${countryCode.toLowerCase()}.png`;
+                el.style.display = 'block';
+            } else {
+                el.style.display = 'none';
+            }
         }
 
         // Listener
