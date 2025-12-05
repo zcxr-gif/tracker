@@ -72,12 +72,13 @@
         background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 200 200' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noiseFilter'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.65' numOctaves='3' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noiseFilter)' opacity='0.03'/%3E%3C/svg%3E");
     }
 
-    /* --- HEADER: IDENTITY (REDESIGNED) --- */
+    /* --- HEADER: TECHNICAL REDESIGN --- */
     .header-section {
-        padding: 12px 16px;
+        padding: 16px 20px;
         flex-shrink: 0;
         z-index: 10;
-        background: rgba(15, 23, 42, 0.7); /* Slightly more transparent */
+        /* Subtle gradient fade at top */
+        background: linear-gradient(to bottom, rgba(15, 23, 42, 0.9), rgba(15, 23, 42, 0.6));
         backdrop-filter: blur(12px);
         border-bottom: 1px solid var(--border-glass);
         display: flex;
@@ -85,99 +86,116 @@
         align-items: center;
     }
 
-    /* New "Command Card" style for Pilot Info */
-    .pilot-identity-card {
+    /* Common Label Style for Headers */
+    .hud-label {
+        font-family: var(--font-data);
+        font-size: 9px;
+        text-transform: uppercase;
+        letter-spacing: 1.5px;
+        color: var(--text-dim);
+        margin-bottom: 4px;
+        display: block;
+    }
+
+    /* LEFT: Pilot Data Cluster */
+    .header-group-left {
+        display: flex;
+        flex-direction: column;
+        cursor: pointer;
+        transition: opacity 0.2s;
+    }
+    .header-group-left:hover { opacity: 0.8; }
+
+    .pilot-data-row {
         display: flex;
         align-items: center;
-        gap: 12px;
-        padding: 6px 14px 6px 6px; /* Right padding for visual balance */
-        border-radius: 40px;
-        background: rgba(255, 255, 255, 0.03);
-        border: 1px solid transparent;
-        transition: all 0.3s ease;
-        cursor: pointer;
-    }
-    
-    .pilot-identity-card:hover {
-        background: rgba(255, 255, 255, 0.08);
-        border-color: var(--border-glass);
-        box-shadow: 0 4px 12px rgba(0,0,0,0.2);
-    }
-    
-    .pilot-identity-card:active {
-        transform: scale(0.98);
-        background: rgba(255, 255, 255, 0.02);
+        gap: 10px;
     }
 
-    .pilot-avatar-frame {
-        width: 38px; height: 38px;
-        border-radius: 50%;
-        background: linear-gradient(135deg, var(--color-accent), #0ea5e9);
+    .pilot-icon-box {
+        width: 32px; height: 32px;
         display: flex; align-items: center; justify-content: center;
-        color: #fff;
-        font-size: 16px;
-        box-shadow: 0 2px 8px rgba(56, 189, 248, 0.4);
-        position: relative;
-    }
-    
-    /* Subtle outer ring for the avatar */
-    .pilot-avatar-frame::after {
-        content: ''; position: absolute; inset: -3px;
-        border-radius: 50%;
-        border: 1px solid var(--color-accent);
-        opacity: 0.3;
+        border: 1px solid var(--border-glass);
+        background: rgba(255,255,255,0.03);
+        border-radius: 6px;
+        color: var(--color-accent);
+        font-size: 14px;
     }
 
-    .pilot-text-stack {
+    .pilot-text-group {
         display: flex; flex-direction: column;
-        justify-content: center;
+    }
+
+    .pilot-name {
+        font-family: var(--font-ui);
+        font-weight: 700;
+        font-size: 15px;
+        color: var(--text-primary);
         line-height: 1.1;
     }
 
-    .main-callsign {
+    .pilot-callsign {
         font-family: var(--font-data);
-        font-weight: 700;
-        font-size: 18px;
-        color: var(--text-primary);
-        letter-spacing: -0.5px;
+        font-size: 11px;
+        color: var(--color-accent);
+        letter-spacing: 0.5px;
     }
 
-    .pilot-subtext {
-        font-family: var(--font-ui);
-        font-size: 10px;
-        text-transform: uppercase;
-        letter-spacing: 0.5px;
-        color: var(--color-accent);
-        font-weight: 600;
-        opacity: 0.9;
+    /* RIGHT: Status Indicator */
+    .header-group-right {
+        text-align: right;
     }
-    
-    /* Status Badge Styles */
-    .flight-state-badge {
+
+    .status-display {
         display: flex;
         align-items: center;
+        justify-content: flex-end;
         gap: 8px;
-        padding: 6px 12px;
-        height: 32px; /* Fixed height to align with profile */
-        border-radius: 99px;
-        background: rgba(255, 255, 255, 0.05);
-        border: 1px solid rgba(255, 255, 255, 0.1);
-        font-size: 11px;
+        height: 32px; /* Match left height */
+    }
+
+    /* The glowing dot */
+    .status-led {
+        width: 8px; height: 8px;
+        border-radius: 50%;
+        background-color: var(--text-dim);
+        box-shadow: 0 0 0 0 transparent;
+        transition: all 0.5s ease;
+    }
+
+    .status-value {
+        font-family: var(--font-data);
+        font-size: 13px;
         font-weight: 700;
         text-transform: uppercase;
         letter-spacing: 0.5px;
         color: var(--text-secondary);
-        transition: all 0.3s ease;
-        box-shadow: 0 2px 5px rgba(0,0,0,0.2);
+        transition: color 0.3s;
     }
 
-    /* Dynamic State Colors */
-    .state-climb { background: rgba(16, 185, 129, 0.1); border-color: rgba(16, 185, 129, 0.3); color: #34d399; }
-    .state-descend { background: rgba(245, 158, 11, 0.1); border-color: rgba(245, 158, 11, 0.3); color: #fbbf24; }
-    .state-cruise { background: rgba(56, 189, 248, 0.1); border-color: rgba(56, 189, 248, 0.3); color: #38bdf8; }
-    .state-ground { background: rgba(148, 163, 184, 0.1); border-color: rgba(148, 163, 184, 0.3); color: #cbd5e1; }
-    
-    .state-icon { font-size: 10px; opacity: 0.9; }
+    /* State Variations */
+    .status-container[data-state="climb"] .status-led {
+        background-color: var(--color-success);
+        box-shadow: 0 0 10px var(--color-success);
+    }
+    .status-container[data-state="climb"] .status-value { color: var(--color-success); }
+
+    .status-container[data-state="descend"] .status-led {
+        background-color: var(--color-warning);
+        box-shadow: 0 0 10px var(--color-warning);
+    }
+    .status-container[data-state="descend"] .status-value { color: var(--color-warning); }
+
+    .status-container[data-state="cruise"] .status-led {
+        background-color: var(--color-accent);
+        box-shadow: 0 0 10px var(--color-accent);
+    }
+    .status-container[data-state="cruise"] .status-value { color: var(--color-accent); }
+
+    .status-container[data-state="ground"] .status-led {
+        background-color: var(--text-dim);
+    }
+
 
     /* --- SCROLL AREA --- */
     .scroll-viewport {
@@ -194,8 +212,7 @@
     .scroll-viewport::-webkit-scrollbar-track { background: transparent; }
     .scroll-viewport::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.1); border-radius: 10px; }
 
-    /* --- NEW: UNIFIED MISSION CARD --- */
-    /* This replaces the separate hero-card and route-card logic for the outer wrapper */
+    /* --- UNIFIED MISSION CARD --- */
     .unified-mission-card {
         border-radius: var(--radius-lg);
         border: 1px solid var(--border-glass);
@@ -206,13 +223,13 @@
         background: var(--bg-panel);
     }
 
-    /* --- SECTION 1: VISUAL (Hero Image) --- */
+    /* SECTION 1: VISUAL (Hero Image) */
     .mission-visual-section {
         position: relative;
         width: 100%;
-        height: 240px; /* Slightly reduced height for better proportions */
+        height: 240px; 
         flex: 0 0 auto;
-        background: #0f172a; /* Fallback color */
+        background: #0f172a; 
     }
 
     .hero-img {
@@ -221,7 +238,6 @@
         object-position: center;
         transition: transform 5s ease;
     }
-    /* Subtle zoom effect on the whole card hover */
     .unified-mission-card:hover .hero-img { transform: scale(1.05); }
 
     .hero-overlay {
@@ -235,63 +251,46 @@
 
     .photo-credit {
         position: absolute;
-        top: 12px;
-        right: 12px;
-        font-size: 9px;
-        color: rgba(255, 255, 255, 0.7);
+        top: 12px; right: 12px;
+        font-size: 9px; color: rgba(255, 255, 255, 0.7);
         background: rgba(0, 0, 0, 0.4);
-        padding: 3px 8px;
-        border-radius: 6px;
-        backdrop-filter: blur(4px);
-        pointer-events: none;
-        font-weight: 500;
-        border: 1px solid rgba(255, 255, 255, 0.1);
-        text-transform: uppercase;
+        padding: 3px 8px; border-radius: 6px;
+        backdrop-filter: blur(4px); pointer-events: none; font-weight: 500;
+        border: 1px solid rgba(255, 255, 255, 0.1); text-transform: uppercase;
     }
 
     .ac-info h2 { font-size: 16px; font-weight: 700; color: #fff; margin-bottom: 2px; }
     .ac-info span { font-size: 12px; color: var(--text-secondary); display: block; font-weight: 500; }
 
     .ac-reg-badge {
-        font-family: var(--font-data);
-        font-size: 12px;
-        background: rgba(255,255,255,0.1);
-        padding: 4px 8px;
-        border-radius: 6px;
-        border: 1px solid var(--border-glass);
+        font-family: var(--font-data); font-size: 12px;
+        background: rgba(255,255,255,0.1); padding: 4px 8px;
+        border-radius: 6px; border: 1px solid var(--border-glass);
         backdrop-filter: blur(4px);
     }
 
-    /* --- SECTION 2: ROUTE (Progress Bar) --- */
+    /* SECTION 2: ROUTE (Progress Bar) */
     .mission-route-section {
-        /* No border radius here, it inherits the bottom of the card */
         border-top: 1px solid var(--border-glass);
-        background: rgba(15, 23, 42, 0.6); /* Slightly darker than old card for integration */
-        position: relative;
-        z-index: 2; /* Ensure it stays above image zoom if any overlap */
+        background: rgba(15, 23, 42, 0.6); 
+        position: relative; z-index: 2; 
     }
 
     .route-visual-header {
         padding: 16px;
-        display: flex;
-        justify-content: space-between;
-        align-items: center;
-        background: transparent;
-        cursor: pointer;
-        position: relative;
+        display: flex; justify-content: space-between; align-items: center;
+        background: transparent; cursor: pointer; position: relative;
     }
     
     .route-visual-header:hover { background: rgba(255,255,255,0.03); }
     
     .route-toggle-icon {
-        position: absolute;
-        top: 8px; right: 8px;
+        position: absolute; top: 8px; right: 8px;
         font-size: 10px; color: var(--text-dim);
         transition: transform 0.3s var(--ease-out), color 0.3s;
     }
     .mission-route-section.expanded .route-toggle-icon {
-        transform: rotate(180deg);
-        color: var(--color-accent);
+        transform: rotate(180deg); color: var(--color-accent);
     }
     
     .route-airport { text-align: center; }
@@ -335,22 +334,14 @@
 
     /* --- DROPDOWN WRAPPER --- */
     .waypoint-dropdown-wrapper {
-        max-height: 0;
-        overflow: hidden;
-        transition: max-height 0.4s var(--ease-out);
-        border-top: 1px solid transparent;
+        max-height: 0; overflow: hidden;
+        transition: max-height 0.4s var(--ease-out); border-top: 1px solid transparent;
     }
-    
     .mission-route-section.expanded .waypoint-dropdown-wrapper {
-        max-height: 350px;
-        border-top: 1px solid var(--border-glass);
+        max-height: 350px; border-top: 1px solid var(--border-glass);
     }
 
-    .waypoint-list {
-        padding: 0;
-        max-height: 350px; 
-        overflow-y: auto;
-    }
+    .waypoint-list { padding: 0; max-height: 350px; overflow-y: auto; }
     
     .waypoint-list::-webkit-scrollbar { width: 5px; }
     .waypoint-list::-webkit-scrollbar-track { background: rgba(0,0,0,0.2); }
@@ -358,8 +349,7 @@
     .waypoint-list::-webkit-scrollbar-thumb:hover { background: var(--color-accent); }
     
     .wp-group-header {
-        position: sticky; top: 0;
-        padding: 6px 16px;
+        position: sticky; top: 0; padding: 6px 16px;
         background: rgba(15, 23, 42, 0.95);
         color: var(--color-accent); font-size: 10px; font-weight: 700;
         text-transform: uppercase; letter-spacing: 1px;
@@ -367,26 +357,21 @@
         z-index: 5; backdrop-filter: blur(4px);
     }
 
-    .wp-row {
-        display: flex; align-items: center; padding: 10px 16px; position: relative;
-    }
+    .wp-row { display: flex; align-items: center; padding: 10px 16px; position: relative; }
     .wp-row:not(:last-child)::after {
-        content: ''; position: absolute; bottom: 0; left: 40px; right: 0;
-        height: 1px; background: var(--border-glass);
+        content: ''; position: absolute; bottom: 0; left: 40px; right: 0; height: 1px; background: var(--border-glass);
     }
 
     .wp-status {
         width: 6px; height: 6px; border-radius: 50%;
-        background: var(--text-dim); margin-right: 16px;
-        position: relative; z-index: 2;
+        background: var(--text-dim); margin-right: 16px; position: relative; z-index: 2;
     }
     .wp-row.passed .wp-status { background: var(--color-success); opacity: 0.5; }
     
     .wp-row.active { background: rgba(56, 189, 248, 0.05); }
     .wp-row.active .wp-status { 
         background: var(--color-accent); 
-        box-shadow: 0 0 8px var(--color-accent);
-        transform: scale(1.3);
+        box-shadow: 0 0 8px var(--color-accent); transform: scale(1.3);
     }
 
     .wp-line-connect {
@@ -408,9 +393,7 @@
         letter-spacing: 1px; margin-bottom: 8px; font-weight: 700; padding-left: 4px;
     }
 
-    .telemetry-bento {
-        display: grid; grid-template-columns: repeat(2, 1fr); gap: 8px;
-    }
+    .telemetry-bento { display: grid; grid-template-columns: repeat(2, 1fr); gap: 8px; }
 
     .bento-cell {
         background: var(--bg-panel);
@@ -452,9 +435,7 @@
         animation: shimmer 2s infinite;
     }
     @keyframes shimmer {
-        0% { opacity: 0.3; }
-        50% { opacity: 0.6; }
-        100% { opacity: 0.3; }
+        0% { opacity: 0.3; } 50% { opacity: 0.6; } 100% { opacity: 0.3; }
     }
 
     </style>
@@ -464,29 +445,40 @@
     <div class="avionics-window">
         
         <header class="header-section">
-            <!-- NEW: "Identity Card" Layout -->
-            <div class="pilot-identity-card" onclick="parent.postMessage({type: 'OPEN_PROFILE'}, '*')">
-                <div class="pilot-avatar-frame">
-                    <i class="fa-solid fa-user-astronaut"></i>
-                </div>
-                <div class="pilot-text-stack">
-                    <div class="main-callsign skeleton" id="callsign">WAITING</div>
-                    <div class="pilot-subtext" id="username">Pilot</div>
+            <!-- LEFT: COMMANDER DATA -->
+            <div class="header-group-left" onclick="parent.postMessage({type: 'OPEN_PROFILE'}, '*')">
+                <span class="hud-label">Command</span>
+                <div class="pilot-data-row">
+                    <!-- Simple Tech Icon -->
+                    <div class="pilot-icon-box">
+                        <i class="fa-solid fa-user-astronaut"></i>
+                    </div>
+                    <!-- Text Stack -->
+                    <div class="pilot-text-group">
+                        <div class="pilot-name" id="username">Pilot</div>
+                        <div class="pilot-callsign skeleton" id="callsign">WAITING</div>
+                    </div>
                 </div>
             </div>
             
-            <div class="flight-state-badge" id="state-badge">
-                <i class="fa-solid fa-circle-notch state-icon" id="state-icon"></i>
-                <span class="state-text" id="status-text">Standby</span>
+            <!-- RIGHT: SYSTEM STATUS -->
+            <div class="header-group-right">
+                <span class="hud-label">Status</span>
+                <div class="status-container" id="status-container" data-state="ground">
+                    <div class="status-display">
+                        <div class="status-led"></div>
+                        <span class="status-value" id="status-text">STANDBY</span>
+                    </div>
+                </div>
             </div>
         </header>
 
         <div class="scroll-viewport">
             
-            <!-- NEW: UNIFIED MISSION CARD (HERO + PROGRESS) -->
+            <!-- UNIFIED MISSION CARD -->
             <div class="unified-mission-card">
                 
-                <!-- Part 1: Visual (The old Hero Card content) -->
+                <!-- Part 1: Visual -->
                 <div class="mission-visual-section skeleton" id="hero-container">
                     <img id="ac-photo" class="hero-img" src="" style="display:none;" onload="this.style.display='block'; this.parentElement.classList.remove('skeleton');">
                     <div id="ac-credit" class="photo-credit" style="display: none;"></div>
@@ -500,9 +492,8 @@
                     </div>
                 </div>
 
-                <!-- Part 2: Route (The old Flight Progress content, attached below) -->
+                <!-- Part 2: Route -->
                 <div class="mission-route-section" id="route-card-container">
-                    <!-- Toggleable Header -->
                     <div class="route-visual-header" id="route-toggle-btn">
                         <i class="fa-solid fa-chevron-down route-toggle-icon"></i>
                         
@@ -545,7 +536,6 @@
             <div>
                 <div class="grid-section-label">Telemetry</div>
                 <div class="telemetry-bento">
-                    
                     <div class="bento-cell">
                         <div class="cell-header">
                             <span class="cell-label">Altitude</span>
@@ -556,7 +546,6 @@
                             <span class="cell-unit">ft</span>
                         </div>
                     </div>
-
                     <div class="bento-cell">
                         <div class="cell-header">
                             <span class="cell-label">GND Speed</span>
@@ -567,7 +556,6 @@
                             <span class="cell-unit">kts</span>
                         </div>
                     </div>
-
                     <div class="bento-cell">
                         <div class="cell-header">
                             <span class="cell-label">Vertical</span>
@@ -579,7 +567,6 @@
                             <span class="cell-unit">fpm</span>
                         </div>
                     </div>
-
                     <div class="bento-cell">
                         <div class="cell-header">
                             <span class="cell-label">Heading</span>
@@ -590,10 +577,8 @@
                             <span class="cell-unit">°</span>
                         </div>
                     </div>
-
                 </div>
             </div>
-
         </div>
 
         <footer class="footer-bar">
@@ -644,29 +629,20 @@
             updateText('callsign', data.callsign || 'N/A');
             document.getElementById('callsign').classList.remove('skeleton');
 
-            // Status Badge
+            // Status Badge Logic (Redesigned)
             const phase = data.phase ? data.phase.toUpperCase() : 'STANDBY';
             updateText('status-text', phase);
             
-            const badge = document.getElementById('state-badge');
-            const icon = document.getElementById('state-icon');
+            const statusContainer = document.getElementById('status-container');
             
-            badge.className = 'flight-state-badge'; 
-            icon.className = 'fa-solid'; 
+            // Map phase string to simple state key for CSS styling
+            let stateKey = 'ground';
+            if (phase.includes('CLIMB') || phase.includes('TAKEOFF')) stateKey = 'climb';
+            else if (phase.includes('DESCENT') || phase.includes('APPROACH')) stateKey = 'descend';
+            else if (phase.includes('CRUISE')) stateKey = 'cruise';
+            else stateKey = 'ground';
 
-            if (phase.includes('CLIMB') || phase.includes('TAKEOFF')) {
-                badge.classList.add('state-climb');
-                icon.classList.add('fa-arrow-trend-up');
-            } else if (phase.includes('DESCENT') || phase.includes('APPROACH')) {
-                badge.classList.add('state-descend');
-                icon.classList.add('fa-arrow-trend-down');
-            } else if (phase.includes('CRUISE')) {
-                badge.classList.add('state-cruise');
-                icon.classList.add('fa-plane');
-            } else {
-                badge.classList.add('state-ground');
-                icon.classList.add('fa-parking');
-            }
+            statusContainer.setAttribute('data-state', stateKey);
 
             // 2. Aircraft
             if (data.aircraft) {
