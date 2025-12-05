@@ -371,9 +371,11 @@
         box-shadow: 0 0 10px rgba(56, 189, 248, 0.5);
         transition: width 0.5s linear;
     }
+    
+    /* FIXED: Changed rotation from 90deg to 0deg to face East/Right */
     .track-plane {
         position: absolute; top: 50%; left: 0%;
-        transform: translate(-50%, -50%) rotate(90deg);
+        transform: translate(-50%, -50%) rotate(0deg); 
         color: #fff; font-size: 14px;
         transition: left 0.5s linear;
         filter: drop-shadow(0 0 5px rgba(255,255,255,0.5));
