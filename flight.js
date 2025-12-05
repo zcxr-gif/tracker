@@ -4037,15 +4037,13 @@ function getIntermediatePoint(lat1, lon1, lat2, lon2, fraction) {
     return { lat: latI, lon: lonI };
 }
 
-// flight.js (Add this new function somewhere before handleSocketFlightUpdate)
-
-    /**
-     * --- [NEW FUNCTION] ---
+/**
+     * --- [UPDATED] ---
      * Fetches community aircraft details from the backend and caches the result.
-     * Uses a queue to prevent duplicate API calls for the same aircraft type/livery.
+     * NOW INCLUDES TAIL NUMBER CACHING.
      * @param {string} type - The aircraftType (e.g., "Airbus A320-200").
      * @param {string} livery - The liveryName (e.g., "Air France").
-     * @returns {Promise<object|null>} The cached data { imageUrl, contributorName } or null.
+     * @returns {Promise<object|null>} The cached data { imageUrl, contributorName, tailNumber } or null.
      */
     async function fetchCommunityAircraftDetails(type, livery) {
         if (!type || !livery) return null;
@@ -4078,10 +4076,11 @@ function getIntermediatePoint(lat1, lon1, lat2, lon2, fraction) {
                         data = data.length > 0 ? data[0] : null;
                     }
 
-                    if (data && data.imageUrl && data.contributorName) {
+                    if (data && data.imageUrl) {
                         const result = { 
                             communityImageUrl: data.imageUrl, 
-                            contributorName: data.contributorName 
+                            contributorName: data.contributorName || 'IF Community',
+                            tailNumber: data.tailNumber || null // <-- CACHE THE TAIL NUMBER
                         };
                         communityAircraftCache.set(key, result);
                         return result;
@@ -4156,9 +4155,10 @@ function handleSocketFlightUpdate(data) {
             phase: litePhase,
             pilotState: flight.pilotState,
             last_update: flight.position.lastReport || data.timestamp,
-            // Preserve existing cached data
+            // Preserve existing cached data (Images + TAIL NUMBER)
             communityImageUrl: existingProps.communityImageUrl || null, 
             contributorName: existingProps.contributorName || null,
+            tailNumber: existingProps.tailNumber || null // <--- PRESERVE TAIL NUMBER
         };
 
         // --- START: ASYNCHRONOUS LOOKUP LOGIC FOR HOVER CARD ---
@@ -4167,12 +4167,15 @@ function handleSocketFlightUpdate(data) {
             if (cachedData) {
                 newProperties.communityImageUrl = cachedData.communityImageUrl;
                 newProperties.contributorName = cachedData.contributorName;
+                newProperties.tailNumber = cachedData.tailNumber; // <--- APPLY CACHED TAIL NUMBER
             } else if (!lookupQueue.has(lookupKey)) {
                 fetchCommunityAircraftDetails(acName, livName)
                     .then(result => {
                         if (result && currentMapFeatures[flightId]) {
                             currentMapFeatures[flightId].properties.communityImageUrl = result.communityImageUrl;
                             currentMapFeatures[flightId].properties.contributorName = result.contributorName;
+                            currentMapFeatures[flightId].properties.tailNumber = result.tailNumber; // <--- APPLY FETCHED TAIL NUMBER
+                            
                             if (isMapReady && sectorOpsMap.getSource('sector-ops-live-flights-source')) {
                                 sectorOpsMap.getSource('sector-ops-live-flights-source').setData({
                                     type: 'FeatureCollection', 
@@ -4250,7 +4253,8 @@ function handleSocketFlightUpdate(data) {
                         liveTrailCache.get(flightId),
                         { 
                             imageUrl: fullFlightProps.communityImageUrl, 
-                            contributorName: fullFlightProps.contributorName 
+                            contributorName: fullFlightProps.contributorName,
+                            tailNumber: fullFlightProps.tailNumber // <--- PASS THE TAIL NUMBER TO THE FORMATTER
                         }
                     );
                     
@@ -5999,7 +6003,8 @@ function getIconImageExpression(colorMode = 'default') {
 }
 
 /**
- * --- [NEW] Formats data for the Simple Flight Info Iframe ---
+ * --- [UPDATED] Formats data for the Simple Flight Info Iframe ---
+ * Now intelligently selects the best available Registration/Tail Number.
  */
 function formatDataForSimpleWindow(flightProps, plan, routePoints, communityData) {
     if (!flightProps) return null;
@@ -6008,6 +6013,19 @@ function formatDataForSimpleWindow(flightProps, plan, routePoints, communityData
     const pos = flightProps.position || {};
     const aircraft = (typeof flightProps.aircraft === 'string') ? JSON.parse(flightProps.aircraft) : (flightProps.aircraft || {});
     
+    // --- REGISTRATION LOGIC ---
+    // Priority 1: Community Database Tail Number (Real world mapping)
+    // Priority 2: Live API Registration (Often empty/null)
+    // Priority 3: Fallback '---'
+    let finalRegistration = '---';
+    
+    if (communityData && communityData.tailNumber) {
+        finalRegistration = communityData.tailNumber;
+    } else if (aircraft.registration) {
+        finalRegistration = aircraft.registration;
+    }
+    // ---------------------------
+
     // 2. Route Calculations
     let originIcao = '---', destIcao = '---';
     let progress = 0, elapsed = '--:--', eta = '--:--', ete = '--:--';
@@ -6053,15 +6071,13 @@ function formatDataForSimpleWindow(flightProps, plan, routePoints, communityData
     // 3. Waypoints (Simplified for the list)
     const waypoints = [];
     if (plan && plan.flightPlanItems) {
-        // Simple logic: flatten and check if passed based on progress index or distance
-        // For simplicity, we just pass the raw list. You might want to add "active" logic here.
         getFlatWaypointObjects(plan.flightPlanItems).forEach((wp, idx) => {
             waypoints.push({
                 ident: wp.identifier || wp.name,
                 name: wp.name,
-                type: wp.type, // e.g. Airport, VOR
-                active: false, // Logic to determine if active
-                passed: false  // Logic to determine if passed
+                type: wp.type, 
+                active: false, 
+                passed: false 
             });
         });
     }
@@ -6076,14 +6092,14 @@ function formatDataForSimpleWindow(flightProps, plan, routePoints, communityData
             groundSpeed: pos.gs_kt,
             verticalSpeed: pos.vs_fpm,
             heading: pos.heading_deg,
-            squawk: '2000', // Default or fetch if available
+            squawk: '2000', 
             windDir: flightProps.wind_dir || 0,
             windSpd: flightProps.wind_spd_kts || 0
         },
         aircraft: {
             aircraftName: aircraft.aircraftName,
             liveryName: aircraft.liveryName,
-            registration: aircraft.registration || '---'
+            registration: finalRegistration // <--- PASSED HERE
         },
         images: {
             url: communityData ? communityData.imageUrl : (flightProps.communityImageUrl || ''),
@@ -6092,7 +6108,7 @@ function formatDataForSimpleWindow(flightProps, plan, routePoints, communityData
         route: {
             originIcao, originCountry,
             destIcao, destCountry,
-            originTime: '--:--', // Actual departure time logic if available
+            originTime: '--:--', 
             destTime: eta,
             progress: progress,
             elapsed: elapsed,
