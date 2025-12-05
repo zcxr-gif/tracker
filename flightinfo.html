@@ -72,45 +72,37 @@
         background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 200 200' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noiseFilter'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.65' numOctaves='3' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noiseFilter)' opacity='0.03'/%3E%3C/svg%3E");
     }
 
-    /* --- HEADER: IDENTITY --- */
+    /* --- HEADER: IDENTITY (REDESIGNED) --- */
     .header-section {
-        padding: 20px 24px 12px;
+        padding: 16px 20px; /* Tighter padding */
         flex-shrink: 0;
         z-index: 10;
-        background: linear-gradient(to bottom, rgba(15, 23, 42, 0.8), transparent);
-        transition: padding 0.3s var(--ease-out);
-    }
-
-    .avionics-window.scrolled .header-section {
-        padding: 12px 24px;
-        background: rgba(15, 23, 42, 0.95);
+        background: rgba(15, 23, 42, 0.85); /* Darker background for contrast */
+        backdrop-filter: blur(16px);
         border-bottom: 1px solid var(--border-glass);
-        box-shadow: 0 4px 20px rgba(0,0,0,0.2);
-    }
-
-    .identity-block {
+        box-shadow: 0 4px 20px rgba(0,0,0,0.3);
         display: flex;
         justify-content: space-between;
-        align-items: flex-start;
+        align-items: center;
     }
 
-    .callsign-wrapper {
+    .pilot-info-group {
         display: flex;
         flex-direction: column;
+        gap: 4px;
     }
 
     .pilot-label {
-        font-size: 11px;
+        font-size: 10px;
         text-transform: uppercase;
-        letter-spacing: 0.08em;
+        letter-spacing: 1px;
         color: var(--color-accent);
-        font-weight: 600;
+        font-weight: 700;
         display: flex;
         align-items: center;
         gap: 6px;
-        margin-bottom: 2px;
-        opacity: 0.9;
         cursor: pointer;
+        opacity: 0.8;
         transition: opacity 0.2s;
     }
     .pilot-label:hover { opacity: 1; text-shadow: 0 0 8px rgba(56, 189, 248, 0.4); }
@@ -118,62 +110,47 @@
     .main-callsign {
         font-family: var(--font-ui);
         font-weight: 800;
-        font-size: 32px;
+        font-size: 26px; /* Slightly smaller for balance */
         line-height: 1;
-        letter-spacing: -0.03em;
-        background: linear-gradient(180deg, #fff, #cbd5e1);
+        letter-spacing: -0.5px;
+        color: #fff;
+        background: linear-gradient(180deg, #fff, #e2e8f0);
         -webkit-background-clip: text;
         -webkit-text-fill-color: transparent;
-        transform-origin: left bottom;
-        transition: transform 0.3s var(--ease-out);
     }
     
-    .avionics-window.scrolled .main-callsign { transform: scale(0.75); }
-
-    .flight-status-indicator {
+    /* NEW: Status Badge Styles */
+    .flight-state-badge {
         display: flex;
         align-items: center;
         gap: 8px;
-        background: rgba(255,255,255,0.05);
         padding: 6px 12px;
-        border-radius: 20px;
-        border: 1px solid var(--border-glass);
-    }
-
-    .status-dot {
-        width: 8px; height: 8px;
-        border-radius: 50%;
-        background: var(--text-dim);
-        box-shadow: 0 0 0 0 rgba(255,255,255,0);
-        transition: background 0.3s, box-shadow 0.3s;
-    }
-
-    .status-dot.active {
-        background: var(--color-success);
-        box-shadow: 0 0 0 3px rgba(16, 185, 129, 0.15);
-        animation: pulse-green 2s infinite;
-    }
-    
-    @keyframes pulse-green {
-        0% { box-shadow: 0 0 0 0 rgba(16, 185, 129, 0.4); }
-        70% { box-shadow: 0 0 0 6px rgba(16, 185, 129, 0); }
-        100% { box-shadow: 0 0 0 0 rgba(16, 185, 129, 0); }
-    }
-
-    .status-text {
-        font-size: 12px;
-        font-weight: 600;
-        letter-spacing: 0.05em;
+        border-radius: 99px;
+        background: rgba(255, 255, 255, 0.05);
+        border: 1px solid rgba(255, 255, 255, 0.1);
+        font-size: 11px;
+        font-weight: 700;
         text-transform: uppercase;
+        letter-spacing: 0.5px;
         color: var(--text-secondary);
+        transition: all 0.3s ease;
+        box-shadow: 0 2px 5px rgba(0,0,0,0.2);
     }
+
+    /* Dynamic State Colors */
+    .state-climb { background: rgba(16, 185, 129, 0.1); border-color: rgba(16, 185, 129, 0.3); color: #34d399; }
+    .state-descend { background: rgba(245, 158, 11, 0.1); border-color: rgba(245, 158, 11, 0.3); color: #fbbf24; }
+    .state-cruise { background: rgba(56, 189, 248, 0.1); border-color: rgba(56, 189, 248, 0.3); color: #38bdf8; }
+    .state-ground { background: rgba(148, 163, 184, 0.1); border-color: rgba(148, 163, 184, 0.3); color: #cbd5e1; }
+    
+    .state-icon { font-size: 10px; opacity: 0.9; }
 
     /* --- SCROLL AREA --- */
     .scroll-viewport {
         flex: 1;
         overflow-y: auto;
         overflow-x: hidden;
-        padding: 0 16px 20px;
+        padding: 20px 16px; /* Added top padding back */
         display: flex;
         flex-direction: column;
         gap: 16px;
@@ -528,19 +505,18 @@
     <div class="avionics-window">
         
         <header class="header-section">
-            <div class="identity-block">
-                <div class="callsign-wrapper">
-                    <div class="pilot-label" onclick="parent.postMessage({type: 'OPEN_PROFILE'}, '*')">
-                        <i class="fa-solid fa-user-astronaut"></i>
-                        <span id="username">Pilot</span>
-                    </div>
-                    <div class="main-callsign skeleton" id="callsign">WAITING</div>
+            <!-- RESTRUCTURED HEADER: Pilot + CallSign Left, Status Badge Right -->
+            <div class="pilot-info-group">
+                <div class="pilot-label" onclick="parent.postMessage({type: 'OPEN_PROFILE'}, '*')">
+                    <i class="fa-solid fa-user-astronaut"></i>
+                    <span id="username">Pilot</span>
                 </div>
-                
-                <div class="flight-status-indicator">
-                    <div class="status-dot" id="status-dot"></div>
-                    <span class="status-text" id="status-text">Standby</span>
-                </div>
+                <div class="main-callsign skeleton" id="callsign">WAITING</div>
+            </div>
+            
+            <div class="flight-state-badge" id="state-badge">
+                <i class="fa-solid fa-circle-notch state-icon" id="state-icon"></i>
+                <span class="state-text" id="status-text">Standby</span>
             </div>
         </header>
 
@@ -707,15 +683,30 @@
             updateText('callsign', data.callsign || 'N/A');
             document.getElementById('callsign').classList.remove('skeleton');
 
+            // --- UPDATED STATE LOGIC (Pill Badge) ---
             const phase = data.phase ? data.phase.toUpperCase() : 'STANDBY';
             updateText('status-text', phase);
             
-            const dot = document.getElementById('status-dot');
-            dot.classList.remove('active');
+            const badge = document.getElementById('state-badge');
+            const icon = document.getElementById('state-icon');
             
-            // Logic for "Active" state visualization
-            if (['TAKEOFF', 'CLIMB', 'CRUISE', 'DESCENT', 'APPROACH', 'LANDING'].some(s => phase.includes(s))) {
-                dot.classList.add('active');
+            // Reset base classes
+            badge.className = 'flight-state-badge'; 
+            icon.className = 'fa-solid'; 
+
+            // Apply dynamic classes
+            if (phase.includes('CLIMB') || phase.includes('TAKEOFF')) {
+                badge.classList.add('state-climb');
+                icon.classList.add('fa-arrow-trend-up');
+            } else if (phase.includes('DESCENT') || phase.includes('APPROACH')) {
+                badge.classList.add('state-descend');
+                icon.classList.add('fa-arrow-trend-down');
+            } else if (phase.includes('CRUISE')) {
+                badge.classList.add('state-cruise');
+                icon.classList.add('fa-plane');
+            } else {
+                badge.classList.add('state-ground'); // Ground/Standby
+                icon.classList.add('fa-parking');
             }
 
             // 2. Aircraft
