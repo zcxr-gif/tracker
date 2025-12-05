@@ -17,6 +17,7 @@
         /* Palette: "Stratosphere" */
         --bg-glass: rgba(15, 23, 42, 0.65); /* Deep Navy Slate */
         --bg-panel: rgba(30, 41, 59, 0.4); /* Lighter panel bg */
+        --bg-modal: rgba(15, 23, 42, 0.95); /* Darker for modal */
         --border-glass: rgba(255, 255, 255, 0.08);
         --border-highlight: rgba(255, 255, 255, 0.15);
         
@@ -154,6 +155,7 @@
         display: flex;
         flex-direction: column;
         gap: 16px;
+        position: relative;
     }
     
     .scroll-viewport::-webkit-scrollbar { width: 4px; }
@@ -485,6 +487,80 @@
     .f-label { font-size: 9px; text-transform: uppercase; color: var(--text-dim); letter-spacing: 1px; margin-bottom: 2px; }
     .f-value { font-family: var(--font-data); font-size: 14px; font-weight: 600; color: var(--text-primary); }
 
+    /* --- STATS OVERLAY (NEW) --- */
+    .stats-overlay {
+        position: absolute;
+        top: 0; left: 0; right: 0; bottom: 0;
+        background: var(--bg-modal);
+        backdrop-filter: blur(20px);
+        z-index: 100;
+        display: flex;
+        flex-direction: column;
+        transform: translateY(100%);
+        transition: transform 0.4s cubic-bezier(0.16, 1, 0.3, 1);
+        padding: 20px;
+        color: #fff;
+    }
+    .stats-overlay.visible { transform: translateY(0); }
+
+    .stats-header {
+        display: flex; justify-content: space-between; align-items: center;
+        margin-bottom: 20px;
+        padding-bottom: 15px;
+        border-bottom: 1px solid var(--border-glass);
+    }
+    .stats-title { font-size: 18px; font-weight: 700; color: var(--text-primary); }
+    .stats-close-btn {
+        background: rgba(255,255,255,0.1); border: none; color: #fff;
+        width: 32px; height: 32px; border-radius: 50%;
+        cursor: pointer; display: flex; align-items: center; justify-content: center;
+        transition: background 0.2s;
+    }
+    .stats-close-btn:hover { background: var(--color-danger); }
+
+    /* Stats Content Styling */
+    .stats-grade-card {
+        background: linear-gradient(135deg, rgba(30,41,59,0.6), rgba(15,23,42,0.8));
+        border: 1px solid var(--border-glass);
+        border-radius: 12px;
+        padding: 16px;
+        margin-bottom: 16px;
+        text-align: center;
+    }
+    .grade-badge {
+        font-size: 24px; font-weight: 800; color: var(--color-accent);
+        text-shadow: 0 0 20px rgba(56, 189, 248, 0.3);
+    }
+    .grade-label { font-size: 12px; color: var(--text-secondary); text-transform: uppercase; margin-top: 4px; }
+
+    .stats-grid {
+        display: grid; grid-template-columns: 1fr 1fr; gap: 12px;
+        margin-bottom: 20px;
+    }
+    .stat-box {
+        background: rgba(255,255,255,0.03);
+        border: 1px solid var(--border-glass);
+        border-radius: 8px;
+        padding: 12px;
+        display: flex; flex-direction: column;
+    }
+    .stat-box-label { font-size: 10px; color: var(--text-dim); text-transform: uppercase; margin-bottom: 4px; }
+    .stat-box-value { font-family: var(--font-data); font-size: 16px; font-weight: 600; color: var(--text-primary); }
+
+    .xp-progress-container { margin-bottom: 16px; }
+    .xp-labels { display: flex; justify-content: space-between; margin-bottom: 6px; font-size: 11px; color: var(--text-secondary); }
+    .xp-bar-bg { height: 6px; background: rgba(255,255,255,0.1); border-radius: 3px; overflow: hidden; }
+    .xp-bar-fill { height: 100%; background: var(--color-accent); border-radius: 3px; transition: width 1s ease; }
+
+    .loading-spinner {
+        border: 3px solid rgba(255,255,255,0.1);
+        border-top: 3px solid var(--color-accent);
+        border-radius: 50%; width: 24px; height: 24px;
+        animation: spin 1s linear infinite;
+        margin: 40px auto;
+    }
+    @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
+
     /* --- LOADING SKELETON --- */
     .skeleton {
         background: rgba(255,255,255,0.05);
@@ -507,7 +583,8 @@
         <header class="header-section">
             <!-- RESTRUCTURED HEADER: Pilot + CallSign Left, Status Badge Right -->
             <div class="pilot-info-group">
-                <div class="pilot-label" onclick="parent.postMessage({type: 'OPEN_PROFILE'}, '*')">
+                <!-- UPDATED CLICK HANDLER TO LOCAL FUNCTION -->
+                <div class="pilot-label" onclick="requestPilotStats()">
                     <i class="fa-solid fa-user-astronaut"></i>
                     <span id="username">Pilot</span>
                 </div>
@@ -652,10 +729,24 @@
 
     </div>
 
+    <!-- NEW: STATS MODAL OVERLAY -->
+    <div id="stats-overlay" class="stats-overlay">
+        <div class="stats-header">
+            <div class="stats-title"><i class="fa-solid fa-user-pilot"></i> Pilot Report</div>
+            <button class="stats-close-btn" onclick="closeStats()"><i class="fa-solid fa-xmark"></i></button>
+        </div>
+        <div id="stats-content" style="flex: 1; overflow-y: auto;">
+            <!-- Content Injected via JS -->
+            <div class="loading-spinner"></div>
+        </div>
+    </div>
+
     <script>
         // --- UI LOGIC ---
         const scrollViewport = document.querySelector('.scroll-viewport');
         const mainWindow = document.querySelector('.avionics-window');
+        const statsOverlay = document.getElementById('stats-overlay');
+        const statsContent = document.getElementById('stats-content');
 
         // Scroll Shadow Effect
         scrollViewport.addEventListener('scroll', () => {
@@ -673,6 +764,72 @@
         routeToggleBtn.addEventListener('click', () => {
             routeCardContainer.classList.toggle('expanded');
         });
+
+        // --- NEW: STATS LOGIC ---
+        
+        function requestPilotStats() {
+            // Show overlay with loader
+            statsOverlay.classList.add('visible');
+            statsContent.innerHTML = '<div class="loading-spinner"></div><p style="text-align:center; color: var(--text-dim); margin-top:10px;">Fetching records...</p>';
+            
+            // Post message to parent to get data
+            window.parent.postMessage({ type: 'REQUEST_PILOT_STATS' }, '*');
+        }
+
+        function closeStats() {
+            statsOverlay.classList.remove('visible');
+        }
+
+        function renderStats(data) {
+            const stats = data.stats;
+            const username = data.username;
+            
+            // Safe extraction
+            const currentGrade = stats.gradeDetails?.grades?.[stats.gradeDetails?.gradeIndex] || { name: 'Unknown' };
+            const violations = (stats.violationCountByLevel?.level1 || 0) + (stats.violationCountByLevel?.level2 || 0) + (stats.violationCountByLevel?.level3 || 0);
+            
+            // Format XP
+            const totalXP = stats.totalXP || 0;
+            const xpReq = currentGrade.rules?.find(r => r.definition?.name === 'XP')?.referenceValue || totalXP;
+            const xpPercent = Math.min(100, (totalXP / xpReq) * 100);
+
+            const html = `
+                <div class="stats-grade-card">
+                    <div class="grade-badge">${currentGrade.name.replace('Grade', 'Grade ')}</div>
+                    <div class="grade-label">${username}</div>
+                </div>
+
+                <div class="xp-progress-container">
+                    <div class="xp-labels">
+                        <span>XP Progress</span>
+                        <span>${totalXP.toLocaleString()} / ${xpReq.toLocaleString()}</span>
+                    </div>
+                    <div class="xp-bar-bg">
+                        <div class="xp-bar-fill" style="width: ${xpPercent}%"></div>
+                    </div>
+                </div>
+
+                <div class="stats-grid">
+                    <div class="stat-box">
+                        <span class="stat-box-label">Total Flight Time</span>
+                        <span class="stat-box-value">${Math.round(stats.flightTime || 0).toLocaleString()} <span style="font-size:10px; color:var(--text-dim)">min</span></span>
+                    </div>
+                    <div class="stat-box">
+                        <span class="stat-box-label">Landings</span>
+                        <span class="stat-box-value">${(stats.landingCount || 0).toLocaleString()}</span>
+                    </div>
+                    <div class="stat-box">
+                        <span class="stat-box-label">Violations</span>
+                        <span class="stat-box-value" style="color: ${violations > 0 ? 'var(--color-warning)' : 'var(--color-success)'}">${violations}</span>
+                    </div>
+                    <div class="stat-box">
+                        <span class="stat-box-label">ATC Rank</span>
+                        <span class="stat-box-value">${stats.atcRank || 'Observer'}</span>
+                    </div>
+                </div>
+            `;
+            statsContent.innerHTML = html;
+        }
 
         // --- DATA BINDING ---
         window.updateFlightInterface = function(data) {
@@ -857,8 +1014,21 @@
 
         // Listener
         window.addEventListener('message', (event) => {
-            if (event.data && event.data.type === 'FLIGHT_DATA_UPDATE') {
+            if (!event.data) return;
+
+            // 1. Regular Flight Data
+            if (event.data.type === 'FLIGHT_DATA_UPDATE') {
                 window.updateFlightInterface(event.data.payload);
+            }
+            
+            // 2. Pilot Stats Data (NEW)
+            if (event.data.type === 'PILOT_STATS_DATA') {
+                renderStats(event.data.payload);
+            }
+
+            // 3. Error Handling
+            if (event.data.type === 'PILOT_STATS_ERROR') {
+                statsContent.innerHTML = `<p style="text-align:center; color: var(--color-danger); padding:20px;">${event.data.message}</p>`;
             }
         });
     </script>

@@ -10117,7 +10117,7 @@ function updateFmsLegsModule(plan, currentPos) {
     }
 
 
-   
+
 function setupSectorOpsEventListeners() {
     const panel = document.getElementById('sector-ops-floating-panel');
     if (!panel || panel.dataset.listenersAttached === 'true') return;
@@ -10200,6 +10200,74 @@ function setupSectorOpsEventListeners() {
                 }
             }
         });
+    }
+
+    // --- [NEW] Global Message Listener for Iframe Communication ---
+    window.addEventListener('message', handleIframeMessage);
+}
+
+/**
+ * --- [NEW] Handles messages from the Simple Flight Window Iframe ---
+ */
+async function handleIframeMessage(event) {
+    // 1. ND Ready Check (Existing)
+    if (event.data && event.data.type === 'ND_READY') {
+        refreshNavDisplayFromCache();
+        return;
+    }
+
+    // 2. Flight Data Update (Existing Loopback - ignored here)
+    if (event.data && event.data.type === 'FLIGHT_DATA_UPDATE') {
+        return; 
+    }
+
+    // 3. [NEW] Handle Stats Request
+    if (event.data && event.data.type === 'REQUEST_PILOT_STATS') {
+        const iframe = document.getElementById('simple-flight-window-frame');
+        if (!iframe || !iframe.contentWindow) return;
+
+        // Get the current user ID from the active flight
+        if (!currentFlightInWindow || !currentMapFeatures[currentFlightInWindow]) {
+            iframe.contentWindow.postMessage({ type: 'PILOT_STATS_ERROR', message: 'No active flight selected.' }, '*');
+            return;
+        }
+
+        const props = currentMapFeatures[currentFlightInWindow].properties;
+        const userId = props.userId;
+        const username = props.username;
+
+        if (!userId) {
+            iframe.contentWindow.postMessage({ type: 'PILOT_STATS_ERROR', message: 'User ID not available for this pilot.' }, '*');
+            return;
+        }
+
+        try {
+            // Fetch the data
+            // Ensure ACARS_USER_API_URL is defined in your scope or define it here
+            const USER_API_URL = 'https://site--acars-backend--6dmjph8ltlhv.code.run/users'; 
+            const res = await fetch(`${USER_API_URL}/${userId}/grade`);
+            
+            if (!res.ok) throw new Error('Failed to fetch pilot grade.');
+            
+            const data = await res.json();
+            
+            if (data.ok && data.gradeInfo) {
+                // Send JSON payload to iframe
+                iframe.contentWindow.postMessage({
+                    type: 'PILOT_STATS_DATA',
+                    payload: {
+                        stats: data.gradeInfo,
+                        username: username
+                    }
+                }, '*');
+            } else {
+                throw new Error('Invalid data format received from server.');
+            }
+
+        } catch (error) {
+            console.error("Iframe Stats Fetch Error:", error);
+            iframe.contentWindow.postMessage({ type: 'PILOT_STATS_ERROR', message: 'Could not load pilot statistics.' }, '*');
+        }
     }
 }
 
