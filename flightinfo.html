@@ -72,154 +72,96 @@
         background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 200 200' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noiseFilter'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.65' numOctaves='3' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noiseFilter)' opacity='0.03'/%3E%3C/svg%3E");
     }
 
-    /* --- REDESIGNED HEADER --- */
+    /* --- HEADER: IDENTITY --- */
     .header-section {
+        padding: 16px 20px;
         flex-shrink: 0;
-        z-index: 100;
-        padding: 24px 24px 12px 24px;
+        z-index: 10;
+        background: rgba(15, 23, 42, 0.85);
+        backdrop-filter: blur(16px);
+        border-bottom: 1px solid var(--border-glass);
+        box-shadow: 0 4px 20px rgba(0,0,0,0.3);
         display: flex;
         justify-content: space-between;
-        align-items: flex-start; /* Changed to start to allow text stacking */
-        
-        /* Initial State */
-        background: transparent;
-        backdrop-filter: none;
-        border-bottom: 1px solid transparent;
-        transition: all 0.4s var(--ease-out);
+        align-items: center;
     }
 
-    /* Scrolled State */
-    .avionics-window.scrolled .header-section {
-        background: rgba(15, 23, 42, 0.95);
-        backdrop-filter: blur(16px);
-        -webkit-backdrop-filter: blur(16px);
-        border-bottom: 1px solid var(--border-glass);
-        box-shadow: 0 4px 30px rgba(0,0,0,0.2);
-        padding-top: 16px;
-        padding-bottom: 16px;
-    }
-
-    /* Identity Group (Left Side) */
-    .identity-group {
+    .pilot-info-group {
         display: flex;
         flex-direction: column;
-        gap: 6px; /* Spacing between callsign and subtitle line */
+        gap: 4px;
     }
+
+    .pilot-label {
+        font-size: 10px;
+        text-transform: uppercase;
+        letter-spacing: 1px;
+        color: var(--color-accent);
+        font-weight: 700;
+        display: flex;
+        align-items: center;
+        gap: 6px;
+        cursor: pointer;
+        opacity: 0.8;
+        transition: opacity 0.2s;
+    }
+    .pilot-label:hover { opacity: 1; text-shadow: 0 0 8px rgba(56, 189, 248, 0.4); }
 
     .main-callsign {
         font-family: var(--font-ui);
         font-weight: 800;
-        font-size: 36px; /* Increased size */
+        font-size: 26px;
         line-height: 1;
-        letter-spacing: -1.5px;
+        letter-spacing: -0.5px;
         color: #fff;
-        text-shadow: 0 2px 10px rgba(0,0,0,0.1);
-        transform-origin: left bottom;
-        transition: transform 0.4s var(--ease-out);
+        background: linear-gradient(180deg, #fff, #e2e8f0);
+        -webkit-background-clip: text;
+        -webkit-text-fill-color: transparent;
     }
     
-    .avionics-window.scrolled .main-callsign {
-        transform: scale(0.85);
-    }
-
-    /* New Integrated Subtitle Row */
-    .header-subtitle-row {
+    /* Status Badge Styles */
+    .flight-state-badge {
         display: flex;
         align-items: center;
-        gap: 10px;
-        font-size: 13px;
-        color: var(--text-secondary);
-    }
-
-    /* The Integrated Status Text */
-    .status-text-integrated {
-        font-family: var(--font-data);
+        gap: 8px;
+        padding: 6px 12px;
+        border-radius: 99px;
+        background: rgba(255, 255, 255, 0.05);
+        border: 1px solid rgba(255, 255, 255, 0.1);
+        font-size: 11px;
         font-weight: 700;
         text-transform: uppercase;
         letter-spacing: 0.5px;
-        transition: color 0.3s ease;
-        display: flex;
-        align-items: center;
-        gap: 6px;
-    }
-    
-    .status-dot {
-        width: 6px; height: 6px; border-radius: 50%;
-        background: currentColor;
-        box-shadow: 0 0 8px currentColor;
-    }
-
-    /* Dynamic Colors for Text */
-    .status-climb { color: #6ee7b7; }   /* Green */
-    .status-descend { color: #fcd34d; } /* Amber */
-    .status-cruise { color: #7dd3fc; }  /* Blue */
-    .status-ground { color: #cbd5e1; }  /* Grey */
-
-    .header-separator {
-        width: 1px;
-        height: 12px;
-        background: var(--border-glass);
-        transform: rotate(15deg);
-    }
-
-    .pilot-name {
-        font-weight: 500;
         color: var(--text-secondary);
-        transition: color 0.2s;
-        cursor: pointer;
-    }
-    .pilot-name:hover {
-        color: var(--text-primary);
+        transition: all 0.3s ease;
+        box-shadow: 0 2px 5px rgba(0,0,0,0.2);
     }
 
-    /* Right Side Indicator (System Status) */
-    .system-status-indicator {
-        display: flex;
-        align-items: center;
-        gap: 6px;
-        font-family: var(--font-data);
-        font-size: 10px;
-        font-weight: 700;
-        letter-spacing: 1px;
-        color: var(--text-dim);
-        background: rgba(255,255,255,0.03);
-        padding: 6px 10px;
-        border-radius: 20px;
-        border: 1px solid var(--border-glass);
-    }
-
-    .live-pulse {
-        width: 6px; height: 6px;
-        background: var(--color-success);
-        border-radius: 50%;
-        box-shadow: 0 0 0 0 rgba(16, 185, 129, 0.7);
-        animation: pulse-green 2s infinite;
-    }
-
-    @keyframes pulse-green {
-        0% { transform: scale(0.95); box-shadow: 0 0 0 0 rgba(16, 185, 129, 0.7); }
-        70% { transform: scale(1); box-shadow: 0 0 0 4px rgba(16, 185, 129, 0); }
-        100% { transform: scale(0.95); box-shadow: 0 0 0 0 rgba(16, 185, 129, 0); }
-    }
+    /* Dynamic State Colors */
+    .state-climb { background: rgba(16, 185, 129, 0.1); border-color: rgba(16, 185, 129, 0.3); color: #34d399; }
+    .state-descend { background: rgba(245, 158, 11, 0.1); border-color: rgba(245, 158, 11, 0.3); color: #fbbf24; }
+    .state-cruise { background: rgba(56, 189, 248, 0.1); border-color: rgba(56, 189, 248, 0.3); color: #38bdf8; }
+    .state-ground { background: rgba(148, 163, 184, 0.1); border-color: rgba(148, 163, 184, 0.3); color: #cbd5e1; }
+    
+    .state-icon { font-size: 10px; opacity: 0.9; }
 
     /* --- SCROLL AREA --- */
     .scroll-viewport {
         flex: 1;
         overflow-y: auto;
         overflow-x: hidden;
-        padding: 10px 24px 20px; 
+        padding: 20px 16px;
         display: flex;
         flex-direction: column;
         gap: 16px;
-        mask-image: linear-gradient(to bottom, transparent 0%, black 20px, black 100%);
-        -webkit-mask-image: linear-gradient(to bottom, transparent 0%, black 20px, black 100%);
     }
     
     .scroll-viewport::-webkit-scrollbar { width: 4px; }
     .scroll-viewport::-webkit-scrollbar-track { background: transparent; }
     .scroll-viewport::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.1); border-radius: 10px; }
 
-    /* --- UNIFIED MISSION CARD --- */
+    /* --- NEW: UNIFIED MISSION CARD --- */
+    /* This replaces the separate hero-card and route-card logic for the outer wrapper */
     .unified-mission-card {
         border-radius: var(--radius-lg);
         border: 1px solid var(--border-glass);
@@ -234,9 +176,9 @@
     .mission-visual-section {
         position: relative;
         width: 100%;
-        height: 240px;
+        height: 240px; /* Slightly reduced height for better proportions */
         flex: 0 0 auto;
-        background: #0f172a;
+        background: #0f172a; /* Fallback color */
     }
 
     .hero-img {
@@ -245,6 +187,7 @@
         object-position: center;
         transition: transform 5s ease;
     }
+    /* Subtle zoom effect on the whole card hover */
     .unified-mission-card:hover .hero-img { transform: scale(1.05); }
 
     .hero-overlay {
@@ -287,10 +230,11 @@
 
     /* --- SECTION 2: ROUTE (Progress Bar) --- */
     .mission-route-section {
+        /* No border radius here, it inherits the bottom of the card */
         border-top: 1px solid var(--border-glass);
-        background: rgba(15, 23, 42, 0.6);
+        background: rgba(15, 23, 42, 0.6); /* Slightly darker than old card for integration */
         position: relative;
-        z-index: 2;
+        z-index: 2; /* Ensure it stays above image zoom if any overlap */
     }
 
     .route-visual-header {
@@ -485,29 +429,18 @@
 
     <div class="avionics-window">
         
-        <!-- REDESIGNED HEADER: Integrated, cleaner -->
         <header class="header-section">
-            <div class="identity-group">
-                <div class="main-callsign skeleton" id="callsign">WAITING</div>
-                
-                <!-- INTEGRATED SUBTITLE ROW -->
-                <div class="header-subtitle-row">
-                    <div class="status-text-integrated status-ground" id="status-display-wrapper">
-                        <div class="status-dot"></div>
-                        <span id="status-text">Standby</span>
-                    </div>
-                    
-                    <div class="header-separator"></div>
-                    
-                    <!-- Pilot Name (Icon Removed) -->
-                    <span class="pilot-name" id="username" onclick="parent.postMessage({type: 'OPEN_PROFILE'}, '*')">Pilot</span>
+            <div class="pilot-info-group">
+                <div class="pilot-label" onclick="parent.postMessage({type: 'OPEN_PROFILE'}, '*')">
+                    <i class="fa-solid fa-user-astronaut"></i>
+                    <span id="username">Pilot</span>
                 </div>
+                <div class="main-callsign skeleton" id="callsign">WAITING</div>
             </div>
             
-            <!-- NEW: Connection/Live Indicator (Replaces Isolated Badge) -->
-            <div class="system-status-indicator">
-                <div class="live-pulse"></div>
-                LIVE
+            <div class="flight-state-badge" id="state-badge">
+                <i class="fa-solid fa-circle-notch state-icon" id="state-icon"></i>
+                <span class="state-text" id="status-text">Standby</span>
             </div>
         </header>
 
@@ -516,7 +449,7 @@
             <!-- NEW: UNIFIED MISSION CARD (HERO + PROGRESS) -->
             <div class="unified-mission-card">
                 
-                <!-- Part 1: Visual -->
+                <!-- Part 1: Visual (The old Hero Card content) -->
                 <div class="mission-visual-section skeleton" id="hero-container">
                     <img id="ac-photo" class="hero-img" src="" style="display:none;" onload="this.style.display='block'; this.parentElement.classList.remove('skeleton');">
                     <div id="ac-credit" class="photo-credit" style="display: none;"></div>
@@ -530,7 +463,7 @@
                     </div>
                 </div>
 
-                <!-- Part 2: Route -->
+                <!-- Part 2: Route (The old Flight Progress content, attached below) -->
                 <div class="mission-route-section" id="route-card-container">
                     <!-- Toggleable Header -->
                     <div class="route-visual-header" id="route-toggle-btn">
@@ -648,9 +581,9 @@
         const scrollViewport = document.querySelector('.scroll-viewport');
         const mainWindow = document.querySelector('.avionics-window');
 
-        // Scroll Shadow & Header Logic
+        // Scroll Shadow Effect
         scrollViewport.addEventListener('scroll', () => {
-            if (scrollViewport.scrollTop > 5) {
+            if (scrollViewport.scrollTop > 10) {
                 mainWindow.classList.add('scrolled');
             } else {
                 mainWindow.classList.remove('scrolled');
@@ -674,22 +607,28 @@
             updateText('callsign', data.callsign || 'N/A');
             document.getElementById('callsign').classList.remove('skeleton');
 
-            // --- REFACTORED STATE LOGIC ---
+            // Status Badge
             const phase = data.phase ? data.phase.toUpperCase() : 'STANDBY';
             updateText('status-text', phase);
             
-            const statusWrapper = document.getElementById('status-display-wrapper');
-            // Remove old classes
-            statusWrapper.classList.remove('status-climb', 'status-descend', 'status-cruise', 'status-ground');
+            const badge = document.getElementById('state-badge');
+            const icon = document.getElementById('state-icon');
+            
+            badge.className = 'flight-state-badge'; 
+            icon.className = 'fa-solid'; 
 
             if (phase.includes('CLIMB') || phase.includes('TAKEOFF')) {
-                statusWrapper.classList.add('status-climb');
+                badge.classList.add('state-climb');
+                icon.classList.add('fa-arrow-trend-up');
             } else if (phase.includes('DESCENT') || phase.includes('APPROACH')) {
-                statusWrapper.classList.add('status-descend');
+                badge.classList.add('state-descend');
+                icon.classList.add('fa-arrow-trend-down');
             } else if (phase.includes('CRUISE')) {
-                statusWrapper.classList.add('status-cruise');
+                badge.classList.add('state-cruise');
+                icon.classList.add('fa-plane');
             } else {
-                statusWrapper.classList.add('status-ground');
+                badge.classList.add('state-ground');
+                icon.classList.add('fa-parking');
             }
 
             // 2. Aircraft
