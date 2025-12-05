@@ -6004,7 +6004,7 @@ function getIconImageExpression(colorMode = 'default') {
 
 /**
  * --- [UPDATED] Formats data for the Simple Flight Info Iframe ---
- * Now intelligently selects the best available Registration/Tail Number.
+ * Now includes grouping (SID/STAR/APPR) and accurate active leg detection.
  */
 function formatDataForSimpleWindow(flightProps, plan, routePoints, communityData) {
     if (!flightProps) return null;
@@ -6014,47 +6014,101 @@ function formatDataForSimpleWindow(flightProps, plan, routePoints, communityData
     const aircraft = (typeof flightProps.aircraft === 'string') ? JSON.parse(flightProps.aircraft) : (flightProps.aircraft || {});
     
     // --- REGISTRATION LOGIC ---
-    // Priority 1: Community Database Tail Number (Real world mapping)
-    // Priority 2: Live API Registration (Often empty/null)
-    // Priority 3: Fallback '---'
     let finalRegistration = '---';
-    
     if (communityData && communityData.tailNumber) {
         finalRegistration = communityData.tailNumber;
     } else if (aircraft.registration) {
         finalRegistration = aircraft.registration;
     }
-    // ---------------------------
 
     // 2. Route Calculations
     let originIcao = '---', destIcao = '---';
     let progress = 0, elapsed = '--:--', eta = '--:--', ete = '--:--';
     let originCountry = '', destCountry = '';
 
+    // We will build a structured waypoint list here
+    const structuredWaypoints = [];
+
     if (plan && plan.flightPlanItems && plan.flightPlanItems.length > 1) {
         originIcao = plan.origin?.icao || plan.flightPlanItems[0].identifier || '---';
         destIcao = plan.destination?.icao || plan.flightPlanItems[plan.flightPlanItems.length - 1].identifier || '---';
         
-        // Country Codes (assuming airportsData is available globally)
         if (airportsData[originIcao]) originCountry = airportsData[originIcao].country;
         if (airportsData[destIcao]) destCountry = airportsData[destIcao].country;
 
-        // Progress & Time
-        const flatWaypoints = flattenWaypointsFromPlan(plan.flightPlanItems);
+        // --- A. FLATTEN AND IDENTIFY GROUPS ---
+        const flatList = [];
+        
+        plan.flightPlanItems.forEach((item, index) => {
+            let groupName = "ENROUTE";
+            const children = item.children || [];
+            const hasChildren = children.length > 0;
+            const ident = (item.identifier || item.name || '').toUpperCase();
+
+            // Detect Procedure Type
+            if (hasChildren) {
+                if (index <= 1) {
+                    groupName = `SID: ${ident}`;
+                } else if (/^[A-Z]\d{2}[LRC]?$/.test(ident)) { // Runway identifier regex
+                    groupName = `APPR: ${ident}`;
+                } else {
+                    groupName = `STAR: ${ident}`;
+                }
+                
+                // Add children to list
+                children.forEach(child => {
+                    if (child.location) {
+                        flatList.push({ 
+                            ...child, 
+                            group: groupName 
+                        });
+                    }
+                });
+            } else if (item.location) {
+                // Top level waypoint
+                flatList.push({ ...item, group: "ENROUTE" });
+            }
+        });
+
+        // --- B. FIND ACTIVE WAYPOINT ---
+        let activeIndex = 0;
+        let minScore = Infinity;
+        const currentTrack = pos.heading_deg || 0;
+
+        if (flatList.length > 0) {
+            flatList.forEach((wp, idx) => {
+                if (!wp.location) return;
+                const d = getDistanceKm(pos.lat, pos.lon, wp.location.latitude, wp.location.longitude);
+                
+                // Simple bearing check to prefer points in front of us
+                const bearingTo = getBearing(pos.lat, pos.lon, wp.location.latitude, wp.location.longitude);
+                const bearingDiff = Math.abs(normalizeBearingDiff(currentTrack - bearingTo));
+                
+                // Only consider points roughly ahead (within 100 deg) or very close (<5km)
+                if (bearingDiff < 100 || d < 5) {
+                    if (d < minScore) {
+                        minScore = d;
+                        activeIndex = idx;
+                    }
+                }
+            });
+        }
+
+        // --- C. CALCULATE TOTAL DISTANCE & ETA ---
         let totalDist = 0;
-        for (let i = 0; i < flatWaypoints.length - 1; i++) {
-            totalDist += getDistanceKm(flatWaypoints[i][1], flatWaypoints[i][0], flatWaypoints[i+1][1], flatWaypoints[i+1][0]);
+        for (let i = 0; i < flatList.length - 1; i++) {
+            totalDist += getDistanceKm(flatList[i].location.latitude, flatList[i].location.longitude, flatList[i+1].location.latitude, flatList[i+1].location.longitude);
         }
         
-        if (totalDist > 0) {
-            const destLat = flatWaypoints[flatWaypoints.length - 1][1];
-            const destLon = flatWaypoints[flatWaypoints.length - 1][0];
+        // Progress Logic
+        if (totalDist > 0 && flatList.length > 0) {
+            const destLat = flatList[flatList.length - 1].location.latitude;
+            const destLon = flatList[flatList.length - 1].location.longitude;
             const distRemaining = getDistanceKm(pos.lat, pos.lon, destLat, destLon);
             
-            // Calc Progress
             progress = Math.max(0, Math.min(100, (1 - (distRemaining / totalDist)) * 100));
             
-            // Calc ETA/ETE
+            // ETA Calculation
             const speedKts = pos.gs_kt || 0;
             if (speedKts > 50) {
                 const hours = (distRemaining / 1.852) / speedKts;
@@ -6066,18 +6120,20 @@ function formatDataForSimpleWindow(flightProps, plan, routePoints, communityData
                 eta = arrivalDate.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit', timeZone: 'UTC' });
             }
         }
-    }
 
-    // 3. Waypoints (Simplified for the list)
-    const waypoints = [];
-    if (plan && plan.flightPlanItems) {
-        getFlatWaypointObjects(plan.flightPlanItems).forEach((wp, idx) => {
-            waypoints.push({
+        // --- D. FORMAT OUTPUT LIST ---
+        flatList.forEach((wp, idx) => {
+            const distKm = getDistanceKm(pos.lat, pos.lon, wp.location.latitude, wp.location.longitude);
+            const distNM = distKm / 1.852;
+            
+            structuredWaypoints.push({
                 ident: wp.identifier || wp.name,
                 name: wp.name,
-                type: wp.type, 
-                active: false, 
-                passed: false 
+                type: wp.type,
+                group: wp.group, // <-- Passed to UI
+                active: (idx === activeIndex),
+                passed: (idx < activeIndex),
+                time: idx === activeIndex ? `${distNM.toFixed(1)} NM` : (idx < activeIndex ? 'PASS' : '')
             });
         });
     }
@@ -6099,7 +6155,7 @@ function formatDataForSimpleWindow(flightProps, plan, routePoints, communityData
         aircraft: {
             aircraftName: aircraft.aircraftName,
             liveryName: aircraft.liveryName,
-            registration: finalRegistration // <--- PASSED HERE
+            registration: finalRegistration 
         },
         images: {
             url: communityData ? communityData.imageUrl : (flightProps.communityImageUrl || ''),
@@ -6115,7 +6171,7 @@ function formatDataForSimpleWindow(flightProps, plan, routePoints, communityData
             eta: eta,
             ete: ete
         },
-        waypoints: waypoints
+        waypoints: structuredWaypoints // <--- UPDATED LIST
     };
 }
 
