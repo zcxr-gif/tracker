@@ -72,12 +72,12 @@
         background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 200 200' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noiseFilter'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.65' numOctaves='3' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noiseFilter)' opacity='0.03'/%3E%3C/svg%3E");
     }
 
-    /* --- HEADER: IDENTITY (REDESIGNED) --- */
+    /* --- HEADER: IDENTITY --- */
     .header-section {
-        padding: 16px 20px; /* Tighter padding */
+        padding: 16px 20px;
         flex-shrink: 0;
         z-index: 10;
-        background: rgba(15, 23, 42, 0.85); /* Darker background for contrast */
+        background: rgba(15, 23, 42, 0.85);
         backdrop-filter: blur(16px);
         border-bottom: 1px solid var(--border-glass);
         box-shadow: 0 4px 20px rgba(0,0,0,0.3);
@@ -110,7 +110,7 @@
     .main-callsign {
         font-family: var(--font-ui);
         font-weight: 800;
-        font-size: 26px; /* Slightly smaller for balance */
+        font-size: 26px;
         line-height: 1;
         letter-spacing: -0.5px;
         color: #fff;
@@ -119,7 +119,7 @@
         -webkit-text-fill-color: transparent;
     }
     
-    /* NEW: Status Badge Styles */
+    /* Status Badge Styles */
     .flight-state-badge {
         display: flex;
         align-items: center;
@@ -137,7 +137,6 @@
         box-shadow: 0 2px 5px rgba(0,0,0,0.2);
     }
 
-    /* Dynamic State Colors */
     .state-climb { background: rgba(16, 185, 129, 0.1); border-color: rgba(16, 185, 129, 0.3); color: #34d399; }
     .state-descend { background: rgba(245, 158, 11, 0.1); border-color: rgba(245, 158, 11, 0.3); color: #fbbf24; }
     .state-cruise { background: rgba(56, 189, 248, 0.1); border-color: rgba(56, 189, 248, 0.3); color: #38bdf8; }
@@ -150,7 +149,7 @@
         flex: 1;
         overflow-y: auto;
         overflow-x: hidden;
-        padding: 20px 16px; /* Added top padding back */
+        padding: 20px 16px;
         display: flex;
         flex-direction: column;
         gap: 16px;
@@ -163,11 +162,9 @@
     /* --- HERO CARD (Image + Aircraft) --- */
     .hero-card {
         position: relative;
-        /* FIXED: Locked height and disabled flex-grow */
         width: 100%;
-        height: 260px; /* Fixed height to keep it consistent */
-        flex: 0 0 auto; /* Don't stretch */
-        
+        height: 260px;
+        flex: 0 0 auto;
         border-radius: var(--radius-lg);
         overflow: hidden;
         border: 1px solid var(--border-glass);
@@ -176,8 +173,8 @@
 
     .hero-img {
         width: 100%; height: 100%;
-        object-fit: cover; /* Ensures image fills the box */
-        object-position: center; /* Centers the plane */
+        object-fit: cover;
+        object-position: center;
         transition: transform 5s ease;
     }
     .hero-card:hover .hero-img { transform: scale(1.05); }
@@ -205,6 +202,7 @@
         font-weight: 500;
         border: 1px solid rgba(255, 255, 255, 0.1);
         text-transform: uppercase;
+        z-index: 5;
     }
 
     .ac-info h2 {
@@ -311,20 +309,18 @@
         justify-content: space-between;
         align-items: center;
         background: rgba(255,255,255,0.02);
-        cursor: pointer; /* Interaction */
+        cursor: pointer;
         position: relative;
     }
     
-    /* Hover effect for the clickable header */
     .route-visual-header:hover {
         background: rgba(255,255,255,0.05);
     }
     
-    /* Toggle Icon styling */
     .route-toggle-icon {
         position: absolute;
         top: 8px;
-        right: 8px; /* Position in corner */
+        right: 8px; 
         font-size: 10px;
         color: var(--text-dim);
         transition: transform 0.3s var(--ease-out), color 0.3s;
@@ -336,7 +332,6 @@
     
     .route-airport { text-align: center; }
     
-    /* --- NEW: Route Airport Layout with Flags --- */
     .route-airport-row {
         display: flex;
         align-items: center;
@@ -348,7 +343,7 @@
         width: auto;
         border-radius: 2px;
         box-shadow: 0 1px 2px rgba(0,0,0,0.5);
-        display: none; /* Hidden by default if no src */
+        display: none; 
     }
 
     .route-icao { 
@@ -372,7 +367,6 @@
         transition: width 0.5s linear;
     }
     
-    /* FIXED: Changed rotation from 90deg to 0deg to face East/Right */
     .track-plane {
         position: absolute; top: 50%; left: 0%;
         transform: translate(-50%, -50%) rotate(0deg); 
@@ -383,14 +377,14 @@
 
     /* --- DROPDOWN WRAPPER --- */
     .waypoint-dropdown-wrapper {
-        max-height: 0; /* Hidden by default */
+        max-height: 0; 
         overflow: hidden;
         transition: max-height 0.4s var(--ease-out);
         border-top: 1px solid transparent;
     }
     
     .route-card.expanded .waypoint-dropdown-wrapper {
-        max-height: 350px; /* Max expand height */
+        max-height: 350px; 
         border-top: 1px solid var(--border-glass);
     }
 
@@ -400,28 +394,20 @@
         overflow-y: auto;
     }
     
-    /* --- NICE SCROLLBAR FOR FLIGHT PLAN --- */
-    .waypoint-list::-webkit-scrollbar {
-        width: 5px;
-    }
-    .waypoint-list::-webkit-scrollbar-track {
-        background: rgba(0,0,0,0.2);
-    }
+    .waypoint-list::-webkit-scrollbar { width: 5px; }
+    .waypoint-list::-webkit-scrollbar-track { background: rgba(0,0,0,0.2); }
     .waypoint-list::-webkit-scrollbar-thumb {
         background: var(--bg-panel); 
         border: 1px solid var(--border-glass);
         border-radius: 10px;
     }
-    .waypoint-list::-webkit-scrollbar-thumb:hover {
-        background: var(--color-accent);
-    }
+    .waypoint-list::-webkit-scrollbar-thumb:hover { background: var(--color-accent); }
     
-    /* --- NEW: SECTION HEADERS --- */
     .wp-group-header {
         position: sticky;
         top: 0;
         padding: 6px 16px;
-        background: rgba(15, 23, 42, 0.95); /* Dark background to cover scroll */
+        background: rgba(15, 23, 42, 0.95); 
         color: var(--color-accent);
         font-size: 10px;
         font-weight: 700;
@@ -450,9 +436,7 @@
     }
     .wp-row.passed .wp-status { background: var(--color-success); opacity: 0.5; }
     
-    .wp-row.active {
-        background: rgba(56, 189, 248, 0.05); /* Highlight active row */
-    }
+    .wp-row.active { background: rgba(56, 189, 248, 0.05); }
     .wp-row.active .wp-status { 
         background: var(--color-accent); 
         box-shadow: 0 0 8px var(--color-accent);
@@ -472,53 +456,75 @@
     .wp-ete { font-family: var(--font-data); font-size: 12px; color: var(--text-dim); }
     .wp-row.active .wp-ete { color: var(--color-accent); font-weight: 600; }
 
-    /* --- NEW: LOCATION CARD STYLES --- */
-    .location-card {
-        background: var(--bg-panel);
-        border: 1px solid var(--border-glass);
-        border-radius: var(--radius-sm);
-        padding: 12px 16px;
-        display: flex;
-        align-items: center;
-        gap: 16px;
-        transition: border-color 0.2s;
-    }
-    .location-card:hover { border-color: var(--border-highlight); }
-    
-    .loc-icon-box {
-        width: 32px; height: 32px;
-        border-radius: 8px;
-        background: rgba(56, 189, 248, 0.1);
-        display: flex; align-items: center; justify-content: center;
-        color: var(--color-accent);
-        font-size: 14px;
-        flex-shrink: 0;
-        box-shadow: 0 2px 8px rgba(0,0,0,0.2);
-    }
-    
-    .loc-content { display: flex; flex-direction: column; }
-    .loc-main { 
-        font-size: 14px; 
-        font-weight: 600; 
-        color: var(--text-primary); 
-        letter-spacing: -0.2px;
-    }
-    .loc-sub { 
-        font-size: 11px; 
-        color: var(--text-secondary); 
-        margin-top: 2px; 
-        font-weight: 500;
-    }
 
-    /* --- FOOTER: ESSENTIALS --- */
+    /* --- NEW FOOTER: INTEGRATED SYSTEM STATUS --- */
     .footer-bar {
         margin-top: auto;
-        padding: 12px 16px;
-        background: rgba(0,0,0,0.2);
+        background: rgba(15, 23, 42, 0.9); /* More opacity for legibility */
         border-top: 1px solid var(--border-glass);
         display: flex;
+        flex-direction: column; /* Stacks location on top of stats */
+        backdrop-filter: blur(16px);
+    }
+    
+    /* 1. Location Strip (Integrated "Currently Over") */
+    .footer-location-bar {
+        padding: 8px 16px;
+        border-bottom: 1px solid rgba(255,255,255,0.05);
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        gap: 8px;
+        background: rgba(0,0,0,0.2);
+    }
+
+    .loc-pulse-dot {
+        width: 6px; height: 6px;
+        background: var(--color-accent);
+        border-radius: 50%;
+        box-shadow: 0 0 8px var(--color-accent);
+        animation: pulse-dot 2s infinite;
+    }
+    @keyframes pulse-dot {
+        0% { opacity: 0.5; transform: scale(1); }
+        50% { opacity: 1; transform: scale(1.3); }
+        100% { opacity: 0.5; transform: scale(1); }
+    }
+
+    .loc-label {
+        font-size: 9px;
+        font-weight: 700;
+        letter-spacing: 1px;
+        color: var(--text-dim);
+        text-transform: uppercase;
+    }
+
+    .loc-val-primary {
+        font-size: 11px;
+        font-weight: 600;
+        color: var(--text-primary);
+        white-space: nowrap;
+    }
+
+    .loc-divider {
+        color: var(--text-dim);
+        font-size: 10px;
+    }
+
+    .loc-val-secondary {
+        font-size: 11px;
+        color: var(--text-secondary);
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        max-width: 150px;
+    }
+
+    /* 2. Stats Row */
+    .footer-stats-row {
+        display: flex;
         justify-content: space-around;
-        backdrop-filter: blur(10px);
+        padding: 10px 16px;
     }
 
     .footer-stat { text-align: center; }
@@ -563,6 +569,7 @@
             
             <div class="hero-card skeleton" id="hero-container">
                 <img id="ac-photo" class="hero-img" src="" style="display:none;" onload="this.style.display='block'; this.parentElement.classList.remove('skeleton');">
+                <!-- Location Removed from here -->
                 <div id="ac-credit" class="photo-credit" style="display: none;"></div>
                 
                 <div class="hero-overlay">
@@ -607,19 +614,6 @@
                                 No Active Route
                             </div>
                         </div>
-                    </div>
-                </div>
-            </div>
-
-            <div>
-                <div class="grid-section-label">Currently Over</div>
-                <div class="location-card">
-                    <div class="loc-icon-box">
-                        <i class="fa-solid fa-map-location-dot"></i>
-                    </div>
-                    <div class="loc-content">
-                        <span class="loc-main" id="loc-main">Unknown Region</span>
-                        <span class="loc-sub" id="loc-sub">Waiting for GPS data...</span>
                     </div>
                 </div>
             </div>
@@ -678,18 +672,31 @@
 
         </div>
 
+        <!-- NEW RESTRUCTURED FOOTER -->
         <footer class="footer-bar">
-            <div class="footer-stat">
-                <div class="f-label">Elapsed</div>
-                <div class="f-value" id="val-ete">--:--</div>
+            <!-- Row 1: Integrated Location -->
+            <div class="footer-location-bar">
+                <div class="loc-pulse-dot"></div>
+                <span class="loc-label">Currently Over:</span>
+                <span id="loc-main" class="loc-val-primary">Locating...</span>
+                <span class="loc-divider">/</span>
+                <span id="loc-sub" class="loc-val-secondary">Waiting for signal</span>
             </div>
-            <div class="footer-stat">
-                <div class="f-label">Estimate</div>
-                <div class="f-value" id="val-eta">--:--</div>
-            </div>
-            <div class="footer-stat">
-                <div class="f-label">Remaining</div>
-                <div class="f-value" id="val-rem">--:--</div>
+
+            <!-- Row 2: Essentials -->
+            <div class="footer-stats-row">
+                <div class="footer-stat">
+                    <div class="f-label">Elapsed</div>
+                    <div class="f-value" id="val-ete">--:--</div>
+                </div>
+                <div class="footer-stat">
+                    <div class="f-label">Estimate</div>
+                    <div class="f-value" id="val-eta">--:--</div>
+                </div>
+                <div class="footer-stat">
+                    <div class="f-label">Remaining</div>
+                    <div class="f-value" id="val-rem">--:--</div>
+                </div>
             </div>
         </footer>
 
@@ -778,10 +785,11 @@
                 }
             }
 
-            // NEW 2.5: LOCATION
+            // NEW: LOCATION (Integrated into Footer)
             if (data.location) {
                 updateText('loc-main', data.location.main || 'Unknown Region');
-                updateText('loc-sub', data.location.sub || 'GPS tracking active');
+                // Use a default text if GPS is missing
+                updateText('loc-sub', data.location.sub || 'Searching...');
             }
 
             // 3. Telemetry
