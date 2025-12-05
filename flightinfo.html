@@ -72,51 +72,84 @@
         background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 200 200' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noiseFilter'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.65' numOctaves='3' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noiseFilter)' opacity='0.03'/%3E%3C/svg%3E");
     }
 
-    /* --- HEADER: IDENTITY --- */
+    /* --- HEADER: IDENTITY (REDESIGNED) --- */
     .header-section {
-        padding: 16px 20px;
+        padding: 12px 16px;
         flex-shrink: 0;
         z-index: 10;
-        background: rgba(15, 23, 42, 0.85);
-        backdrop-filter: blur(16px);
+        background: rgba(15, 23, 42, 0.7); /* Slightly more transparent */
+        backdrop-filter: blur(12px);
         border-bottom: 1px solid var(--border-glass);
-        box-shadow: 0 4px 20px rgba(0,0,0,0.3);
         display: flex;
         justify-content: space-between;
         align-items: center;
     }
 
-    .pilot-info-group {
-        display: flex;
-        flex-direction: column;
-        gap: 4px;
-    }
-
-    .pilot-label {
-        font-size: 10px;
-        text-transform: uppercase;
-        letter-spacing: 1px;
-        color: var(--color-accent);
-        font-weight: 700;
+    /* New "Command Card" style for Pilot Info */
+    .pilot-identity-card {
         display: flex;
         align-items: center;
-        gap: 6px;
+        gap: 12px;
+        padding: 6px 14px 6px 6px; /* Right padding for visual balance */
+        border-radius: 40px;
+        background: rgba(255, 255, 255, 0.03);
+        border: 1px solid transparent;
+        transition: all 0.3s ease;
         cursor: pointer;
-        opacity: 0.8;
-        transition: opacity 0.2s;
     }
-    .pilot-label:hover { opacity: 1; text-shadow: 0 0 8px rgba(56, 189, 248, 0.4); }
+    
+    .pilot-identity-card:hover {
+        background: rgba(255, 255, 255, 0.08);
+        border-color: var(--border-glass);
+        box-shadow: 0 4px 12px rgba(0,0,0,0.2);
+    }
+    
+    .pilot-identity-card:active {
+        transform: scale(0.98);
+        background: rgba(255, 255, 255, 0.02);
+    }
+
+    .pilot-avatar-frame {
+        width: 38px; height: 38px;
+        border-radius: 50%;
+        background: linear-gradient(135deg, var(--color-accent), #0ea5e9);
+        display: flex; align-items: center; justify-content: center;
+        color: #fff;
+        font-size: 16px;
+        box-shadow: 0 2px 8px rgba(56, 189, 248, 0.4);
+        position: relative;
+    }
+    
+    /* Subtle outer ring for the avatar */
+    .pilot-avatar-frame::after {
+        content: ''; position: absolute; inset: -3px;
+        border-radius: 50%;
+        border: 1px solid var(--color-accent);
+        opacity: 0.3;
+    }
+
+    .pilot-text-stack {
+        display: flex; flex-direction: column;
+        justify-content: center;
+        line-height: 1.1;
+    }
 
     .main-callsign {
-        font-family: var(--font-ui);
-        font-weight: 800;
-        font-size: 26px;
-        line-height: 1;
+        font-family: var(--font-data);
+        font-weight: 700;
+        font-size: 18px;
+        color: var(--text-primary);
         letter-spacing: -0.5px;
-        color: #fff;
-        background: linear-gradient(180deg, #fff, #e2e8f0);
-        -webkit-background-clip: text;
-        -webkit-text-fill-color: transparent;
+    }
+
+    .pilot-subtext {
+        font-family: var(--font-ui);
+        font-size: 10px;
+        text-transform: uppercase;
+        letter-spacing: 0.5px;
+        color: var(--color-accent);
+        font-weight: 600;
+        opacity: 0.9;
     }
     
     /* Status Badge Styles */
@@ -125,6 +158,7 @@
         align-items: center;
         gap: 8px;
         padding: 6px 12px;
+        height: 32px; /* Fixed height to align with profile */
         border-radius: 99px;
         background: rgba(255, 255, 255, 0.05);
         border: 1px solid rgba(255, 255, 255, 0.1);
@@ -430,12 +464,15 @@
     <div class="avionics-window">
         
         <header class="header-section">
-            <div class="pilot-info-group">
-                <div class="pilot-label" onclick="parent.postMessage({type: 'OPEN_PROFILE'}, '*')">
+            <!-- NEW: "Identity Card" Layout -->
+            <div class="pilot-identity-card" onclick="parent.postMessage({type: 'OPEN_PROFILE'}, '*')">
+                <div class="pilot-avatar-frame">
                     <i class="fa-solid fa-user-astronaut"></i>
-                    <span id="username">Pilot</span>
                 </div>
-                <div class="main-callsign skeleton" id="callsign">WAITING</div>
+                <div class="pilot-text-stack">
+                    <div class="main-callsign skeleton" id="callsign">WAITING</div>
+                    <div class="pilot-subtext" id="username">Pilot</div>
+                </div>
             </div>
             
             <div class="flight-state-badge" id="state-badge">
