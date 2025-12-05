@@ -472,6 +472,44 @@
     .wp-ete { font-family: var(--font-data); font-size: 12px; color: var(--text-dim); }
     .wp-row.active .wp-ete { color: var(--color-accent); font-weight: 600; }
 
+    /* --- NEW: LOCATION CARD STYLES --- */
+    .location-card {
+        background: var(--bg-panel);
+        border: 1px solid var(--border-glass);
+        border-radius: var(--radius-sm);
+        padding: 12px 16px;
+        display: flex;
+        align-items: center;
+        gap: 16px;
+        transition: border-color 0.2s;
+    }
+    .location-card:hover { border-color: var(--border-highlight); }
+    
+    .loc-icon-box {
+        width: 32px; height: 32px;
+        border-radius: 8px;
+        background: rgba(56, 189, 248, 0.1);
+        display: flex; align-items: center; justify-content: center;
+        color: var(--color-accent);
+        font-size: 14px;
+        flex-shrink: 0;
+        box-shadow: 0 2px 8px rgba(0,0,0,0.2);
+    }
+    
+    .loc-content { display: flex; flex-direction: column; }
+    .loc-main { 
+        font-size: 14px; 
+        font-weight: 600; 
+        color: var(--text-primary); 
+        letter-spacing: -0.2px;
+    }
+    .loc-sub { 
+        font-size: 11px; 
+        color: var(--text-secondary); 
+        margin-top: 2px; 
+        font-weight: 500;
+    }
+
     /* --- FOOTER: ESSENTIALS --- */
     .footer-bar {
         margin-top: auto;
@@ -507,7 +545,6 @@
     <div class="avionics-window">
         
         <header class="header-section">
-            <!-- RESTRUCTURED HEADER: Pilot + CallSign Left, Status Badge Right -->
             <div class="pilot-info-group">
                 <div class="pilot-label" onclick="parent.postMessage({type: 'OPEN_PROFILE'}, '*')">
                     <i class="fa-solid fa-user-astronaut"></i>
@@ -524,7 +561,6 @@
 
         <div class="scroll-viewport">
             
-            <!-- 1. HERO IMAGE -->
             <div class="hero-card skeleton" id="hero-container">
                 <img id="ac-photo" class="hero-img" src="" style="display:none;" onload="this.style.display='block'; this.parentElement.classList.remove('skeleton');">
                 <div id="ac-credit" class="photo-credit" style="display: none;"></div>
@@ -538,16 +574,11 @@
                 </div>
             </div>
 
-            <!-- 2. FLIGHT PLAN (Moved Up & Made Dropdown) -->
             <div>
                 <div class="grid-section-label">Flight Progress</div>
                 <div class="route-card" id="route-card-container">
-                    <!-- Toggleable Header -->
                     <div class="route-visual-header" id="route-toggle-btn">
-                        <i class="fa-solid fa-chevron-down route-toggle-icon"></i> <!-- Icon -->
-                        
-                        <div class="route-airport">
-                            <!-- NEW: Flex container for flag + ICAO -->
+                        <i class="fa-solid fa-chevron-down route-toggle-icon"></i> <div class="route-airport">
                             <div class="route-airport-row">
                                 <img id="dep-flag" class="country-flag" src="" alt="Origin Flag">
                                 <span class="route-icao" id="dep-icao">---</span>
@@ -562,7 +593,6 @@
                         </div>
 
                         <div class="route-airport">
-                            <!-- NEW: Flex container for ICAO + flag -->
                             <div class="route-airport-row">
                                 <span class="route-icao" id="arr-icao">---</span>
                                 <img id="arr-flag" class="country-flag" src="" alt="Dest Flag">
@@ -571,7 +601,6 @@
                         </div>
                     </div>
                     
-                    <!-- Hidden Content Wrapper -->
                     <div class="waypoint-dropdown-wrapper">
                         <div class="waypoint-list" id="wp-list">
                             <div style="padding: 20px; text-align: center; color: var(--text-secondary); font-size: 12px;">
@@ -582,7 +611,19 @@
                 </div>
             </div>
 
-            <!-- 3. TELEMETRY (Moved Down) -->
+            <div>
+                <div class="grid-section-label">Currently Over</div>
+                <div class="location-card">
+                    <div class="loc-icon-box">
+                        <i class="fa-solid fa-map-location-dot"></i>
+                    </div>
+                    <div class="loc-content">
+                        <span class="loc-main" id="loc-main">Unknown Region</span>
+                        <span class="loc-sub" id="loc-sub">Waiting for GPS data...</span>
+                    </div>
+                </div>
+            </div>
+
             <div>
                 <div class="grid-section-label">Telemetry</div>
                 <div class="telemetry-bento">
@@ -737,6 +778,12 @@
                 }
             }
 
+            // NEW 2.5: LOCATION
+            if (data.location) {
+                updateText('loc-main', data.location.main || 'Unknown Region');
+                updateText('loc-sub', data.location.sub || 'GPS tracking active');
+            }
+
             // 3. Telemetry
             if (data.telemetry) {
                 // Altitude
@@ -822,8 +869,6 @@
             container.innerHTML = html;
             
             // Scroll to active waypoint if present (first load only to be nice)
-            // Note: In dropdown mode, we might want to check if opened before scrolling, 
-            // but auto-scrolling is still fine for when the user eventually opens it.
             if (container.dataset.scrolled !== 'true') {
                 const activeEl = container.querySelector('.active');
                 if (activeEl) {
