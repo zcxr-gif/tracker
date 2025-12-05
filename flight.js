@@ -5983,7 +5983,8 @@ function getIconImageExpression(colorMode = 'default') {
 
 /**
  * --- [UPDATED] Formats data for the Simple Flight Info Iframe ---
- * Now includes grouping (SID/STAR/APPR) and accurate active leg detection.
+ * Now includes grouping (SID/STAR/APPR), accurate active leg detection,
+ * Departure Time (Z), and Elapsed Time calculations.
  */
 function formatDataForSimpleWindow(flightProps, plan, routePoints, communityData) {
     if (!flightProps) return null;
@@ -6002,8 +6003,33 @@ function formatDataForSimpleWindow(flightProps, plan, routePoints, communityData
 
     // 2. Route Calculations
     let originIcao = '---', destIcao = '---';
-    let progress = 0, elapsed = '--:--', eta = '--:--', ete = '--:--';
+    let progress = 0, elapsed = '--:--', eta = '--:--', ete = '--:--', originTime = '--:--';
     let originCountry = '', destCountry = '';
+
+    // --- TIME & ELAPSED CALCULATIONS (New Logic) ---
+    // We use the first point in routePoints (history) to determine start time
+    if (routePoints && routePoints.length > 0) {
+        const firstPoint = routePoints[0];
+        if (firstPoint && firstPoint.date) {
+            const startTime = new Date(firstPoint.date).getTime();
+            const now = Date.now();
+            
+            // 1. Calculate Departure Time (UTC)
+            originTime = new Date(startTime).toLocaleTimeString('en-GB', { 
+                hour: '2-digit', 
+                minute: '2-digit', 
+                timeZone: 'UTC' 
+            });
+
+            // 2. Calculate Elapsed Time
+            const diffMs = now - startTime;
+            if (diffMs > 0) {
+                const h = Math.floor(diffMs / 3600000);
+                const m = Math.floor((diffMs % 3600000) / 60000);
+                elapsed = `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}`;
+            }
+        }
+    }
 
     // We will build a structured waypoint list here
     const structuredWaypoints = [];
@@ -6143,14 +6169,14 @@ function formatDataForSimpleWindow(flightProps, plan, routePoints, communityData
         route: {
             originIcao, originCountry,
             destIcao, destCountry,
-            originTime: '--:--', 
+            originTime: originTime, // <-- NOW POPULATED
             destTime: eta,
             progress: progress,
-            elapsed: elapsed,
+            elapsed: elapsed,       // <-- NOW POPULATED
             eta: eta,
             ete: ete
         },
-        waypoints: structuredWaypoints // <--- UPDATED LIST
+        waypoints: structuredWaypoints
     };
 }
 
