@@ -84,161 +84,6 @@ document.addEventListener('DOMContentLoaded', async () => {
         themeOpacity: 95            // Default 95% opacity
     };
 
- /**
- * --- [FIXED v2] Three.js Custom Layer for 3D Flight Labels ---
- * Fixes Z-fighting artifacts and ensures text visibility.
- */
-class ThreeFlightLabelLayer {
-    constructor(id) {
-        this.id = id;
-        this.type = 'custom';
-        this.renderingMode = '3d';
-        this.camera = new THREE.Camera();
-        this.scene = new THREE.Scene();
-        this.map = null;
-        this.dataPoints = []; 
-        this.meshes = [];
-    }
-
-    onAdd(map, gl) {
-        this.map = map;
-        this.renderer = new THREE.WebGLRenderer({
-            canvas: map.getCanvas(),
-            context: gl,
-            antialias: true,
-            alpha: true
-        });
-        this.renderer.autoClear = false;
-    }
-
-    render(gl, matrix) {
-        const m = new THREE.Matrix4().fromArray(matrix);
-        // Mapbox Y is inverted compared to Three.js
-        const l = new THREE.Matrix4().makeTranslation(0, 0, 0)
-            .scale(new THREE.Vector3(1, -1, 1)); 
-        
-        this.camera.projectionMatrix = m.multiply(l);
-        this.renderer.resetState();
-        this.renderer.render(this.scene, this.camera);
-        // NOTE: Removed triggerRepaint() from here to prevent infinite loop/glitches
-    }
-
-    onRemove() {
-        this.clearMeshes();
-        if (this.renderer) {
-            this.renderer.dispose();
-        }
-    }
-
-    setData(points) {
-        this.dataPoints = points;
-        this.updateMeshes();
-        // Trigger repaint once when data changes
-        if (this.map) this.map.triggerRepaint();
-    }
-
-    clearMeshes() {
-        this.meshes.forEach(mesh => {
-            if (mesh.geometry) mesh.geometry.dispose();
-            if (mesh.material) {
-                if (mesh.material.map) mesh.material.map.dispose();
-                mesh.material.dispose();
-            }
-            this.scene.remove(mesh);
-        });
-        this.meshes = [];
-    }
-
-    createLabelTexture(text) {
-        const canvas = document.createElement('canvas');
-        const ctx = canvas.getContext('2d');
-        
-        // Use a power of 2 texture size for better support
-        const fontSize = 40;
-        ctx.font = `bold ${fontSize}px "Consolas", "Monaco", monospace`;
-        
-        const textMetrics = ctx.measureText(text);
-        const padding = 20;
-        const textWidth = textMetrics.width;
-        
-        // Calculate canvas size
-        const canvasWidth = textWidth + (padding * 2);
-        const canvasHeight = fontSize + (padding * 2);
-        
-        canvas.width = canvasWidth;
-        canvas.height = canvasHeight;
-        
-        // 1. Clear Background (Critical)
-        ctx.clearRect(0, 0, canvasWidth, canvasHeight);
-
-        // 2. Draw Semi-transparent Background Box
-        ctx.fillStyle = "rgba(0, 0, 0, 0.7)";
-        ctx.roundRect(0, 0, canvasWidth, canvasHeight, 10);
-        ctx.fill();
-        
-        // 3. Draw Text
-        ctx.font = `bold ${fontSize}px "Consolas", "Monaco", monospace`;
-        ctx.textBaseline = 'middle';
-        ctx.textAlign = 'center';
-        ctx.fillStyle = '#00FFFF'; // Cyan text
-        ctx.fillText(text, canvasWidth / 2, canvasHeight / 2);
-        
-        const texture = new THREE.CanvasTexture(canvas);
-        texture.minFilter = THREE.LinearFilter; // Smooth scaling
-        texture.magFilter = THREE.LinearFilter;
-        texture.needsUpdate = true;
-        
-        return { texture, aspectRatio: canvasWidth / canvasHeight };
-    }
-
-    updateMeshes() {
-        this.clearMeshes();
-        if (!this.dataPoints || this.dataPoints.length === 0) return;
-
-        this.dataPoints.forEach(pt => {
-            if (!pt.text) return;
-
-            const { texture, aspectRatio } = this.createLabelTexture(pt.text);
-            
-            // Text Size: 1200m tall (approx 4000ft)
-            const labelHeight = 1200; 
-            const labelWidth = labelHeight * aspectRatio;
-            
-            const geometry = new THREE.PlaneGeometry(labelWidth, labelHeight);
-            
-            const material = new THREE.MeshBasicMaterial({ 
-                map: texture, 
-                transparent: true,
-                side: THREE.DoubleSide,
-                depthTest: false, // Force draw on top of curtain
-                depthWrite: false // Don't mess up depth buffer
-            });
-
-            const mesh = new THREE.Mesh(geometry, material);
-
-            const modelOrigin = mapboxgl.MercatorCoordinate.fromLngLat(
-                [pt.lon, pt.lat], 
-                pt.alt * 0.3048
-            );
-
-            mesh.position.set(modelOrigin.x, modelOrigin.y, modelOrigin.z);
-
-            // Orientation
-            mesh.rotateX(Math.PI / 2); // Stand up
-            const rotationRad = -pt.bearing * (Math.PI / 180); 
-            mesh.rotateOnWorldAxis(new THREE.Vector3(0, 0, 1), rotationRad);
-            
-            const scale = modelOrigin.meterInMercatorCoordinateUnits();
-            mesh.scale.set(scale, scale, scale); 
-
-            this.scene.add(mesh);
-            this.meshes.push(mesh);
-        });
-        
-        if(this.map) this.map.triggerRepaint();
-    }
-}
-
     const departureHubs = []; // Empty array
     let ALL_AVAILABLE_ROUTES = []; // Empty array
     const DYNAMIC_FLEET = []; // Empty array
@@ -4054,32 +3899,6 @@ async function fetchAndDisplayWeather() {
       return R * c;
     }
 
-
-    /**
- * Calculates a destination point given a starting point, bearing, and distance.
- * Used to create the width of the 3D path.
- */
-function getDestinationPoint(lat, lon, brng, distKm) {
-    const R = 6371; // Earth Radius in km
-    const toRad = (deg) => deg * Math.PI / 180;
-    const toDeg = (rad) => rad * 180 / Math.PI;
-
-    const lat1 = toRad(lat);
-    const lon1 = toRad(lon);
-    const brngRad = toRad(brng);
-
-    const lat2 = Math.asin(Math.sin(lat1) * Math.cos(distKm / R) +
-        Math.cos(lat1) * Math.sin(distKm / R) * Math.cos(brngRad));
-
-    const lon2 = lon1 + Math.atan2(Math.sin(brngRad) * Math.sin(distKm / R) * Math.cos(lat1),
-        Math.cos(distKm / R) - Math.sin(lat1) * Math.sin(lat2));
-
-    return {
-        lat: toDeg(lat2),
-        lon: toDeg(lon2)
-    };
-}
-
 /**
  * --- [NEW] Unwraps coordinates to prevent Date Line issues ---
  * Converts a raw [-180, 180] line string into a continuous world-space line
@@ -7063,128 +6882,147 @@ function initializeSectorOpsMap(centerICAO) {
         sectorOpsMapRouteLayers = [];
     }
 
+    // NEW: Helper to clear the live flight trail from the map
     function clearLiveFlightPath(flightId) {
-    if (!sectorOpsMap || !flightId) return;
+        if (!sectorOpsMap || !flightId) return;
 
-    // Get all layers associated with this flight
-    const layersObj = sectorOpsLiveFlightPathLayers[flightId];
-    if (!layersObj) return;
+        // Get all layers associated with this flight
+        const layersObj = sectorOpsLiveFlightPathLayers[flightId];
+        if (!layersObj) return;
 
-    const ids = Object.values(layersObj);
+        const ids = Object.values(layersObj);
 
-    // --- PASS 1: Remove ALL Layers first ---
-    ids.forEach(layerId => {
-        if (layerId && sectorOpsMap.getLayer(layerId)) {
-            // Note: If layerId is the Three.js layer, removing it automatically 
-            // triggers ThreeFlightLabelLayer.onRemove() to clean up the scene/renderer.
-            sectorOpsMap.removeLayer(layerId);
+        // --- PASS 1: Remove ALL Layers first ---
+        ids.forEach(layerId => {
+            if (layerId && sectorOpsMap.getLayer(layerId)) {
+                sectorOpsMap.removeLayer(layerId);
+            }
+        });
+
+        // --- PASS 2: Remove Sources ---
+        // We do this only after all layers are gone to prevent "Source in use" errors.
+        ids.forEach(sourceId => {
+            if (sourceId && sectorOpsMap.getSource(sourceId)) {
+                sectorOpsMap.removeSource(sourceId);
+            }
+        });
+        
+        delete sectorOpsLiveFlightPathLayers[flightId];
+    }
+
+    
+
+ /**
+     * --- [UPDATED] Rebuilds all dynamic layers after a map style change.
+     * Ensures Volanta-style Radar and SIGMETs are restored correctly.
+     */
+    function rebuildDynamicLayers() {
+        console.log("Rebuilding dynamic layers...");
+
+        // 1. Re-apply SIGMETS (Volanta Style)
+        if (document.getElementById('weather-toggle-sigmets')?.checked) {
+            isSigmetLayerAdded = false; // Force re-fetch/re-add
+            toggleSigmetLayer(true);
         }
-    });
 
-    // --- PASS 2: Remove Sources ---
-    // We do this only after all layers are gone to prevent "Source in use" errors.
-    // Sources are usually shared by the ribbon/curtain/line layers.
-    const sourceId = `flown-path-${flightId}`;
-    if (sectorOpsMap.getSource(sourceId)) {
-        sectorOpsMap.removeSource(sourceId);
-    }
-    
-    // Also remove the plan sources (Direct/Full) if they exist
-    const planDirectId = layersObj.planDirect;
-    const planFullId = layersObj.planFull;
-    
-    if (planDirectId && sectorOpsMap.getSource(planDirectId)) sectorOpsMap.removeSource(planDirectId);
-    if (planFullId && sectorOpsMap.getSource(planFullId)) sectorOpsMap.removeSource(planFullId);
+        // 2. Re-apply Radar (Precip - RainViewer)
+        // We set isWeatherLayerAdded = false to force it to re-fetch the dynamic RainViewer path
+        if (document.getElementById('weather-toggle-precip')?.checked) {
+            isWeatherLayerAdded = false; 
+            toggleWeatherLayer(true);
+        }
 
-    // Clear tracking object
-    delete sectorOpsLiveFlightPathLayers[flightId];
-}
+        // 3. Re-apply Clouds
+        if (document.getElementById('weather-toggle-clouds')?.checked) {
+            isCloudLayerAdded = false; // Force re-creation
+            toggleCloudLayer(true);
+        }
 
-    
+        // 4. Re-apply Wind
+        if (document.getElementById('weather-toggle-wind')?.checked) {
+            isWindLayerAdded = false; // Force re-creation
+            toggleWindLayer(true);
+        }
 
- function rebuildDynamicLayers() {
-    console.log("Rebuilding dynamic layers...");
+        // 5. Re-apply airport routes
+        if (currentAirportInWindow) {
+            // This function already clears old layers and re-adds new ones
+            plotRoutesFromAirport(currentAirportInWindow);
+        }
 
-    if (document.getElementById('weather-toggle-precip')?.checked) { isWeatherLayerAdded = false; toggleWeatherLayer(true); }
-    if (document.getElementById('weather-toggle-sigmets')?.checked) { isSigmetLayerAdded = false; toggleSigmetLayer(true); }
-    if (document.getElementById('weather-toggle-clouds')?.checked) { isCloudLayerAdded = false; toggleCloudLayer(true); }
-    if (document.getElementById('weather-toggle-wind')?.checked) { isWindLayerAdded = false; toggleWindLayer(true); }
-
-    if (currentAirportInWindow) {
-        plotRoutesFromAirport(currentAirportInWindow);
-    }
-
-    if (currentFlightInWindow) {
-        const flightId = currentFlightInWindow;
-        
-        // Layer IDs
-        const sourceId = `flown-path-${flightId}`;
-        const ribbonLayerId = `flown-path-ribbon-${flightId}`;
-        const curtainLayerId = `flown-path-curtain-${flightId}`;
-        const pillarLayerId = `flown-path-pillar-${flightId}`;
-        const lineLayerId = `flown-path-line-${flightId}`;
-        const threeLayerId = `three-labels-${flightId}`; // New ID
-
-        // Clean slate
-        clearLiveFlightPath(flightId); 
-        
-        const { flightProps, plan } = cachedFlightDataForStatsView; 
-        if (flightProps) {
-            const localTrail = liveTrailCache.get(flightId) || [];
-            const currentPosition = currentAircraftPositionForGeocode || flightProps.position;
+        // 6. Re-apply active flight trail
+        if (currentFlightInWindow) {
+            const flightId = currentFlightInWindow;
             
-            // Generate Data (GeoJSON + Three.js Points)
-            const { geoJson, threeJsPoints } = generateAltitudeColoredRoute(localTrail, currentPosition, plan);
+            // Clear any stray map state
+            clearLiveFlightPath(flightId); 
+            delete sectorOpsLiveFlightPathLayers[flightId]; 
 
-            // Add Source
-            sectorOpsMap.addSource(sourceId, { type: 'geojson', data: geoJson, tolerance: 0 });
-            
-            // Add Mapbox Layers
-            sectorOpsMap.addLayer({
-                id: curtainLayerId, type: 'fill-extrusion', source: sourceId, filter: ['==', 'feature_type', 'ribbon'],
-                paint: { 'fill-extrusion-color': ['interpolate', ['linear'], ['get', 'avgAltitude'], 0, '#e6e600', 38000, '#9400D3'], 'fill-extrusion-height': ['get', 'baseM'], 'fill-extrusion-base': 0, 'fill-extrusion-opacity': 0.15 }
-            }, 'sector-ops-live-flights-layer');
+            // Get cached data from when the window was opened
+            const { flightProps, plan } = cachedFlightDataForStatsView;
+            if (flightProps) {
+                const localTrail = liveTrailCache.get(flightId) || [];
+                const currentPosition = currentAircraftPositionForGeocode || flightProps.position;
+                
+                const routeFeatureCollection = generateAltitudeColoredRoute(localTrail, currentPosition, plan);
 
-            sectorOpsMap.addLayer({
-                id: pillarLayerId, type: 'fill-extrusion', source: sourceId, filter: ['==', 'feature_type', 'pillar'],
-                paint: { 'fill-extrusion-color': '#ffffff', 'fill-extrusion-height': ['get', 'heightM'], 'fill-extrusion-base': 0, 'fill-extrusion-opacity': 0.3 }
-            }, 'sector-ops-live-flights-layer');
+                // Re-add source
+                sectorOpsMap.addSource(`flown-path-${flightId}`, {
+                    type: 'geojson',
+                    data: routeFeatureCollection
+                });
+                
+                // Re-add layer
+                sectorOpsMap.addLayer({
+                    id: `flown-path-${flightId}`,
+                    type: 'line',
+                    source: `flown-path-${flightId}`,
+                    paint: {
+                        'line-color': [
+                            'interpolate',
+                            ['linear'],
+                            ['get', 'avgAltitude'],
+                            0,     '#e6e600',
+                            10000, '#ff9900',
+                            20000, '#ff3300',
+                            29000, '#00BFFF',
+                            38000, '#9400D3'
+                        ],
+                        'line-width': 4,
+                        'line-opacity': [
+                            'case',
+                            ['boolean', ['get', 'simulated'], false],
+                            0.6,
+                            0.9
+                        ],
+                        'line-dasharray': [
+                            'case',
+                            ['boolean', ['get', 'simulated'], false],
+                            ['literal', [2, 2]],
+                            ['literal', [1, 0]]
+                        ],
+                        'line-translate': [0, -2],
+                        'line-translate-anchor': 'viewport'
+                    }
+                }, 'sector-ops-live-flights-layer'); // Draw below aircraft
+                
+                sectorOpsLiveFlightPathLayers[flightId] = { flown: `flown-path-${flightId}` };
+                console.log(`Rebuilt active trail for ${flightId}`);
 
-            sectorOpsMap.addLayer({
-                id: ribbonLayerId, type: 'fill-extrusion', source: sourceId, filter: ['==', 'feature_type', 'ribbon'],
-                paint: { 'fill-extrusion-color': ['interpolate', ['linear'], ['get', 'avgAltitude'], 0, '#e6e600', 38000, '#9400D3'], 'fill-extrusion-height': ['get', 'heightM'], 'fill-extrusion-base': ['get', 'baseM'], 'fill-extrusion-opacity': 0.9 }
-            }, 'sector-ops-live-flights-layer');
-
-            sectorOpsMap.addLayer({
-                id: lineLayerId, type: 'line', source: sourceId, filter: ['==', 'feature_type', 'centerline'],
-                paint: { 'line-color': ['interpolate', ['linear'], ['get', 'avgAltitude'], 0, '#e6e600', 38000, '#9400D3'], 'line-width': 4, 'line-opacity': 1.0 }
-            }, 'sector-ops-live-flights-layer');
-
-            // --- RE-ADD THREE.JS LAYER ---
-            const threeLayer = new ThreeFlightLabelLayer(threeLayerId);
-            sectorOpsMap.addLayer(threeLayer);
-            threeLayer.setData(threeJsPoints);
-
-            // Update Tracking
-            sectorOpsLiveFlightPathLayers[flightId] = { 
-                ribbon: ribbonLayerId,
-                curtain: curtainLayerId,
-                pillar: pillarLayerId,
-                flownLine: lineLayerId,
-                threeLayer: threeLayerId
-            };
-            console.log(`Rebuilt active trail for ${flightId}`);
-
-            if (plan) {
-                const position = currentAircraftPositionForGeocode || flightProps.position;
-                updateFlightPlanLayer(flightId, plan, position);
+                // Re-draw the planned route line based on filter state
+                if (plan) {
+                    const position = currentAircraftPositionForGeocode || flightProps.position;
+                    updateFlightPlanLayer(flightId, plan, position);
+                }
             }
         }
+        
+        // 7. Re-apply aircraft filters
+        updateAircraftLayerFilter();
+
+        // 8. Re-render airport markers
+        renderAirportMarkers();
     }
-    
-    updateAircraftLayerFilter();
-    renderAirportMarkers();
-}
 
 /**
  * --- [MODIFIED] Draws or updates the filed flight plan layers (direct or full)
@@ -7484,274 +7322,367 @@ function calculateTurnAngle(p1, p2, p3) {
 }
 
 /**
- * --- [HELPER] Chaikin's Algorithm for Curve Smoothing ---
- * Cuts corners recursively to create organic, flight-like curves.
- * @param {Array} points - Array of {unwrappedLongitude, latitude, altitude}
- * @param {number} iterations - How many times to smooth (default 3)
+ * --- [HELPER] Generates a smoothed coordinate array using Cubic Hermite Splines ---
  */
-function generateSmoothPath(points, iterations = 3) {
+function generateSmoothPath(points) {
     if (points.length < 3) return points;
 
-    let currentPoints = points;
+    const smoothPoints = [];
+    const mathPoints = points.map(p => ({ x: p.unwrappedLongitude, y: p.latitude, alt: p.altitude }));
 
-    for (let k = 0; k < iterations; k++) {
-        const nextPoints = [];
-        
-        // Always keep the first point (Departure/Start)
-        nextPoints.push(currentPoints[0]);
+    // Add phantom points for spline continuity
+    mathPoints.unshift(mathPoints[0]);
+    mathPoints.push(mathPoints[mathPoints.length - 1]);
 
-        for (let i = 0; i < currentPoints.length - 1; i++) {
-            const p0 = currentPoints[i];
-            const p1 = currentPoints[i + 1];
+    for (let i = 0; i < mathPoints.length - 3; i++) {
+        const p0 = mathPoints[i];
+        const p1 = mathPoints[i + 1];
+        const p2 = mathPoints[i + 2];
+        const p3 = mathPoints[i + 3];
 
-            // Chaikin: Q = 0.75*P0 + 0.25*P1
-            //          R = 0.25*P0 + 0.75*P1
-            
-            // 1st Point (75% towards P0)
-            nextPoints.push({
-                unwrappedLongitude: 0.75 * p0.unwrappedLongitude + 0.25 * p1.unwrappedLongitude,
-                latitude: 0.75 * p0.latitude + 0.25 * p1.latitude,
-                altitude: 0.75 * p0.altitude + 0.25 * p1.altitude
-            });
+        const dist = Math.sqrt(Math.pow(p2.x - p1.x, 2) + Math.pow(p2.y - p1.y, 2));
+        // Dynamic resolution: more segments for longer lines to keep curvature smooth
+        const segments = Math.max(2, Math.floor(dist * 8)); 
 
-            // 2nd Point (75% towards P1)
-            nextPoints.push({
-                unwrappedLongitude: 0.25 * p0.unwrappedLongitude + 0.75 * p1.unwrappedLongitude,
-                latitude: 0.25 * p0.latitude + 0.75 * p1.latitude,
-                altitude: 0.25 * p0.altitude + 0.75 * p1.altitude
-            });
+        if (i === 0) {
+            smoothPoints.push({ unwrappedLongitude: p1.x, latitude: p1.y, altitude: p1.alt });
         }
 
-        // Always keep the last point (Aircraft Nose)
-        nextPoints.push(currentPoints[currentPoints.length - 1]);
-        
-        currentPoints = nextPoints;
-    }
+        for (let j = 1; j <= segments; j++) {
+            const t = j / segments;
+            const t2 = t * t, t3 = t2 * t;
 
-    return currentPoints;
+            // Cardinal Spline / Catmull-Rom Simplified
+            const x = 0.5 * ((2 * p1.x) + (-p0.x + p2.x) * t + (2 * p0.x - 5 * p1.x + 4 * p2.x - p3.x) * t2 + (-p0.x + 3 * p1.x - 3 * p2.x + p3.x) * t3);
+            const y = 0.5 * ((2 * p1.y) + (-p0.y + p2.y) * t + (2 * p0.y - 5 * p1.y + 4 * p2.y - p3.y) * t2 + (-p0.y + 3 * p1.y - 3 * p2.y + p3.y) * t3);
+            const alt = p1.alt + (p2.alt - p1.alt) * t;
+
+            smoothPoints.push({ unwrappedLongitude: x, latitude: y, altitude: alt });
+        }
+    }
+    return smoothPoints;
 }
 
 /**
- * --- [NEW HELPER] Densifies points based on distance and altitude thresholds ---
- * Ensures segments are short enough to create a smooth "ramp" instead of stairs.
- */
-function densifyFlightPathPoints(points, maxDistKm = 0.2, maxAltDiffFt = 30) {
-    if (!points || points.length < 2) return points;
-
-    const result = [points[0]];
-
-    for (let i = 0; i < points.length - 1; i++) {
-        const p1 = points[i];
-        const p2 = points[i + 1];
-
-        // Calculate deltas
-        const dist = getDistanceKm(p1.latitude, p1.longitude, p2.latitude, p2.longitude);
-        const altDiff = Math.abs(p1.altitude - p2.altitude);
-
-        // Determine how many subdivisions we need
-        // 1. Distance check (force points every 0.2km)
-        const distSteps = Math.ceil(dist / maxDistKm);
-        // 2. Altitude check (force points every 30ft of vertical change)
-        const altSteps = Math.ceil(altDiff / maxAltDiffFt);
-        
-        // Use the stricter of the two constraints
-        const steps = Math.max(distSteps, altSteps, 1);
-
-        if (steps > 1) {
-            for (let j = 1; j < steps; j++) {
-                const fraction = j / steps;
-                
-                // Linear Interpolation
-                const lat = p1.latitude + (p2.latitude - p1.latitude) * fraction;
-                const lon = p1.longitude + (p2.longitude - p1.longitude) * fraction; 
-                // Handle unwrapped longitude for date line safety
-                const unwrappedLon = p1.unwrappedLongitude + (p2.unwrappedLongitude - p1.unwrappedLongitude) * fraction;
-                const alt = p1.altitude + (p2.altitude - p1.altitude) * fraction;
-                
-                // Optional: Interp speed for completeness
-                const gs = (p1.groundSpeed || 0) + ((p2.groundSpeed || 0) - (p1.groundSpeed || 0)) * fraction;
-
-                result.push({
-                    latitude: lat,
-                    longitude: lon,
-                    unwrappedLongitude: unwrappedLon,
-                    altitude: alt,
-                    groundSpeed: gs
-                });
-            }
-        }
-        
-        result.push(p2);
-    }
-
-    return result;
-}
-
-/**
- * --- [UPDATED v15] Returns GeoJSON for Mapbox AND Data Points for Three.js ---
- * Places text INSIDE the curtain (Vertically Centered).
+ * --- [FIXED v5] Smart Route Generator ---
+ * Fixes:
+ * 1. Intelligent Plan Backfill (Simulated History).
+ * 2. Gap Filling.
+ * 3. Date Line Safety.
+ * 4. 3D Great Circle Densification.
+ * 5. [NEW] Disables Spline Smoothing for sparse/simulated paths to prevent "bowing".
  */
 function generateAltitudeColoredRoute(sortedPoints, currentPosition, flightPlan = null) {
     const features = [];
-    const threeJsPoints = []; // Array to store data for Three.js layer
+    const GAP_THRESHOLD_KM = 20; 
+    const MIN_DIST_FROM_NOSE_KM = 0.2; 
     
-    const PATH_WIDTH_KM = 0.12; 
-    const RIBBON_THICKNESS_METERS = 150;
-    
-    // --- 1. DATA PREPARATION (Sanitize & Smooth) ---
-    // Combine trail + current position
-    const rawPoints = [];
-    sortedPoints.forEach(p => { 
-        if(p.latitude && p.longitude) rawPoints.push({...p, unwrappedLongitude: p.longitude}) 
+    // Maximum segment length for 3D rendering. 
+    const MAX_RENDER_SEGMENT_KM = 50; 
+
+    // --- 1. PREPARE FLIGHT PLAN WAYPOINTS ---
+    let flatPlan = [];
+    if (flightPlan && flightPlan.flightPlanItems) {
+        const extract = (items) => {
+            let res = [];
+            items.forEach(item => {
+                if (item.children && item.children.length) res = res.concat(extract(item.children));
+                else if (item.location) res.push({ lat: item.location.latitude, lon: item.location.longitude, alt: item.altitude || 0 });
+            });
+            return res;
+        };
+        flatPlan = extract(flightPlan.flightPlanItems);
+    }
+
+    // Helper: Find closest waypoint index in plan
+    const getPlanIndex = (lat, lon) => {
+        let bestIdx = -1, minD = Infinity;
+        for(let i=0; i<flatPlan.length; i++) {
+            const d = getDistanceKm(lat, lon, flatPlan[i].lat, flatPlan[i].lon);
+            if (d < minD && d < 500) { 
+                minD = d;
+                bestIdx = i;
+            }
+        }
+        return bestIdx;
+    };
+
+    // --- 2. SANITIZATION ---
+    const cleanHistory = sortedPoints.filter((p, i) => {
+        if (!p.latitude || !p.longitude) return false;
+        if (getDistanceKm(p.latitude, p.longitude, currentPosition.lat, currentPosition.lon) < MIN_DIST_FROM_NOSE_KM) return false;
+        if (i > 0) {
+            const prev = sortedPoints[i-1];
+            if (getDistanceKm(p.latitude, p.longitude, prev.latitude, prev.longitude) < 0.2) return false;
+        }
+        return true;
     });
-    rawPoints.push({ 
-        latitude: currentPosition.lat, 
-        longitude: currentPosition.lon, 
-        unwrappedLongitude: currentPosition.lon, 
-        altitude: currentPosition.alt_ft 
-    });
-    
-    // Unwrap Longitudes (Date Line Fix)
-    if(rawPoints.length > 1) {
-        let last = rawPoints[0].longitude;
-        rawPoints[0].unwrappedLongitude = last;
-        for(let i=1; i<rawPoints.length; i++){
-            let d = rawPoints[i].longitude - (last%360);
-            if(d>180) d-=360; if(d<-180) d+=360;
-            rawPoints[i].unwrappedLongitude = last+d; last = last+d;
+
+    // --- 3. SPIKE REMOVAL ---
+    let deSpikedHistory = [];
+    if (cleanHistory.length > 0) deSpikedHistory.push(cleanHistory[0]);
+
+    for (let i = 1; i < cleanHistory.length - 1; i++) {
+        const prev = deSpikedHistory[deSpikedHistory.length - 1];
+        const curr = cleanHistory[i];
+        const next = cleanHistory[i+1];
+        const turnAngle = calculateTurnAngle(prev, curr, next); 
+        if (Math.abs(turnAngle) < 130) { 
+            deSpikedHistory.push(curr);
+        }
+    }
+    if (cleanHistory.length > 1) deSpikedHistory.push(cleanHistory[cleanHistory.length - 1]);
+
+    // --- 4. INTELLIGENT PLAN BACKFILL ---
+    let effectiveHistory = [...deSpikedHistory];
+
+    if (flatPlan.length > 0) {
+        const currentPlanIdx = getPlanIndex(currentPosition.lat, currentPosition.lon);
+        
+        if (effectiveHistory.length < 5 && currentPlanIdx > 0) {
+            // Case A: Missing history -> Simulate from plan
+            const simulated = flatPlan.slice(0, currentPlanIdx + 1).map(wp => ({
+                latitude: wp.lat,
+                longitude: wp.lon,
+                altitude: wp.alt,
+                groundSpeed: 0
+            }));
+            effectiveHistory = simulated;
+        } 
+        else if (effectiveHistory.length >= 5) {
+            // Case B: Partial history -> Prepend plan
+            const firstHist = effectiveHistory[0];
+            const startPlanIdx = getPlanIndex(firstHist.latitude, firstHist.longitude);
+            
+            if (startPlanIdx > 2) {
+                const prefix = flatPlan.slice(0, startPlanIdx).map(wp => ({
+                    latitude: wp.lat,
+                    longitude: wp.lon,
+                    altitude: wp.alt
+                }));
+                effectiveHistory = [...prefix, ...effectiveHistory];
+            }
         }
     }
 
-    // Densify and Smooth
-    const densePoints = densifyFlightPathPoints(rawPoints, 0.2, 30);
-    const smoothPoints = generateSmoothPath(densePoints, 2);
+    // --- 5. CONSTRUCT FINAL ARRAY (With Gap Filling) ---
+    const finalPoints = [];
+    let prevPoint = null;
 
-    // --- 2. RIBBON GEOMETRY ---
-    const ribbonVertices = []; 
-    for (let i = 0; i < smoothPoints.length; i++) {
-        const p = smoothPoints[i];
-        let bearing;
+    effectiveHistory.forEach((p) => {
+        const point = { ...p, unwrappedLongitude: p.longitude };
         
-        // Calculate bearing for ribbon width
-        if (i === 0) bearing = getBearing(p.latitude, p.unwrappedLongitude, smoothPoints[i+1].latitude, smoothPoints[i+1].unwrappedLongitude);
-        else if (i === smoothPoints.length - 1) bearing = getBearing(smoothPoints[i-1].latitude, smoothPoints[i-1].unwrappedLongitude, p.latitude, p.unwrappedLongitude);
-        else bearing = getBearing(smoothPoints[i-1].latitude, smoothPoints[i-1].unwrappedLongitude, smoothPoints[i+1].latitude, smoothPoints[i+1].unwrappedLongitude);
-        
-        p.bearing = bearing; 
+        if (prevPoint) {
+            const dist = getDistanceKm(prevPoint.latitude, prevPoint.longitude, point.latitude, point.longitude);
+            if (dist > GAP_THRESHOLD_KM && flatPlan.length > 0) {
+                const startIdx = getPlanIndex(prevPoint.latitude, prevPoint.longitude);
+                const endIdx = getPlanIndex(point.latitude, point.longitude);
 
-        const left = getDestinationPoint(p.latitude, p.unwrappedLongitude, bearing - 90, PATH_WIDTH_KM / 2);
-        const right = getDestinationPoint(p.latitude, p.unwrappedLongitude, bearing + 90, PATH_WIDTH_KM / 2);
-        ribbonVertices.push({ left, right });
+                if (startIdx !== -1 && endIdx !== -1 && endIdx > startIdx) {
+                    for (let k = startIdx + 1; k < endIdx; k++) {
+                        const wp = flatPlan[k];
+                        const injectedAlt = wp.alt > 100 ? wp.alt : (prevPoint.altitude + point.altitude) / 2;
+                        finalPoints.push({
+                            latitude: wp.lat,
+                            longitude: wp.lon,
+                            unwrappedLongitude: wp.lon, 
+                            altitude: injectedAlt
+                        });
+                    }
+                }
+            }
+        }
+        finalPoints.push(point);
+        prevPoint = point;
+    });
+
+    // Add Nose
+    finalPoints.push({
+        latitude: currentPosition.lat,
+        longitude: currentPosition.lon,
+        unwrappedLongitude: currentPosition.lon,
+        altitude: currentPosition.alt_ft
+    });
+
+    if (finalPoints.length < 2) return { type: 'FeatureCollection', features: [] };
+
+    // --- 6. UNWRAP LONGITUDES ---
+    let lastUnwrappedLon = finalPoints[0].longitude; 
+    finalPoints[0].unwrappedLongitude = lastUnwrappedLon;
+    let maxLatitude = 0; // Track max lat for safety
+
+    for (let i = 1; i < finalPoints.length; i++) {
+        let currentRawLon = finalPoints[i].longitude;
+        let delta = currentRawLon - (lastUnwrappedLon % 360);
+        if (delta > 180) delta -= 360;
+        if (delta < -180) delta += 360;
+        let newUnwrappedLon = lastUnwrappedLon + delta;
+        finalPoints[i].unwrappedLongitude = newUnwrappedLon;
+        lastUnwrappedLon = newUnwrappedLon;
+        
+        const absLat = Math.abs(finalPoints[i].latitude);
+        if (absLat > maxLatitude) maxLatitude = absLat;
     }
 
-    // --- 3. BUILD FEATURES & THREE.JS POINTS ---
-    const normLon = (lon, ref) => { let d = lon-(ref%360); if(d>180)d-=360; if(d<-180)d+=360; return ref+d; };
-    
-    let distSinceLastLabel = 0;
-    const LABEL_INTERVAL_KM = 25; // More frequent labels
+    // --- 7. NORMALIZE STRIP ---
+    const headLon = finalPoints[finalPoints.length - 1].unwrappedLongitude;
+    const shift = Math.round(headLon / 360) * 360;
+    if (shift !== 0) {
+        for (let i = 0; i < finalPoints.length; i++) {
+            finalPoints[i].unwrappedLongitude -= shift;
+        }
+    }
 
+    // --- 8. SMOOTHING (WITH SAFETY CHECK) ---
+    // [FIX] Calculate average segment distance.
+    // If points are far apart (e.g. > 20km), it means this is a simulated plan (not live breadcrumbs).
+    // Applying spline smoothing to points 500km apart creates massive distortions (the "bowing" issue).
+    let totalPathDist = 0;
+    for(let i=0; i<finalPoints.length-1; i++) {
+        totalPathDist += getDistanceKm(
+            finalPoints[i].latitude, finalPoints[i].unwrappedLongitude, 
+            finalPoints[i+1].latitude, finalPoints[i+1].unwrappedLongitude
+        );
+    }
+    const avgSegmentDist = totalPathDist / (finalPoints.length - 1);
+    
+    // Disable smoothing if:
+    // 1. We are at high latitudes (> 60 deg) where Mercator distortion breaks splines.
+    // 2. The data is sparse (> 20km gaps), meaning we should rely on Great Circle densification (Step 9) instead.
+    const shouldDisableSmoothing = (maxLatitude > 60) || (avgSegmentDist > 20);
+
+    let smoothPoints;
+    if (shouldDisableSmoothing) {
+        smoothPoints = finalPoints.map(p => ({
+            unwrappedLongitude: p.unwrappedLongitude,
+            latitude: p.latitude,
+            altitude: p.altitude
+        }));
+    } else {
+        smoothPoints = generateSmoothPath(finalPoints);
+    }
+
+    // Lock Nose
+    const trueEnd = finalPoints[finalPoints.length - 1];
+    const smoothEnd = smoothPoints[smoothPoints.length - 1];
+    smoothEnd.latitude = trueEnd.latitude;
+    smoothEnd.unwrappedLongitude = trueEnd.unwrappedLongitude;
+    smoothEnd.altitude = trueEnd.altitude;
+
+    // --- 9. BUILD GEOJSON (WITH 3D DENSIFICATION) ---
     for (let i = 0; i < smoothPoints.length - 1; i++) {
         const p1 = smoothPoints[i];
-        const v1 = ribbonVertices[i];
-        const v2 = ribbonVertices[i + 1];
-        
-        const avgAltFt = (p1.altitude + smoothPoints[i+1].altitude) / 2;
-        const baseHeightMeters = avgAltFt * 0.3048; 
-        const topHeightMeters = baseHeightMeters + RIBBON_THICKNESS_METERS;
+        const p2 = smoothPoints[i+1];
 
-        // A. Curtain (Transparent Wall)
-        features.push({
-            type: 'Feature',
-            geometry: { type: 'Polygon', coordinates: [[ [normLon(v1.left.lon, p1.unwrappedLongitude), v1.left.lat], [normLon(v1.right.lon, p1.unwrappedLongitude), v1.right.lat], [normLon(v2.right.lon, p1.unwrappedLongitude), v2.right.lat], [normLon(v2.left.lon, p1.unwrappedLongitude), v2.left.lat], [normLon(v1.left.lon, p1.unwrappedLongitude), v1.left.lat] ]] },
-            properties: { feature_type: 'ribbon', avgAltitude: avgAltFt, heightM: topHeightMeters, baseM: 0, simulated: false } // Note: baseM is 0 for curtain to reach ground
-        });
+        // Basic Sanity Check
+        if (Math.abs(p1.latitude - p2.latitude) > 40 || Math.abs(p1.unwrappedLongitude - p2.unwrappedLongitude) > 100) continue;
 
-        // B. Ribbon (Solid Top)
-        features.push({
-            type: 'Feature',
-            geometry: { type: 'Polygon', coordinates: [[ [normLon(v1.left.lon, p1.unwrappedLongitude), v1.left.lat], [normLon(v1.right.lon, p1.unwrappedLongitude), v1.right.lat], [normLon(v2.right.lon, p1.unwrappedLongitude), v2.right.lat], [normLon(v2.left.lon, p1.unwrappedLongitude), v2.left.lat], [normLon(v1.left.lon, p1.unwrappedLongitude), v1.left.lat] ]] },
-            properties: { feature_type: 'ribbon', avgAltitude: avgAltFt, heightM: topHeightMeters, baseM: baseHeightMeters, simulated: false }
-        });
+        const distKm = getDistanceKm(p1.latitude, p1.unwrappedLongitude, p2.latitude, p2.unwrappedLongitude);
 
-        // C. Centerline
-        features.push({
-            type: 'Feature',
-            geometry: { type: 'LineString', coordinates: [[p1.unwrappedLongitude, p1.latitude], [smoothPoints[i+1].unwrappedLongitude, smoothPoints[i+1].latitude]] },
-            properties: { feature_type: 'centerline', avgAltitude: avgAltFt }
-        });
-
-        // --- D. THREE.JS DATA GENERATION ---
-        // --- D. THREE.JS DATA GENERATION ---
-        const segDist = getDistanceKm(p1.latitude, p1.unwrappedLongitude, smoothPoints[i+1].latitude, smoothPoints[i+1].unwrappedLongitude);
-        distSinceLastLabel += segDist;
-
-        if (distSinceLastLabel > LABEL_INTERVAL_KM && avgAltFt > 1000) {
+        if (distKm > MAX_RENDER_SEGMENT_KM) {
+            const steps = Math.ceil(distKm / MAX_RENDER_SEGMENT_KM);
             
-            const midAltitude = avgAltFt / 2;
-            
-            // --- FIX: Offset Calculation ---
-            // Push the label 200 meters to the right of the path relative to bearing
-            // This ensures it sits OUTSIDE the curtain wall (which is 120m wide total)
-            const offsetDistKm = (PATH_WIDTH_KM / 2) + 0.2; // Half width + 200m buffer
-            
-            // Calculate new Lat/Lon for the label
-            const labelPos = getDestinationPoint(
-                p1.latitude, 
-                p1.unwrappedLongitude, 
-                p1.bearing + 90, // 90 degrees to the right
-                offsetDistKm
-            );
+            for (let j = 0; j < steps; j++) {
+                const fractionStart = j / steps;
+                const fractionEnd = (j + 1) / steps;
 
-            threeJsPoints.push({
-                lat: labelPos.lat,        // Use offset Lat
-                lon: labelPos.lon,        // Use offset Lon
-                alt: midAltitude, 
-                text: `FL${Math.round(avgAltFt/100)}`, 
-                bearing: p1.bearing
+                // Interpolate Coordinates (Great Circle)
+                const startCoord = getIntermediatePoint(p1.latitude, p1.unwrappedLongitude, p2.latitude, p2.unwrappedLongitude, fractionStart);
+                const endCoord = getIntermediatePoint(p1.latitude, p1.unwrappedLongitude, p2.latitude, p2.unwrappedLongitude, fractionEnd);
+
+                // Interpolate Altitude (Linear)
+                const startAlt = p1.altitude + (p2.altitude - p1.altitude) * fractionStart;
+                const endAlt = p1.altitude + (p2.altitude - p1.altitude) * fractionEnd;
+                const avgChunkAlt = (startAlt + endAlt) / 2;
+
+                const normalizeLon = (lon, ref) => {
+                    let d = lon - (ref % 360);
+                    if (d > 180) d -= 360;
+                    if (d < -180) d += 360;
+                    return ref + d;
+                };
+
+                features.push({
+                    type: 'Feature',
+                    geometry: {
+                        type: 'LineString',
+                        coordinates: [
+                            [normalizeLon(startCoord.lon, p1.unwrappedLongitude), startCoord.lat],
+                            [normalizeLon(endCoord.lon, p1.unwrappedLongitude), endCoord.lat]
+                        ]
+                    },
+                    properties: {
+                        avgAltitude: avgChunkAlt,
+                        simulated: false 
+                    }
+                });
+            }
+        } else {
+            const avgAlt = (p1.altitude + p2.altitude) / 2;
+            features.push({
+                type: 'Feature',
+                geometry: {
+                    type: 'LineString',
+                    coordinates: [
+                        [p1.unwrappedLongitude, p1.latitude],
+                        [p2.unwrappedLongitude, p2.latitude]
+                    ]
+                },
+                properties: {
+                    avgAltitude: avgAlt,
+                    simulated: false 
+                }
             });
-            distSinceLastLabel = 0;
         }
     }
 
-    return { 
-        geoJson: { type: 'FeatureCollection', features: features }, 
-        threeJsPoints: threeJsPoints 
-    };
+    return { type: 'FeatureCollection', features: features };
 }
+
 
 
 async function handleAircraftClick(flightProps, sessionId) {
     if (!flightProps || !flightProps.flightId) return;
 
+    // [RESILIENCE] Prevent new clicks if one is already loading
     if (isAircraftWindowLoading) {
         console.warn("Aircraft click ignored: window is already loading.");
         return;
     }
 
+    // [ORIGINAL] Prevent re-opening an already open window for the same flight
     if (currentFlightInWindow === flightProps.flightId && aircraftInfoWindow.classList.contains('visible')) {
         return;
     }
 
+    // [RESILIENCE] Set loading flag
     isAircraftWindowLoading = true;
 
-    // Clear intervals
-    if (activePfdUpdateInterval) { clearInterval(activePfdUpdateInterval); activePfdUpdateInterval = null; }
-    if (activeGeocodeUpdateInterval) { clearInterval(activeGeocodeUpdateInterval); activeGeocodeUpdateInterval = null; }
+    // --- [CRITICAL] Clear ALL existing intervals first ---
+    if (activePfdUpdateInterval) {
+        clearInterval(activePfdUpdateInterval);
+        activePfdUpdateInterval = null;
+    }
+    if (activeGeocodeUpdateInterval) {
+        clearInterval(activeGeocodeUpdateInterval);
+        activeGeocodeUpdateInterval = null;
+    }
 
     resetPfdState();
 
-    // Clean up previous flight
+    // [ORIGINAL] Clear previous flight's path/cache
     if (currentFlightInWindow && currentFlightInWindow !== flightProps.flightId) {
         clearLiveFlightPath(currentFlightInWindow);
         liveTrailCache.delete(currentFlightInWindow);
     }
 
+    // --- Set State ---
     currentFlightInWindow = flightProps.flightId; 
     currentAircraftPositionForGeocode = flightProps.position; 
     lastGeocodeCoords = { lat: 0, lon: 0 }; 
     cachedFlightDataForStatsView = { flightProps: null, plan: null };
 
-    // Open Window
+    // [UI] Show Window
     if (window.MobileUIHandler && window.MobileUIHandler.isMobile()) {
         window.MobileUIHandler.openWindow(aircraftInfoWindow);
     } else {
@@ -7759,6 +7690,7 @@ async function handleAircraftClick(flightProps, sessionId) {
     }
     aircraftInfoWindowRecallBtn.classList.remove('visible');
     
+    // [UI] Loading State (Center spinner)
     const windowEl = document.getElementById('aircraft-info-window');
     windowEl.innerHTML = `
         <div style="display: flex; flex-direction: column; align-items: center; justify-content: center; height: 300px; color: #fff;">
@@ -7768,18 +7700,14 @@ async function handleAircraftClick(flightProps, sessionId) {
     `;
 
     try {
-        // Define Layer IDs
-        const sourceId = `flown-path-${flightProps.flightId}`;
-        const ribbonLayerId = `flown-path-ribbon-${flightProps.flightId}`;
-        const curtainLayerId = `flown-path-curtain-${flightProps.flightId}`;
-        const pillarLayerId = `flown-path-pillar-${flightProps.flightId}`;
-        const lineLayerId = `flown-path-line-${flightProps.flightId}`;
-        const threeLayerId = `three-labels-${flightProps.flightId}`; // Custom Three.js Layer ID
-
-        // API Calls
+        // Define layer ID for flown path
+        const flownLayerId = `flown-path-${flightProps.flightId}`;
+        
+        // --- PREPARE DATA FOR LOOKUP ---
         const acName = flightProps.aircraft?.aircraftName || '';
         const livName = flightProps.aircraft?.liveryName || '';
 
+        // --- FETCH DATA (Parallel: Plan, Route, AND Aircraft Details) ---
         const [planRes, routeRes, aircraftLookupRes] = await Promise.all([
             fetch(`${LIVE_FLIGHTS_API_URL}/${sessionId}/${flightProps.flightId}/plan`),
             fetch(`${LIVE_FLIGHTS_API_URL}/${sessionId}/${flightProps.flightId}/route`),
@@ -7790,11 +7718,15 @@ async function handleAircraftClick(flightProps, sessionId) {
         const plan = (planData && planData.ok) ? planData.plan : null;
         const routeData = routeRes.ok ? await routeRes.json() : null;
 
+        // Process Aircraft Lookup Result
         let communityAircraftData = null;
         if (aircraftLookupRes.ok) {
             communityAircraftData = await aircraftLookupRes.json();
-        } 
+        } else {
+            console.warn(`Aircraft lookup failed or no match found for ${acName} / ${livName}`);
+        }
         
+        // --- Process Route History ---
         let sortedRoutePoints = [];
         if (routeData && routeData.ok && Array.isArray(routeData.route) && routeData.route.length > 0) {
             sortedRoutePoints = routeData.route.sort((a, b) => {
@@ -7804,155 +7736,143 @@ async function handleAircraftClick(flightProps, sessionId) {
             });
         }
         
+        // Seed the cache
         liveTrailCache.set(flightProps.flightId, sortedRoutePoints);
+        // Cache data for stats view
         cachedFlightDataForStatsView = { flightProps, plan };
         
-        // Populate UI
+        // --- [MODIFIED] Choose View Mode ---
         if (mapFilters.useSimpleFlightWindow) {
+            // A. SIMPLE VIEW (IFRAME)
+            
+            // [WIDTH ADJUSTMENT] 420px
             windowEl.style.width = '420px'; 
+            
+            // [HEIGHT ADJUSTMENT] Full height minus top margin (20px) + bottom margin (20px)
             windowEl.style.height = 'calc(100vh - 40px)';
+
             windowEl.innerHTML = `
                 <div style="width: 100%; height: 100%; overflow: hidden; background: transparent; display: flex; flex-direction: column;">
-                    <iframe id="simple-flight-window-frame" src="flightinfo.html" style="width:100%; flex-grow: 1; border:none; display: block;" scrolling="no"></iframe>
+                    <iframe id="simple-flight-window-frame" src="flightinfo.html" 
+                            style="width:100%; flex-grow: 1; border:none; display: block;" 
+                            scrolling="no"></iframe>
                 </div>
             `;
+            
+            // Format initial data
             const simpleData = formatDataForSimpleWindow(flightProps, plan, sortedRoutePoints, communityAircraftData);
+            
+            // Send data once Iframe loads
             const iframe = document.getElementById('simple-flight-window-frame');
-            iframe.onload = () => { iframe.contentWindow.postMessage({ type: 'FLIGHT_DATA_UPDATE', payload: simpleData }, '*'); };
-            setTimeout(() => { if(iframe && iframe.contentWindow) iframe.contentWindow.postMessage({ type: 'FLIGHT_DATA_UPDATE', payload: simpleData }, '*'); }, 500);
+            iframe.onload = () => {
+                iframe.contentWindow.postMessage({
+                    type: 'FLIGHT_DATA_UPDATE',
+                    payload: simpleData
+                }, '*');
+            };
+            
+            // Also try sending immediately in case it's cached/fast
+            setTimeout(() => {
+                if(iframe && iframe.contentWindow) {
+                    iframe.contentWindow.postMessage({
+                        type: 'FLIGHT_DATA_UPDATE',
+                        payload: simpleData
+                    }, '*');
+                }
+            }, 500);
+
         } else {
+            // B. STANDARD VIEW (Your existing function)
+            
+            // [RESET STYLE] Remove inline width/height so CSS defaults take over
             windowEl.style.width = ''; 
             windowEl.style.height = ''; 
+
             populateAircraftInfoWindow(flightProps, plan, sortedRoutePoints, communityAircraftData);
         }
         
-        // Update Aux Data
+        // --- [GEOCODE] Initial Fetch ---
         fetchAndDisplayGeocode(flightProps.position.lat, flightProps.position.lon);
-        updateNavPanelData(flightProps.position.lat, flightProps.position.lon, flightProps.position.heading_deg, flightProps.position.oat_c || 15, flightProps.position.wind_dir || 0, flightProps.position.wind_spd_kts || 0);
 
-        // --- MAP: Generate Route Data ---
-        // Destructure to get both GeoJSON and Three.js points
-        const { geoJson, threeJsPoints } = generateAltitudeColoredRoute(sortedRoutePoints, flightProps.position, plan);
+        // --- [NAV PANEL] Initial Update ---
+        updateNavPanelData(
+            flightProps.position.lat,
+            flightProps.position.lon,
+            flightProps.position.heading_deg,
+            flightProps.position.oat_c || 15,
+            flightProps.position.wind_dir || 0,
+            flightProps.position.wind_spd_kts || 0
+        );
 
-        if (!sectorOpsMap.getSource(sourceId)) {
-            // 1. Add Source
-            sectorOpsMap.addSource(sourceId, { type: 'geojson', data: geoJson, tolerance: 0 });
-            
-            // 2. Add Curtain (Transparent Wall)
+        // --- [MAP] Generate Altitude Colored Route (WITH SIMULATION) ---
+        // Pass 'plan' to enable gap filling
+        const routeFeatureCollection = generateAltitudeColoredRoute(sortedRoutePoints, flightProps.position, plan);
+
+        if (!sectorOpsMap.getSource(flownLayerId)) {
+            sectorOpsMap.addSource(flownLayerId, {
+                type: 'geojson',
+                data: routeFeatureCollection
+            });
             sectorOpsMap.addLayer({
-                id: curtainLayerId,
-                type: 'fill-extrusion',
-                source: sourceId,
-                filter: ['==', 'feature_type', 'ribbon'],
-                paint: {
-                    'fill-extrusion-color': [
-                        'interpolate', ['linear'], ['get', 'avgAltitude'],
-                        0, '#e6e600', 10000, '#ff9900', 20000, '#ff3300', 29000, '#00BFFF', 38000, '#9400D3'
-                    ],
-                    'fill-extrusion-height': ['get', 'baseM'], 
-                    'fill-extrusion-base': 0,
-                    'fill-extrusion-opacity': 0.15 
-                }
-            }, 'sector-ops-live-flights-layer');
-
-            // 3. Add Pillars (Waypoint Beams)
-            sectorOpsMap.addLayer({
-                id: pillarLayerId,
-                type: 'fill-extrusion',
-                source: sourceId,
-                filter: ['==', 'feature_type', 'pillar'],
-                paint: {
-                    'fill-extrusion-color': '#ffffff',
-                    'fill-extrusion-height': ['get', 'heightM'],
-                    'fill-extrusion-base': 0,
-                    'fill-extrusion-opacity': 0.3
-                }
-            }, 'sector-ops-live-flights-layer');
-
-            // 4. Add Ribbon (Solid Top)
-            sectorOpsMap.addLayer({
-                id: ribbonLayerId,
-                type: 'fill-extrusion', 
-                source: sourceId,
-                filter: ['==', 'feature_type', 'ribbon'],
-                paint: {
-                    'fill-extrusion-color': [
-                        'interpolate', ['linear'], ['get', 'avgAltitude'],
-                        0, '#e6e600', 10000, '#ff9900', 20000, '#ff3300', 29000, '#00BFFF', 38000, '#9400D3'
-                    ],
-                    'fill-extrusion-height': ['get', 'heightM'],
-                    'fill-extrusion-base': ['get', 'baseM'],
-                    'fill-extrusion-opacity': 0.9
-                }
-            }, 'sector-ops-live-flights-layer');
-
-            // 5. Add Centerline
-            sectorOpsMap.addLayer({
-                id: lineLayerId,
+                id: flownLayerId,
                 type: 'line',
-                source: sourceId, 
-                filter: ['==', 'feature_type', 'centerline'],
+                source: flownLayerId,
                 paint: {
                     'line-color': [
-                        'interpolate', ['linear'], ['get', 'avgAltitude'],
-                        0, '#e6e600', 10000, '#ff9900', 20000, '#ff3300', 29000, '#00BFFF', 38000, '#9400D3'
+                        'interpolate',
+                        ['linear'],
+                        ['get', 'avgAltitude'],
+                        0,     '#e6e600', 
+                        10000, '#ff9900', 
+                        20000, '#ff3300', 
+                        29000, '#00BFFF', 
+                        38000, '#9400D3'  
                     ],
-                    'line-width': ['interpolate', ['linear'], ['zoom'], 3, 4, 10, 2.5],
-                    'line-opacity': 1.0
+                    'line-width': 4,
+                    'line-opacity': 0.9, 
+                    'line-dasharray': [1, 0],
+                    'line-translate': [0, -2], 
+                    'line-translate-anchor': 'viewport'
                 }
             }, 'sector-ops-live-flights-layer');
-
-            // 6. ADD THREE.JS 3D TEXT LAYER
-            const threeLayer = new ThreeFlightLabelLayer(threeLayerId);
-            sectorOpsMap.addLayer(threeLayer);
-            threeLayer.setData(threeJsPoints); // Pass the points to Three.js
-
         } else {
-             // Update GeoJSON source
-             sectorOpsMap.getSource(sourceId).setData(geoJson);
-             
-             // Update Three.js Layer Data
-             const existingThreeId = sectorOpsLiveFlightPathLayers[flightProps.flightId]?.threeLayer;
-             if (existingThreeId && sectorOpsMap.getLayer(existingThreeId)) {
-                 // Access the layer implementation instance
-                 const layerInstance = sectorOpsMap.getLayer(existingThreeId).implementation;
-                 if (layerInstance && typeof layerInstance.setData === 'function') {
-                     layerInstance.setData(threeJsPoints);
-                 }
-             }
+             sectorOpsMap.getSource(flownLayerId).setData(routeFeatureCollection);
         }
 
-        // Track layers
+        // Store layer ID for cleanup
         sectorOpsLiveFlightPathLayers[flightProps.flightId] = {
-            ribbon: ribbonLayerId,
-            curtain: curtainLayerId,
-            pillar: pillarLayerId,
-            flownLine: lineLayerId,
-            threeLayer: threeLayerId // New tracking key
+            flown: flownLayerId
         };
         
-        // Update Flight Plan Line
+        // --- [MAP] Draw Planned Route (if exists) ---
         if (plan) {
             updateFlightPlanLayer(flightProps.flightId, plan, flightProps.position);
         }
         
-        // Start Intervals
+        // --- [INTERVALS] Start Updates ---
         const FIVE_MINUTES_MS = 300000; 
         activeGeocodeUpdateInterval = setInterval(() => {
             if (currentAircraftPositionForGeocode) {
-                fetchAndDisplayGeocode(currentAircraftPositionForGeocode.lat, currentAircraftPositionForGeocode.lon);
+                fetchAndDisplayGeocode(
+                    currentAircraftPositionForGeocode.lat,
+                    currentAircraftPositionForGeocode.lon
+                );
             }
         }, FIVE_MINUTES_MS);
         
+        // Initial Weather Fetch
         fetchAndDisplayWeather();
         if (activeWeatherUpdateInterval) clearInterval(activeWeatherUpdateInterval);
-        activeWeatherUpdateInterval = setInterval(() => { fetchAndDisplayWeather(); }, FIVE_MINUTES_MS);
+        activeWeatherUpdateInterval = setInterval(() => {
+             fetchAndDisplayWeather();
+        }, FIVE_MINUTES_MS);
 
         isAircraftWindowLoading = false;
 
     } catch (error) {
         console.error("Error fetching or plotting aircraft details:", error);
-        windowEl.innerHTML = `<p class="error-text" style="padding: 2rem; color: #ef4444;">Could not retrieve complete flight details.</p>`;
+        windowEl.innerHTML = `<p class="error-text" style="padding: 2rem; color: #ef4444;">Could not retrieve complete flight details. The aircraft may have landed or disconnected.</p>`;
+        
         isAircraftWindowLoading = false; 
         currentFlightInWindow = null; 
         cachedFlightDataForStatsView = { flightProps: null, plan: null };
@@ -7961,124 +7881,97 @@ async function handleAircraftClick(flightProps, sessionId) {
 }
 
 /**
- * --- [UPDATED v2] Rebuilds all dynamic layers after a map style change.
- * Restores Ribbon, Curtain, Pillars, and Weather.
+ * --- [NEW] Rebuilds all dynamic layers after a map style change.
+ * This includes weather, airport routes, and the active aircraft trail.
  */
 function rebuildDynamicLayers() {
     console.log("Rebuilding dynamic layers...");
 
-    if (document.getElementById('weather-toggle-precip')?.checked) { isWeatherLayerAdded = false; toggleWeatherLayer(true); }
-    if (document.getElementById('weather-toggle-sigmets')?.checked) { isSigmetLayerAdded = false; toggleSigmetLayer(true); }
-    if (document.getElementById('weather-toggle-clouds')?.checked) { isCloudLayerAdded = false; toggleCloudLayer(true); }
-    if (document.getElementById('weather-toggle-wind')?.checked) { isWindLayerAdded = false; toggleWindLayer(true); }
+    // 1. Re-apply weather layers
+    if (document.getElementById('weather-toggle-precip')?.checked) {
+        isWeatherLayerAdded = false; // Force re-creation
+        toggleWeatherLayer(true);
+    }
+    if (document.getElementById('weather-toggle-clouds')?.checked) {
+        isCloudLayerAdded = false; // Force re-creation
+        toggleCloudLayer(true);
+    }
+    if (document.getElementById('weather-toggle-wind')?.checked) {
+        isWindLayerAdded = false; // Force re-creation
+        toggleWindLayer(true);
+    }
 
+    // 2. Re-apply airport routes
     if (currentAirportInWindow) {
+        // This function already clears old layers and re-adds new ones
         plotRoutesFromAirport(currentAirportInWindow);
     }
 
+    // 3. Re-apply active flight trail
     if (currentFlightInWindow) {
         const flightId = currentFlightInWindow;
-        const sourceId = `flown-path-${flightId}`;
-        const ribbonLayerId = `flown-path-ribbon-${flightId}`;
-        const curtainLayerId = `flown-path-curtain-${flightId}`;
-        const pillarLayerId = `flown-path-pillar-${flightId}`;
-        const lineLayerId = `flown-path-line-${flightId}`;
         
+        // Clear any stray map state
         clearLiveFlightPath(flightId); 
         delete sectorOpsLiveFlightPathLayers[flightId]; 
 
-        const { flightProps, plan } = cachedFlightDataForStatsView; 
+        // Get cached data from when the window was opened
+        const { flightProps, plan } = cachedFlightDataForStatsView; // <-- Add 'plan'
         if (flightProps) {
             const localTrail = liveTrailCache.get(flightId) || [];
             const currentPosition = currentAircraftPositionForGeocode || flightProps.position;
-            const routeFeatureCollection = generateAltitudeColoredRoute(localTrail, currentPosition, plan);
+            const routeFeatureCollection = generateAltitudeColoredRoute(localTrail, currentPosition);
 
-            sectorOpsMap.addSource(sourceId, {
+            // Re-add source
+            sectorOpsMap.addSource(`flown-path-${flightId}`, { // Use base ID
                 type: 'geojson',
-                data: routeFeatureCollection,
-                tolerance: 0 
+                data: routeFeatureCollection
             });
             
-            // 1. Curtain
+            // Re-add layer (copying paint properties from handleAircraftClick)
             sectorOpsMap.addLayer({
-                id: curtainLayerId,
-                type: 'fill-extrusion',
-                source: sourceId,
-                filter: ['==', 'feature_type', 'ribbon'],
-                paint: {
-                    'fill-extrusion-color': [
-                        'interpolate', ['linear'], ['get', 'avgAltitude'],
-                        0, '#e6e600', 10000, '#ff9900', 20000, '#ff3300', 29000, '#00BFFF', 38000, '#9400D3'
-                    ],
-                    'fill-extrusion-height': ['get', 'baseM'], 
-                    'fill-extrusion-base': 0,
-                    'fill-extrusion-opacity': 0.15 
-                }
-            }, 'sector-ops-live-flights-layer');
-
-            // 2. Pillars
-            sectorOpsMap.addLayer({
-                id: pillarLayerId,
-                type: 'fill-extrusion',
-                source: sourceId,
-                filter: ['==', 'feature_type', 'pillar'],
-                paint: {
-                    'fill-extrusion-color': '#ffffff',
-                    'fill-extrusion-height': ['get', 'heightM'],
-                    'fill-extrusion-base': 0,
-                    'fill-extrusion-opacity': 0.3
-                }
-            }, 'sector-ops-live-flights-layer');
-
-            // 3. Ribbon
-            sectorOpsMap.addLayer({
-                id: ribbonLayerId,
-                type: 'fill-extrusion', 
-                source: sourceId,
-                filter: ['==', 'feature_type', 'ribbon'],
-                paint: {
-                    'fill-extrusion-color': [
-                        'interpolate', ['linear'], ['get', 'avgAltitude'],
-                        0,     '#e6e600', 10000, '#ff9900', 20000, '#ff3300', 29000, '#00BFFF', 38000, '#9400D3'
-                    ],
-                    'fill-extrusion-height': ['get', 'heightM'],
-                    'fill-extrusion-base': ['get', 'baseM'],
-                    'fill-extrusion-opacity': 0.9
-                }
-            }, 'sector-ops-live-flights-layer');
-
-            // 4. Line
-            sectorOpsMap.addLayer({
-                id: lineLayerId,
+                id: `flown-path-${flightId}`, // Use base ID
                 type: 'line',
-                source: sourceId,
-                filter: ['==', 'feature_type', 'centerline'],
+                source: `flown-path-${flightId}`, // Use base ID
                 paint: {
                     'line-color': [
-                        'interpolate', ['linear'], ['get', 'avgAltitude'],
-                        0,     '#e6e600', 10000, '#ff9900', 20000, '#ff3300', 29000, '#00BFFF', 38000, '#9400D3'
+                        'interpolate',
+                        ['linear'],
+                        ['get', 'avgAltitude'],
+                        0,     '#e6e600',
+                        10000, '#ff9900',
+                        20000, '#ff3300',
+                        29000, '#00BFFF',
+                        38000, '#9400D3'
                     ],
-                    'line-width': ['interpolate', ['linear'], ['zoom'], 3, 4, 10, 2.5],
-                    'line-opacity': 1.0
+                    'line-width': 4,
+                    // --- [MODIFIED] Uniform Opacity ---
+                    'line-opacity': 0.9,
+                    // --- [MODIFIED] Solid Line Only ---
+                    'line-dasharray': [1, 0],
+
+                    'line-translate': [0, -2],
+                    'line-translate-anchor': 'viewport'
                 }
-            }, 'sector-ops-live-flights-layer');
+            }, 'sector-ops-live-flights-layer'); // Draw below aircraft
             
-            sectorOpsLiveFlightPathLayers[flightId] = { 
-                ribbon: ribbonLayerId,
-                curtain: curtainLayerId,
-                pillar: pillarLayerId,
-                flownLine: lineLayerId
-            };
+            sectorOpsLiveFlightPathLayers[flightId] = { flown: `flown-path-${flightId}` };
             console.log(`Rebuilt active trail for ${flightId}`);
 
+            // --- [START NEW] ---
+            // Re-draw the planned route line based on filter state
             if (plan) {
                 const position = currentAircraftPositionForGeocode || flightProps.position;
                 updateFlightPlanLayer(flightId, plan, position);
             }
+            // --- [END NEW] ---
         }
     }
     
+    // 4. Re-apply aircraft filters
     updateAircraftLayerFilter();
+
+    // 5. Re-render airport markers
     renderAirportMarkers();
 }
 

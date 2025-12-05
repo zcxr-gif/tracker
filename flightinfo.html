@@ -5,12 +5,10 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Flight Avionics Interface</title>
     
-    <!-- Fonts: Inter for UI, JetBrains Mono for Data -->
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;800&family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet">
     
-    <!-- Icons: FontAwesome & Phosphor (Simulated via FA for compatibility) -->
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
 
     <style>
@@ -214,6 +212,23 @@
         display: flex;
         justify-content: space-between;
         align-items: flex-end;
+    }
+
+    /* --- [NEW] Photo Credit Badge --- */
+    .photo-credit {
+        position: absolute;
+        top: 12px;
+        right: 12px;
+        font-size: 9px;
+        color: rgba(255, 255, 255, 0.7);
+        background: rgba(0, 0, 0, 0.4);
+        padding: 3px 8px;
+        border-radius: 6px;
+        backdrop-filter: blur(4px);
+        pointer-events: none;
+        font-weight: 500;
+        border: 1px solid rgba(255, 255, 255, 0.1);
+        text-transform: uppercase;
     }
 
     .ac-info h2 {
@@ -426,7 +441,6 @@
 
     <div class="avionics-window">
         
-        <!-- HEADER -->
         <header class="header-section">
             <div class="identity-block">
                 <div class="callsign-wrapper">
@@ -444,12 +458,12 @@
             </div>
         </header>
 
-        <!-- SCROLLABLE CONTENT -->
         <div class="scroll-viewport">
             
-            <!-- Hero Image Card -->
             <div class="hero-card skeleton" id="hero-container">
                 <img id="ac-photo" class="hero-img" src="" style="display:none;" onload="this.style.display='block'; this.parentElement.classList.remove('skeleton');">
+                <div id="ac-credit" class="photo-credit" style="display: none;"></div>
+                
                 <div class="hero-overlay">
                     <div class="ac-info">
                         <h2 id="ac-name">---</h2>
@@ -459,12 +473,10 @@
                 </div>
             </div>
 
-            <!-- Telemetry Grid -->
             <div>
                 <div class="grid-section-label">Telemetry</div>
                 <div class="telemetry-bento">
                     
-                    <!-- ALT -->
                     <div class="bento-cell">
                         <div class="cell-header">
                             <span class="cell-label">Altitude</span>
@@ -476,7 +488,6 @@
                         </div>
                     </div>
 
-                    <!-- SPD -->
                     <div class="bento-cell">
                         <div class="cell-header">
                             <span class="cell-label">GND Speed</span>
@@ -488,7 +499,6 @@
                         </div>
                     </div>
 
-                    <!-- V/S -->
                     <div class="bento-cell">
                         <div class="cell-header">
                             <span class="cell-label">Vertical</span>
@@ -501,7 +511,6 @@
                         </div>
                     </div>
 
-                    <!-- HDG -->
                     <div class="bento-cell">
                         <div class="cell-header">
                             <span class="cell-label">Heading</span>
@@ -516,7 +525,6 @@
                 </div>
             </div>
 
-            <!-- Route Card -->
             <div>
                 <div class="grid-section-label">Flight Plan</div>
                 <div class="route-card">
@@ -538,9 +546,7 @@
                         </div>
                     </div>
                     
-                    <!-- Waypoints Container -->
                     <div class="waypoint-list" id="wp-list">
-                        <!-- Dynamic Injection -->
                         <div style="padding: 20px; text-align: center; color: var(--text-secondary); font-size: 12px;">
                             No Active Route
                         </div>
@@ -550,7 +556,6 @@
 
         </div>
 
-        <!-- FOOTER BAR -->
         <footer class="footer-bar">
             <div class="footer-stat">
                 <div class="f-label">Elapsed</div>
@@ -607,10 +612,23 @@
                 updateText('ac-livery', data.aircraft.liveryName || 'Unknown Livery');
                 updateText('ac-reg', data.aircraft.registration || '---');
             }
-            if (data.images && data.images.url) {
-                const img = document.getElementById('ac-photo');
-                if (img.src !== data.images.url) {
-                    img.src = data.images.url;
+            if (data.images) {
+                if (data.images.url) {
+                    const img = document.getElementById('ac-photo');
+                    if (img.src !== data.images.url) {
+                        img.src = data.images.url;
+                    }
+                }
+                
+                // --- NEW: Update Photo Credit ---
+                const creditEl = document.getElementById('ac-credit');
+                if (creditEl) {
+                    if (data.images.credit) {
+                        creditEl.textContent = '© ' + data.images.credit;
+                        creditEl.style.display = 'block';
+                    } else {
+                        creditEl.style.display = 'none';
+                    }
                 }
             }
 
@@ -698,27 +716,6 @@
                 window.updateFlightInterface(event.data.payload);
             }
         });
-
-        // --- DEV TEST MOCK (Uncomment to visualize without backend) ---
-        /*
-        setTimeout(() => {
-            updateFlightInterface({
-                username: "CaptainGemini",
-                callsign: "UAL 452",
-                phase: "CRUISE",
-                aircraft: { aircraftName: "Boeing 787-9", liveryName: "United Airlines", registration: "N29981" },
-                images: { url: "https://upload.wikimedia.org/wikipedia/commons/thumb/3/36/United_Airlines_Boeing_787-9_N24976_at_SFO%2C_2019.jpg/1200px-United_Airlines_Boeing_787-9_N24976_at_SFO%2C_2019.jpg" },
-                telemetry: { altitude: 34000, groundSpeed: 495, verticalSpeed: 0, heading: 270 },
-                route: { originIcao: "EGLL", destIcao: "KSFO", progress: 45, elapsed: "04:12", eta: "19:45Z", ete: "05:10" },
-                waypoints: [
-                    { ident: "EGLL", passed: true, time: "10:00" },
-                    { ident: "WIK", passed: true, time: "10:20" },
-                    { ident: "MALOT", active: true, time: "14:15" },
-                    { ident: "KSFO", passed: false, time: "19:25" }
-                ]
-            });
-        }, 1000);
-        */
     </script>
 </body>
 </html>
