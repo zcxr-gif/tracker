@@ -318,6 +318,10 @@
         border: 1px solid var(--border-glass);
         border-radius: var(--radius-lg);
         overflow: hidden;
+        transition: border-color 0.2s;
+    }
+    .route-card:hover {
+        border-color: var(--border-highlight);
     }
 
     .route-visual-header {
@@ -326,9 +330,29 @@
         justify-content: space-between;
         align-items: center;
         background: rgba(255,255,255,0.02);
-        border-bottom: 1px solid var(--border-glass);
+        cursor: pointer; /* Interaction */
+        position: relative;
     }
-
+    
+    /* Hover effect for the clickable header */
+    .route-visual-header:hover {
+        background: rgba(255,255,255,0.05);
+    }
+    
+    /* Toggle Icon styling */
+    .route-toggle-icon {
+        position: absolute;
+        top: 8px;
+        right: 8px; /* Position in corner */
+        font-size: 10px;
+        color: var(--text-dim);
+        transition: transform 0.3s var(--ease-out), color 0.3s;
+    }
+    .route-card.expanded .route-toggle-icon {
+        transform: rotate(180deg);
+        color: var(--color-accent);
+    }
+    
     .route-airport { text-align: center; }
     .route-icao { 
         display: block; font-family: var(--font-data); 
@@ -358,10 +382,39 @@
         filter: drop-shadow(0 0 5px rgba(255,255,255,0.5));
     }
 
+    /* --- DROPDOWN WRAPPER --- */
+    .waypoint-dropdown-wrapper {
+        max-height: 0; /* Hidden by default */
+        overflow: hidden;
+        transition: max-height 0.4s var(--ease-out);
+        border-top: 1px solid transparent;
+    }
+    
+    .route-card.expanded .waypoint-dropdown-wrapper {
+        max-height: 350px; /* Max expand height */
+        border-top: 1px solid var(--border-glass);
+    }
+
     .waypoint-list {
         padding: 0;
-        max-height: 250px; 
+        max-height: 350px; 
         overflow-y: auto;
+    }
+    
+    /* --- NICE SCROLLBAR FOR FLIGHT PLAN --- */
+    .waypoint-list::-webkit-scrollbar {
+        width: 5px;
+    }
+    .waypoint-list::-webkit-scrollbar-track {
+        background: rgba(0,0,0,0.2);
+    }
+    .waypoint-list::-webkit-scrollbar-thumb {
+        background: var(--bg-panel); 
+        border: 1px solid var(--border-glass);
+        border-radius: 10px;
+    }
+    .waypoint-list::-webkit-scrollbar-thumb:hover {
+        background: var(--color-accent);
     }
     
     /* --- NEW: SECTION HEADERS --- */
@@ -473,6 +526,7 @@
 
         <div class="scroll-viewport">
             
+            <!-- 1. HERO IMAGE -->
             <div class="hero-card skeleton" id="hero-container">
                 <img id="ac-photo" class="hero-img" src="" style="display:none;" onload="this.style.display='block'; this.parentElement.classList.remove('skeleton');">
                 <div id="ac-credit" class="photo-credit" style="display: none;"></div>
@@ -486,6 +540,43 @@
                 </div>
             </div>
 
+            <!-- 2. FLIGHT PLAN (Moved Up & Made Dropdown) -->
+            <div>
+                <div class="grid-section-label">Flight Progress</div>
+                <div class="route-card" id="route-card-container">
+                    <!-- Toggleable Header -->
+                    <div class="route-visual-header" id="route-toggle-btn">
+                        <i class="fa-solid fa-chevron-down route-toggle-icon"></i> <!-- Icon -->
+                        
+                        <div class="route-airport">
+                            <span class="route-icao" id="dep-icao">---</span>
+                            <span class="route-time" id="dep-time">--:--</span>
+                        </div>
+                        
+                        <div class="route-graphic">
+                            <div class="track-line"></div>
+                            <div class="track-progress" id="route-progress"></div>
+                            <i class="fa-solid fa-plane track-plane" id="route-plane"></i>
+                        </div>
+
+                        <div class="route-airport">
+                            <span class="route-icao" id="arr-icao">---</span>
+                            <span class="route-time" id="arr-time">--:--</span>
+                        </div>
+                    </div>
+                    
+                    <!-- Hidden Content Wrapper -->
+                    <div class="waypoint-dropdown-wrapper">
+                        <div class="waypoint-list" id="wp-list">
+                            <div style="padding: 20px; text-align: center; color: var(--text-secondary); font-size: 12px;">
+                                No Active Route
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- 3. TELEMETRY (Moved Down) -->
             <div>
                 <div class="grid-section-label">Telemetry</div>
                 <div class="telemetry-bento">
@@ -538,35 +629,6 @@
                 </div>
             </div>
 
-            <div>
-                <div class="grid-section-label">Flight Plan</div>
-                <div class="route-card">
-                    <div class="route-visual-header">
-                        <div class="route-airport">
-                            <span class="route-icao" id="dep-icao">---</span>
-                            <span class="route-time" id="dep-time">--:--</span>
-                        </div>
-                        
-                        <div class="route-graphic">
-                            <div class="track-line"></div>
-                            <div class="track-progress" id="route-progress"></div>
-                            <i class="fa-solid fa-plane track-plane" id="route-plane"></i>
-                        </div>
-
-                        <div class="route-airport">
-                            <span class="route-icao" id="arr-icao">---</span>
-                            <span class="route-time" id="arr-time">--:--</span>
-                        </div>
-                    </div>
-                    
-                    <div class="waypoint-list" id="wp-list">
-                        <div style="padding: 20px; text-align: center; color: var(--text-secondary); font-size: 12px;">
-                            No Active Route
-                        </div>
-                    </div>
-                </div>
-            </div>
-
         </div>
 
         <footer class="footer-bar">
@@ -591,12 +653,21 @@
         const scrollViewport = document.querySelector('.scroll-viewport');
         const mainWindow = document.querySelector('.avionics-window');
 
+        // Scroll Shadow Effect
         scrollViewport.addEventListener('scroll', () => {
             if (scrollViewport.scrollTop > 10) {
                 mainWindow.classList.add('scrolled');
             } else {
                 mainWindow.classList.remove('scrolled');
             }
+        });
+
+        // Dropdown Logic
+        const routeToggleBtn = document.getElementById('route-toggle-btn');
+        const routeCardContainer = document.getElementById('route-card-container');
+        
+        routeToggleBtn.addEventListener('click', () => {
+            routeCardContainer.classList.toggle('expanded');
         });
 
         // --- DATA BINDING ---
@@ -726,6 +797,8 @@
             container.innerHTML = html;
             
             // Scroll to active waypoint if present (first load only to be nice)
+            // Note: In dropdown mode, we might want to check if opened before scrolling, 
+            // but auto-scrolling is still fine for when the user eventually opens it.
             if (container.dataset.scrolled !== 'true') {
                 const activeEl = container.querySelector('.active');
                 if (activeEl) {
