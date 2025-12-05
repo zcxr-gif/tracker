@@ -79,18 +79,18 @@
         padding: 24px 24px 12px 24px;
         display: flex;
         justify-content: space-between;
-        align-items: flex-end;
+        align-items: flex-start; /* Changed to start to allow text stacking */
         
-        /* Initial State: Integrated & Clean (No disconnection) */
+        /* Initial State */
         background: transparent;
         backdrop-filter: none;
         border-bottom: 1px solid transparent;
         transition: all 0.4s var(--ease-out);
     }
 
-    /* Scrolled State: Separation for utility */
+    /* Scrolled State */
     .avionics-window.scrolled .header-section {
-        background: rgba(15, 23, 42, 0.9);
+        background: rgba(15, 23, 42, 0.95);
         backdrop-filter: blur(16px);
         -webkit-backdrop-filter: blur(16px);
         border-bottom: 1px solid var(--border-glass);
@@ -99,18 +99,19 @@
         padding-bottom: 16px;
     }
 
+    /* Identity Group (Left Side) */
     .identity-group {
         display: flex;
         flex-direction: column;
-        gap: 4px;
+        gap: 6px; /* Spacing between callsign and subtitle line */
     }
 
     .main-callsign {
         font-family: var(--font-ui);
         font-weight: 800;
-        font-size: 32px; /* Larger, more heroic */
+        font-size: 36px; /* Increased size */
         line-height: 1;
-        letter-spacing: -1px;
+        letter-spacing: -1.5px;
         color: #fff;
         text-shadow: 0 2px 10px rgba(0,0,0,0.1);
         transform-origin: left bottom;
@@ -118,72 +119,98 @@
     }
     
     .avionics-window.scrolled .main-callsign {
-        transform: scale(0.85); /* Subtle shrink on scroll */
+        transform: scale(0.85);
     }
 
-    .pilot-row {
+    /* New Integrated Subtitle Row */
+    .header-subtitle-row {
         display: flex;
         align-items: center;
-        gap: 8px;
-        cursor: pointer;
-        opacity: 0.7;
-        transition: opacity 0.2s;
-        margin-left: 2px;
-    }
-    .pilot-row:hover { opacity: 1; }
-
-    .pilot-icon {
-        font-size: 12px;
-        color: var(--color-accent);
-        background: rgba(56, 189, 248, 0.15);
-        width: 20px; height: 20px;
-        display: flex; align-items: center; justify-content: center;
-        border-radius: 50%;
-    }
-
-    .pilot-name {
+        gap: 10px;
         font-size: 13px;
-        font-weight: 500;
         color: var(--text-secondary);
     }
 
-    /* Status Badge - Refined */
-    .flight-state-badge {
-        display: flex;
-        align-items: center;
-        gap: 8px;
-        padding: 8px 16px;
-        border-radius: 12px; /* Softer radius */
-        background: rgba(255, 255, 255, 0.05);
-        border: 1px solid rgba(255, 255, 255, 0.08);
-        font-size: 12px;
+    /* The Integrated Status Text */
+    .status-text-integrated {
+        font-family: var(--font-data);
         font-weight: 700;
         text-transform: uppercase;
         letter-spacing: 0.5px;
-        color: var(--text-secondary);
-        transition: all 0.3s ease;
-        box-shadow: 0 2px 10px rgba(0,0,0,0.1);
-        margin-bottom: 4px; /* Align visually with callsign baseline */
+        transition: color 0.3s ease;
+        display: flex;
+        align-items: center;
+        gap: 6px;
+    }
+    
+    .status-dot {
+        width: 6px; height: 6px; border-radius: 50%;
+        background: currentColor;
+        box-shadow: 0 0 8px currentColor;
     }
 
-    /* Dynamic State Colors */
-    .state-climb { background: rgba(16, 185, 129, 0.15); border-color: rgba(16, 185, 129, 0.2); color: #6ee7b7; }
-    .state-descend { background: rgba(245, 158, 11, 0.15); border-color: rgba(245, 158, 11, 0.2); color: #fcd34d; }
-    .state-cruise { background: rgba(56, 189, 248, 0.15); border-color: rgba(56, 189, 248, 0.2); color: #7dd3fc; }
-    .state-ground { background: rgba(148, 163, 184, 0.15); border-color: rgba(148, 163, 184, 0.2); color: #e2e8f0; }
-    
-    .state-icon { font-size: 12px; }
+    /* Dynamic Colors for Text */
+    .status-climb { color: #6ee7b7; }   /* Green */
+    .status-descend { color: #fcd34d; } /* Amber */
+    .status-cruise { color: #7dd3fc; }  /* Blue */
+    .status-ground { color: #cbd5e1; }  /* Grey */
+
+    .header-separator {
+        width: 1px;
+        height: 12px;
+        background: var(--border-glass);
+        transform: rotate(15deg);
+    }
+
+    .pilot-name {
+        font-weight: 500;
+        color: var(--text-secondary);
+        transition: color 0.2s;
+        cursor: pointer;
+    }
+    .pilot-name:hover {
+        color: var(--text-primary);
+    }
+
+    /* Right Side Indicator (System Status) */
+    .system-status-indicator {
+        display: flex;
+        align-items: center;
+        gap: 6px;
+        font-family: var(--font-data);
+        font-size: 10px;
+        font-weight: 700;
+        letter-spacing: 1px;
+        color: var(--text-dim);
+        background: rgba(255,255,255,0.03);
+        padding: 6px 10px;
+        border-radius: 20px;
+        border: 1px solid var(--border-glass);
+    }
+
+    .live-pulse {
+        width: 6px; height: 6px;
+        background: var(--color-success);
+        border-radius: 50%;
+        box-shadow: 0 0 0 0 rgba(16, 185, 129, 0.7);
+        animation: pulse-green 2s infinite;
+    }
+
+    @keyframes pulse-green {
+        0% { transform: scale(0.95); box-shadow: 0 0 0 0 rgba(16, 185, 129, 0.7); }
+        70% { transform: scale(1); box-shadow: 0 0 0 4px rgba(16, 185, 129, 0); }
+        100% { transform: scale(0.95); box-shadow: 0 0 0 0 rgba(16, 185, 129, 0); }
+    }
 
     /* --- SCROLL AREA --- */
     .scroll-viewport {
         flex: 1;
         overflow-y: auto;
         overflow-x: hidden;
-        padding: 10px 24px 20px; /* Adjusted top padding */
+        padding: 10px 24px 20px; 
         display: flex;
         flex-direction: column;
         gap: 16px;
-        /* Mask to soften top edge when scrolling under header */
         mask-image: linear-gradient(to bottom, transparent 0%, black 20px, black 100%);
         -webkit-mask-image: linear-gradient(to bottom, transparent 0%, black 20px, black 100%);
     }
@@ -462,15 +489,25 @@
         <header class="header-section">
             <div class="identity-group">
                 <div class="main-callsign skeleton" id="callsign">WAITING</div>
-                <div class="pilot-row" onclick="parent.postMessage({type: 'OPEN_PROFILE'}, '*')">
-                    <div class="pilot-icon"><i class="fa-solid fa-user-astronaut"></i></div>
-                    <span class="pilot-name" id="username">Pilot</span>
+                
+                <!-- INTEGRATED SUBTITLE ROW -->
+                <div class="header-subtitle-row">
+                    <div class="status-text-integrated status-ground" id="status-display-wrapper">
+                        <div class="status-dot"></div>
+                        <span id="status-text">Standby</span>
+                    </div>
+                    
+                    <div class="header-separator"></div>
+                    
+                    <!-- Pilot Name (Icon Removed) -->
+                    <span class="pilot-name" id="username" onclick="parent.postMessage({type: 'OPEN_PROFILE'}, '*')">Pilot</span>
                 </div>
             </div>
             
-            <div class="flight-state-badge" id="state-badge">
-                <i class="fa-solid fa-circle-notch state-icon" id="state-icon"></i>
-                <span class="state-text" id="status-text">Standby</span>
+            <!-- NEW: Connection/Live Indicator (Replaces Isolated Badge) -->
+            <div class="system-status-indicator">
+                <div class="live-pulse"></div>
+                LIVE
             </div>
         </header>
 
@@ -613,7 +650,6 @@
 
         // Scroll Shadow & Header Logic
         scrollViewport.addEventListener('scroll', () => {
-            // Trigger earlier (5px) for a more responsive feel
             if (scrollViewport.scrollTop > 5) {
                 mainWindow.classList.add('scrolled');
             } else {
@@ -638,29 +674,22 @@
             updateText('callsign', data.callsign || 'N/A');
             document.getElementById('callsign').classList.remove('skeleton');
 
-            // Status Badge
+            // --- REFACTORED STATE LOGIC ---
             const phase = data.phase ? data.phase.toUpperCase() : 'STANDBY';
             updateText('status-text', phase);
             
-            const badge = document.getElementById('state-badge');
-            const icon = document.getElementById('state-icon');
-            
-            // Reset base classes
-            badge.className = 'flight-state-badge'; 
-            icon.className = 'fa-solid state-icon'; 
+            const statusWrapper = document.getElementById('status-display-wrapper');
+            // Remove old classes
+            statusWrapper.classList.remove('status-climb', 'status-descend', 'status-cruise', 'status-ground');
 
             if (phase.includes('CLIMB') || phase.includes('TAKEOFF')) {
-                badge.classList.add('state-climb');
-                icon.classList.add('fa-arrow-trend-up');
+                statusWrapper.classList.add('status-climb');
             } else if (phase.includes('DESCENT') || phase.includes('APPROACH')) {
-                badge.classList.add('state-descend');
-                icon.classList.add('fa-arrow-trend-down');
+                statusWrapper.classList.add('status-descend');
             } else if (phase.includes('CRUISE')) {
-                badge.classList.add('state-cruise');
-                icon.classList.add('fa-plane');
+                statusWrapper.classList.add('status-cruise');
             } else {
-                badge.classList.add('state-ground');
-                icon.classList.add('fa-parking');
+                statusWrapper.classList.add('status-ground');
             }
 
             // 2. Aircraft
