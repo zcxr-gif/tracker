@@ -1,90 +1,58 @@
-document.addEventListener('DOMContentLoaded', () => {
-    // This script will now wait for the target elements to be added to the DOM,
-    // solving the race condition with the async flight.js.
-
-    // 1. Define the function that applies the lock
-    const lockWeatherFeature = (weatherBtn) => {
-        // Prevent running the lock more than once
-        if (weatherBtn.dataset.locked) return;
-        weatherBtn.dataset.locked = 'true';
-
-        console.log('Weather feature lock applied.');
-
-        // 1. Change the icon to a lock
-        const icon = weatherBtn.querySelector('.fa-solid');
-        if (icon) {
-            icon.classList.remove('fa-cloud-sun');
-            icon.classList.add('fa-lock');
-        }
-        
-        // 2. Change the hover-over title
-        weatherBtn.title = "Weather Settings (Work in Progress)";
-        
-        // 3. Replace the button with a copy to remove all event listeners
-        const newBtn = weatherBtn.cloneNode(true);
-        weatherBtn.parentNode.replaceChild(newBtn, weatherBtn);
-        
-        // 4. Add our new "locked" click listener
-        newBtn.addEventListener('click', (e) => {
-            e.preventDefault();
-            e.stopPropagation();
-            
-            if (typeof window.showGlobalNotification === 'function') {
-                window.showGlobalNotification('Weather feature is locked.', 'info');
-            } else {
-                alert('Weather is locked.');
-            }
-        });
-    };
-
-    // 2. Define the observer
-    const observer = new MutationObserver((mutationsList, obs) => {
-        let buttonFound = false;
-        let windowFound = false;
-
-        // Check if the button we want now exists
-        const weatherBtn = document.getElementById('open-weather-settings-btn');
-        if (weatherBtn && !weatherBtn.dataset.locked) {
-            lockWeatherFeature(weatherBtn);
-            buttonFound = true;
-        }
-
-        // Check if the window we want to remove now exists
-        const weatherWindow = document.getElementById('weather-settings-window');
-        if (weatherWindow) {
-            weatherWindow.remove();
-            windowFound = true;
-        }
-
-        // If we've found and locked the button AND removed the window,
-        // our job is done. We can stop observing.
-        if (buttonFound && windowFound) {
-            console.log('Weather lock complete. Disconnecting observer.');
-            obs.disconnect();
-        }
-    });
-
-    // 3. Start observing the entire document for added nodes
-    observer.observe(document.body, {
-        childList: true, // Watch for new children being added
-        subtree: true    // Watch all descendants
-    });
-
-    // 4. Run one initial check
-    // In the rare case the button *already* exists when this script runs,
-    // this will catch it immediately.
-    const initialBtn = document.getElementById('open-weather-settings-btn');
-    if (initialBtn) {
-        lockWeatherFeature(initialBtn);
-    }
-    const initialWindow = document.getElementById('weather-settings-window');
-    if (initialWindow) {
-        initialWindow.remove();
-    }
-
-    // If both were found immediately, disconnect the observer
-    if (initialBtn && initialWindow) {
-        console.log('Weather lock complete on initial check. Disconnecting observer.');
-        observer.disconnect();
-    }
-});
+var airlineColours = {
+    "TUI": "linear-gradient(to bottom right,#092a5e, #70cbf4, #FFFFFF)",
+    "EasyJet": "linear-gradient(to bottom right,#ff6600, #FFFFFF)",
+    "Ryanair": "linear-gradient(to bottom right,#073590, #FFFFFF, #f1c933)",
+    "Qantas": "linear-gradient(to bottom right,#DD0000, #FFFFFF)",
+    "British Airways": "linear-gradient(to bottom right,#0035AD, #FFFFFF, #FFFFFF, #CC3333)",
+    "BA CityFlyer": "linear-gradient(to bottom right,#0035AD, #FFFFFF, #FFFFFF, #CC3333)",
+    "Emirates": "linear-gradient(to bottom right,#FF0000, #00732F, #FFFFFF, #000000)",
+    "Emirates - 1999": "linear-gradient(to bottom right,#FF0000, #00732F, #FFFFFF, #000000)",
+    "LOT Polish Airlines": "linear-gradient(to bottom right,#1A3171, #FFFFFF)",
+    "Lufthansa": "linear-gradient(to bottom right,#f9ba00, #00235f, #ffffff)",
+    "Lufthansa - 2018": "linear-gradient(to bottom right,#00235f, #FFFFFF)",
+    "KLM": "linear-gradient(to bottom right,#00A1E4, #FFFFFF)",
+    "KLM - Orange Pride": "linear-gradient(to bottom right,#FF8C00, #00A1E4)",
+    "Delta Air Lines": "linear-gradient(to bottom right,#c8102e, #003a70, #FFFFFF)",
+    "Delta Airlines": "linear-gradient(to bottom right,#c8102e, #003a70, #FFFFFF)",
+    "Swiss International Air Lines": "linear-gradient(to bottom right,#E60005, #FFFFFF, #E60005)",
+    "Jet2holidays": "linear-gradient(to bottom right,#FFFFFF, #347cf2)",
+    "Jet2": "linear-gradient(to bottom right,#626262, #ee3123, #626262)",
+    "LATAM": "linear-gradient(to bottom right,#2A0087, #EE1750, #ffffff)",
+    "Eurowings": "linear-gradient(to bottom right,#7BCBE3, #FFFFFF, #B3145B)",
+    "Etihad": "linear-gradient(to bottom right,#270015, #C4921B, #FCFBF5, #FFFFFF)",
+    "Turkish Airlines": "linear-gradient(to bottom right,#C70A0C, #ffffff)",
+    "ITA Airways": "linear-gradient(to bottom right,#0171CF, #0171CF, #FFFFFF)",
+    "Malaysia Airlines": "linear-gradient(to bottom right,#002B5C, #ED1C23, #FFFFFF)",
+    "Garuda Indonesia": "linear-gradient(to bottom right,#002561, #2f6f7e, #FFFFFF)",
+    "FrenchBee": "linear-gradient(to bottom right,#0C54A3, #04ACEC, #7CCCF4)",
+    "DHL": "linear-gradient(to bottom right,#ba0c2f, #ffcd00)",
+    "Aer Lingus": "linear-gradient(to bottom right,#008374, #89ba16, #fefefe)",
+    "Virgin Atlantic": "linear-gradient(to bottom right,#FFFFFF, #FFFFFF, #D12538, #BE2333)",
+    "Virgin Atlantic - Old": "linear-gradient(to bottom right,#FFFFFF, #FFFFFF, #D12538, #BE2333)",
+    "Avianca": "linear-gradient(to bottom right,#DA291C, #ffffff)",
+    "American Airlines": "linear-gradient(to bottom right,#36495A, #0078D2, #C30019)",
+    "Saudia": "linear-gradient(to bottom right,#B09255, #26265D)",
+    "Air France": "linear-gradient(to bottom right,#051040, #FF0000, #FFFFFF)",
+    "Air Canada": "linear-gradient(to bottom right,#000000, #D82F2E)",
+    "Aeromexico": "linear-gradient(to bottom right,#042C5C, #FFFFFF)",
+    "Air China": "linear-gradient(to bottom right,#FFFFFF, #EC1C24, #FFFFFF)",
+    "Pakistan International Airlines": "linear-gradient(to bottom right,#006600, #FFFFFF)",
+    "AeroLogic": "linear-gradient(to bottom right,#5f6a6d, #ffcc00, #ffffff)",
+    "Air India": "linear-gradient(to bottom right,#DC0C2C, #F0CF98, #B7925F)",
+    "Air Europa": "linear-gradient(to bottom right,#0474CC, #FFFFFF)",
+    "Korean Airlines": "linear-gradient(to bottom right,#71CBEB, #71CBEB, #C6C6C6, #EC172C)",
+    "Kenya Airways": "linear-gradient(to bottom right,#000000, #BB0000, #BB0000, #006600)",
+    "Infinite Flight": "linear-gradient(to bottom right,#1d1d1e, #fc9c2a)",
+    "Infinite Flight - 2019": "linear-gradient(to bottom right,#1d1d1e, #fc9c2a)",
+    "United Airlines": "linear-gradient(to bottom right, #005DAA, #FFFFFF)",
+    "Qatar Airways": "linear-gradient(to bottom right, ##660033, #666666)",
+    "FedEx": "linear-gradient(to bottom right, #660099, #FF6600)",
+    "Cathay Pacific": "linear-gradient(to bottom right, #045C64, #FFFFFF)",
+    "SAS": "linear-gradient(to bottom right, #2B0F73, #FF0000, #FFFFFF)",
+    "KC-10 Extender USAF": "#92999E",
+    "Swiss": "linear-gradient(to bottom right, #E60005, #FFFFFF)",
+    "GOL - 2018": "linear-gradient(to bottom right, #FC7323, #C4BBBB)",
+    "TAP": "linear-gradient(to bottom right, #BBD33C, #EB2C2C, #74BC4B)",
+    "China Southern": "linear-gradient(to bottom right, #0494D4, #EC1D2D)",
+    "IndiGo": "linear-gradient(to bottom right, #34449C, #FFFFFF)"
+}

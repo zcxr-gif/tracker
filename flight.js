@@ -5900,28 +5900,9 @@ function setupAircraftWindowEvents() {
             }
         }
 
-        // 4. Handle Close Logic
+        // 4. Handle Close Logic (USING HELPER)
         if (closeBtn) {
-            aircraftInfoWindow.classList.remove('visible');
-            if (window.MobileUIHandler) window.MobileUIHandler.closeActiveWindow();
-            aircraftInfoWindowRecallBtn.classList.remove('visible');
-            
-            clearLiveFlightPath(currentFlightInWindow); 
-            
-            // --- [CRITICAL FIX] Clear ALL intervals ---
-            if (activePfdUpdateInterval) clearInterval(activePfdUpdateInterval);
-            if (activeGeocodeUpdateInterval) clearInterval(activeGeocodeUpdateInterval);
-            if (activeWeatherUpdateInterval) clearInterval(activeWeatherUpdateInterval); // Clear Weather
-            
-            activePfdUpdateInterval = null;
-            activeGeocodeUpdateInterval = null;
-            activeWeatherUpdateInterval = null;
-            // ------------------------------------------
-            
-            currentAircraftPositionForGeocode = null;
-            liveTrailCache.delete(currentFlightInWindow);
-            currentFlightInWindow = null;
-            cachedFlightDataForStatsView = { flightProps: null, plan: null };
+            closeAircraftWindow(); 
         }
 
         // 5. Handle Hide Logic
@@ -5929,15 +5910,14 @@ function setupAircraftWindowEvents() {
             aircraftInfoWindow.classList.remove('visible');
             clearLiveFlightPath(currentFlightInWindow);
 
-            // --- [CRITICAL FIX] Clear ALL intervals (pause updates while hidden) ---
+            // Clear intervals (pause updates while hidden)
             if (activePfdUpdateInterval) clearInterval(activePfdUpdateInterval);
             if (activeGeocodeUpdateInterval) clearInterval(activeGeocodeUpdateInterval);
-            if (activeWeatherUpdateInterval) clearInterval(activeWeatherUpdateInterval); // Clear Weather
+            if (activeWeatherUpdateInterval) clearInterval(activeWeatherUpdateInterval); 
             
             activePfdUpdateInterval = null;
             activeGeocodeUpdateInterval = null;
             activeWeatherUpdateInterval = null;
-            // ---------------------------------------------------------------------
             
             if (currentFlightInWindow) {
                 aircraftInfoWindowRecallBtn.classList.add('visible', 'palpitate');
@@ -5959,7 +5939,6 @@ function setupAircraftWindowEvents() {
                     const flightProps = { ...props, position: JSON.parse(props.position), aircraft: JSON.parse(props.aircraft) };
                     
                     fetch('https://site--acars-backend--6dmjph8ltlhv.code.run/if-sessions').then(res => res.json()).then(data => {
-                        // [UPDATED] Use helper
                         const sessionId = getCurrentSessionId(data);
                         if(sessionId) {
                             handleAircraftClick(flightProps, sessionId);
@@ -6610,6 +6589,9 @@ function formatDataForSimpleWindow(flightProps, plan, routePoints, communityData
             setupWeatherSettingsWindowEvents();
             setupFilterSettingsWindowEvents(); 
             setupSearchEventListeners();
+
+            // --- [NEW] Initialize Smart Map Click ---
+            setupSmartMapBackgroundClick(); 
 
             // --- 11. Listen for ND_READY signal ---
             window.addEventListener('message', (event) => {
@@ -7711,7 +7693,43 @@ function generateAltitudeColoredRoute(sortedPoints, currentPosition, flightPlan 
     return { type: 'FeatureCollection', features: features };
 }
 
+/**
+ * --- [NEW] Reusable function to close the aircraft window and clean up resources ---
+ */
+function closeAircraftWindow() {
+    if (!aircraftInfoWindow) return;
 
+    // 1. Hide UI
+    aircraftInfoWindow.classList.remove('visible');
+    if (window.MobileUIHandler) window.MobileUIHandler.closeActiveWindow();
+    if (aircraftInfoWindowRecallBtn) aircraftInfoWindowRecallBtn.classList.remove('visible');
+
+    // 2. Clear Map Elements
+    clearLiveFlightPath(currentFlightInWindow); 
+
+    // 3. Clear ALL Intervals (Critical for performance)
+    if (activePfdUpdateInterval) {
+        clearInterval(activePfdUpdateInterval);
+        activePfdUpdateInterval = null;
+    }
+    if (activeGeocodeUpdateInterval) {
+        clearInterval(activeGeocodeUpdateInterval);
+        activeGeocodeUpdateInterval = null;
+    }
+    if (activeWeatherUpdateInterval) {
+        clearInterval(activeWeatherUpdateInterval);
+        activeWeatherUpdateInterval = null;
+    }
+
+    // 4. Reset State
+    currentAircraftPositionForGeocode = null;
+    liveTrailCache.delete(currentFlightInWindow);
+    currentFlightInWindow = null;
+    cachedFlightDataForStatsView = { flightProps: null, plan: null };
+    
+    // 5. Reset PFD visual state
+    resetPfdState();
+}
 
 async function handleAircraftClick(flightProps, sessionId) {
     if (!flightProps || !flightProps.flightId) return;
@@ -10158,6 +10176,66 @@ function setupSectorOpsEventListeners() {
         });
     }
 }
+
+/**
+     * --- [NEW] Smart Map Background Click Handler ---
+     * Closes the flight window when clicking the map background.
+     * Distinguishes between a "Click" ( < 5px movement) and a "Map Pan/Drag" ( > 5px movement).
+     */
+    function setupSmartMapBackgroundClick() {
+        if (!sectorOpsMap) return;
+
+        let startPoint = null;
+
+        // 1. Record position when mouse/finger goes DOWN
+        sectorOpsMap.on('mousedown', (e) => {
+            startPoint = e.point;
+        });
+        
+        // 2. Handle Touch devices (touchstart)
+        sectorOpsMap.on('touchstart', (e) => {
+            startPoint = e.point;
+        });
+
+        // 3. Listen for the actual Click event
+        sectorOpsMap.on('click', (e) => {
+            // Validation: Must have a start point to compare
+            if (!startPoint) return;
+
+            // A. Calculate Distance Moved (Pythagorean theorem)
+            const endPoint = e.point;
+            const dist = Math.sqrt(
+                Math.pow(endPoint.x - startPoint.x, 2) + 
+                Math.pow(endPoint.y - startPoint.y, 2)
+            );
+
+            // B. Define "Drag Tolerance" (pixels)
+            // If moved < 5 pixels, it is a deliberate click.
+            const IS_CLICK = dist < 5;
+
+            // C. Check if we clicked on an existing Aircraft Feature
+            // We do NOT want to close the window if the user clicked another plane (that logic handles the switch).
+            // HTML Markers (Airports) handle their own clicks and stop propagation, so they won't trigger this.
+            const features = sectorOpsMap.queryRenderedFeatures(e.point, {
+                layers: ['sector-ops-live-flights-layer'] // The aircraft icon layer
+            });
+            
+            const clickedOnAircraft = features.length > 0;
+
+            // D. EXECUTE CLOSE LOGIC
+            // Condition: It was a Click + Not on a Plane + A flight is currently selected
+            if (IS_CLICK && !clickedOnAircraft && currentFlightInWindow) {
+                // Check if window is actually visible to avoid redundant calls
+                if (aircraftInfoWindow.classList.contains('visible')) {
+                    console.log("Smart Click: Closing flight window (Map clicked, not dragged).");
+                    closeAircraftWindow(); 
+                }
+            }
+            
+            // Reset
+            startPoint = null;
+        });
+    }
 
     /**
      * Updates the main weather toolbar button to show if any layers are active.
