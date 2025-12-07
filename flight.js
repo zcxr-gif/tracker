@@ -5983,8 +5983,7 @@ function getIconImageExpression(colorMode = 'default') {
 
 /**
  * --- [UPDATED] Formats data for the Simple Flight Info Iframe ---
- * Now includes grouping (SID/STAR/APPR), accurate active leg detection,
- * Departure Time (Z), and Elapsed Time calculations.
+ * Now passes the raw 'pilotState' (0-3) for the true Seat Sensor status.
  */
 function formatDataForSimpleWindow(flightProps, plan, routePoints, communityData) {
     if (!flightProps) return null;
@@ -6006,7 +6005,7 @@ function formatDataForSimpleWindow(flightProps, plan, routePoints, communityData
     let progress = 0, elapsed = '--:--', eta = '--:--', ete = '--:--', originTime = '--:--';
     let originCountry = '', destCountry = '';
 
-    // --- TIME & ELAPSED CALCULATIONS (New Logic) ---
+    // --- TIME & ELAPSED CALCULATIONS ---
     // We use the first point in routePoints (history) to determine start time
     if (routePoints && routePoints.length > 0) {
         const firstPoint = routePoints[0];
@@ -6135,7 +6134,7 @@ function formatDataForSimpleWindow(flightProps, plan, routePoints, communityData
                 ident: wp.identifier || wp.name,
                 name: wp.name,
                 type: wp.type,
-                group: wp.group, // <-- Passed to UI
+                group: wp.group,
                 active: (idx === activeIndex),
                 passed: (idx < activeIndex),
                 time: idx === activeIndex ? `${distNM.toFixed(1)} NM` : (idx < activeIndex ? 'PASS' : '')
@@ -6148,6 +6147,8 @@ function formatDataForSimpleWindow(flightProps, plan, routePoints, communityData
         username: flightProps.username,
         callsign: flightProps.callsign,
         phase: flightProps.phase || 'ENROUTE',
+        // --- NEW: Pass the raw pilot state (0-3) ---
+        pilotState: flightProps.pilotState !== undefined ? flightProps.pilotState : 0, 
         telemetry: {
             altitude: pos.alt_ft,
             groundSpeed: pos.gs_kt,
@@ -6169,10 +6170,10 @@ function formatDataForSimpleWindow(flightProps, plan, routePoints, communityData
         route: {
             originIcao, originCountry,
             destIcao, destCountry,
-            originTime: originTime, // <-- NOW POPULATED
+            originTime: originTime,
             destTime: eta,
             progress: progress,
-            elapsed: elapsed,       // <-- NOW POPULATED
+            elapsed: elapsed,
             eta: eta,
             ete: ete
         },

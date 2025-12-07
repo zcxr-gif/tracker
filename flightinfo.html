@@ -146,6 +146,15 @@
     .state-cruise { color: #38bdf8; border-color: rgba(56, 189, 248, 0.2); background: rgba(56, 189, 248, 0.05); }
     .state-ground { color: #a1a1aa; border-color: rgba(161, 161, 170, 0.2); background: rgba(161, 161, 170, 0.05); }
 
+    /* --- NEW SEAT STATUS COLORS --- */
+    .seat-badge {
+        margin-left: 8px;
+    }
+    .seat-active { color: #4ade80; border-color: rgba(74, 222, 128, 0.3); background: rgba(74, 222, 128, 0.1); }
+    .seat-auto   { color: #facc15; border-color: rgba(250, 204, 21, 0.3); background: rgba(250, 204, 21, 0.1); }
+    .seat-parked { color: #f87171; border-color: rgba(248, 113, 113, 0.3); background: rgba(248, 113, 113, 0.1); }
+    .seat-ap-plus { color: #818cf8; border-color: rgba(129, 140, 248, 0.3); background: rgba(129, 140, 248, 0.1); }
+
     /* --- SCROLL AREA --- */
     .scroll-viewport {
         flex: 1;
@@ -164,8 +173,6 @@
         border-radius: var(--radius-lg);
         border: 1px solid var(--border-glass);
         box-shadow: 0 20px 40px -10px rgba(0,0,0,0.6);
-        /* Removed generic overflow:hidden to allow dropdowns to work better, 
-           we handle image clipping in the visual section now. */
         display: flex;
         flex-direction: column;
         background: var(--bg-panel);
@@ -176,12 +183,9 @@
     .mission-visual-section {
         position: relative;
         width: 100%;
-        /* You can increase this height if you want the image larger */
         height: 320px; 
         flex: 0 0 auto;
         background: #0f172a;
-        /* CRITICAL FIX: Strictly hide overflow and remove 3D transform 
-           to prevent image from bleeding over the route data */
         overflow: hidden;
         z-index: 1; 
     }
@@ -195,7 +199,7 @@
         transform: scale(1.02);
         z-index: 1;
         position: relative;
-        display: block; /* Removes bottom spacing glitch */
+        display: block; 
     }
 
     .unified-mission-card:hover .hero-img { 
@@ -272,12 +276,10 @@
     /* --- ROUTE SECTION --- */
     .mission-route-section {
         border-top: 1px solid rgba(255,255,255,0.05);
-        background: rgba(24, 24, 27, 0.9); /* Increased opacity slightly for readability */
+        background: rgba(24, 24, 27, 0.9);
         position: relative;
-        /* CRITICAL FIX: High Z-Index ensures this sits ON TOP of the image 
-           if the image tries to overlap */
         z-index: 20; 
-        box-shadow: 0 -5px 20px rgba(0,0,0,0.5); /* Visual separation from image */
+        box-shadow: 0 -5px 20px rgba(0,0,0,0.5);
     }
 
     .route-visual-header {
@@ -472,9 +474,18 @@
                 </div>
             </div>
             
-            <div class="flight-state-badge" id="state-badge">
-                <div class="state-indicator-dot" id="state-dot"></div>
-                <span class="state-text" id="status-text">Standby</span>
+            <div style="display: flex;">
+                <!-- Existing Phase Badge -->
+                <div class="flight-state-badge" id="state-badge">
+                    <div class="state-indicator-dot" id="state-dot"></div>
+                    <span class="state-text" id="status-text">Standby</span>
+                </div>
+
+                <!-- NEW: Seat State Badge -->
+                <div class="flight-state-badge seat-badge" id="seat-state-badge" style="display: none;">
+                    <div class="state-indicator-dot"></div>
+                    <span class="state-text" id="seat-status-text">---</span>
+                </div>
             </div>
         </header>
 
@@ -653,7 +664,38 @@
                 badge.classList.add('state-ground');
             }
 
-            // 2. Aircraft
+            // --- 3. NEW: Seat State Badge (The "Truth") ---
+            const seatBadge = document.getElementById('seat-state-badge');
+            const seatText = document.getElementById('seat-status-text');
+            
+            if (data.pilotState !== undefined) {
+                seatBadge.style.display = 'flex';
+                // Reset base classes
+                seatBadge.className = 'flight-state-badge seat-badge';
+                
+                switch(data.pilotState) {
+                    case 0: // Active
+                        seatBadge.classList.add('seat-active');
+                        seatText.textContent = 'ACTIVE';
+                        break;
+                    case 1: // AwayInFlight
+                        seatBadge.classList.add('seat-auto');
+                        seatText.textContent = 'AUTO';
+                        break;
+                    case 2: // AwayParked
+                        seatBadge.classList.add('seat-parked');
+                        seatText.textContent = 'PARKED';
+                        break;
+                    case 3: // InBackground
+                        seatBadge.classList.add('seat-ap-plus');
+                        seatText.textContent = 'AP+';
+                        break;
+                    default:
+                        seatBadge.style.display = 'none';
+                }
+            }
+
+            // 4. Aircraft
             if (data.aircraft) {
                 updateText('ac-name', data.aircraft.aircraftName || 'Unknown Aircraft');
                 updateText('ac-livery', data.aircraft.liveryName || 'Unknown Livery');
@@ -677,7 +719,7 @@
                 }
             }
 
-            // 3. Telemetry (Retaining VS Arrow Logic)
+            // 5. Telemetry (Retaining VS Arrow Logic)
             if (data.telemetry) {
                 updateText('val-alt', formatNumber(data.telemetry.altitude));
                 updateText('val-spd', Math.round(data.telemetry.groundSpeed || 0));
@@ -695,7 +737,7 @@
                 updateText('val-hdg', String(hdg).padStart(3, '0'));
             }
 
-            // 4. Route
+            // 6. Route
             if (data.route) {
                 updateText('dep-icao', data.route.originIcao || '---');
                 updateText('dep-time', data.route.originTime || '--:--');
@@ -714,7 +756,7 @@
                 updateText('val-rem', data.route.ete || '--:--');
             }
 
-            // 5. Waypoints (Retaining Grouping Logic)
+            // 7. Waypoints (Retaining Grouping Logic)
             if (data.waypoints && Array.isArray(data.waypoints)) {
                 renderWaypoints(data.waypoints);
             }
