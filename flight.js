@@ -79,9 +79,9 @@ document.addEventListener('DOMContentLoaded', async () => {
         iconColorMode: 'default',
         showAircraftLabels: false,
         useSimpleFlightWindow: false,
-        themeStartColor: '#121426', // Default Dark Blue/Black
-        themeEndColor: '#121426',   // Default Dark Blue/Black
-        themeOpacity: 95            // Default 95% opacity
+        themeStartColor: '#18181b', // [UPDATED] Carbon/Zinc-900
+        themeEndColor: '#18181b',   // [UPDATED] Carbon/Zinc-900
+        themeOpacity: 90            // [UPDATED] Slightly more transparent (90%)
     };
 
     const departureHubs = []; // Empty array
@@ -528,35 +528,77 @@ function injectCustomStyles() {
     if (document.getElementById(styleId)) return;
 
     const css = `
-        /* --- CSS VARIABLES FOR THEMING --- */
+        /* --- IMPORT FONTS (Inter & JetBrains Mono) --- */
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;700&display=swap');
+
+        /* --- THEME VARIABLES (Based on flightinfo.html) --- */
         :root {
-            --iw-bg-start: rgba(18, 20, 38, 0.95);
-            --iw-bg-end: rgba(18, 20, 38, 0.95);
+            /* Palette - Carbon/Zinc Theme */
+            --bg-glass: rgba(24, 24, 27, 0.95);      /* Zinc-900 base */
+            --bg-panel: rgba(63, 63, 70, 0.35);      /* Zinc-700 lighter gray */
+            --bg-subtle: rgba(255, 255, 255, 0.03);  /* Very subtle highlight */
+            
+            /* Borders */
+            --border-glass: rgba(255, 255, 255, 0.08);
+            --border-highlight: rgba(255, 255, 255, 0.12);
+            
+            /* Typography */
+            --text-primary: #fafafa;    /* Zinc-50 */
+            --text-secondary: #a1a1aa;  /* Zinc-400 */
+            --text-dim: #52525b;        /* Zinc-600 */
+            
+            /* Functional Colors */
+            --color-accent: #e4e4e7;    /* Zinc-200 */
+            --color-brand: #38bdf8;     /* Sky Blue (Primary Brand) */
+            --color-success: #10b981;   /* Emerald */
+            --color-warning: #f59e0b;   /* Amber */
+            --color-danger: #ef4444;    /* Red */
+            --color-purple: #c084fc;    /* Purple */
+
+            /* Dimensions */
+            --radius-sm: 8px;
+            --radius-md: 12px;
+            --radius-lg: 16px;
+            
+            /* Fonts */
+            --font-ui: 'Inter', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+            --font-data: 'JetBrains Mono', 'Consolas', monospace;
+
+            /* Legacy compatibility vars */
+            --iw-bg-start: var(--bg-glass);
+            --iw-bg-end: var(--bg-glass);
+        }
+
+        /* --- GLOBAL OVERRIDES --- */
+        body, .mapboxgl-popup, .info-window {
+            font-family: var(--font-ui);
+            color: var(--text-primary);
         }
 
         /* --- VIRTUAL COCKPIT SEAT SENSOR --- */
         .seat-sensor-wrapper {
-            background: #000; 
-            border: 2px solid #333; 
-            border-radius: 4px; 
+            background: var(--bg-glass); 
+            border: 1px solid var(--border-glass); 
+            border-radius: var(--radius-sm); 
             display: flex;
             flex-direction: column;
-            box-shadow: inset 0 0 20px rgba(0,0,0,0.8);
+            box-shadow: 0 4px 20px rgba(0,0,0,0.5);
             overflow: hidden;
             position: relative;
         }
 
         .sensor-header {
-            background: #111;
-            padding: 6px 10px;
-            border-bottom: 1px solid #333;
+            background: var(--bg-panel);
+            padding: 8px 12px;
+            border-bottom: 1px solid var(--border-glass);
             display: flex;
             justify-content: space-between;
-            font-size: 0.8rem;
-            font-weight: bold;
-            color: #fff;
+            font-size: 0.75rem;
+            font-weight: 700;
+            color: var(--text-secondary);
             flex-shrink: 0;
-            font-family: 'Consolas', monospace;
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
         }
 
         .sensor-body {
@@ -565,16 +607,16 @@ function injectCustomStyles() {
             flex-direction: column;
             align-items: center;
             position: relative;
-            background: #0f1115; 
+            background: transparent; 
         }
 
         .cockpit-view {
             position: relative;
             width: 140px;
             height: 80px;
-            background: #1a1a1a;
+            background: rgba(0,0,0,0.3);
             border-radius: 40px 40px 10px 10px;
-            border: 2px solid #444;
+            border: 1px solid var(--border-glass);
             display: flex;
             justify-content: space-between;
             padding: 10px 20px;
@@ -600,7 +642,7 @@ function injectCustomStyles() {
             height: 40px;
             background: #222;
             border-radius: 6px;
-            border: 2px solid #444;
+            border: 1px solid #444;
             transition: all 0.5s ease;
             position: relative;
             display: flex;
@@ -616,7 +658,7 @@ function injectCustomStyles() {
             height: 8px;
             background: inherit;
             border-radius: 4px;
-            border: 2px solid #444;
+            border: 1px solid #444;
         }
 
         .cockpit-overlay-icon {
@@ -637,46 +679,47 @@ function injectCustomStyles() {
             transform: translate(-50%, -50%) scale(1);
         }
 
-        .icon-parking { color: #ff3333; border: 3px solid #ff3333; border-radius: 50%; width: 45px; height: 45px; display: flex; align-items: center; justify-content: center; font-weight: bold; background: rgba(0,0,0,0.6); font-family: sans-serif; }
-        .icon-coffee { color: #ffaa00; }
-        .icon-cloud { color: #00a8ff; }
+        .icon-parking { color: var(--color-danger); border: 3px solid var(--color-danger); border-radius: 50%; width: 45px; height: 45px; display: flex; align-items: center; justify-content: center; font-weight: bold; background: rgba(0,0,0,0.6); font-family: sans-serif; }
+        .icon-coffee { color: var(--color-warning); }
+        .icon-cloud { color: var(--color-brand); }
 
-        .seat.active-green { background: rgba(0, 255, 0, 0.1); border-color: #00ff00; box-shadow: 0 0 15px rgba(0, 255, 0, 0.4); }
-        .seat.active-green::before { border-color: #00ff00; background: #003300; }
+        /* Seat Active States */
+        .seat.active-green { background: rgba(16, 185, 129, 0.1); border-color: var(--color-success); box-shadow: 0 0 15px rgba(16, 185, 129, 0.2); }
+        .seat.active-green::before { border-color: var(--color-success); background: #064e3b; }
 
-        .seat.active-amber { background: rgba(255, 170, 0, 0.1); border-color: #ffaa00; box-shadow: 0 0 15px rgba(255, 170, 0, 0.4); }
-        .seat.active-amber::before { border-color: #ffaa00; background: #442200; }
+        .seat.active-amber { background: rgba(245, 158, 11, 0.1); border-color: var(--color-warning); box-shadow: 0 0 15px rgba(245, 158, 11, 0.2); }
+        .seat.active-amber::before { border-color: var(--color-warning); background: #78350f; }
 
-        .seat.active-blue { background: rgba(0, 168, 255, 0.1); border-color: #00a8ff; box-shadow: 0 0 15px rgba(0, 168, 255, 0.4); }
-        .seat.active-blue::before { border-color: #00a8ff; background: #002244; }
+        .seat.active-blue { background: rgba(56, 189, 248, 0.1); border-color: var(--color-brand); box-shadow: 0 0 15px rgba(56, 189, 248, 0.2); }
+        .seat.active-blue::before { border-color: var(--color-brand); background: #0c4a6e; }
 
-        .seat::after { content: attr(data-role); font-size: 0.6rem; font-weight: bold; color: #555; margin-top: 2px; }
+        .seat::after { content: attr(data-role); font-size: 0.6rem; font-weight: bold; color: var(--text-dim); margin-top: 2px; }
         .seat.active-green::after, .seat.active-amber::after, .seat.active-blue::after { color: #fff; text-shadow: 0 0 5px currentColor; }
 
         .seat-status-display {
             margin-top: 8px;
-            font-family: 'Consolas', monospace;
+            font-family: var(--font-data);
             font-size: 0.75rem;
             text-align: center;
             width: 100%;
             display: flex;
             justify-content: space-between;
-            color: #888;
+            color: var(--text-secondary);
         }
 
-        .status-pill { padding: 2px 8px; border-radius: 4px; background: #222; border: 1px solid #333; }
-        .status-pill.green { color: #00ff00; border-color: #00ff00; }
-        .status-pill.amber { color: #ffaa00; border-color: #ffaa00; }
-        .status-pill.blue { color: #00a8ff; border-color: #00a8ff; }
-        .status-pill.red { color: #ff3333; border-color: #ff3333; }
+        .status-pill { padding: 2px 8px; border-radius: 4px; background: rgba(255,255,255,0.05); border: 1px solid var(--border-glass); }
+        .status-pill.green { color: var(--color-success); border-color: rgba(16, 185, 129, 0.3); background: rgba(16, 185, 129, 0.1); }
+        .status-pill.amber { color: var(--color-warning); border-color: rgba(245, 158, 11, 0.3); background: rgba(245, 158, 11, 0.1); }
+        .status-pill.blue { color: var(--color-brand); border-color: rgba(56, 189, 248, 0.3); background: rgba(56, 189, 248, 0.1); }
+        .status-pill.red { color: var(--color-danger); border-color: rgba(239, 68, 68, 0.3); background: rgba(239, 68, 68, 0.1); }
 
         #seat-narrative-text {
-            font-family: 'Segoe UI', sans-serif;
+            font-family: var(--font-ui);
             font-size: 0.7rem;
-            color: #aaa;
+            color: var(--text-secondary);
             margin-top: 8px;
             text-align: center;
-            border-top: 1px solid #333;
+            border-top: 1px solid var(--border-glass);
             padding-top: 6px;
             width: 100%;
             font-style: italic;
@@ -711,17 +754,17 @@ function injectCustomStyles() {
             width: 600px; 
             max-width: 95vw;
             max-height: calc(100vh - 40px);
-            background: linear-gradient(160deg, var(--iw-bg-start), var(--iw-bg-end));
-            backdrop-filter: blur(20px) saturate(180%);
-            -webkit-backdrop-filter: blur(20px) saturate(180%);
-            border-radius: 16px;
-            border: 1px solid rgba(255, 255, 255, 0.08);
+            background: var(--bg-glass);
+            backdrop-filter: blur(40px) saturate(140%);
+            -webkit-backdrop-filter: blur(40px) saturate(140%);
+            border-radius: var(--radius-lg);
+            border: 1px solid var(--border-glass);
             box-shadow: 0 20px 50px rgba(0,0,0,0.8); 
             z-index: 1060; 
             display: flex;
             flex-direction: column;
             overflow: hidden;
-            color: #e8eaf6;
+            color: var(--text-primary);
             transition: opacity 0.3s ease, transform 0.3s ease;
             opacity: 0;
             transform: translateX(20px);
@@ -737,24 +780,24 @@ function injectCustomStyles() {
             justify-content: space-between;
             align-items: center;
             padding: 16px 20px;
-            background: rgba(0, 0, 0, 0.1); 
-            border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+            background: var(--bg-panel);
+            border-bottom: 1px solid var(--border-glass);
             flex-shrink: 0;
         }
         .info-window-header h3 {
             margin: 0; 
-            font-size: 1.3rem; 
-            color: #fff;
-            font-weight: 600;
-            text-shadow: 0 2px 5px rgba(0,0,0,0.4);
+            font-size: 1.1rem; 
+            color: var(--text-primary);
+            font-weight: 700;
+            letter-spacing: -0.025em;
         }
         .info-window-actions button {
-            background: rgba(255,255,255,0.05); 
-            border: 1px solid rgba(255,255,255,0.1);
-            color: #c5cae9; 
+            background: var(--bg-subtle);
+            border: 1px solid var(--border-glass);
+            color: var(--text-secondary);
             cursor: pointer;
-            font-size: 1rem; 
-            width: 32px; height: 32px;
+            font-size: 0.9rem;
+            width: 28px; height: 28px;
             border-radius: 50%;
             margin-left: 8px;
             line-height: 1; 
@@ -763,10 +806,9 @@ function injectCustomStyles() {
             transition: all 0.2s ease-in-out;
         }
         .info-window-actions button:hover { 
-            background: #00a8ff;
+            background: var(--bg-panel);
             color: #fff; 
-            transform: scale(1.1) rotate(90deg);
-            border-color: #00a8ff;
+            border-color: var(--text-secondary);
         }
         .info-window-content { 
             overflow-y: auto; 
@@ -790,35 +832,35 @@ function injectCustomStyles() {
         .fms-module-container {
             height: 380px; 
             max-height: 380px;
-            background: #000;
-            color: #00e600; 
-            font-family: 'Consolas', 'Monaco', 'Courier New', monospace;
+            background: var(--bg-glass);
+            color: var(--color-success); 
+            font-family: var(--font-data);
             display: flex;
             flex-direction: column;
-            border: 2px solid #333;
-            border-radius: 4px;
-            box-shadow: inset 0 0 20px rgba(0,0,0,0.8);
+            border: 1px solid var(--border-glass);
+            border-radius: var(--radius-sm);
+            box-shadow: inset 0 0 20px rgba(0,0,0,0.5);
             box-sizing: border-box;
             overflow: hidden; 
         }
         .fms-header {
-            background: #111;
+            background: var(--bg-panel);
             padding: 6px 10px;
-            border-bottom: 1px solid #333;
+            border-bottom: 1px solid var(--border-glass);
             display: flex;
             justify-content: space-between;
-            font-size: 0.8rem;
-            font-weight: bold;
-            color: #fff;
+            font-size: 0.75rem;
+            font-weight: 700;
+            color: var(--text-primary);
             flex-shrink: 0;
         }
         .fms-columns {
             display: grid;
             grid-template-columns: 2fr 1fr 1fr;
             padding: 4px 10px;
-            border-bottom: 1px dashed #333;
+            border-bottom: 1px dashed var(--border-glass);
             font-size: 0.7rem;
-            color: #00a8ff;
+            color: var(--color-brand);
             flex-shrink: 0;
         }
         .fms-list-scrollarea {
@@ -826,34 +868,34 @@ function injectCustomStyles() {
             overflow-y: auto;
             padding: 5px 0;
             scrollbar-width: thin;
-            scrollbar-color: #333 #000;
+            scrollbar-color: var(--border-glass) transparent;
         }
-        .fms-list-scrollarea::-webkit-scrollbar { width: 6px; }
-        .fms-list-scrollarea::-webkit-scrollbar-track { background: #000; }
-        .fms-list-scrollarea::-webkit-scrollbar-thumb { background-color: #333; border-radius: 3px; border: 1px solid #111; }
-        .fms-list-scrollarea::-webkit-scrollbar-thumb:hover { background-color: #555; }
+        .fms-list-scrollarea::-webkit-scrollbar { width: 4px; }
+        .fms-list-scrollarea::-webkit-scrollbar-track { background: transparent; }
+        .fms-list-scrollarea::-webkit-scrollbar-thumb { background-color: var(--border-glass); border-radius: 2px; }
+        
         .fms-row {
             display: grid;
             grid-template-columns: 2fr 1fr 1fr;
             padding: 4px 10px;
             font-size: 0.85rem;
-            border-bottom: 1px solid #111;
+            border-bottom: 1px solid rgba(255,255,255,0.03);
             align-items: center;
         }
         .fms-row.active-leg {
-            background: rgba(255, 0, 255, 0.15);
-            color: #ff00ff;
+            background: rgba(192, 132, 252, 0.1);
+            color: var(--color-purple);
             font-weight: bold;
         }
-        .fms-row.passed-leg { color: #555; }
+        .fms-row.passed-leg { color: var(--text-dim); }
         .fms-proc-header {
             padding: 4px 10px;
-            background: #1a1a1a;
-            color: #fff;
+            background: rgba(255,255,255,0.02);
+            color: var(--text-secondary);
             font-size: 0.75rem;
             font-weight: bold;
-            border-top: 1px solid #333;
-            border-bottom: 1px solid #333;
+            border-top: 1px solid var(--border-glass);
+            border-bottom: 1px solid var(--border-glass);
             display: flex;
             align-items: center;
             gap: 6px;
@@ -862,40 +904,40 @@ function injectCustomStyles() {
             font-size: 0.6rem;
             padding: 1px 4px;
             border-radius: 2px;
-            background: #333;
-            color: #ccc;
+            background: rgba(255,255,255,0.05);
+            color: var(--text-secondary);
         }
-        .proc-tag.sid { background: #004d40; color: #4db6ac; }
-        .proc-tag.star { background: #3e2723; color: #ffab91; }
+        .proc-tag.sid { background: rgba(16, 185, 129, 0.1); color: var(--color-success); }
+        .proc-tag.star { background: rgba(245, 158, 11, 0.1); color: var(--color-warning); }
         .fms-row.is-child { padding-left: 20px; }
         .fms-footer {
-            background: #111;
+            background: var(--bg-panel);
             padding: 6px 10px;
-            border-top: 1px solid #333;
+            border-top: 1px solid var(--border-glass);
             display: flex;
             justify-content: space-between;
             flex-shrink: 0;
         }
         .fms-stat { display: flex; gap: 8px; font-size: 0.8rem; }
-        .stat-label { color: #aaa; }
-        .stat-value { color: #fff; font-weight: bold; }
-        .fms-empty-state { text-align: center; padding: 20px; color: #555; font-style: italic; }
+        .stat-label { color: var(--text-dim); }
+        .stat-value { color: var(--text-primary); font-weight: bold; }
+        .fms-empty-state { text-align: center; padding: 20px; color: var(--text-dim); font-style: italic; }
 
         /* --- REDESIGNED LOCATION DATA PANEL (No Bleeding) --- */
         #location-data-panel {
-            background: #0f1115;
-            border-radius: 8px;
-            border: 1px solid #333;
-            box-shadow: 0 4px 20px rgba(0,0,0,0.5);
+            background: var(--bg-glass);
+            border-radius: var(--radius-sm);
+            border: 1px solid var(--border-glass);
+            box-shadow: none;
             width: 100%;
             display: flex;
             flex-direction: column;
-            overflow: visible; /* Allow content to dictate height */
+            overflow: visible; 
         }
         .nav-header {
-            background: #181b21;
+            background: var(--bg-panel);
             padding: 8px 12px;
-            border-bottom: 1px solid #333;
+            border-bottom: 1px solid var(--border-glass);
             display: flex;
             justify-content: space-between;
             align-items: center;
@@ -903,18 +945,18 @@ function injectCustomStyles() {
         .nav-title { 
             font-size: 0.7rem; 
             font-weight: 700; 
-            color: #6b7280; 
+            color: var(--text-dim); 
             letter-spacing: 1px; 
-            font-family: 'Segoe UI', sans-serif;
+            font-family: var(--font-ui);
         }
         .nav-status-indicator {
             display: flex; align-items: center; gap: 6px;
             font-size: 0.65rem; font-weight: 700; letter-spacing: 0.5px;
-            color: #10b981; text-transform: uppercase;
+            color: var(--color-success); text-transform: uppercase;
         }
         .nav-blink {
-            width: 6px; height: 6px; border-radius: 50%; background: #10b981;
-            box-shadow: 0 0 6px #10b981;
+            width: 6px; height: 6px; border-radius: 50%; background: var(--color-success);
+            box-shadow: 0 0 6px var(--color-success);
             animation: navPulse 2s infinite;
         }
         @keyframes navPulse { 0% { opacity: 1; } 50% { opacity: 0.4; } 100% { opacity: 1; } }
@@ -926,28 +968,27 @@ function injectCustomStyles() {
             gap: 8px;
         }
         .nav-cell {
-            background: rgba(255, 255, 255, 0.03);
+            background: var(--bg-panel);
             border-radius: 4px;
             padding: 6px 10px;
             display: flex;
             flex-direction: column;
             justify-content: space-between;
-            /* Allow height to grow based on content */
             height: auto; 
             min-height: 45px;
-            border: 1px solid transparent;
+            border: 1px solid var(--border-glass);
             transition: background 0.2s;
-            overflow: visible; /* Prevent cutting off */
+            overflow: visible;
         }
         .nav-cell:hover {
             background: rgba(255, 255, 255, 0.06);
-            border-color: rgba(255, 255, 255, 0.1);
+            border-color: var(--border-highlight);
         }
         .nav-span-2 { grid-column: span 2; }
         .nav-span-4 { grid-column: span 4; }
         .nav-label {
             font-size: 0.6rem;
-            color: #00a8ff;
+            color: var(--color-brand);
             text-transform: uppercase;
             margin-bottom: 4px;
             font-weight: 600;
@@ -955,45 +996,41 @@ function injectCustomStyles() {
             display: flex;
             align-items: center;
             gap: 6px;
-            white-space: nowrap; /* Keep label on one line if possible */
+            white-space: nowrap; 
         }
         .nav-label i { opacity: 0.7; font-size: 0.7rem; }
         
-        /* FIX FOR BLEEDING: Allow wrapping, remove ellipsis */
         .nav-value {
-            font-family: 'Consolas', 'Monaco', monospace;
-            font-size: 1.0rem; /* Slightly smaller for better fit */
-            color: #fff;
+            font-family: var(--font-data);
+            font-size: 1.0rem; 
+            color: var(--text-primary);
             font-weight: 600;
-            
-            /* The Critical Fixes */
-            white-space: normal;  /* Allow text to wrap */
-            overflow: visible;    /* Show all content */
-            text-overflow: clip;  /* Remove ellipsis */
-            word-wrap: break-word; /* Break long words if needed */
-            line-height: 1.2;     /* Tighter line height for wrapped text */
+            white-space: normal;  
+            overflow: visible;    
+            text-overflow: clip;  
+            word-wrap: break-word; 
+            line-height: 1.2;     
         }
         
         .nav-value.large { font-size: 1.2rem; }
-        .nav-value.small { font-size: 0.85rem; color: #ccc; }
-        .nav-value.highlight { color: #4ade80; text-shadow: 0 0 5px rgba(74, 222, 128, 0.2); }
-        .nav-value.accent { color: #f59e0b; }
+        .nav-value.small { font-size: 0.85rem; color: var(--text-secondary); }
+        .nav-value.highlight { color: var(--color-success); text-shadow: 0 0 5px rgba(16, 185, 129, 0.2); }
+        .nav-value.accent { color: var(--color-warning); }
         
-        /* FIX FOR ROWS: Allow wrapping inside rows too */
         .nav-row {
             display: flex;
             justify-content: space-between;
             align-items: baseline;
             width: 100%;
-            flex-wrap: wrap; /* Allow items to stack if they hit width limit */
-            gap: 4px; /* Space between wrapped items */
+            flex-wrap: wrap; 
+            gap: 4px; 
         }
         
         .nav-unit {
             font-size: 0.7rem;
-            color: #6b7280;
+            color: var(--text-dim);
             margin-left: 2px;
-            font-family: 'Segoe UI', sans-serif;
+            font-family: var(--font-ui);
             font-weight: 400;
             white-space: nowrap;
         }
@@ -1003,7 +1040,6 @@ function injectCustomStyles() {
             .pfd-and-location-grid { grid-template-columns: 1fr; } 
             #fms-legs-module { display: none; }
             #location-data-panel { min-height: auto; }
-            /* On mobile, switch grid to 2 columns to give more space */
             .nav-grid-container { grid-template-columns: repeat(2, 1fr); }
             .nav-span-2 { grid-column: span 2; }
         }
@@ -1032,7 +1068,7 @@ function injectCustomStyles() {
                 rgba(0, 0, 0, 0.7) 0%, 
                 rgba(0, 0, 0, 0) 35%, 
                 rgba(0, 0, 0, 0.2) 80%, 
-                var(--iw-bg-start) 100%
+                rgba(24, 24, 27, 1) 100%
             ); 
         }
         
@@ -1062,7 +1098,7 @@ function injectCustomStyles() {
             background: linear-gradient(180deg, 
                 transparent 0%, 
                 rgba(0, 0, 0, 0.2) 40%, 
-                var(--iw-bg-start) 100%
+                rgba(24, 24, 27, 1) 100%
             ); 
             display: grid; 
             grid-template-columns: auto 1fr auto; 
@@ -1075,14 +1111,14 @@ function injectCustomStyles() {
         #route-summary-dep { text-align: left; align-items: center; }
         #route-summary-arr { text-align: right; align-items: center; }
         .route-summary-airport .airport-line { display: flex; align-items: center; gap: 8px; }
-        .route-summary-airport .icao { font-family: 'Courier New', monospace; font-size: 1.2rem; font-weight: 700; color: #fff; text-shadow: 0 1px 3px rgba(0,0,0,0.5); }
-        .route-summary-airport .time { font-size: 0.85rem; font-weight: 600; color: #c5cae9; margin-top: 4px; text-align: center; }
+        .route-summary-airport .icao { font-family: var(--font-data); font-size: 1.2rem; font-weight: 700; color: #fff; text-shadow: 0 1px 3px rgba(0,0,0,0.5); }
+        .route-summary-airport .time { font-size: 0.85rem; font-weight: 600; color: var(--text-secondary); margin-top: 4px; text-align: center; }
         .country-flag { width: 20px; height: auto; border-radius: 3px; border: 1px solid rgba(255, 255, 255, 0.2); display: none; }
         .route-progress-container { display: grid; grid-template-columns: 1fr; grid-template-rows: 1fr; align-items: center; justify-items: center; position: relative; min-height: 28px; }
-        .route-progress-bar-container { width: 100%; height: 6px; background: rgba(10, 12, 26, 0.7); border-radius: 3px; overflow: hidden; grid-row: 1; grid-column: 1; z-index: 1; }
-        .progress-bar-fill { height: 100%; width: 0%; background: linear-gradient(90deg, #00a8ff, #89f7fe); transition: width 0.5s ease-out; border-radius: 3px; }
-        .flight-phase-indicator { padding: 4px 12px; border-radius: 20px; font-size: 0.75rem; font-weight: 700; color: #fff; border: 1px solid rgba(255, 255, 255, 0.1); grid-row: 1; grid-column: 1; z-index: 2; box-shadow: 0 4px 15px rgba(0, 0, 0, 0.5); }
-        .phase-climb { background: rgba(34, 139, 34, 0.9); } .phase-cruise { background: rgba(0, 119, 255, 0.9); } .phase-descent { background: rgba(255, 140, 0, 0.9); } .phase-approach { background: rgba(138, 43, 226, 0.9); } .phase-enroute { background: rgba(100, 110, 130, 0.9); }
+        .route-progress-bar-container { width: 100%; height: 6px; background: var(--bg-panel); border-radius: 3px; overflow: hidden; grid-row: 1; grid-column: 1; z-index: 1; }
+        .progress-bar-fill { height: 100%; width: 0%; background: var(--color-brand); transition: width 0.5s ease-out; border-radius: 3px; }
+        .flight-phase-indicator { padding: 4px 12px; border-radius: 20px; font-size: 0.75rem; font-weight: 700; color: #fff; border: 1px solid var(--border-glass); grid-row: 1; grid-column: 1; z-index: 2; box-shadow: 0 4px 15px rgba(0, 0, 0, 0.5); }
+        .phase-climb { background: var(--color-success); opacity: 0.9; } .phase-cruise { background: var(--color-brand); opacity: 0.9; } .phase-descent { background: var(--color-warning); opacity: 0.9; } .phase-approach { background: var(--color-purple); opacity: 0.9; } .phase-enroute { background: var(--text-dim); opacity: 0.9; }
         
         .unified-display-main-content { 
             padding: 16px; 
@@ -1090,21 +1126,12 @@ function injectCustomStyles() {
             display: flex; 
             flex-direction: column; 
             gap: 16px; 
-            background: linear-gradient(180deg, var(--iw-bg-start), var(--iw-bg-end));
-            border-top: 1px solid rgba(255, 255, 255, 0.05);
+            background: linear-gradient(180deg, var(--bg-glass), var(--bg-glass));
+            border-top: 1px solid var(--border-glass);
         }
 
         .ac-tab-pane { display: none; flex-direction: column; gap: 16px; animation: fadeIn 0.4s; }
         .ac-tab-pane.active { display: flex; }
-        .ac-profile-card-new { 
-            background: rgba(0, 0, 0, 0.2); 
-            border-radius: 12px; border: 1px solid rgba(255, 255, 255, 0.05); padding: 10px; border-top: 3px solid #a33ea3; display: flex; flex-direction: column; gap: 10px; 
-        }
-        .ac-profile-header { display: flex; justify-content: space-between; align-items: center; padding: 0 5px; }
-        .profile-toggle-buttons { display: flex; background: rgba(0,0,0,0.3); border-radius: 6px; }
-        .profile-toggle-btn { background: transparent; border: none; color: #9fa8da; padding: 6px 10px; font-size: 0.75rem; font-weight: 600; cursor: pointer; border-radius: 6px; transition: all 0.2s; }
-        .profile-toggle-btn:hover { color: #fff; }
-        .profile-toggle-btn.active { background: #00a8ff; color: #fff; box-shadow: 0 2px 5px rgba(0, 168, 255, 0.3); }
         
         .pfd-main-panel { 
             display: flex; 
@@ -1119,7 +1146,7 @@ function injectCustomStyles() {
             background-color: #1f2937; 
             border: 4px solid #374151; 
             padding: 12px; 
-            border-radius: 1rem; 
+            border-radius: var(--radius-md); 
             box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.5); 
             width: 100%; 
             box-sizing: border-box; 
@@ -1197,9 +1224,9 @@ function injectCustomStyles() {
         }
 
         .rules-module-container {
-            background: #000;
-            border: 2px solid #333;
-            border-radius: 4px;
+            background: var(--bg-glass);
+            border: 1px solid var(--border-glass);
+            border-radius: var(--radius-sm);
             display: flex;
             flex-direction: column;
             box-shadow: inset 0 0 20px rgba(0,0,0,0.8);
@@ -1207,15 +1234,15 @@ function injectCustomStyles() {
         }
 
         .rules-header {
-            background: #111;
+            background: var(--bg-panel);
             padding: 6px 10px;
-            border-bottom: 1px solid #333;
+            border-bottom: 1px solid var(--border-glass);
             display: flex;
             justify-content: space-between;
             font-size: 0.8rem;
             font-weight: bold;
-            color: #fff;
-            font-family: 'Consolas', monospace;
+            color: var(--text-primary);
+            font-family: var(--font-data);
         }
 
         .rules-body {
@@ -1223,13 +1250,13 @@ function injectCustomStyles() {
             display: flex;
             justify-content: center;
             align-items: center;
-            background: #0f1115; 
+            background: transparent; 
         }
 
         .flight-rules-badge {
             padding: 6px 16px;
             border-radius: 4px;
-            font-family: 'Consolas', monospace;
+            font-family: var(--font-data);
             font-weight: bold;
             font-size: 1.1rem;
             text-align: center;
@@ -1245,28 +1272,28 @@ function injectCustomStyles() {
 
         .badge-ifr {
             background: linear-gradient(180deg, rgba(0, 119, 255, 0.2) 0%, rgba(0, 60, 130, 0.4) 100%);
-            color: #00a8ff;
-            border-color: #0077ff;
+            color: var(--color-brand);
+            border-color: var(--color-brand);
         }
 
         .badge-vfr {
             background: linear-gradient(180deg, rgba(40, 167, 69, 0.2) 0%, rgba(20, 80, 35, 0.4) 100%);
-            color: #28a745;
-            border-color: #28a745;
+            color: var(--color-success);
+            border-color: var(--color-success);
         }
 
         .badge-svfr {
             background: linear-gradient(180deg, rgba(255, 193, 7, 0.2) 0%, rgba(130, 100, 5, 0.4) 100%);
-            color: #ffc107;
-            border-color: #ffc107;
+            color: var(--color-warning);
+            border-color: var(--color-warning);
         }
         
         .vsd-module-container {
             height: 260px; 
             max-height: 260px;
-            background: #000;
-            border: 2px solid #333;
-            border-radius: 4px;
+            background: var(--bg-glass);
+            border: 1px solid var(--border-glass);
+            border-radius: var(--radius-sm);
             display: flex;
             flex-direction: column;
             box-shadow: inset 0 0 20px rgba(0,0,0,0.8);
@@ -1278,7 +1305,7 @@ function injectCustomStyles() {
         .vsd-panel { 
             display: flex; 
             flex-direction: column; 
-            background: #0f1115; 
+            background: transparent; 
             flex-grow: 1;
             position: relative;
             overflow: hidden; 
@@ -1300,16 +1327,16 @@ function injectCustomStyles() {
             left: 0;
             width: 35px;
             height: 100%;
-            background: #111;
-            border-right: 1px solid #333;
+            background: var(--bg-panel);
+            border-right: 1px solid var(--border-glass);
             z-index: 10;
         }
         .y-axis-label {
             position: absolute;
             right: 4px;
-            font-family: 'Consolas', monospace;
+            font-family: var(--font-data);
             font-size: 0.65rem;
-            color: #666;
+            color: var(--text-dim);
             transform: translateY(-50%);
         }
 
@@ -1336,7 +1363,7 @@ function injectCustomStyles() {
 
         #vsd-flown-path {
             fill: none;
-            stroke: #00e600; 
+            stroke: var(--color-success); 
             stroke-width: 3;
             filter: drop-shadow(0 0 4px rgba(0, 230, 0, 0.5));
         }
@@ -1345,7 +1372,7 @@ function injectCustomStyles() {
             position: absolute;
             width: 14px;
             height: 14px;
-            background-image: url('data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><path fill="%2300a8ff" d="M488 256l-112-80v-96l-80 48-80-48v96L104 256 24 288v64l192-48v96l-32 32v32l72-24 72 24v-32l-32-32v-96l192 48v-64l-80-32z"/></svg>');
+            background-image: url('data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><path fill="%2338bdf8" d="M488 256l-112-80v-96l-80 48-80-48v96L104 256 24 288v64l192-48v96l-32 32v32l72-24 72 24v-32l-32-32v-96l192 48v-64l-80-32z"/></svg>');
             background-size: contain;
             background-repeat: no-repeat;
             transform: translate(-50%, -50%);
@@ -1355,7 +1382,7 @@ function injectCustomStyles() {
         .vsd-wp-label {
             position: absolute;
             transform: translateX(-50%);
-            font-family: 'Consolas', monospace;
+            font-family: var(--font-data);
             text-align: center;
             width: 60px;
             pointer-events: none;
@@ -1363,7 +1390,7 @@ function injectCustomStyles() {
         .vsd-wp-label .wp-name {
             display: block;
             font-size: 0.7rem;
-            color: #00a8ff;
+            color: var(--color-brand);
             font-weight: bold;
             background: rgba(0,0,0,0.7);
             padding: 1px 3px;
@@ -1372,31 +1399,31 @@ function injectCustomStyles() {
         .vsd-wp-label .wp-alt {
             display: block;
             font-size: 0.6rem;
-            color: #888;
+            color: var(--text-secondary);
             margin-top: 1px;
         }
         
         .vsd-footer {
-            background: #111;
+            background: var(--bg-panel);
             padding: 4px 10px;
-            border-top: 1px solid #333;
+            border-top: 1px solid var(--border-glass);
             display: flex;
             justify-content: space-between;
             align-items: center;
             font-size: 0.7rem;
-            color: #888;
+            color: var(--text-dim);
             flex-shrink: 0;
         }
         .vsd-legend-item { display: flex; align-items: center; gap: 5px; }
         .dot-plan { width: 6px; height: 6px; background: #444; border-radius: 50%; }
-        .dot-flown { width: 6px; height: 6px; background: #00e600; border-radius: 50%; box-shadow: 0 0 4px #00e600; }
+        .dot-flown { width: 6px; height: 6px; background: var(--color-success); border-radius: 50%; box-shadow: 0 0 4px var(--color-success); }
         
         .ac-info-window-tabs {
             display: flex;
             justify-content: space-between;
             align-items: center;
-            background: var(--iw-bg-start);
-            border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+            background: var(--bg-glass);
+            border-bottom: 1px solid var(--border-glass);
             padding: 0 20px;
             height: 60px;
         }
@@ -1419,10 +1446,10 @@ function injectCustomStyles() {
             height: 100%;
             border: none;
             background: transparent;
-            color: #9fa8da;
+            color: var(--text-secondary);
             cursor: pointer;
             font-size: 0.95rem;
-            font-family: 'Segoe UI', sans-serif;
+            font-family: var(--font-ui);
             font-weight: 600;
             position: relative;
             display: flex;
@@ -1438,24 +1465,24 @@ function injectCustomStyles() {
 
         .ac-info-tab-btn.active {
             color: #fff;
-            border-bottom-color: #00a8ff;
-            text-shadow: 0 0 10px rgba(0, 168, 255, 0.5);
+            border-bottom-color: var(--color-brand);
+            text-shadow: 0 0 10px rgba(56, 189, 248, 0.5);
         }
         .ac-info-tab-btn.active i {
-            color: #00a8ff;
+            color: var(--color-brand);
         }
 
         .ac-info-tab-btn.pilot-tab-btn {
-            color: #e0e0e0;
+            color: var(--text-primary);
             font-weight: 700;
             letter-spacing: 0.5px;
         }
         .ac-info-tab-btn.pilot-tab-btn i {
-            color: #ffb74d; 
+            color: var(--color-warning); 
         }
         .ac-info-tab-btn.pilot-tab-btn.active {
             color: #fff;
-            border-bottom-color: #ffb74d; 
+            border-bottom-color: var(--color-warning); 
             text-shadow: 0 0 10px rgba(255, 183, 77, 0.5);
         }
 
@@ -1474,7 +1501,7 @@ function injectCustomStyles() {
             }
         }
 
-        .vsd-disclaimer { background: rgba(10, 12, 26, 0.5); border: 1px solid rgba(255, 255, 255, 0.05); border-radius: 8px; padding: 10px 14px; margin-top: 0; }
+        .vsd-disclaimer { background: rgba(10, 12, 26, 0.5); border: 1px solid var(--border-glass); border-radius: var(--radius-sm); padding: 10px 14px; margin-top: 0; }
 
         /* --- MAPBOX POPUP OVERRIDES (FIXED) --- */
         .mapboxgl-popup-content {
@@ -1482,7 +1509,6 @@ function injectCustomStyles() {
             box-shadow: none !important;
             padding: 0 !important;
             border: none !important;
-            /* This allows clicks/scrolls to pass through to the map */
             pointer-events: none !important; 
         }
         .mapboxgl-popup-tip {
@@ -1495,8 +1521,7 @@ function injectCustomStyles() {
             display: flex;
             flex-direction: column;
             gap: 3px;
-            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
-            /* Ensure the card itself doesn't block events either */
+            font-family: var(--font-ui);
             pointer-events: none; 
         }
 
@@ -1507,7 +1532,7 @@ function injectCustomStyles() {
             background-color: #2c2c2e;
             background-size: cover;
             background-position: center;
-            border-radius: 8px;
+            border-radius: var(--radius-sm);
             position: relative;
             box-shadow: 0 2px 8px rgba(0,0,0,0.4);
             overflow: hidden;
@@ -1533,7 +1558,7 @@ function injectCustomStyles() {
         /* --- BOTTOM INFO BUBBLE --- */
         .fr24-info-box {
             background-color: #2c2c2e;
-            border-radius: 8px;
+            border-radius: var(--radius-sm);
             padding: 6px 8px;
             box-shadow: 0 2px 8px rgba(0,0,0,0.4);
             display: flex;
@@ -1601,7 +1626,7 @@ function injectCustomStyles() {
 
         .fr24-progress-fill {
             height: 100%;
-            background-color: #ff3b30;
+            background-color: var(--color-danger);
             border-radius: 1.5px;
         }
 
@@ -1614,232 +1639,230 @@ function injectCustomStyles() {
 
         /* --- AIRPORT WINDOW SPECIFIC STYLES --- */
 
-/* 1. Airport Hero Header */
-.airport-hero {
-    background: linear-gradient(135deg, rgba(30, 41, 59, 0.8) 0%, rgba(15, 23, 42, 0.9) 100%);
-    border-bottom: 1px solid rgba(255, 255, 255, 0.1);
-    padding: 20px;
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-    position: relative;
-    overflow: hidden;
-}
+        .airport-hero {
+            background: linear-gradient(135deg, rgba(30, 41, 59, 0.8) 0%, rgba(15, 23, 42, 0.9) 100%);
+            border-bottom: 1px solid var(--border-glass);
+            padding: 20px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            position: relative;
+            overflow: hidden;
+        }
 
-/* A subtle pattern overlay for the header */
-.airport-hero::before {
-    content: '';
-    position: absolute;
-    top: 0; right: 0; bottom: 0; left: 0;
-    background-image: radial-gradient(#ffffff 1px, transparent 1px);
-    background-size: 20px 20px;
-    opacity: 0.05;
-    pointer-events: none;
-}
+        .airport-hero::before {
+            content: '';
+            position: absolute;
+            top: 0; right: 0; bottom: 0; left: 0;
+            background-image: radial-gradient(#ffffff 1px, transparent 1px);
+            background-size: 20px 20px;
+            opacity: 0.05;
+            pointer-events: none;
+        }
 
-.apt-ident-group {
-    display: flex;
-    flex-direction: column;
-    z-index: 2;
-}
+        .apt-ident-group {
+            display: flex;
+            flex-direction: column;
+            z-index: 2;
+        }
 
-.apt-icao {
-    font-family: 'Consolas', monospace;
-    font-size: 2.5rem;
-    font-weight: 800;
-    color: #fff;
-    line-height: 1;
-    text-shadow: 0 4px 10px rgba(0,0,0,0.5);
-    display: flex;
-    align-items: center;
-    gap: 12px;
-}
+        .apt-icao {
+            font-family: var(--font-data);
+            font-size: 2.5rem;
+            font-weight: 800;
+            color: #fff;
+            line-height: 1;
+            text-shadow: 0 4px 10px rgba(0,0,0,0.5);
+            display: flex;
+            align-items: center;
+            gap: 12px;
+        }
 
-.apt-name {
-    font-size: 0.9rem;
-    color: #94a3b8;
-    margin-top: 6px;
-    font-weight: 500;
-}
+        .apt-name {
+            font-size: 0.9rem;
+            color: #94a3b8;
+            margin-top: 6px;
+            font-weight: 500;
+        }
 
-.apt-meta-badge {
-    background: rgba(255,255,255,0.05);
-    border: 1px solid rgba(255,255,255,0.1);
-    padding: 4px 8px;
-    border-radius: 4px;
-    font-size: 0.75rem;
-    color: #cbd5e1;
-    display: flex;
-    align-items: center;
-    gap: 6px;
-}
+        .apt-meta-badge {
+            background: rgba(255,255,255,0.05);
+            border: 1px solid var(--border-glass);
+            padding: 4px 8px;
+            border-radius: 4px;
+            font-size: 0.75rem;
+            color: #cbd5e1;
+            display: flex;
+            align-items: center;
+            gap: 6px;
+        }
 
-/* 2. Weather Module Refactor */
-.weather-module-grid {
-    display: grid;
-    grid-template-columns: repeat(4, 1fr);
-    gap: 8px;
-    margin-top: 12px;
-}
+        /* 2. Weather Module Refactor */
+        .weather-module-grid {
+            display: grid;
+            grid-template-columns: repeat(4, 1fr);
+            gap: 8px;
+            margin-top: 12px;
+        }
 
-.wx-stat-box {
-    background: rgba(255,255,255,0.03);
-    border-radius: 6px;
-    padding: 8px;
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    text-align: center;
-}
+        .wx-stat-box {
+            background: var(--bg-subtle);
+            border-radius: 6px;
+            padding: 8px;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            text-align: center;
+        }
 
-.wx-label {
-    font-size: 0.65rem;
-    color: #64748b;
-    text-transform: uppercase;
-    font-weight: 700;
-    margin-bottom: 4px;
-}
+        .wx-label {
+            font-size: 0.65rem;
+            color: #64748b;
+            text-transform: uppercase;
+            font-weight: 700;
+            margin-bottom: 4px;
+        }
 
-.wx-value {
-    font-family: 'Consolas', monospace;
-    font-size: 0.95rem;
-    color: #e2e8f0;
-    font-weight: 600;
-}
+        .wx-value {
+            font-family: var(--font-data);
+            font-size: 0.95rem;
+            color: #e2e8f0;
+            font-weight: 600;
+        }
 
-.wx-condition-pill {
-    grid-column: span 4;
-    background: rgba(16, 185, 129, 0.1); 
-    border: 1px solid rgba(16, 185, 129, 0.2);
-    color: #34d399;
-    padding: 8px;
-    border-radius: 6px;
-    text-align: center;
-    font-weight: 700;
-    font-size: 0.9rem;
-    margin-top: 4px;
-    display: flex;
-    justify-content: center;
-    align-items: center;
-    gap: 8px;
-}
+        .wx-condition-pill {
+            grid-column: span 4;
+            background: rgba(16, 185, 129, 0.1); 
+            border: 1px solid rgba(16, 185, 129, 0.2);
+            color: var(--color-success);
+            padding: 8px;
+            border-radius: 6px;
+            text-align: center;
+            font-weight: 700;
+            font-size: 0.9rem;
+            margin-top: 4px;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            gap: 8px;
+        }
 
-/* Dynamic colors for flight rules */
-.wx-vfr { background: rgba(34, 197, 94, 0.1); color: #4ade80; border-color: rgba(34, 197, 94, 0.3); }
-.wx-mvfr { background: rgba(59, 130, 246, 0.1); color: #60a5fa; border-color: rgba(59, 130, 246, 0.3); }
-.wx-ifr { background: rgba(239, 68, 68, 0.1); color: #f87171; border-color: rgba(239, 68, 68, 0.3); }
-.wx-lifr { background: rgba(168, 85, 247, 0.1); color: #c084fc; border-color: rgba(168, 85, 247, 0.3); }
+        /* Dynamic colors for flight rules */
+        .wx-vfr { background: rgba(34, 197, 94, 0.1); color: #4ade80; border-color: rgba(34, 197, 94, 0.3); }
+        .wx-mvfr { background: rgba(59, 130, 246, 0.1); color: #60a5fa; border-color: rgba(59, 130, 246, 0.3); }
+        .wx-ifr { background: rgba(239, 68, 68, 0.1); color: #f87171; border-color: rgba(239, 68, 68, 0.3); }
+        .wx-lifr { background: rgba(168, 85, 247, 0.1); color: #c084fc; border-color: rgba(168, 85, 247, 0.3); }
 
-/* 3. Route Cards (Flight Strips) */
-.route-card {
-    background: linear-gradient(to right, rgba(30, 41, 59, 0.4), rgba(30, 41, 59, 0.2));
-    border: 1px solid rgba(255, 255, 255, 0.05);
-    border-left: 3px solid #00a8ff;
-    border-radius: 4px;
-    padding: 10px 14px;
-    margin-bottom: 8px;
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-    transition: all 0.2s;
-}
+        /* 3. Route Cards (Flight Strips) */
+        .route-card {
+            background: linear-gradient(to right, rgba(30, 41, 59, 0.4), rgba(30, 41, 59, 0.2));
+            border: 1px solid var(--border-glass);
+            border-left: 3px solid var(--color-brand);
+            border-radius: 4px;
+            padding: 10px 14px;
+            margin-bottom: 8px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            transition: all 0.2s;
+        }
 
-.route-card:hover {
-    background: rgba(30, 41, 59, 0.7);
-    transform: translateX(2px);
-    border-color: rgba(255, 255, 255, 0.15);
-}
+        .route-card:hover {
+            background: rgba(30, 41, 59, 0.7);
+            transform: translateX(2px);
+            border-color: var(--border-highlight);
+        }
 
-.route-info {
-    display: flex;
-    flex-direction: column;
-    gap: 4px;
-}
+        .route-info {
+            display: flex;
+            flex-direction: column;
+            gap: 4px;
+        }
 
-.route-callsign {
-    font-family: 'Consolas', monospace;
-    font-size: 1rem;
-    color: #fff;
-    font-weight: 700;
-    display: flex;
-    align-items: center;
-    gap: 8px;
-}
+        .route-callsign {
+            font-family: var(--font-data);
+            font-size: 1rem;
+            color: #fff;
+            font-weight: 700;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
 
-.route-details {
-    font-size: 0.75rem;
-    color: #94a3b8;
-    display: flex;
-    align-items: center;
-    gap: 10px;
-}
+        .route-details {
+            font-size: 0.75rem;
+            color: #94a3b8;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
 
-.route-ac-badge {
-    background: #1e293b;
-    padding: 2px 6px;
-    border-radius: 3px;
-    color: #cbd5e1;
-    font-weight: 600;
-    font-size: 0.7rem;
-    border: 1px solid rgba(255,255,255,0.1);
-}
+        .route-ac-badge {
+            background: #1e293b;
+            padding: 2px 6px;
+            border-radius: 3px;
+            color: #cbd5e1;
+            font-weight: 600;
+            font-size: 0.7rem;
+            border: 1px solid var(--border-glass);
+        }
 
-.plan-btn-mini {
-    background: rgba(14, 165, 233, 0.1);
-    color: #38bdf8;
-    border: 1px solid rgba(14, 165, 233, 0.3);
-    padding: 6px 12px;
-    border-radius: 4px;
-    font-size: 0.8rem;
-    font-weight: 600;
-    cursor: pointer;
-    transition: all 0.2s;
-}
+        .plan-btn-mini {
+            background: rgba(14, 165, 233, 0.1);
+            color: var(--color-brand);
+            border: 1px solid rgba(14, 165, 233, 0.3);
+            padding: 6px 12px;
+            border-radius: 4px;
+            font-size: 0.8rem;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.2s;
+        }
 
-.plan-btn-mini:hover {
-    background: #0ea5e9;
-    color: #fff;
-}
+        .plan-btn-mini:hover {
+            background: var(--color-brand);
+            color: #fff;
+        }
 
-/* 4. ATC Grid */
-.atc-grid-card {
-    background: #1e293b;
-    border: 1px solid rgba(255,255,255,0.05);
-    border-radius: 6px;
-    padding: 10px;
-    margin-bottom: 8px;
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-}
+        /* 4. ATC Grid */
+        .atc-grid-card {
+            background: #1e293b;
+            border: 1px solid var(--border-glass);
+            border-radius: 6px;
+            padding: 10px;
+            margin-bottom: 8px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
 
-.atc-type-badge {
-    padding: 4px 8px;
-    border-radius: 4px;
-    font-size: 0.75rem;
-    font-weight: 800;
-    text-transform: uppercase;
-    width: 80px;
-    text-align: center;
-}
-.atc-type-gnd { background: #0f172a; color: #94a3b8; border: 1px solid #334155; }
-.atc-type-twr { background: #1e3a8a; color: #60a5fa; border: 1px solid #2563eb; }
-.atc-type-app { background: #312e81; color: #818cf8; border: 1px solid #4f46e5; }
-.atc-type-obs { background: #3f3f46; color: #a1a1aa; border: 1px solid #52525b; }
+        .atc-type-badge {
+            padding: 4px 8px;
+            border-radius: 4px;
+            font-size: 0.75rem;
+            font-weight: 800;
+            text-transform: uppercase;
+            width: 80px;
+            text-align: center;
+        }
+        .atc-type-gnd { background: #0f172a; color: #94a3b8; border: 1px solid #334155; }
+        .atc-type-twr { background: #1e3a8a; color: #60a5fa; border: 1px solid #2563eb; }
+        .atc-type-app { background: #312e81; color: #818cf8; border: 1px solid #4f46e5; }
+        .atc-type-obs { background: #3f3f46; color: #a1a1aa; border: 1px solid #52525b; }
 
-.atc-controller {
-    font-weight: 600;
-    color: #e2e8f0;
-    font-size: 0.9rem;
-}
+        .atc-controller {
+            font-weight: 600;
+            color: #e2e8f0;
+            font-size: 0.9rem;
+        }
 
-.atc-duration {
-    font-family: monospace;
-    color: #64748b;
-    font-size: 0.8rem;
-}
+        .atc-duration {
+            font-family: monospace;
+            color: #64748b;
+            font-size: 0.8rem;
+        }
 
-/* --- [NEW] HERO ACTION BUTTONS --- */
+        /* --- HERO ACTION BUTTONS --- */
         .hero-actions {
             position: absolute;
             top: 15px;
@@ -1872,7 +1895,7 @@ function injectCustomStyles() {
         .apt-tabs-header {
             display: flex;
             background: rgba(0, 0, 0, 0.2);
-            border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+            border-bottom: 1px solid var(--border-glass);
             margin-bottom: 16px;
         }
 
@@ -1900,8 +1923,8 @@ function injectCustomStyles() {
         }
 
         .apt-tab-btn.active {
-            color: #38bdf8;
-            border-bottom-color: #38bdf8;
+            color: var(--color-brand);
+            border-bottom-color: var(--color-brand);
             background: rgba(56, 189, 248, 0.1);
         }
 
@@ -1930,7 +1953,7 @@ function injectCustomStyles() {
         .runway-dropdown-content {
             display: none; /* Closed by default */
             padding: 8px;
-            border-top: 1px solid rgba(255, 255, 255, 0.05);
+            border-top: 1px solid var(--border-glass);
         }
         .runway-dropdown-content.open {
             display: grid; /* Grid layout when open */
@@ -1959,7 +1982,7 @@ function injectCustomStyles() {
             transform: translateX(-50%);
             background: rgba(15, 23, 42, 0.9);
             backdrop-filter: blur(10px);
-            border: 1px solid rgba(255, 255, 255, 0.1);
+            border: 1px solid var(--border-glass);
             border-radius: 999px; /* Pill shape */
             padding: 4px;
             display: flex;
@@ -1979,7 +2002,7 @@ function injectCustomStyles() {
             cursor: pointer;
             transition: all 0.2s ease;
             white-space: nowrap;
-            font-family: 'Inter', sans-serif;
+            font-family: var(--font-ui);
         }
 
         .server-btn:hover {
@@ -1988,15 +2011,15 @@ function injectCustomStyles() {
         }
 
         .server-btn.active {
-            background: #3b82f6; /* Blue active state */
+            background: #3b82f6; 
             color: #fff;
             box-shadow: 0 2px 10px rgba(59, 130, 246, 0.4);
         }
 
-        /* Mobile adjustment to drop it below the search bar if needed */
+        /* Mobile adjustment */
         @media (max-width: 768px) {
             #server-selector-container {
-                top: 70px; /* Push down below search bar on mobile */
+                top: 70px;
                 width: auto;
                 max-width: 90vw;
             }
@@ -2007,106 +2030,338 @@ function injectCustomStyles() {
         }
 
         .apt-quick-info-strip {
-    display: flex;
-    align-items: center;
-    gap: 12px;
-    padding: 10px 16px;
-    background: rgba(0, 0, 0, 0.2);
-    border-bottom: 1px solid rgba(255, 255, 255, 0.05);
-    font-size: 0.75rem;
-    color: #94a3b8;
-    overflow-x: auto;
-    white-space: nowrap;
-}
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            padding: 10px 16px;
+            background: rgba(0, 0, 0, 0.2);
+            border-bottom: 1px solid var(--border-glass);
+            font-size: 0.75rem;
+            color: #94a3b8;
+            overflow-x: auto;
+            white-space: nowrap;
+        }
 
-.apt-feature-pill {
-    display: flex;
-    align-items: center;
-    gap: 6px;
-    background: rgba(255, 255, 255, 0.03);
-    padding: 3px 8px;
-    border-radius: 4px;
-    border: 1px solid rgba(255, 255, 255, 0.05);
-    font-weight: 600;
-}
+        .apt-feature-pill {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            background: var(--bg-subtle);
+            padding: 3px 8px;
+            border-radius: 4px;
+            border: 1px solid var(--border-glass);
+            font-weight: 600;
+        }
 
-.apt-dashboard-grid {
-    display: grid;
-    grid-template-columns: 1fr 1fr; /* Two equal columns */
-    gap: 8px;
-    padding: 0 16px; /* Horizontal padding only */
-    margin-bottom: 8px;
-}
+        .apt-dashboard-grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 8px;
+            padding: 0 16px;
+            margin-bottom: 8px;
+        }
 
-/* On mobile, stack them back to 1 column */
-@media (max-width: 600px) {
-    .apt-dashboard-grid {
-        grid-template-columns: 1fr;
-    }
-}
+        @media (max-width: 600px) {
+            .apt-dashboard-grid {
+                grid-template-columns: 1fr;
+            }
+        }
 
-.apt-mini-module {
-    background: rgba(15, 23, 42, 0.6);
-    border: 1px solid rgba(255, 255, 255, 0.08);
-    border-radius: 8px;
-    display: flex;
-    flex-direction: column;
-    overflow: hidden;
-}
+        .apt-mini-module {
+            background: rgba(15, 23, 42, 0.6);
+            border: 1px solid rgba(255, 255, 255, 0.08);
+            border-radius: var(--radius-sm);
+            display: flex;
+            flex-direction: column;
+            overflow: hidden;
+        }
 
-.apt-mini-header {
-    background: rgba(255, 255, 255, 0.03);
-    padding: 6px 10px;
-    font-size: 0.7rem;
-    font-weight: 700;
-    color: #94a3b8;
-    text-transform: uppercase;
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-    border-bottom: 1px solid rgba(255, 255, 255, 0.05);
-}
+        .apt-mini-header {
+            background: var(--bg-subtle);
+            padding: 6px 10px;
+            font-size: 0.7rem;
+            font-weight: 700;
+            color: #94a3b8;
+            text-transform: uppercase;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            border-bottom: 1px solid var(--border-glass);
+        }
 
-.apt-mini-body {
-    padding: 10px;
-    flex-grow: 1;
-    display: flex;
-    flex-direction: column;
-    justify-content: center;
-}
+        .apt-mini-body {
+            padding: 10px;
+            flex-grow: 1;
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+        }
 
-.stat-grid-compact {
-    display: grid;
-    grid-template-columns: 1fr 1fr;
-    gap: 8px;
-}
+        .stat-grid-compact {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 8px;
+        }
 
-.compact-stat-box {
-    text-align: center;
-    background: rgba(255, 255, 255, 0.02);
-    border-radius: 4px;
-    padding: 4px;
-}
-.compact-label { font-size: 0.6rem; color: #64748b; display: block; }
-.compact-value { font-family: 'Consolas', monospace; font-size: 0.9rem; color: #e2e8f0; font-weight: 600; }
+        .compact-stat-box {
+            text-align: center;
+            background: rgba(255, 255, 255, 0.02);
+            border-radius: 4px;
+            padding: 4px;
+        }
+        .compact-label { font-size: 0.6rem; color: #64748b; display: block; }
+        .compact-value { font-family: var(--font-data); font-size: 0.9rem; color: #e2e8f0; font-weight: 600; }
 
-.metar-strip {
-    background: rgba(0, 0, 0, 0.3);
-    padding: 8px 16px;
-    font-family: 'Consolas', monospace;
-    font-size: 0.7rem;
-    color: #94a3b8;
-    border-bottom: 1px solid rgba(255, 255, 255, 0.05);
-    white-space: pre-wrap;
-    line-height: 1.3;
-}
+        .metar-strip {
+            background: rgba(0, 0, 0, 0.3);
+            padding: 8px 16px;
+            font-family: var(--font-data);
+            font-size: 0.7rem;
+            color: #94a3b8;
+            border-bottom: 1px solid var(--border-glass);
+            white-space: pre-wrap;
+            line-height: 1.3;
+        }
 
-/* Add to injectCustomStyles css string */
-#simple-flight-window-frame {
-    border-radius: 12px; /* Match your UI radius */
-    background: rgba(16, 18, 27, 0.95); /* Avoid white flashes */
-}
+        /* --- Shared Tech Style --- */
+        .tech-module {
+            background: var(--bg-glass);
+            border: 1px solid var(--border-glass);
+            border-radius: var(--radius-md);
+            overflow: hidden;
+            box-shadow: 0 4px 15px rgba(0, 0, 0, 0.5);
+            margin-bottom: 8px; 
+            display: flex;
+            flex-direction: column;
+        }
 
+        .tech-module-header {
+            background: var(--bg-panel);
+            padding: 8px 12px;
+            border-bottom: 1px solid var(--border-glass);
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+        
+        .tech-module-title {
+            font-size: 0.75rem;
+            font-weight: 700;
+            color: var(--text-secondary);
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .tech-module-body {
+            padding: 12px;
+            background: transparent;
+            position: relative;
+        }
+
+        /* --- Tech Card Specifics --- */
+        .tech-card {
+            background: var(--bg-glass); 
+            border: 1px solid var(--border-glass);
+            border-radius: var(--radius-md); 
+            overflow: hidden;
+            box-shadow: 0 4px 15px rgba(0, 0, 0, 0.5);
+            position: relative;
+            font-family: var(--font-ui);
+            margin-bottom: 12px; 
+        }
+        .tech-card-header {
+            padding: 12px 16px 4px; 
+            display: flex;
+            justify-content: space-between;
+            align-items: flex-start;
+            position: relative;
+            z-index: 10;
+        }
+        .tech-badge {
+            display: inline-flex;
+            align-items: center;
+            gap: 4px;
+            padding: 1px 6px;
+            border-radius: 999px;
+            background: rgba(16, 185, 129, 0.1);
+            border: 1px solid rgba(16, 185, 129, 0.2);
+            font-size: 9px;
+            font-weight: 700;
+            color: var(--color-success);
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+        }
+        .tech-ping {
+            position: relative;
+            display: flex;
+            height: 5px;
+            width: 5px;
+        }
+        .tech-ping span {
+            position: absolute;
+            display: inline-flex;
+            height: 100%;
+            width: 100%;
+            border-radius: 50%;
+            background-color: var(--color-success);
+        }
+        .tech-ping .animate {
+            animation: ping 1s cubic-bezier(0, 0, 0.2, 1) infinite;
+            opacity: 0.75;
+        }
+        @keyframes ping {
+            75%, 100% { transform: scale(2); opacity: 0; }
+        }
+        .tech-model {
+            font-size: 1.1rem;
+            font-weight: 700;
+            color: var(--text-primary);
+            letter-spacing: -0.025em;
+            margin: 0;
+            line-height: 1.2;
+        }
+        .tech-airline {
+            font-size: 0.75rem;
+            font-weight: 500;
+            color: rgba(56, 189, 248, 0.9);
+            margin-top: 0px;
+            display: flex;
+            align-items: center;
+            gap: 5px;
+        }
+        .tech-content {
+            padding: 12px;
+            position: relative;
+            z-index: 10;
+        }
+        .tech-image-container {
+            position: relative;
+            width: 100%;
+            aspect-ratio: 21 / 9;
+            border-radius: var(--radius-sm);
+            overflow: hidden;
+            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.2);
+            border: 1px solid var(--border-glass);
+            background: #000;
+        }
+        .tech-image {
+            width: 100%;
+            height: 100%;
+            object-fit: cover;
+            transition: transform 0.7s ease-out;
+        }
+        .tech-image-container:hover .tech-image {
+            transform: scale(1.05);
+        }
+        .tech-image-overlay {
+            position: absolute;
+            inset: 0;
+            background: linear-gradient(to top, rgba(2, 6, 23, 0.9), transparent, transparent);
+            opacity: 0.8;
+        }
+        .tech-image-info {
+            position: absolute;
+            bottom: 8px;
+            left: 10px;
+            right: 10px;
+            display: flex;
+            justify-content: space-between;
+            align-items: flex-end;
+        }
+        .tech-photographer {
+            display: flex;
+            flex-direction: column;
+        }
+        .tech-photo-label {
+            font-size: 9px;
+            color: #cbd5e1;
+            font-weight: 500;
+            margin-bottom: 0px;
+            line-height: 1;
+        }
+        .tech-photo-name {
+            display: flex;
+            align-items: center;
+            gap: 4px;
+            font-size: 10px;
+            font-weight: 600;
+            color: #fff;
+        }
+        .tech-grid {
+            display: grid;
+            grid-template-columns: repeat(2, 1fr);
+            gap: 8px;
+            margin-top: 12px;
+        }
+        .tech-stat-card {
+            background: var(--bg-panel);
+            border: 1px solid var(--border-glass);
+            padding: 8px 10px;
+            border-radius: 6px;
+            transition: background 0.2s;
+        }
+        .tech-stat-card:hover {
+            background: rgba(63, 63, 70, 0.6);
+        }
+        .tech-stat-header {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            margin-bottom: 2px;
+        }
+        .tech-stat-label {
+            font-size: 9px;
+            font-weight: 600;
+            color: #94a3b8;
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+        }
+        .tech-stat-value {
+            font-family: var(--font-data);
+            font-size: 0.95rem;
+            color: #fff;
+            font-weight: 600;
+            letter-spacing: -0.025em;
+        }
+        .tech-country-card {
+            grid-column: span 2;
+            background: var(--bg-panel);
+            border: 1px solid var(--border-glass);
+            padding: 6px 10px;
+            border-radius: 6px;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+        }
+        .tech-country-left {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+        .tech-country-icon {
+            width: 24px;
+            height: 24px;
+            border-radius: 4px;
+            background: rgba(51, 65, 85, 0.5);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            color: #94a3b8;
+        }
+        .tech-bottom-bar {
+            height: 3px;
+            width: 100%;
+            background: linear-gradient(to right, #0ea5e9, #2563eb, #4f46e5);
+            opacity: 0.8;
+        }
+
+        #simple-flight-window-frame {
+            border-radius: var(--radius-md); 
+            background: var(--bg-glass); 
+        }
     `;
 
     const style = document.createElement('style');
@@ -4040,22 +4295,20 @@ function getIntermediatePoint(lat1, lon1, lat2, lon2, fraction) {
 /**
      * --- [UPDATED] ---
      * Fetches community aircraft details from the backend and caches the result.
-     * NOW INCLUDES TAIL NUMBER CACHING.
-     * @param {string} type - The aircraftType (e.g., "Airbus A320-200").
-     * @param {string} livery - The liveryName (e.g., "Air France").
-     * @returns {Promise<object|null>} The cached data { imageUrl, contributorName, tailNumber } or null.
+     * IMPORTS "NEGATIVE CACHING": If a lookup fails or finds nothing, we cache null 
+     * to prevent future network attempts for this specific livery.
      */
     async function fetchCommunityAircraftDetails(type, livery) {
         if (!type || !livery) return null;
 
         const key = `${type}/${livery}`;
 
-        // 1. Check local cache first
+        // 1. Check local cache first (Success OR Previous Failure)
         if (communityAircraftCache.has(key)) {
             return communityAircraftCache.get(key);
         }
 
-        // 2. Check if a fetch is already in progress (in the queue)
+        // 2. Check if a fetch is already in progress
         if (lookupQueue.has(key)) {
             return lookupQueue.get(key);
         }
@@ -4071,7 +4324,7 @@ function getIntermediatePoint(lat1, lon1, lat2, lon2, fraction) {
                 if (response.ok) {
                     let data = await response.json();
                     
-                    // Handle array response from find() (though API returns results[0])
+                    // Handle array response
                     if (Array.isArray(data)) {
                         data = data.length > 0 ? data[0] : null;
                     }
@@ -4080,17 +4333,21 @@ function getIntermediatePoint(lat1, lon1, lat2, lon2, fraction) {
                         const result = { 
                             communityImageUrl: data.imageUrl, 
                             contributorName: data.contributorName || 'IF Community',
-                            tailNumber: data.tailNumber || null // <-- CACHE THE TAIL NUMBER
+                            tailNumber: data.tailNumber || null
                         };
-                        communityAircraftCache.set(key, result);
+                        communityAircraftCache.set(key, result); // Cache Success
                         return result;
                     }
                 }
             } catch (error) {
-                console.warn(`Background lookup failed for ${key}:`, error);
-                // On failure, cache null to avoid repeated failing lookups
-                communityAircraftCache.set(key, null); 
+                // Console warning is optional, keeping it clean as requested
+                // console.warn(`Background lookup failed for ${key}`, error); 
             }
+
+            // --- NEGATIVE CACHING FIX ---
+            // If we reached here, the fetch failed, or returned 404, or the data was empty.
+            // We cache 'null' so we know we checked this already and found nothing.
+            communityAircraftCache.set(key, null); 
             return null;
         })();
 
@@ -4158,23 +4415,33 @@ function handleSocketFlightUpdate(data) {
             // Preserve existing cached data (Images + TAIL NUMBER)
             communityImageUrl: existingProps.communityImageUrl || null, 
             contributorName: existingProps.contributorName || null,
-            tailNumber: existingProps.tailNumber || null // <--- PRESERVE TAIL NUMBER
+            tailNumber: existingProps.tailNumber || null 
         };
 
-        // --- START: ASYNCHRONOUS LOOKUP LOGIC FOR HOVER CARD ---
+        // --- START: ASYNCHRONOUS LOOKUP LOGIC FOR HOVER CARD (NEGATIVE CACHING FIX) ---
         if (acName && livName && !existingProps.communityImageUrl) {
-            const cachedData = communityAircraftCache.get(lookupKey);
-            if (cachedData) {
-                newProperties.communityImageUrl = cachedData.communityImageUrl;
-                newProperties.contributorName = cachedData.contributorName;
-                newProperties.tailNumber = cachedData.tailNumber; // <--- APPLY CACHED TAIL NUMBER
+            
+            // 1. Check if we have ALREADY looked this up (Success OR Failure)
+            if (communityAircraftCache.has(lookupKey)) {
+                const cachedData = communityAircraftCache.get(lookupKey);
+                
+                // Only apply if the result was a SUCCESS (not null)
+                // If cachedData is null, we do nothing. We tried before and failed.
+                if (cachedData) {
+                    newProperties.communityImageUrl = cachedData.communityImageUrl;
+                    newProperties.contributorName = cachedData.contributorName;
+                    newProperties.tailNumber = cachedData.tailNumber;
+                }
+                
             } else if (!lookupQueue.has(lookupKey)) {
+                // 2. Not in cache, and not currently fetching? Go get it.
                 fetchCommunityAircraftDetails(acName, livName)
                     .then(result => {
+                        // Only update if we actually got a valid result back
                         if (result && currentMapFeatures[flightId]) {
                             currentMapFeatures[flightId].properties.communityImageUrl = result.communityImageUrl;
                             currentMapFeatures[flightId].properties.contributorName = result.contributorName;
-                            currentMapFeatures[flightId].properties.tailNumber = result.tailNumber; // <--- APPLY FETCHED TAIL NUMBER
+                            currentMapFeatures[flightId].properties.tailNumber = result.tailNumber;
                             
                             if (isMapReady && sectorOpsMap.getSource('sector-ops-live-flights-source')) {
                                 sectorOpsMap.getSource('sector-ops-live-flights-source').setData({
@@ -4184,7 +4451,7 @@ function handleSocketFlightUpdate(data) {
                             }
                         }
                     })
-                    .catch(err => console.error("Aircraft lookup failed:", err));
+                    .catch(() => { /* Ignore errors, handled in fetch function */ });
             }
         }
         // --- END: ASYNCHRONOUS LOOKUP LOGIC ---
@@ -4254,7 +4521,7 @@ function handleSocketFlightUpdate(data) {
                         { 
                             imageUrl: fullFlightProps.communityImageUrl, 
                             contributorName: fullFlightProps.contributorName,
-                            tailNumber: fullFlightProps.tailNumber // <--- PASS THE TAIL NUMBER TO THE FORMATTER
+                            tailNumber: fullFlightProps.tailNumber
                         }
                     );
                     
