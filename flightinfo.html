@@ -15,7 +15,7 @@
     /* --- DESIGN TOKENS (Theme: Carbon & Titanium) --- */
     :root {
         /* Palette */
-        --bg-glass: rgba(24, 24, 27, 0.90); /* Zinc-900 base, slightly more opaque */
+        --bg-glass: rgba(24, 24, 27, 0.90); /* Zinc-900 base */
         --bg-panel: rgba(63, 63, 70, 0.35); /* Zinc-700 lighter gray */
         
         --border-glass: rgba(255, 255, 255, 0.08);
@@ -81,6 +81,29 @@
         background: linear-gradient(180deg, rgba(24,24,27,0.9) 0%, rgba(24,24,27,0) 100%);
     }
 
+    /* Wrapper for the left side (Strip + Identity) */
+    .identity-wrapper {
+        display: flex;
+        align-items: center;
+        gap: 12px;
+    }
+
+    /* --- NEW SEAT STATUS STRIP --- */
+    .seat-status-strip {
+        width: 4px;
+        height: 42px;
+        border-radius: 4px;
+        background: rgba(255,255,255,0.1);
+        transition: all 0.4s var(--ease-out);
+        box-shadow: 0 0 0 rgba(0,0,0,0);
+    }
+
+    /* Strip Colors & Glows */
+    .strip-active { background: #4ade80; box-shadow: 0 0 12px rgba(74, 222, 128, 0.4); }
+    .strip-auto   { background: #facc15; box-shadow: 0 0 12px rgba(250, 204, 21, 0.4); }
+    .strip-parked { background: #f87171; box-shadow: 0 0 5px rgba(248, 113, 113, 0.2); opacity: 0.7; }
+    .strip-ap-plus { background: #818cf8; box-shadow: 0 0 12px rgba(129, 140, 248, 0.4); }
+
     .identity-group {
         display: flex;
         flex-direction: column;
@@ -114,7 +137,28 @@
     .pilot-row:hover { color: #fff; }
     .pilot-row i { font-size: 10px; color: var(--text-dim); }
 
-    /* Modern Status Pill (Dot Indicator) */
+    /* New Mini Label for Seat Text */
+    .seat-mini-label {
+        font-size: 9px;
+        font-weight: 700;
+        letter-spacing: 0.5px;
+        text-transform: uppercase;
+        padding: 2px 6px;
+        border-radius: 4px;
+        background: rgba(255,255,255,0.05);
+        border: 1px solid rgba(255,255,255,0.05);
+        color: var(--text-dim);
+        transition: all 0.3s ease;
+    }
+    
+    /* Text Colors for Mini Label */
+    .text-active { color: #4ade80; background: rgba(74, 222, 128, 0.1); border-color: rgba(74, 222, 128, 0.15); }
+    .text-auto   { color: #facc15; background: rgba(250, 204, 21, 0.1); border-color: rgba(250, 204, 21, 0.15); }
+    .text-parked { color: #f87171; background: rgba(248, 113, 113, 0.1); border-color: rgba(248, 113, 113, 0.15); }
+    .text-ap-plus { color: #818cf8; background: rgba(129, 140, 248, 0.1); border-color: rgba(129, 140, 248, 0.15); }
+
+
+    /* Modern Status Pill (Dot Indicator for Flight Phase) */
     .flight-state-badge {
         display: flex;
         align-items: center;
@@ -145,15 +189,6 @@
     .state-descend { color: #fbbf24; border-color: rgba(251, 191, 36, 0.2); background: rgba(251, 191, 36, 0.05); }
     .state-cruise { color: #38bdf8; border-color: rgba(56, 189, 248, 0.2); background: rgba(56, 189, 248, 0.05); }
     .state-ground { color: #a1a1aa; border-color: rgba(161, 161, 170, 0.2); background: rgba(161, 161, 170, 0.05); }
-
-    /* --- NEW SEAT STATUS COLORS --- */
-    .seat-badge {
-        margin-left: 8px;
-    }
-    .seat-active { color: #4ade80; border-color: rgba(74, 222, 128, 0.3); background: rgba(74, 222, 128, 0.1); }
-    .seat-auto   { color: #facc15; border-color: rgba(250, 204, 21, 0.3); background: rgba(250, 204, 21, 0.1); }
-    .seat-parked { color: #f87171; border-color: rgba(248, 113, 113, 0.3); background: rgba(248, 113, 113, 0.1); }
-    .seat-ap-plus { color: #818cf8; border-color: rgba(129, 140, 248, 0.3); background: rgba(129, 140, 248, 0.1); }
 
     /* --- SCROLL AREA --- */
     .scroll-viewport {
@@ -466,25 +501,24 @@
     <div class="avionics-window">
         
         <header class="header-section">
-            <div class="identity-group">
-                <div class="main-callsign skeleton" id="callsign">WAITING</div>
-                <div class="pilot-row" onclick="parent.postMessage({type: 'OPEN_PROFILE'}, '*')">
-                    <i class="fa-solid fa-user-astronaut"></i>
-                    <span id="username">PILOT</span>
+            <div class="identity-wrapper">
+                <div id="seat-visual-strip" class="seat-status-strip"></div>
+
+                <div class="identity-group">
+                    <div class="main-callsign skeleton" id="callsign">WAITING</div>
+                    <div class="pilot-row" onclick="parent.postMessage({type: 'OPEN_PROFILE'}, '*')">
+                        <i class="fa-solid fa-user-astronaut"></i>
+                        <span id="username">PILOT</span>
+                        
+                        <span id="seat-status-label" class="seat-mini-label" style="display: none;">---</span>
+                    </div>
                 </div>
             </div>
             
             <div style="display: flex;">
-                <!-- Existing Phase Badge -->
                 <div class="flight-state-badge" id="state-badge">
                     <div class="state-indicator-dot" id="state-dot"></div>
                     <span class="state-text" id="status-text">Standby</span>
-                </div>
-
-                <!-- NEW: Seat State Badge -->
-                <div class="flight-state-badge seat-badge" id="seat-state-badge" style="display: none;">
-                    <div class="state-indicator-dot"></div>
-                    <span class="state-text" id="seat-status-text">---</span>
                 </div>
             </div>
         </header>
@@ -620,7 +654,7 @@
         const scrollViewport = document.querySelector('.scroll-viewport');
         const mainWindow = document.querySelector('.avionics-window');
 
-        // Scroll Shadow (Retained functionality)
+        // Scroll Shadow
         scrollViewport.addEventListener('scroll', () => {
             if (scrollViewport.scrollTop > 10) {
                 mainWindow.classList.add('scrolled');
@@ -645,13 +679,11 @@
             updateText('callsign', data.callsign || 'N/A');
             document.getElementById('callsign').classList.remove('skeleton');
 
-            // Status Badge Logic (Carbon Style)
+            // Flight Phase Status Badge (Right side)
             const phase = data.phase ? data.phase.toUpperCase() : 'STANDBY';
             updateText('status-text', phase);
             
             const badge = document.getElementById('state-badge');
-            
-            // Reset classes
             badge.className = 'flight-state-badge'; 
 
             if (phase.includes('CLIMB') || phase.includes('TAKEOFF')) {
@@ -664,35 +696,46 @@
                 badge.classList.add('state-ground');
             }
 
-            // --- 3. NEW: Seat State Badge (The "Truth") ---
-            const seatBadge = document.getElementById('seat-state-badge');
-            const seatText = document.getElementById('seat-status-text');
+            // --- 3. REDESIGNED SEAT STATUS LOGIC ---
+            // We control the Strip (left of callsign) and the Mini Label (next to username)
+            const seatStrip = document.getElementById('seat-visual-strip');
+            const seatLabel = document.getElementById('seat-status-label');
             
             if (data.pilotState !== undefined) {
-                seatBadge.style.display = 'flex';
-                // Reset base classes
-                seatBadge.className = 'flight-state-badge seat-badge';
+                seatLabel.style.display = 'inline-block';
+                
+                // Reset classes
+                seatStrip.className = 'seat-status-strip';
+                seatLabel.className = 'seat-mini-label';
                 
                 switch(data.pilotState) {
                     case 0: // Active
-                        seatBadge.classList.add('seat-active');
-                        seatText.textContent = 'ACTIVE';
+                        seatStrip.classList.add('strip-active');
+                        seatLabel.classList.add('text-active');
+                        seatLabel.textContent = 'ACTIVE';
                         break;
-                    case 1: // AwayInFlight
-                        seatBadge.classList.add('seat-auto');
-                        seatText.textContent = 'AUTO';
+                    case 1: // AwayInFlight (Auto)
+                        seatStrip.classList.add('strip-auto');
+                        seatLabel.classList.add('text-auto');
+                        seatLabel.textContent = 'AUTO';
                         break;
                     case 2: // AwayParked
-                        seatBadge.classList.add('seat-parked');
-                        seatText.textContent = 'PARKED';
+                        seatStrip.classList.add('strip-parked');
+                        seatLabel.classList.add('text-parked');
+                        seatLabel.textContent = 'PARKED';
                         break;
-                    case 3: // InBackground
-                        seatBadge.classList.add('seat-ap-plus');
-                        seatText.textContent = 'AP+';
+                    case 3: // InBackground (AP+)
+                        seatStrip.classList.add('strip-ap-plus');
+                        seatLabel.classList.add('text-ap-plus');
+                        seatLabel.textContent = 'AP+';
                         break;
                     default:
-                        seatBadge.style.display = 'none';
+                        seatLabel.style.display = 'none';
                 }
+            } else {
+                // If no state, hide the text, strip remains neutral
+                seatLabel.style.display = 'none';
+                seatStrip.className = 'seat-status-strip';
             }
 
             // 4. Aircraft
@@ -719,7 +762,7 @@
                 }
             }
 
-            // 5. Telemetry (Retaining VS Arrow Logic)
+            // 5. Telemetry
             if (data.telemetry) {
                 updateText('val-alt', formatNumber(data.telemetry.altitude));
                 updateText('val-spd', Math.round(data.telemetry.groundSpeed || 0));
@@ -756,7 +799,7 @@
                 updateText('val-rem', data.route.ete || '--:--');
             }
 
-            // 7. Waypoints (Retaining Grouping Logic)
+            // 7. Waypoints
             if (data.waypoints && Array.isArray(data.waypoints)) {
                 renderWaypoints(data.waypoints);
             }
@@ -791,22 +834,15 @@
             });
             container.innerHTML = html;
             
-            // --- FIX START: Contained Scrolling ---
             if (container.dataset.scrolled !== 'true') {
                 const activeEl = container.querySelector('.active');
                 if (activeEl) {
                     setTimeout(() => {
-                        // 1. Get positions relative to the viewport
                         const containerRect = container.getBoundingClientRect();
                         const activeRect = activeEl.getBoundingClientRect();
-                        
-                        // 2. Calculate where the element is relative to the container's top
                         const relativeTop = activeRect.top - containerRect.top;
-                        
-                        // 3. Calculate target scroll position (Current Scroll + Relative Offset - Half Container Height)
                         const targetScroll = container.scrollTop + relativeTop - (container.clientHeight / 2) + (activeEl.clientHeight / 2);
 
-                        // 4. Apply scroll ONLY to the container
                         container.scrollTo({
                             top: targetScroll,
                             behavior: 'smooth'
@@ -816,7 +852,6 @@
                     }, 500);
                 }
             }
-            // --- FIX END ---
         }
         
         function updateText(id, text) {
