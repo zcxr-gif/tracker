@@ -2415,6 +2415,21 @@ function injectCustomStyles() {
 .atis-pill { font-family: var(--font-data); font-size: 0.75rem; font-weight: 700; padding: 2px 6px; border-radius: 3px; border: 1px solid; margin-left: 4px; }
 .pill-arr { background: rgba(16, 185, 129, 0.1); color: #4ade80; border-color: rgba(16, 185, 129, 0.3); }
 .pill-dep { background: rgba(56, 189, 248, 0.1); color: #38bdf8; border-color: rgba(56, 189, 248, 0.3); }
+/* --- NEW: Mini Module Footer (For ATIS Remarks) --- */
+.apt-mini-footer {
+    padding: 6px 10px;
+    background: rgba(0, 0, 0, 0.2);
+    border-top: 1px solid var(--border-glass);
+    font-size: 0.65rem;
+    color: #cbd5e1;
+    display: flex;
+    align-items: center;
+    min-height: 24px;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+.apt-mini-footer i { margin-right: 6px; color: #fbbf24; } /* Amber icon for remarks */
     `;
 
     const style = document.createElement('style');
@@ -2425,177 +2440,49 @@ function injectCustomStyles() {
 }
 
 /**
- * --- [REPLACED] Advanced Congestion Algorithm v3 (Strict Mode) ---
- * Uses a "Capacity Points" system with HARD VOLUME GATES to prevent
- * small clusters of planes from triggering high congestion alerts.
+ * Deciphers Infinite Flight ATIS text into a structured object.
+ * Extracts Info letter, Time, Runways, Approaches, and Remarks.
  */
-function calculateAirportCongestion(inboundFlightIds, airportCoords) {
-    // 1. Safety Checks
-    if (!airportCoords) return { 
-        level: "LOW", color: "#4ade80", trend: "STEADY", scoreDisplay: "0.0",
-        imminent: 0, approach: 0, enroute: 0, ground: 0 
-    };
-
-    // --- 2. "STRICT" SCORING WEIGHTS (Points per aircraft) ---
-    const POINTS = {
-        FINAL: 12,      // Very high impact (Final app < 15m)
-        TAXI: 4,        // Moderate impact (Active ground)
-        APPROACH: 2,    // Low impact (15-40m out)
-        STATIC: 0.1,    // Negligible (Parked)
-        ENROUTE: 0      // Zero (40m+ out)
-    };
-
-    // --- 3. THRESHOLDS (Total Points Required) ---
-    // EXTREME: Needs ~10 planes on Final OR ~30 active Taxiing
-    const THRESHOLD_EXTREME = 120; 
-    const THRESHOLD_HEAVY = 70;
-    const THRESHOLD_BUSY = 35;
-
-    // --- 4. BUCKET COUNTERS ---
-    let countStatic = 0; // Ground < 3 kts
-    let countTaxi = 0;   // Ground > 3 kts
-    let countFinal = 0;  // Air < 15 min ETE
-    let countAppr = 0;   // Air 15-40 min ETE
-    let countEnr = 0;    // Air > 40 min ETE
-
-    const processedIds = new Set(); 
-
-    // --- 5. GROUND SCAN (Local Map Features) ---
-    Object.values(currentMapFeatures).forEach(feature => {
-        const props = feature.properties;
-        if (!props || !props.position) return;
-
-        let pos = props.position;
-        if (typeof pos === 'string') {
-            try { pos = JSON.parse(pos); } catch(e) { return; }
-        }
-
-        // Distance Check
-        const distKm = getDistanceKm(airportCoords.lat, airportCoords.lon, pos.lat, pos.lon);
-        const distNM = distKm / 1.852;
-        const airportElev = airportCoords.elevation_ft || 0;
-        
-        // Strict Ground Definition: 3.5NM radius, < 1500ft AGL
-        const isLowAlt = pos.alt_ft < (airportElev + 1500); 
-        const isClose = distNM < 3.5;
-
-        if (isClose && isLowAlt) {
-            processedIds.add(props.flightId);
-            // Speed < 3kts = Parked/Static
-            if ((pos.gs_kt || 0) < 3) {
-                countStatic++;
-            } else {
-                countTaxi++;
-            }
-        }
-    });
-
-    // --- 6. INBOUND SCAN ---
-    if (inboundFlightIds && Array.isArray(inboundFlightIds)) {
-        inboundFlightIds.forEach(id => {
-            if (processedIds.has(id)) return; // Already counted as ground
-
-            const feature = currentMapFeatures[id];
-            let eteMinutes = 60; 
-
-            if (feature && feature.properties) {
-                let pos = feature.properties.position;
-                if (typeof pos === 'string') {
-                    try { pos = JSON.parse(pos); } catch(e) {}
-                }
-                if (pos) {
-                    const distKm = getDistanceKm(airportCoords.lat, airportCoords.lon, pos.lat, pos.lon);
-                    const distNM = distKm / 1.852;
-                    const speed = Math.max(pos.gs_kt || 0, 100); 
-                    eteMinutes = (distNM / speed) * 60;
-                }
-            }
-
-            if (eteMinutes < 15) countFinal++;
-            else if (eteMinutes < 40) countAppr++;
-            else countEnr++;
-        });
-    }
-
-    // --- 7. CALCULATE TOTAL CAPACITY POINTS ---
-    let totalPoints = 
-        (countFinal * POINTS.FINAL) +
-        (countTaxi * POINTS.TAXI) +
-        (countAppr * POINTS.APPROACH) +
-        (countStatic * POINTS.STATIC);
-
-    // --- 8. APPLY HARD VOLUME GATES (The Strictness Fix) ---
-    const totalActivePlanes = countFinal + countTaxi + countAppr;
-    const totalPlanes = totalActivePlanes + countStatic;
-
-    let level = "LOW";
-    let color = "#4ade80"; // Green
-
-    // GATE 1: Absolute Minimums for Ratings
-    // To be EXTREME, you need at least 25 planes total OR 15 active planes
-    // To be HEAVY, you need at least 15 planes total OR 8 active planes
-    // To be BUSY, you need at least 8 planes total OR 4 active planes
-
-    if (totalPoints >= THRESHOLD_EXTREME) {
-        if (totalActivePlanes >= 15 || totalPlanes >= 40) {
-            level = "EXTREME"; 
-            color = "#ef4444"; // Red
-        } else {
-            // Downgrade if points are high but volume is low (unlikely, but safe)
-            level = "HEAVY"; 
-            color = "#f97316"; 
-        }
-    } 
-    else if (totalPoints >= THRESHOLD_HEAVY) {
-        if (totalActivePlanes >= 8 || totalPlanes >= 20) {
-            level = "HEAVY"; 
-            color = "#f97316"; // Orange
-        } else {
-            level = "BUSY"; 
-            color = "#eab308"; 
-        }
-    } 
-    else if (totalPoints >= THRESHOLD_BUSY) {
-        if (totalActivePlanes >= 4 || totalPlanes >= 10) {
-            level = "BUSY"; 
-            color = "#eab308"; // Yellow
-        } else {
-            level = "LOW"; 
-            color = "#4ade80"; 
-        }
-    }
-
-    // --- 9. TREND LOGIC ---
-    let trend = "STEADY";
-    let trendIcon = "fa-minus";
-
-    if (countFinal > 3 && countFinal > countTaxi) {
-        trend = "BUILDING";
-        trendIcon = "fa-arrow-trend-up";
-    } else if (countTaxi > 5 && countFinal < 2) {
-        trend = "EASING"; // Lots of taxi, no arrivals = clearing out
-        trendIcon = "fa-arrow-trend-down";
-    }
-
-    // Calculate a 0.0 - 5.0 score based on the THRESHOLD_EXTREME
-    // 120 points = 5.0 score
-    let scoreNum = (totalPoints / THRESHOLD_EXTREME) * 5.0;
+function parseAtis(text) {
+    if (!text) return null;
     
-    // Hard cap the display score if we hit a Volume Gate limitation
-    if (level === "LOW" && scoreNum > 1.5) scoreNum = 1.2;
-    if (level === "BUSY" && scoreNum > 3.0) scoreNum = 2.8;
+    // 1. Info Letter (e.g., "Information ALPHA")
+    const infoMatch = text.match(/information\s+([A-Z])/i);
+    const info = infoMatch ? infoMatch[1].toUpperCase() : '?';
 
-    return {
-        level,
-        color,
-        trend,
-        trendIcon,
-        scoreDisplay: Math.min(5.0, scoreNum).toFixed(1),
-        imminent: countFinal,
-        approach: countAppr,
-        enroute: countEnr,
-        ground: countStatic + countTaxi
+    // 2. Time (e.g., "0522 ZULU")
+    const timeMatch = text.match(/(\d{4})\s*Z/i);
+    const time = timeMatch ? timeMatch[1] + 'Z' : '--';
+
+    // 3. Runways (e.g., "Landing Runway 31R", "Departing Runways 4L and 4R")
+    // We capture the phrase after "Landing/Departing" then find all runway codes in it.
+    const landingMatch = text.match(/Landing\s+([^,.]+)/i);
+    const departingMatch = text.match(/Departing\s+([^,.]+)/i);
+    
+    const extractRwys = (str) => {
+        if (!str) return '---';
+        const matches = str.match(/\d{2}[LRC]?/g);
+        return matches ? matches.join('/') : '---';
     };
+
+    const landing = extractRwys(landingMatch ? landingMatch[1] : null);
+    const departing = extractRwys(departingMatch ? departingMatch[1] : null);
+
+    // 4. Approach (e.g., "expect ILS approach")
+    const approachMatch = text.match(/expect\s+(.*?)\s+approach/i);
+    let approach = approachMatch ? approachMatch[1].toUpperCase() : 'VISUAL';
+    // Clean up common long words
+    approach = approach.replace('VISUAL', 'VIS').replace('APPROACH', '');
+
+    // 5. Remarks (e.g., "Remarks, no pattern work.")
+    // Captures text after "Remarks" until the next period or major keyword.
+    const remarksMatch = text.match(/Remarks[.,]\s*(.*?)(?=\.|Landing|Departing|Advise|$)/i);
+    let remarks = remarksMatch ? remarksMatch[1].trim() : null;
+    
+    // Formatting cleanup
+    if (remarks && remarks.toLowerCase().includes('no pattern work')) remarks = 'NO PATTERN WORK';
+
+    return { info, time, landing, departing, approach, remarks };
 }
 
 async function createAirportInfoWindowHTML(icao) {
@@ -2612,9 +2499,10 @@ async function createAirportInfoWindowHTML(icao) {
         }
     } catch (e) { console.warn(`Could not fetch live data for ${icao}`, e); }
 
-    // 3. Fetch Live Traffic (Kept for the bottom tab list, but removed from top dashboard)
+    // 3. Fetch Live Traffic & ATIS
     let inbounds = [];
     let outbounds = [];
+    let rawAtisText = null; 
     let trafficFetchSuccess = false;
 
     try {
@@ -2623,7 +2511,11 @@ async function createAirportInfoWindowHTML(icao) {
         const sessionId = getCurrentSessionId(sessionsData);
 
         if (sessionId) {
-            const statusRes = await fetch(`${ACARS_SOCKET_URL}/api/live/airport/${sessionId}/${icao}/status`);
+            const [statusRes, atisRes] = await Promise.all([
+                fetch(`${ACARS_SOCKET_URL}/api/live/airport/${sessionId}/${icao}/status`),
+                fetch(`${ACARS_SOCKET_URL}/api/live/airport/${sessionId}/${icao}/atis`)
+            ]);
+
             if (statusRes.ok) {
                 const statusJson = await statusRes.json();
                 if (statusJson.ok && statusJson.status) {
@@ -2632,8 +2524,15 @@ async function createAirportInfoWindowHTML(icao) {
                     trafficFetchSuccess = true;
                 }
             }
+
+            if (atisRes.ok) {
+                const atisJson = await atisRes.json();
+                if (atisJson.ok && atisJson.atis) {
+                    rawAtisText = atisJson.atis;
+                }
+            }
         }
-    } catch (e) { console.error("Error fetching live traffic stats:", e); }
+    } catch (e) { console.error("Error fetching live stats:", e); }
 
     // 4. Merge Data
     const airportName = liveData?.name || staticData.name || 'Unknown Airport';
@@ -2653,7 +2552,7 @@ async function createAirportInfoWindowHTML(icao) {
 
     // --- Weather & ATIS Logic ---
     let weatherModuleHtml = '';
-    let atisModuleHtml = ''; // NEW: Replaces Traffic Module
+    let atisModuleHtml = '';
     let metarString = '';
     let runwayRecHtml = ''; 
     
@@ -2667,43 +2566,57 @@ async function createAirportInfoWindowHTML(icao) {
             else if (w.raw.includes('MVFR')) { flightCategory = 'MVFR'; catColor = '#60a5fa'; }
             metarString = w.raw;
 
-            // Calculate recommended runways based on wind
-            const recs = getRunwayRecommendations(airportRunways, w.wind);
-            
-            // --- [NEW] ATIS GENERATION LOGIC ---
-            // Placeholder: Use current time to generate a fake ATIS Letter
-            const atisLetter = String.fromCharCode(65 + (new Date().getUTCHours() % 26)); 
-            
-            // Placeholder: Use Top 2 Wind Recommendations as "Active" runways until script is provided
-            // We assume usually best runways are used for both Dep and Arr in simple logic
-            const activeRunways = recs.slice(0, 2).map(r => r.ident); 
-            const activeArrHtml = activeRunways.length ? activeRunways.map(r => `<span class="atis-pill pill-arr">${r}</span>`).join('') : '<span style="color:#666;">---</span>';
-            const activeDepHtml = activeRunways.length ? activeRunways.map(r => `<span class="atis-pill pill-dep">${r}</span>`).join('') : '<span style="color:#666;">---</span>';
+            // --- BUILD ATIS DISPLAY ---
+            if (rawAtisText) {
+                // 1. DECIPHERED REAL ATIS
+                const atis = parseAtis(rawAtisText);
+                const infoPill = `<span style="color: #fbbf24; border: 1px solid #fbbf24; padding: 0 4px; border-radius: 3px; font-size: 0.6rem;">INFO ${atis.info}</span>`;
+                
+                // Remarks Footer (Only if remarks exist)
+                const remarksHtml = atis.remarks ? 
+                    `<div class="apt-mini-footer" title="${atis.remarks}"><i class="fa-solid fa-circle-info"></i> ${atis.remarks}</div>` : '';
 
-            // ATIS HTML Construction
-            atisModuleHtml = `
-            <div class="apt-mini-module">
-                <div class="apt-mini-header">
-                    <span><i class="fa-solid fa-tower-broadcast"></i> DIGITAL ATIS</span>
-                    <span style="color: #fbbf24; font-family: 'Consolas', monospace; font-weight:700;">INFO ${atisLetter}</span>
-                </div>
-                <div class="apt-mini-body">
-                    <div class="atis-grid">
-                        <div class="atis-runway-row">
-                            <span class="atis-label">ARR</span>
-                            <div class="atis-runway-list">${activeArrHtml}</div>
-                        </div>
-                        <div class="atis-runway-row">
-                            <span class="atis-label">DEP</span>
-                            <div class="atis-runway-list">${activeDepHtml}</div>
-                        </div>
-                        <div class="atis-remarks-box">LANDING AND DEPARTING RUNWAYS ${activeRunways.join(' AND ')}. ${flightCategory} CONDITIONS REPORTED.</div>
+                atisModuleHtml = `
+                <div class="apt-mini-module">
+                    <div class="apt-mini-header">
+                        <span><i class="fa-solid fa-tower-broadcast"></i> ATIS</span>
+                        ${infoPill}
                     </div>
-                </div>
-            </div>
-            `;
+                    <div class="apt-mini-body" style="padding-bottom: ${atis.remarks ? '0' : '10px'};">
+                        <div class="stat-grid-compact">
+                            <div class="compact-stat-box"><span class="compact-label">ARR RWY</span><span class="compact-value" style="color: #4ade80;">${atis.landing}</span></div>
+                            <div class="compact-stat-box"><span class="compact-label">DEP RWY</span><span class="compact-value" style="color: #38bdf8;">${atis.departing}</span></div>
+                            <div class="compact-stat-box"><span class="compact-label">APPR</span><span class="compact-value">${atis.approach}</span></div>
+                            <div class="compact-stat-box"><span class="compact-label">TIME</span><span class="compact-value">${atis.time}</span></div>
+                        </div>
+                    </div>
+                    ${remarksHtml}
+                </div>`;
 
-            // Weather HTML (Existing)
+            } else {
+                // 2. FALLBACK: ESTIMATED RUNWAYS (If ATIS Offline)
+                const recs = getRunwayRecommendations(airportRunways, w.wind);
+                const activeRunways = recs.slice(0, 2).map(r => r.ident).join('/');
+                const activeHtml = activeRunways || '---';
+
+                atisModuleHtml = `
+                <div class="apt-mini-module">
+                    <div class="apt-mini-header">
+                        <span><i class="fa-solid fa-calculator"></i> EST. OPS</span>
+                        <span style="color: #94a3b8; border: 1px solid #475569; padding: 0 4px; border-radius: 3px; font-size: 0.6rem;">NO ATIS</span>
+                    </div>
+                    <div class="apt-mini-body">
+                        <div class="stat-grid-compact">
+                            <div class="compact-stat-box"><span class="compact-label">EST ARR</span><span class="compact-value" style="color: #4ade80;">${activeHtml}</span></div>
+                            <div class="compact-stat-box"><span class="compact-label">EST DEP</span><span class="compact-value" style="color: #38bdf8;">${activeHtml}</span></div>
+                            <div class="compact-stat-box"><span class="compact-label">WIND</span><span class="compact-value">${w.wind}</span></div>
+                            <div class="compact-stat-box"><span class="compact-label">STATUS</span><span class="compact-value">CALC</span></div>
+                        </div>
+                    </div>
+                </div>`;
+            }
+
+            // Weather Module (Standard)
             weatherModuleHtml = `
             <div class="apt-mini-module">
                 <div class="apt-mini-header">
@@ -2720,7 +2633,8 @@ async function createAirportInfoWindowHTML(icao) {
                 </div>
             </div>`;
             
-            // Runway Recommendation HTML (Accordion below) - Kept as detailed backup
+            // Detailed Wind Analysis (Accordion) - Kept as extra info
+            const recs = getRunwayRecommendations(airportRunways, w.wind);
             if (recs.length > 0) {
                 runwayRecHtml = `
                 <div class="tech-module" style="margin: 0 16px 8px 16px;">
@@ -2740,13 +2654,12 @@ async function createAirportInfoWindowHTML(icao) {
             }
 
         } else {
-            // Fallback if WeatherService is down
             weatherModuleHtml = `<div class="apt-mini-module"><div class="apt-mini-body"><p class="muted-text">Weather Unavailable</p></div></div>`;
             atisModuleHtml = `<div class="apt-mini-module"><div class="apt-mini-body"><p class="muted-text">ATIS Offline</p></div></div>`;
         }
     } catch (err) { 
-        weatherModuleHtml = `<div class="apt-mini-module"><div class="apt-mini-body"><p class="muted-text">Weather Offline</p></div></div>`; 
-        atisModuleHtml = `<div class="apt-mini-module"><div class="apt-mini-body"><p class="muted-text">ATIS Error</p></div></div>`;
+        weatherModuleHtml = `<div class="apt-mini-module"><div class="apt-mini-body"><p class="muted-text">Offline</p></div></div>`; 
+        atisModuleHtml = `<div class="apt-mini-module"><div class="apt-mini-body"><p class="muted-text">Offline</p></div></div>`;
     }
 
     // --- Feature Strip ---
@@ -2768,7 +2681,6 @@ async function createAirportInfoWindowHTML(icao) {
     }
 
     // --- Tab Contents (Traffic, ATC, NOTAMs) ---
-    // (Kept compact for brevity, logic matches original)
     const renderFlightCard = (fid, type) => {
         const f = currentMapFeatures[fid];
         let cs = 'Unknown', usr = 'Pilot', ac = '---', al = 'UNKNOWN';
