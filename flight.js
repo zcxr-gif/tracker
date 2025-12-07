@@ -2362,6 +2362,59 @@ function injectCustomStyles() {
             border-radius: var(--radius-md); 
             background: var(--bg-glass); 
         }
+
+        /* --- ATIS & TERMINAL STYLES --- */
+.atis-status-row {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 8px;
+    font-family: var(--font-data);
+}
+
+.atis-code-large {
+    font-size: 1.2rem;
+    font-weight: 700;
+    color: #fbbf24; /* Amber */
+    text-shadow: 0 0 5px rgba(251, 191, 36, 0.3);
+}
+
+.atis-timestamp {
+    font-size: 0.75rem;
+    color: #94a3b8;
+}
+
+/* The Digital Text Box */
+.terminal-text-box {
+    background: rgba(10, 12, 16, 0.6);
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    border-radius: 6px;
+    padding: 10px;
+    font-family: 'JetBrains Mono', 'Consolas', monospace;
+    font-size: 0.7rem;
+    color: #86efac; /* Terminal Green */
+    line-height: 1.5;
+    white-space: pre-wrap;
+    box-shadow: inset 0 0 10px rgba(0,0,0,0.5);
+    max-height: 120px;
+    overflow-y: auto;
+    text-transform: uppercase;
+}
+
+/* Scrollbar for terminal */
+.terminal-text-box::-webkit-scrollbar { width: 4px; }
+.terminal-text-box::-webkit-scrollbar-thumb { background: #334155; border-radius: 2px; }
+
+/* Fallback / Calculated Mode Styles */
+.atis-runway-row {
+    display: flex; align-items: center; justify-content: space-between;
+    background: rgba(255, 255, 255, 0.02); padding: 6px 8px;
+    border-radius: 4px; border: 1px solid var(--border-glass); margin-bottom: 4px;
+}
+.atis-label { font-size: 0.65rem; font-weight: 700; color: #94a3b8; min-width: 40px; }
+.atis-pill { font-family: var(--font-data); font-size: 0.75rem; font-weight: 700; padding: 2px 6px; border-radius: 3px; border: 1px solid; margin-left: 4px; }
+.pill-arr { background: rgba(16, 185, 129, 0.1); color: #4ade80; border-color: rgba(16, 185, 129, 0.3); }
+.pill-dep { background: rgba(56, 189, 248, 0.1); color: #38bdf8; border-color: rgba(56, 189, 248, 0.3); }
     `;
 
     const style = document.createElement('style');
@@ -2545,9 +2598,6 @@ function calculateAirportCongestion(inboundFlightIds, airportCoords) {
     };
 }
 
-/**
- * --- [UPDATED] Generates HTML for the Airport Info Window ---
- */
 async function createAirportInfoWindowHTML(icao) {
     // 1. Get Static Data
     const staticData = airportsData[icao] || {};
@@ -2562,7 +2612,7 @@ async function createAirportInfoWindowHTML(icao) {
         }
     } catch (e) { console.warn(`Could not fetch live data for ${icao}`, e); }
 
-    // 3. Fetch Live Traffic
+    // 3. Fetch Live Traffic (Kept for the bottom tab list, but removed from top dashboard)
     let inbounds = [];
     let outbounds = [];
     let trafficFetchSuccess = false;
@@ -2601,57 +2651,9 @@ async function createAirportInfoWindowHTML(icao) {
     const notamsForAirport = activeNotams.filter(n => n.airportIcao === icao);
     const airportRunways = runwaysData[icao] || [];
 
-    // --- [HYBRID CONGESTION CALCULATION] ---
-    const cStats = calculateAirportCongestion(inbounds, coords);
-    
-    // Calculate percentages for the UI bar
-    const tTotal = cStats.imminent + cStats.approach + cStats.enroute + cStats.ground;
-    const tpImm = tTotal > 0 ? (cStats.imminent / tTotal) * 100 : 0;
-    const tpApp = tTotal > 0 ? (cStats.approach / tTotal) * 100 : 0;
-    const tpEnr = tTotal > 0 ? (cStats.enroute / tTotal) * 100 : 0;
-    const tpGnd = tTotal > 0 ? (cStats.ground / tTotal) * 100 : 0;
-
-    const trafficModuleHtml = `
-    <div class="apt-mini-module">
-        <div class="apt-mini-header">
-            <span><i class="fa-solid fa-chart-pie"></i> TRAFFIC FLOW</span>
-            <span style="color: ${cStats.color}; font-family: 'Consolas', monospace;">${cStats.scoreDisplay} / 5.0</span>
-        </div>
-        <div class="apt-mini-body">
-            <div style="display: flex; justify-content: space-between; margin-bottom: 6px;">
-                <div class="compact-stat-box" style="flex:1; margin-right:4px;">
-                    <span class="compact-value" style="color:#ef4444">${cStats.imminent}</span>
-                    <span class="compact-label">FINAL</span>
-                </div>
-                <div class="compact-stat-box" style="flex:1; margin-right:4px;">
-                    <span class="compact-value" style="color:#f59e0b">${cStats.approach}</span>
-                    <span class="compact-label">APPR</span>
-                </div>
-                <div class="compact-stat-box" style="flex:1; margin-right:4px;">
-                    <span class="compact-value" style="color:#38bdf8">${cStats.enroute}</span>
-                    <span class="compact-label">ENR</span>
-                </div>
-                <div class="compact-stat-box" style="flex:1;">
-                    <span class="compact-value" style="color:#94a3b8">${cStats.ground}</span>
-                    <span class="compact-label">GND</span>
-                </div>
-            </div>
-            <div style="height: 6px; width: 100%; background: #1e293b; border-radius: 3px; display: flex; overflow: hidden;">
-                <div style="width: ${tpImm}%; background: #ef4444;" title="Final Approach"></div>
-                <div style="width: ${tpApp}%; background: #f59e0b;" title="Approach"></div>
-                <div style="width: ${tpEnr}%; background: #38bdf8;" title="Enroute"></div>
-                <div style="width: ${tpGnd}%; background: #94a3b8;" title="Ground"></div>
-            </div>
-            <div style="font-size: 0.65rem; color: #64748b; display: flex; justify-content: space-between; margin-top: 6px;">
-                 <span>Status: <span style="color: ${cStats.color}; font-weight: 700;">${cStats.level}</span></span>
-                 <span><i class="fa-solid ${cStats.trendIcon}"></i> ${cStats.trend}</span>
-            </div>
-        </div>
-    </div>
-    `;
-
-    // --- Weather Logic ---
+    // --- Weather & ATIS Logic ---
     let weatherModuleHtml = '';
+    let atisModuleHtml = ''; // NEW: Replaces Traffic Module
     let metarString = '';
     let runwayRecHtml = ''; 
     
@@ -2665,25 +2667,43 @@ async function createAirportInfoWindowHTML(icao) {
             else if (w.raw.includes('MVFR')) { flightCategory = 'MVFR'; catColor = '#60a5fa'; }
             metarString = w.raw;
 
+            // Calculate recommended runways based on wind
             const recs = getRunwayRecommendations(airportRunways, w.wind);
-            if (recs.length > 0) {
-                runwayRecHtml = `
-                <div class="tech-module" style="margin: 0 16px 8px 16px;">
-                    <div class="tech-module-header runway-dropdown-header" id="runway-accordion-toggle">
-                        <span class="tech-module-title"><i class="fa-solid fa-road"></i> RECOMMENDED RUNWAYS</span>
-                        <i class="fa-solid fa-chevron-down runway-toggle-icon"></i>
-                    </div>
-                    <div class="tech-module-body runway-dropdown-content" id="runway-accordion-content" style="background: rgba(15, 23, 42, 0.4);">
-                        ${recs.map(r => `
-                            <div style="display: flex; justify-content: space-between; align-items: center; padding: 6px 0; border-bottom: 1px solid rgba(255,255,255,0.05);">
-                                <div><span style="font-weight: 700; color: #fff;">RWY ${r.ident}</span> <span style="font-size: 0.65rem; color: ${r.color === 'green' ? '#86efac' : r.color === 'orange' ? '#fcd34d' : '#fca5a5'}; margin-left: 6px;">${r.reason}</span></div>
-                                <div style="font-size: 0.75rem; font-family: monospace; color: #94a3b8;"><i class="fa-solid ${r.headwind >= 0 ? 'fa-arrow-down' : 'fa-arrow-up'}"></i> ${Math.abs(r.headwind)}kt</div>
-                            </div>
-                        `).join('')}
-                    </div>
-                </div>`;
-            }
+            
+            // --- [NEW] ATIS GENERATION LOGIC ---
+            // Placeholder: Use current time to generate a fake ATIS Letter
+            const atisLetter = String.fromCharCode(65 + (new Date().getUTCHours() % 26)); 
+            
+            // Placeholder: Use Top 2 Wind Recommendations as "Active" runways until script is provided
+            // We assume usually best runways are used for both Dep and Arr in simple logic
+            const activeRunways = recs.slice(0, 2).map(r => r.ident); 
+            const activeArrHtml = activeRunways.length ? activeRunways.map(r => `<span class="atis-pill pill-arr">${r}</span>`).join('') : '<span style="color:#666;">---</span>';
+            const activeDepHtml = activeRunways.length ? activeRunways.map(r => `<span class="atis-pill pill-dep">${r}</span>`).join('') : '<span style="color:#666;">---</span>';
 
+            // ATIS HTML Construction
+            atisModuleHtml = `
+            <div class="apt-mini-module">
+                <div class="apt-mini-header">
+                    <span><i class="fa-solid fa-tower-broadcast"></i> DIGITAL ATIS</span>
+                    <span style="color: #fbbf24; font-family: 'Consolas', monospace; font-weight:700;">INFO ${atisLetter}</span>
+                </div>
+                <div class="apt-mini-body">
+                    <div class="atis-grid">
+                        <div class="atis-runway-row">
+                            <span class="atis-label">ARR</span>
+                            <div class="atis-runway-list">${activeArrHtml}</div>
+                        </div>
+                        <div class="atis-runway-row">
+                            <span class="atis-label">DEP</span>
+                            <div class="atis-runway-list">${activeDepHtml}</div>
+                        </div>
+                        <div class="atis-remarks-box">LANDING AND DEPARTING RUNWAYS ${activeRunways.join(' AND ')}. ${flightCategory} CONDITIONS REPORTED.</div>
+                    </div>
+                </div>
+            </div>
+            `;
+
+            // Weather HTML (Existing)
             weatherModuleHtml = `
             <div class="apt-mini-module">
                 <div class="apt-mini-header">
@@ -2699,10 +2719,35 @@ async function createAirportInfoWindowHTML(icao) {
                     </div>
                 </div>
             </div>`;
+            
+            // Runway Recommendation HTML (Accordion below) - Kept as detailed backup
+            if (recs.length > 0) {
+                runwayRecHtml = `
+                <div class="tech-module" style="margin: 0 16px 8px 16px;">
+                    <div class="tech-module-header runway-dropdown-header" id="runway-accordion-toggle">
+                        <span class="tech-module-title"><i class="fa-solid fa-wind"></i> WIND ANALYSIS</span>
+                        <i class="fa-solid fa-chevron-down runway-toggle-icon"></i>
+                    </div>
+                    <div class="tech-module-body runway-dropdown-content" id="runway-accordion-content" style="background: rgba(15, 23, 42, 0.4);">
+                        ${recs.map(r => `
+                            <div style="display: flex; justify-content: space-between; align-items: center; padding: 6px 0; border-bottom: 1px solid rgba(255,255,255,0.05);">
+                                <div><span style="font-weight: 700; color: #fff;">RWY ${r.ident}</span> <span style="font-size: 0.65rem; color: ${r.color === 'green' ? '#86efac' : r.color === 'orange' ? '#fcd34d' : '#fca5a5'}; margin-left: 6px;">${r.reason}</span></div>
+                                <div style="font-size: 0.75rem; font-family: monospace; color: #94a3b8;"><i class="fa-solid ${r.headwind >= 0 ? 'fa-arrow-down' : 'fa-arrow-up'}"></i> ${Math.abs(r.headwind)}kt</div>
+                            </div>
+                        `).join('')}
+                    </div>
+                </div>`;
+            }
+
         } else {
+            // Fallback if WeatherService is down
             weatherModuleHtml = `<div class="apt-mini-module"><div class="apt-mini-body"><p class="muted-text">Weather Unavailable</p></div></div>`;
+            atisModuleHtml = `<div class="apt-mini-module"><div class="apt-mini-body"><p class="muted-text">ATIS Offline</p></div></div>`;
         }
-    } catch (err) { weatherModuleHtml = `<div class="apt-mini-module"><div class="apt-mini-body"><p class="muted-text">Weather Offline</p></div></div>`; }
+    } catch (err) { 
+        weatherModuleHtml = `<div class="apt-mini-module"><div class="apt-mini-body"><p class="muted-text">Weather Offline</p></div></div>`; 
+        atisModuleHtml = `<div class="apt-mini-module"><div class="apt-mini-body"><p class="muted-text">ATIS Error</p></div></div>`;
+    }
 
     // --- Feature Strip ---
     let featureStripHtml = '';
@@ -2770,8 +2815,7 @@ async function createAirportInfoWindowHTML(icao) {
         <div style="flex-grow: 1; overflow-y: auto; padding-top: 12px;">
             <div class="apt-dashboard-grid">
                 ${weatherModuleHtml}
-                ${trafficModuleHtml}
-            </div>
+                ${atisModuleHtml} </div>
             ${metarString ? `<div class="metar-strip">${metarString}</div>` : ''}
             <div style="margin-top: 12px;">${runwayRecHtml}</div>
             <div class="tech-module" style="min-height: 300px; display: flex; flex-direction: column; margin: 0 16px 16px 16px; border: 1px solid rgba(255,255,255,0.05);">
@@ -5573,7 +5617,7 @@ async function createAirportInfoWindowHTML(icao) {
     // 1. Get Static Data
     const staticData = airportsData[icao] || {};
     
-    // 2. Fetch Live Airport Details
+    // 2. Fetch Live Airport Details (Jetbridges, etc.)
     let liveData = null;
     try {
         const response = await fetch(`${ACARS_SOCKET_URL}/api/airport/${icao}`);
@@ -5583,18 +5627,26 @@ async function createAirportInfoWindowHTML(icao) {
         }
     } catch (e) { console.warn(`Could not fetch live data for ${icao}`, e); }
 
-    // 3. Fetch Live Traffic
+    // 3. Fetch Live Traffic & ATIS
     let inbounds = [];
     let outbounds = [];
+    let rawAtisText = null; // Store real ATIS here
     let trafficFetchSuccess = false;
 
     try {
+        // A. Get Session ID
         const sessionsRes = await fetch(`${ACARS_SOCKET_URL}/if-sessions`);
         const sessionsData = await sessionsRes.json();
         const sessionId = getCurrentSessionId(sessionsData);
 
         if (sessionId) {
-            const statusRes = await fetch(`${ACARS_SOCKET_URL}/api/live/airport/${sessionId}/${icao}/status`);
+            // B. Parallel Fetch: Status (Traffic) AND ATIS
+            const [statusRes, atisRes] = await Promise.all([
+                fetch(`${ACARS_SOCKET_URL}/api/live/airport/${sessionId}/${icao}/status`),
+                fetch(`${ACARS_SOCKET_URL}/api/live/airport/${sessionId}/${icao}/atis`)
+            ]);
+
+            // Process Traffic
             if (statusRes.ok) {
                 const statusJson = await statusRes.json();
                 if (statusJson.ok && statusJson.status) {
@@ -5603,10 +5655,18 @@ async function createAirportInfoWindowHTML(icao) {
                     trafficFetchSuccess = true;
                 }
             }
-        }
-    } catch (e) { console.error("Error fetching live traffic stats:", e); }
 
-    // 4. Merge Data
+            // Process ATIS
+            if (atisRes.ok) {
+                const atisJson = await atisRes.json();
+                if (atisJson.ok && atisJson.atis) {
+                    rawAtisText = atisJson.atis; // This is the raw string from IF API
+                }
+            }
+        }
+    } catch (e) { console.error("Error fetching live stats/atis:", e); }
+
+    // 4. Merge Basic Data
     const airportName = liveData?.name || staticData.name || 'Unknown Airport';
     const city = liveData?.city || staticData.city;
     const state = liveData?.state || staticData.state;
@@ -5622,61 +5682,13 @@ async function createAirportInfoWindowHTML(icao) {
     const notamsForAirport = activeNotams.filter(n => n.airportIcao === icao);
     const airportRunways = runwaysData[icao] || [];
 
-    // --- [HYBRID CONGESTION CALCULATION] ---
-    const cStats = calculateAirportCongestion(inbounds, coords);
-    
-    // Calculate percentages for the UI bar
-    const tTotal = cStats.imminent + cStats.approach + cStats.enroute + cStats.ground;
-    const tpImm = tTotal > 0 ? (cStats.imminent / tTotal) * 100 : 0;
-    const tpApp = tTotal > 0 ? (cStats.approach / tTotal) * 100 : 0;
-    const tpEnr = tTotal > 0 ? (cStats.enroute / tTotal) * 100 : 0;
-    const tpGnd = tTotal > 0 ? (cStats.ground / tTotal) * 100 : 0;
-
-    const trafficModuleHtml = `
-    <div class="apt-mini-module">
-        <div class="apt-mini-header">
-            <span><i class="fa-solid fa-chart-pie"></i> TRAFFIC FLOW</span>
-            <span style="color: ${cStats.color}; font-family: 'Consolas', monospace;">${cStats.scoreDisplay} / 5.0</span>
-        </div>
-        <div class="apt-mini-body">
-            <div style="display: flex; justify-content: space-between; margin-bottom: 6px;">
-                <div class="compact-stat-box" style="flex:1; margin-right:4px;">
-                    <span class="compact-value" style="color:#ef4444">${cStats.imminent}</span>
-                    <span class="compact-label">FINAL</span>
-                </div>
-                <div class="compact-stat-box" style="flex:1; margin-right:4px;">
-                    <span class="compact-value" style="color:#f59e0b">${cStats.approach}</span>
-                    <span class="compact-label">APPR</span>
-                </div>
-                <div class="compact-stat-box" style="flex:1; margin-right:4px;">
-                    <span class="compact-value" style="color:#38bdf8">${cStats.enroute}</span>
-                    <span class="compact-label">ENR</span>
-                </div>
-                <div class="compact-stat-box" style="flex:1;">
-                    <span class="compact-value" style="color:#94a3b8">${cStats.ground}</span>
-                    <span class="compact-label">GND</span>
-                </div>
-            </div>
-            <div style="height: 6px; width: 100%; background: #1e293b; border-radius: 3px; display: flex; overflow: hidden;">
-                <div style="width: ${tpImm}%; background: #ef4444;" title="Final Approach"></div>
-                <div style="width: ${tpApp}%; background: #f59e0b;" title="Approach"></div>
-                <div style="width: ${tpEnr}%; background: #38bdf8;" title="Enroute"></div>
-                <div style="width: ${tpGnd}%; background: #94a3b8;" title="Ground"></div>
-            </div>
-            <div style="font-size: 0.65rem; color: #64748b; display: flex; justify-content: space-between; margin-top: 6px;">
-                 <span>Status: <span style="color: ${cStats.color}; font-weight: 700;">${cStats.level}</span></span>
-                 <span><i class="fa-solid ${cStats.trendIcon}"></i> ${cStats.trend}</span>
-            </div>
-        </div>
-    </div>
-    `;
-
-    // --- Weather Logic ---
+    // --- LOGIC: ATIS / WEATHER MODULE ---
     let weatherModuleHtml = '';
+    let atisModuleHtml = ''; 
     let metarString = '';
-    let runwayRecHtml = ''; 
     
     try {
+        // Fetch Weather
         if (window.WeatherService) {
             const w = await window.WeatherService.fetchAndParseMetar(icao);
             let flightCategory = 'VFR'; 
@@ -5686,25 +5698,68 @@ async function createAirportInfoWindowHTML(icao) {
             else if (w.raw.includes('MVFR')) { flightCategory = 'MVFR'; catColor = '#60a5fa'; }
             metarString = w.raw;
 
-            const recs = getRunwayRecommendations(airportRunways, w.wind);
-            if (recs.length > 0) {
-                runwayRecHtml = `
-                <div class="tech-module" style="margin: 0 16px 8px 16px;">
-                    <div class="tech-module-header runway-dropdown-header" id="runway-accordion-toggle">
-                        <span class="tech-module-title"><i class="fa-solid fa-road"></i> RECOMMENDED RUNWAYS</span>
-                        <i class="fa-solid fa-chevron-down runway-toggle-icon"></i>
+            // --- BUILD ATIS DISPLAY ---
+            if (rawAtisText) {
+                // 1. REAL ATIS IS ONLINE
+                
+                // Extract Info Letter (e.g., "Airport Info A" or "Information A")
+                const infoMatch = rawAtisText.match(/Info(?:rmation)?\s+([A-Z])/i);
+                const infoLetter = infoMatch ? `INFO ${infoMatch[1].toUpperCase()}` : 'D-ATIS';
+                
+                // Extract Time (e.g., "2000Z")
+                const timeMatch = rawAtisText.match(/(\d{4}Z)/);
+                const atisTime = timeMatch ? timeMatch[1] : 'LIVE';
+
+                atisModuleHtml = `
+                <div class="apt-mini-module" style="border-color: rgba(251, 191, 36, 0.3);">
+                    <div class="apt-mini-header" style="background: rgba(251, 191, 36, 0.1);">
+                        <span style="color: #fbbf24;"><i class="fa-solid fa-tower-broadcast"></i> ACTIVE ATIS</span>
+                        <span style="color: #fbbf24; font-weight:700;">ONLINE</span>
                     </div>
-                    <div class="tech-module-body runway-dropdown-content" id="runway-accordion-content" style="background: rgba(15, 23, 42, 0.4);">
-                        ${recs.map(r => `
-                            <div style="display: flex; justify-content: space-between; align-items: center; padding: 6px 0; border-bottom: 1px solid rgba(255,255,255,0.05);">
-                                <div><span style="font-weight: 700; color: #fff;">RWY ${r.ident}</span> <span style="font-size: 0.65rem; color: ${r.color === 'green' ? '#86efac' : r.color === 'orange' ? '#fcd34d' : '#fca5a5'}; margin-left: 6px;">${r.reason}</span></div>
-                                <div style="font-size: 0.75rem; font-family: monospace; color: #94a3b8;"><i class="fa-solid ${r.headwind >= 0 ? 'fa-arrow-down' : 'fa-arrow-up'}"></i> ${Math.abs(r.headwind)}kt</div>
+                    <div class="apt-mini-body">
+                        <div class="atis-status-row">
+                            <span class="atis-code-large">${infoLetter}</span>
+                            <span class="atis-timestamp"><i class="fa-regular fa-clock"></i> ${atisTime}</span>
+                        </div>
+                        <div class="terminal-text-box">${rawAtisText}</div>
+                    </div>
+                </div>`;
+
+            } else {
+                // 2. ATIS IS OFFLINE -> Use Calculation Fallback
+                // We assume active runways based on wind recommendations
+                const recs = getRunwayRecommendations(airportRunways, w.wind);
+                
+                // Take top 2 runways
+                const activeRunways = recs.slice(0, 2).map(r => r.ident); 
+                const activeArrHtml = activeRunways.length ? activeRunways.map(r => `<span class="atis-pill pill-arr">${r}</span>`).join('') : '<span style="color:#666;">---</span>';
+                const activeDepHtml = activeRunways.length ? activeRunways.map(r => `<span class="atis-pill pill-dep">${r}</span>`).join('') : '<span style="color:#666;">---</span>';
+
+                atisModuleHtml = `
+                <div class="apt-mini-module">
+                    <div class="apt-mini-header">
+                        <span><i class="fa-solid fa-calculator"></i> EST. RUNWAYS</span>
+                        <span style="color: #94a3b8; border: 1px solid #475569; padding: 0 4px; border-radius: 3px; font-size: 0.6rem;">NO ATIS</span>
+                    </div>
+                    <div class="apt-mini-body">
+                        <div style="display: flex; flex-direction: column; gap: 6px;">
+                            <div class="atis-runway-row">
+                                <span class="atis-label">ARR</span>
+                                <div style="display:flex;">${activeArrHtml}</div>
                             </div>
-                        `).join('')}
+                            <div class="atis-runway-row">
+                                <span class="atis-label">DEP</span>
+                                <div style="display:flex;">${activeDepHtml}</div>
+                            </div>
+                            <div style="font-size: 0.65rem; color: #64748b; text-align: center; margin-top: 4px;">
+                                <i class="fa-solid fa-wind"></i> Calculated based on wind
+                            </div>
+                        </div>
                     </div>
                 </div>`;
             }
 
+            // Weather Module (Standard)
             weatherModuleHtml = `
             <div class="apt-mini-module">
                 <div class="apt-mini-header">
@@ -5720,10 +5775,16 @@ async function createAirportInfoWindowHTML(icao) {
                     </div>
                 </div>
             </div>`;
+
         } else {
+            // Fallback if WeatherService is down
             weatherModuleHtml = `<div class="apt-mini-module"><div class="apt-mini-body"><p class="muted-text">Weather Unavailable</p></div></div>`;
+            atisModuleHtml = `<div class="apt-mini-module"><div class="apt-mini-body"><p class="muted-text">Data Unavailable</p></div></div>`;
         }
-    } catch (err) { weatherModuleHtml = `<div class="apt-mini-module"><div class="apt-mini-body"><p class="muted-text">Weather Offline</p></div></div>`; }
+    } catch (err) { 
+        weatherModuleHtml = `<div class="apt-mini-module"><div class="apt-mini-body"><p class="muted-text">Offline</p></div></div>`;
+        atisModuleHtml = `<div class="apt-mini-module"><div class="apt-mini-body"><p class="muted-text">Offline</p></div></div>`;
+    }
 
     // --- Feature Strip ---
     let featureStripHtml = '';
@@ -5791,11 +5852,10 @@ async function createAirportInfoWindowHTML(icao) {
         <div style="flex-grow: 1; overflow-y: auto; padding-top: 12px;">
             <div class="apt-dashboard-grid">
                 ${weatherModuleHtml}
-                ${trafficModuleHtml}
+                ${atisModuleHtml}
             </div>
             ${metarString ? `<div class="metar-strip">${metarString}</div>` : ''}
-            <div style="margin-top: 12px;">${runwayRecHtml}</div>
-            <div class="tech-module" style="min-height: 300px; display: flex; flex-direction: column; margin: 0 16px 16px 16px; border: 1px solid rgba(255,255,255,0.05);">
+            <div class="tech-module" style="min-height: 300px; display: flex; flex-direction: column; margin: 16px 16px 16px 16px; border: 1px solid rgba(255,255,255,0.05);">
                 <div class="apt-tabs-header">
                     <button class="apt-tab-btn active" data-target="apt-traffic"><i class="fa-solid fa-plane-circle-check"></i> TRAFFIC</button>
                     <button class="apt-tab-btn" data-target="apt-atc"><i class="fa-solid fa-headset"></i> ATC</button>
