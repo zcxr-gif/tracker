@@ -448,6 +448,92 @@
     .vs-arrow.climbing { color: var(--color-success); transform: rotate(-45deg); }
     .vs-arrow.descending { color: var(--color-warning); transform: rotate(45deg); }
 
+    /* --- PROFILE SECTION --- */
+    .profile-card {
+        background: var(--bg-panel);
+        border: 1px solid var(--border-glass);
+        border-radius: var(--radius-lg);
+        overflow: hidden;
+        display: flex;
+        flex-direction: column;
+        margin-bottom: 20px; /* spacing at bottom */
+    }
+
+    .profile-header-row {
+        padding: 20px;
+        display: flex;
+        align-items: center;
+        gap: 20px;
+        background: rgba(255,255,255,0.02);
+    }
+
+    .grade-badge-group {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        background: rgba(255,255,255,0.05);
+        border: 1px solid rgba(255,255,255,0.1);
+        padding: 10px 16px;
+        border-radius: 12px;
+        min-width: 80px;
+    }
+    .grade-label { font-size: 8px; color: var(--text-dim); font-weight: 700; letter-spacing: 1px; margin-bottom: 2px; }
+    .grade-val { font-family: var(--font-data); font-size: 28px; font-weight: 700; color: #fff; line-height: 1; }
+
+    .profile-identity-meta { flex: 1; display: flex; flex-direction: column; gap: 6px; }
+    .p-meta-row { display: flex; justify-content: space-between; align-items: center; }
+    .p-label { font-size: 10px; color: var(--text-secondary); text-transform: uppercase; font-weight: 600; letter-spacing: 0.5px; }
+    .p-val { font-family: var(--font-ui); font-size: 13px; font-weight: 600; color: var(--text-primary); }
+    .text-highlight { color: #fff; text-shadow: 0 0 10px rgba(255,255,255,0.3); }
+
+    .profile-divider { border: 0; height: 1px; background: var(--border-glass); margin: 0; }
+
+    .profile-stats-grid {
+        display: grid;
+        grid-template-columns: repeat(2, 1fr);
+        gap: 1px;
+        background: var(--border-glass); /* Creates grid lines */
+        border-bottom: 1px solid var(--border-glass);
+    }
+    .p-stat-item {
+        background: var(--bg-panel); /* Restore bg */
+        padding: 12px 20px;
+        display: flex; flex-direction: column; gap: 4px;
+    }
+    .p-stat-label { font-size: 9px; color: var(--text-dim); text-transform: uppercase; letter-spacing: 0.5px; }
+    .p-stat-val { font-family: var(--font-data); font-size: 15px; font-weight: 600; color: var(--text-primary); }
+    .text-danger { color: var(--color-danger); }
+    .text-dim { color: var(--text-dim); }
+
+    .profile-details-wrapper { display: flex; }
+    .p-col { flex: 1; padding: 20px; }
+    .p-col.border-left { border-left: 1px solid var(--border-glass); }
+    .p-col-header { 
+        font-size: 10px; color: var(--text-secondary); 
+        text-transform: uppercase; font-weight: 700; letter-spacing: 1px; margin-bottom: 12px; 
+    }
+
+    /* Progression Bars */
+    .prog-item { margin-bottom: 12px; }
+    .prog-label-row { display: flex; justify-content: space-between; margin-bottom: 4px; font-size: 11px; }
+    .prog-name { color: var(--text-secondary); font-weight: 500; }
+    .prog-nums { font-family: var(--font-data); font-size: 10px; color: var(--text-dim); }
+    
+    .prog-track { width: 100%; height: 4px; background: rgba(255,255,255,0.05); border-radius: 2px; overflow: hidden; }
+    .prog-fill { height: 100%; background: var(--text-secondary); border-radius: 2px; width: 0%; transition: width 0.5s ease; }
+    
+    .prog-item.failed .prog-fill { background: var(--color-danger); }
+    .prog-item.failed .prog-nums { color: var(--color-danger); }
+    .prog-item.success .prog-fill { background: var(--color-success); }
+
+    /* Violation List */
+    .violation-list { display: flex; flex-direction: column; gap: 8px; }
+    .vio-row { display: flex; justify-content: space-between; font-size: 12px; color: var(--text-secondary); font-weight: 500; }
+    .vio-count { font-family: var(--font-data); color: #fff; }
+    .vio-date { font-family: var(--font-data); color: var(--text-primary); font-size: 11px; }
+    .mt-sm { margin-top: 8px; padding-top: 8px; border-top: 1px solid rgba(255,255,255,0.05); }
+
     /* --- FOOTER --- */
     .footer-bar {
         margin-top: auto; padding: 16px;
@@ -455,6 +541,7 @@
         border-top: 1px solid var(--border-glass);
         display: flex; justify-content: space-between;
         backdrop-filter: blur(20px);
+        z-index: 50;
     }
     .footer-stat { display: flex; flex-direction: column; align-items: center; width: 33%; }
     .footer-stat:not(:last-child) { border-right: 1px solid rgba(255,255,255,0.05); }
@@ -479,7 +566,8 @@
         <header class="header-section">
             <div class="identity-group">
                 <div class="main-callsign skeleton" id="callsign">WAITING</div>
-                <div class="pilot-row" onclick="parent.postMessage({type: 'OPEN_PROFILE'}, '*')">
+                <!-- Updated: Onclick now calls scrollToProfile -->
+                <div class="pilot-row" onclick="scrollToProfile()">
                     <i class="fa-solid fa-user-astronaut"></i>
                     <span id="username">PILOT</span>
                     
@@ -602,6 +690,91 @@
                 </div>
             </div>
 
+            <!-- START NEW PROFILE SECTION -->
+            <div id="profile-anchor">
+                <div class="grid-section-label">Pilot Manifest</div>
+                <div class="profile-card">
+                    
+                    <!-- Identity Header -->
+                    <div class="profile-header-row">
+                        <div class="grade-badge-group">
+                            <span class="grade-label">GRADE</span>
+                            <span class="grade-val" id="prof-grade">--</span>
+                        </div>
+                        <div class="profile-identity-meta">
+                            <div class="p-meta-row">
+                                <span class="p-label">Virtual Airline</span>
+                                <span class="p-val text-highlight" id="prof-va">---</span>
+                            </div>
+                            <div class="p-meta-row">
+                                <span class="p-label">ATC Rank</span>
+                                <span class="p-val" id="prof-atc">---</span>
+                            </div>
+                        </div>
+                    </div>
+
+                    <hr class="profile-divider">
+
+                    <!-- Core Stats Grid -->
+                    <div class="profile-stats-grid">
+                        <div class="p-stat-item">
+                            <span class="p-stat-label">Total XP</span>
+                            <span class="p-stat-val" id="prof-xp">---</span>
+                        </div>
+                        <div class="p-stat-item">
+                            <span class="p-stat-label">Total Violations</span>
+                            <span class="p-stat-val text-danger" id="prof-total-vio">---</span>
+                        </div>
+                        <div class="p-stat-item">
+                            <span class="p-stat-label">Flight Time (90d)</span>
+                            <span class="p-stat-val" id="prof-time-90">---</span>
+                        </div>
+                        <div class="p-stat-item">
+                            <span class="p-stat-label">Landings (90d)</span>
+                            <span class="p-stat-val" id="prof-land-90">---</span>
+                        </div>
+                    </div>
+
+                    <!-- Progression & Detailed Violations -->
+                    <div class="profile-details-wrapper">
+                        
+                        <!-- Progression Column -->
+                        <div class="p-col">
+                            <div class="p-col-header">Grade Progression</div>
+                            <div id="progression-list" class="progression-list">
+                                <!-- Injected via JS -->
+                            </div>
+                        </div>
+
+                        <!-- Violations Column -->
+                        <div class="p-col border-left">
+                            <div class="p-col-header">Violation History</div>
+                            <div class="violation-list">
+                                <div class="vio-row">
+                                    <span>Level 1</span>
+                                    <span class="vio-count" id="prof-v1">0</span>
+                                </div>
+                                <div class="vio-row">
+                                    <span>Level 2</span>
+                                    <span class="vio-count" id="prof-v2">0</span>
+                                </div>
+                                <div class="vio-row">
+                                    <span>Level 3</span>
+                                    <span class="vio-count" id="prof-v3">0</span>
+                                </div>
+                                <div class="vio-row mt-sm">
+                                    <span class="text-dim">Last Violation</span>
+                                    <span class="vio-date" id="prof-last-vio">---</span>
+                                </div>
+                            </div>
+                        </div>
+
+                    </div>
+
+                </div>
+            </div>
+            <!-- END NEW PROFILE SECTION -->
+
         </div>
 
         <footer class="footer-bar">
@@ -642,7 +815,16 @@
             routeCardContainer.classList.toggle('expanded');
         });
 
-        // --- DATA BINDING ---
+        // --- SCROLL FUNCTION ---
+        window.scrollToProfile = function() {
+            const el = document.getElementById('profile-anchor');
+            if (el) {
+                el.scrollIntoView({ behavior: 'smooth', block: 'start' });
+            }
+        };
+
+        // --- DATA UPDATE HANDLER ---
+        // This handles the generic flight data update
         window.updateFlightInterface = function(data) {
             if (!data) return;
 
@@ -668,16 +850,11 @@
                 badge.classList.add('state-ground');
             }
 
-            // --- 3. SEAT STATUS LOGIC ---
-            // Removed vertical strip. Only updating text label.
+            // 3. SEAT STATUS LOGIC
             const seatLabel = document.getElementById('seat-status-label');
-            
             if (data.pilotState !== undefined) {
                 seatLabel.style.display = 'inline-block';
-                
-                // Reset classes
                 seatLabel.className = 'seat-mini-label';
-                
                 switch(data.pilotState) {
                     case 0: // Active
                         seatLabel.classList.add('text-active');
@@ -769,10 +946,76 @@
             }
         };
 
+        // --- NEW: PROFILE UPDATE HANDLER ---
+        // Specifically handles the asynchronous user statistics
+        window.updatePilotProfile = function(profile) {
+            if (!profile) return;
+
+            updateText('prof-grade', profile.grade || 'N/A');
+            updateText('prof-atc', profile.atcRank || 'Observer');
+            updateText('prof-va', profile.virtualAirline || 'N/A');
+            
+            updateText('prof-xp', typeof profile.xp === 'number' ? profile.xp.toLocaleString() : '---');
+            updateText('prof-total-vio', profile.totalViolations || '0');
+            
+            // Detailed Stats
+            if (profile.violationDetails) {
+                updateText('prof-v1', profile.violationDetails.level1 || 0);
+                updateText('prof-v2', profile.violationDetails.level2 || 0);
+                updateText('prof-v3', profile.violationDetails.level3 || 0);
+            }
+            updateText('prof-last-vio', profile.lastViolationDate || 'None');
+            
+            // These come from the progression logic now
+            updateText('prof-time-90', '---'); 
+            updateText('prof-land-90', '---');
+
+            // Render Progression Bars
+            const progContainer = document.getElementById('progression-list');
+            if (profile.progression && progContainer) {
+                let html = '';
+                
+                profile.progression.forEach(item => {
+                    let pct = 0;
+                    if(item.target > 0) {
+                        pct = (item.current / item.target) * 100;
+                    }
+                    if (pct > 100) pct = 100;
+
+                    // Fill in 90 day stats into the grid if available in progression
+                    if (item.label.includes('Flight Time')) updateText('prof-time-90', item.current + ' hrs');
+                    if (item.label.includes('Landings')) updateText('prof-land-90', item.current);
+
+                    // Visual Logic
+                    let statusClass = 'neutral';
+                    if (item.type === 'MAX_LIMIT') {
+                        if (item.current > item.target) statusClass = 'failed';
+                        else statusClass = 'success';
+                    } else {
+                        if (item.current >= item.target) statusClass = 'success';
+                    }
+
+                    html += `
+                    <div class="prog-item ${statusClass}">
+                        <div class="prog-label-row">
+                            <span class="prog-name">${item.label}</span>
+                            <span class="prog-nums">${item.current.toLocaleString()} / ${item.target.toLocaleString()}</span>
+                        </div>
+                        <div class="prog-track">
+                            <div class="prog-fill" style="width: ${pct}%"></div>
+                        </div>
+                    </div>`;
+                });
+                progContainer.innerHTML = html;
+            }
+        };
+
         function renderWaypoints(waypoints) {
             const container = document.getElementById('wp-list');
             if (!waypoints.length) return;
 
+            // Only redraw if significant change to prevent flicker, 
+            // but for simplicity we redraw here as list isn't huge.
             let html = '';
             let lastGroup = null;
 
@@ -798,6 +1041,7 @@
             });
             container.innerHTML = html;
             
+            // Auto scroll to active leg
             if (container.dataset.scrolled !== 'true') {
                 const activeEl = container.querySelector('.active');
                 if (activeEl) {
@@ -836,10 +1080,23 @@
             }
         }
 
+        // --- MESSAGE LISTENER ---
         window.addEventListener('message', (event) => {
+            // 1. Regular Flight Data
             if (event.data && event.data.type === 'FLIGHT_DATA_UPDATE') {
                 window.updateFlightInterface(event.data.payload);
             }
+            
+            // 2. Pilot Profile Data (New)
+            if (event.data && event.data.type === 'PILOT_STATS_DATA') {
+                window.updatePilotProfile(event.data.payload.profile);
+            }
+        });
+
+        // --- ON LOAD: REQUEST STATS ---
+        window.addEventListener('load', () => {
+            // Ask parent to fetch user stats immediately
+            window.parent.postMessage({ type: 'REQUEST_PILOT_STATS' }, '*');
         });
     </script>
 </body>

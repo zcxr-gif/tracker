@@ -10208,7 +10208,8 @@ function setupSectorOpsEventListeners() {
 }
 
 /**
- * --- [NEW] Handles messages from the Simple Flight Window Iframe ---
+ * --- [UPDATED] Handles messages from the Simple Flight Window Iframe ---
+ * Now includes logic to parse raw API data into the format flightinfo.html expects.
  */
 async function handleIframeMessage(event) {
     // 1. ND Ready Check (Existing)
@@ -10219,17 +10220,20 @@ async function handleIframeMessage(event) {
 
     // 2. Flight Data Update (Existing Loopback - ignored here)
     if (event.data && event.data.type === 'FLIGHT_DATA_UPDATE') {
-        return; 
+        return;
     }
 
-    // 3. [NEW] Handle Stats Request
+    // 3. [UPDATED] Handle Stats Request
     if (event.data && event.data.type === 'REQUEST_PILOT_STATS') {
         const iframe = document.getElementById('simple-flight-window-frame');
         if (!iframe || !iframe.contentWindow) return;
 
         // Get the current user ID from the active flight
         if (!currentFlightInWindow || !currentMapFeatures[currentFlightInWindow]) {
-            iframe.contentWindow.postMessage({ type: 'PILOT_STATS_ERROR', message: 'No active flight selected.' }, '*');
+            iframe.contentWindow.postMessage({
+                type: 'PILOT_STATS_ERROR',
+                message: 'No active flight selected.'
+            }, '*');
             return;
         }
 
@@ -10238,27 +10242,31 @@ async function handleIframeMessage(event) {
         const username = props.username;
 
         if (!userId) {
-            iframe.contentWindow.postMessage({ type: 'PILOT_STATS_ERROR', message: 'User ID not available for this pilot.' }, '*');
+            iframe.contentWindow.postMessage({
+                type: 'PILOT_STATS_ERROR',
+                message: 'User ID not available.'
+            }, '*');
             return;
         }
 
         try {
-            // Fetch the data
-            // Ensure ACARS_USER_API_URL is defined in your scope or define it here
-            const USER_API_URL = 'https://site--acars-backend--6dmjph8ltlhv.code.run/users'; 
-            const res = await fetch(`${USER_API_URL}/${userId}/grade`);
-            
+            // Use the global API URL defined at top of file
+            // Note: ACARS_USER_API_URL must be defined in your global scope (it is in your file: '.../users')
+            const res = await fetch(`${ACARS_USER_API_URL}/${userId}/grade`);
+
             if (!res.ok) throw new Error('Failed to fetch pilot grade.');
-            
+
             const data = await res.json();
-            
+
             if (data.ok && data.gradeInfo) {
-                // Send JSON payload to iframe
+                // Process the raw IF API data into the UI-ready format
+                const formattedProfile = processRawPilotData(data.gradeInfo);
+
+                // Send the specific payload structure expected by flightinfo.html
                 iframe.contentWindow.postMessage({
                     type: 'PILOT_STATS_DATA',
                     payload: {
-                        stats: data.gradeInfo,
-                        username: username
+                        profile: formattedProfile
                     }
                 }, '*');
             } else {
@@ -10267,9 +10275,107 @@ async function handleIframeMessage(event) {
 
         } catch (error) {
             console.error("Iframe Stats Fetch Error:", error);
-            iframe.contentWindow.postMessage({ type: 'PILOT_STATS_ERROR', message: 'Could not load pilot statistics.' }, '*');
+            iframe.contentWindow.postMessage({
+                type: 'PILOT_STATS_ERROR',
+                message: 'Could not load pilot statistics.'
+            }, '*');
         }
     }
+}
+
+/**
+ * --- [NEW HELPER] Processes Raw Infinite Flight Grade Data for the UI ---
+ * Maps complex rule definitions into simple progress bars.
+ */
+function processRawPilotData(gradeInfo) {
+    if (!gradeInfo) return null;
+
+    // Helper to extract specific rule values safely
+    const getRule = (rules, name) => {
+        if (!Array.isArray(rules)) return null;
+        return rules.find(r => r.definition && r.definition.name === name);
+    };
+
+    const currentGradeIdx = gradeInfo.gradeDetails?.gradeIndex || 0;
+    const gradesList = gradeInfo.gradeDetails?.grades || [];
+    const currentGradeObj = gradesList[currentGradeIdx];
+    const nextGradeObj = gradesList[currentGradeIdx + 1]; // Can be undefined if max grade
+
+    // 1. Basic Stats
+    const totalXP = gradeInfo.totalXP || 0;
+    const violations = gradeInfo.violationCountByLevel || { level1: 0, level2: 0, level3: 0 };
+    const totalViolations = (violations.level1 || 0) + (violations.level2 || 0) + (violations.level3 || 0);
+    
+    // Map ATC Rank ID to Name
+    const atcRankMap = { 0: 'Observer', 1: 'Trainee', 2: 'Apprentice', 3: 'Specialist', 4: 'Officer', 5: 'Supervisor', 6: 'Recruiter', 7: 'Manager' };
+    const atcRankName = atcRankMap[gradeInfo.atcRank] || 'Observer';
+
+    // 2. Build Progression Array
+    // We compare current stats against the requirements for the NEXT grade.
+    // If max grade, we just show current stats vs current requirements.
+    const targetGrade = nextGradeObj || currentGradeObj;
+    const progression = [];
+
+    if (targetGrade && Array.isArray(targetGrade.rules)) {
+        
+        // A. XP Progression
+        const xpRule = getRule(targetGrade.rules, 'XP');
+        if (xpRule) {
+            progression.push({
+                label: 'Total XP',
+                current: totalXP,
+                target: xpRule.referenceValue,
+                type: 'ACCUMULATE'
+            });
+        }
+
+        // B. Landing Count (90 Days)
+        const landingsRule = getRule(targetGrade.rules, 'Landings (90 days)');
+        if (landingsRule) {
+            progression.push({
+                label: 'Landings (90d)',
+                current: landingsRule.userValue, // The API provides the user's current value here
+                target: landingsRule.referenceValue,
+                type: 'ACCUMULATE'
+            });
+        }
+
+        // C. Flight Time (90 Days)
+        const timeRule = getRule(targetGrade.rules, 'Flight Time (90 days)');
+        if (timeRule) {
+            progression.push({
+                label: 'Flight Time (90d)',
+                // Convert minutes to hours for display, usually API sends minutes
+                current: Math.floor(timeRule.userValue / 60), 
+                target: Math.floor(timeRule.referenceValue / 60),
+                type: 'ACCUMULATE'
+            });
+        }
+
+        // D. Violation Limits (Level 2/3 in 1 year) - Inverse logic (Max Limit)
+        const vioRule = getRule(targetGrade.rules, 'All Level 2/3 Violations (1 year)');
+        if (vioRule) {
+            progression.push({
+                label: 'Violations (1yr)',
+                current: gradeInfo.total12MonthsViolations || 0,
+                target: vioRule.referenceValue, // This is a MAX limit
+                type: 'MAX_LIMIT'
+            });
+        }
+    }
+
+    return {
+        grade: currentGradeObj ? currentGradeObj.name.replace('Grade ', 'Grade ') : `Grade ${currentGradeIdx + 1}`,
+        xp: totalXP,
+        atcRank: atcRankName,
+        virtualAirline: gradeInfo.virtualAirline || 'N/A',
+        totalViolations: totalViolations,
+        violationDetails: violations,
+        lastViolationDate: gradeInfo.lastLevel1ViolationDate ? new Date(gradeInfo.lastLevel1ViolationDate).toLocaleDateString() : 'None',
+        flightTime90: 'N/A', // Calculated in progression
+        landings90: 'N/A',   // Calculated in progression
+        progression: progression
+    };
 }
 
 /**
