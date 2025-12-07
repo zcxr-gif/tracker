@@ -34,8 +34,7 @@
 
         /* Dimensions */
         --radius-sm: 8px;
-        /* UPDATED: Reduced from 20px to 12px to extend the usable corner area */
-        --radius-lg: 12px;
+        --radius-lg: 20px;
         
         /* Fonts */
         --font-ui: 'Inter', -apple-system, sans-serif;
@@ -172,7 +171,7 @@
         margin-top: 10px;
     }
 
-    /* --- VISUAL (Larger Image with Extended Borders Fix) --- */
+    /* --- VISUAL (Larger Image) --- */
     .mission-visual-section {
         position: relative;
         width: 100%;
@@ -180,8 +179,6 @@
         flex: 0 0 auto;
         background: #18181b; 
         overflow: hidden;
-        /* UPDATED: Establishes a new stacking context */
-        z-index: 1;
     }
 
     .hero-img {
@@ -191,9 +188,6 @@
         object-position: center;
         transition: transform 8s ease;
         transform: scale(1.02);
-        /* UPDATED: Ensure image is base layer */
-        z-index: 1; 
-        position: relative;
     }
     .unified-mission-card:hover .hero-img { transform: scale(1.1); }
 
@@ -205,34 +199,22 @@
         display: flex;
         justify-content: space-between;
         align-items: flex-end;
-        /* UPDATED: High z-index to sit on top of everything */
-        z-index: 10;
-        pointer-events: none;
     }
 
     .photo-credit {
-        position: absolute; 
-        /* UPDATED: Positioned 12px is now SAFE due to smaller border-radius (12px) */
-        top: 12px; 
-        right: 12px;
+        position: absolute; top: 12px; right: 12px;
         font-size: 9px; color: rgba(255, 255, 255, 0.6);
         background: rgba(0, 0, 0, 0.6); padding: 3px 8px;
         border-radius: 6px; backdrop-filter: blur(4px);
         pointer-events: none; border: 1px solid rgba(255, 255, 255, 0.1);
         text-transform: uppercase;
-        /* UPDATED: High z-index to prevent being hidden by border artifacts */
-        z-index: 20;
     }
 
     .ac-info h2 { 
         font-size: 18px; font-weight: 700; color: #fff; 
         margin-bottom: 4px; letter-spacing: -0.02em;
-        text-shadow: 0 2px 4px rgba(0,0,0,0.5);
     }
-    .ac-info span { 
-        font-size: 13px; color: var(--text-secondary); display: block; font-weight: 500; 
-        text-shadow: 0 1px 2px rgba(0,0,0,0.5);
-    }
+    .ac-info span { font-size: 13px; color: var(--text-secondary); display: block; font-weight: 500; }
 
     .ac-reg-badge {
         font-family: var(--font-data);
@@ -244,8 +226,6 @@
         backdrop-filter: blur(4px);
         color: var(--text-primary);
         font-weight: 600;
-        box-shadow: 0 2px 8px rgba(0,0,0,0.3);
-        z-index: 11;
     }
 
     /* --- ROUTE SECTION --- */
