@@ -81,29 +81,6 @@
         background: linear-gradient(180deg, rgba(24,24,27,0.9) 0%, rgba(24,24,27,0) 100%);
     }
 
-    /* Wrapper for the left side (Strip + Identity) */
-    .identity-wrapper {
-        display: flex;
-        align-items: center;
-        gap: 12px;
-    }
-
-    /* --- NEW SEAT STATUS STRIP --- */
-    .seat-status-strip {
-        width: 4px;
-        height: 42px;
-        border-radius: 4px;
-        background: rgba(255,255,255,0.1);
-        transition: all 0.4s var(--ease-out);
-        box-shadow: 0 0 0 rgba(0,0,0,0);
-    }
-
-    /* Strip Colors & Glows */
-    .strip-active { background: #4ade80; box-shadow: 0 0 12px rgba(74, 222, 128, 0.4); }
-    .strip-auto   { background: #facc15; box-shadow: 0 0 12px rgba(250, 204, 21, 0.4); }
-    .strip-parked { background: #f87171; box-shadow: 0 0 5px rgba(248, 113, 113, 0.2); opacity: 0.7; }
-    .strip-ap-plus { background: #818cf8; box-shadow: 0 0 12px rgba(129, 140, 248, 0.4); }
-
     .identity-group {
         display: flex;
         flex-direction: column;
@@ -156,7 +133,6 @@
     .text-auto   { color: #facc15; background: rgba(250, 204, 21, 0.1); border-color: rgba(250, 204, 21, 0.15); }
     .text-parked { color: #f87171; background: rgba(248, 113, 113, 0.1); border-color: rgba(248, 113, 113, 0.15); }
     .text-ap-plus { color: #818cf8; background: rgba(129, 140, 248, 0.1); border-color: rgba(129, 140, 248, 0.15); }
-
 
     /* Modern Status Pill (Dot Indicator for Flight Phase) */
     .flight-state-badge {
@@ -501,17 +477,13 @@
     <div class="avionics-window">
         
         <header class="header-section">
-            <div class="identity-wrapper">
-                <div id="seat-visual-strip" class="seat-status-strip"></div>
-
-                <div class="identity-group">
-                    <div class="main-callsign skeleton" id="callsign">WAITING</div>
-                    <div class="pilot-row" onclick="parent.postMessage({type: 'OPEN_PROFILE'}, '*')">
-                        <i class="fa-solid fa-user-astronaut"></i>
-                        <span id="username">PILOT</span>
-                        
-                        <span id="seat-status-label" class="seat-mini-label" style="display: none;">---</span>
-                    </div>
+            <div class="identity-group">
+                <div class="main-callsign skeleton" id="callsign">WAITING</div>
+                <div class="pilot-row" onclick="parent.postMessage({type: 'OPEN_PROFILE'}, '*')">
+                    <i class="fa-solid fa-user-astronaut"></i>
+                    <span id="username">PILOT</span>
+                    
+                    <span id="seat-status-label" class="seat-mini-label" style="display: none;">---</span>
                 </div>
             </div>
             
@@ -696,36 +668,30 @@
                 badge.classList.add('state-ground');
             }
 
-            // --- 3. REDESIGNED SEAT STATUS LOGIC ---
-            // We control the Strip (left of callsign) and the Mini Label (next to username)
-            const seatStrip = document.getElementById('seat-visual-strip');
+            // --- 3. SEAT STATUS LOGIC ---
+            // Removed vertical strip. Only updating text label.
             const seatLabel = document.getElementById('seat-status-label');
             
             if (data.pilotState !== undefined) {
                 seatLabel.style.display = 'inline-block';
                 
                 // Reset classes
-                seatStrip.className = 'seat-status-strip';
                 seatLabel.className = 'seat-mini-label';
                 
                 switch(data.pilotState) {
                     case 0: // Active
-                        seatStrip.classList.add('strip-active');
                         seatLabel.classList.add('text-active');
                         seatLabel.textContent = 'ACTIVE';
                         break;
                     case 1: // AwayInFlight (Auto)
-                        seatStrip.classList.add('strip-auto');
                         seatLabel.classList.add('text-auto');
                         seatLabel.textContent = 'AUTO';
                         break;
-                    case 2: // AwayParked
-                        seatStrip.classList.add('strip-parked');
+                    case 2: // AwayParked (PARKED, NOT AP+)
                         seatLabel.classList.add('text-parked');
                         seatLabel.textContent = 'PARKED';
                         break;
                     case 3: // InBackground (AP+)
-                        seatStrip.classList.add('strip-ap-plus');
                         seatLabel.classList.add('text-ap-plus');
                         seatLabel.textContent = 'AP+';
                         break;
@@ -733,9 +699,7 @@
                         seatLabel.style.display = 'none';
                 }
             } else {
-                // If no state, hide the text, strip remains neutral
                 seatLabel.style.display = 'none';
-                seatStrip.className = 'seat-status-strip';
             }
 
             // 4. Aircraft
