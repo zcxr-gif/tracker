@@ -749,17 +749,34 @@
             });
             container.innerHTML = html;
             
+            // --- FIX START: Contained Scrolling ---
             if (container.dataset.scrolled !== 'true') {
                 const activeEl = container.querySelector('.active');
                 if (activeEl) {
                     setTimeout(() => {
-                        activeEl.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                        // 1. Get positions relative to the viewport
+                        const containerRect = container.getBoundingClientRect();
+                        const activeRect = activeEl.getBoundingClientRect();
+                        
+                        // 2. Calculate where the element is relative to the container's top
+                        const relativeTop = activeRect.top - containerRect.top;
+                        
+                        // 3. Calculate target scroll position (Current Scroll + Relative Offset - Half Container Height)
+                        const targetScroll = container.scrollTop + relativeTop - (container.clientHeight / 2) + (activeEl.clientHeight / 2);
+
+                        // 4. Apply scroll ONLY to the container
+                        container.scrollTo({
+                            top: targetScroll,
+                            behavior: 'smooth'
+                        });
+
                         container.dataset.scrolled = 'true';
                     }, 500);
                 }
             }
+            // --- FIX END ---
         }
-
+        
         function updateText(id, text) {
             const el = document.getElementById(id);
             if (el) el.textContent = text;
