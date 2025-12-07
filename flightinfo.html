@@ -164,23 +164,26 @@
         border-radius: var(--radius-lg);
         border: 1px solid var(--border-glass);
         box-shadow: 0 20px 40px -10px rgba(0,0,0,0.6);
-        overflow: hidden;
+        /* Removed generic overflow:hidden to allow dropdowns to work better, 
+           we handle image clipping in the visual section now. */
         display: flex;
         flex-direction: column;
         background: var(--bg-panel);
         margin-top: 10px;
+        position: relative;
     }
 
     .mission-visual-section {
         position: relative;
         width: 100%;
-        /* RESTORED: "Phenomenal" expanded height */
+        /* You can increase this height if you want the image larger */
         height: 320px; 
         flex: 0 0 auto;
         background: #0f172a;
+        /* CRITICAL FIX: Strictly hide overflow and remove 3D transform 
+           to prevent image from bleeding over the route data */
         overflow: hidden;
-        /* CRITICAL: Ensures 3D transformed children play nice */
-        transform-style: preserve-3d;
+        z-index: 1; 
     }
 
     .hero-img {
@@ -189,10 +192,10 @@
         object-fit: cover;
         object-position: center;
         transition: transform 8s ease;
-        transform: scale(1.02); /* Start slightly zoomed for effect */
-        /* CRITICAL: Puts image on base layer */
+        transform: scale(1.02);
         z-index: 1;
         position: relative;
+        display: block; /* Removes bottom spacing glitch */
     }
 
     .unified-mission-card:hover .hero-img { 
@@ -202,13 +205,11 @@
     .hero-overlay {
         position: absolute; 
         bottom: 0; left: 0; right: 0;
-        /* Darker bottom gradient for better text readability */
         background: linear-gradient(to top, rgba(15,23,42,1) 0%, rgba(15,23,42,0.8) 30%, transparent 100%);
         padding: 60px 20px 16px;
         display: flex;
         justify-content: space-between;
         align-items: flex-end;
-        /* CRITICAL: Lifts text above the zoomed image */
         z-index: 10;
         gap: 16px;
     }
@@ -227,7 +228,6 @@
         font-weight: 500;
         border: 1px solid rgba(255, 255, 255, 0.1);
         text-transform: uppercase;
-        /* CRITICAL: Lifts credit above the zoomed image */
         z-index: 10;
     }
 
@@ -238,7 +238,7 @@
     }
 
     .ac-info h2 { 
-        font-size: 18px; /* Restored larger size */
+        font-size: 18px;
         font-weight: 700; 
         color: #fff; 
         margin-bottom: 4px;
@@ -265,7 +265,6 @@
         backdrop-filter: blur(4px);
         color: #fff;
         font-weight: 600;
-        /* CRITICAL: Ensures badge is clickable/visible */
         z-index: 11;
         box-shadow: 0 4px 12px rgba(0,0,0,0.3);
     }
@@ -273,9 +272,12 @@
     /* --- ROUTE SECTION --- */
     .mission-route-section {
         border-top: 1px solid rgba(255,255,255,0.05);
-        background: rgba(24, 24, 27, 0.4);
+        background: rgba(24, 24, 27, 0.9); /* Increased opacity slightly for readability */
         position: relative;
-        z-index: 2;
+        /* CRITICAL FIX: High Z-Index ensures this sits ON TOP of the image 
+           if the image tries to overlap */
+        z-index: 20; 
+        box-shadow: 0 -5px 20px rgba(0,0,0,0.5); /* Visual separation from image */
     }
 
     .route-visual-header {
