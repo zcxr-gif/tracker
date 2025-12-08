@@ -6042,7 +6042,7 @@ function setupAircraftWindowEvents() {
             }
         }
 
-        // 4. Handle Close Logic (USING HELPER)
+        // 4. Handle Close Logic
         if (closeBtn) {
             closeAircraftWindow(); 
         }
@@ -6061,35 +6061,41 @@ function setupAircraftWindowEvents() {
             activeGeocodeUpdateInterval = null;
             activeWeatherUpdateInterval = null;
             
-            if (currentFlightInWindow) {
+            // Safe check for the recall button
+            if (currentFlightInWindow && aircraftInfoWindowRecallBtn) {
                 aircraftInfoWindowRecallBtn.classList.add('visible', 'palpitate');
-                setTimeout(() => aircraftInfoWindowRecallBtn.classList.remove('palpitate'), 1000);
+                setTimeout(() => {
+                    if (aircraftInfoWindowRecallBtn) aircraftInfoWindowRecallBtn.classList.remove('palpitate');
+                }, 1000);
             }
         }
     });
 
-    // Recall Button Logic
-    aircraftInfoWindowRecallBtn.addEventListener('click', () => {
-        if (currentFlightInWindow) {
-            const layer = sectorOpsMap.getLayer('sector-ops-live-flights-layer');
-            if (layer) {
-                const source = sectorOpsMap.getSource('sector-ops-live-flights-source');
-                const features = source._data.features;
-                const feature = features.find(f => f.properties.flightId === currentFlightInWindow);
-                if (feature) {
-                    const props = feature.properties;
-                    const flightProps = { ...props, position: JSON.parse(props.position), aircraft: JSON.parse(props.aircraft) };
-                    
-                    fetch('https://site--acars-backend--6dmjph8ltlhv.code.run/if-sessions').then(res => res.json()).then(data => {
-                        const sessionId = getCurrentSessionId(data);
-                        if(sessionId) {
-                            handleAircraftClick(flightProps, sessionId);
-                        }
-                    });
+    // Recall Button Logic (Wrapped in safety check)
+    if (aircraftInfoWindowRecallBtn) {
+        aircraftInfoWindowRecallBtn.addEventListener('click', () => {
+            if (currentFlightInWindow) {
+                const layer = sectorOpsMap.getLayer('sector-ops-live-flights-layer');
+                if (layer) {
+                    const source = sectorOpsMap.getSource('sector-ops-live-flights-source');
+                    const features = source._data.features;
+                    const feature = features.find(f => f.properties.flightId === currentFlightInWindow);
+                    if (feature) {
+                        const props = feature.properties;
+                        const flightProps = { ...props, position: JSON.parse(props.position), aircraft: JSON.parse(props.aircraft) };
+                        
+                        fetch('https://site--acars-backend--6dmjph8ltlhv.code.run/if-sessions').then(res => res.json()).then(data => {
+                            const sessionId = getCurrentSessionId(data);
+                            if(sessionId) {
+                                handleAircraftClick(flightProps, sessionId);
+                            }
+                        });
+                    }
                 }
+                aircraftInfoWindowRecallBtn.classList.remove('visible');
             }
-        }
-    });
+        });
+    }
     
     aircraftInfoWindow.dataset.eventsAttached = 'true';
 }
@@ -6477,10 +6483,8 @@ function formatDataForSimpleWindow(flightProps, plan, routePoints, communityData
 
         try {
             // --- 1. CLEAN UP: Remove legacy injection logic ---
-            // (We no longer inject search bars or pills here, they are in HTML)
 
             // --- 2. Assign Global Variables to NEW UI elements ---
-            // Note: Aircraft/Airport windows are still injected dynamically by other functions if missing
             if (!document.getElementById('airport-info-window')) {
                  const windowHtml = `<div id="airport-info-window" class="info-window"><div id="airport-window-content" class="info-window-content"></div></div>`;
                 document.body.insertAdjacentHTML('beforeend', windowHtml);
@@ -6490,8 +6494,17 @@ function formatDataForSimpleWindow(flightProps, plan, routePoints, communityData
                 document.body.insertAdjacentHTML('beforeend', windowHtml);
             }
 
+            // --- [FIX] Inject Recall Buttons if missing ---
+            if (!document.getElementById('aircraft-window-recall-btn')) {
+                // Creates a floating button at the bottom center to recall the window
+                const btnHtml = `<button id="aircraft-window-recall-btn" class="hero-btn" title="Recall Flight Window" style="position: absolute; bottom: 30px; left: 50%; transform: translateX(-50%); z-index: 40; display: none; width: 48px; height: 48px; border-radius: 50%; background: rgba(15, 23, 42, 0.9); border: 1px solid rgba(255,255,255,0.2); color: white; box-shadow: 0 4px 12px rgba(0,0,0,0.5); cursor: pointer;"><i class="fa-solid fa-plane-up"></i></button>`;
+                document.body.insertAdjacentHTML('beforeend', btnHtml);
+            }
+            
+            // Assign global variables
             airportInfoWindow = document.getElementById('airport-info-window');
             aircraftInfoWindow = document.getElementById('aircraft-info-window');
+            aircraftInfoWindowRecallBtn = document.getElementById('aircraft-window-recall-btn'); // <--- Assigned here
 
             // --- 3. Initialize Map and Load Content ---
             const selectedHub = "VIDP"; 
@@ -6499,9 +6512,9 @@ function formatDataForSimpleWindow(flightProps, plan, routePoints, communityData
             await loadExternalPanelContent();
 
             // --- 4. Set Up Event Listeners (NEW UI MAPPING) ---
-            setupNewUIEventListeners(); // <--- NEW FUNCTION CALL
+            setupNewUIEventListeners(); 
             setupAirportWindowEvents();
-            setupAircraftWindowEvents();
+            setupAircraftWindowEvents(); // This will no longer crash
             setupSmartMapBackgroundClick(); 
 
             // --- 5. Listen for ND_READY signal ---
