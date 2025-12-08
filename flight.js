@@ -4142,6 +4142,39 @@ async function fetchAndDisplayWeather() {
     }
 
 /**
+ * --- [NEW] Batch Route Fetcher ---
+ * Uses the new backend endpoint to fetch routes safely.
+ * Returns a Map-like object: { "flightId": [waypoints...] }
+ */
+async function fetchBatchRoutes(sessionId, flightIds) {
+    // 1. Validate inputs
+    if (!sessionId || !Array.isArray(flightIds) || flightIds.length === 0) {
+        return {}; 
+    }
+
+    try {
+        const response = await fetch(`${LIVE_FLIGHTS_API_URL}/routes/batch`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ 
+                sessionId: sessionId, 
+                flightIds: flightIds 
+            })
+        });
+
+        if (!response.ok) return {};
+
+        const data = await response.json();
+        // The backend returns { ok: true, routes: { id: [], id2: null } }
+        return data.ok ? data.routes : {};
+
+    } catch (error) {
+        console.error("Batch route fetch failed:", error);
+        return {};
+    }
+}
+
+/**
  * --- [NEW] Unwraps coordinates to prevent Date Line issues ---
  * Converts a raw [-180, 180] line string into a continuous world-space line
  * (e.g., converts a jump from 179 to -179 into 179 to 181).
@@ -8092,11 +8125,39 @@ async function handleAircraftClick(flightProps, sessionId) {
 
         // --- FETCH DATA SPLIT: Prioritize Map Data over Image Lookup ---
         
+        // --- FETCH DATA SPLIT: Prioritize Map Data over Image Lookup ---
+        
         // 1. Trigger Map Data fetches (Fast)
+        // We use the new BATCH fetcher for the route. This is safer because if the 
+        // route is 404 (broken/disconnected), the backend handles it gracefully 
+        // and returns null, instead of throwing an error here.
         const mapDataPromise = Promise.all([
             fetch(`${LIVE_FLIGHTS_API_URL}/${sessionId}/${flightProps.flightId}/plan`),
-            fetch(`${LIVE_FLIGHTS_API_URL}/${sessionId}/${flightProps.flightId}/route`)
+            fetchBatchRoutes(sessionId, [flightProps.flightId]) // <--- NEW BATCH CALL
         ]);
+
+        // 2. Trigger Image Lookup (Slow) - DO NOT AWAIT YET
+        const imageLookupPromise = fetch(`${API_BASE_URL}/api/aircraft/lookup?type=${encodeURIComponent(acName)}&livery=${encodeURIComponent(livName)}`);
+
+        // 3. Await Map Data ONLY
+        const [planRes, batchRoutes] = await mapDataPromise;
+        
+        const planData = planRes.ok ? await planRes.json() : null;
+        const plan = (planData && planData.ok) ? planData.plan : null;
+        
+        // Extract the specific route for this flight from the batch result
+        // The batch result is an object: { "flightId": [points] }
+        const rawRoute = batchRoutes[flightProps.flightId] || []; 
+
+        // --- Process Route History ---
+        let sortedRoutePoints = [];
+        if (Array.isArray(rawRoute) && rawRoute.length > 0) {
+            sortedRoutePoints = rawRoute.sort((a, b) => {
+                const timeA = a.timestamp ? new Date(a.timestamp).getTime() : 0; // Backend uses 'timestamp'
+                const timeB = b.timestamp ? new Date(b.timestamp).getTime() : 0;
+                return timeA - timeB;
+            });
+        }
 
         // 2. Trigger Image Lookup (Slow) - DO NOT AWAIT YET
         const imageLookupPromise = fetch(`${API_BASE_URL}/api/aircraft/lookup?type=${encodeURIComponent(acName)}&livery=${encodeURIComponent(livName)}`);
@@ -9459,13 +9520,12 @@ function updateSeatSensor(flightProps) {
 }
 
 /**
- * --- [REHAULED v2.1] Renders the Pilot Report with collapsible sections and a case-sensitive profile link.
- * --- [MODIFIED v2.2] Removed back button for new tabbed layout
+ * --- [REHAULED v3.0] Renders Pilot Report with Logbook ---
  */
-function renderPilotStatsHTML(stats, username) {
+function renderPilotStatsHTML(stats, username, logbookData) {
     if (!stats) return '<p class="error-text">Could not load pilot statistics.</p>';
 
-    // --- Data Extraction & Helpers ---
+    // --- Helpers ---
     const getRuleValue = (rules, ruleName) => {
         if (!Array.isArray(rules)) return null;
         const rule = rules.find(r => r.definition?.name === ruleName);
@@ -9476,15 +9536,15 @@ function renderPilotStatsHTML(stats, username) {
         return new Date(dateString).toLocaleDateString('en-US', { year: 'numeric', month: 'short', day: 'numeric' });
     };
 
+    // --- Stats Parsing ---
     const currentGradeIndex = stats.gradeDetails?.gradeIndex;
     const currentGrade = stats.gradeDetails?.grades?.[currentGradeIndex];
     const nextGrade = stats.gradeDetails?.grades?.[currentGradeIndex + 1];
 
     const atcRankId = stats.atcRank;
     const atcRankMap = { 0: 'Observer', 1: 'Trainee', 2: 'Apprentice', 3: 'Specialist', 4: 'Officer', 5: 'Supervisor', 6: 'Recruiter', 7: 'Manager' };
-    const atcRankName = atcRankId in atcRankMap ? atcRankMap[atcRankId] : 'N/A';
+    const atcRankName = atcRankMap[atcRankId] || 'N/A';
     
-    // --- Key Performance Indicators (KPIs) ---
     const kpis = {
         grade: currentGrade?.name.replace('Grade ', '') || 'N/A',
         xp: (stats.totalXP || 0).toLocaleString(),
@@ -9492,7 +9552,6 @@ function renderPilotStatsHTML(stats, username) {
         totalViolations: (stats.violationCountByLevel?.level1 || 0) + (stats.violationCountByLevel?.level2 || 0) + (stats.violationCountByLevel?.level3 || 0)
     };
     
-    // --- Detailed Stats ---
     const details = {
         lvl1Vios: stats.violationCountByLevel?.level1 || 0,
         lvl2Vios: stats.violationCountByLevel?.level2 || 0,
@@ -9502,44 +9561,89 @@ function renderPilotStatsHTML(stats, username) {
         landings90d: getRuleValue(currentGrade?.rules, 'Landings (90 days)')
     };
 
-    // --- Progression Card Generator ---
+    // --- Logbook HTML Generator ---
+    let logbookHtml = '<div style="padding: 10px; color: #94a3b8; font-style: italic;">No recent flights found.</div>';
+    
+    if (logbookData && logbookData.flights && logbookData.flights.length > 0) {
+        const rows = logbookData.flights.slice(0, 5).map(f => {
+            const date = new Date(f.created).toLocaleDateString();
+            const time = Math.round(f.totalTime);
+            // Convert server ID to readable
+            let serverName = "Solo";
+            if(f.server === "Casual Server") serverName = "Casual";
+            if(f.server === "Training Server") serverName = "Training";
+            if(f.server === "Expert Server") serverName = "Expert";
+
+            return `
+                <div style="display: flex; justify-content: space-between; align-items: center; padding: 8px 0; border-bottom: 1px solid rgba(255,255,255,0.05); font-size: 0.8rem;">
+                    <div>
+                        <div style="font-weight: 700; color: #fff;">${f.callsign || 'No Callsign'}</div>
+                        <div style="font-size: 0.7rem; color: #64748b;">${date} • ${serverName}</div>
+                    </div>
+                    <div style="text-align: right;">
+                        <div style="color: #38bdf8;">${f.originAirport || '---'} &rarr; ${f.destinationAirport || '---'}</div>
+                        <div style="font-size: 0.7rem; color: #94a3b8;">${time} min • ${f.landingCount} Ldg</div>
+                    </div>
+                </div>
+            `;
+        }).join('');
+        logbookHtml = `<div style="padding: 0 10px;">${rows}</div>`;
+    }
+
+    // --- Progression Card ---
     const createProgressCard = (title, gradeData) => {
-        if (!gradeData) {
-            return `<div class="progress-card complete"><h4><i class="fa-solid fa-crown"></i> Max Grade Achieved</h4><p>Congratulations, you have reached the highest available grade!</p></div>`;
-        }
-        const reqXp = getRuleValue(gradeData.rules, 'XP');
-        const reqVios = getRuleValue(gradeData.rules, 'All Level 2/3 Violations (1 year)');
-        const xpProgress = reqXp > 0 ? Math.min(100, (stats.totalXP / reqXp) * 100) : 100;
+        if (!gradeData) return `<div class="progress-card complete"><h4><i class="fa-solid fa-crown"></i> Max Grade Achieved</h4></div>`;
+        const reqXp = getRuleValue(gradeData.rules, 'XP') || 1;
+        const reqVios = getRuleValue(gradeData.rules, 'All Level 2/3 Violations (1 year)') || 0;
+        const xpProgress = Math.min(100, (stats.totalXP / reqXp) * 100);
         const viosMet = stats.total12MonthsViolations <= reqVios;
-        return `<div class="progress-card"><h4>${title}</h4><div class="progress-item"><div class="progress-label"><span><i class="fa-solid fa-star"></i> XP</span><span>${stats.totalXP.toLocaleString()} / ${reqXp.toLocaleString()}</span></div><div class="progress-bar-bg"><div class="progress-bar-fg" style="width: ${xpProgress.toFixed(1)}%;"></div></div></div><div class="progress-item"><div class="progress-label"><span><i class="fa-solid fa-shield-halved"></i> 1-Year Violations</span><span class="${viosMet ? 'req-met' : 'req-not-met'}">${stats.total12MonthsViolations} / ${reqVios} max<i class="fa-solid ${viosMet ? 'fa-check-circle' : 'fa-times-circle'}"></i></span></div></div></div>`;
+        
+        return `
+        <div class="progress-card">
+            <h4>${title}</h4>
+            <div class="progress-item">
+                <div class="progress-label"><span>XP</span><span>${stats.totalXP.toLocaleString()} / ${reqXp.toLocaleString()}</span></div>
+                <div class="progress-bar-bg"><div class="progress-bar-fg" style="width: ${xpProgress.toFixed(1)}%;"></div></div>
+            </div>
+            <div class="progress-item">
+                <div class="progress-label"><span>Vios (1yr)</span><span class="${viosMet ? 'req-met' : 'req-not-met'}">${stats.total12MonthsViolations} / ${reqVios} max</span></div>
+            </div>
+        </div>`;
     };
     
-    // --- Final HTML Assembly with Accordion ---
+    // --- Final Render ---
     return `
         <div class="stats-rehaul-container">
             <div class="stats-header">
                 <h4>${username}</h4>
-                <a href="https://community.infiniteflight.com/u/${username}/summary" target="_blank" rel="noopener noreferrer" class="community-profile-link" title="View Community Profile">
-                    <i class="fa-solid fa-external-link-alt"></i> View Profile
-                </a>
+                <a href="https://community.infiniteflight.com/u/${username}/summary" target="_blank" class="community-profile-link"><i class="fa-solid fa-external-link-alt"></i> Profile</a>
             </div>
 
             <div class="kpi-grid">
-                <div class="kpi-card"><div class="kpi-label"><i class="fa-solid fa-user-shield"></i> Grade</div><div class="kpi-value">${kpis.grade}</div></div>
-                <div class="kpi-card"><div class="kpi-label"><i class="fa-solid fa-star"></i> Total XP</div><div class="kpi-value">${kpis.xp}</div></div>
-                <div class="kpi-card"><div class="kpi-label"><i class="fa-solid fa-headset"></i> ATC Rank</div><div class="kpi-value">${kpis.atcRank}</div></div>
-                <div class="kpi-card"><div class="kpi-label"><i class="fa-solid fa-triangle-exclamation"></i> Total Violations</div><div class="kpi-value">${kpis.totalViolations}</div></div>
+                <div class="kpi-card"><div class="kpi-label">Grade</div><div class="kpi-value">${kpis.grade}</div></div>
+                <div class="kpi-card"><div class="kpi-label">XP</div><div class="kpi-value">${kpis.xp}</div></div>
+                <div class="kpi-card"><div class="kpi-label">ATC</div><div class="kpi-value">${kpis.atcRank}</div></div>
+                <div class="kpi-card"><div class="kpi-label">Vios</div><div class="kpi-value">${kpis.totalViolations}</div></div>
             </div>
 
             <div class="stats-accordion">
+                <div class="accordion-item active">
+                    <button class="accordion-header">
+                        <span><i class="fa-solid fa-book-open"></i> Recent Logbook</span>
+                        <i class="fa-solid fa-chevron-down toggle-icon"></i>
+                    </button>
+                    <div class="accordion-content" style="max-height: 500px;">
+                        ${logbookHtml}
+                    </div>
+                </div>
+
                 <div class="accordion-item">
                     <button class="accordion-header">
-                        <span><i class="fa-solid fa-chart-line"></i> Grade Progression</span>
+                        <span><i class="fa-solid fa-chart-line"></i> Progression</span>
                         <i class="fa-solid fa-chevron-down toggle-icon"></i>
                     </button>
                     <div class="accordion-content">
                         <div class="progression-container">
-                            ${createProgressCard(`Current: Grade ${kpis.grade}`, currentGrade)}
                             ${createProgressCard(`Next: Grade ${nextGrade?.name.replace('Grade ', '') || ''}`, nextGrade)}
                         </div>
                     </div>
@@ -9547,83 +9651,69 @@ function renderPilotStatsHTML(stats, username) {
 
                 <div class="accordion-item">
                     <button class="accordion-header">
-                        <span><i class="fa-solid fa-list-check"></i> Detailed Statistics</span>
+                        <span><i class="fa-solid fa-list-check"></i> Details</span>
                         <i class="fa-solid fa-chevron-down toggle-icon"></i>
                     </button>
                     <div class="accordion-content">
                         <div class="details-grid">
-                             <div class="detail-item"><span class="detail-label">Level 1 Violations</span><span class="detail-value">${details.lvl1Vios}</span></div>
-                            <div class="detail-item"><span class="detail-label">Level 2 Violations</span><span class="detail-value">${details.lvl2Vios}</span></div>
-                            <div class="detail-item"><span class="detail-label">Level 3 Violations</span><span class="detail-value">${details.lvl3Vios}</span></div>
-                             <div class="detail-item"><span class="detail-label">Last Violation Date</span><span class="detail-value">${details.lastViolation}</span></div>
-                            <div class="detail-item"><span class="detail-label">Flight Time (90 days)</span><span class="detail-value">${details.flightTime90d ? details.flightTime90d.toFixed(1) + ' hrs' : 'N/A'}</span></div>
-                            <div class="detail-item"><span class="detail-label">Landings (90 days)</span><span class="detail-value">${details.landings90d || 'N/A'}</span></div>
+                             <div class="detail-item"><span class="detail-label">Level 1</span><span class="detail-value">${details.lvl1Vios}</span></div>
+                             <div class="detail-item"><span class="detail-label">Level 2</span><span class="detail-value">${details.lvl2Vios}</span></div>
+                             <div class="detail-item"><span class="detail-label">Level 3</span><span class="detail-value">${details.lvl3Vios}</span></div>
+                             <div class="detail-item"><span class="detail-label">Flight Time (90d)</span><span class="detail-value">${details.flightTime90d ? details.flightTime90d.toFixed(0) : 'N/A'} min</span></div>
                         </div>
                     </div>
                 </div>
             </div>
-            
-            </div>
+        </div>
     `;
 }
 
-// --- [NEW & FIXED] Fetches and displays the pilot stats, and attaches its own event listeners ---
-    async function displayPilotStats(userId, username) {
-        if (!userId) return;
+async function displayPilotStats(userId, username) {
+    if (!userId) return;
+    const statsDisplay = document.getElementById('pilot-stats-display');
+    if (!statsDisplay) return;
 
-        // Get the containers
-        // const statsPane = document.getElementById('ac-tab-pilot-report'); // No longer needed
-        // const flightPane = document.getElementById('ac-tab-flight-data'); // No longer needed
-        const statsDisplay = document.getElementById('pilot-stats-display');
+    statsDisplay.innerHTML = `<div class="spinner-small" style="margin: 2rem auto;"></div><p style="text-align: center;">Loading pilot report...</p>`;
+
+    try {
+        // --- PARALLEL FETCH (Grade + Logbook) ---
+        const [gradeRes, logbookRes] = await Promise.all([
+            fetch(`${ACARS_USER_API_URL}/${userId}/grade`),
+            // This endpoint must match what you added in live_flights.js
+            fetch(`${ACARS_USER_API_URL}/${userId}/logbook?page=1`) 
+        ]);
+
+        if (!gradeRes.ok) throw new Error('Could not fetch grade data.');
         
-        if (!statsDisplay) return;
-
-        // Show loading spinner in stats panel
-        statsDisplay.innerHTML = `<div class="spinner-small" style="margin: 2rem auto;"></div><p style="text-align: center;">Loading pilot report for ${username}...</p>`;
+        const gradeData = await gradeRes.json();
         
-        // --- [REMOVED] Toggle visibility ---
-        // flightPane.classList.remove('active');
-        // statsPane.classList.add('active');
-
-        try {
-            const res = await fetch(`${ACARS_USER_API_URL}/${userId}/grade`);
-            if (!res.ok) throw new Error('Could not fetch pilot data.');
-            
-            const data = await res.json();
-            if (data.ok && data.gradeInfo) {
-                statsDisplay.innerHTML = renderPilotStatsHTML(data.gradeInfo, username);
-                
-                // --- Accordion event listeners ---
-                const accordionHeaders = statsDisplay.querySelectorAll('.accordion-header');
-                accordionHeaders.forEach(header => {
-                    header.addEventListener('click', () => {
-                        const item = header.closest('.accordion-item');
-                        const content = header.nextElementSibling;
-                        const isExpanded = item.classList.contains('active');
-                        
-                        item.classList.toggle('active');
-
-                        if (isExpanded) {
-                            content.style.maxHeight = null;
-                        } else {
-                            content.style.maxHeight = content.scrollHeight + 'px';
-                        }
-                    });
-                });
-
-                // The main delegate in setupAircraftWindowEvents will catch the back button click
-                
-            } else {
-                throw new Error('Pilot data not found or invalid.');
-            }
-        } catch (error) {
-            console.error('Error fetching pilot stats:', error);
-            // [MODIFIED] Removed back button from error message
-            statsDisplay.innerHTML = `<div class="stats-rehaul-container">
-                <p class="error-text">${error.message}</p>
-            </div>`;
+        // Logbook might fail (e.g. user hidden), handle gracefully
+        let logbookData = null;
+        if (logbookRes.ok) {
+            logbookData = await logbookRes.json();
         }
+
+        if (gradeData.ok && gradeData.gradeInfo) {
+            // Pass logbookData to the renderer
+            statsDisplay.innerHTML = renderPilotStatsHTML(gradeData.gradeInfo, username, logbookData);
+            
+            // Re-attach accordion listeners
+            const headers = statsDisplay.querySelectorAll('.accordion-header');
+            headers.forEach(h => h.addEventListener('click', () => {
+                const item = h.closest('.accordion-item');
+                const content = h.nextElementSibling;
+                const isExpanded = item.classList.toggle('active');
+                content.style.maxHeight = isExpanded ? content.scrollHeight + "px" : null;
+            }));
+        } else {
+            throw new Error('Invalid data received.');
+        }
+
+    } catch (error) {
+        console.error('Error fetching pilot stats:', error);
+        statsDisplay.innerHTML = `<p class="error-text">${error.message}</p>`;
     }
+}
 
 
 
