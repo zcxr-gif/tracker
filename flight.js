@@ -144,20 +144,76 @@ document.addEventListener('DOMContentLoaded', async () => {
     }
 
     /**
-     * --- [NEW] Loads mapFilters from local storage and merges with defaults.
+     * --- [UPDATED] Loads mapFilters from local storage and merges with defaults.
      */
     function loadFiltersFromLocalStorage() {
         const savedFilters = localStorage.getItem('mapFilters');
+        
+        // Default Settings
+        const defaults = {
+            showVaOnly: false,
+            showStaffOnly: false,
+            hideAllAircraft: false,
+            showAtcAirportsOnly: false,
+            hideAtcMarkers: false,
+            hideAllAirports: false,
+            hideNoAtcMarkers: false,
+            planDisplayMode: 'none',
+            iconColorMode: 'default',
+            showAircraftLabels: true, // Default to true
+            useSimpleFlightWindow: false,
+            themeStartColor: '#18181b',
+            themeEndColor: '#18181b',
+            themeOpacity: 90,
+            mapStyle: 'mapbox://styles/mapbox/dark-v11' // Save map style too
+        };
+
         if (savedFilters) {
             try {
                 const parsedFilters = JSON.parse(savedFilters);
-                // Merge saved filters with defaults to ensure new properties are not lost
-                mapFilters = { ...mapFilters, ...parsedFilters };
-                console.log("Loaded map filters from local storage.", mapFilters);
+                // Merge saved filters into mapFilters, falling back to defaults for missing keys
+                mapFilters = { ...defaults, ...parsedFilters };
+                
+                // Also restore the currentMapStyle variable
+                if(mapFilters.mapStyle) {
+                    currentMapStyle = mapFilters.mapStyle;
+                }
+                
+                console.log("Loaded map filters:", mapFilters);
             } catch (e) {
-                console.warn("Could not parse saved filters from local storage.", e);
-                // On error, just use the defaults
+                console.warn("Could not parse saved filters. Using defaults.", e);
+                mapFilters = defaults;
             }
+        } else {
+            mapFilters = defaults;
+        }
+    }
+
+    /**
+     * --- [NEW] Syncs the HTML checkboxes to match the loaded mapFilters state.
+     */
+    function syncSettingsUI() {
+        // Helper to safely check a box if it exists
+        const setChecked = (id, value) => {
+            const el = document.getElementById(id);
+            if (el) el.checked = !!value;
+        };
+
+        // 1. Map Filters
+        setChecked('toggle-labels', mapFilters.showAircraftLabels);
+        setChecked('toggle-hide-atc', mapFilters.hideAtcMarkers);
+        setChecked('toggle-va-only', mapFilters.showVaOnly);
+        
+        // 2. Weather Toggles (These are usually separate, but good to sync if stored)
+        // (If you want to save weather state, add it to mapFilters object above)
+        
+        // 3. Simple Window Mode
+        setChecked('filter-toggle-simple-window', mapFilters.useSimpleFlightWindow);
+        
+        // 4. Map Style Button Text (Optional visual sync)
+        const mapBtnLabel = document.querySelector('#map-type-btn span');
+        if (mapBtnLabel) {
+            mapBtnLabel.textContent = currentMapStyle.includes('satellite') ? 'Toggle Map' : 'Toggle Satellite';
         }
     }
 
@@ -6853,7 +6909,7 @@ function setupNewUIEventListeners() {
                 const val = e.target.value;
                 if(val.length > 0) {
                     dropdown.classList.remove('hidden');
-                    handleSearchInput(val); // Existing logic
+                    handleSearchInput(val); 
                 } else {
                     dropdown.classList.add('hidden');
                 }
@@ -6871,22 +6927,31 @@ function setupNewUIEventListeners() {
         const serverBtn = document.getElementById('server-menu-btn');
         const serverMenu = document.getElementById('server-menu');
         if (serverBtn && serverMenu) {
-            serverBtn.addEventListener('click', () => {
+            serverBtn.addEventListener('click', (e) => {
+                e.stopPropagation();
                 serverMenu.classList.toggle('hidden');
             });
 
             document.querySelectorAll('.server-select-btn').forEach(btn => {
                 btn.addEventListener('click', () => {
                     const serverName = btn.dataset.server;
-                    switchServer(serverName); // Existing logic
+                    switchServer(serverName); 
                     
-                    // Update ticks
+                    // Update visuals
                     document.querySelectorAll('.server-check').forEach(el => el.classList.add('opacity-0'));
                     const check = btn.querySelector('.server-check');
-                    if(check) check.classList.remove('opacity-0');
+                    if(check) check.classList.remove('opacity-100', 'opacity-0');
+                    if(check) check.classList.add('opacity-100');
                     
                     serverMenu.classList.add('hidden');
                 });
+            });
+            
+            // Close menu when clicking outside
+            document.addEventListener('click', (e) => {
+                if (!serverBtn.contains(e.target) && !serverMenu.contains(e.target)) {
+                    serverMenu.classList.add('hidden');
+                }
             });
         }
 
@@ -6896,13 +6961,17 @@ function setupNewUIEventListeners() {
             mapBtn.addEventListener('click', () => {
                 const isSatellite = (currentMapStyle === MAP_STYLE_SATELLITE);
                 const newStyle = isSatellite ? MAP_STYLE_DARK : MAP_STYLE_SATELLITE;
+                
                 currentMapStyle = newStyle;
+                mapFilters.mapStyle = newStyle; // Save to state
+                saveFiltersToLocalStorage(); // Persist
+                
                 sectorOpsMap.setStyle(newStyle);
-                // rebuildDynamicLayers() is handled by style.load event in initializeSectorOpsMap
+                // rebuildDynamicLayers() is handled by style.load event
             });
         }
 
-        // 4. SETTINGS MODAL
+        // 4. SETTINGS MODAL & TABS
         const settingsBtn = document.getElementById('open-settings-btn');
         const settingsModal = document.getElementById('settings-modal');
         const closeSettingsBtns = document.querySelectorAll('.settings-close-btn');
@@ -6910,6 +6979,7 @@ function setupNewUIEventListeners() {
         if (settingsBtn && settingsModal) {
             settingsBtn.addEventListener('click', () => {
                 settingsModal.classList.remove('hidden');
+                syncSettingsUI(); // Ensure UI matches state when opening
             });
             
             closeSettingsBtns.forEach(btn => {
@@ -6936,15 +7006,19 @@ function setupNewUIEventListeners() {
                     btn.querySelector('i').classList.add('text-blue-400');
                     
                     const target = btn.dataset.tab;
-                    document.getElementById(`tab-${target}`).classList.remove('hidden');
+                    const targetPane = document.getElementById(`tab-${target}`);
+                    if(targetPane) targetPane.classList.remove('hidden');
                     
                     // Update Header Title
                     const titles = { 'labels': 'Aircraft Labels', 'map': 'Map Filters' };
-                    document.getElementById('settings-header-title').textContent = titles[target];
+                    const titleEl = document.getElementById('settings-header-title');
+                    if(titleEl) titleEl.textContent = titles[target] || 'Settings';
                 });
             });
 
-            // Toggles Wiring (Map to mapFilters state)
+            // --- 5. SETTINGS TOGGLES (The Fixing Part) ---
+            
+            // A. Aircraft Labels
             const labelToggle = document.getElementById('toggle-labels');
             if(labelToggle) {
                 labelToggle.addEventListener('change', (e) => {
@@ -6954,24 +7028,28 @@ function setupNewUIEventListeners() {
                 });
             }
             
+            // B. VA Members Only
             const vaToggle = document.getElementById('toggle-va-only');
             if(vaToggle) {
                 vaToggle.addEventListener('change', (e) => {
                     mapFilters.showVaOnly = e.target.checked;
                     updateMapFilters();
+                    saveFiltersToLocalStorage();
                 });
             }
 
+            // C. Hide ATC Markers
             const atcToggle = document.getElementById('toggle-hide-atc');
             if(atcToggle) {
                 atcToggle.addEventListener('change', (e) => {
                     mapFilters.hideAtcMarkers = e.target.checked;
                     updateMapFilters();
+                    saveFiltersToLocalStorage();
                 });
             }
         }
 
-        // 5. WEATHER WIDGET
+        // 6. WEATHER WIDGET
         const wxBtn = document.getElementById('weather-btn');
         const wxPopup = document.getElementById('weather-popup');
         const closeWx = document.getElementById('close-weather-btn');
@@ -6988,7 +7066,7 @@ function setupNewUIEventListeners() {
                 }
             };
             wxBtn.addEventListener('click', toggleWx);
-            closeWx.addEventListener('click', toggleWx);
+            if(closeWx) closeWx.addEventListener('click', toggleWx);
 
             // Wx Toggles
             document.getElementById('wx-radar')?.addEventListener('change', (e) => toggleWeatherLayer(e.target.checked));
@@ -11052,11 +11130,15 @@ async function updateSectorOpsSecondaryData() {
 
 
 
-    // --- Initial Load ---
-async function initializeApp() {
+// --- Initial Load ---
+    async function initializeApp() {
         mainContentLoader.classList.add('active');
 
+        // 1. Load data from storage
         loadFiltersFromLocalStorage();
+        
+        // 2. Apply loaded data to HTML checkboxes
+        syncSettingsUI(); 
 
         // Inject all custom CSS
         injectCustomStyles();
