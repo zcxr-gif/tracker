@@ -8060,134 +8060,112 @@ function closeAircraftWindow() {
 async function handleAircraftClick(flightProps, sessionId) {
     if (!flightProps || !flightProps.flightId) return;
 
-    // [RESILIENCE] Prevent new clicks if one is already loading
-    if (isAircraftWindowLoading) {
-        console.warn("Aircraft click ignored: window is already loading.");
-        return;
-    }
+    if (isAircraftWindowLoading) return;
 
-    // [ORIGINAL] Prevent re-opening an already open window for the same flight
-    if (currentFlightInWindow === flightProps.flightId && aircraftInfoWindow.classList.contains('visible')) {
-        return;
-    }
-
-    // [RESILIENCE] Set loading flag
+    // 1. Reset UI & State
     isAircraftWindowLoading = true;
-
-    // --- [CRITICAL] Clear ALL existing intervals first ---
-    if (activePfdUpdateInterval) {
-        clearInterval(activePfdUpdateInterval);
-        activePfdUpdateInterval = null;
-    }
-    if (activeGeocodeUpdateInterval) {
-        clearInterval(activeGeocodeUpdateInterval);
-        activeGeocodeUpdateInterval = null;
-    }
-
+    
+    // Clear old data
+    if (activePfdUpdateInterval) clearInterval(activePfdUpdateInterval);
+    if (activeGeocodeUpdateInterval) clearInterval(activeGeocodeUpdateInterval);
+    
     resetPfdState();
+    clearLiveFlightPath(currentFlightInWindow); // Clear the OLD active flight
+    clearHistoryMapLayers(); // <--- NEW: Clear old history lines
+    
+    liveTrailCache.delete(currentFlightInWindow);
 
-    // [ORIGINAL] Clear previous flight's path/cache
-    if (currentFlightInWindow && currentFlightInWindow !== flightProps.flightId) {
-        clearLiveFlightPath(currentFlightInWindow);
-        liveTrailCache.delete(currentFlightInWindow);
-    }
-
-    // --- Set State ---
+    // Set new Active Flight
     currentFlightInWindow = flightProps.flightId; 
     currentAircraftPositionForGeocode = flightProps.position; 
-    lastGeocodeCoords = { lat: 0, lon: 0 }; 
     cachedFlightDataForStatsView = { flightProps: null, plan: null };
 
-    // [UI] Show Window
+    // Show Window
     if (window.MobileUIHandler && window.MobileUIHandler.isMobile()) {
         window.MobileUIHandler.openWindow(aircraftInfoWindow);
     } else {
         aircraftInfoWindow.classList.add('visible');
     }
     aircraftInfoWindowRecallBtn.classList.remove('visible');
-    
-    // [UI] Loading State (Center spinner)
+
+    // Loading Screen
     const windowEl = document.getElementById('aircraft-info-window');
     windowEl.innerHTML = `
         <div style="display: flex; flex-direction: column; align-items: center; justify-content: center; height: 300px; color: #fff;">
             <div class="spinner-small" style="margin-bottom: 1rem;"></div>
-            <p style="font-family: 'Inter', sans-serif; font-size: 0.9rem; color: #94a3b8;">Acquiring Flight & Aircraft Data...</p>
+            <p style="font-family: 'Inter', sans-serif; font-size: 0.9rem; color: #94a3b8;">Acquiring Flight History & Route...</p>
         </div>
     `;
 
     try {
-        // Define layer ID for flown path
-        const flownLayerId = `flown-path-${flightProps.flightId}`;
-        
-        // --- PREPARE DATA FOR LOOKUP ---
+        const userId = flightProps.userId;
         const acName = flightProps.aircraft?.aircraftName || '';
         const livName = flightProps.aircraft?.liveryName || '';
 
-        // --- FETCH DATA SPLIT: Prioritize Map Data over Image Lookup ---
-        
-        // --- FETCH DATA SPLIT: Prioritize Map Data over Image Lookup ---
-        
-        // 1. Trigger Map Data fetches (Fast)
-        // We use the new BATCH fetcher for the route. This is safer because if the 
-        // route is 404 (broken/disconnected), the backend handles it gracefully 
-        // and returns null, instead of throwing an error here.
-        const mapDataPromise = Promise.all([
+        // --- STEP 1: PARALLEL DATA FETCHING ---
+        // We fetch: Plan, Logbook (History), and Image Lookup
+        const [planRes, logbookRes, imageRes] = await Promise.all([
             fetch(`${LIVE_FLIGHTS_API_URL}/${sessionId}/${flightProps.flightId}/plan`),
-            fetchBatchRoutes(sessionId, [flightProps.flightId]) // <--- NEW BATCH CALL
+            fetch(`${ACARS_USER_API_URL}/${userId}/logbook?page=1`), // <--- Fetch History
+            fetch(`${API_BASE_URL}/api/aircraft/lookup?type=${encodeURIComponent(acName)}&livery=${encodeURIComponent(livName)}`)
         ]);
 
-        // 2. Trigger Image Lookup (Slow) - DO NOT AWAIT YET
-        const imageLookupPromise = fetch(`${API_BASE_URL}/api/aircraft/lookup?type=${encodeURIComponent(acName)}&livery=${encodeURIComponent(livName)}`);
-
-        // 3. Await Map Data ONLY
-        const [planRes, batchRoutes] = await mapDataPromise;
-        
         const planData = planRes.ok ? await planRes.json() : null;
         const plan = (planData && planData.ok) ? planData.plan : null;
         
-        // Extract the specific route for this flight from the batch result
-        // The batch result is an object: { "flightId": [points] }
-        const rawRoute = batchRoutes[flightProps.flightId] || []; 
-
-        // --- Process Route History ---
-        let sortedRoutePoints = [];
-        if (Array.isArray(rawRoute) && rawRoute.length > 0) {
-            sortedRoutePoints = rawRoute.sort((a, b) => {
-                const timeA = a.timestamp ? new Date(a.timestamp).getTime() : 0; // Backend uses 'timestamp'
-                const timeB = b.timestamp ? new Date(b.timestamp).getTime() : 0;
-                return timeA - timeB;
-            });
+        let logbookFlights = [];
+        if (logbookRes.ok) {
+            const lbData = await logbookRes.json();
+            // Get last 5 flights
+            logbookFlights = lbData.flights ? lbData.flights.slice(0, 5) : [];
         }
 
-        // 2. Trigger Image Lookup (Slow) - DO NOT AWAIT YET
-        const imageLookupPromise = fetch(`${API_BASE_URL}/api/aircraft/lookup?type=${encodeURIComponent(acName)}&livery=${encodeURIComponent(livName)}`);
+        let communityAircraftData = null;
+        if (imageRes.ok) communityAircraftData = await imageRes.json();
 
-        // 3. Await Map Data ONLY
-        const [planRes, routeRes] = await mapDataPromise;
+        // --- STEP 2: BATCH ROUTE FETCHING ---
+        // We need routes for:
+        // 1. The ACTIVE flight (must have)
+        // 2. The HISTORY flights (nice to have)
+        const flightIdsToFetch = [flightProps.flightId, ...logbookFlights.map(f => f.id)];
         
-        const planData = planRes.ok ? await planRes.json() : null;
-        const plan = (planData && planData.ok) ? planData.plan : null;
-        const routeData = routeRes.ok ? await routeRes.json() : null;
+        // Remove duplicates
+        const uniqueIds = [...new Set(flightIdsToFetch)];
 
-        // --- Process Route History ---
-        let sortedRoutePoints = [];
-        if (routeData && routeData.ok && Array.isArray(routeData.route) && routeData.route.length > 0) {
-            sortedRoutePoints = routeData.route.sort((a, b) => {
-                const timeA = a.date ? new Date(a.date).getTime() : 0;
-                const timeB = b.date ? new Date(b.date).getTime() : 0;
-                return timeA - timeB;
-            });
-        }
+        // Call the new Batch Endpoint
+        const batchRoutes = await fetchBatchRoutes(sessionId, uniqueIds);
+
+        // --- STEP 3: PLOT HISTORY (The "Last 3-5 Flights") ---
+        // We do this BEFORE the active flight so the active flight draws ON TOP.
+        logbookFlights.forEach(histFlight => {
+            // Skip if this is the currently active flight (we handle that specifically below)
+            if (histFlight.id === flightProps.flightId) return;
+
+            const histTrail = batchRoutes[histFlight.id];
+
+            if (histTrail && histTrail.length > 2) {
+                // Case A: We found a live trail for this history item! (e.g. recent flight in same session)
+                plotSecondaryRoute(histFlight.id, histTrail, '#64748b', 'solid'); // Slate color
+            } else {
+                // Case B: No trail found (Flight is old/offline).
+                // Plot Straight Line from Origin -> Dest
+                plotStraightLineRoute(histFlight.id, histFlight.originAirport, histFlight.destinationAirport);
+            }
+        });
+
+        // --- STEP 4: PLOT ACTIVE FLIGHT (Newest) ---
+        const activeRoute = batchRoutes[flightProps.flightId] || [];
         
-        // Seed the cache
-        liveTrailCache.set(flightProps.flightId, sortedRoutePoints);
-        // Cache data for stats view
+        // Save to cache for live updates
+        liveTrailCache.set(flightProps.flightId, activeRoute);
         cachedFlightDataForStatsView = { flightProps, plan };
-        
-        // --- [MAP] Generate Altitude Colored Route (Immediate Draw) ---
-        // Pass 'plan' to enable gap filling
-        const routeFeatureCollection = generateAltitudeColoredRoute(sortedRoutePoints, flightProps.position, plan);
 
+        // Generate the colorful, altitude-aware line for the active flight
+        const routeFeatureCollection = generateAltitudeColoredRoute(activeRoute, flightProps.position, plan);
+        
+        const flownLayerId = `flown-path-${flightProps.flightId}`;
+        
+        // Add Source
         if (!sectorOpsMap.getSource(flownLayerId)) {
             sectorOpsMap.addSource(flownLayerId, {
                 type: 'geojson',
@@ -8202,15 +8180,14 @@ async function handleAircraftClick(flightProps, sessionId) {
                         'interpolate',
                         ['linear'],
                         ['get', 'avgAltitude'],
-                        0,     '#e6e600', 
+                        0,     '#e6e600', // Yellow (Ground)
                         10000, '#ff9900', 
                         20000, '#ff3300', 
-                        29000, '#00BFFF', 
-                        38000, '#9400D3'  
+                        29000, '#00BFFF', // Cyan
+                        38000, '#9400D3'  // Purple
                     ],
                     'line-width': 4,
-                    'line-opacity': 0.9, 
-                    'line-dasharray': [1, 0],
+                    'line-opacity': 1.0, // Active is fully opaque
                     'line-translate': [0, -2], 
                     'line-translate-anchor': 'viewport'
                 }
@@ -8219,23 +8196,20 @@ async function handleAircraftClick(flightProps, sessionId) {
              sectorOpsMap.getSource(flownLayerId).setData(routeFeatureCollection);
         }
 
-        // Store layer ID for cleanup
-        sectorOpsLiveFlightPathLayers[flightProps.flightId] = {
-            flown: flownLayerId
-        };
-        
-        // --- [MAP] Draw Planned Route (if exists) ---
+        // Register active layer for cleanup
+        sectorOpsLiveFlightPathLayers[flightProps.flightId] = { flown: flownLayerId };
+
+        // Plot Planned Route (Pink/Blue dashed line)
         if (plan) {
             updateFlightPlanLayer(flightProps.flightId, plan, flightProps.position);
         }
 
-        // --- RENDER UI (First Pass - No Image) ---
-        // We render immediately so the user sees data while image loads in background
+        // --- STEP 5: RENDER UI ---
+        
+        // Handle Simple vs Standard Window
         if (mapFilters.useSimpleFlightWindow) {
-            // [WIDTH ADJUSTMENT] 420px
             windowEl.style.width = '420px'; 
             windowEl.style.height = 'calc(100vh - 40px)';
-
             windowEl.innerHTML = `
                 <div style="width: 100%; height: 100%; overflow: hidden; background: transparent; display: flex; flex-direction: column;">
                     <iframe id="simple-flight-window-frame" src="flightinfo.html" 
@@ -8243,19 +8217,16 @@ async function handleAircraftClick(flightProps, sessionId) {
                             scrolling="no"></iframe>
                 </div>
             `;
-            // Iframe handling logic handles the data later
+            // Iframe logic handles the rest via postMessage
         } else {
-            // [RESET STYLE]
             windowEl.style.width = ''; 
             windowEl.style.height = ''; 
-            // Render with NULL community data first (shows defaults)
-            populateAircraftInfoWindow(flightProps, plan, sortedRoutePoints, null);
+            // Render Standard Window
+            populateAircraftInfoWindow(flightProps, plan, activeRoute, communityAircraftData);
         }
 
-        // --- [GEOCODE] Initial Fetch ---
+        // Initialize Intervals/Widgets
         fetchAndDisplayGeocode(flightProps.position.lat, flightProps.position.lon);
-
-        // --- [NAV PANEL] Initial Update ---
         updateNavPanelData(
             flightProps.position.lat,
             flightProps.position.lon,
@@ -8264,69 +8235,25 @@ async function handleAircraftClick(flightProps, sessionId) {
             flightProps.position.wind_dir || 0,
             flightProps.position.wind_spd_kts || 0
         );
-        
-        // --- [INTERVALS] Start Updates ---
+
         const FIVE_MINUTES_MS = 300000; 
         activeGeocodeUpdateInterval = setInterval(() => {
             if (currentAircraftPositionForGeocode) {
-                fetchAndDisplayGeocode(
-                    currentAircraftPositionForGeocode.lat,
-                    currentAircraftPositionForGeocode.lon
-                );
+                fetchAndDisplayGeocode(currentAircraftPositionForGeocode.lat, currentAircraftPositionForGeocode.lon);
             }
         }, FIVE_MINUTES_MS);
         
-        // Initial Weather Fetch
         fetchAndDisplayWeather();
         if (activeWeatherUpdateInterval) clearInterval(activeWeatherUpdateInterval);
-        activeWeatherUpdateInterval = setInterval(() => {
-             fetchAndDisplayWeather();
-        }, FIVE_MINUTES_MS);
+        activeWeatherUpdateInterval = setInterval(fetchAndDisplayWeather, FIVE_MINUTES_MS);
 
         isAircraftWindowLoading = false;
 
-        // --- 4. HANDLE IMAGE LOOKUP (Background) ---
-        // Now we wait for the image lookup. If it succeeds, we update the UI.
-        try {
-            const aircraftLookupRes = await imageLookupPromise;
-            let communityAircraftData = null;
-            if (aircraftLookupRes.ok) {
-                communityAircraftData = await aircraftLookupRes.json();
-            }
-
-            // Update UI with the new image data
-            if (mapFilters.useSimpleFlightWindow) {
-                // Update Iframe
-                const simpleData = formatDataForSimpleWindow(flightProps, plan, sortedRoutePoints, communityAircraftData);
-                const iframe = document.getElementById('simple-flight-window-frame');
-                if (iframe) {
-                    // If loaded, send immediately
-                    if(iframe.contentWindow) {
-                        iframe.contentWindow.postMessage({ type: 'FLIGHT_DATA_UPDATE', payload: simpleData }, '*');
-                    }
-                    // Listener for onload if not ready yet
-                    iframe.onload = () => {
-                        iframe.contentWindow.postMessage({ type: 'FLIGHT_DATA_UPDATE', payload: simpleData }, '*');
-                    };
-                }
-            } else {
-                // Update Standard Window
-                // We re-call populate to refresh the image and stats
-                populateAircraftInfoWindow(flightProps, plan, sortedRoutePoints, communityAircraftData);
-            }
-        } catch (e) {
-            console.warn("Background image lookup failed or timed out", e);
-            // No action needed, UI already shows defaults
-        }
-
     } catch (error) {
-        console.error("Error fetching or plotting aircraft details:", error);
-        windowEl.innerHTML = `<p class="error-text" style="padding: 2rem; color: #ef4444;">Could not retrieve complete flight details. The aircraft may have landed or disconnected.</p>`;
-        
-        isAircraftWindowLoading = false; 
-        currentFlightInWindow = null; 
-        cachedFlightDataForStatsView = { flightProps: null, plan: null };
-        liveTrailCache.delete(flightProps.flightId);
+        console.error("Error handling aircraft click:", error);
+        windowEl.innerHTML = `<p class="error-text" style="padding: 2rem; color: #ef4444;">Error loading flight data.</p>`;
+        isAircraftWindowLoading = false;
+        closeAircraftWindow();
     }
 }
 
@@ -9715,7 +9642,99 @@ async function displayPilotStats(userId, username) {
     }
 }
 
+/**
+ * --- [NEW] Plots a secondary/historical route on the map ---
+ * Used for past flights in the logbook.
+ */
+function plotSecondaryRoute(flightId, coordinates, color = '#64748b', style = 'solid') {
+    if (!sectorOpsMap || !coordinates || coordinates.length < 2) return;
 
+    const sourceId = `history-route-${flightId}`;
+    const layerId = `history-route-layer-${flightId}`;
+
+    // 1. Prepare Data
+    // Ensure coordinates are [lon, lat] format. 
+    // The batch API might return objects {lat, lon} or arrays.
+    const lineCoords = coordinates.map(p => {
+        if (Array.isArray(p)) return p;
+        return [p.longitude || p.lon, p.latitude || p.lat];
+    });
+
+    // 2. Add Source
+    if (!sectorOpsMap.getSource(sourceId)) {
+        sectorOpsMap.addSource(sourceId, {
+            'type': 'geojson',
+            'data': {
+                'type': 'Feature',
+                'geometry': {
+                    'type': 'LineString',
+                    'coordinates': lineCoords
+                }
+            }
+        });
+    }
+
+    // 3. Add Layer (if not exists)
+    if (!sectorOpsMap.getLayer(layerId)) {
+        sectorOpsMap.addLayer({
+            'id': layerId,
+            'type': 'line',
+            'source': sourceId,
+            'paint': {
+                'line-color': color,
+                'line-width': 2,
+                'line-opacity': 0.6,
+                'line-dasharray': style === 'dashed' ? [2, 2] : [1, 0]
+            }
+        }, 'sector-ops-live-flights-layer'); // Draw underneath the active plane icons
+        
+        // Track for cleanup
+        sectorOpsMapRouteLayers.push(layerId); 
+    }
+}
+
+/**
+ * --- [NEW] Plots a straight line (Great Circle) between two airports ---
+ * Fallback for logbook flights that have no live trail data.
+ */
+function plotStraightLineRoute(flightId, depIcao, arrIcao) {
+    if (!depIcao || !arrIcao || !airportsData) return;
+
+    const dep = airportsData[depIcao];
+    const arr = airportsData[arrIcao];
+
+    if (!dep || !arr) return;
+
+    // Generate a simple 2-point line (Mapbox handles the curve projection)
+    const coordinates = [
+        [dep.lon, dep.lat],
+        [arr.lon, arr.lat]
+    ];
+
+    // Use the secondary plotter with a dashed style to indicate "Approximate/History"
+    plotSecondaryRoute(flightId, coordinates, '#475569', 'dashed');
+}
+
+/**
+ * --- [NEW] Cleans up specific history layers ---
+ */
+function clearHistoryMapLayers() {
+    // We reuse the existing sectorOpsMapRouteLayers array for tracking, 
+    // or we can iterate the map style to find layers starting with 'history-'
+    if(!sectorOpsMap) return;
+    
+    const style = sectorOpsMap.getStyle();
+    if(style && style.layers) {
+        style.layers.forEach(layer => {
+            if(layer.id.startsWith('history-route-')) {
+                sectorOpsMap.removeLayer(layer.id);
+                if(sectorOpsMap.getSource(layer.source)) {
+                    sectorOpsMap.removeSource(layer.source);
+                }
+            }
+        });
+    }
+}
 
 function updateAircraftInfoWindow(baseProps, plan, sortedRoutePoints) {
     // --- Helper function to update all elements matching a selector ---
