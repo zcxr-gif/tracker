@@ -1,3 +1,4 @@
+
 const MobileUIHandler = {
     // --- CONFIGURATION ---
     CONFIG: {
@@ -591,26 +592,37 @@ const MobileUIHandler = {
                 z-index: 10; /* Above content */
             }
 
-            /* --- [NEW] Specific styling for SIMPLE MODE handle --- */
+            /* --- [UPDATED] Specific styling for SIMPLE MODE handle (Seamless Overlay) --- */
             .legacy-sheet-handle.simple-mode {
+                position: absolute !important; /* Float over the iframe */
+                top: 0 !important;
+                left: 0 !important;
                 width: 100% !important;
-                height: 50px !important; /* Expanded hit area as requested */
-                min-height: 50px !important;
-                background: #18181b !important; /* Match flightinfo.html background (Zinc-900) */
-                border-bottom: 1px solid rgba(255, 255, 255, 0.05) !important;
-                border-top-left-radius: 16px !important;
-                border-top-right-radius: 16px !important;
+                height: 40px !important; /* Visual height */
+                /* Large invisible touch area downwards for easier grabbing */
+                padding-bottom: 40px !important; 
+                
+                /* Seamless Gradient Background (instead of solid block) */
+                background: linear-gradient(to bottom, rgba(0,0,0,0.7) 0%, transparent 100%) !important;
+                
+                border: none !important;
+                border-radius: 16px 16px 0 0 !important;
+                
                 display: flex !important;
                 justify-content: center !important;
                 flex-shrink: 0 !important;
-                z-index: 2000 !important;
+                
+                z-index: 2000 !important; /* On top of iframe */
+                box-sizing: content-box !important;
+                pointer-events: auto !important; /* Ensure it captures swipes */
             }
+            
             .legacy-sheet-handle.simple-mode::before {
-                top: 50% !important; /* Center vertically */
-                transform: translate(-50%, -50%) !important;
-                width: 60px !important; /* Wider pill for easier grabbing */
-                height: 5px !important; /* Slightly thicker */
-                background: rgba(255, 255, 255, 0.3) !important;
+                top: 8px !important; /* Center the pill near the top edge */
+                width: 60px !important; /* Wider pill */
+                height: 5px !important; /* Thicker pill */
+                background: rgba(255, 255, 255, 0.4) !important;
+                box-shadow: 0 1px 4px rgba(0,0,0,0.5) !important;
             }
 
             /* --- Content Scrolling --- */
@@ -835,6 +847,9 @@ const MobileUIHandler = {
             
             // Insert handle at the top of the window
             sourceWindow.prepend(handleWrapper);
+            
+            // Ensure source window is relative so absolute handle positions correctly
+            sourceWindow.style.position = 'relative'; // Should be redundant due to flex class but good for safety
             
         } else {
             // --- STANDARD MODE LOGIC ---
@@ -1216,7 +1231,7 @@ const MobileUIHandler = {
         const touchCurrentY = e.touches[0].clientY;
         let deltaY = touchCurrentY - this.legacySheetState.touchStartY;
 
-        // Calculate new Y, but don't let it be dragged higher than the top offset
+        // Calculate new Y, but don't let it be dragged higher than the top stop
         const topStop = parseInt(getComputedStyle(document.documentElement)
         .getPropertyValue('--hud-top-window-height')) || 50;
 
@@ -1435,22 +1450,6 @@ const MobileUIHandler = {
         }
     }
 };
-
-/**
- * Initialize the Mobile UI Handler when the DOM is ready.
- */
-document.addEventListener('DOMContentLoaded', () => {
-    MobileUIHandler.init();
-    window.MobileUIHandler = MobileUIHandler; // Make it globally accessible
-});
-
-/**
- * Initialize the Mobile UI Handler when the DOM is ready.
- */
-document.addEventListener('DOMContentLoaded', () => {
-    MobileUIHandler.init();
-    window.MobileUIHandler = MobileUIHandler; // Make it globally accessible
-});
 
 /**
  * Initialize the Mobile UI Handler when the DOM is ready.
