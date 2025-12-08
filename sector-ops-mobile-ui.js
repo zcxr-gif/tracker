@@ -49,12 +49,12 @@ const MobileUIHandler = {
         const burgerMenu = document.getElementById('mobile-sidebar-toggle');
         // Find the map toolbar by finding the parent of one of its buttons
         const mapToolbar = document.getElementById('toolbar-toggle-panel-btn')?.parentElement;
-        const searchBar = document.getElementById('sector-ops-search-container'); // --- [NEW] ---
+        const searchBar = document.getElementById('sector-ops-search-container');
         
         // Revert to stylesheet defaults
         if (burgerMenu) burgerMenu.style.display = ''; 
         if (mapToolbar) mapToolbar.style.display = '';
-        if (searchBar) searchBar.style.display = ''; // --- [NEW] ---
+        if (searchBar) searchBar.style.display = '';
         
         // --- [FIX] Remove 'mobile-ui-active' class from the map container ---
         const mapContainer = document.getElementById('sector-ops-map-fullscreen');
@@ -574,7 +574,7 @@ const MobileUIHandler = {
                 cursor: grab;
                 touch-action: none;
                 user-select: none;
-                /* This handle is a wrapper, so no visual styles */
+                /* This handle is a wrapper, so no visual styles by default */
             }
             /* Add the pill visual */
             .legacy-sheet-handle::before {
@@ -589,6 +589,21 @@ const MobileUIHandler = {
                 border-radius: 2px; 
                 opacity: 0.5;
                 z-index: 10; /* Above content */
+            }
+
+            /* --- [NEW] Specific styling for SIMPLE MODE handle --- */
+            .legacy-sheet-handle.simple-mode {
+                width: 100%;
+                height: 30px; /* Specific height for the bar */
+                background: var(--hud-bg); /* Dark background */
+                border-bottom: 1px solid var(--border-glass);
+                border-top-left-radius: 16px;
+                border-top-right-radius: 16px;
+                display: flex;
+                justify-content: center;
+            }
+            .legacy-sheet-handle.simple-mode::before {
+                top: 12px; /* Center vertically in the 30px bar */
             }
 
             /* --- Content Scrolling --- */
@@ -640,11 +655,11 @@ const MobileUIHandler = {
             // --- Hide map controls ---
             const burgerMenu = document.getElementById('mobile-sidebar-toggle');
             const mapToolbar = document.getElementById('toolbar-toggle-panel-btn')?.parentElement;
-            const searchBar = document.getElementById('sector-ops-search-container'); // --- [NEW] ---
+            const searchBar = document.getElementById('sector-ops-search-container');
             
             if (burgerMenu) burgerMenu.style.display = 'none';
             if (mapToolbar) mapToolbar.style.display = 'none';
-            if (searchBar) searchBar.style.display = 'none'; // --- [NEW] ---
+            if (searchBar) searchBar.style.display = 'none';
 
             // --- [NEW] The Router Logic ---
             const userMode = localStorage.getItem('mobileDisplayMode') || this.CONFIG.defaultMode;
@@ -731,11 +746,8 @@ const MobileUIHandler = {
             <div class="route-summary-wrapper-mobile"></div>
             <div id="expanded-tabs-slot"></div>
             <div class="drawer-content"></div>
-        `; // <-- MODIFIED: Added expanded-tabs-slot
+        `;
         viewContainer.appendChild(this.expandedIslandEl);
-
-        // Animate in [REMOVED]
-        // We now wait for the observer to populate content *before* animating.
     },
 
     /**
@@ -750,8 +762,15 @@ const MobileUIHandler = {
             const mainContent = windowElement.querySelector('.unified-display-main-content');
             const attitudeGroup = mainContent?.querySelector('#attitude_group');
             
-            // Check if PFD is built (a good sign content is ready)
-            if (mainContent && attitudeGroup && attitudeGroup.dataset.initialized === 'true') {
+            // --- [NEW CHECK] For Simple Window (Iframe) ---
+            const simpleIframe = windowElement.querySelector('#simple-flight-window-frame');
+
+            // Condition 1: Standard PFD is built
+            const isStandardReady = mainContent && attitudeGroup && attitudeGroup.dataset.initialized === 'true';
+            // Condition 2: Simple Iframe is present
+            const isSimpleReady = !!simpleIframe;
+            
+            if (isStandardReady || isSimpleReady) {
                 
                 // --- [NEW] Router ---
                 if (this.activeMode === 'legacy') {
@@ -760,7 +779,6 @@ const MobileUIHandler = {
                     
                     // 2. NOW, animate it in
                     if (this.activeWindow) {
-                        // Use a minimal timeout to ensure styles are applied, then animate
                         setTimeout(() => {
                             this.activeWindow.classList.add('visible', 'peek');
                             this.legacySheetState.currentState = 'peek';
@@ -772,7 +790,6 @@ const MobileUIHandler = {
                     this.populateSplitView(windowElement);
                     
                     // 2. NOW, animate them in
-                    // Use a minimal timeout to ensure styles are applied, then animate
                     setTimeout(() => {
                         if (this.topWindowEl) this.topWindowEl.classList.add('visible');
                         if (this.miniIslandEl) this.miniIslandEl.classList.add('island-active');
@@ -793,27 +810,39 @@ const MobileUIHandler = {
     },
 
     /**
-     * [NEW] Wires up interactions for the "Legacy Sheet" mode.
+     * [MODIFIED] Wires up interactions for the "Legacy Sheet" mode.
+     * Now handles both STANDARD (wrap content) and SIMPLE (prepend handle) modes.
      */
     populateLegacySheet(sourceWindow) {
-        // The content is already *in* the window.
-        // We just need to add the drag handle.
-        const overviewPanel = sourceWindow.querySelector('.aircraft-overview-panel');
-        const routeSummaryBar = sourceWindow.querySelector('.route-summary-overlay');
-
-        if (!overviewPanel || !routeSummaryBar) {
-            console.error("Legacy Sheet UI: Could not find handle elements.");
-            return;
-        }
-
-        // Create a wrapper to act as the handle
+        // --- 1. Check for Simple Mode (Iframe) ---
+        const simpleIframe = sourceWindow.querySelector('#simple-flight-window-frame');
+        
         const handleWrapper = document.createElement('div');
         handleWrapper.className = 'legacy-sheet-handle';
-        
-        // Wrap the overview panel and route bar with the handle
-        sourceWindow.prepend(handleWrapper);
-        handleWrapper.appendChild(overviewPanel);
-        handleWrapper.appendChild(routeSummaryBar);
+
+        if (simpleIframe) {
+            // --- SIMPLE MODE LOGIC ---
+            // The iframe occupies the whole window.
+            // We create a distinct "pill bar" handle and put it at the very top.
+            handleWrapper.classList.add('simple-mode'); 
+            
+            // Insert handle at the top of the window
+            sourceWindow.prepend(handleWrapper);
+            
+        } else {
+            // --- STANDARD MODE LOGIC ---
+            const overviewPanel = sourceWindow.querySelector('.aircraft-overview-panel');
+            const routeSummaryBar = sourceWindow.querySelector('.route-summary-overlay');
+
+            if (overviewPanel && routeSummaryBar) {
+                // Wrap the existing header elements with the handle
+                sourceWindow.prepend(handleWrapper);
+                handleWrapper.appendChild(overviewPanel);
+                handleWrapper.appendChild(routeSummaryBar);
+            } else {
+                console.warn("Legacy Sheet UI: Could not find header elements for standard mode.");
+            }
+        }
         
         // Wire up interactions
         this.wireUpLegacySheetInteractions(sourceWindow, handleWrapper);
@@ -822,8 +851,6 @@ const MobileUIHandler = {
     /**
      * [MODIFIED] Moves content from the original window into the new island components.
      * Now clones the tab container into the expanded island.
-     * * [FIXED] Ensures Pilot Report pane is only in the Expanded clone, 
-     * and uses the original content for the Expanded view.
      */
     populateSplitView(sourceWindow) {
         if (!this.topWindowEl || !this.miniIslandEl || !this.peekIslandEl || !this.expandedIslandEl) return;
@@ -863,13 +890,13 @@ const MobileUIHandler = {
         
         // 3. Clone and Move Main Content & Tabs
         if (mainFlightContent && tabContainer) {
-            // A. Move the original, full content to the Expanded Island (PFD + VSD + BOTH Tabs)
+            // A. Move the original, full content to the Expanded Island
             expandedContentContainer.appendChild(mainFlightContent);
             
             // B. Clone and move the original tab bar to the dedicated slot
             expandedTabsSlot.appendChild(tabContainer);
             
-            // C. Create a streamlined copy for the Peek Island (Data Bar + Location Panel ONLY)
+            // C. Create a streamlined copy for the Peek Island
             const peekContentClone = document.createElement('div');
             peekContentClone.className = 'unified-display-main-content'; // Match container class
 
@@ -900,7 +927,6 @@ const MobileUIHandler = {
         handleElement.addEventListener('touchstart', this.handleLegacyTouchStart.bind(this), { passive: false });
         
         // [MODIFIED] Use document-level listeners for move and end
-        // Removed the 'if' check and use pre-bound handlers
         document.addEventListener('touchmove', this.boundLegacyTouchMove, { passive: false });
         document.addEventListener('touchend', this.boundLegacyTouchEnd);
         document.addEventListener('touchcancel', this.boundLegacyTouchEnd);
@@ -916,20 +942,18 @@ const MobileUIHandler = {
             });
         }
         
-        // --- [NEW] Stop drag from starting on button tap ---
+        // --- [NEW] Stop drag from starting on button tap (in Standard Mode) ---
         const buttonContainer = sheetElement.querySelector('.overview-actions');
         if (buttonContainer) {
             buttonContainer.addEventListener('touchstart', (e) => {
                 e.stopPropagation();
             }, { passive: true });
         }
-        // --- End [NEW] ---
         
-        // Find desktop buttons (they are still in this window)
+        // Find desktop buttons (Standard Mode only usually)
         const closeBtn = sheetElement.querySelector('.aircraft-window-close-btn');
         const hideBtn = sheetElement.querySelector('.aircraft-window-hide-btn');
         
-        // ...but we override their behavior.
         if(closeBtn) {
             closeBtn.addEventListener('click', (e) => {
                 e.preventDefault();
@@ -941,9 +965,8 @@ const MobileUIHandler = {
             hideBtn.addEventListener('click', (e) => {
                 e.preventDefault();
                 e.stopPropagation();
-                this.closeActiveWindow(); // Hiding and closing are the same on mobile
+                this.closeActiveWindow(); 
                 
-                // Re-show recall button
                 const recallBtn = document.getElementById('aircraft-recall-btn');
                 if (recallBtn) {
                     recallBtn.classList.add('visible', 'palpitate');
@@ -954,8 +977,7 @@ const MobileUIHandler = {
     },
 
     /**
-     * [MODIFIED] Wires up all interactions to the new unified handle
-     * for the "HUD" mode. Adds dedicated tab switching logic.
+     * [MODIFIED] Wires up interactions for HUD mode.
      */
     wireUpHudInteractions() {
         if (!this.miniIslandEl || !this.peekIslandEl || !this.expandedIslandEl) return;
@@ -964,7 +986,7 @@ const MobileUIHandler = {
         const miniHandle = this.miniIslandEl.querySelector('.route-summary-wrapper-mobile');
         const peekHandle = this.peekIslandEl.querySelector('.route-summary-wrapper-mobile');
         const expandedHandle = this.expandedIslandEl.querySelector('.route-summary-wrapper-mobile');
-        const tabsInSlot = this.expandedIslandEl.querySelector('.ac-info-window-tabs'); // Get the tab container
+        const tabsInSlot = this.expandedIslandEl.querySelector('.ac-info-window-tabs'); 
 
         if (!miniHandle || !peekHandle || !expandedHandle || !tabsInSlot) return;
 
@@ -986,14 +1008,14 @@ const MobileUIHandler = {
             this.overlayEl.addEventListener('click', () => this.setDrawerState(0));
         }
 
-        // --- Swipe Interactions (unchanged) ---
+        // --- Swipe Interactions ---
         miniHandle.addEventListener('touchstart', this.handleHudTouchStart.bind(this), { passive: false });
         peekHandle.addEventListener('touchstart', this.handleHudTouchStart.bind(this), { passive: false });
         expandedHandle.addEventListener('touchstart', this.handleHudTouchStart.bind(this), { passive: false });
         
         document.addEventListener('touchend', this.boundHudTouchEnd);
 
-        // --- Re-wire desktop buttons using event delegation (unchanged) ---
+        // --- Re-wire desktop buttons ---
         this.topWindowEl.addEventListener('click', (e) => {
             const closeBtn = e.target.closest('.aircraft-window-close-btn');
             const hideBtn = e.target.closest('.aircraft-window-hide-btn');
@@ -1015,20 +1037,13 @@ const MobileUIHandler = {
             }
         });
         
-        const bottomIslandButtonHandler = async (e) => {
-            // (This logic is unchanged)
-        };
-        
-        this.peekIslandEl.addEventListener('click', bottomIslandButtonHandler);
-        this.expandedIslandEl.addEventListener('click', bottomIslandButtonHandler);
-
-        // --- [CRITICAL FIX: Dedicated Tab Switching Logic for HUD Expanded Island] ---
+        // --- Dedicated Tab Switching Logic ---
         tabsInSlot.addEventListener('click', async (e) => {
             const tabBtn = e.target.closest('.ac-info-tab-btn');
 
             if (tabBtn) {
                 e.preventDefault();
-                e.stopPropagation(); // Stop here so drawer logic doesn't interfere
+                e.stopPropagation();
                 
                 const tabId = tabBtn.dataset.tab;
                 if (!tabId || tabBtn.classList.contains('active')) {
@@ -1044,48 +1059,35 @@ const MobileUIHandler = {
 
                 // Activate new tab/pane
                 tabBtn.classList.add('active');
-                
-                // The content panes are inside the .drawer-content element
                 const newPane = islandContent.querySelector(`#${tabId}`);
                 if (newPane) {
                     newPane.classList.add('active');
                 }
                 
-                // If switching to pilot report, trigger the data fetch/render
                 if (tabId === 'ac-tab-pilot-report') {
                     const statsDisplay = newPane?.querySelector('#pilot-stats-display');
-                    
-                    // ✅ FIXED: Only check if the element exists, removing the restrictive innerHTML.trim() check.
                     if (statsDisplay) { 
                         const userId = tabBtn.dataset.userId;
                         const username = tabBtn.dataset.username;
                         
-                        // Check if the global function exists on the window object
                         if (userId && window.displayPilotStats) { 
-                            // The displayPilotStats function handles setting the loading spinner 
-                            // and replacing the content, so it's safe to call repeatedly.
                             await window.displayPilotStats(userId, username); 
                             
-                            // After loading, re-calculate the maxHeight for the accordion content
                             const accordionHeaders = statsDisplay.querySelectorAll('.accordion-header');
                             accordionHeaders.forEach(header => {
                                 const item = header.closest('.accordion-item');
-                                // Only expand if the item should be active (initial state of accordion)
                                 if (item.classList.contains('active')) {
                                     const content = header.nextElementSibling;
-                                    // Set maxHeight to scrollHeight to fully expand the accordion content
                                     content.style.maxHeight = content.scrollHeight + 'px';
                                 }
                             });
                         } else {
-                            // Display a fallback message if displayPilotStats is not found or userId is missing
                             statsDisplay.innerHTML = `<p class="error-text" style="padding: 1rem;">Could not load pilot data. Missing userId or helper function.</p>`;
                         }
                     }
                 }
             }
         });
-        // --- [END CRITICAL FIX] ---
     },
     
     /**
@@ -1230,14 +1232,11 @@ const MobileUIHandler = {
         
         const deltaY = this.legacySheetState.currentSheetY - this.legacySheetState.startSheetY;
 
-        const peekY = window.innerHeight - this.CONFIG.legacyPeekHeight;
-        const topStop = parseInt(getComputedStyle(document.documentElement).getPropertyValue('--legacy-top-offset') || "15", 10);
-        
         // Snap logic
         if (this.legacySheetState.currentState === 'peek') {
             if (deltaY < -100) { // Swiped up
                 this.setLegacySheetState('expanded');
-            } else if (deltaY > 100) { // [MODIFIED] Swiped down to close
+            } else if (deltaY > 100) { // Swiped down to close
                 this.closeActiveWindow();
             } else { // Snap back
                 this.setLegacySheetState('peek');
@@ -1289,7 +1288,7 @@ const MobileUIHandler = {
         const overlayToRemove = this.overlayEl;
         const sheetToClose = this.activeWindow;
         
-        // [FIX] Remove document listeners for this mode
+        // Remove document listeners
         document.removeEventListener('touchmove', this.boundLegacyTouchMove);
         document.removeEventListener('touchend', this.boundLegacyTouchEnd);
         document.removeEventListener('touchcancel', this.boundLegacyTouchEnd);
@@ -1306,14 +1305,21 @@ const MobileUIHandler = {
             if (sheetToClose) {
                 sheetToClose.style.display = 'none';
                 sheetToClose.classList.remove('mobile-legacy-sheet', 'visible', 'peek');
-                // Un-wrap the handle
+                
+                // [MODIFIED] Handle cleanup: un-wrap OR remove custom handle
                 const handle = sheetToClose.querySelector('.legacy-sheet-handle');
                 if (handle) {
-                    const overview = sheetToClose.querySelector('.aircraft-overview-panel');
-                    const routeBar = sheetToClose.querySelector('.route-summary-overlay');
-                    if (overview) sheetToClose.prepend(overview);
-                    if (routeBar) sheetToClose.insertBefore(routeBar, overview.nextSibling);
-                    handle.remove();
+                    if (handle.classList.contains('simple-mode')) {
+                        // Simple Mode: Just remove the bar
+                        handle.remove();
+                    } else {
+                        // Standard Mode: Un-wrap content
+                        const overview = sheetToClose.querySelector('.aircraft-overview-panel');
+                        const routeBar = sheetToClose.querySelector('.route-summary-overlay');
+                        if (overview) sheetToClose.prepend(overview);
+                        if (routeBar) sheetToClose.insertBefore(routeBar, overview.nextSibling);
+                        handle.remove();
+                    }
                 }
             }
             this.restoreMapControls();
@@ -1327,14 +1333,19 @@ const MobileUIHandler = {
                 if (sheetToClose) {
                     sheetToClose.style.display = 'none';
                     sheetToClose.classList.remove('mobile-legacy-sheet', 'peek');
-                    // Un-wrap the handle
+                    
+                    // [MODIFIED] Handle cleanup
                     const handle = sheetToClose.querySelector('.legacy-sheet-handle');
                     if (handle) {
-                        const overview = sheetToClose.querySelector('.aircraft-overview-panel');
-                        const routeBar = sheetToClose.querySelector('.route-summary-overlay');
-                        if (overview) sheetToClose.prepend(overview);
-                        if (routeBar) sheetToClose.insertBefore(routeBar, overview.nextSibling);
-                        handle.remove();
+                        if (handle.classList.contains('simple-mode')) {
+                            handle.remove();
+                        } else {
+                            const overview = sheetToClose.querySelector('.aircraft-overview-panel');
+                            const routeBar = sheetToClose.querySelector('.route-summary-overlay');
+                            if (overview) sheetToClose.prepend(overview);
+                            if (routeBar) sheetToClose.insertBefore(routeBar, overview.nextSibling);
+                            handle.remove();
+                        }
                     }
                 }
                 
@@ -1352,7 +1363,6 @@ const MobileUIHandler = {
      * [NEW] Teardown logic for HUD mode.
      */
     teardownHudView(force, duration) {
-        // [CRITICAL] Move content back and destroy clone
         if (this.activeWindow && this.topWindowEl && this.miniIslandEl && this.peekIslandEl && this.expandedIslandEl) {
             const topOverviewPanel = this.topWindowEl.querySelector('.aircraft-overview-panel');
             const mainFlightContent = this.expandedIslandEl.querySelector('.unified-display-main-content');
@@ -1365,7 +1375,6 @@ const MobileUIHandler = {
             clonedFlightContent?.remove();
         }
 
-        // [FIX] Remove document listener for this mode
         document.removeEventListener('touchend', this.boundHudTouchEnd);
 
         const overlayToRemove = this.overlayEl;
@@ -1419,6 +1428,14 @@ const MobileUIHandler = {
         }
     }
 };
+
+/**
+ * Initialize the Mobile UI Handler when the DOM is ready.
+ */
+document.addEventListener('DOMContentLoaded', () => {
+    MobileUIHandler.init();
+    window.MobileUIHandler = MobileUIHandler; // Make it globally accessible
+});
 
 /**
  * Initialize the Mobile UI Handler when the DOM is ready.
