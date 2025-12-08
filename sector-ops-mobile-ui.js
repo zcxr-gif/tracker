@@ -593,17 +593,24 @@ const MobileUIHandler = {
 
             /* --- [NEW] Specific styling for SIMPLE MODE handle --- */
             .legacy-sheet-handle.simple-mode {
-                width: 100%;
-                height: 30px; /* Specific height for the bar */
-                background: var(--hud-bg); /* Dark background */
-                border-bottom: 1px solid var(--border-glass);
-                border-top-left-radius: 16px;
-                border-top-right-radius: 16px;
-                display: flex;
-                justify-content: center;
+                width: 100% !important;
+                height: 50px !important; /* Expanded hit area as requested */
+                min-height: 50px !important;
+                background: #18181b !important; /* Match flightinfo.html background (Zinc-900) */
+                border-bottom: 1px solid rgba(255, 255, 255, 0.05) !important;
+                border-top-left-radius: 16px !important;
+                border-top-right-radius: 16px !important;
+                display: flex !important;
+                justify-content: center !important;
+                flex-shrink: 0 !important;
+                z-index: 2000 !important;
             }
             .legacy-sheet-handle.simple-mode::before {
-                top: 12px; /* Center vertically in the 30px bar */
+                top: 50% !important; /* Center vertically */
+                transform: translate(-50%, -50%) !important;
+                width: 60px !important; /* Wider pill for easier grabbing */
+                height: 5px !important; /* Slightly thicker */
+                background: rgba(255, 255, 255, 0.3) !important;
             }
 
             /* --- Content Scrolling --- */
@@ -1428,6 +1435,14 @@ const MobileUIHandler = {
         }
     }
 };
+
+/**
+ * Initialize the Mobile UI Handler when the DOM is ready.
+ */
+document.addEventListener('DOMContentLoaded', () => {
+    MobileUIHandler.init();
+    window.MobileUIHandler = MobileUIHandler; // Make it globally accessible
+});
 
 /**
  * Initialize the Mobile UI Handler when the DOM is ready.
