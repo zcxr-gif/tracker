@@ -575,6 +575,37 @@ function injectCustomStyles() {
             color: var(--text-primary);
         }
 
+        /* --- [FIX] FORCE TOOLBAR & SEARCH TO ADOPT THEME --- */
+        .search-bar-container {
+            background: var(--bg-glass) !important;
+            border: 1px solid var(--border-glass) !important;
+            backdrop-filter: blur(20px) !important;
+            -webkit-backdrop-filter: blur(20px) !important;
+            box-shadow: 0 4px 20px rgba(0,0,0,0.4) !important;
+            color: var(--text-primary) !important;
+        }
+
+        .search-bar-container input {
+            color: var(--text-primary) !important;
+        }
+        
+        .search-bar-container input::placeholder {
+            color: var(--text-secondary) !important;
+        }
+
+        .toolbar-btn {
+            background: var(--bg-glass) !important;
+            border: 1px solid var(--border-glass) !important;
+            color: var(--text-secondary) !important;
+            backdrop-filter: blur(10px);
+        }
+
+        .toolbar-btn:hover, .toolbar-btn.active {
+            background: var(--bg-panel) !important;
+            color: var(--text-primary) !important;
+            border-color: var(--text-secondary) !important;
+        }
+
         /* --- VIRTUAL COCKPIT SEAT SENSOR --- */
         .seat-sensor-wrapper {
             background: var(--bg-glass); 
