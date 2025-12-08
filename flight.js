@@ -7712,21 +7712,22 @@ function generateSmoothPath(points) {
 }
 
 /**
- * --- [FIXED v5] Smart Route Generator ---
+ * --- [OPTIMIZED v6] Smart Route Generator ---
  * Fixes:
  * 1. Intelligent Plan Backfill (Simulated History).
  * 2. Gap Filling.
  * 3. Date Line Safety.
- * 4. 3D Great Circle Densification.
- * 5. [NEW] Disables Spline Smoothing for sparse/simulated paths to prevent "bowing".
+ * 4. 3D Great Circle Densification (Optimized for performance).
+ * 5. Disables Spline Smoothing for sparse/simulated paths.
  */
 function generateAltitudeColoredRoute(sortedPoints, currentPosition, flightPlan = null) {
     const features = [];
     const GAP_THRESHOLD_KM = 20; 
     const MIN_DIST_FROM_NOSE_KM = 0.2; 
     
-    // Maximum segment length for 3D rendering. 
-    const MAX_RENDER_SEGMENT_KM = 50; 
+    // [OPTIMIZATION] Increased from 50 to 250. 
+    // 50km is too granular for visual lines and causes lag on long hauls.
+    const MAX_RENDER_SEGMENT_KM = 250; 
 
     // --- 1. PREPARE FLIGHT PLAN WAYPOINTS ---
     let flatPlan = [];
@@ -7883,8 +7884,6 @@ function generateAltitudeColoredRoute(sortedPoints, currentPosition, flightPlan 
 
     // --- 8. SMOOTHING (WITH SAFETY CHECK) ---
     // [FIX] Calculate average segment distance.
-    // If points are far apart (e.g. > 20km), it means this is a simulated plan (not live breadcrumbs).
-    // Applying spline smoothing to points 500km apart creates massive distortions (the "bowing" issue).
     let totalPathDist = 0;
     for(let i=0; i<finalPoints.length-1; i++) {
         totalPathDist += getDistanceKm(
@@ -8091,25 +8090,24 @@ async function handleAircraftClick(flightProps, sessionId) {
         const acName = flightProps.aircraft?.aircraftName || '';
         const livName = flightProps.aircraft?.liveryName || '';
 
-        // --- FETCH DATA (Parallel: Plan, Route, AND Aircraft Details) ---
-        const [planRes, routeRes, aircraftLookupRes] = await Promise.all([
+        // --- FETCH DATA SPLIT: Prioritize Map Data over Image Lookup ---
+        
+        // 1. Trigger Map Data fetches (Fast)
+        const mapDataPromise = Promise.all([
             fetch(`${LIVE_FLIGHTS_API_URL}/${sessionId}/${flightProps.flightId}/plan`),
-            fetch(`${LIVE_FLIGHTS_API_URL}/${sessionId}/${flightProps.flightId}/route`),
-            fetch(`${API_BASE_URL}/api/aircraft/lookup?type=${encodeURIComponent(acName)}&livery=${encodeURIComponent(livName)}`)
+            fetch(`${LIVE_FLIGHTS_API_URL}/${sessionId}/${flightProps.flightId}/route`)
         ]);
+
+        // 2. Trigger Image Lookup (Slow) - DO NOT AWAIT YET
+        const imageLookupPromise = fetch(`${API_BASE_URL}/api/aircraft/lookup?type=${encodeURIComponent(acName)}&livery=${encodeURIComponent(livName)}`);
+
+        // 3. Await Map Data ONLY
+        const [planRes, routeRes] = await mapDataPromise;
         
         const planData = planRes.ok ? await planRes.json() : null;
         const plan = (planData && planData.ok) ? planData.plan : null;
         const routeData = routeRes.ok ? await routeRes.json() : null;
 
-        // Process Aircraft Lookup Result
-        let communityAircraftData = null;
-        if (aircraftLookupRes.ok) {
-            communityAircraftData = await aircraftLookupRes.json();
-        } else {
-            console.warn(`Aircraft lookup failed or no match found for ${acName} / ${livName}`);
-        }
-        
         // --- Process Route History ---
         let sortedRoutePoints = [];
         if (routeData && routeData.ok && Array.isArray(routeData.route) && routeData.route.length > 0) {
@@ -8125,70 +8123,7 @@ async function handleAircraftClick(flightProps, sessionId) {
         // Cache data for stats view
         cachedFlightDataForStatsView = { flightProps, plan };
         
-        // --- [MODIFIED] Choose View Mode ---
-        if (mapFilters.useSimpleFlightWindow) {
-            // A. SIMPLE VIEW (IFRAME)
-            
-            // [WIDTH ADJUSTMENT] 420px
-            windowEl.style.width = '420px'; 
-            
-            // [HEIGHT ADJUSTMENT] Full height minus top margin (20px) + bottom margin (20px)
-            windowEl.style.height = 'calc(100vh - 40px)';
-
-            windowEl.innerHTML = `
-                <div style="width: 100%; height: 100%; overflow: hidden; background: transparent; display: flex; flex-direction: column;">
-                    <iframe id="simple-flight-window-frame" src="flightinfo.html" 
-                            style="width:100%; flex-grow: 1; border:none; display: block;" 
-                            scrolling="no"></iframe>
-                </div>
-            `;
-            
-            // Format initial data
-            const simpleData = formatDataForSimpleWindow(flightProps, plan, sortedRoutePoints, communityAircraftData);
-            
-            // Send data once Iframe loads
-            const iframe = document.getElementById('simple-flight-window-frame');
-            iframe.onload = () => {
-                iframe.contentWindow.postMessage({
-                    type: 'FLIGHT_DATA_UPDATE',
-                    payload: simpleData
-                }, '*');
-            };
-            
-            // Also try sending immediately in case it's cached/fast
-            setTimeout(() => {
-                if(iframe && iframe.contentWindow) {
-                    iframe.contentWindow.postMessage({
-                        type: 'FLIGHT_DATA_UPDATE',
-                        payload: simpleData
-                    }, '*');
-                }
-            }, 500);
-
-        } else {
-            // B. STANDARD VIEW (Your existing function)
-            
-            // [RESET STYLE] Remove inline width/height so CSS defaults take over
-            windowEl.style.width = ''; 
-            windowEl.style.height = ''; 
-
-            populateAircraftInfoWindow(flightProps, plan, sortedRoutePoints, communityAircraftData);
-        }
-        
-        // --- [GEOCODE] Initial Fetch ---
-        fetchAndDisplayGeocode(flightProps.position.lat, flightProps.position.lon);
-
-        // --- [NAV PANEL] Initial Update ---
-        updateNavPanelData(
-            flightProps.position.lat,
-            flightProps.position.lon,
-            flightProps.position.heading_deg,
-            flightProps.position.oat_c || 15,
-            flightProps.position.wind_dir || 0,
-            flightProps.position.wind_spd_kts || 0
-        );
-
-        // --- [MAP] Generate Altitude Colored Route (WITH SIMULATION) ---
+        // --- [MAP] Generate Altitude Colored Route (Immediate Draw) ---
         // Pass 'plan' to enable gap filling
         const routeFeatureCollection = generateAltitudeColoredRoute(sortedRoutePoints, flightProps.position, plan);
 
@@ -8232,6 +8167,42 @@ async function handleAircraftClick(flightProps, sessionId) {
         if (plan) {
             updateFlightPlanLayer(flightProps.flightId, plan, flightProps.position);
         }
+
+        // --- RENDER UI (First Pass - No Image) ---
+        // We render immediately so the user sees data while image loads in background
+        if (mapFilters.useSimpleFlightWindow) {
+            // [WIDTH ADJUSTMENT] 420px
+            windowEl.style.width = '420px'; 
+            windowEl.style.height = 'calc(100vh - 40px)';
+
+            windowEl.innerHTML = `
+                <div style="width: 100%; height: 100%; overflow: hidden; background: transparent; display: flex; flex-direction: column;">
+                    <iframe id="simple-flight-window-frame" src="flightinfo.html" 
+                            style="width:100%; flex-grow: 1; border:none; display: block;" 
+                            scrolling="no"></iframe>
+                </div>
+            `;
+            // Iframe handling logic handles the data later
+        } else {
+            // [RESET STYLE]
+            windowEl.style.width = ''; 
+            windowEl.style.height = ''; 
+            // Render with NULL community data first (shows defaults)
+            populateAircraftInfoWindow(flightProps, plan, sortedRoutePoints, null);
+        }
+
+        // --- [GEOCODE] Initial Fetch ---
+        fetchAndDisplayGeocode(flightProps.position.lat, flightProps.position.lon);
+
+        // --- [NAV PANEL] Initial Update ---
+        updateNavPanelData(
+            flightProps.position.lat,
+            flightProps.position.lon,
+            flightProps.position.heading_deg,
+            flightProps.position.oat_c || 15,
+            flightProps.position.wind_dir || 0,
+            flightProps.position.wind_spd_kts || 0
+        );
         
         // --- [INTERVALS] Start Updates ---
         const FIVE_MINUTES_MS = 300000; 
@@ -8252,6 +8223,40 @@ async function handleAircraftClick(flightProps, sessionId) {
         }, FIVE_MINUTES_MS);
 
         isAircraftWindowLoading = false;
+
+        // --- 4. HANDLE IMAGE LOOKUP (Background) ---
+        // Now we wait for the image lookup. If it succeeds, we update the UI.
+        try {
+            const aircraftLookupRes = await imageLookupPromise;
+            let communityAircraftData = null;
+            if (aircraftLookupRes.ok) {
+                communityAircraftData = await aircraftLookupRes.json();
+            }
+
+            // Update UI with the new image data
+            if (mapFilters.useSimpleFlightWindow) {
+                // Update Iframe
+                const simpleData = formatDataForSimpleWindow(flightProps, plan, sortedRoutePoints, communityAircraftData);
+                const iframe = document.getElementById('simple-flight-window-frame');
+                if (iframe) {
+                    // If loaded, send immediately
+                    if(iframe.contentWindow) {
+                        iframe.contentWindow.postMessage({ type: 'FLIGHT_DATA_UPDATE', payload: simpleData }, '*');
+                    }
+                    // Listener for onload if not ready yet
+                    iframe.onload = () => {
+                        iframe.contentWindow.postMessage({ type: 'FLIGHT_DATA_UPDATE', payload: simpleData }, '*');
+                    };
+                }
+            } else {
+                // Update Standard Window
+                // We re-call populate to refresh the image and stats
+                populateAircraftInfoWindow(flightProps, plan, sortedRoutePoints, communityAircraftData);
+            }
+        } catch (e) {
+            console.warn("Background image lookup failed or timed out", e);
+            // No action needed, UI already shows defaults
+        }
 
     } catch (error) {
         console.error("Error fetching or plotting aircraft details:", error);
