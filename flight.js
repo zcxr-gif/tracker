@@ -7541,13 +7541,10 @@ function updateFlightPlanLayer(flightId, plan, currentPosition) {
         const airport = airportsData[icao];
         if (!airport) return;
 
-        // --- [REMOVED] Title Element Logic ---
-        // const titleEl = document.getElementById('airport-window-title'); <-- Removed
-        // titleEl.innerHTML = ...; <-- Removed
-        
         const contentEl = document.getElementById('airport-window-content');
         contentEl.innerHTML = `<div class="spinner-small" style="margin: 2rem auto;"></div>`; // Loading state
         
+        // --- MOVED UP: Trigger Mobile UI immediately to show the sheet ---
         if (window.MobileUIHandler && window.MobileUIHandler.isMobile()) {
             window.MobileUIHandler.openWindow(airportInfoWindow);
         } else {
@@ -7570,18 +7567,14 @@ function updateFlightPlanLayer(flightId, plan, currentPosition) {
                     const btn = e.target.closest('.apt-tab-btn');
                     if (!btn) return;
 
-                    // 1. Remove active class from all buttons
                     const allBtns = tabContainer.querySelectorAll('.apt-tab-btn');
                     allBtns.forEach(b => b.classList.remove('active'));
 
-                    // 2. Add active class to clicked button
                     btn.classList.add('active');
 
-                    // 3. Hide all tab content
                     const allContent = contentEl.querySelectorAll('.apt-tab-content');
                     allContent.forEach(content => content.classList.remove('active'));
 
-                    // 4. Show target content
                     const targetId = btn.dataset.target;
                     const targetContent = contentEl.querySelector(`#${targetId}`);
                     if (targetContent) {
@@ -7591,6 +7584,10 @@ function updateFlightPlanLayer(flightId, plan, currentPosition) {
             }
         } else {
              airportInfoWindow.classList.remove('visible');
+             // Also close mobile window if fetch failed
+             if (window.MobileUIHandler && window.MobileUIHandler.isMobile()) {
+                 window.MobileUIHandler.closeActiveWindow();
+             }
              currentAirportInWindow = null;
         }
     }
