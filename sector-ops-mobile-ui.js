@@ -2,16 +2,16 @@ const MobileUIHandler = {
     // --- CONFIGURATION ---
     CONFIG: {
         breakpoint: 992, // The max-width in pixels to trigger mobile view
-        defaultMode: 'legacy', // Default is 'legacy' sheet
+        defaultMode: 'legacy', // [UPDATED] Default is now 'legacy' sheet instead of HUD
         legacyPeekHeight: 280, // Height of the "peek" state for legacy sheet
     },
 
     // --- STATE ---
     isMobile: () => window.innerWidth <= MobileUIHandler.CONFIG.breakpoint,
     activeWindow: null, // The *original* hidden info window
-    activeMode: 'legacy', 
-    topWindowEl: null, 
-    overlayEl: null, 
+    activeMode: 'legacy', // [UPDATED] Defaults to legacy
+    topWindowEl: null, // HUD Mode: Top window
+    overlayEl: null, // Shared: Overlay
     closeTimer: null,
     
     // [HUD] Island elements
@@ -20,7 +20,7 @@ const MobileUIHandler = {
     expandedIslandEl: null,
     
     contentObserver: null,
-    drawerState: 0, 
+    drawerState: 0, // HUD Mode: 0 = Mini, 1 = Peek, 2 = Expanded
     
     // [LEGACY] Sheet state
     legacySheetState: {
@@ -28,36 +28,38 @@ const MobileUIHandler = {
         touchStartY: 0,
         currentSheetY: 0,
         startSheetY: 0,
-        currentState: 'peek', 
+        currentState: 'peek', // 'peek' or 'expanded'
     },
     
-    swipeState: { 
+    swipeState: { // HUD Mode
         touchStartY: 0,
         isDragging: false,
     },
 
-    // Bound event handlers
+    // [NEW] Bound event handlers for document listeners
     boundHudTouchEnd: null,
     boundLegacyTouchMove: null,
     boundLegacyTouchEnd: null,
 
     /**
-     * [MODIFIED] Restores the main map UI controls.
-     * Clears inline display styles so the CSS classes can take over again.
+     * [MODIFIED] Restores the main map UI controls
+     * and clears any inline styles that were set.
      */
     restoreMapControls() {
         const burgerMenu = document.getElementById('mobile-sidebar-toggle');
-        // Find the map toolbar parent
+        // Find the map toolbar by finding the parent of one of its buttons
         const mapToolbar = document.getElementById('toolbar-toggle-panel-btn')?.parentElement;
         const searchBar = document.getElementById('sector-ops-search-container');
         
-        // Remove inline 'display: none' to let CSS show them again
+        // Revert to stylesheet defaults
         if (burgerMenu) burgerMenu.style.display = ''; 
         if (mapToolbar) mapToolbar.style.display = '';
         if (searchBar) searchBar.style.display = '';
         
+        // --- [FIX] Remove 'mobile-ui-active' class from the map container ---
         const mapContainer = document.getElementById('sector-ops-map-fullscreen');
         if (mapContainer) mapContainer.classList.remove('mobile-ui-active');
+        // --- [END FIX] ---
     },
 
     /**
@@ -66,16 +68,17 @@ const MobileUIHandler = {
     init() {
         this.injectMobileStyles();
 
+        // [NEW] Pre-bind document-level handlers
         this.boundHudTouchEnd = this.handleHudTouchEnd.bind(this);
         this.boundLegacyTouchMove = this.handleLegacyTouchMove.bind(this);
         this.boundLegacyTouchEnd = this.handleLegacyTouchEnd.bind(this);
         
-        console.log("Mobile UI Handler (Apple Maps Style v1.0) Initialized.");
+        console.log("Mobile UI Handler (HUD Rehaul v8.0 / Legacy Mode) Initialized.");
     },
 
     /**
-     * [CRITICAL UPDATE] Injects the CSS for the "Apple Maps" layout.
-     * Repositions Search, Toolbar, and Sidebar Toggle into floating islands.
+     * [MODIFIED] Injects all the CSS for the new HUD-themed floating islands.
+     * Includes improved styling for the mobile search bar.
      */
     injectMobileStyles() {
         const styleId = 'mobile-sector-ops-styles';
@@ -83,39 +86,39 @@ const MobileUIHandler = {
 
         const css = `
             :root {
-                --hud-bg: rgba(15, 20, 35, 0.85); /* Deep Blue Glass */
-                --hud-blur: 20px;
+                --hud-bg: rgba(10, 15, 28, 0.85);
+                --hud-blur: 15px;
                 --hud-top-window-height: 50px;
-                --hud-border: rgba(255, 255, 255, 0.1);
+                --hud-border: rgba(0, 168, 255, 0.3);
                 --hud-accent: #00a8ff;
-                --hud-glow: 0 0 15px rgba(0, 168, 255, 0.2);
+                --hud-glow: 0 0 15px rgba(0, 168, 255, 0.5);
                 
                 --drawer-peek-content-height: 200px;
-                --island-bottom-margin: env(safe-area-inset-bottom, 20px);
-                --island-side-margin: 16px;
+                --island-bottom-margin: env(safe-area-inset-bottom, 15px);
+                --island-side-margin: 10px;
 
+                /* --- [NEW] Legacy Sheet Config --- */
                 --legacy-peek-height: ${this.CONFIG.legacyPeekHeight}px;
                 --legacy-top-offset: env(safe-area-inset-top, 15px);
             }
             
+            /* --- [FIX] Target the map container instead of 'view-rosters' --- */
             #sector-ops-map-fullscreen.mobile-ui-active {
                 position: relative;
                 overflow: hidden;
             }
 
             /* ====================================================================
-            --- [START] APPLE MAPS LAYOUT TRANSFORMATION ---
+            --- [START] UPDATED: Search Bar Mobile Positioning (Glass Pill) ---
             ==================================================================== */
-            
             @media (max-width: ${this.CONFIG.breakpoint}px) {
-                
-                /* --- 1. SEARCH BAR: Floating Bottom "Pill" (Bottom Center) --- */
                 #sector-ops-search-container {
                     position: absolute !important;
-                    top: auto !important;
-                    bottom: calc(env(safe-area-inset-bottom, 20px) + 20px) !important; /* Float above bottom edge */
+                    /* Sits lower to clear the notch/status bar gracefully */
+                    top: calc(env(safe-area-inset-top, 20px) + 10px) !important; 
                     left: 50% !important;
                     transform: translateX(-50%) !important;
+                    /* Slightly narrower than full width for the floating look */
                     width: calc(100% - 32px) !important; 
                     max-width: 450px !important;
                     z-index: 1030 !important;
@@ -125,137 +128,121 @@ const MobileUIHandler = {
                 #sector-ops-search-container .search-bar-container {
                     display: flex !important;
                     align-items: center !important;
-                    background: var(--hud-bg) !important;
-                    backdrop-filter: blur(var(--hud-blur)) !important;
-                    -webkit-backdrop-filter: blur(var(--hud-blur)) !important;
-                    border: 1px solid var(--hud-border) !important;
-                    border-radius: 50px !important; /* Full pill */
-                    box-shadow: 0 8px 32px rgba(0, 0, 0, 0.4) !important;
-                    padding: 4px 6px !important; 
+                    /* Darker, richer background for better contrast */
+                    background: rgba(15, 20, 35, 0.90) !important;
+                    backdrop-filter: blur(20px) !important;
+                    -webkit-backdrop-filter: blur(20px) !important;
+                    
+                    border: 1px solid rgba(255, 255, 255, 0.1) !important;
+                    /* Full pill shape */
+                    border-radius: 50px !important; 
+                    
+                    box-shadow: 0 8px 32px rgba(0, 0, 0, 0.5) !important;
+                    padding: 0 6px !important; /* Padding for the icons */
                     height: 50px !important;
                     transition: all 0.3s ease !important;
                 }
-
-                /* Active Glow for Search */
+                
+                /* Focus state glow */
                 #sector-ops-search-container:focus-within .search-bar-container {
                     border-color: var(--hud-accent) !important;
-                    box-shadow: 0 8px 40px rgba(0, 0, 0, 0.6), var(--hud-glow) !important;
+                    box-shadow: 0 8px 32px rgba(0, 0, 0, 0.6), 0 0 15px rgba(0, 168, 255, 0.2) !important;
                 }
 
-                /* Search Input Styling */
+                /* Search Icon */
+                #sector-ops-search-container .search-icon-label {
+                    display: flex !important;
+                    align-items: center !important;
+                    justify-content: center !important;
+                    width: 40px !important;
+                    height: 40px !important;
+                    margin: 0 !important;
+                    color: var(--hud-accent) !important;
+                    opacity: 0.8;
+                }
+
+                /* Input Field */
                 #sector-ops-search-input {
+                    flex-grow: 1 !important;
+                    height: 100% !important;
                     background: transparent !important;
+                    border: none !important;
                     color: #fff !important;
-                    font-size: 16px !important; /* Prevents zoom on iOS */
+                    font-family: 'Segoe UI', sans-serif !important;
                     font-weight: 500 !important;
-                    padding-left: 10px !important;
+                    font-size: 16px !important; /* Prevents iOS zoom */
+                    padding: 0 8px !important;
+                    outline: none !important;
+                    border-radius: 0 !important;
+                    -webkit-appearance: none !important;
                 }
-                #sector-ops-search-input::placeholder { color: rgba(255, 255, 255, 0.5) !important; }
+                
+                #sector-ops-search-input::placeholder {
+                    color: rgba(255, 255, 255, 0.4) !important;
+                }
 
-                /* Search Results: POP UPWARDS because bar is at bottom */
+                /* Clear Button */
+                #sector-ops-search-clear {
+                    background: rgba(255, 255, 255, 0.1) !important;
+                    color: #fff !important;
+                    border: none !important;
+                    border-radius: 50% !important;
+                    width: 28px !important;
+                    height: 28px !important;
+                    display: flex !important;
+                    align-items: center !important;
+                    justify-content: center !important;
+                    margin-right: 6px !important;
+                    cursor: pointer !important;
+                    font-size: 0.9rem !important;
+                }
+                
+                /* Results Dropdown - Floating Card Style */
                 #search-results-dropdown {
-                    top: auto !important;
-                    bottom: 110% !important; /* Sit above the bar */
-                    left: 0 !important;
+                    margin-top: 12px !important; /* Gap between bar and results */
                     width: 100% !important;
                     background: rgba(15, 20, 35, 0.95) !important;
-                    backdrop-filter: blur(30px) !important;
-                    border: 1px solid var(--hud-border) !important;
-                    border-radius: 20px !important;
-                    box-shadow: 0 -10px 40px rgba(0,0,0,0.5) !important;
-                    max-height: 50vh !important;
-                }
-
-                /* --- 2. SIDEBAR TOGGLE: Bottom Left "Action Button" --- */
-                #mobile-sidebar-toggle {
-                    position: absolute !important;
-                    top: auto !important;
-                    bottom: calc(env(safe-area-inset-bottom, 20px) + 22px) !important;
-                    left: var(--island-side-margin) !important;
-                    right: auto !important;
-                    
-                    /* Apple Maps "Squircle" Look */
-                    width: 46px !important;
-                    height: 46px !important;
-                    border-radius: 14px !important;
-                    
-                    background: var(--hud-bg) !important;
-                    backdrop-filter: blur(var(--hud-blur)) !important;
-                    -webkit-backdrop-filter: blur(var(--hud-blur)) !important;
-                    border: 1px solid var(--hud-border) !important;
-                    box-shadow: 0 4px 20px rgba(0,0,0,0.3) !important;
-                    
-                    /* Flex center the icon */
-                    display: flex !important;
-                    align-items: center !important;
-                    justify-content: center !important;
-                    z-index: 1035 !important;
-                    color: var(--hud-accent) !important;
-                    font-size: 1.2rem !important;
-                }
-
-                /* --- 3. MAP TOOLBAR: Top Right "Stack" --- */
-                /* Note: We target the parent of the toggle button to get the whole toolbar */
-                #toolbar-toggle-panel-btn {
-                    display: none !important; /* Hide the collapse arrow if present */
+                    backdrop-filter: blur(25px) !important;
+                    -webkit-backdrop-filter: blur(25px) !important;
+                    border: 1px solid rgba(255, 255, 255, 0.08) !important;
+                    border-radius: 16px !important;
+                    overflow: hidden !important;
+                    box-shadow: 0 15px 50px rgba(0, 0, 0, 0.6) !important;
+                    max-height: 60vh !important;
+                    overflow-y: auto !important;
                 }
                 
-                /* The container holding the buttons */
-                #toolbar-toggle-panel-btn, 
-                #toolbar-toggle-panel-btn + div, /* Assuming siblings are the toolbar */
-                .map-toolbar-container,          /* Generic fallback class */
-                div:has(> #toolbar-toggle-panel-btn) { /* Modern CSS selector for parent */
-                    position: absolute !important;
-                    top: calc(env(safe-area-inset-top, 20px) + 50px) !important; /* Below compass */
-                    right: var(--island-side-margin) !important;
-                    left: auto !important;
-                    bottom: auto !important;
-                    
-                    /* Force Vertical Stack */
+                /* Result Items */
+                .search-result-item {
+                    padding: 14px 20px !important;
+                    border-bottom: 1px solid rgba(255, 255, 255, 0.05) !important;
                     display: flex !important;
-                    flex-direction: column !important;
-                    gap: 12px !important;
-                    
-                    background: transparent !important; /* Remove bar background */
-                    box-shadow: none !important;
-                    border: none !important;
-                    padding: 0 !important;
-                    width: 46px !important;
-                    z-index: 1030 !important;
+                    align-items: center !important;
+                    gap: 15px !important;
                 }
-
-                /* Style the individual buttons inside the toolbar */
-                div:has(> #toolbar-toggle-panel-btn) button,
-                div:has(> #toolbar-toggle-panel-btn) .btn,
-                .map-toolbar-btn {
-                    width: 46px !important;
-                    height: 46px !important;
-                    border-radius: 14px !important; /* Squircle */
-                    
-                    background: var(--hud-bg) !important;
-                    backdrop-filter: blur(var(--hud-blur)) !important;
-                    -webkit-backdrop-filter: blur(var(--hud-blur)) !important;
-                    border: 1px solid var(--hud-border) !important;
-                    box-shadow: 0 4px 15px rgba(0,0,0,0.3) !important;
-                    
+                
+                .search-result-item i {
+                    color: var(--hud-accent) !important;
+                    font-size: 1.1rem !important;
+                    opacity: 0.8;
+                }
+                
+                .search-result-info strong {
+                    font-size: 1rem !important;
                     color: #fff !important;
-                    margin: 0 !important;
-                    display: flex !important;
-                    align-items: center !important;
-                    justify-content: center !important;
                 }
                 
-                /* Active/Toggle State for Map Buttons */
-                div:has(> #toolbar-toggle-panel-btn) button.active,
-                div:has(> #toolbar-toggle-panel-btn) .btn.active {
-                    background: rgba(0, 168, 255, 0.2) !important;
-                    border-color: var(--hud-accent) !important;
-                    color: var(--hud-accent) !important;
+                .search-result-info small {
+                    font-size: 0.85rem !important;
+                    color: #9fa8da !important;
                 }
-
+                
+                .search-result-item:active {
+                    background: rgba(0, 168, 255, 0.15) !important;
+                }
             }
             /* ====================================================================
-            --- [END] APPLE MAPS LAYOUT TRANSFORMATION ---
+            --- [END] Search Bar Mobile Positioning ---
             ==================================================================== */
 
             /* --- [MODIFIED] Overlay (now shared) --- */
@@ -312,6 +299,7 @@ const MobileUIHandler = {
                 left: var(--island-side-margin);
                 right: var(--island-side-margin);
                 
+                /* Visuals */
                 background: var(--hud-bg);
                 backdrop-filter: blur(var(--hud-blur));
                 -webkit-backdrop-filter: blur(var(--hud-blur));
@@ -323,15 +311,19 @@ const MobileUIHandler = {
                 display: flex;
                 flex-direction: column;
                 
+                /* Animation */
                 transition: transform 0.45s cubic-bezier(0.16, 1, 0.3, 1), opacity 0.4s ease;
                 will-change: transform, opacity;
                 
+                /* Default Off-Screen State */
                 transform: translateY(120%);
                 opacity: 0;
                 z-index: 1045;
+                
                 overflow: hidden;
             }
             
+            /* Active State for ALL Bottom Islands */
             .mobile-island-bottom.island-active {
                 transform: translateY(0);
                 opacity: 1;
@@ -353,9 +345,9 @@ const MobileUIHandler = {
             
             /* --- State 2: Expanded Island --- */
             #mobile-island-expanded {
-                top: 280px; 
+                top: 280px; /* Sits below the top window */
                 bottom: var(--island-bottom-margin);
-                height: auto; 
+                height: auto; /* Fills the space */
             }
 
             /* --- Route Summary Bar Styling (Mobile HUD) --- */
@@ -364,13 +356,17 @@ const MobileUIHandler = {
                 overflow: hidden;
                 border-top-left-radius: 16px;
                 border-top-right-radius: 16px;
+                
+                /* Handle properties */
                 cursor: grab;
                 touch-action: none;
                 user-select: none;
                 position: relative;
+                
                 background: var(--hud-bg);
             }
             
+            /* Add the pill visual */
             .route-summary-wrapper-mobile::before {
                 content: '';
                 position: absolute;
@@ -388,6 +384,7 @@ const MobileUIHandler = {
                 opacity: 0.3;
             }
 
+            /* Override desktop styles for the route bar on mobile */
             .route-summary-wrapper-mobile .route-summary-overlay {
                 position: relative; 
                 margin-bottom: 0;
@@ -420,25 +417,29 @@ const MobileUIHandler = {
                  background: rgba(10, 12, 26, 0.4);
             }
 
-            /* --- Drawer Content --- */
+            /* --- Drawer Content (Used in Peek & Expanded) --- */
             .drawer-content {
                 overflow-y: auto;
                 flex-grow: 1;
                 padding-bottom: env(safe-area-inset-bottom, 0);
                 height: var(--drawer-peek-content-height);
             }
-            #mobile-island-peek .drawer-content { overflow: hidden; }
-            #mobile-island-expanded .drawer-content { height: auto; }
+            #mobile-island-peek .drawer-content {
+                overflow: hidden;
+            }
+            #mobile-island-expanded .drawer-content {
+                height: auto;
+            }
             
             .drawer-content::-webkit-scrollbar { width: 6px; }
             .drawer-content::-webkit-scrollbar-track { background: transparent; }
             .drawer-content::-webkit-scrollbar-thumb { background-color: var(--hud-accent); border-radius: 10px; }
 
-            /* --- State 1: "Peek" Stacked Data Layout --- */
+            /* --- State 1: "Peek" Stacked Data Layout (Replaces PFD) --- */
             #mobile-island-peek .drawer-content {
                 padding: 10px;
                 box-sizing: border-box;
-                height: var(--drawer-peek-content-height);
+                height: var(--drawer-peek-content-height); /* 200px */
                 display: flex;
                 flex-direction: column;
             }
@@ -461,6 +462,10 @@ const MobileUIHandler = {
                 border-top-width: 0;
                 background: rgba(10, 12, 26, 0.5) !important;
             }
+            #mobile-island-peek #location-data-panel .data-value {
+                font-size: 1.0rem;
+                margin-top: 4px;
+            }
             #mobile-island-peek .flight-data-bar {
                 padding: 10px;
                 gap: 8px;
@@ -469,6 +474,9 @@ const MobileUIHandler = {
                 overflow: hidden;
                 border-top-width: 0;
             }
+            #mobile-island-peek .flight-data-bar .data-label { font-size: 0.6rem; }
+            #mobile-island-peek .flight-data-bar .data-value { font-size: 1.1rem; }
+            #mobile-island-peek .flight-data-bar .data-value .unit { font-size: 0.7rem; }
 
 
             /* --- State 2: "Expanded" Stacked Layout --- */
@@ -485,14 +493,22 @@ const MobileUIHandler = {
                 margin: 0 auto !important;
                 max-width: 400px !important;
             }
-             #mobile-island-expanded .ac-profile-card-new { display: flex !important; }
-            #mobile-island-expanded .vsd-disclaimer { display: block !important; }
+             #mobile-island-expanded .ac-profile-card-new {
+                display: flex !important;
+            }
+            #mobile-island-expanded .vsd-disclaimer {
+                display: block !important;
+            }
             #mobile-island-expanded .live-data-panel {
                 justify-content: space-around !important;
                 background: rgba(10, 12, 26, 0.5) !important;
                 border-radius: 12px !important;
                 padding: 16px !important;
             }
+            #mobile-island-expanded .live-data-item .data-label { font-size: 0.7rem; }
+            #mobile-island-expanded .live-data-item .data-value { font-size: 1.5rem; }
+            #mobile-island-expanded .live-data-item .data-value .unit { font-size: 0.8rem; }
+            #mobile-island-expanded .live-data-item .data-value-ete { font-size: 1.7rem; }
             
             #mobile-island-expanded .pilot-stats-toggle-btn {
                 display: flex;
@@ -510,11 +526,18 @@ const MobileUIHandler = {
             }
 
             /* ====================================================================
+            --- [END] CSS for "HUD" (Island) Mode ---
+            ==================================================================== */
+
+
+            /* ====================================================================
             --- [START] NEW CSS for "Legacy Sheet" Mode ---
             ==================================================================== */
 
+            /* This class is applied to the original info-window */
             .mobile-legacy-sheet {
-                display: flex !important; 
+                /* --- [CRITICAL] Override desktop styles --- */
+                display: flex !important; /* Use flex (from desktop) */
                 position: absolute !important;
                 top: auto !important; /* Unset top */
                 bottom: 0 !important;
@@ -527,26 +550,33 @@ const MobileUIHandler = {
                 border-radius: 16px 16px 0 0 !important;
                 box-shadow: 0 -5px 30px rgba(0,0,0,0.4) !important;
                 
+                /* --- Animation & State --- */
                 will-change: transform;
+                /* Start off-screen */
                 transform: translateY(100%); 
                 transition: transform 0.45s cubic-bezier(0.16, 1, 0.3, 1);
             }
 
+            /* "Peek" State (Default visible state) */
             .mobile-legacy-sheet.visible.peek {
                 transform: translateY(calc(100% - var(--legacy-peek-height)));
             }
+
+            /* "Expanded" State */
             .mobile-legacy-sheet.visible:not(.peek) {
                 transform: translateY(var(--hud-top-window-height));
             }
             
-            /* Drag Handle for Legacy Sheet */
+            /* --- [NEW] Drag Handle for Legacy Sheet --- */
             .legacy-sheet-handle {
                 position: relative;
                 flex-shrink: 0;
                 cursor: grab;
                 touch-action: none;
                 user-select: none;
+                /* This handle is a wrapper, so no visual styles by default */
             }
+            /* Add the pill visual */
             .legacy-sheet-handle::before {
                 content: '';
                 position: absolute;
@@ -558,40 +588,55 @@ const MobileUIHandler = {
                 background: var(--hud-border);
                 border-radius: 2px; 
                 opacity: 0.5;
-                z-index: 10;
+                z-index: 10; /* Above content */
             }
 
-            /* Simple Mode Handle (Seamless Overlay) */
+            /* --- [UPDATED] Specific styling for SIMPLE MODE handle (Seamless Overlay) --- */
             .legacy-sheet-handle.simple-mode {
-                position: absolute !important;
+                position: absolute !important; /* Float over the iframe */
                 top: 0 !important;
                 left: 0 !important;
                 width: 100% !important;
-                height: 40px !important;
+                height: 40px !important; /* Visual height */
+                /* Large invisible touch area downwards for easier grabbing */
                 padding-bottom: 40px !important; 
                 
+                /* Seamless Gradient Background (instead of solid block) */
                 background: linear-gradient(to bottom, rgba(0,0,0,0.7) 0%, transparent 100%) !important;
+                
                 border: none !important;
                 border-radius: 16px 16px 0 0 !important;
+                
                 display: flex !important;
                 justify-content: center !important;
                 flex-shrink: 0 !important;
-                z-index: 2000 !important;
+                
+                z-index: 2000 !important; /* On top of iframe */
                 box-sizing: content-box !important;
-                pointer-events: auto !important;
+                pointer-events: auto !important; /* Ensure it captures swipes */
             }
             
             .legacy-sheet-handle.simple-mode::before {
-                top: 8px !important;
-                width: 60px !important;
-                height: 5px !important;
+                top: 8px !important; /* Center the pill near the top edge */
+                width: 60px !important; /* Wider pill */
+                height: 5px !important; /* Thicker pill */
                 background: rgba(255, 255, 255, 0.4) !important;
                 box-shadow: 0 1px 4px rgba(0,0,0,0.5) !important;
             }
 
+            /* --- Content Scrolling --- */
             .mobile-legacy-sheet .info-window-content {
                 overflow-y: auto !important;
+                /* Add padding for the bottom safe area */
                 padding-bottom: env(safe-area-inset-bottom, 20px);
+            }
+
+            /* --- Header / Image / Route Bar Overrides --- */
+            .mobile-legacy-sheet .aircraft-overview-panel {
+                /* The handle will wrap this */
+            }
+            .mobile-legacy-sheet .route-summary-overlay {
+                /* The handle will wrap this */
             }
 
             @media (max-width: ${this.CONFIG.breakpoint}px) {
@@ -611,6 +656,7 @@ const MobileUIHandler = {
     /**
      * [MODIFIED] Intercepts the window open command.
      * This now acts as a ROUTER, checking the user's preferred mode.
+     * **NEW: Forces 'Legacy' mode if the Simple Flight Window is active.**
      */
     openWindow(windowElement) {
         if (!this.isMobile()) return;
@@ -619,11 +665,13 @@ const MobileUIHandler = {
             this.closeActiveWindow(true); // 'true' = force close
         }
 
+        // --- [FIX] Add 'mobile-ui-active' class to the correct map container ---
         const mapContainer = document.getElementById('sector-ops-map-fullscreen');
         if (mapContainer) mapContainer.classList.add('mobile-ui-active');
+        // --- [END FIX] ---
 
         if (windowElement.id === 'aircraft-info-window') {
-            // --- Hide main map controls to clear view for the sheet ---
+            // --- Hide map controls ---
             const burgerMenu = document.getElementById('mobile-sidebar-toggle');
             const mapToolbar = document.getElementById('toolbar-toggle-panel-btn')?.parentElement;
             const searchBar = document.getElementById('sector-ops-search-container');
@@ -642,16 +690,22 @@ const MobileUIHandler = {
             // 3. FORCE Legacy mode if Simple Flight Window is active
             if (isSimpleMode) {
                 userMode = 'legacy';
+                // Optional: We can update local storage here if we want the preference to persist
+                // even after they switch simple mode off, or just override it temporarily.
+                // For now, we just override the active session variable.
             }
 
             this.activeMode = userMode;
             this.activeWindow = windowElement;
 
             if (userMode === 'legacy') {
+                // --- Path 1: "Legacy Sheet" Mode ---
                 this.createLegacySheetUI();
                 this.observeOriginalWindow(windowElement);
+
             } else {
-                this.createSplitViewUI();
+                // --- Path 2: "HUD" Mode ---
+                this.createSplitViewUI(); // Build our new island containers
                 this.observeOriginalWindow(windowElement);
             }
         }
@@ -659,8 +713,10 @@ const MobileUIHandler = {
 
     /**
      * [MODIFIED] Creates the DOM for the "Legacy Sheet" mode.
+     * This is much simpler: just an overlay.
      */
     createLegacySheetUI() {
+        // --- [FIX] Target the new map container instead of 'view-rosters' ---
         const viewContainer = document.getElementById('sector-ops-map-fullscreen');
         if (!viewContainer) return;
 
@@ -672,12 +728,17 @@ const MobileUIHandler = {
         // 2. Add class to the *original* window
         this.activeWindow.classList.add('mobile-legacy-sheet');
         this.activeWindow.style.display = 'flex';
+        
+        // 3. Animate it in [REMOVED]
+        // We now wait for the observer to populate content *before* animating.
     },
 
     /**
      * [MODIFIED] Creates the new DOM structure for the HUD.
+     * Includes a dedicated slot for the tab buttons in the Expanded Island.
      */
     createSplitViewUI() {
+        // --- [FIX] Target the new map container instead of 'view-rosters' ---
         const viewContainer = document.getElementById('sector-ops-map-fullscreen');
         if (!viewContainer) return;
 
@@ -723,6 +784,8 @@ const MobileUIHandler = {
 
     /**
      * [MODIFIED] Observes the original window for content.
+     * Now calls the correct "populate" function based on the active mode
+     * AND triggers the animation *after* population is complete.
      */
     observeOriginalWindow(windowElement) {
         if (this.contentObserver) this.contentObserver.disconnect();
@@ -731,15 +794,22 @@ const MobileUIHandler = {
             const mainContent = windowElement.querySelector('.unified-display-main-content');
             const attitudeGroup = mainContent?.querySelector('#attitude_group');
             
+            // --- [NEW CHECK] For Simple Window (Iframe) ---
             const simpleIframe = windowElement.querySelector('#simple-flight-window-frame');
 
+            // Condition 1: Standard PFD is built
             const isStandardReady = mainContent && attitudeGroup && attitudeGroup.dataset.initialized === 'true';
+            // Condition 2: Simple Iframe is present
             const isSimpleReady = !!simpleIframe;
             
             if (isStandardReady || isSimpleReady) {
                 
+                // --- [NEW] Router ---
                 if (this.activeMode === 'legacy') {
+                    // 1. Populate first (while off-screen)
                     this.populateLegacySheet(windowElement);
+                    
+                    // 2. NOW, animate it in
                     if (this.activeWindow) {
                         setTimeout(() => {
                             this.activeWindow.classList.add('visible', 'peek');
@@ -748,11 +818,14 @@ const MobileUIHandler = {
                     }
 
                 } else { // 'hud' mode
+                    // 1. Populate first (while off-screen)
                     this.populateSplitView(windowElement);
+                    
+                    // 2. NOW, animate them in
                     setTimeout(() => {
                         if (this.topWindowEl) this.topWindowEl.classList.add('visible');
                         if (this.miniIslandEl) this.miniIslandEl.classList.add('island-active');
-                        this.drawerState = 0;
+                        this.drawerState = 0; // Set initial state
                     }, 10);
                 }
                 
@@ -770,37 +843,54 @@ const MobileUIHandler = {
 
     /**
      * [MODIFIED] Wires up interactions for the "Legacy Sheet" mode.
+     * Now handles both STANDARD (wrap content) and SIMPLE (prepend handle) modes.
      */
     populateLegacySheet(sourceWindow) {
+        // --- 1. Check for Simple Mode (Iframe) ---
         const simpleIframe = sourceWindow.querySelector('#simple-flight-window-frame');
         
         const handleWrapper = document.createElement('div');
         handleWrapper.className = 'legacy-sheet-handle';
 
         if (simpleIframe) {
+            // --- SIMPLE MODE LOGIC ---
+            // The iframe occupies the whole window.
+            // We create a distinct "pill bar" handle and put it at the very top.
             handleWrapper.classList.add('simple-mode'); 
+            
+            // Insert handle at the top of the window
             sourceWindow.prepend(handleWrapper);
-            sourceWindow.style.position = 'relative';
+            
+            // Ensure source window is relative so absolute handle positions correctly
+            sourceWindow.style.position = 'relative'; // Should be redundant due to flex class but good for safety
+            
         } else {
+            // --- STANDARD MODE LOGIC ---
             const overviewPanel = sourceWindow.querySelector('.aircraft-overview-panel');
             const routeSummaryBar = sourceWindow.querySelector('.route-summary-overlay');
 
             if (overviewPanel && routeSummaryBar) {
+                // Wrap the existing header elements with the handle
                 sourceWindow.prepend(handleWrapper);
                 handleWrapper.appendChild(overviewPanel);
                 handleWrapper.appendChild(routeSummaryBar);
+            } else {
+                console.warn("Legacy Sheet UI: Could not find header elements for standard mode.");
             }
         }
         
+        // Wire up interactions
         this.wireUpLegacySheetInteractions(sourceWindow, handleWrapper);
     },
 
     /**
      * [MODIFIED] Moves content from the original window into the new island components.
+     * Now clones the tab container into the expanded island.
      */
     populateSplitView(sourceWindow) {
         if (!this.topWindowEl || !this.miniIslandEl || !this.peekIslandEl || !this.expandedIslandEl) return;
 
+        // Find content containers
         const miniRouteContainer = this.miniIslandEl.querySelector('.route-summary-wrapper-mobile');
         const peekRouteContainer = this.peekIslandEl.querySelector('.route-summary-wrapper-mobile');
         const expandedRouteContainer = this.expandedIslandEl.querySelector('.route-summary-wrapper-mobile');
@@ -811,15 +901,18 @@ const MobileUIHandler = {
 
         if (!peekContentContainer || !expandedContentContainer || !miniRouteContainer || !peekRouteContainer || !expandedRouteContainer || !expandedTabsSlot) return; 
 
+        // Find original content pieces
         const topOverviewPanel = sourceWindow.querySelector('.aircraft-overview-panel');
         const routeSummaryBar = sourceWindow.querySelector('.route-summary-overlay');
         const tabContainer = sourceWindow.querySelector('.ac-info-window-tabs');
         const mainFlightContent = sourceWindow.querySelector('.unified-display-main-content');
         
+        // 1. Move Top Panel
         if (topOverviewPanel) {
             this.topWindowEl.appendChild(topOverviewPanel);
         }
         
+        // 2. Clone and Move Route Summary Bar to ALL three islands
         if (routeSummaryBar) {
             const clonedRouteBar1 = routeSummaryBar.cloneNode(true);
             const clonedRouteBar2 = routeSummaryBar.cloneNode(true);
@@ -830,23 +923,31 @@ const MobileUIHandler = {
             expandedRouteContainer.appendChild(clonedRouteBar3);
         }
         
+        // 3. Clone and Move Main Content & Tabs
         if (mainFlightContent && tabContainer) {
+            // A. Move the original, full content to the Expanded Island
             expandedContentContainer.appendChild(mainFlightContent);
+            
+            // B. Clone and move the original tab bar to the dedicated slot
             expandedTabsSlot.appendChild(tabContainer);
             
+            // C. Create a streamlined copy for the Peek Island
             const peekContentClone = document.createElement('div');
-            peekContentClone.className = 'unified-display-main-content';
+            peekContentClone.className = 'unified-display-main-content'; // Match container class
 
+            // Clone and append PFD/Location Grid
             const pfdLocationGrid = mainFlightContent.querySelector('.pfd-and-location-grid')?.cloneNode(true);
             if (pfdLocationGrid) {
                  peekContentClone.appendChild(pfdLocationGrid);
             }
 
+            // Clone and append Data Bar
             const dataBar = mainFlightContent.querySelector('.flight-data-bar')?.cloneNode(true);
             if (dataBar) {
                  peekContentClone.appendChild(dataBar);
             }
             
+            // Append the streamlined clone to the Peek drawer
             peekContentContainer.appendChild(peekContentClone);
         }
         
@@ -860,10 +961,12 @@ const MobileUIHandler = {
         
         handleElement.addEventListener('touchstart', this.handleLegacyTouchStart.bind(this), { passive: false });
         
+        // [MODIFIED] Use document-level listeners for move and end
         document.addEventListener('touchmove', this.boundLegacyTouchMove, { passive: false });
         document.addEventListener('touchend', this.boundLegacyTouchEnd);
         document.addEventListener('touchcancel', this.boundLegacyTouchEnd);
         
+        // --- Close Handlers ---
         if (this.overlayEl) {
             this.overlayEl.addEventListener('click', () => {
                 if (this.legacySheetState.currentState === 'expanded') {
@@ -874,6 +977,7 @@ const MobileUIHandler = {
             });
         }
         
+        // --- [NEW] Stop drag from starting on button tap (in Standard Mode) ---
         const buttonContainer = sheetElement.querySelector('.overview-actions');
         if (buttonContainer) {
             buttonContainer.addEventListener('touchstart', (e) => {
@@ -881,6 +985,7 @@ const MobileUIHandler = {
             }, { passive: true });
         }
         
+        // Find desktop buttons (Standard Mode only usually)
         const closeBtn = sheetElement.querySelector('.aircraft-window-close-btn');
         const hideBtn = sheetElement.querySelector('.aircraft-window-hide-btn');
         
@@ -912,6 +1017,7 @@ const MobileUIHandler = {
     wireUpHudInteractions() {
         if (!this.miniIslandEl || !this.peekIslandEl || !this.expandedIslandEl) return;
 
+        // Get the new unified handles
         const miniHandle = this.miniIslandEl.querySelector('.route-summary-wrapper-mobile');
         const peekHandle = this.peekIslandEl.querySelector('.route-summary-wrapper-mobile');
         const expandedHandle = this.expandedIslandEl.querySelector('.route-summary-wrapper-mobile');
@@ -919,6 +1025,7 @@ const MobileUIHandler = {
 
         if (!miniHandle || !peekHandle || !expandedHandle || !tabsInSlot) return;
 
+        // --- Click Interactions (Drawer State) ---
         miniHandle.addEventListener('click', (e) => {
             if (this.swipeState.isDragging) return;
             this.setDrawerState(1);
@@ -936,12 +1043,14 @@ const MobileUIHandler = {
             this.overlayEl.addEventListener('click', () => this.setDrawerState(0));
         }
 
+        // --- Swipe Interactions ---
         miniHandle.addEventListener('touchstart', this.handleHudTouchStart.bind(this), { passive: false });
         peekHandle.addEventListener('touchstart', this.handleHudTouchStart.bind(this), { passive: false });
         expandedHandle.addEventListener('touchstart', this.handleHudTouchStart.bind(this), { passive: false });
         
         document.addEventListener('touchend', this.boundHudTouchEnd);
 
+        // --- Re-wire desktop buttons ---
         this.topWindowEl.addEventListener('click', (e) => {
             const closeBtn = e.target.closest('.aircraft-window-close-btn');
             const hideBtn = e.target.closest('.aircraft-window-hide-btn');
@@ -963,6 +1072,7 @@ const MobileUIHandler = {
             }
         });
         
+        // --- Dedicated Tab Switching Logic ---
         tabsInSlot.addEventListener('click', async (e) => {
             const tabBtn = e.target.closest('.ac-info-tab-btn');
 
@@ -978,9 +1088,11 @@ const MobileUIHandler = {
                 const islandContent = this.expandedIslandEl;
                 if (!islandContent) return;
 
+                // Deactivate old tab/pane
                 islandContent.querySelector('.ac-info-tab-btn.active')?.classList.remove('active');
                 islandContent.querySelector('.ac-tab-pane.active')?.classList.remove('active');
 
+                // Activate new tab/pane
                 tabBtn.classList.add('active');
                 const newPane = islandContent.querySelector(`#${tabId}`);
                 if (newPane) {
@@ -1037,7 +1149,7 @@ const MobileUIHandler = {
         
         this.legacySheetState.currentState = targetState;
         this.activeWindow.style.transition = 'transform 0.45s cubic-bezier(0.16, 1, 0.3, 1)';
-        this.activeWindow.style.transform = '';
+        this.activeWindow.style.transform = ''; // Remove inline style from dragging
 
         if (targetState === 'expanded') {
             this.activeWindow.classList.add('visible');
@@ -1117,11 +1229,12 @@ const MobileUIHandler = {
         this.legacySheetState.isDragging = true;
         this.legacySheetState.touchStartY = e.touches[0].clientY;
         
+        // Get the current computed Y position
         const rect = this.activeWindow.getBoundingClientRect();
         this.legacySheetState.currentSheetY = rect.top;
         this.legacySheetState.startSheetY = rect.top;
         
-        this.activeWindow.style.transition = 'none'; 
+        this.activeWindow.style.transition = 'none'; // Allow live dragging
     },
 
     handleLegacyTouchMove(e) {
@@ -1131,18 +1244,20 @@ const MobileUIHandler = {
         const touchCurrentY = e.touches[0].clientY;
         let deltaY = touchCurrentY - this.legacySheetState.touchStartY;
 
+        // Calculate new Y, but don't let it be dragged higher than the top stop
         const topStop = parseInt(getComputedStyle(document.documentElement)
         .getPropertyValue('--hud-top-window-height')) || 50;
 
         let newY = this.legacySheetState.startSheetY + deltaY;
         
+        // Add resistance when dragging *above* the top stop
         if (newY < topStop) {
             const overdrag = topStop - newY;
             newY = topStop - (overdrag * 0.3); // Resistance
         }
         
         this.activeWindow.style.transform = `translateY(${newY}px)`;
-        this.legacySheetState.currentSheetY = newY; 
+        this.legacySheetState.currentSheetY = newY; // Store last position
     },
 
     handleLegacyTouchEnd(e) {
@@ -1169,6 +1284,7 @@ const MobileUIHandler = {
             }
         }
         
+        // Clear inline styles
         this.activeWindow.style.transition = '';
         this.activeWindow.style.transform = '';
     },
@@ -1192,6 +1308,7 @@ const MobileUIHandler = {
 
         const animationDuration = force ? 0 : 500;
         
+        // --- Fork the teardown logic ---
         if (this.activeMode === 'hud') {
             this.teardownHudView(force, animationDuration);
         } else {
@@ -1206,6 +1323,7 @@ const MobileUIHandler = {
         const overlayToRemove = this.overlayEl;
         const sheetToClose = this.activeWindow;
         
+        // Remove document listeners
         document.removeEventListener('touchmove', this.boundLegacyTouchMove);
         document.removeEventListener('touchend', this.boundLegacyTouchEnd);
         document.removeEventListener('touchcancel', this.boundLegacyTouchEnd);
@@ -1213,7 +1331,7 @@ const MobileUIHandler = {
         const resetState = () => {
             this.activeWindow = null;
             this.overlayEl = null;
-            this.activeMode = 'legacy'; 
+            this.activeMode = 'legacy'; // Reset to default
             this.legacySheetState.isDragging = false;
         };
 
@@ -1223,11 +1341,14 @@ const MobileUIHandler = {
                 sheetToClose.style.display = 'none';
                 sheetToClose.classList.remove('mobile-legacy-sheet', 'visible', 'peek');
                 
+                // [MODIFIED] Handle cleanup: un-wrap OR remove custom handle
                 const handle = sheetToClose.querySelector('.legacy-sheet-handle');
                 if (handle) {
                     if (handle.classList.contains('simple-mode')) {
+                        // Simple Mode: Just remove the bar
                         handle.remove();
                     } else {
+                        // Standard Mode: Un-wrap content
                         const overview = sheetToClose.querySelector('.aircraft-overview-panel');
                         const routeBar = sheetToClose.querySelector('.route-summary-overlay');
                         if (overview) sheetToClose.prepend(overview);
@@ -1239,6 +1360,7 @@ const MobileUIHandler = {
             this.restoreMapControls();
             resetState();
         } else {
+            // Animate out
             this.setLegacySheetState('closed');
             
             this.closeTimer = setTimeout(() => {
@@ -1247,6 +1369,7 @@ const MobileUIHandler = {
                     sheetToClose.style.display = 'none';
                     sheetToClose.classList.remove('mobile-legacy-sheet', 'peek');
                     
+                    // [MODIFIED] Handle cleanup
                     const handle = sheetToClose.querySelector('.legacy-sheet-handle');
                     if (handle) {
                         if (handle.classList.contains('simple-mode')) {
