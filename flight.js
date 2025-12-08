@@ -10811,7 +10811,7 @@ function setupFilterSettingsWindowEvents() {
         document.getElementById('filter-toggle-satellite-mode').checked = (currentMapStyle === MAP_STYLE_SATELLITE);
         document.getElementById('filter-toggle-aircraft-labels').checked = mapFilters.showAircraftLabels;
         
-        // NEW: Simple Window Toggle
+        // Simple Window Toggle
         const simpleWindowToggle = document.getElementById('filter-toggle-simple-window');
         if (simpleWindowToggle) {
             simpleWindowToggle.checked = mapFilters.useSimpleFlightWindow;
@@ -10832,14 +10832,25 @@ function setupFilterSettingsWindowEvents() {
         applyWindowTheme(mapFilters.themeStartColor, mapFilters.themeEndColor);
 
         // Mobile-specific
-        const currentMobileMode = localStorage.getItem('mobileDisplayMode') || 'hud';
+        const currentMobileMode = localStorage.getItem('mobileDisplayMode') || 'legacy'; // Default to legacy
         const mobileModeHud = document.getElementById('mobile-mode-hud');
         const mobileModeLegacy = document.getElementById('mobile-mode-legacy');
+        
         if (mobileModeHud && mobileModeLegacy) {
-            if (currentMobileMode === 'legacy') {
+            // [UPDATED] If Simple Window is active, force UI to reflect Locked Legacy Mode
+            if (mapFilters.useSimpleFlightWindow) {
                 mobileModeLegacy.checked = true;
+                mobileModeHud.disabled = true; // Lock HUD option
+                mobileModeHud.parentElement.style.opacity = '0.5'; // Visual feedback
             } else {
-                mobileModeHud.checked = true;
+                mobileModeHud.disabled = false;
+                mobileModeHud.parentElement.style.opacity = '1';
+                
+                if (currentMobileMode === 'legacy') {
+                    mobileModeLegacy.checked = true;
+                } else {
+                    mobileModeHud.checked = true;
+                }
             }
         }
     };
@@ -10892,10 +10903,32 @@ function setupFilterSettingsWindowEvents() {
     filterSettingsWindow.addEventListener('change', (e) => {
         const target = e.target;
         
-        // Handle Simple Window Toggle
+        // [UPDATED] Handle Simple Window Toggle & Interdependency
         if (target.id === 'filter-toggle-simple-window') {
             mapFilters.useSimpleFlightWindow = target.checked;
             saveFiltersToLocalStorage();
+            
+            const mobileModeHud = document.getElementById('mobile-mode-hud');
+            const mobileModeLegacy = document.getElementById('mobile-mode-legacy');
+
+            if (target.checked) {
+                // LOCK OUT HUD MODE
+                if (mobileModeHud) {
+                    mobileModeHud.disabled = true;
+                    mobileModeHud.parentElement.style.opacity = '0.5';
+                }
+                if (mobileModeLegacy) {
+                    mobileModeLegacy.checked = true;
+                }
+                // Force save 'legacy' to storage so UI Handler picks it up next time
+                localStorage.setItem('mobileDisplayMode', 'legacy');
+            } else {
+                // UNLOCK HUD MODE
+                if (mobileModeHud) {
+                    mobileModeHud.disabled = false;
+                    mobileModeHud.parentElement.style.opacity = '1';
+                }
+            }
             
             // If a window is currently open, reload it to reflect changes
             if (currentFlightInWindow) {
@@ -10930,6 +10963,13 @@ function setupFilterSettingsWindowEvents() {
         
         // Handle Mobile Display Mode Radio Logic
         if (target.name === 'mobile-display-mode') {
+            // Prevent changing if locked (double check for safety)
+            if (mapFilters.useSimpleFlightWindow && target.value === 'hud') {
+                target.checked = false;
+                document.getElementById('mobile-mode-legacy').checked = true;
+                return;
+            }
+
             const newMode = target.value;
             localStorage.setItem('mobileDisplayMode', newMode);
             if (!document.getElementById('mobile-mode-note')) {

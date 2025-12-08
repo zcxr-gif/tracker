@@ -1,16 +1,15 @@
-
 const MobileUIHandler = {
     // --- CONFIGURATION ---
     CONFIG: {
         breakpoint: 992, // The max-width in pixels to trigger mobile view
-        defaultMode: 'hud', // 'hud' or 'legacy'
+        defaultMode: 'legacy', // [UPDATED] Default is now 'legacy' sheet instead of HUD
         legacyPeekHeight: 280, // Height of the "peek" state for legacy sheet
     },
 
     // --- STATE ---
     isMobile: () => window.innerWidth <= MobileUIHandler.CONFIG.breakpoint,
     activeWindow: null, // The *original* hidden info window
-    activeMode: 'hud', // Tracks which mode is currently active ('hud' or 'legacy')
+    activeMode: 'legacy', // [UPDATED] Defaults to legacy
     topWindowEl: null, // HUD Mode: Top window
     overlayEl: null, // Shared: Overlay
     closeTimer: null,
@@ -657,6 +656,7 @@ const MobileUIHandler = {
     /**
      * [MODIFIED] Intercepts the window open command.
      * This now acts as a ROUTER, checking the user's preferred mode.
+     * **NEW: Forces 'Legacy' mode if the Simple Flight Window is active.**
      */
     openWindow(windowElement) {
         if (!this.isMobile()) return;
@@ -681,7 +681,20 @@ const MobileUIHandler = {
             if (searchBar) searchBar.style.display = 'none';
 
             // --- [NEW] The Router Logic ---
-            const userMode = localStorage.getItem('mobileDisplayMode') || this.CONFIG.defaultMode;
+            // 1. Check for Simple Mode (iframe existence)
+            const isSimpleMode = !!windowElement.querySelector('#simple-flight-window-frame');
+
+            // 2. Get user preference (defaulting to legacy)
+            let userMode = localStorage.getItem('mobileDisplayMode') || this.CONFIG.defaultMode;
+
+            // 3. FORCE Legacy mode if Simple Flight Window is active
+            if (isSimpleMode) {
+                userMode = 'legacy';
+                // Optional: We can update local storage here if we want the preference to persist
+                // even after they switch simple mode off, or just override it temporarily.
+                // For now, we just override the active session variable.
+            }
+
             this.activeMode = userMode;
             this.activeWindow = windowElement;
 
@@ -691,7 +704,7 @@ const MobileUIHandler = {
                 this.observeOriginalWindow(windowElement);
 
             } else {
-                // --- Path 2: "HUD" Mode (Default) ---
+                // --- Path 2: "HUD" Mode ---
                 this.createSplitViewUI(); // Build our new island containers
                 this.observeOriginalWindow(windowElement);
             }
@@ -1318,7 +1331,7 @@ const MobileUIHandler = {
         const resetState = () => {
             this.activeWindow = null;
             this.overlayEl = null;
-            this.activeMode = 'hud';
+            this.activeMode = 'legacy'; // Reset to default
             this.legacySheetState.isDragging = false;
         };
 
