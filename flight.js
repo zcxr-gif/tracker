@@ -2905,79 +2905,61 @@ function generateTrafficForecastHTML(congestion) {
         currentServerName = newServerName;
         localStorage.setItem('preferredServer', currentServerName);
 
-        // 2. Clear Live Aircraft Data (Visuals)
-        
-        // Remove pilot markers
+        // 2. Clear Visuals
         Object.keys(pilotMarkers).forEach(fid => {
             if (pilotMarkers[fid].marker) pilotMarkers[fid].marker.remove();
         });
         pilotMarkers = {};
-        
-        // Clear caches
         liveTrailCache.clear();
+        for (const key in currentMapFeatures) delete currentMapFeatures[key];
         
-        // Clear feature object
-        for (const key in currentMapFeatures) {
-            delete currentMapFeatures[key];
-        }
-        
-        // Flush MapAnimator
         if (mapAnimator && typeof mapAnimator._updateMapSource === 'function') {
             mapAnimator._updateMapSource(); 
         }
         
-        // Close flight window if open
         if (currentFlightInWindow) {
             const closeBtn = document.querySelector('.aircraft-window-close-btn');
             if (closeBtn) closeBtn.click();
         }
 
-        // --- 3. ATC & AIRPORT MARKER RESET (The Fix) ---
-        
-        // A. Stop the polling interval immediately to prevent race conditions
+        // 3. Reset Markers
         if (sectorOpsAtcNotamInterval) {
             clearInterval(sectorOpsAtcNotamInterval);
             sectorOpsAtcNotamInterval = null;
         }
-
-        // B. Manually remove every existing airport marker from the map instance
-        // This ensures visual removal of "old" red dots immediately.
         Object.values(airportAndAtcMarkers).forEach(obj => {
-            if (obj && obj.marker) {
-                obj.marker.remove();
-            }
+            if (obj && obj.marker) obj.marker.remove();
         });
-        airportAndAtcMarkers = {}; // Reset the tracking object
-
-        // C. Wipe the data arrays
+        airportAndAtcMarkers = {}; 
         activeAtcFacilities = [];
         activeNotams = [];
-        
-        // D. Render the "Clean State"
-        // Since activeAtcFacilities is empty, this draws only standard blue route dots (if configured)
-        // and ensures no leftover red dots remain.
         renderAirportMarkers();
 
         // 4. UI Updates
-        document.querySelectorAll('.server-btn').forEach(btn => {
-            if (btn.dataset.server === currentServerName) {
-                btn.classList.add('active');
-            } else {
-                btn.classList.remove('active');
-            }
-        });
-
-        // 5. Show Notification
         showNotification(`Switching to ${currentServerName}...`, 'info');
 
-        // 6. Socket Handshake (Join new room)
+        // --- FIX: Update New UI Checkmarks instead of old buttons ---
+        // Hide all checkmarks
+        document.querySelectorAll('.server-check').forEach(el => {
+            el.classList.remove('opacity-100');
+            el.classList.add('opacity-0');
+        });
+        // Show the one for the selected server (e.g. #check-Expert Server)
+        // Note: The ID in HTML uses just the first word usually, let's match loose or strict
+        const simpleName = currentServerName.split(' ')[0]; // "Expert" from "Expert Server"
+        const checkEl = document.getElementById(`check-${simpleName}`) || document.getElementById(`check-${currentServerName}`);
+        
+        if (checkEl) {
+            checkEl.classList.remove('opacity-0');
+            checkEl.classList.add('opacity-100');
+        }
+
+        // 5. Socket Handshake
         if (sectorOpsSocket && sectorOpsSocket.connected) {
             sectorOpsSocket.emit('join_server_room', currentServerName);
         }
 
-        // 7. Restart Data Polling
-        // This fetches new data -> populates activeAtcFacilities -> calls renderAirportMarkers() again
-        // to draw the *new* red dots for the selected server.
+        // 6. Restart Data
         updateSectorOpsSecondaryData();
         sectorOpsAtcNotamInterval = setInterval(updateSectorOpsSecondaryData, DATA_REFRESH_INTERVAL_MS);
     }
@@ -3188,154 +3170,34 @@ function findSimbriefAircraftValue(aircraftName) {
 }
 
 
-    /**
- * render the flight list on load.
- */
 async function loadExternalPanelContent() {
     const panel = document.getElementById('sector-ops-floating-panel');
+    
+    // --- FIX: Logic to handle missing panel in new UI ---
     if (!panel) {
-        console.error('Could not find #sector-ops-floating-panel to inject content.');
+        console.log('Sector Ops Panel not found (New UI active). Skipping external content load.');
         return;
     }
 
     // 1. Find and remove the old UI tabs
     const oldTabs = panel.querySelector('.panel-tabs');
-    if (oldTabs) {
-        oldTabs.remove();
-    }
+    if (oldTabs) oldTabs.remove();
 
-    // 2. Find the main content container (which we will REUSE)
-    const mainContentContainer = panel.querySelector('.panel-content');
+    // 2. Find the main content container
+    // --- FIX: Create it if missing so legacy logic doesn't crash ---
+    let mainContentContainer = panel.querySelector('.panel-content');
     if (!mainContentContainer) {
-        console.error('Could not find .panel-content to inject content into.');
-        return;
+        mainContentContainer = document.createElement('div');
+        mainContentContainer.className = 'panel-content';
+        panel.appendChild(mainContentContainer);
     }
     
-    // 3. Clear this container and show a loading spinner
-    mainContentContainer.innerHTML = '<div class="spinner-small" style="margin: 2rem auto;"></div>';
+    // 3. Clear this container
+    mainContentContainer.innerHTML = '';
 
-    // 4. [CRITICAL FIX] Modify the container to be scrollable
-    // The original CSS in index.html has 'overflow: hidden', which we must override.
-    mainContentContainer.style.overflow = 'auto'; 
-    
-    // 5. Fetch and inject the new content
-    try {
-        const response = await fetch('panel-content.html');
-        if (!response.ok) {
-            throw new Error(`Failed to fetch panel-content.html (Status: ${response.status})`);
-        }
-        const htmlContent = await response.text();
-        
-        // Inject the new content directly into the existing .panel-content div
-        mainContentContainer.innerHTML = htmlContent;
-
-        // ===================================================================
-        // START: Logic from panel-tabs.js
-        // We run this logic *after* mainContentContainer.innerHTML is set.
-        // ===================================================================
-        
-        // Note: We query *inside* the mainContentContainer to be specific
-        const tabButtons = mainContentContainer.querySelectorAll('.panel-tab-btn');
-        const tabContents = mainContentContainer.querySelectorAll('.tab-content');
-
-        // Function to switch to a specific tab
-        function activateTab(tabId) {
-            tabButtons.forEach(btn => {
-                if (btn.dataset.tab === tabId) {
-                    btn.classList.add('active');
-                } else {
-                    btn.classList.remove('active');
-                }
-            });
-
-            tabContents.forEach(content => {
-                if (content.id === tabId) {
-                    content.classList.add('active');
-                } else {
-                    content.classList.remove('active');
-                }
-            });
-        }
-
-        // Add click event listener to each tab button
-        tabButtons.forEach(button => {
-            button.addEventListener('click', () => {
-                const tabId = button.dataset.tab;
-                activateTab(tabId);
-            });
-        });
-
-        // --- SimBrief Integration Logic ---
-        const urlParams = new URLSearchParams(window.location.search);
-        if (urlParams.get('view') === 'view-flight-plan' || urlParams.has('ofp_id')) {
-            activateTab('tab-flightplan');
-        } else {
-            // Show the default active tab (Welcome)
-            // The 'active' class is already on the HTML, but this confirms it.
-            activateTab('tab-welcome');
-        }
-
-        const aircraftSelect = mainContentContainer.querySelector('#fp-aircraft');
-        
-        if (aircraftSelect && AIRCRAFT_SELECTION_LIST.length > 0) {
-            // Loop through the constant and create <option> elements
-            AIRCRAFT_SELECTION_LIST.forEach(aircraft => {
-                const option = document.createElement('option');
-                option.value = aircraft.value; // e.g., "A320"
-                option.textContent = aircraft.name; // e.g., "Airbus A320-200"
-                aircraftSelect.appendChild(option);
-            });
-        } else {
-            console.warn("Could not find #fp-aircraft select or AIRCRAFT_SELECTION_LIST is empty.");
-        }
-
-        // Check if SimbriefIntegration object (from sb.js) exists
-        if (typeof SimbriefIntegration !== 'undefined') {
-            
-            // Initialize the module, passing in the helpers it needs
-            SimbriefIntegration.init({
-                // netlifySimbriefUrl is already set in sb.js
-
-                // Pass the main showNotification function from flight.js
-                showNotification: showNotification,
-
-                // Pass the populateDispatchPass function we just added
-                populateDispatchPass: populateDispatchPass,
-
-                // Pass the onFlightSaved callback we just added
-                onFlightSaved: refreshSavedFlightList,
-
-                // (Optional) Max number of flights to save.
-                maxFlights: 2
-            });
-            
-            console.log("SimbriefIntegration module initialized successfully.");
-
-            // --- [NEW CODE TO ADD START] ---
-            
-            // 1. Add the master click listener for the saved flights list
-            // We attach it to mainContentContainer for event delegation
-            mainContentContainer.addEventListener('click', handleSavedFlightListClick);
-
-            // 2. Render the saved flights list on initial load
-            renderSavedFlightList();
-
-            // --- [NEW CODE TO ADD END] ---
-            
-        } else {
-            console.error("SimbriefIntegration (sb.js) is not loaded. SimBrief features will not work.");
-            // We can use the main notification function to tell the user
-            showNotification("SimBrief integration script (sb.js) failed to load.", "error");
-        }
-        
-    } catch (error) {
-        console.error('Error loading external panel content:', error);
-        mainContentContainer.innerHTML = `
-            <div class="info-panel-content">
-                <p class="error-text">Could not load panel content.</p>
-            </div>
-        `;
-    }
+    // 4. In new UI mode, we don't actually need to fetch the HTML, 
+    // but to prevent errors downstream, we leave the container empty.
+    return;
 }
 
     /**
@@ -6027,12 +5889,11 @@ async function updateLiveFlights() {
     function setupAirportWindowEvents() {
         if (!airportInfoWindow || airportInfoWindow.dataset.eventsAttached === 'true') return;
 
-        // Use Event Delegation on the main container
         airportInfoWindow.addEventListener('click', (e) => {
             const closeBtn = e.target.closest('#airport-window-close-btn');
             const hideBtn = e.target.closest('#airport-window-hide-btn');
             
-            // --- [NEW] Accordion Toggle Logic ---
+            // Accordion Toggle Logic
             const toggleBtn = e.target.closest('#runway-accordion-toggle');
             if (toggleBtn) {
                 const content = document.getElementById('runway-accordion-content');
@@ -6045,7 +5906,10 @@ async function updateLiveFlights() {
             if (closeBtn) {
                 airportInfoWindow.classList.remove('visible');
                 if (window.MobileUIHandler) MobileUIHandler.closeActiveWindow();
-                airportInfoWindowRecallBtn.classList.remove('visible');
+                
+                // --- FIX: Check if recall button exists before accessing classList ---
+                if (airportInfoWindowRecallBtn) airportInfoWindowRecallBtn.classList.remove('visible');
+                
                 clearRouteLayers(); 
                 currentAirportInWindow = null;
             }
@@ -6053,21 +5917,27 @@ async function updateLiveFlights() {
             if (hideBtn) {
                 airportInfoWindow.classList.remove('visible');
                 if (currentAirportInWindow) {
-                    airportInfoWindowRecallBtn.classList.add('visible');
-                    airportInfoWindowRecallBtn.classList.add('palpitate');
-                    setTimeout(() => {
-                        airportInfoWindowRecallBtn.classList.remove('palpitate');
-                    }, 1000);
+                    // --- FIX: Check if recall button exists ---
+                    if (airportInfoWindowRecallBtn) {
+                        airportInfoWindowRecallBtn.classList.add('visible');
+                        airportInfoWindowRecallBtn.classList.add('palpitate');
+                        setTimeout(() => {
+                            if(airportInfoWindowRecallBtn) airportInfoWindowRecallBtn.classList.remove('palpitate');
+                        }, 1000);
+                    }
                 }
             }
         });
 
-        airportInfoWindowRecallBtn.addEventListener('click', () => {
-            if (currentAirportInWindow) {
-                airportInfoWindow.classList.add('visible');
-                airportInfoWindowRecallBtn.classList.remove('visible');
-            }
-        });
+        // --- FIX: Only add listener if button exists ---
+        if (airportInfoWindowRecallBtn) {
+            airportInfoWindowRecallBtn.addEventListener('click', () => {
+                if (currentAirportInWindow) {
+                    airportInfoWindow.classList.add('visible');
+                    airportInfoWindowRecallBtn.classList.remove('visible');
+                }
+            });
+        }
 
         airportInfoWindow.dataset.eventsAttached = 'true';
     }
