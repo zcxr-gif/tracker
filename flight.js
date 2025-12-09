@@ -599,7 +599,7 @@ function injectCustomStyles() {
             width: 600px; 
             max-width: 95vw;
             max-height: calc(100vh - 40px);
-            background: var(--bg-glass);
+            background: linear-gradient(135deg, var(--iw-bg-start), var(--iw-bg-end));
             backdrop-filter: blur(40px) saturate(140%);
             -webkit-backdrop-filter: blur(40px) saturate(140%);
             border-radius: var(--radius-lg);
@@ -6610,6 +6610,12 @@ function formatDataForSimpleWindow(flightProps, plan, routePoints, communityData
 
     // 4. Construct Payload
     return {
+
+        theme: {
+            start: mapFilters.themeStartColor || '#18181b',
+            end: mapFilters.themeEndColor || '#18181b',
+            opacity: mapFilters.themeOpacity || 90
+        },
         username: flightProps.username,
         callsign: flightProps.callsign,
         phase: flightProps.phase || 'ENROUTE',
@@ -6905,7 +6911,7 @@ function formatDataForSimpleWindow(flightProps, plan, routePoints, communityData
                             </ul>
                             <div class="weather-disclaimer-note">
                                 <i class="fa-solid fa-server"></i>
-                                <strong>Note:</strong> Radar provided by RainViewer. SIGMETs provided by NOAA AWC.
+                                <strong>Note:</strong> ONLY rain radar is provided. Other radars (sigmets, clouds, wind) are not available.
                             </div>
                         </div>
                     </div>
@@ -11072,6 +11078,18 @@ function setupFilterSettingsWindowEvents() {
         mapFilters.themeStartColor = s;
         mapFilters.themeEndColor = e;
         saveFiltersToLocalStorage();
+
+        const iframe = document.getElementById('simple-flight-window-frame');
+        if (iframe && iframe.contentWindow) {
+            iframe.contentWindow.postMessage({
+                type: 'THEME_UPDATE',
+                payload: { 
+                    start: s, 
+                    end: e,
+                    opacity: mapFilters.themeOpacity || 90
+                }
+            }, '*');
+        }
     };
 
     if (startPicker) startPicker.addEventListener('input', handleColorChange);
