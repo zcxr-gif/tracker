@@ -2501,14 +2501,15 @@ function injectCustomStyles() {
     background: rgba(24, 24, 27, 1); /* Solid when active */
 }
 
-/* Icons inside bar */
+/* Icons inside bar - UPDATED */
 .search-icon-label {
     color: #94a3b8;
-    font-size: 1.1rem;
+    font-size: 0.85rem; /* Smaller icon size */
     cursor: default;
     display: flex;
     align-items: center;
-    margin-right: 12px;
+    margin-left: 8px; /* Spacing from clear button */
+    margin-right: 0;
 }
 
 /* The Input Field */
@@ -6906,18 +6907,18 @@ function formatDataForSimpleWindow(flightProps, plan, routePoints, communityData
                 mapContainer.insertAdjacentHTML('beforeend', selectorHtml);
             }
 
-            // --- 2. Inject the Search Bar ---
+            // --- 2. Inject the Search Bar (UPDATED STRUCTURE) ---
             if (!document.getElementById('sector-ops-search-container')) {
                 const searchHtml = `
                     <div id="sector-ops-search-container" class="sector-ops-search">
                         <div class="search-bar-container">
-                            <label for="sector-ops-search-input" class="search-icon-label">
-                                <i class="fa-solid fa-magnifying-glass search-icon"></i>
-                            </label>
                             <input type="text" id="sector-ops-search-input" placeholder="Search callsign or username..." aria-label="Search callsign or username" autocomplete="off">
                             <button id="sector-ops-search-clear" class="search-clear-btn" aria-label="Clear search" style="display: none;">
                                 <i class="fa-solid fa-xmark"></i>
                             </button>
+                            <label for="sector-ops-search-input" class="search-icon-label">
+                                <i class="fa-solid fa-magnifying-glass search-icon"></i>
+                            </label>
                         </div>
                         <div id="search-results-dropdown" class="search-results-dropdown"></div>
                     </div>
@@ -6945,7 +6946,7 @@ function formatDataForSimpleWindow(flightProps, plan, routePoints, communityData
                 mapContainer.insertAdjacentHTML('beforeend', windowHtml);
             }
 
-            // --- 5. Inject Weather Settings Window (UPDATED WITH SIGMETS) ---
+            // --- 5. Inject Weather Settings Window ---
             if (!document.getElementById('weather-settings-window')) {
                 const windowHtml = `
                     <div id="weather-settings-window" class="info-window">
@@ -6997,12 +6998,12 @@ function formatDataForSimpleWindow(flightProps, plan, routePoints, communityData
                 mapContainer.insertAdjacentHTML('beforeend', windowHtml);
             }
 
-            // --- 6. Inject Filter Settings Window ---
+            // --- 6. Inject Settings Window (RENAMED) ---
             if (!document.getElementById('filter-settings-window')) {
                 const windowHtml = `
                     <div id="filter-settings-window" class="info-window">
                         <div class="info-window-header">
-                            <h3><i class="fa-solid fa-filter" style="margin-right: 10px;"></i> Map Filters</h3>
+                            <h3><i class="fa-solid fa-gear" style="margin-right: 10px;"></i> Settings</h3>
                             <div class="info-window-actions">
                                 <button class="filter-window-hide-btn" title="Hide"><i class="fa-solid fa-compress"></i></button>
                                 <button class="filter-window-close-btn" title="Close"><i class="fa-solid fa-xmark"></i></button>
@@ -7147,9 +7148,10 @@ function formatDataForSimpleWindow(flightProps, plan, routePoints, communityData
                     `);
                  }
                  if (!document.getElementById('open-filter-settings-btn')) {
+                    // UPDATED: Settings Icon and Title
                     toolbarToggleBtn.parentElement.insertAdjacentHTML('beforeend', `
-                        <button id="open-filter-settings-btn" class="toolbar-btn" title="Map Filters">
-                            <i class="fa-solid fa-filter"></i>
+                        <button id="open-filter-settings-btn" class="toolbar-btn" title="Settings">
+                            <i class="fa-solid fa-gear"></i>
                         </button>
                     `);
                  }
