@@ -1,7 +1,4 @@
-{
-type: "file_content",
-fileName: "sector-ops-mobile-ui.js",
-fullContent: `
+
 const MobileUIHandler = {
     // --- CONFIGURATION ---
     CONFIG: {
