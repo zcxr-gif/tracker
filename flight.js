@@ -2462,45 +2462,152 @@ function injectCustomStyles() {
 }
 .apt-mini-footer i { margin-right: 6px; color: #fbbf24; } /* Amber icon for remarks */
 
-.search-results-dropdown {
-    max-height: 400px;
-    overflow-y: auto;
-    background: var(--bg-glass);
-    backdrop-filter: blur(20px);
-    border: 1px solid var(--border-glass);
-    border-radius: 0 0 8px 8px;
-    box-shadow: 0 10px 40px rgba(0,0,0,0.5);
+/* --- RE-DESIGNED SEARCH BAR & DROPDOWN --- */
+
+/* 1. Container Positioning */
+#sector-ops-search-container {
+    position: absolute;
+    top: 20px;
+    left: 20px;
+    z-index: 1050;
+    width: 340px; /* Wider for better data display */
+    font-family: var(--font-ui);
+    display: flex;
+    flex-direction: column;
+    filter: drop-shadow(0 10px 30px rgba(0,0,0,0.5)); /* Deep shadow for pop-out effect */
 }
 
+/* 2. The Input Bar */
+.search-bar-container {
+    position: relative;
+    display: flex;
+    align-items: center;
+    height: 50px; /* Taller, easier to hit */
+    background: rgba(24, 24, 27, 0.95); /* Deep Zinc */
+    backdrop-filter: blur(20px);
+    -webkit-backdrop-filter: blur(20px);
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    border-radius: 12px; /* Smooth corners */
+    padding: 0 16px;
+    transition: all 0.2s ease;
+    z-index: 20;
+}
+
+/* When dropdown is open, flatten bottom corners to merge */
+.search-bar-container.has-results {
+    border-bottom-left-radius: 0;
+    border-bottom-right-radius: 0;
+    border-bottom: 1px solid rgba(255,255,255,0.05); /* Subtle separator */
+    background: rgba(24, 24, 27, 1); /* Solid when active */
+}
+
+/* Icons inside bar */
+.search-icon-label {
+    color: #94a3b8;
+    font-size: 1.1rem;
+    cursor: default;
+    display: flex;
+    align-items: center;
+    margin-right: 12px;
+}
+
+/* The Input Field */
+.search-bar-container input {
+    flex-grow: 1;
+    background: transparent;
+    border: none;
+    color: #fff;
+    font-size: 0.95rem;
+    font-weight: 500;
+    outline: none;
+    font-family: var(--font-ui);
+    height: 100%;
+}
+
+.search-bar-container input::placeholder {
+    color: #52525b; /* Darker placeholder */
+    font-weight: 400;
+}
+
+/* Clear 'X' Button */
+.search-clear-btn {
+    background: rgba(255,255,255,0.1);
+    border: none;
+    color: #a1a1aa;
+    width: 24px;
+    height: 24px;
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 0.8rem;
+    cursor: pointer;
+    transition: all 0.2s;
+}
+
+.search-clear-btn:hover {
+    background: rgba(255,255,255,0.2);
+    color: #fff;
+}
+
+/* 3. The Dropdown Results */
+.search-results-dropdown {
+    display: none; /* Hidden by default */
+    background: rgba(24, 24, 27, 0.95); /* Match bar background */
+    backdrop-filter: blur(20px);
+    -webkit-backdrop-filter: blur(20px);
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    border-top: none; /* Seamless merge */
+    border-radius: 0 0 12px 12px;
+    max-height: 450px;
+    overflow-y: auto;
+    width: 100%;
+    padding-top: 4px;
+    padding-bottom: 8px;
+    /* Scrollbar Styling */
+    scrollbar-width: thin;
+    scrollbar-color: #3f3f46 transparent;
+}
+
+.search-results-dropdown::-webkit-scrollbar {
+    width: 6px;
+}
+.search-results-dropdown::-webkit-scrollbar-thumb {
+    background-color: #3f3f46;
+    border-radius: 3px;
+}
+
+/* --- RESULT ROW STYLING (The content) --- */
 .search-result-item {
     display: grid;
     grid-template-columns: 40px 1fr auto; /* Logo | Info | Stats */
     gap: 12px;
-    padding: 10px 14px;
-    border-bottom: 1px solid rgba(255,255,255,0.05);
+    padding: 12px 16px;
+    border-bottom: 1px solid rgba(255,255,255,0.03);
     cursor: pointer;
-    transition: background 0.2s;
+    transition: background 0.15s ease;
     align-items: center;
 }
 
 .search-result-item:hover {
-    background: rgba(255,255,255,0.05);
+    background: rgba(56, 189, 248, 0.1); /* Brand color highlight */
 }
 
 .search-result-item:last-child {
     border-bottom: none;
 }
 
-/* Column 1: Logo/Icon */
+/* Column 1: Image Box */
 .search-result-img-box {
     width: 40px;
     height: 40px;
     display: flex;
     align-items: center;
     justify-content: center;
-    background: rgba(255,255,255,0.03);
-    border-radius: 6px;
+    background: rgba(0,0,0,0.3);
+    border-radius: 8px;
     border: 1px solid rgba(255,255,255,0.05);
+    overflow: hidden;
 }
 
 .search-result-logo {
@@ -2509,16 +2616,17 @@ function injectCustomStyles() {
     object-fit: contain;
 }
 
-/* Column 2: Identity */
+/* Column 2: Text Info */
 .search-result-info {
     display: flex;
     flex-direction: column;
-    gap: 2px;
+    justify-content: center;
+    gap: 3px;
     overflow: hidden;
 }
 
 .search-main-text {
-    color: #fff;
+    color: #f4f4f5;
     font-weight: 700;
     font-size: 0.95rem;
     font-family: var(--font-data);
@@ -2527,40 +2635,44 @@ function injectCustomStyles() {
     gap: 8px;
 }
 
+.search-badge-ac {
+    font-size: 0.6rem;
+    background: rgba(255,255,255,0.1);
+    border: 1px solid rgba(255,255,255,0.1);
+    color: #cbd5e1;
+    padding: 1px 6px;
+    border-radius: 4px;
+    font-weight: 600;
+    letter-spacing: 0.5px;
+}
+
 .search-sub-text {
     color: #94a3b8;
     font-size: 0.75rem;
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
+    font-weight: 500;
 }
 
-.search-badge-ac {
-    font-size: 0.65rem;
-    background: #1e293b;
-    border: 1px solid #334155;
-    color: #cbd5e1;
-    padding: 1px 5px;
-    border-radius: 3px;
-    font-weight: 600;
-}
-
-/* Column 3: Telemetry */
+/* Column 3: Stats (Alt/Speed) */
 .search-result-stats {
     display: flex;
     flex-direction: column;
     align-items: flex-end;
-    gap: 2px;
+    justify-content: center;
+    gap: 3px;
 }
 
 .search-stat-pill {
     font-family: var(--font-data);
-    font-size: 0.8rem;
-    font-weight: 600;
+    font-size: 0.85rem;
+    font-weight: 700;
+    text-shadow: 0 0 10px rgba(0,0,0,0.5);
 }
 
-.stat-alt { color: #38bdf8; } /* Blue */
-.stat-gs { color: #fbbf24; font-size: 0.7rem; } /* Amber */
+.stat-alt { color: #38bdf8; } /* Sky Blue */
+.stat-gs { color: #fbbf24; font-size: 0.75rem; font-weight: 600; } /* Amber */
     `;
 
     const style = document.createElement('style');
@@ -3512,85 +3624,90 @@ async function loadExternalPanelContent() {
 
 
     /**
-     * --- [ENHANCED] Renders detailed search results.
-     * Shows Logo, Callsign, User, Aircraft, Livery, Altitude, and Speed.
-     */
-    function renderSearchResultsDropdown(matches) {
-        const dropdown = document.getElementById('search-results-dropdown');
-        if (!dropdown) return;
+ * --- [RE-DONE] Renders detailed search results.
+ * Manages the visibility and styling of the dropdown container.
+ */
+function renderSearchResultsDropdown(matches) {
+    const dropdown = document.getElementById('search-results-dropdown');
+    const searchBar = document.querySelector('#sector-ops-search-container .search-bar-container');
+    
+    if (!dropdown || !searchBar) return;
 
-        if (matches.length === 0) {
-            dropdown.innerHTML = '<div style="padding:12px; color:#94a3b8; text-align:center; font-size:0.8rem;">No matches found</div>';
-            dropdown.style.display = 'block';
-            return;
-        }
+    if (matches.length === 0) {
+        dropdown.innerHTML = '<div style="padding:16px; color:#94a3b8; text-align:center; font-size:0.85rem; font-style:italic;">No active flights found.</div>';
+        dropdown.style.display = 'block';
+        searchBar.classList.add('has-results'); // Keep the merged look even for "No results"
+        return;
+    }
 
-        // Limit to 15 results for performance
-        dropdown.innerHTML = matches.slice(0, 15).map(feature => {
-            const props = feature.properties;
-            const coords = feature.geometry.coordinates;
+    // Render HTML (Using the logic from the previous prompt)
+    dropdown.innerHTML = matches.slice(0, 15).map(feature => {
+        const props = feature.properties;
+        const coords = feature.geometry.coordinates;
 
-            // Safe Data Parsing
-            const acData = (typeof props.aircraft === 'string') ? JSON.parse(props.aircraft) : (props.aircraft || {});
-            const acName = acData.aircraftName || 'Unknown';
-            const livName = acData.liveryName || 'Generic';
+        // Safe Data Parsing
+        const acData = (typeof props.aircraft === 'string') ? JSON.parse(props.aircraft) : (props.aircraft || {});
+        const acName = acData.aircraftName || 'Unknown';
+        const livName = acData.liveryName || 'Generic';
+        
+        // Format Display Values
+        const altDisplay = props.altitude ? Math.round(props.altitude).toLocaleString() : '0';
+        const gsDisplay = props.speed ? Math.round(props.speed) : '0';
+        
+        // Shorten Aircraft Name
+        let shortType = acName.split(' ')[0].substring(0,4).toUpperCase();
+        if(acName.includes("777")) shortType = "B77W";
+        else if(acName.includes("737")) shortType = "B737";
+        else if(acName.includes("320")) shortType = "A320";
+        else if(acName.includes("321")) shortType = "A321";
+        else if(acName.includes("350")) shortType = "A350";
+        else if(acName.includes("380")) shortType = "A380";
+        else if(acName.includes("787")) shortType = "B787";
+        else if(acName.includes("747")) shortType = "B747";
+        else if(acName.includes("CRJ")) shortType = "CRJ";
+        else if(acName.includes("Dash")) shortType = "DH8D";
+
+        // Airline Logo Logic
+        const words = livName.trim().split(/\s+/);
+        let logoName = words.length > 1 && /[^a-zA-Z0-9]/.test(words[1]) ? words[0] : (words[0] + (words[1] ? ' ' + words[1] : ''));
+        const sanitizedLogoName = logoName.toLowerCase().replace(/[^a-z0-9\s]/g, '').replace(/\s+/g, '_');
+        const logoPath = `Images/airline_logos/${sanitizedLogoName}.png`;
+
+        const propsString = JSON.stringify(props).replace(/'/g, "&apos;");
+        const coordsString = JSON.stringify(coords);
+
+        return `
+        <div class="search-result-item" 
+             data-flight-id="${props.flightId}"
+             data-coordinates='${coordsString}'
+             data-properties='${propsString}'>
             
-            // Format Display Values
-            const altDisplay = props.altitude ? Math.round(props.altitude).toLocaleString() : '0';
-            const gsDisplay = props.speed ? Math.round(props.speed) : '0';
-            
-            // Shorten Aircraft Name (e.g., "Boeing 777-300ER" -> "B77W")
-            let shortType = acName.split(' ')[0].substring(0,4).toUpperCase(); // Fallback
-            if(acName.includes("777")) shortType = "B777";
-            else if(acName.includes("737")) shortType = "B737";
-            else if(acName.includes("320")) shortType = "A320";
-            else if(acName.includes("350")) shortType = "A350";
-            else if(acName.includes("380")) shortType = "A380";
-            else if(acName.includes("787")) shortType = "B787";
-            else if(acName.includes("747")) shortType = "B747";
-            else if(acName.includes("CRJ")) shortType = "CRJ";
-            else if(acName.includes("Dash")) shortType = "DH8D";
+            <div class="search-result-img-box">
+                <img src="${logoPath}" class="search-result-logo" onerror="this.style.display='none';this.parentElement.innerHTML='<i class=\'fa-solid fa-plane\'></i>'">
+            </div>
 
-            // Airline Logo Logic
-            const words = livName.trim().split(/\s+/);
-            let logoName = words.length > 1 && /[^a-zA-Z0-9]/.test(words[1]) ? words[0] : (words[0] + (words[1] ? ' ' + words[1] : ''));
-            const sanitizedLogoName = logoName.toLowerCase().replace(/[^a-z0-9\s]/g, '').replace(/\s+/g, '_');
-            const logoPath = `Images/airline_logos/${sanitizedLogoName}.png`;
-
-            // Prepare Data for Click Handler
-            const propsString = JSON.stringify(props).replace(/'/g, "&apos;");
-            const coordsString = JSON.stringify(coords);
-
-            return `
-            <div class="search-result-item" 
-                 data-flight-id="${props.flightId}"
-                 data-coordinates='${coordsString}'
-                 data-properties='${propsString}'>
-                
-                <div class="search-result-img-box">
-                    <img src="${logoPath}" class="search-result-logo" onerror="this.style.display='none';this.parentElement.innerHTML='<i class=\'fa-solid fa-plane\'></i>'">
+            <div class="search-result-info">
+                <div class="search-main-text">
+                    ${props.callsign}
+                    <span class="search-badge-ac">${shortType}</span>
                 </div>
-
-                <div class="search-result-info">
-                    <div class="search-main-text">
-                        ${props.callsign}
-                        <span class="search-badge-ac">${shortType}</span>
-                    </div>
-                    <div class="search-sub-text">
-                        <span style="color: #cbd5e1;">${props.username}</span> • ${livName}
-                    </div>
-                </div>
-
-                <div class="search-result-stats">
-                    <span class="search-stat-pill stat-alt">${altDisplay} ft</span>
-                    <span class="search-stat-pill stat-gs">${gsDisplay} kts</span>
+                <div class="search-sub-text">
+                    <span style="color: #e2e8f0;">${props.username}</span> <span style="color:#52525b;">|</span> ${livName}
                 </div>
             </div>
-            `;
-        }).join('');
-        
-        dropdown.style.display = 'block';
-    }
+
+            <div class="search-result-stats">
+                <span class="search-stat-pill stat-alt">${altDisplay} ft</span>
+                <span class="search-stat-pill stat-gs">${gsDisplay} kts</span>
+            </div>
+        </div>
+        `;
+    }).join('');
+    
+    // Show Dropdown & Merge Corners
+    dropdown.style.display = 'block';
+    searchBar.classList.add('has-results');
+}
 
 
     /**
@@ -11196,75 +11313,105 @@ function setupFilterSettingsWindowEvents() {
 
 
    /**
-     * --- [MODIFIED] Sets up event listeners for the map search bar.
-     * Now triggers autocomplete search instead of filtering.
-     */
-    function setupSearchEventListeners() {
-        const searchInput = document.getElementById('sector-ops-search-input');
-        const searchClear = document.getElementById('sector-ops-search-clear');
-        const searchContainer = document.getElementById('sector-ops-search-container');
-        const dropdown = document.getElementById('search-results-dropdown');
+ * --- [RE-DONE] Sets up event listeners for the map search bar.
+ * Handles styling toggles and persistent open state.
+ */
+function setupSearchEventListeners() {
+    const searchInput = document.getElementById('sector-ops-search-input');
+    const searchClear = document.getElementById('sector-ops-search-clear');
+    const searchContainer = document.getElementById('sector-ops-search-container');
+    const dropdown = document.getElementById('search-results-dropdown');
+    // Get the bar specifically to toggle corners
+    const searchBar = searchContainer.querySelector('.search-bar-container');
 
-        if (!searchInput || !searchClear || !searchContainer || !dropdown) {
-            console.warn("Could not find all search bar elements.");
-            return;
-        }
-        
-        let isListening = searchContainer.dataset.searchListeners === 'true';
-        if (isListening) return; // Prevent duplicate listeners
-
-        // On typing, call the new search handler
-        searchInput.addEventListener('input', () => {
-            handleSearchInput(searchInput.value);
-            
-            // Show/hide clear button
-            if (searchInput.value) {
-                searchClear.style.display = 'block';
-            } else {
-                searchClear.style.display = 'none';
-            }
-        });
-
-        // On clear, clear input and hide dropdown
-        searchClear.addEventListener('click', () => {
-            searchInput.value = '';
-            handleSearchInput(''); // This will clear the dropdown
-            searchClear.style.display = 'none';
-            searchInput.focus(); // Keep the bar expanded
-        });
-
-        // [MODIFIED] Add a click listener for the results dropdown
-        dropdown.addEventListener('click', (e) => {
-            const item = e.target.closest('.search-result-item');
-            if (item) {
-                // Pass the whole element to the click handler
-                onSearchResultClick(item); 
-            }
-        });
-
-        // ⬇️ --- [THIS IS THE NEW FIX] --- ⬇️
-        // Add a 'mousedown' listener to the dropdown.
-        // This prevents the 'blur' event from firing on the search input
-        // when a user clicks a result. This stops the CSS from hiding
-        // the dropdown (due to :focus-within) before the 'click' event
-        // can be processed.
-        dropdown.addEventListener('mousedown', (e) => {
-            e.preventDefault();
-        });
-        // ⬆️ --- [END OF NEW FIX] --- ⬆️
-
-        // Add a listener to the whole document to hide the dropdown
-        // when clicking away from the search bar.
-        document.addEventListener('click', (e) => {
-            // If the click is *outside* the main search container, blur the input
-            if (!searchContainer.contains(e.target)) {
-                searchInput.blur();
-                dropdown.innerHTML = ''; // Hide dropdown
-            }
-        }, true); // Use capture phase to catch clicks on the map
-        
-        searchContainer.dataset.searchListeners = 'true';
+    if (!searchInput || !searchClear || !searchContainer || !dropdown) {
+        return;
     }
+    
+    let isListening = searchContainer.dataset.searchListeners === 'true';
+    if (isListening) return; 
+
+    // Helper to open/close
+    const openDropdown = () => {
+        if (searchInput.value.length >= 2 && dropdown.children.length > 0) {
+            dropdown.style.display = 'block';
+            searchBar.classList.add('has-results'); // Flatten bottom corners
+        }
+    };
+
+    const closeDropdown = () => {
+        dropdown.style.display = 'none';
+        searchBar.classList.remove('has-results'); // Round bottom corners
+    };
+
+    // 1. INPUT EVENT: Typing
+    searchInput.addEventListener('input', () => {
+        const val = searchInput.value;
+        
+        // Show/Hide Clear "X"
+        searchClear.style.display = val ? 'flex' : 'none';
+
+        if (val.length >= 2) {
+            handleSearchInput(val); // This populates the dropdown
+            // We check children in a small timeout to allow render to finish, or rely on handleSearchInput to show it
+            setTimeout(() => {
+                if (dropdown.children.length > 0) {
+                    openDropdown();
+                } else {
+                    closeDropdown();
+                }
+            }, 50);
+        } else {
+            closeDropdown();
+        }
+    });
+
+    // 2. FOCUS EVENT: Clicking back into the box
+    // If there is text, re-run search or just re-open if we didn't clear results
+    searchInput.addEventListener('focus', () => {
+        if (searchInput.value.length >= 2) {
+            // Re-run search to be safe (updates altitudes etc)
+            handleSearchInput(searchInput.value);
+            openDropdown();
+        }
+    });
+
+    // 3. CLEAR BUTTON
+    searchClear.addEventListener('click', (e) => {
+        e.stopPropagation(); // Prevent closing immediately
+        searchInput.value = '';
+        handleSearchInput(''); // Clears data
+        searchClear.style.display = 'none';
+        closeDropdown();
+        searchInput.focus(); 
+    });
+
+    // 4. DROPDOWN CLICK (Item Selection)
+    dropdown.addEventListener('click', (e) => {
+        const item = e.target.closest('.search-result-item');
+        if (item) {
+            onSearchResultClick(item); 
+            // Optional: Close on select, or keep open? Usually select = close.
+            // If you want it to stay open, comment this out.
+            // closeDropdown(); 
+        }
+    });
+
+    // Prevent blur when clicking dropdown scrollbar or items
+    dropdown.addEventListener('mousedown', (e) => {
+        e.preventDefault();
+    });
+
+    // 5. CLICK OUTSIDE (The only way to close it without clearing)
+    document.addEventListener('click', (e) => {
+        // If click is NOT inside the search container
+        if (!searchContainer.contains(e.target)) {
+            closeDropdown();
+        }
+    }, true); 
+    
+    searchContainer.dataset.searchListeners = 'true';
+}
 
     // ==========================================================
     // END: SECTOR OPS / ROUTE EXPLORER LOGIC
