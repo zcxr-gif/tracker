@@ -522,7 +522,6 @@ function handleSavedFlightListClick(e) {
         }
     }
 
-
 function injectCustomStyles() {
     const styleId = 'sector-ops-custom-styles';
     if (document.getElementById(styleId)) return;
@@ -534,7 +533,7 @@ function injectCustomStyles() {
         @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;700&display=swap');
 
         :root {
-            /* --- Colors (Merged) --- */
+            /* --- Colors --- */
             --bg-dark: #020617; 
             --bg-panel: #1e293b; 
             --bg-panel-translucent: rgba(30, 41, 59, 0.9);
@@ -596,8 +595,8 @@ function injectCustomStyles() {
 
         /* Animations */
         @keyframes fadeIn {
-            from { opacity: 0; transform: scale(0.98); }
-            to { opacity: 1; transform: scale(1); }
+            from { opacity: 0; }
+            to { opacity: 1; }
         }
         .animate-modal-in { animation: fadeIn 0.2s cubic-bezier(0.16, 1, 0.3, 1) forwards; }
         
@@ -608,7 +607,130 @@ function injectCustomStyles() {
         .animate-slide-up { animation: slideUp 0.2s ease-out forwards; }
 
         /* =========================================
-           2. MAIN INTERFACE ELEMENTS (NEW UI)
+           2. SETTINGS MODAL (FIXED & CENTERED FIX)
+           ========================================= */
+        
+        /* The Overlay Wrapper */
+        #filter-settings-window {
+            position: fixed;
+            inset: 0;
+            z-index: 2000; /* High Z-index to sit over Mapbox */
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            background-color: rgba(0, 0, 0, 0.6); /* Dim background */
+            backdrop-filter: blur(4px);
+            -webkit-backdrop-filter: blur(4px);
+            
+            /* Transition State: Default Hidden */
+            opacity: 0;
+            pointer-events: none;
+            transition: opacity 0.3s ease;
+        }
+
+        /* Visible State (Added via JS) */
+        #filter-settings-window.visible {
+            opacity: 1;
+            pointer-events: auto;
+        }
+
+        /* The Card - The part that pops out */
+        .settings-card {
+            background-color: var(--bg-modal);
+            width: 100%;
+            height: 100%; /* Mobile: Full Screen */
+            box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.5);
+            display: flex;
+            flex-direction: column;
+            overflow: hidden;
+            border: 1px solid var(--border-white);
+            font-family: var(--font-ui);
+            
+            /* Pop Animation Setup */
+            transform: scale(0.95);
+            opacity: 0;
+            transition: transform 0.3s cubic-bezier(0.16, 1, 0.3, 1), opacity 0.3s ease;
+        }
+
+        /* When Window is Visible, Pop the Card */
+        #filter-settings-window.visible .settings-card {
+            transform: scale(1);
+            opacity: 1;
+        }
+
+        .settings-sidebar {
+            width: 100%;
+            background-color: var(--bg-sidebar);
+            display: flex;
+            flex-direction: column;
+            border-bottom: 1px solid rgba(255,255,255,0.05);
+            flex-shrink: 0;
+            z-index: 20;
+        }
+
+        .mobile-header {
+            display: flex; align-items: center; justify-content: space-between;
+            padding: 1rem; border-bottom: 1px solid rgba(255,255,255,0.05);
+            background-color: var(--bg-sidebar);
+        }
+
+        .nav-container { padding: 0.5rem; overflow-x: auto; }
+        .nav-items { display: flex; gap: 0.5rem; min-width: max-content; }
+        
+        .nav-btn {
+            width: auto; text-align: left; padding: 0.5rem 0.75rem;
+            border-radius: 0.75rem; font-size: 0.875rem; font-weight: 500;
+            color: var(--text-muted); display: flex; align-items: center;
+            gap: 0.5rem; transition: all 0.2s; white-space: nowrap;
+            background: transparent; border: none; cursor: pointer;
+        }
+        .nav-btn:hover { background-color: rgba(255,255,255,0.05); color: white; }
+        .nav-btn-active {
+            background-color: #27272a; color: white;
+            box-shadow: 0 1px 2px 0 rgba(0, 0, 0, 0.05);
+        }
+        .nav-btn-active i { color: #60a5fa; }
+
+        .settings-content-area {
+            flex: 1; min-height: 0; background-color: var(--bg-modal);
+            display: flex; flex-direction: column; position: relative;
+        }
+        .desktop-header { display: none; }
+        .settings-scroll-area { flex: 1; overflow-y: auto; padding: 1rem; padding-bottom: 6rem; }
+        
+        .setting-box {
+            background-color: #202023; padding: 1rem 1.25rem;
+            border-radius: 1rem; border: 1px solid rgba(255,255,255,0.05);
+            display: flex; align-items: center; justify-content: space-between;
+            box-shadow: 0 1px 2px 0 rgba(0, 0, 0, 0.05); margin-bottom: 1rem;
+        }
+
+        /* --- DESKTOP SETTINGS ADJUSTMENTS --- */
+        @media (min-width: 768px) {
+            .settings-card {
+                flex-direction: row;
+                width: 900px;
+                height: 600px;
+                max-width: 90vw;
+                max-height: 85vh;
+                border-radius: 1.5rem; /* Rounded corners on desktop */
+            }
+            .settings-sidebar {
+                width: 16rem; height: 100%; border-bottom: none; border-right: 1px solid rgba(255,255,255,0.05);
+            }
+            .mobile-header { display: none; }
+            .nav-container { padding: 1.5rem; padding-bottom: 0.5rem; overflow: visible; }
+            .nav-items { display: block; }
+            .nav-btn { width: 100%; margin-bottom: 0.25rem; padding: 0.625rem 0.75rem; }
+            .desktop-header {
+                display: flex; height: 5rem; align-items: center; justify-content: space-between;
+                padding: 0 2rem; border-bottom: 1px solid rgba(255,255,255,0.05); flex-shrink: 0;
+            }
+            .settings-scroll-area { padding: 2rem; padding-bottom: 2rem; }
+        }
+
+        /* =========================================
+           3. MAIN INTERFACE ELEMENTS (SEARCH & TOOLS)
            ========================================= */
 
         /* --- SEARCH BAR --- */
@@ -884,74 +1006,6 @@ function injectCustomStyles() {
             transform: translateX(1.25rem); border-color: #3b82f6;
         }
 
-        /* --- SETTINGS MODAL --- */
-        #filter-settings-window {
-            position: fixed;
-            inset: 0;
-            z-index: 50;
-            display: none;
-            align-items: center;
-            justify-content: center;
-            background-color: rgba(0, 0, 0, 0.8);
-            backdrop-filter: blur(4px);
-            -webkit-backdrop-filter: blur(4px);
-            transition: opacity 0.3s;
-        }
-        #filter-settings-window.visible { display: flex; }
-
-        .settings-card {
-            background-color: var(--bg-modal);
-            width: 100%;
-            height: 100%;
-            box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.25);
-            display: flex;
-            flex-direction: column;
-            overflow: hidden;
-            border: 1px solid var(--border-white);
-            font-family: var(--font-main);
-        }
-        .settings-sidebar {
-            width: 100%;
-            background-color: var(--bg-sidebar);
-            display: flex;
-            flex-direction: column;
-            border-bottom: 1px solid rgba(255,255,255,0.05);
-            flex-shrink: 0;
-            z-index: 20;
-        }
-        .mobile-header {
-            display: flex; align-items: center; justify-content: space-between;
-            padding: 1rem; border-bottom: 1px solid rgba(255,255,255,0.05);
-            background-color: var(--bg-sidebar);
-        }
-        .nav-container { padding: 0.5rem; overflow-x: auto; }
-        .nav-items { display: flex; gap: 0.5rem; min-width: max-content; }
-        .nav-btn {
-            width: auto; text-align: left; padding: 0.5rem 0.75rem;
-            border-radius: 0.75rem; font-size: 0.875rem; font-weight: 500;
-            color: var(--text-muted); display: flex; align-items: center;
-            gap: 0.5rem; transition: all 0.2s; white-space: nowrap;
-            background: transparent; border: none; cursor: pointer;
-        }
-        .nav-btn:hover { background-color: rgba(255,255,255,0.05); color: white; }
-        .nav-btn-active {
-            background-color: #27272a; color: white;
-            box-shadow: 0 1px 2px 0 rgba(0, 0, 0, 0.05);
-        }
-        .nav-btn-active i { color: #60a5fa; }
-        .settings-content-area {
-            flex: 1; min-height: 0; background-color: var(--bg-modal);
-            display: flex; flex-direction: column; position: relative;
-        }
-        .desktop-header { display: none; }
-        .settings-scroll-area { flex: 1; overflow-y: auto; padding: 1rem; padding-bottom: 6rem; }
-        .setting-box {
-            background-color: #202023; padding: 1rem 1.25rem;
-            border-radius: 1rem; border: 1px solid rgba(255,255,255,0.05);
-            display: flex; align-items: center; justify-content: space-between;
-            box-shadow: 0 1px 2px 0 rgba(0, 0, 0, 0.05); margin-bottom: 1rem;
-        }
-
         /* --- DESKTOP MEDIA QUERIES --- */
         @media (min-width: 768px) {
             #search-container { width: 3rem; height: 3rem; }
@@ -963,21 +1017,10 @@ function injectCustomStyles() {
             .tooltip { display: block; }
             .weather-toggle-btn { height: 3rem; padding: 0 1rem; }
             .weather-popup { width: 18rem; }
-            .settings-card { flex-direction: row; width: 900px; height: 650px; border-radius: 1.5rem; }
-            .settings-sidebar { width: 16rem; height: 100%; border-bottom: none; border-right: 1px solid rgba(255,255,255,0.05); }
-            .mobile-header { display: none; }
-            .nav-container { padding: 1.5rem; padding-bottom: 0.5rem; overflow: visible; }
-            .nav-items { display: block; }
-            .nav-btn { width: 100%; margin-bottom: 0.25rem; padding: 0.625rem 0.75rem; }
-            .desktop-header {
-                display: flex; height: 5rem; align-items: center; justify-content: space-between;
-                padding: 0 2rem; border-bottom: 1px solid rgba(255,255,255,0.05); flex-shrink: 0;
-            }
-            .settings-scroll-area { padding: 2rem; padding-bottom: 2rem; }
         }
 
         /* =========================================
-           3. AIRCRAFT INFO WINDOW (EXISTING STYLES)
+           4. AIRCRAFT INFO WINDOW (EXISTING STYLES)
            ========================================= */
         
         .info-window {
@@ -5693,22 +5736,19 @@ function formatDataForSimpleWindow(flightProps, plan, routePoints, communityData
 
     async function initializeSectorOpsView() {
     const mapContainer = document.getElementById('sector-ops-map-fullscreen');
-    // Ensure we have the map container
     if (!mapContainer) return;
     
     mainContentLoader.classList.add('active');
 
     try {
-        // --- 1. Inject Search Bar (Updated UI) ---
+        // --- 1. Inject Search Bar ---
         if (!document.getElementById('sector-ops-search-container')) {
             const searchHtml = `
                 <div id="sector-ops-search-container">
                     <div id="search-container">
                         <div class="search-box">
                             <div class="search-input-wrapper">
-                                <div class="search-icon-box">
-                                    <i class="fa-solid fa-magnifying-glass" style="font-size: 16px;"></i>
-                                </div>
+                                <div class="search-icon-box"><i class="fa-solid fa-magnifying-glass" style="font-size: 16px;"></i></div>
                                 <input type="text" id="sector-ops-search-input" placeholder="Search flight, airport...">
                                 <button id="sector-ops-search-clear" style="display:none; position: absolute; right: 10px; color:#999; background:none; border:none; cursor:pointer;"><i class="fa-solid fa-xmark"></i></button>
                             </div>
@@ -5717,116 +5757,69 @@ function formatDataForSimpleWindow(flightProps, plan, routePoints, communityData
                             </div>
                         </div>
                     </div>
-                </div>
-            `;
+                </div>`;
             mapContainer.insertAdjacentHTML('beforeend', searchHtml);
         }
 
-        // --- 2. Inject Sidebar Tools (Server Menu + Settings) ---
+        // --- 2. Inject Sidebar Tools ---
         if (!document.querySelector('.sidebar-tools')) {
             const sidebarHtml = `
                 <div class="sidebar-tools">
                     <button id="open-filter-settings-btn" class="tool-btn group">
                         <i class="fa-solid fa-sliders" style="font-size: 20px;"></i>
-                        <span class="tooltip">Settings</span>
                     </button>
-
                     <div style="position: relative;">
                         <button id="server-btn" class="tool-btn server-btn-active">
                             <i class="fa-solid fa-globe" style="font-size: 20px;"></i>
                         </button>
-                        
                         <div id="server-menu" class="hidden animate-modal-in">
                             <div class="menu-header">Select Server</div>
-                            <button class="menu-item server-select-btn ${currentServerName === 'Expert Server' ? 'active' : ''}" data-server="Expert Server">
-                                <span>Expert</span>
-                                <i class="fa-solid fa-check server-check" style="color: #4ade80; opacity: ${currentServerName === 'Expert Server' ? 1 : 0};"></i>
-                            </button>
-                            <button class="menu-item server-select-btn ${currentServerName === 'Training Server' ? 'active' : ''}" data-server="Training Server">
-                                <span>Training</span>
-                                <i class="fa-solid fa-check server-check" style="color: #4ade80; opacity: ${currentServerName === 'Training Server' ? 1 : 0};"></i>
-                            </button>
-                            <button class="menu-item server-select-btn ${currentServerName === 'Casual Server' ? 'active' : ''}" data-server="Casual Server">
-                                <span>Casual</span>
-                                <i class="fa-solid fa-check server-check" style="color: #4ade80; opacity: ${currentServerName === 'Casual Server' ? 1 : 0};"></i>
-                            </button>
+                            <button class="menu-item server-select-btn ${currentServerName === 'Expert Server' ? 'active' : ''}" data-server="Expert Server"><span>Expert</span></button>
+                            <button class="menu-item server-select-btn ${currentServerName === 'Training Server' ? 'active' : ''}" data-server="Training Server"><span>Training</span></button>
+                            <button class="menu-item server-select-btn ${currentServerName === 'Casual Server' ? 'active' : ''}" data-server="Casual Server"><span>Casual</span></button>
                         </div>
                     </div>
-                </div>
-            `;
+                </div>`;
             mapContainer.insertAdjacentHTML('beforeend', sidebarHtml);
         }
 
-        // --- 3. Inject Weather Widget (Bottom Right) ---
+        // --- 3. Inject Weather Widget ---
         if (!document.querySelector('.weather-container')) {
             const weatherHtml = `
                 <div class="weather-container">
                     <div id="weather-settings-window" class="hidden weather-popup animate-slide-up">
                         <div class="weather-header">
-                            <span style="font-size: 12px; font-weight: 700; color: #cbd5e1; text-transform: uppercase; display: flex; align-items: center; gap: 0.5rem;">
-                                <i class="fa-solid fa-cloud-sun" style="color: #60a5fa;"></i> Weather Layers
-                            </span>
-                            <button class="weather-window-close-btn" style="color: #64748b; background:none; border:none; cursor:pointer;"><i class="fa-solid fa-xmark"></i></button>
+                            <span style="font-size: 12px; font-weight: 700; color: #cbd5e1; text-transform: uppercase;">Weather Layers</span>
+                            <button class="weather-window-close-btn" style="color:#64748b;background:none;border:none;cursor:pointer;"><i class="fa-solid fa-xmark"></i></button>
                         </div>
                         <div class="weather-toggle-list">
-                            <div class="weather-row">
-                                <span style="font-size: 14px; font-weight: 500; color: #cbd5e1;">Radar</span>
-                                <div class="switch-container">
-                                    <input type="checkbox" id="weather-toggle-precip" class="switch-input"/>
-                                    <label for="weather-toggle-precip" class="switch-label"><span class="switch-handle"></span></label>
-                                </div>
-                            </div>
-                            <div class="weather-row">
-                                <span style="font-size: 14px; font-weight: 500; color: #cbd5e1;">SIGMETs</span>
-                                <div class="switch-container">
-                                    <input type="checkbox" id="weather-toggle-sigmets" class="switch-input"/>
-                                    <label for="weather-toggle-sigmets" class="switch-label"><span class="switch-handle"></span></label>
-                                </div>
-                            </div>
-                            <div class="weather-row">
-                                <span style="font-size: 14px; font-weight: 500; color: #cbd5e1;">Clouds</span>
-                                <div class="switch-container">
-                                    <input type="checkbox" id="weather-toggle-clouds" class="switch-input"/>
-                                    <label for="weather-toggle-clouds" class="switch-label"><span class="switch-handle"></span></label>
-                                </div>
-                            </div>
-                            <div class="weather-row">
-                                <span style="font-size: 14px; font-weight: 500; color: #cbd5e1;">Wind</span>
-                                <div class="switch-container">
-                                    <input type="checkbox" id="weather-toggle-wind" class="switch-input"/>
-                                    <label for="weather-toggle-wind" class="switch-label"><span class="switch-handle"></span></label>
-                                </div>
-                            </div>
+                            <div class="weather-row"><span>Radar</span><div class="switch-container"><input type="checkbox" id="weather-toggle-precip" class="switch-input"/><label for="weather-toggle-precip" class="switch-label"><span class="switch-handle"></span></label></div></div>
+                            <div class="weather-row"><span>SIGMETs</span><div class="switch-container"><input type="checkbox" id="weather-toggle-sigmets" class="switch-input"/><label for="weather-toggle-sigmets" class="switch-label"><span class="switch-handle"></span></label></div></div>
+                            <div class="weather-row"><span>Clouds</span><div class="switch-container"><input type="checkbox" id="weather-toggle-clouds" class="switch-input"/><label for="weather-toggle-clouds" class="switch-label"><span class="switch-handle"></span></label></div></div>
+                            <div class="weather-row"><span>Wind</span><div class="switch-container"><input type="checkbox" id="weather-toggle-wind" class="switch-input"/><label for="weather-toggle-wind" class="switch-label"><span class="switch-handle"></span></label></div></div>
                         </div>
                     </div>
-
-                    <button id="open-weather-settings-btn" class="weather-toggle-btn">
-                        <i class="fa-solid fa-cloud" style="font-size: 20px;"></i>
-                        <span style="font-size: 12px; font-weight: 700; text-transform: uppercase;">Wx</span>
-                    </button>
-                </div>
-            `;
+                    <button id="open-weather-settings-btn" class="weather-toggle-btn"><i class="fa-solid fa-cloud" style="font-size: 20px;"></i></button>
+                </div>`;
             mapContainer.insertAdjacentHTML('beforeend', weatherHtml);
         }
 
-        // --- 4. Inject Settings Modal (The Card Layout) ---
+        // --- 4. Inject Settings Modal (Corrected Structure) ---
+        // Note: We removed 'hidden' class here because CSS opacity handles visibility
         if (!document.getElementById('filter-settings-window')) {
             const settingsHtml = `
-                <div id="filter-settings-window" class="hidden animate-modal-in">
+                <div id="filter-settings-window">
                     <div class="settings-card">
                         <div class="settings-sidebar">
                             <div class="mobile-header">
-                                <span style="font-size: 14px; font-weight: 700; color: white; text-transform: uppercase;">Settings</span>
+                                <span style="font-size: 14px; font-weight: 700; color: white;">SETTINGS</span>
                                 <button class="filter-window-close-btn" style="color: #9ca3af; background:none; border:none;"><i class="fa-solid fa-xmark" style="font-size:20px;"></i></button>
                             </div>
-
                             <div class="nav-container no-scrollbar">
                                 <div class="nav-items">
-                                    <div style="display: flex; flex-direction: column; gap: 0.25rem; width: 100%;">
-                                        <button id="nav-labels" class="nav-btn nav-btn-active">
-                                            <i class="fa-solid fa-map"></i> <span><span class="nav-label">Map</span> Filters</span>
-                                        </button>
-                                    </div>
+                                    <button id="nav-labels" class="nav-btn nav-btn-active">
+                                        <i class="fa-solid fa-map"></i> <span>Map Filters</span>
+                                    </button>
                                 </div>
                             </div>
                         </div>
@@ -5835,66 +5828,54 @@ function formatDataForSimpleWindow(flightProps, plan, routePoints, communityData
                             <div class="desktop-header">
                                 <div>
                                     <h2 style="font-size: 20px; font-weight: 700; color: white;">Map Filters</h2>
-                                    <p style="font-size: 12px; color: #64748b; margin-top: 0.25rem;">Customize your view</p>
+                                    <p style="font-size: 12px; color: #64748b; margin-top: 0.25rem;">Customize your viewing experience</p>
                                 </div>
-                                <button class="filter-window-close-btn" style="width: 2.25rem; height: 2.25rem; border-radius: 50%; display: flex; align-items: center; justify-content: center; color: #64748b; background: rgba(255,255,255,0.05); border:none; cursor:pointer;">
+                                <button class="filter-window-close-btn" style="width: 2.5rem; height: 2.5rem; border-radius: 50%; display: flex; align-items: center; justify-content: center; color: #64748b; background: rgba(255,255,255,0.05); border:none; cursor:pointer;">
                                     <i class="fa-solid fa-xmark"></i>
                                 </button>
                             </div>
 
                             <div class="settings-scroll-area settings-scroll">
-                                <div id="tab-labels" class="animate-modal-in">
+                                <div id="tab-labels">
                                     
                                     <div class="setting-box">
-                                        <div>
-                                            <div style="font-weight: 700; font-size: 14px; color: #e2e8f0;">Show Aircraft Labels</div>
-                                        </div>
-                                        <div class="switch-container">
-                                            <input type="checkbox" id="filter-toggle-aircraft-labels" class="switch-input"/>
-                                            <label for="filter-toggle-aircraft-labels" class="switch-label"><span class="switch-handle"></span></label>
-                                        </div>
+                                        <div><div style="font-weight: 700; font-size: 14px; color: #e2e8f0;">Show Aircraft Labels</div></div>
+                                        <div class="switch-container"><input type="checkbox" id="filter-toggle-aircraft-labels" class="switch-input"/><label for="filter-toggle-aircraft-labels" class="switch-label"><span class="switch-handle"></span></label></div>
                                     </div>
 
                                     <div class="setting-box">
-                                        <div>
-                                            <div style="font-weight: 700; font-size: 14px; color: #e2e8f0;">Satellite Mode</div>
-                                        </div>
-                                        <div class="switch-container">
-                                            <input type="checkbox" id="filter-toggle-satellite-mode" class="switch-input"/>
-                                            <label for="filter-toggle-satellite-mode" class="switch-label"><span class="switch-handle"></span></label>
-                                        </div>
+                                        <div><div style="font-weight: 700; font-size: 14px; color: #e2e8f0;">Satellite Mode</div></div>
+                                        <div class="switch-container"><input type="checkbox" id="filter-toggle-satellite-mode" class="switch-input"/><label for="filter-toggle-satellite-mode" class="switch-label"><span class="switch-handle"></span></label></div>
                                     </div>
 
                                     <div class="setting-box">
-                                        <div>
-                                            <div style="font-weight: 700; font-size: 14px; color: #e2e8f0;">Hide Staffed Airports</div>
-                                        </div>
-                                        <div class="switch-container">
-                                            <input type="checkbox" id="filter-toggle-atc" class="switch-input"/>
-                                            <label for="filter-toggle-atc" class="switch-label"><span class="switch-handle"></span></label>
-                                        </div>
+                                        <div><div style="font-weight: 700; font-size: 14px; color: #e2e8f0;">Hide Staffed Airports</div></div>
+                                        <div class="switch-container"><input type="checkbox" id="filter-toggle-atc" class="switch-input"/><label for="filter-toggle-atc" class="switch-label"><span class="switch-handle"></span></label></div>
                                     </div>
                                     
                                     <div class="setting-box">
                                         <div>
                                             <div style="font-weight: 700; font-size: 14px; color: #e2e8f0;">Simple Flight Window</div>
+                                            <div style="font-size: 11px; color: #64748b; margin-top: 2px;">Use compact view for aircraft info</div>
                                         </div>
-                                        <div class="switch-container">
-                                            <input type="checkbox" id="filter-toggle-simple-window" class="switch-input"/>
-                                            <label for="filter-toggle-simple-window" class="switch-label"><span class="switch-handle"></span></label>
-                                        </div>
+                                        <div class="switch-container"><input type="checkbox" id="filter-toggle-simple-window" class="switch-input"/><label for="filter-toggle-simple-window" class="switch-label"><span class="switch-handle"></span></label></div>
+                                    </div>
+
+                                    <div style="margin-top: 2rem; border-top: 1px solid rgba(255,255,255,0.1); padding-top: 1rem; text-align: right;">
+                                        <button id="settings-reset-btn" style="font-size: 12px; color: #ef4444; background: transparent; border: 1px solid #ef4444; padding: 6px 12px; border-radius: 6px; cursor: pointer;">
+                                            Reset to Defaults
+                                        </button>
                                     </div>
 
                                 </div>
                             </div>
                         </div>
                     </div>
-                </div>
-            `;
+                </div>`;
             mapContainer.insertAdjacentHTML('beforeend', settingsHtml);
         }
 
-        // --- 5. Inject Info Windows (Airport & Aircraft) ---
+        // --- 5. Inject Info Windows ---
         if (!document.getElementById('airport-info-window')) {
              mapContainer.insertAdjacentHTML('beforeend', `<div id="airport-info-window" class="info-window"><div id="airport-window-content" class="info-window-content"></div></div>`);
         }
@@ -5902,37 +5883,29 @@ function formatDataForSimpleWindow(flightProps, plan, routePoints, communityData
              mapContainer.insertAdjacentHTML('beforeend', `<div id="aircraft-info-window" class="info-window"></div>`);
         }
 
-        // --- 6. Assign Global Variables ---
+        // --- 6. Assign Globals & Init ---
         airportInfoWindow = document.getElementById('airport-info-window');
         aircraftInfoWindow = document.getElementById('aircraft-info-window');
         weatherSettingsWindow = document.getElementById('weather-settings-window');
         filterSettingsWindow = document.getElementById('filter-settings-window');
-        // Retrieve recall buttons if they exist or create logic for them later
         airportInfoWindowRecallBtn = document.getElementById('airport-recall-btn') || createRecallButton('airport');
         aircraftInfoWindowRecallBtn = document.getElementById('aircraft-recall-btn') || createRecallButton('aircraft');
 
-        // --- 7. Initialize Map and Load Content ---
         const selectedHub = "VIDP"; 
         await initializeSectorOpsMap(selectedHub);
         await loadExternalPanelContent();
 
-        // --- 8. Set Up Event Listeners ---
-        setupSectorOpsEventListeners(); // Handles Sidebar & Weather
-        setupFilterSettingsWindowEvents(); // Handles Settings Modal
-        setupSearchEventListeners(); // Handles Search
+        setupSectorOpsEventListeners(); 
+        setupFilterSettingsWindowEvents(); 
+        setupSearchEventListeners(); 
         setupAirportWindowEvents();
         setupAircraftWindowEvents();
-        
         setupSmartMapBackgroundClick(); 
 
-        // --- 9. Listen for ND_READY signal ---
         window.addEventListener('message', (event) => {
-            if (event.data && event.data.type === 'ND_READY') {
-                refreshNavDisplayFromCache();
-            }
+            if (event.data && event.data.type === 'ND_READY') refreshNavDisplayFromCache();
         });
 
-        // --- 10. Start Live Loop ---
         startSectorOpsLiveLoop();
 
     } catch (error) {
@@ -9826,15 +9799,12 @@ function processRawPilotData(gradeInfo) {
         weatherSettingsWindow.dataset.eventsAttached = 'true';
     }
 
-
-
 function setupFilterSettingsWindowEvents() {
     if (!filterSettingsWindow || filterSettingsWindow.dataset.eventsAttached === 'true') return;
 
     // --- 1. Close/Hide Logic ---
     const closeSettings = () => {
         filterSettingsWindow.classList.remove('visible');
-        filterSettingsWindow.classList.add('hidden');
     };
 
     filterSettingsWindow.addEventListener('click', (e) => {
@@ -9850,23 +9820,23 @@ function setupFilterSettingsWindowEvents() {
     });
 
     // --- 2. Initial State Sync ---
-    // Sync toggles with current mapFilters state
-    const setChecked = (id, val) => {
-        const el = document.getElementById(id);
-        if(el) el.checked = val;
+    const syncToggles = () => {
+        const setChecked = (id, val) => {
+            const el = document.getElementById(id);
+            if(el) el.checked = val;
+        };
+        setChecked('filter-toggle-atc', mapFilters.hideAtcMarkers);
+        setChecked('filter-toggle-satellite-mode', currentMapStyle === MAP_STYLE_SATELLITE);
+        setChecked('filter-toggle-aircraft-labels', mapFilters.showAircraftLabels);
+        setChecked('filter-toggle-simple-window', mapFilters.useSimpleFlightWindow);
     };
-    
-    setChecked('filter-toggle-atc', mapFilters.hideAtcMarkers);
-    setChecked('filter-toggle-satellite-mode', currentMapStyle === MAP_STYLE_SATELLITE);
-    setChecked('filter-toggle-aircraft-labels', mapFilters.showAircraftLabels);
-    setChecked('filter-toggle-simple-window', mapFilters.useSimpleFlightWindow);
+    syncToggles();
 
     // --- 3. Toggle Logic ---
     filterSettingsWindow.addEventListener('change', (e) => {
         const target = e.target;
         if (target.type !== 'checkbox') return;
 
-        // Map filters
         if (target.id === 'filter-toggle-atc') {
             mapFilters.hideAtcMarkers = target.checked;
             renderAirportMarkers();
@@ -9877,18 +9847,14 @@ function setupFilterSettingsWindowEvents() {
         }
         else if (target.id === 'filter-toggle-simple-window') {
             mapFilters.useSimpleFlightWindow = target.checked;
-            // Force reload window if open
             if (currentFlightInWindow) {
+                // If a window is open, re-open it to apply the new style
                 const closeBtn = document.querySelector('.aircraft-window-close-btn');
                 if (closeBtn) closeBtn.click();
             }
         }
         else if (target.id === 'filter-toggle-satellite-mode') {
-            if (target.checked) {
-                currentMapStyle = MAP_STYLE_SATELLITE;
-            } else {
-                currentMapStyle = MAP_STYLE_DARK;
-            }
+            currentMapStyle = target.checked ? MAP_STYLE_SATELLITE : MAP_STYLE_DARK;
             console.log(`Changing map style to: ${currentMapStyle}`);
             sectorOpsMap.setStyle(currentMapStyle);
         }
@@ -9896,9 +9862,30 @@ function setupFilterSettingsWindowEvents() {
         saveFiltersToLocalStorage();
     });
 
+    // --- 4. Reset Button Logic ---
+    const resetBtn = document.getElementById('settings-reset-btn');
+    if (resetBtn) {
+        resetBtn.addEventListener('click', () => {
+            // Reset to default values
+            mapFilters.hideAtcMarkers = false;
+            mapFilters.showAircraftLabels = false;
+            mapFilters.useSimpleFlightWindow = false;
+            currentMapStyle = MAP_STYLE_DARK;
+
+            // Apply updates
+            sectorOpsMap.setStyle(MAP_STYLE_DARK);
+            renderAirportMarkers();
+            updateAircraftLabelVisibility();
+            
+            // Sync UI checkmarks
+            syncToggles();
+            saveFiltersToLocalStorage();
+            showNotification('Settings reset to defaults.', 'info');
+        });
+    }
+
     filterSettingsWindow.dataset.eventsAttached = 'true';
 }
-
 
    /**
      * --- [MODIFIED] Sets up event listeners for the map search bar.
