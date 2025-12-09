@@ -2462,225 +2462,6 @@ function injectCustomStyles() {
 }
 .apt-mini-footer i { margin-right: 6px; color: #fbbf24; } /* Amber icon for remarks */
 
-/* --- RE-DESIGNED SEARCH BAR & DROPDOWN (EXPANDING LEFT) --- */
-
-/* 1. Container Positioning */
-#sector-ops-search-container {
-    position: absolute;
-    top: 20px;
-    right: 20px; /* Anchor to RIGHT */
-    left: auto;  /* Ensure left is free */
-    z-index: 1050;
-    width: 40px; /* Start collapsed (icon width) */
-    font-family: var(--font-ui);
-    display: flex;
-    flex-direction: column;
-    filter: drop-shadow(0 10px 30px rgba(0,0,0,0.5));
-    transition: width 0.4s cubic-bezier(0.16, 1, 0.3, 1); /* Smooth slide */
-}
-
-/* Expansion Logic: Hover or Focus expands width */
-#sector-ops-search-container:focus-within,
-#sector-ops-search-container.has-results {
-    width: 260px; /* Full width */
-}
-
-/* 2. The Input Bar */
-.search-bar-container {
-    position: relative;
-    display: flex;
-    align-items: center;
-    justify-content: flex-end; /* Keep icon to the right */
-    height: 40px; 
-    background: rgba(24, 24, 27, 0.95); 
-    backdrop-filter: blur(20px);
-    -webkit-backdrop-filter: blur(20px);
-    border: 1px solid rgba(255, 255, 255, 0.1);
-    border-radius: 20px; /* Pill shape when collapsed */
-    padding: 0; /* Remove padding for tight fit */
-    transition: all 0.3s ease;
-    z-index: 20;
-    overflow: hidden; /* Clip input when collapsed */
-}
-
-/* Adjust radius when expanded */
-#sector-ops-search-container:focus-within .search-bar-container,
-#sector-ops-search-container.has-results .search-bar-container {
-    border-radius: 10px;
-}
-
-/* Flatten bottom when dropdown opens */
-.search-bar-container.has-results {
-    border-bottom-left-radius: 0 !important;
-    border-bottom-right-radius: 0 !important;
-    border-bottom: 1px solid rgba(255,255,255,0.05); 
-    background: rgba(24, 24, 27, 1);
-}
-
-/* Icons inside bar */
-.search-icon-label {
-    width: 40px;
-    height: 100%;
-    display: grid; /* Use grid for perfect centering */
-    place-items: center;
-    color: #94a3b8;
-    font-size: 16px; /* Explicit size to fit container */
-    cursor: pointer;
-    margin: 0;
-    flex-shrink: 0; 
-    z-index: 10;
-    transition: color 0.2s;
-    border-radius: 50%; /* Match container radius */
-}
-
-.search-icon-label i {
-    line-height: 1; /* Reset line-height to avoid offset */
-    display: block;
-}
-
-.search-bar-container:hover .search-icon-label {
-    color: #fff;
-}
-
-/* The Input Field (Hidden by default) */
-.search-bar-container input {
-    flex-grow: 1;
-    background: transparent;
-    border: none;
-    color: #fff;
-    font-size: 0.95rem;
-    font-weight: 500;
-    outline: none;
-    font-family: var(--font-ui);
-    height: 100%;
-    
-    /* Animation Props */
-    width: 0;
-    opacity: 0;
-    padding: 0;
-    transition: all 0.3s ease;
-}
-
-/* Show Input on Expand */
-#sector-ops-search-container:focus-within input,
-#sector-ops-search-container.has-results input {
-    width: 100%;
-    opacity: 1;
-    padding: 0 0 0 16px; /* Left padding */
-}
-
-.search-bar-container input::placeholder {
-    color: #52525b; 
-    font-weight: 400;
-}
-
-/* Clear 'X' Button */
-.search-clear-btn {
-    background: rgba(255,255,255,0.1);
-    border: none;
-    color: #a1a1aa;
-    width: 24px;
-    height: 24px;
-    border-radius: 50%;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    font-size: 0.8rem;
-    cursor: pointer;
-    transition: all 0.2s;
-    margin-right: 4px; /* Space from icon */
-    display: none; /* JS toggles flex */
-}
-
-.search-clear-btn:hover {
-    background: rgba(255,255,255,0.2);
-    color: #fff;
-}
-
-/* 3. The Dropdown Results */
-.search-results-dropdown {
-    display: none; /* Hidden by default */
-    background: rgba(24, 24, 27, 0.95); /* Match bar background */
-    backdrop-filter: blur(20px);
-    -webkit-backdrop-filter: blur(20px);
-    border: 1px solid rgba(255, 255, 255, 0.1);
-    border-top: none; /* Seamless merge */
-    border-radius: 0 0 12px 12px;
-    max-height: 450px;
-    overflow-y: auto;
-    width: 100%;
-    padding-top: 4px;
-    padding-bottom: 8px;
-    /* Scrollbar Styling */
-    scrollbar-width: thin;
-    scrollbar-color: #3f3f46 transparent;
-}
-
-.search-results-dropdown::-webkit-scrollbar {
-    width: 6px;
-}
-.search-results-dropdown::-webkit-scrollbar-thumb {
-    background-color: #3f3f46;
-    border-radius: 3px;
-}
-
-/* --- RESULT ROW STYLING (The content) --- */
-.search-result-item {
-    display: grid;
-    grid-template-columns: 40px 1fr auto; /* Logo | Info | Stats */
-    gap: 12px;
-    padding: 12px 16px;
-    border-bottom: 1px solid rgba(255,255,255,0.03);
-    cursor: pointer;
-    transition: background 0.15s ease;
-    align-items: center;
-}
-
-.search-result-item:hover {
-    background: rgba(56, 189, 248, 0.1); /* Brand color highlight */
-}
-
-.search-result-item:last-child {
-    border-bottom: none;
-}
-
-/* Column 1: Image Box */
-.search-result-img-box {
-    width: 40px;
-    height: 40px;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    background: rgba(0,0,0,0.3);
-    border-radius: 8px;
-    border: 1px solid rgba(255,255,255,0.05);
-    overflow: hidden;
-}
-
-.search-result-logo {
-    max-width: 32px;
-    max-height: 32px;
-    object-fit: contain;
-}
-
-/* Column 2: Text Info */
-.search-result-info {
-    display: flex;
-    flex-direction: column;
-    justify-content: center;
-    gap: 3px;
-    overflow: hidden;
-}
-
-.search-main-text {
-    color: #f4f4f5;
-    font-weight: 700;
-    font-size: 0.95rem;
-    font-family: var(--font-data);
-    display: flex;
-    align-items: center;
-    gap: 8px;
-}
 
 .search-badge-ac {
     font-size: 0.6rem;
@@ -2721,7 +2502,182 @@ function injectCustomStyles() {
 .stat-alt { color: #38bdf8; } /* Sky Blue */
 .stat-gs { color: #fbbf24; font-size: 0.75rem; font-weight: 600; } /* Amber */
 
+/* --- RE-DESIGNED SEARCH BAR (MATCHING BOTTOM TOOLS) --- */
 
+        /* 1. Container Positioning */
+        #sector-ops-search-container {
+            position: absolute;
+            top: 20px;
+            right: 20px;
+            z-index: 1050;
+            display: flex;
+            flex-direction: column;
+            align-items: flex-end; /* Aligns content to the right */
+            pointer-events: none; /* Let clicks pass through around the bar */
+        }
+
+        /* 2. The Input Bar (Pill Shape) */
+        .search-bar-container {
+            pointer-events: auto; /* Re-enable clicks */
+            position: relative;
+            display: flex;
+            flex-direction: row; /* Align Input and Icon horizontally */
+            align-items: center;
+            justify-content: flex-end;
+            
+            height: 44px; /* Matches standard toolbar button height */
+            width: 44px;  /* Collapsed width (circle) */
+            
+            background: var(--bg-glass) !important;
+            border: 1px solid var(--border-glass) !important;
+            border-radius: 22px; /* Perfect pill shape (half of height) */
+            
+            backdrop-filter: blur(20px) !important;
+            -webkit-backdrop-filter: blur(20px) !important;
+            box-shadow: 0 4px 20px rgba(0,0,0,0.4) !important;
+            
+            transition: width 0.4s cubic-bezier(0.16, 1, 0.3, 1), border-radius 0.2s ease;
+            overflow: hidden;
+        }
+
+        /* Hover or Focus: Expand Width */
+        .search-bar-container:hover,
+        .search-bar-container:focus-within,
+        .search-bar-container.has-results {
+            width: 260px;
+        }
+
+        /* When dropdown is open, flatten bottom corners */
+        .search-bar-container.has-results {
+            border-bottom-left-radius: 0;
+            border-bottom-right-radius: 0;
+            border-bottom-color: transparent !important;
+        }
+
+        /* 3. The Search Icon (The Trigger) */
+        .search-icon-label {
+            position: absolute;
+            right: 0;
+            top: 0;
+            width: 44px; /* Match container height */
+            height: 44px;
+            
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            
+            color: var(--text-secondary);
+            font-size: 1.1rem;
+            cursor: pointer;
+            z-index: 20;
+            transition: color 0.2s ease;
+            margin: 0; /* Reset default label margins */
+        }
+
+        .search-bar-container:hover .search-icon-label {
+            color: #fff;
+        }
+
+        /* 4. The Input Field */
+        .search-bar-container input {
+            width: 100%;
+            height: 100%;
+            padding: 0 44px 0 16px; /* Right padding makes room for the icon */
+            
+            background: transparent;
+            border: none;
+            outline: none;
+            
+            color: var(--text-primary) !important;
+            font-family: var(--font-ui);
+            font-size: 0.9rem;
+            font-weight: 500;
+            
+            opacity: 0; /* Hidden when collapsed */
+            cursor: pointer; /* Pointer when collapsed so clicking anywhere opens it */
+        }
+
+        /* Show Input when Expanded */
+        .search-bar-container:hover input,
+        .search-bar-container:focus-within input,
+        .search-bar-container.has-results input {
+            opacity: 1;
+            cursor: text;
+        }
+
+        .search-bar-container input::placeholder {
+            color: var(--text-secondary) !important;
+            opacity: 0.7;
+        }
+
+        /* 5. Clear 'X' Button */
+        .search-clear-btn {
+            position: absolute;
+            right: 40px; /* Position to the left of the magnifying glass */
+            top: 50%;
+            transform: translateY(-50%);
+            
+            width: 20px;
+            height: 20px;
+            
+            background: rgba(255,255,255,0.1);
+            border-radius: 50%;
+            border: none;
+            color: #fff;
+            
+            display: none; /* JS toggles flex */
+            align-items: center;
+            justify-content: center;
+            font-size: 0.6rem;
+            cursor: pointer;
+            z-index: 25;
+        }
+        
+        .search-clear-btn:hover {
+            background: rgba(255,255,255,0.3);
+        }
+
+        /* 6. The Dropdown Results */
+        .search-results-dropdown {
+            display: none;
+            width: 260px; /* Matches expanded bar width */
+            margin-top: 0;
+            
+            background: var(--bg-glass);
+            backdrop-filter: blur(20px);
+            -webkit-backdrop-filter: blur(20px);
+            border: 1px solid var(--border-glass);
+            border-top: none;
+            
+            border-bottom-left-radius: 12px;
+            border-bottom-right-radius: 12px;
+            
+            max-height: 450px;
+            overflow-y: auto;
+            pointer-events: auto;
+            
+            /* Scrollbar */
+            scrollbar-width: thin;
+            scrollbar-color: var(--border-glass) transparent;
+        }
+        
+        /* Result Item Styling (Kept mostly same, just ensured vars) */
+        .search-result-item {
+            display: grid;
+            grid-template-columns: 40px 1fr auto;
+            gap: 12px;
+            padding: 10px 14px;
+            border-bottom: 1px solid var(--border-glass);
+            cursor: pointer;
+            transition: background 0.15s ease;
+            align-items: center;
+        }
+        .search-result-item:hover {
+            background: var(--bg-panel);
+        }
+        .search-result-item:last-child {
+            border-bottom: none;
+        }
     `;
 
     const style = document.createElement('style');
@@ -6971,18 +6927,22 @@ function formatDataForSimpleWindow(flightProps, plan, routePoints, communityData
             }
 
             // --- 2. Inject the Search Bar (UPDATED STRUCTURE) ---
+            // --- 2. Inject the Search Bar (REMODELLED) ---
             if (!document.getElementById('sector-ops-search-container')) {
                 const searchHtml = `
-                    <div id="sector-ops-search-container" class="sector-ops-search">
+                    <div id="sector-ops-search-container">
                         <div class="search-bar-container">
-                            <input type="text" id="sector-ops-search-input" placeholder="Search callsign or username..." aria-label="Search callsign or username" autocomplete="off">
-                            <button id="sector-ops-search-clear" class="search-clear-btn" aria-label="Clear search" style="display: none;">
+                            <input type="text" id="sector-ops-search-input" placeholder="Search callsign..." autocomplete="off">
+                            
+                            <button id="sector-ops-search-clear" class="search-clear-btn" title="Clear">
                                 <i class="fa-solid fa-xmark"></i>
                             </button>
-                            <label for="sector-ops-search-input" class="search-icon-label">
-                                <i class="fa-solid fa-magnifying-glass search-icon"></i>
-                            </label>
+                            
+                            <div class="search-icon-label">
+                                <i class="fa-solid fa-magnifying-glass"></i>
+                            </div>
                         </div>
+                        
                         <div id="search-results-dropdown" class="search-results-dropdown"></div>
                     </div>
                 `;
