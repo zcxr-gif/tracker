@@ -2499,21 +2499,17 @@ function injectCustomStyles() {
             pointer-events: none; /* Let clicks pass through around the bar */
         }
 
-        /* 2. The Input Bar (Pill Shape) */
         .search-bar-container {
-            pointer-events: auto; /* Re-enable clicks */
+            pointer-events: auto;
             position: relative;
-            display: flex;
-            flex-direction: row; /* Align Input and Icon horizontally */
-            align-items: center;
-            justify-content: flex-end;
+            display: block; /* [FIX] Changed from flex to block */
             
-            height: 44px; /* Matches standard toolbar button height */
-            width: 44px;  /* Collapsed width (circle) */
+            height: 44px;
+            width: 44px; /* Collapsed width */
             
             background: var(--bg-glass) !important;
             border: 1px solid var(--border-glass) !important;
-            border-radius: 22px; /* Perfect pill shape (half of height) */
+            border-radius: 22px; 
             
             backdrop-filter: blur(20px) !important;
             -webkit-backdrop-filter: blur(20px) !important;
@@ -2542,48 +2538,46 @@ function injectCustomStyles() {
             position: absolute;
             right: 0;
             top: 0;
-            width: 44px; /* Match container height */
-            height: 44px;
-            
+            width: 44px;
+            height: 100%;
             display: flex;
             align-items: center;
             justify-content: center;
-            
             color: var(--text-secondary);
             font-size: 1.1rem;
-            cursor: pointer;
-            z-index: 20;
-            transition: color 0.2s ease;
-            margin: 0; /* Reset default label margins */
+            z-index: 200; 
+            pointer-events: none; /* [FIX] Let clicks pass through to the input */
         }
 
         .search-bar-container:hover .search-icon-label {
             color: #fff;
         }
 
-        /* 4. The Input Field (FIXED) */
         .search-bar-container input {
+            position: absolute;
+            top: 0;
+            left: 0;
             width: 100%;
             height: 100%;
             
-            /* Account for Search Icon + Clear 'X' */
-            padding: 0 75px 0 20px; 
+            /* [FIX] Text starts at 20px from left */
+            padding-left: 20px !important;
+            padding-right: 50px !important; 
             
-            background: transparent;
-            border: none;
-            outline: none;
+            background: transparent !important;
+            border: none !important;
+            outline: none !important;
             
-            position: relative; 
-            z-index: 100; /* Increased Z-Index to ensure it sits on top */
-            
-            /* [FIX] Hardcoded white color to prevent invisible text issues */
-            color: #ffffff !important; 
+            color: #ffffff !important;
             font-family: var(--font-ui);
             font-size: 0.9rem;
             font-weight: 500;
+            text-align: left !important; /* [FIX] Force text alignment */
+            
+            z-index: 150;
+            cursor: text;
             
             opacity: 0; 
-            cursor: pointer; 
             transition: opacity 0.2s ease; 
         }
 
