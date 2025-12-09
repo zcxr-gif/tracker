@@ -2468,10 +2468,10 @@ function injectCustomStyles() {
 #sector-ops-search-container {
     position: absolute;
     top: 20px;
-    right: 80px; /* Changed from left: 20px to right: 80px */
+    right: 20px; /* Changed from left: 20px to right: 20px */
     left: auto;  /* Ensure left is unset */
     z-index: 1050;
-    width: 340px; /* Wider for better data display */
+    width: 260px; /* Reduced Width (was 340px) */
     font-family: var(--font-ui);
     display: flex;
     flex-direction: column;
@@ -2483,13 +2483,13 @@ function injectCustomStyles() {
     position: relative;
     display: flex;
     align-items: center;
-    height: 50px; /* Taller, easier to hit */
+    height: 40px; /* Reduced Height (was 50px) */
     background: rgba(24, 24, 27, 0.95); /* Deep Zinc */
     backdrop-filter: blur(20px);
     -webkit-backdrop-filter: blur(20px);
     border: 1px solid rgba(255, 255, 255, 0.1);
-    border-radius: 12px; /* Smooth corners */
-    padding: 0 16px;
+    border-radius: 10px; /* Slightly adjusted radius */
+    padding: 0 12px; /* Adjusted padding */
     transition: all 0.2s ease;
     z-index: 20;
 }
