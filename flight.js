@@ -2520,17 +2520,22 @@ function injectCustomStyles() {
 /* Icons inside bar */
 .search-icon-label {
     width: 40px;
-    height: 40px;
-    display: flex;
-    align-items: center;
-    justify-content: center;
+    height: 100%;
+    display: grid; /* Use grid for perfect centering */
+    place-items: center;
     color: #94a3b8;
-    font-size: 0.85rem;
+    font-size: 16px; /* Explicit size to fit container */
     cursor: pointer;
     margin: 0;
-    flex-shrink: 0; /* Don't shrink icon */
+    flex-shrink: 0; 
     z-index: 10;
     transition: color 0.2s;
+    border-radius: 50%; /* Match container radius */
+}
+
+.search-icon-label i {
+    line-height: 1; /* Reset line-height to avoid offset */
+    display: block;
 }
 
 .search-bar-container:hover .search-icon-label {
