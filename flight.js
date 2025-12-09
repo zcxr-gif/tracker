@@ -2461,6 +2461,106 @@ function injectCustomStyles() {
     text-overflow: ellipsis;
 }
 .apt-mini-footer i { margin-right: 6px; color: #fbbf24; } /* Amber icon for remarks */
+
+.search-results-dropdown {
+    max-height: 400px;
+    overflow-y: auto;
+    background: var(--bg-glass);
+    backdrop-filter: blur(20px);
+    border: 1px solid var(--border-glass);
+    border-radius: 0 0 8px 8px;
+    box-shadow: 0 10px 40px rgba(0,0,0,0.5);
+}
+
+.search-result-item {
+    display: grid;
+    grid-template-columns: 40px 1fr auto; /* Logo | Info | Stats */
+    gap: 12px;
+    padding: 10px 14px;
+    border-bottom: 1px solid rgba(255,255,255,0.05);
+    cursor: pointer;
+    transition: background 0.2s;
+    align-items: center;
+}
+
+.search-result-item:hover {
+    background: rgba(255,255,255,0.05);
+}
+
+.search-result-item:last-child {
+    border-bottom: none;
+}
+
+/* Column 1: Logo/Icon */
+.search-result-img-box {
+    width: 40px;
+    height: 40px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: rgba(255,255,255,0.03);
+    border-radius: 6px;
+    border: 1px solid rgba(255,255,255,0.05);
+}
+
+.search-result-logo {
+    max-width: 32px;
+    max-height: 32px;
+    object-fit: contain;
+}
+
+/* Column 2: Identity */
+.search-result-info {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    overflow: hidden;
+}
+
+.search-main-text {
+    color: #fff;
+    font-weight: 700;
+    font-size: 0.95rem;
+    font-family: var(--font-data);
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.search-sub-text {
+    color: #94a3b8;
+    font-size: 0.75rem;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.search-badge-ac {
+    font-size: 0.65rem;
+    background: #1e293b;
+    border: 1px solid #334155;
+    color: #cbd5e1;
+    padding: 1px 5px;
+    border-radius: 3px;
+    font-weight: 600;
+}
+
+/* Column 3: Telemetry */
+.search-result-stats {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-end;
+    gap: 2px;
+}
+
+.search-stat-pill {
+    font-family: var(--font-data);
+    font-size: 0.8rem;
+    font-weight: 600;
+}
+
+.stat-alt { color: #38bdf8; } /* Blue */
+.stat-gs { color: #fbbf24; font-size: 0.7rem; } /* Amber */
     `;
 
     const style = document.createElement('style');
@@ -3339,16 +3439,17 @@ async function loadExternalPanelContent() {
 }
 
     /**
-     * --- [FIXED] Handles the search input event.
-     * Finds matching flights from the live data and calls the render function.
-     * @param {string} searchText - The text from the search input.
+     * --- [ENHANCED] Handles the search input event.
+     * Searches Callsign, Username, Aircraft Type, Livery, and Altitude.
      */
     function handleSearchInput(searchText) {
         const dropdown = document.getElementById('search-results-dropdown');
         if (!dropdown) return;
 
-        if (searchText.length < 2) {
-            dropdown.innerHTML = ''; // Clear and hide
+        // Require at least 2 characters to start searching
+        if (!searchText || searchText.length < 2) {
+            dropdown.innerHTML = '';
+            dropdown.style.display = 'none';
             return;
         }
 
@@ -3362,46 +3463,101 @@ async function loadExternalPanelContent() {
                 if (!feature || !feature.properties) continue;
 
                 const props = feature.properties;
-                const callsign = props.callsign || '';
-                const username = props.username || '';
+                
+                // 1. Get Basic Strings
+                const callsign = (props.callsign || '').toUpperCase();
+                const username = (props.username || '').toUpperCase();
+                
+                // 2. Get Aircraft/Livery Data safely
+                let acName = '';
+                let livName = '';
+                if (props.aircraft) {
+                    const acObj = (typeof props.aircraft === 'string') ? JSON.parse(props.aircraft) : props.aircraft;
+                    acName = (acObj.aircraftName || '').toUpperCase();
+                    livName = (acObj.liveryName || '').toUpperCase();
+                }
 
-                if (callsign.toUpperCase().includes(upperSearchText) ||
-                    username.toUpperCase().includes(upperSearchText)) {
+                // 3. Get Altitude as String
+                const altStr = props.altitude ? Math.round(props.altitude).toString() : '';
 
-                    // --- [MODIFICATION] ---
-                    // Push the entire feature, not just text.
-                    // This gives the render function access to coordinates and properties.
+                // 4. Perform Matching
+                const isMatch = 
+                    callsign.includes(upperSearchText) ||
+                    username.includes(upperSearchText) ||
+                    acName.includes(upperSearchText) ||
+                    livName.includes(upperSearchText) ||
+                    altStr.startsWith(upperSearchText); // Altitude usually searched by start (e.g. "350" for 35000)
+
+                if (isMatch) {
                     matches.push(feature);
                 }
             } catch (error) {
-                console.error('Error searching feature:', error, currentMapFeatures[flightId]);
+                console.error('Error searching feature:', error);
             }
         }
         
+        // Sort results: Exact callsign matches first, then others
+        matches.sort((a, b) => {
+            const aCall = (a.properties.callsign || '').toUpperCase();
+            const bCall = (b.properties.callsign || '').toUpperCase();
+            const aExact = aCall === upperSearchText;
+            const bExact = bCall === upperSearchText;
+            if (aExact && !bExact) return -1;
+            if (!aExact && bExact) return 1;
+            return 0;
+        });
+
         renderSearchResultsDropdown(matches);
     }
 
 
     /**
-     * --- [FIXED] Renders the search results into the dropdown.
-     * Now embeds all required data into the HTML to prevent race conditions.
-     * @param {Array} matches - An array of full GeoJSON feature objects.
+     * --- [ENHANCED] Renders detailed search results.
+     * Shows Logo, Callsign, User, Aircraft, Livery, Altitude, and Speed.
      */
     function renderSearchResultsDropdown(matches) {
         const dropdown = document.getElementById('search-results-dropdown');
         if (!dropdown) return;
 
         if (matches.length === 0) {
-            dropdown.innerHTML = ''; // Clear and hide
+            dropdown.innerHTML = '<div style="padding:12px; color:#94a3b8; text-align:center; font-size:0.8rem;">No matches found</div>';
+            dropdown.style.display = 'block';
             return;
         }
 
-        // Limit to 10 results
-        dropdown.innerHTML = matches.slice(0, 10).map(feature => {
+        // Limit to 15 results for performance
+        dropdown.innerHTML = matches.slice(0, 15).map(feature => {
             const props = feature.properties;
             const coords = feature.geometry.coordinates;
 
-            // Stringify all data and escape single quotes for HTML safety
+            // Safe Data Parsing
+            const acData = (typeof props.aircraft === 'string') ? JSON.parse(props.aircraft) : (props.aircraft || {});
+            const acName = acData.aircraftName || 'Unknown';
+            const livName = acData.liveryName || 'Generic';
+            
+            // Format Display Values
+            const altDisplay = props.altitude ? Math.round(props.altitude).toLocaleString() : '0';
+            const gsDisplay = props.speed ? Math.round(props.speed) : '0';
+            
+            // Shorten Aircraft Name (e.g., "Boeing 777-300ER" -> "B77W")
+            let shortType = acName.split(' ')[0].substring(0,4).toUpperCase(); // Fallback
+            if(acName.includes("777")) shortType = "B777";
+            else if(acName.includes("737")) shortType = "B737";
+            else if(acName.includes("320")) shortType = "A320";
+            else if(acName.includes("350")) shortType = "A350";
+            else if(acName.includes("380")) shortType = "A380";
+            else if(acName.includes("787")) shortType = "B787";
+            else if(acName.includes("747")) shortType = "B747";
+            else if(acName.includes("CRJ")) shortType = "CRJ";
+            else if(acName.includes("Dash")) shortType = "DH8D";
+
+            // Airline Logo Logic
+            const words = livName.trim().split(/\s+/);
+            let logoName = words.length > 1 && /[^a-zA-Z0-9]/.test(words[1]) ? words[0] : (words[0] + (words[1] ? ' ' + words[1] : ''));
+            const sanitizedLogoName = logoName.toLowerCase().replace(/[^a-z0-9\s]/g, '').replace(/\s+/g, '_');
+            const logoPath = `Images/airline_logos/${sanitizedLogoName}.png`;
+
+            // Prepare Data for Click Handler
             const propsString = JSON.stringify(props).replace(/'/g, "&apos;");
             const coordsString = JSON.stringify(coords);
 
@@ -3410,14 +3566,30 @@ async function loadExternalPanelContent() {
                  data-flight-id="${props.flightId}"
                  data-coordinates='${coordsString}'
                  data-properties='${propsString}'>
-                <i class="fa-solid fa-plane"></i>
+                
+                <div class="search-result-img-box">
+                    <img src="${logoPath}" class="search-result-logo" onerror="this.style.display='none';this.parentElement.innerHTML='<i class=\'fa-solid fa-plane\'></i>'">
+                </div>
+
                 <div class="search-result-info">
-                    <strong>${props.callsign}</strong>
-                    <small>${props.username}</small>
+                    <div class="search-main-text">
+                        ${props.callsign}
+                        <span class="search-badge-ac">${shortType}</span>
+                    </div>
+                    <div class="search-sub-text">
+                        <span style="color: #cbd5e1;">${props.username}</span> • ${livName}
+                    </div>
+                </div>
+
+                <div class="search-result-stats">
+                    <span class="search-stat-pill stat-alt">${altDisplay} ft</span>
+                    <span class="search-stat-pill stat-gs">${gsDisplay} kts</span>
                 </div>
             </div>
-        `;
+            `;
         }).join('');
+        
+        dropdown.style.display = 'block';
     }
 
 
