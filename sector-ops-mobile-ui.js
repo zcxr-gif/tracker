@@ -2,16 +2,17 @@ const MobileUIHandler = {
     // --- CONFIGURATION ---
     CONFIG: {
         breakpoint: 992, // The max-width in pixels to trigger mobile view
-        defaultMode: 'legacy', // [UPDATED] Default is now 'legacy' sheet instead of HUD
+        defaultMode: 'legacy', // Default is 'legacy' sheet
         legacyPeekHeight: 280, // Height of the "peek" state for legacy sheet
     },
 
     // --- STATE ---
     isMobile: () => window.innerWidth <= MobileUIHandler.CONFIG.breakpoint,
     activeWindow: null, // The *original* hidden info window
-    activeMode: 'legacy', // [UPDATED] Defaults to legacy
+    activeMode: 'legacy', // Defaults to legacy
     topWindowEl: null, // HUD Mode: Top window
     overlayEl: null, // Shared: Overlay
+    serverSheetEl: null, // [NEW] Server Switcher Sheet
     closeTimer: null,
     
     // [HUD] Island elements
@@ -50,11 +51,13 @@ const MobileUIHandler = {
         // Find the map toolbar by finding the parent of one of its buttons
         const mapToolbar = document.getElementById('toolbar-toggle-panel-btn')?.parentElement;
         const searchBar = document.getElementById('sector-ops-search-container');
+        const desktopServerPill = document.getElementById('server-selector-container'); // [NEW] Desktop Pill
         
         // Revert to stylesheet defaults
         if (burgerMenu) burgerMenu.style.display = ''; 
         if (mapToolbar) mapToolbar.style.display = '';
         if (searchBar) searchBar.style.display = '';
+        if (desktopServerPill) desktopServerPill.style.display = '';
         
         // --- [FIX] Remove 'mobile-ui-active' class from the map container ---
         const mapContainer = document.getElementById('sector-ops-map-fullscreen');
@@ -73,7 +76,174 @@ const MobileUIHandler = {
         this.boundLegacyTouchMove = this.handleLegacyTouchMove.bind(this);
         this.boundLegacyTouchEnd = this.handleLegacyTouchEnd.bind(this);
         
-        console.log("Mobile UI Handler (HUD Rehaul v8.0 / Legacy Mode) Initialized.");
+        // [NEW] Inject Mobile Controls if on mobile
+        if (this.isMobile()) {
+            this.injectMobileHudControls();
+        }
+
+        // Listen for resize to toggle controls
+        window.addEventListener('resize', () => {
+            if (this.isMobile()) {
+                if (!document.getElementById('mobile-hud-controls')) this.injectMobileHudControls();
+            } else {
+                const hud = document.getElementById('mobile-hud-controls');
+                if (hud) hud.remove();
+                this.restoreMapControls();
+            }
+        });
+        
+        console.log("Mobile UI Handler (HUD Rehaul v9.0 - Icons) Initialized.");
+    },
+
+    /**
+     * [NEW] Injects the floating Server Pill (Top-Left) and Action Stack (Top-Right)
+     */
+    injectMobileHudControls() {
+        const mapContainer = document.getElementById('sector-ops-map-fullscreen');
+        if (!mapContainer || document.getElementById('mobile-hud-controls')) return;
+
+        // Hide Desktop Controls specifically
+        const desktopServerPill = document.getElementById('server-selector-container');
+        if (desktopServerPill) desktopServerPill.style.display = 'none';
+
+        // --- 1. Create Container ---
+        const controlsContainer = document.createElement('div');
+        controlsContainer.id = 'mobile-hud-controls';
+        
+        // --- 2. Top Left: Server Status Pill ---
+        // Reads current server from local storage or defaults
+        const currentServer = localStorage.getItem('preferredServer') || 'Expert Server';
+        const shortServerName = currentServer.split(' ')[0]; // "Expert"
+
+        const serverPillHTML = `
+            <div id="mobile-server-pill" class="mobile-glass-pill">
+                <div class="status-dot"></div>
+                <span id="mobile-server-name">${shortServerName}</span>
+                <i class="fa-solid fa-chevron-down" style="font-size: 0.7rem; opacity: 0.7;"></i>
+            </div>
+        `;
+
+        // --- 3. Top Right: Action Stack (Weather & Filters) ---
+        const actionStackHTML = `
+            <div class="mobile-action-stack">
+                <button id="mobile-btn-weather" class="mobile-glass-sq-btn">
+                    <i class="fa-solid fa-cloud-sun"></i>
+                </button>
+                <button id="mobile-btn-filters" class="mobile-glass-sq-btn">
+                    <i class="fa-solid fa-layer-group"></i>
+                </button>
+            </div>
+        `;
+
+        controlsContainer.innerHTML = serverPillHTML + actionStackHTML;
+        mapContainer.appendChild(controlsContainer);
+
+        // --- 4. Wire Events ---
+        
+        // Server Switcher
+        document.getElementById('mobile-server-pill').addEventListener('click', () => {
+            this.openServerSheet();
+        });
+
+        // Weather
+        document.getElementById('mobile-btn-weather').addEventListener('click', () => {
+            const btn = document.getElementById('open-weather-settings-btn'); // Trigger desktop logic
+            if (btn) btn.click();
+        });
+
+        // Filters
+        document.getElementById('mobile-btn-filters').addEventListener('click', () => {
+            const btn = document.getElementById('open-filter-settings-btn'); // Trigger desktop logic
+            if (btn) btn.click();
+        });
+    },
+
+    /**
+     * [NEW] Opens a bottom sheet to select the server
+     */
+    openServerSheet() {
+        const mapContainer = document.getElementById('sector-ops-map-fullscreen');
+        
+        // Remove existing if any
+        const existing = document.getElementById('mobile-server-sheet');
+        if (existing) existing.remove();
+
+        const sheet = document.createElement('div');
+        sheet.id = 'mobile-server-sheet';
+        sheet.className = 'mobile-server-sheet';
+        
+        const current = localStorage.getItem('preferredServer') || 'Expert Server';
+
+        sheet.innerHTML = `
+            <div class="sheet-header">
+                <span>Select Server</span>
+                <button id="close-server-sheet"><i class="fa-solid fa-xmark"></i></button>
+            </div>
+            <div class="server-options-list">
+                <button class="server-opt-btn ${current === 'Expert Server' ? 'active' : ''}" data-server="Expert Server">
+                    <div class="server-icon expert"><i class="fa-solid fa-trophy"></i></div>
+                    <div class="server-info">
+                        <span class="s-name">Expert Server</span>
+                        <span class="s-desc">Strict Rules • Live ATC</span>
+                    </div>
+                    ${current === 'Expert Server' ? '<i class="fa-solid fa-check"></i>' : ''}
+                </button>
+                <button class="server-opt-btn ${current === 'Training Server' ? 'active' : ''}" data-server="Training Server">
+                    <div class="server-icon training"><i class="fa-solid fa-graduation-cap"></i></div>
+                    <div class="server-info">
+                        <span class="s-name">Training Server</span>
+                        <span class="s-desc">Learning Environment</span>
+                    </div>
+                    ${current === 'Training Server' ? '<i class="fa-solid fa-check"></i>' : ''}
+                </button>
+                <button class="server-opt-btn ${current === 'Casual Server' ? 'active' : ''}" data-server="Casual Server">
+                    <div class="server-icon casual"><i class="fa-solid fa-plane-arrival"></i></div>
+                    <div class="server-info">
+                        <span class="s-name">Casual Server</span>
+                        <span class="s-desc">Free Flight • No Violations</span>
+                    </div>
+                    ${current === 'Casual Server' ? '<i class="fa-solid fa-check"></i>' : ''}
+                </button>
+            </div>
+        `;
+
+        // Overlay
+        const overlay = document.createElement('div');
+        overlay.id = 'server-sheet-overlay';
+        overlay.addEventListener('click', () => {
+            sheet.classList.remove('visible');
+            overlay.classList.remove('visible');
+            setTimeout(() => { sheet.remove(); overlay.remove(); }, 300);
+        });
+
+        mapContainer.appendChild(overlay);
+        mapContainer.appendChild(sheet);
+
+        // Animate In
+        requestAnimationFrame(() => {
+            overlay.classList.add('visible');
+            sheet.classList.add('visible');
+        });
+
+        // Close Event
+        sheet.querySelector('#close-server-sheet').addEventListener('click', () => overlay.click());
+
+        // Selection Event
+        sheet.querySelectorAll('.server-opt-btn').forEach(btn => {
+            btn.addEventListener('click', () => {
+                const newServer = btn.dataset.server;
+                
+                // Update Pill Text
+                const pillText = document.getElementById('mobile-server-name');
+                if (pillText) pillText.textContent = newServer.split(' ')[0];
+
+                // Trigger Desktop Logic
+                const desktopBtn = document.querySelector(`.server-btn[data-server="${newServer}"]`);
+                if (desktopBtn) desktopBtn.click();
+
+                overlay.click(); // Close
+            });
+        });
     },
 
     /**
@@ -86,12 +256,13 @@ const MobileUIHandler = {
 
         const css = `
             :root {
-                --hud-bg: rgba(10, 15, 28, 0.85);
-                --hud-blur: 15px;
+                --hud-bg: rgba(15, 20, 35, 0.85);
+                --hud-blur: 20px;
                 --hud-top-window-height: 50px;
-                --hud-border: rgba(0, 168, 255, 0.3);
-                --hud-accent: #00a8ff;
+                --hud-border: rgba(255, 255, 255, 0.1);
+                --hud-accent: #38bdf8;
                 --hud-glow: 0 0 15px rgba(0, 168, 255, 0.5);
+                --hud-text: #fff;
                 
                 --drawer-peek-content-height: 200px;
                 --island-bottom-margin: env(safe-area-inset-bottom, 15px);
@@ -108,6 +279,156 @@ const MobileUIHandler = {
                 overflow: hidden;
             }
 
+            /* --- Hide Desktop UI elements on Mobile --- */
+            @media (max-width: ${this.CONFIG.breakpoint}px) {
+                #server-selector-container { display: none !important; }
+            }
+
+            /* ====================================================================
+            --- [START] NEW MOBILE HUD CONTROLS ---
+            ==================================================================== */
+            
+            #mobile-hud-controls {
+                position: absolute;
+                inset: 0;
+                pointer-events: none; /* Let clicks pass through to map */
+                z-index: 1020;
+                transition: opacity 0.3s ease;
+            }
+
+            /* --- 1. Top Left Server Pill --- */
+            .mobile-glass-pill {
+                position: absolute;
+                top: calc(env(safe-area-inset-top, 20px) + 15px);
+                left: 15px;
+                pointer-events: auto;
+                
+                background: var(--hud-bg);
+                backdrop-filter: blur(var(--hud-blur));
+                -webkit-backdrop-filter: blur(var(--hud-blur));
+                border: 1px solid var(--hud-border);
+                border-radius: 30px;
+                
+                padding: 8px 14px;
+                display: flex;
+                align-items: center;
+                gap: 8px;
+                
+                color: var(--hud-text);
+                font-family: 'Inter', sans-serif;
+                font-weight: 600;
+                font-size: 0.85rem;
+                box-shadow: 0 4px 15px rgba(0,0,0,0.3);
+                transition: transform 0.2s ease;
+            }
+            .mobile-glass-pill:active { transform: scale(0.95); }
+
+            .status-dot {
+                width: 8px; height: 8px;
+                background: #22c55e; /* Green */
+                border-radius: 50%;
+                box-shadow: 0 0 8px rgba(34, 197, 94, 0.6);
+            }
+
+            /* --- 2. Top Right Action Stack --- */
+            .mobile-action-stack {
+                position: absolute;
+                top: calc(env(safe-area-inset-top, 20px) + 15px);
+                right: 15px;
+                display: flex;
+                flex-direction: column;
+                gap: 10px;
+                pointer-events: auto;
+            }
+
+            .mobile-glass-sq-btn {
+                width: 44px; height: 44px;
+                background: var(--hud-bg);
+                backdrop-filter: blur(var(--hud-blur));
+                -webkit-backdrop-filter: blur(var(--hud-blur));
+                border: 1px solid var(--hud-border);
+                border-radius: 12px;
+                
+                color: #94a3b8; /* Muted icon color */
+                font-size: 1.1rem;
+                display: flex;
+                align-items: center;
+                justify-content: center;
+                
+                box-shadow: 0 4px 15px rgba(0,0,0,0.3);
+                transition: all 0.2s ease;
+            }
+            .mobile-glass-sq-btn:active {
+                transform: scale(0.95);
+                background: rgba(56, 189, 248, 0.2);
+                color: #fff;
+                border-color: rgba(56, 189, 248, 0.5);
+            }
+
+            /* --- 3. Server Switcher Sheet --- */
+            #server-sheet-overlay {
+                position: absolute; inset: 0;
+                background: rgba(0,0,0,0.6);
+                backdrop-filter: blur(4px);
+                z-index: 2000;
+                opacity: 0; transition: opacity 0.3s ease;
+                pointer-events: none;
+            }
+            #server-sheet-overlay.visible { opacity: 1; pointer-events: auto; }
+
+            .mobile-server-sheet {
+                position: absolute;
+                bottom: 0; left: 0; right: 0;
+                background: #18181b; /* Zinc 900 */
+                border-top: 1px solid #333;
+                border-radius: 20px 20px 0 0;
+                padding: 20px;
+                z-index: 2001;
+                transform: translateY(100%);
+                transition: transform 0.3s cubic-bezier(0.16, 1, 0.3, 1);
+                padding-bottom: calc(20px + env(safe-area-inset-bottom, 20px));
+            }
+            .mobile-server-sheet.visible { transform: translateY(0); }
+
+            .sheet-header {
+                display: flex; justify-content: space-between; align-items: center;
+                margin-bottom: 20px;
+                color: #fff; font-weight: 700; font-size: 1.1rem;
+            }
+            #close-server-sheet {
+                background: rgba(255,255,255,0.1); border: none; color: #ccc;
+                width: 30px; height: 30px; border-radius: 50%;
+                display: grid; place-items: center;
+            }
+
+            .server-options-list { display: flex; flex-direction: column; gap: 10px; }
+            
+            .server-opt-btn {
+                background: rgba(255,255,255,0.03);
+                border: 1px solid rgba(255,255,255,0.05);
+                border-radius: 12px;
+                padding: 15px;
+                display: flex; align-items: center; gap: 15px;
+                color: #fff; text-align: left;
+                transition: all 0.2s;
+            }
+            .server-opt-btn.active {
+                background: rgba(56, 189, 248, 0.1);
+                border-color: rgba(56, 189, 248, 0.3);
+            }
+            
+            .server-icon {
+                width: 40px; height: 40px; border-radius: 10px;
+                display: grid; place-items: center; font-size: 1.2rem;
+            }
+            .server-icon.expert { background: rgba(234, 179, 8, 0.1); color: #eab308; }
+            .server-icon.training { background: rgba(168, 85, 247, 0.1); color: #a855f7; }
+            .server-icon.casual { background: rgba(34, 197, 94, 0.1); color: #22c55e; }
+
+            .server-info { flex-grow: 1; display: flex; flex-direction: column; }
+            .s-name { font-weight: 600; font-size: 1rem; }
+            .s-desc { font-size: 0.8rem; color: #94a3b8; }
+
             /* ====================================================================
             --- [START] UPDATED: Search Bar Mobile Positioning (Glass Pill) ---
             ==================================================================== */
@@ -115,11 +436,11 @@ const MobileUIHandler = {
                 #sector-ops-search-container {
                     position: absolute !important;
                     /* Sits lower to clear the notch/status bar gracefully */
-                    top: calc(env(safe-area-inset-top, 20px) + 10px) !important; 
+                    top: calc(env(safe-area-inset-top, 20px) + 15px) !important; 
                     left: 50% !important;
                     transform: translateX(-50%) !important;
-                    /* Slightly narrower than full width for the floating look */
-                    width: calc(100% - 32px) !important; 
+                    /* Narrower to fit between new buttons */
+                    width: calc(100% - 140px) !important; 
                     max-width: 450px !important;
                     z-index: 1030 !important;
                     pointer-events: auto !important;
@@ -139,7 +460,7 @@ const MobileUIHandler = {
                     
                     box-shadow: 0 8px 32px rgba(0, 0, 0, 0.5) !important;
                     padding: 0 6px !important; /* Padding for the icons */
-                    height: 50px !important;
+                    height: 44px !important; /* Matches the square buttons */
                     transition: all 0.3s ease !important;
                 }
                 
@@ -669,6 +990,10 @@ const MobileUIHandler = {
         const mapContainer = document.getElementById('sector-ops-map-fullscreen');
         if (mapContainer) mapContainer.classList.add('mobile-ui-active');
         // --- [END FIX] ---
+
+        // Hide HUD controls when a window is open
+        const hudControls = document.getElementById('mobile-hud-controls');
+        if (hudControls) hudControls.style.opacity = '0';
 
         if (windowElement.id === 'aircraft-info-window') {
             // --- Hide map controls ---
@@ -1305,6 +1630,10 @@ const MobileUIHandler = {
              clearInterval(window.activePfdUpdateInterval);
              window.activePfdUpdateInterval = null;
         }
+
+        // Show HUD controls again
+        const hudControls = document.getElementById('mobile-hud-controls');
+        if (hudControls) hudControls.style.opacity = '1';
 
         const animationDuration = force ? 0 : 500;
         
