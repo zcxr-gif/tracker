@@ -77,8 +77,8 @@ const MobileUIHandler = {
     },
 
     /**
-     * [MODIFIED] Injects all the CSS for the new HUD-themed floating islands.
-     * Includes improved styling for the mobile search bar.
+     * [REMASTERED] Injects specific CSS for Mobile to minimize UI clutter.
+     * Reduces search bar size, scales down icons, and optimizes placement.
      */
     injectMobileStyles() {
         const styleId = 'mobile-sector-ops-styles';
@@ -89,38 +89,72 @@ const MobileUIHandler = {
                 --hud-bg: rgba(10, 15, 28, 0.85);
                 --hud-blur: 15px;
                 --hud-top-window-height: 50px;
-                --hud-border: rgba(0, 168, 255, 0.3);
+                --hud-border: rgba(255, 255, 255, 0.1);
                 --hud-accent: #00a8ff;
-                --hud-glow: 0 0 15px rgba(0, 168, 255, 0.5);
+                --mobile-safe-top: env(safe-area-inset-top, 20px);
+                --mobile-safe-bottom: env(safe-area-inset-bottom, 20px);
                 
-                --drawer-peek-content-height: 200px;
-                --island-bottom-margin: env(safe-area-inset-bottom, 15px);
-                --island-side-margin: 10px;
-
-                /* --- [NEW] Legacy Sheet Config --- */
                 --legacy-peek-height: ${this.CONFIG.legacyPeekHeight}px;
-                --legacy-top-offset: env(safe-area-inset-top, 15px);
+                --legacy-top-offset: var(--mobile-safe-top);
             }
             
-            /* --- [FIX] Target the map container instead of 'view-rosters' --- */
             #sector-ops-map-fullscreen.mobile-ui-active {
                 position: relative;
                 overflow: hidden;
             }
 
             /* ====================================================================
-            --- [START] UPDATED: Search Bar Mobile Positioning (Glass Pill) ---
+            --- [START] MOBILE SPECIFIC OVERRIDES ---
             ==================================================================== */
             @media (max-width: ${this.CONFIG.breakpoint}px) {
+                
+                /* 1. COMPACT SERVER SELECTOR (Pushed below search) */
+                #server-selector-container {
+                    top: calc(var(--mobile-safe-top) + 60px) !important; /* Below search bar */
+                    width: auto !important;
+                    max-width: 90% !important;
+                    padding: 2px !important;
+                    gap: 2px !important;
+                    transform: translateX(-50%) scale(0.9) !important; /* Scale down 90% */
+                    border-radius: 8px !important;
+                    white-space: nowrap !important;
+                    overflow-x: auto !important;
+                    /* Hide scrollbar */
+                    -ms-overflow-style: none;  
+                    scrollbar-width: none;  
+                }
+                #server-selector-container::-webkit-scrollbar { display: none; }
+
+                .server-btn {
+                    padding: 4px 10px !important;
+                    font-size: 0.7rem !important;
+                }
+
+                /* 2. COMPACT TOOLBAR BUTTONS (Right Side) */
+                .map-toolbar-container, 
+                #toolbar-toggle-panel-btn {
+                    /* Reposition container if it exists, or individual buttons */
+                }
+                
+                /* Target buttons specifically to shrink them */
+                .toolbar-btn {
+                    width: 36px !important;
+                    height: 36px !important;
+                    font-size: 0.9rem !important; /* Smaller Icon */
+                    margin-bottom: 6px !important;
+                    background: rgba(15, 23, 42, 0.8) !important;
+                    backdrop-filter: blur(10px) !important;
+                }
+
+                /* 3. MINIMALIST SEARCH BAR */
                 #sector-ops-search-container {
                     position: absolute !important;
-                    /* Sits lower to clear the notch/status bar gracefully */
-                    top: calc(env(safe-area-inset-top, 20px) + 10px) !important; 
-                    left: 50% !important;
-                    transform: translateX(-50%) !important;
-                    /* Slightly narrower than full width for the floating look */
-                    width: calc(100% - 32px) !important; 
-                    max-width: 450px !important;
+                    top: calc(var(--mobile-safe-top) + 8px) !important;
+                    left: 10px !important;
+                    right: 10px !important;
+                    width: auto !important; /* Stretch to fit padding */
+                    max-width: none !important;
+                    transform: none !important;
                     z-index: 1030 !important;
                     pointer-events: auto !important;
                 }
@@ -128,164 +162,124 @@ const MobileUIHandler = {
                 #sector-ops-search-container .search-bar-container {
                     display: flex !important;
                     align-items: center !important;
-                    /* Darker, richer background for better contrast */
-                    background: rgba(15, 20, 35, 0.90) !important;
-                    backdrop-filter: blur(20px) !important;
-                    -webkit-backdrop-filter: blur(20px) !important;
                     
-                    border: 1px solid rgba(255, 255, 255, 0.1) !important;
-                    /* Full pill shape */
-                    border-radius: 50px !important; 
+                    /* Ultra-thin glass look */
+                    background: rgba(10, 12, 20, 0.75) !important; 
+                    backdrop-filter: blur(15px) !important;
+                    -webkit-backdrop-filter: blur(15px) !important;
                     
-                    box-shadow: 0 8px 32px rgba(0, 0, 0, 0.5) !important;
-                    padding: 0 6px !important; /* Padding for the icons */
-                    height: 50px !important;
+                    border: 1px solid rgba(255, 255, 255, 0.08) !important;
+                    border-radius: 12px !important; /* Softer rect, not full pill */
+                    
+                    box-shadow: 0 4px 15px rgba(0, 0, 0, 0.3) !important;
+                    padding: 0 8px !important;
+                    height: 42px !important; /* Reduced from 50px */
                     transition: all 0.3s ease !important;
                 }
                 
-                /* Focus state glow */
-                #sector-ops-search-container:focus-within .search-bar-container {
-                    border-color: var(--hud-accent) !important;
-                    box-shadow: 0 8px 32px rgba(0, 0, 0, 0.6), 0 0 15px rgba(0, 168, 255, 0.2) !important;
-                }
-
-                /* Search Icon */
+                /* Search Icon - Smaller & Subtle */
                 #sector-ops-search-container .search-icon-label {
+                    width: 30px !important;
+                    height: 30px !important;
+                    font-size: 0.9rem !important;
+                    color: rgba(255, 255, 255, 0.6) !important;
                     display: flex !important;
                     align-items: center !important;
                     justify-content: center !important;
-                    width: 40px !important;
-                    height: 40px !important;
-                    margin: 0 !important;
-                    color: var(--hud-accent) !important;
-                    opacity: 0.8;
                 }
 
-                /* Input Field */
+                /* Input Field - Compact Text */
                 #sector-ops-search-input {
-                    flex-grow: 1 !important;
-                    height: 100% !important;
+                    font-size: 14px !important; /* Smaller text */
+                    font-weight: 500 !important;
+                    color: #fff !important;
                     background: transparent !important;
                     border: none !important;
-                    color: #fff !important;
-                    font-family: 'Segoe UI', sans-serif !important;
-                    font-weight: 500 !important;
-                    font-size: 16px !important; /* Prevents iOS zoom */
-                    padding: 0 8px !important;
-                    outline: none !important;
-                    border-radius: 0 !important;
-                    -webkit-appearance: none !important;
+                    height: 100% !important;
+                    padding: 0 4px !important;
                 }
-                
                 #sector-ops-search-input::placeholder {
-                    color: rgba(255, 255, 255, 0.4) !important;
+                    color: rgba(255, 255, 255, 0.3) !important;
+                    font-size: 13px !important;
                 }
 
-                /* Clear Button */
+                /* Clear Button - Micro */
                 #sector-ops-search-clear {
-                    background: rgba(255, 255, 255, 0.1) !important;
-                    color: #fff !important;
-                    border: none !important;
-                    border-radius: 50% !important;
-                    width: 28px !important;
-                    height: 28px !important;
-                    display: flex !important;
-                    align-items: center !important;
-                    justify-content: center !important;
-                    margin-right: 6px !important;
-                    cursor: pointer !important;
-                    font-size: 0.9rem !important;
+                    width: 24px !important;
+                    height: 24px !important;
+                    background: rgba(255, 255, 255, 0.15) !important;
+                    font-size: 0.7rem !important;
+                    margin-right: 0 !important;
                 }
                 
-                /* Results Dropdown - Floating Card Style */
+                /* 4. COMPACT DROPDOWN RESULTS */
                 #search-results-dropdown {
-                    margin-top: 12px !important; /* Gap between bar and results */
-                    width: 100% !important;
-                    background: rgba(15, 20, 35, 0.95) !important;
-                    backdrop-filter: blur(25px) !important;
-                    -webkit-backdrop-filter: blur(25px) !important;
+                    margin-top: 6px !important;
+                    background: rgba(10, 12, 20, 0.95) !important;
+                    backdrop-filter: blur(20px) !important;
                     border: 1px solid rgba(255, 255, 255, 0.08) !important;
-                    border-radius: 16px !important;
-                    overflow: hidden !important;
-                    box-shadow: 0 15px 50px rgba(0, 0, 0, 0.6) !important;
-                    max-height: 60vh !important;
-                    overflow-y: auto !important;
+                    border-radius: 12px !important;
+                    max-height: 40vh !important; /* Don't cover keyboard */
                 }
                 
-                /* Result Items */
                 .search-result-item {
-                    padding: 14px 20px !important;
-                    border-bottom: 1px solid rgba(255, 255, 255, 0.05) !important;
-                    display: flex !important;
-                    align-items: center !important;
-                    gap: 15px !important;
+                    padding: 10px 14px !important; /* Tighter padding */
+                    gap: 10px !important;
                 }
                 
                 .search-result-item i {
-                    color: var(--hud-accent) !important;
-                    font-size: 1.1rem !important;
-                    opacity: 0.8;
+                    font-size: 0.9rem !important;
                 }
                 
                 .search-result-info strong {
-                    font-size: 1rem !important;
-                    color: #fff !important;
+                    font-size: 0.9rem !important;
                 }
                 
                 .search-result-info small {
-                    font-size: 0.85rem !important;
-                    color: #9fa8da !important;
+                    font-size: 0.75rem !important;
                 }
                 
-                .search-result-item:active {
-                    background: rgba(0, 168, 255, 0.15) !important;
+                /* 5. HIDE DESKTOP ELEMENTS */
+                #aircraft-info-window:not(.mobile-legacy-sheet), 
+                #airport-info-window {
+                    display: none !important;
                 }
             }
             /* ====================================================================
-            --- [END] Search Bar Mobile Positioning ---
+            --- [END] MOBILE SPECIFIC OVERRIDES ---
             ==================================================================== */
 
-            /* --- [MODIFIED] Overlay (now shared) --- */
+            /* --- Shared Overlay --- */
             #mobile-window-overlay {
                 position: absolute;
                 inset: 0;
-                background: rgba(0, 0, 0, 0.7);
-                backdrop-filter: blur(5px);
+                background: rgba(0, 0, 0, 0.6);
+                backdrop-filter: blur(4px);
                 z-index: 1040;
                 opacity: 0;
-                transition: opacity 0.4s ease;
+                transition: opacity 0.3s ease;
                 pointer-events: none;
             }
             #mobile-window-overlay.visible { opacity: 1; pointer-events: auto; }
 
-            
-            /* ====================================================================
-            --- [START] CSS for "HUD" (Island) Mode ---
-            ==================================================================== */
-
-            /* --- Base Island Class (Used by Top Window) --- */
+            /* --- Top Window (HUD) --- */
             .mobile-aircraft-view {
                 position: absolute;
                 background: var(--hud-bg);
                 backdrop-filter: blur(var(--hud-blur));
-                -webkit-backdrop-filter: blur(var(--hud-blur));
                 border: 1px solid var(--hud-border);
                 z-index: 1045;
-                transition: transform 0.45s cubic-bezier(0.16, 1, 0.3, 1), opacity 0.4s ease;
-                will-change: transform, opacity;
-                box-shadow: 0 10px 40px rgba(0,0,0,0.5), var(--hud-glow);
-                color: #e8eaf6;
+                transition: transform 0.4s cubic-bezier(0.16, 1, 0.3, 1), opacity 0.3s ease;
+                box-shadow: 0 10px 30px rgba(0,0,0,0.5);
                 border-radius: 16px;
                 overflow: hidden;
             }
 
-            /* --- Top Floating Window --- */
             #mobile-aircraft-top-window {
-                top: env(safe-area-inset-top, 15px);
-                left: var(--island-side-margin);
-                right: var(--island-side-margin);
-                max-height: 250px;
-                transform: translateY(-250%);
+                top: var(--mobile-safe-top);
+                left: 10px;
+                right: 10px;
+                transform: translateY(-150%);
                 opacity: 0;
             }
             #mobile-aircraft-top-window.visible {
@@ -293,253 +287,68 @@ const MobileUIHandler = {
                 opacity: 1;
             }
 
-            /* --- [NEW] Base Class for Bottom Islands --- */
+            /* --- Bottom Islands (HUD) --- */
             .mobile-island-bottom {
                 position: absolute;
-                left: var(--island-side-margin);
-                right: var(--island-side-margin);
-                
-                /* Visuals */
+                left: 10px;
+                right: 10px;
                 background: var(--hud-bg);
                 backdrop-filter: blur(var(--hud-blur));
-                -webkit-backdrop-filter: blur(var(--hud-blur));
                 border: 1px solid var(--hud-border);
-                box-shadow: 0 10px 40px rgba(0,0,0,0.5), var(--hud-glow);
+                box-shadow: 0 10px 30px rgba(0,0,0,0.5);
                 color: #e8eaf6;
                 border-radius: 16px;
-                
                 display: flex;
                 flex-direction: column;
-                
-                /* Animation */
-                transition: transform 0.45s cubic-bezier(0.16, 1, 0.3, 1), opacity 0.4s ease;
-                will-change: transform, opacity;
-                
-                /* Default Off-Screen State */
+                transition: transform 0.4s cubic-bezier(0.16, 1, 0.3, 1);
                 transform: translateY(120%);
-                opacity: 0;
                 z-index: 1045;
-                
                 overflow: hidden;
             }
             
-            /* Active State for ALL Bottom Islands */
-            .mobile-island-bottom.island-active {
-                transform: translateY(0);
-                opacity: 1;
-            }
+            .mobile-island-bottom.island-active { transform: translateY(0); }
 
-            /* --- State 0: Mini Island --- */
-            #mobile-island-mini {
-                bottom: var(--island-bottom-margin);
-                height: auto; 
-                display: flex;
-                flex-direction: column; 
-            }
-            
-            /* --- State 1: Peek Island --- */
-            #mobile-island-peek {
-                bottom: var(--island-bottom-margin);
-                height: auto; 
-            }
-            
-            /* --- State 2: Expanded Island --- */
-            #mobile-island-expanded {
-                top: 280px; /* Sits below the top window */
-                bottom: var(--island-bottom-margin);
-                height: auto; /* Fills the space */
-            }
+            #mobile-island-mini { bottom: var(--mobile-safe-bottom); height: auto; }
+            #mobile-island-peek { bottom: var(--mobile-safe-bottom); height: auto; }
+            #mobile-island-expanded { top: 120px; bottom: var(--mobile-safe-bottom); height: auto; }
 
-            /* --- Route Summary Bar Styling (Mobile HUD) --- */
+            /* --- Route Summary Bar Mobile Fixes --- */
             .route-summary-wrapper-mobile {
-                flex-shrink: 0;
-                overflow: hidden;
-                border-top-left-radius: 16px;
-                border-top-right-radius: 16px;
-                
-                /* Handle properties */
-                cursor: grab;
-                touch-action: none;
-                user-select: none;
                 position: relative;
-                
                 background: var(--hud-bg);
             }
-            
-            /* Add the pill visual */
             .route-summary-wrapper-mobile::before {
                 content: '';
                 position: absolute;
                 left: 50%;
                 transform: translateX(-50%);
-                top: 8px; 
-                width: 40px; 
+                top: 6px; 
+                width: 36px; 
                 height: 4px; 
-                background: var(--hud-border);
+                background: rgba(255,255,255,0.2);
                 border-radius: 2px; 
-                opacity: 0.5;
             }
-            
-            #mobile-island-mini .route-summary-wrapper-mobile::before {
-                opacity: 0.3;
-            }
-
-            /* Override desktop styles for the route bar on mobile */
             .route-summary-wrapper-mobile .route-summary-overlay {
-                position: relative; 
-                margin-bottom: 0;
-                background: var(--hud-bg);
-                border-radius: 0;
-                padding: 12px 15px 12px 15px; 
-                grid-template-columns: auto 1fr auto;
-                gap: 12px;
+                background: transparent;
+                padding: 10px 15px; 
+                gap: 10px;
             }
-            .route-summary-wrapper-mobile .route-summary-airport .icao {
-                font-size: 1.0rem;
-            }
-            .route-summary-wrapper-mobile .route-summary-airport .time {
-                font-size: 0.75rem;
-                margin-top: 2px;
-            }
-            .route-summary-wrapper-mobile .route-summary-airport .country-flag {
-                width: 16px;
-            }
-            .route-summary-wrapper-mobile .flight-phase-indicator {
-                padding: 3px 10px;
-                font-size: 0.7rem;
-            }
-            #mobile-island-mini .route-summary-wrapper-mobile .progress-bar-fill,
-            #mobile-island-peek .route-summary-wrapper-mobile .progress-bar-fill {
-                display: none;
-            }
-            #mobile-island-mini .route-summary-wrapper-mobile .route-progress-bar-container,
-            #mobile-island-peek .route-summary-wrapper-mobile .route-progress-bar-container {
-                 background: rgba(10, 12, 26, 0.4);
-            }
+            .route-summary-wrapper-mobile .route-summary-airport .icao { font-size: 1.1rem; }
+            .route-summary-wrapper-mobile .flight-phase-indicator { font-size: 0.65rem; padding: 2px 8px; }
 
-            /* --- Drawer Content (Used in Peek & Expanded) --- */
+            /* --- Drawer Content --- */
             .drawer-content {
                 overflow-y: auto;
                 flex-grow: 1;
-                padding-bottom: env(safe-area-inset-bottom, 0);
-                height: var(--drawer-peek-content-height);
+                padding-bottom: var(--mobile-safe-bottom);
             }
-            #mobile-island-peek .drawer-content {
-                overflow: hidden;
-            }
-            #mobile-island-expanded .drawer-content {
-                height: auto;
-            }
+            #mobile-island-peek .drawer-content { height: 200px; padding: 10px; }
             
-            .drawer-content::-webkit-scrollbar { width: 6px; }
-            .drawer-content::-webkit-scrollbar-track { background: transparent; }
-            .drawer-content::-webkit-scrollbar-thumb { background-color: var(--hud-accent); border-radius: 10px; }
-
-            /* --- State 1: "Peek" Stacked Data Layout (Replaces PFD) --- */
-            #mobile-island-peek .drawer-content {
-                padding: 10px;
-                box-sizing: border-box;
-                height: var(--drawer-peek-content-height); /* 200px */
-                display: flex;
-                flex-direction: column;
-            }
-            
-            #mobile-island-peek .unified-display-main-content {
-                padding: 0 !important;
-                gap: 10px;
-                height: 100%;
-                overflow: hidden;
-            }
-
-            #mobile-island-peek .pfd-main-panel { display: none !important; }
-            #mobile-island-peek .ac-profile-card-new { display: none !important; }
-            #mobile-island-peek .vsd-disclaimer { display: none !important; }
-            #mobile-island-peek #vsd-panel { display: none !important; }
-
-            #mobile-island-peek #location-data-panel {
-                padding: 10px;
-                flex-shrink: 0;
-                border-top-width: 0;
-                background: rgba(10, 12, 26, 0.5) !important;
-            }
-            #mobile-island-peek #location-data-panel .data-value {
-                font-size: 1.0rem;
-                margin-top: 4px;
-            }
-            #mobile-island-peek .flight-data-bar {
-                padding: 10px;
-                gap: 8px;
-                grid-template-columns: repeat(auto-fit, minmax(70px, 1fr));
-                flex-grow: 1;
-                overflow: hidden;
-                border-top-width: 0;
-            }
-            #mobile-island-peek .flight-data-bar .data-label { font-size: 0.6rem; }
-            #mobile-island-peek .flight-data-bar .data-value { font-size: 1.1rem; }
-            #mobile-island-peek .flight-data-bar .data-value .unit { font-size: 0.7rem; }
-
-
-            /* --- State 2: "Expanded" Stacked Layout --- */
-            #mobile-island-expanded .unified-display-main-content {
-                display: flex !important;
-                flex-direction: column;
-                gap: 16px;
-                height: auto;
-                overflow: hidden;
-                padding: 16px;
-            }
-            #mobile-island-expanded .pfd-main-panel {
-                display: flex !important;
-                margin: 0 auto !important;
-                max-width: 400px !important;
-            }
-             #mobile-island-expanded .ac-profile-card-new {
-                display: flex !important;
-            }
-            #mobile-island-expanded .vsd-disclaimer {
-                display: block !important;
-            }
-            #mobile-island-expanded .live-data-panel {
-                justify-content: space-around !important;
-                background: rgba(10, 12, 26, 0.5) !important;
-                border-radius: 12px !important;
-                padding: 16px !important;
-            }
-            #mobile-island-expanded .live-data-item .data-label { font-size: 0.7rem; }
-            #mobile-island-expanded .live-data-item .data-value { font-size: 1.5rem; }
-            #mobile-island-expanded .live-data-item .data-value .unit { font-size: 0.8rem; }
-            #mobile-island-expanded .live-data-item .data-value-ete { font-size: 1.7rem; }
-            
-            #mobile-island-expanded .pilot-stats-toggle-btn {
-                display: flex;
-                background: rgba(10, 12, 26, 0.5);
-                border-radius: 12px;
-                padding: 16px;
-                box-sizing: border-box;
-                justify-content: center;
-                align-items: center;
-                text-decoration: none;
-                color: var(--hud-accent);
-                font-weight: 600;
-                font-size: 1rem;
-                margin-top: 16px;
-            }
-
-            /* ====================================================================
-            --- [END] CSS for "HUD" (Island) Mode ---
-            ==================================================================== */
-
-
-            /* ====================================================================
-            --- [START] NEW CSS for "Legacy Sheet" Mode ---
-            ==================================================================== */
-
-            /* This class is applied to the original info-window */
+            /* --- Legacy Sheet Mode --- */
             .mobile-legacy-sheet {
-                /* --- [CRITICAL] Override desktop styles --- */
-                display: flex !important; /* Use flex (from desktop) */
+                display: flex !important;
                 position: absolute !important;
-                top: auto !important; /* Unset top */
+                top: auto !important;
                 bottom: 0 !important;
                 left: 0 !important;
                 right: 0 !important;
@@ -547,36 +356,20 @@ const MobileUIHandler = {
                 max-width: 100% !important;
                 max-height: calc(100vh - var(--legacy-top-offset)) !important;
                 z-index: 1045 !important;
-                border-radius: 16px 16px 0 0 !important;
-                box-shadow: 0 -5px 30px rgba(0,0,0,0.4) !important;
-                
-                /* --- Animation & State --- */
-                will-change: transform;
-                /* Start off-screen */
+                border-radius: 20px 20px 0 0 !important;
+                box-shadow: 0 -5px 30px rgba(0,0,0,0.6) !important;
                 transform: translateY(100%); 
-                transition: transform 0.45s cubic-bezier(0.16, 1, 0.3, 1);
+                transition: transform 0.4s cubic-bezier(0.16, 1, 0.3, 1);
             }
 
-            /* "Peek" State (Default visible state) */
-            .mobile-legacy-sheet.visible.peek {
-                transform: translateY(calc(100% - var(--legacy-peek-height)));
-            }
-
-            /* "Expanded" State */
-            .mobile-legacy-sheet.visible:not(.peek) {
-                transform: translateY(var(--hud-top-window-height));
-            }
+            .mobile-legacy-sheet.visible.peek { transform: translateY(calc(100% - var(--legacy-peek-height))); }
+            .mobile-legacy-sheet.visible:not(.peek) { transform: translateY(var(--hud-top-window-height)); }
             
-            /* --- [NEW] Drag Handle for Legacy Sheet --- */
             .legacy-sheet-handle {
                 position: relative;
                 flex-shrink: 0;
-                cursor: grab;
-                touch-action: none;
-                user-select: none;
-                /* This handle is a wrapper, so no visual styles by default */
+                background: var(--hud-bg); /* Match bg */
             }
-            /* Add the pill visual */
             .legacy-sheet-handle::before {
                 content: '';
                 position: absolute;
@@ -585,65 +378,27 @@ const MobileUIHandler = {
                 top: 8px; 
                 width: 40px; 
                 height: 4px; 
-                background: var(--hud-border);
+                background: rgba(255,255,255,0.3);
                 border-radius: 2px; 
-                opacity: 0.5;
-                z-index: 10; /* Above content */
+                z-index: 10;
             }
 
-            /* --- [UPDATED] Specific styling for SIMPLE MODE handle (Seamless Overlay) --- */
             .legacy-sheet-handle.simple-mode {
-                position: absolute !important; /* Float over the iframe */
-                top: 0 !important;
-                left: 0 !important;
-                width: 100% !important;
-                height: 40px !important; /* Visual height */
-                /* Large invisible touch area downwards for easier grabbing */
-                padding-bottom: 40px !important; 
-                
-                /* Seamless Gradient Background (instead of solid block) */
-                background: linear-gradient(to bottom, rgba(0,0,0,0.7) 0%, transparent 100%) !important;
-                
-                border: none !important;
-                border-radius: 16px 16px 0 0 !important;
-                
-                display: flex !important;
-                justify-content: center !important;
-                flex-shrink: 0 !important;
-                
-                z-index: 2000 !important; /* On top of iframe */
-                box-sizing: content-box !important;
-                pointer-events: auto !important; /* Ensure it captures swipes */
+                position: absolute !important;
+                top: 0 !important; left: 0 !important; width: 100% !important;
+                height: 30px !important;
+                background: linear-gradient(to bottom, rgba(0,0,0,0.8) 0%, transparent 100%) !important;
+                z-index: 2000 !important;
+                pointer-events: auto !important;
             }
-            
             .legacy-sheet-handle.simple-mode::before {
-                top: 8px !important; /* Center the pill near the top edge */
-                width: 60px !important; /* Wider pill */
-                height: 5px !important; /* Thicker pill */
-                background: rgba(255, 255, 255, 0.4) !important;
-                box-shadow: 0 1px 4px rgba(0,0,0,0.5) !important;
+                top: 6px !important;
+                background: rgba(255, 255, 255, 0.5) !important;
             }
 
-            /* --- Content Scrolling --- */
             .mobile-legacy-sheet .info-window-content {
                 overflow-y: auto !important;
-                /* Add padding for the bottom safe area */
-                padding-bottom: env(safe-area-inset-bottom, 20px);
-            }
-
-            /* --- Header / Image / Route Bar Overrides --- */
-            .mobile-legacy-sheet .aircraft-overview-panel {
-                /* The handle will wrap this */
-            }
-            .mobile-legacy-sheet .route-summary-overlay {
-                /* The handle will wrap this */
-            }
-
-            @media (max-width: ${this.CONFIG.breakpoint}px) {
-                #aircraft-info-window:not(.mobile-legacy-sheet), 
-                #airport-info-window {
-                    display: none !important;
-                }
+                padding-bottom: calc(var(--mobile-safe-bottom) + 20px);
             }
         `;
         const style = document.createElement('style');
@@ -651,7 +406,7 @@ const MobileUIHandler = {
         style.type = 'text/css';
         style.appendChild(document.createTextNode(css));
         document.head.appendChild(style);
-    },
+    }
 
     /**
      * [MODIFIED] Intercepts the window open command.
