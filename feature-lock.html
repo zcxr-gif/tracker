@@ -5,399 +5,961 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Flight Radar LIVE</title>
     
-    <!-- Tailwind CSS -->
-    <script src="https://cdn.tailwindcss.com"></script>
-    
-    <!-- Lucide Icons -->
     <script src="https://unpkg.com/lucide@latest"></script>
     
-    <!-- Google Fonts -->
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet">
 
     <style>
-        body { font-family: 'Inter', sans-serif; }
-        .font-mono { font-family: 'JetBrains Mono', monospace; }
-        
-        /* Custom Scrollbar for Settings */
-        .settings-scroll::-webkit-scrollbar {
-            width: 6px;
-        }
-        .settings-scroll::-webkit-scrollbar-track {
-            background: transparent;
-        }
-        .settings-scroll::-webkit-scrollbar-thumb {
-            background-color: #374151;
-            border-radius: 20px;
-        }
-
-        /* Hide scrollbar for horizontal nav on mobile */
-        .no-scrollbar::-webkit-scrollbar {
-            display: none;
-        }
-        .no-scrollbar {
-            -ms-overflow-style: none;
-            scrollbar-width: none;
+        /* --- CSS VARIABLES & RESET --- */
+        :root {
+            --bg-dark: #020617; /* slate-950 */
+            --bg-panel: #1e293b; /* slate-800 */
+            --bg-panel-translucent: rgba(30, 41, 59, 0.9);
+            --bg-modal: #18181b;
+            --bg-sidebar: #131315;
+            --border-white: rgba(255, 255, 255, 0.1);
+            --text-main: #f1f5f9; /* slate-100 */
+            --text-muted: #94a3b8; /* slate-400 */
+            --primary-blue: #2563eb;
+            --accent-green: #22c55e;
+            --font-main: 'Inter', sans-serif;
+            --font-mono: 'JetBrains Mono', monospace;
         }
 
-        /* Toggle Switch Styling */
-        .toggle-checkbox:checked {
-            right: 0;
-            border-color: #3b82f6;
-        }
-        .toggle-checkbox:checked + .toggle-label {
-            background-color: #3b82f6;
-        }
+        * { box-sizing: border-box; margin: 0; padding: 0; }
         
-        /* Slider Styling */
-        input[type=range] {
-            -webkit-appearance: none; 
-            background: transparent; 
+        body {
+            font-family: var(--font-main);
+            background-color: var(--bg-dark);
+            color: var(--text-main);
+            overflow: hidden;
+            height: 100vh;
+            width: 100vw;
+            position: relative;
         }
-        input[type=range]::-webkit-slider-thumb {
-            -webkit-appearance: none;
-            height: 16px;
-            width: 16px;
-            border-radius: 50%;
-            background: #ffffff;
-            margin-top: -6px;
+
+        button {
+            background: none;
+            border: none;
             cursor: pointer;
-            box-shadow: 0 1px 3px rgba(0,0,0,0.3);
+            font-family: inherit;
+            color: inherit;
         }
-        input[type=range]::-webkit-slider-runnable-track {
-            width: 100%;
-            height: 4px;
-            cursor: pointer;
-            background: #4b5563;
-            border-radius: 2px;
-        }
-        input[type=range]:focus {
-            outline: none;
-        }
+
+        /* --- UTILITIES --- */
+        .hidden { display: none !important; }
+        .no-scrollbar::-webkit-scrollbar { display: none; }
+        .no-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
+        
+        /* Custom Scrollbar */
+        .settings-scroll { overflow-y: auto; }
+        .settings-scroll::-webkit-scrollbar { width: 6px; }
+        .settings-scroll::-webkit-scrollbar-track { background: transparent; }
+        .settings-scroll::-webkit-scrollbar-thumb { background-color: #374151; border-radius: 20px; }
 
         /* Animations */
         @keyframes fadeIn {
             from { opacity: 0; transform: scale(0.98); }
             to { opacity: 1; transform: scale(1); }
         }
-        .animate-modal-in {
-            animation: fadeIn 0.2s cubic-bezier(0.16, 1, 0.3, 1) forwards;
-        }
+        .animate-modal-in { animation: fadeIn 0.2s cubic-bezier(0.16, 1, 0.3, 1) forwards; }
         
         @keyframes slideUp {
             from { opacity: 0; transform: translateY(10px); }
             to { opacity: 1; transform: translateY(0); }
         }
-        .animate-slide-up {
-            animation: slideUp 0.2s ease-out forwards;
+        .animate-slide-up { animation: slideUp 0.2s ease-out forwards; }
+
+        /* --- MAP LAYER --- */
+        #map-container {
+            position: absolute;
+            inset: 0;
+            z-index: 0;
+            user-select: none;
+            background-color: #0f172a;
         }
+
+        #map-image {
+            width: 100%;
+            height: 100%;
+            object-fit: cover;
+            opacity: 0.5;
+            filter: grayscale(20%);
+            transition: opacity 0.5s, filter 0.5s;
+        }
+
+        .map-overlay {
+            position: absolute;
+            inset: 0;
+            background-color: rgba(2, 6, 23, 0.3);
+            pointer-events: none;
+        }
+
+        /* --- SEARCH BAR --- */
+        #search-container {
+            position: absolute;
+            top: 1.5rem;
+            left: 1.5rem;
+            z-index: 30;
+            width: 3rem; /* Mobile default */
+            transition: width 0.3s ease;
+        }
+
+        /* Hover/Focus expansion logic */
+        #search-container:hover,
+        #search-container:focus-within {
+            width: 18rem;
+        }
+
+        .search-box {
+            background-color: var(--bg-panel-translucent);
+            backdrop-filter: blur(12px);
+            -webkit-backdrop-filter: blur(12px);
+            border: 1px solid var(--border-white);
+            border-radius: 1rem;
+            box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.1), 0 10px 10px -5px rgba(0, 0, 0, 0.04);
+            display: flex;
+            flex-direction: column;
+            overflow: visible;
+            position: relative;
+        }
+
+        .search-input-wrapper {
+            height: 2.5rem;
+            display: flex;
+            align-items: center;
+            position: relative;
+            width: 100%;
+        }
+
+        .search-icon-box {
+            min-width: 2.5rem;
+            height: 100%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            z-index: 10;
+            pointer-events: none;
+            color: var(--text-muted);
+            transition: color 0.3s;
+        }
+
+        #search-container:hover .search-icon-box,
+        #search-container:focus-within .search-icon-box {
+            color: #fff;
+        }
+
+        #search-input {
+            position: absolute;
+            inset: 0;
+            width: 100%;
+            height: 100%;
+            background: transparent;
+            border: none;
+            padding-left: 2.5rem;
+            padding-right: 1rem;
+            font-size: 0.75rem;
+            color: white;
+            outline: none;
+            opacity: 0;
+            transition: opacity 0.3s;
+            border-radius: 1rem;
+            font-weight: 500;
+        }
+
+        #search-container:hover #search-input,
+        #search-container:focus-within #search-input {
+            opacity: 1;
+        }
+        
+        #search-input::placeholder { color: #64748b; }
+
+        .search-dropdown {
+            width: 100%;
+            background-color: rgba(30, 41, 59, 0.95);
+            border-top: 1px solid var(--border-white);
+            padding: 0.5rem;
+            border-bottom-left-radius: 1rem;
+            border-bottom-right-radius: 1rem;
+        }
+
+        .search-header {
+            padding: 0.25rem 0.5rem;
+            font-size: 10px;
+            text-transform: uppercase;
+            color: var(--text-muted);
+            font-weight: 700;
+            letter-spacing: 0.05em;
+        }
+
+        .search-result-item {
+            width: 100%;
+            display: flex;
+            align-items: center;
+            gap: 0.75rem;
+            padding: 0.5rem;
+            border-radius: 0.5rem;
+            text-align: left;
+            transition: background-color 0.2s;
+        }
+        .search-result-item:hover { background-color: rgba(255,255,255,0.05); }
+
+        .result-icon {
+            width: 2rem; 
+            height: 2rem; 
+            border-radius: 0.25rem;
+            display: flex; 
+            align-items: center; 
+            justify-content: center;
+        }
+        .icon-blue { background: rgba(59, 130, 246, 0.2); color: #60a5fa; }
+        .icon-emerald { background: rgba(16, 185, 129, 0.2); color: #34d399; }
+
+        /* --- TOP RIGHT TOOLS --- */
+        .sidebar-tools {
+            position: absolute;
+            top: 1.5rem;
+            right: 1.5rem;
+            display: flex;
+            flex-direction: column;
+            gap: 0.75rem;
+            z-index: 20;
+            align-items: flex-end;
+        }
+
+        .tool-btn {
+            width: 2.5rem; height: 2.5rem;
+            background-color: var(--bg-panel-translucent);
+            backdrop-filter: blur(12px);
+            -webkit-backdrop-filter: blur(12px);
+            border: 1px solid var(--border-white);
+            border-radius: 1rem;
+            box-shadow: 0 20px 25px -5px rgba(0,0,0,0.1);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            color: #cbd5e1;
+            transition: all 0.2s;
+            position: relative;
+        }
+
+        .tool-btn:hover { background-color: #334155; color: white; border-color: rgba(255,255,255,0.2); }
+        .tool-btn:active { transform: scale(0.95); }
+
+        .tooltip {
+            position: absolute;
+            right: 3.5rem;
+            background-color: var(--bg-dark);
+            color: white;
+            font-size: 11px;
+            font-weight: 500;
+            padding: 0.25rem 0.5rem;
+            border-radius: 0.5rem;
+            opacity: 0;
+            transition: opacity 0.2s;
+            pointer-events: none;
+            white-space: nowrap;
+            border: 1px solid var(--border-white);
+            box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1);
+            display: none;
+        }
+        .tool-btn:hover .tooltip { opacity: 1; }
+
+        .server-btn-active {
+            background-color: rgba(37, 99, 235, 0.9);
+            color: white;
+            margin-top: 0.5rem;
+        }
+        .server-btn-active:hover { background-color: #3b82f6; }
+
+        /* Server Menu Popover */
+        #server-menu {
+            position: absolute;
+            top: 0;
+            right: 3.5rem;
+            width: 12rem;
+            background-color: rgba(30, 41, 59, 0.95);
+            backdrop-filter: blur(20px);
+            -webkit-backdrop-filter: blur(20px);
+            padding: 0.5rem;
+            border-radius: 1rem;
+            box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.25);
+            border: 1px solid var(--border-white);
+            transform-origin: top right;
+        }
+
+        .menu-header {
+            padding: 0.5rem 0.75rem;
+            font-size: 10px;
+            font-weight: 700;
+            color: var(--text-muted);
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+            border-bottom: 1px solid rgba(255,255,255,0.05);
+            margin-bottom: 0.25rem;
+        }
+
+        .menu-item {
+            width: 100%;
+            text-align: left;
+            padding: 0.625rem 0.75rem;
+            border-radius: 0.75rem;
+            font-size: 0.875rem;
+            font-weight: 500;
+            color: var(--text-muted);
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            transition: background-color 0.2s, color 0.2s;
+        }
+        .menu-item:hover { background-color: rgba(255,255,255,0.05); color: white; }
+        .menu-item span { color: white; } /* Expert default */
+
+        /* --- WEATHER WIDGET --- */
+        .weather-container {
+            position: absolute;
+            bottom: 2rem;
+            right: 1.5rem;
+            z-index: 30;
+            display: flex;
+            flex-direction: column;
+            align-items: flex-end;
+            gap: 0.5rem;
+        }
+
+        .weather-popup {
+            margin-bottom: 0.5rem;
+            background-color: rgba(30, 41, 59, 0.95);
+            backdrop-filter: blur(20px);
+            -webkit-backdrop-filter: blur(20px);
+            padding: 1rem;
+            border-radius: 1rem;
+            box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.1);
+            width: 16rem;
+            transform-origin: bottom right;
+            border: 1px solid var(--border-white);
+        }
+
+        .weather-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 1rem;
+            border-bottom: 1px solid rgba(255,255,255,0.05);
+            padding-bottom: 0.75rem;
+        }
+
+        .weather-row {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding: 0.5rem 0;
+            border-bottom: 1px solid rgba(255,255,255,0.05);
+        }
+        .weather-row:last-child { border-bottom: none; }
+
+        .weather-toggle-btn {
+            height: 2.5rem;
+            padding: 0 0.75rem;
+            border-radius: 1rem;
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+            background-color: var(--bg-panel-translucent);
+            backdrop-filter: blur(12px);
+            -webkit-backdrop-filter: blur(12px);
+            border: 1px solid var(--border-white);
+            color: #cbd5e1;
+            transition: all 0.2s;
+            box-shadow: 0 4px 6px -1px rgba(0,0,0,0.1);
+        }
+        .weather-toggle-btn:hover { background-color: #334155; color: white; }
+        .weather-toggle-btn:active { transform: scale(0.95); }
+        
+        /* Active state for weather button (via JS) */
+        .weather-btn-active {
+            background-color: var(--primary-blue) !important;
+            color: white !important;
+            border-color: transparent !important;
+        }
+
+        /* Checkbox Switch Logic */
+        .switch-container {
+            position: relative;
+            display: inline-block;
+            width: 2.5rem;
+            height: 1.25rem;
+        }
+        .switch-input {
+            opacity: 0;
+            width: 0;
+            height: 0;
+        }
+        .switch-label {
+            position: absolute;
+            cursor: pointer;
+            top: 0; left: 0; right: 0; bottom: 0;
+            background-color: #334155;
+            transition: .3s;
+            border-radius: 999px;
+        }
+        .switch-handle {
+            position: absolute;
+            content: "";
+            height: 1.25rem;
+            width: 1.25rem;
+            left: 0;
+            bottom: 0;
+            background-color: white;
+            transition: .3s;
+            border-radius: 50%;
+            border: 4px solid #334155; /* Fake padding */
+        }
+        .switch-input:checked + .switch-label { background-color: #3b82f6; }
+        .switch-input:checked + .switch-label .switch-handle {
+            transform: translateX(1.25rem);
+            border-color: #3b82f6;
+        }
+
+        /* --- SETTINGS MODAL --- */
+        #settings-modal {
+            position: fixed;
+            inset: 0;
+            z-index: 50;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            background-color: rgba(0, 0, 0, 0.8);
+            backdrop-filter: blur(4px);
+            -webkit-backdrop-filter: blur(4px);
+            transition: opacity 0.3s;
+        }
+
+        .settings-card {
+            background-color: var(--bg-modal);
+            width: 100%;
+            height: 100%;
+            box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.25);
+            display: flex;
+            flex-direction: column;
+            overflow: hidden;
+            border: 1px solid var(--border-white);
+            font-family: var(--font-main);
+        }
+
+        .settings-sidebar {
+            width: 100%;
+            background-color: var(--bg-sidebar);
+            display: flex;
+            flex-direction: column;
+            border-bottom: 1px solid rgba(255,255,255,0.05);
+            flex-shrink: 0;
+            z-index: 20;
+        }
+
+        .mobile-header {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding: 1rem;
+            border-bottom: 1px solid rgba(255,255,255,0.05);
+            background-color: var(--bg-sidebar);
+        }
+
+        .nav-container {
+            padding: 0.5rem;
+            overflow-x: auto;
+        }
+        
+        .nav-items {
+            display: flex;
+            gap: 0.5rem;
+            min-width: max-content;
+        }
+
+        .nav-btn {
+            width: auto;
+            text-align: left;
+            padding: 0.5rem 0.75rem;
+            border-radius: 0.75rem;
+            font-size: 0.875rem;
+            font-weight: 500;
+            color: var(--text-muted);
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+            transition: all 0.2s;
+            white-space: nowrap;
+        }
+        .nav-btn:hover { background-color: rgba(255,255,255,0.05); color: white; }
+        
+        .nav-btn-active {
+            background-color: #27272a;
+            color: white;
+            box-shadow: 0 1px 2px 0 rgba(0, 0, 0, 0.05);
+        }
+        .nav-btn-active i { color: #60a5fa; } /* Blue icon */
+
+        .promo-box { display: none; }
+
+        .settings-content-area {
+            flex: 1;
+            min-height: 0;
+            background-color: var(--bg-modal);
+            display: flex;
+            flex-direction: column;
+            position: relative;
+        }
+
+        .desktop-header { display: none; }
+
+        .settings-scroll-area {
+            flex: 1;
+            overflow-y: auto;
+            padding: 1rem;
+            padding-bottom: 6rem; /* Space for mobile nav overlap if needed */
+        }
+
+        /* Settings Components */
+        .setting-group { margin-bottom: 2rem; }
+        .setting-box {
+            background-color: #202023;
+            padding: 1rem 1.25rem;
+            border-radius: 1rem;
+            border: 1px solid rgba(255,255,255,0.05);
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            box-shadow: 0 1px 2px 0 rgba(0, 0, 0, 0.05);
+            margin-bottom: 1rem;
+        }
+
+        .segment-control {
+            background-color: #202023;
+            padding: 0.25rem;
+            border-radius: 0.75rem;
+            border: 1px solid rgba(255,255,255,0.05);
+            display: flex;
+            margin-bottom: 1.5rem;
+        }
+        .segment-btn {
+            flex: 1;
+            padding: 0.5rem;
+            font-size: 0.75rem;
+            font-weight: 700;
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+            border-radius: 0.5rem;
+            color: var(--text-muted);
+            transition: color 0.2s;
+        }
+        .segment-btn.active {
+            background-color: #3f3f46;
+            color: white;
+            box-shadow: 0 1px 2px 0 rgba(0, 0, 0, 0.05);
+        }
+
+        .list-row {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding: 0.75rem;
+            border-radius: 0.75rem;
+            cursor: pointer;
+            border: 1px solid transparent;
+            transition: background 0.2s;
+        }
+        .list-row:hover { background-color: rgba(255,255,255,0.05); border-color: rgba(255,255,255,0.05); }
+        .list-row.locked { opacity: 0.6; cursor: default; }
+
+        .range-slider {
+            width: 100%;
+            height: 0.375rem;
+            background: #334155;
+            border-radius: 0.5rem;
+            -webkit-appearance: none;
+            cursor: pointer;
+        }
+        .range-slider::-webkit-slider-thumb {
+            -webkit-appearance: none;
+            height: 1rem; width: 1rem;
+            border-radius: 50%;
+            background: #ffffff;
+            cursor: pointer;
+            box-shadow: 0 1px 3px rgba(0,0,0,0.3);
+        }
+
+        /* --- MEDIA QUERIES (DESKTOP) --- */
+        @media (min-width: 768px) {
+            /* Search */
+            #search-container { width: 3rem; height: 3rem; }
+            #search-container:hover, #search-container:focus-within { width: 20rem; }
+            .search-input-wrapper { height: 3rem; }
+            .search-icon-box { min-width: 3rem; }
+            #search-input { padding-left: 3rem; padding-right: 1rem; font-size: 0.875rem; }
+            
+            /* Tools */
+            .tool-btn { width: 3rem; height: 3rem; }
+            .tooltip { display: block; }
+            
+            /* Weather */
+            .weather-toggle-btn { height: 3rem; padding: 0 1rem; }
+            .weather-popup { width: 18rem; }
+
+            /* Settings Modal Desktop Structure */
+            .settings-card {
+                flex-direction: row;
+                width: 900px;
+                height: 650px;
+                border-radius: 1.5rem;
+            }
+            .settings-sidebar {
+                width: 16rem;
+                height: 100%;
+                border-bottom: none;
+                border-right: 1px solid rgba(255,255,255,0.05);
+            }
+            .mobile-header { display: none; }
+            .nav-container { padding: 1.5rem; padding-bottom: 0.5rem; overflow: visible; }
+            .nav-items { display: block; }
+            .nav-btn { width: 100%; margin-bottom: 0.25rem; padding: 0.625rem 0.75rem; }
+            .nav-label { display: inline; }
+            
+            .promo-box {
+                display: block;
+                margin-top: auto;
+                padding: 1.5rem;
+            }
+            .promo-card {
+                background: linear-gradient(to bottom right, rgba(20, 83, 45, 0.5), rgba(6, 78, 59, 0.2));
+                border: 1px solid rgba(34, 197, 94, 0.2);
+                border-radius: 1rem;
+                padding: 1rem;
+            }
+            .upgrade-btn {
+                width: 100%;
+                background-color: #16a34a;
+                color: white;
+                font-weight: 700;
+                padding: 0.625rem;
+                border-radius: 0.5rem;
+                font-size: 0.75rem;
+                text-transform: uppercase;
+                margin-top: 0.75rem;
+                transition: background 0.2s;
+            }
+            .upgrade-btn:hover { background-color: #15803d; }
+
+            .desktop-header {
+                display: flex;
+                height: 5rem;
+                align-items: center;
+                justify-content: space-between;
+                padding: 0 2rem;
+                border-bottom: 1px solid rgba(255,255,255,0.05);
+                flex-shrink: 0;
+            }
+            .settings-scroll-area { padding: 2rem; padding-bottom: 2rem; }
+        }
+
+        /* --- PLANE MARKERS --- */
+        .marker-wrapper {
+            position: absolute;
+            padding: 0.5rem;
+            transition: transform 0.2s;
+            cursor: pointer;
+            z-index: 10;
+        }
+        .marker-wrapper:hover { transform: scale(1.1) !important; } /* Need !important to override inline style rotate if conflicting, but here we handle rotate in JS wrapper */
+        
+        .marker-label {
+            position: absolute;
+            display: none;
+            flex-direction: column;
+            background-color: rgba(15, 23, 42, 0.9);
+            backdrop-filter: blur(4px);
+            color: white;
+            font-size: 10px;
+            padding: 0.25rem 0.5rem;
+            border-radius: 0.375rem;
+            box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.1);
+            top: -2rem;
+            left: 50%;
+            transform: translateX(-50%);
+            z-index: 20;
+            border: 1px solid rgba(255,255,255,0.1);
+            pointer-events: none;
+            white-space: nowrap;
+        }
+        .marker-wrapper:hover .marker-label { display: flex; }
+
     </style>
 </head>
-<body class="bg-slate-950 text-slate-100 overflow-hidden h-screen w-screen relative">
+<body>
 
-    <!-- 1. Map Layer -->
-    <div id="map-container" class="absolute inset-0 z-0 select-none bg-slate-900">
-        <img id="map-image" src="https://images.unsplash.com/photo-1524661135-423995f22d0b?auto=format&fit=crop&q=80&w=2000" class="w-full h-full object-cover opacity-50 grayscale-[20%] transition-opacity duration-500" alt="Map">
-        <div class="absolute inset-0 bg-slate-950/30 pointer-events-none"></div>
-        
-        <!-- Plane Markers Container -->
-        <div id="markers-container" class="absolute inset-0"></div>
+    <div id="map-container">
+        <img id="map-image" src="https://images.unsplash.com/photo-1524661135-423995f22d0b?auto=format&fit=crop&q=80&w=2000" alt="Map">
+        <div class="map-overlay"></div>
+        <div id="markers-container"></div>
     </div>
 
-    <!-- 2. Search Bar (Fixed for Mobile & Focus) -->
-    <!-- Added focus-within classes to ensure it stays open when typing on mobile -->
-    <div id="search-container" class="absolute top-6 left-6 z-30 transition-all duration-300 w-10 md:w-12 group hover:w-72 focus-within:w-72 md:hover:w-80 md:focus-within:w-80">
-        <div class="bg-slate-800/90 backdrop-blur-md border border-white/10 rounded-2xl shadow-2xl flex flex-col overflow-visible relative transition-all" id="search-box">
+    <div id="search-container">
+        <div class="search-box" id="search-box">
             
-            <!-- Input Area -->
-            <div class="h-10 md:h-12 flex items-center relative w-full">
-                <div class="min-w-[2.5rem] md:min-w-[3rem] h-full flex items-center justify-center z-10 pointer-events-none">
-                    <i data-lucide="search" class="w-4 h-4 md:w-5 md:h-5 text-slate-400 group-hover:text-white group-focus-within:text-white transition-colors"></i>
+            <div class="search-input-wrapper">
+                <div class="search-icon-box">
+                    <i data-lucide="search" width="20" height="20"></i>
                 </div>
-                <!-- Added focus:opacity-100 and group-focus-within:opacity-100 -->
-                <input type="text" id="search-input" oninput="handleSearch(this.value)" placeholder="Search flight, airport..." class="absolute inset-0 w-full h-full bg-transparent pl-10 md:pl-12 pr-4 text-xs md:text-sm text-white placeholder-slate-500 outline-none opacity-0 group-hover:opacity-100 focus:opacity-100 group-focus-within:opacity-100 transition-opacity duration-300 font-medium rounded-2xl">
+                <input type="text" id="search-input" oninput="handleSearch(this.value)" placeholder="Search flight, airport...">
             </div>
 
-            <!-- Simulated Dropdown Results -->
-            <div id="search-results" class="hidden w-full bg-slate-800/95 border-t border-white/10 p-2 space-y-1 rounded-b-2xl">
-                <div class="px-2 py-1 text-[10px] uppercase text-slate-500 font-bold tracking-wider">Suggested</div>
+            <div id="search-results" class="hidden search-dropdown">
+                <div class="search-header">Suggested</div>
                 
-                <!-- Mock Results -->
-                <button class="w-full flex items-center gap-3 p-2 hover:bg-white/5 rounded-lg group transition-colors text-left">
-                    <div class="w-8 h-8 rounded bg-blue-500/20 flex items-center justify-center text-blue-400">
-                        <i data-lucide="plane" class="w-4 h-4"></i>
+                <button class="search-result-item">
+                    <div class="result-icon icon-blue">
+                        <i data-lucide="plane" width="16" height="16"></i>
                     </div>
                     <div>
-                        <div class="text-xs font-bold text-white group-hover:text-blue-400">BA249</div>
-                        <div class="text-[10px] text-slate-400">British Airways • LHR-GIG</div>
+                        <div style="font-size: 12px; font-weight: 700; color: white;">BA249</div>
+                        <div style="font-size: 10px; color: var(--text-muted);">British Airways • LHR-GIG</div>
                     </div>
                 </button>
 
-                <button class="w-full flex items-center gap-3 p-2 hover:bg-white/5 rounded-lg group transition-colors text-left">
-                    <div class="w-8 h-8 rounded bg-emerald-500/20 flex items-center justify-center text-emerald-400">
-                        <i data-lucide="map-pin" class="w-4 h-4"></i>
+                <button class="search-result-item">
+                    <div class="result-icon icon-emerald">
+                        <i data-lucide="map-pin" width="16" height="16"></i>
                     </div>
                     <div>
-                        <div class="text-xs font-bold text-white group-hover:text-emerald-400">EGLL / LHR</div>
-                        <div class="text-[10px] text-slate-400">London Heathrow, UK</div>
+                        <div style="font-size: 12px; font-weight: 700; color: white;">EGLL / LHR</div>
+                        <div style="font-size: 10px; color: var(--text-muted);">London Heathrow, UK</div>
                     </div>
                 </button>
             </div>
         </div>
     </div>
 
-    <!-- 3. Top Right Tools (Sidebar Buttons) -->
-    <div class="absolute top-6 right-6 flex flex-col gap-3 z-20 items-end">
+    <div class="sidebar-tools">
         
-        <!-- Settings Trigger -->
-        <button onclick="toggleSettings()" class="w-10 h-10 md:w-12 md:h-12 bg-slate-800/90 backdrop-blur-md border border-white/10 rounded-2xl shadow-xl flex items-center justify-center transition-all text-slate-300 hover:text-white hover:bg-slate-700 hover:border-white/20 active:scale-95 group relative">
-            <i data-lucide="settings-2" class="w-5 h-5 md:w-6 md:h-6"></i>
-            <span class="absolute right-14 bg-slate-900 text-white text-[11px] font-medium px-2 py-1 rounded-lg opacity-0 group-hover:opacity-100 transition-opacity whitespace-nowrap pointer-events-none border border-white/10 shadow-xl hidden md:block">Settings</span>
+        <button onclick="toggleSettings()" class="tool-btn group">
+            <i data-lucide="settings-2" width="24" height="24"></i>
+            <span class="tooltip">Settings</span>
         </button>
 
-        <!-- Map Type Toggle -->
-        <button onclick="toggleMapType()" id="map-type-btn" class="w-10 h-10 md:w-12 md:h-12 bg-slate-800/90 backdrop-blur-md border border-white/10 rounded-2xl shadow-xl flex items-center justify-center transition-all text-slate-300 hover:text-white hover:bg-slate-700 hover:border-white/20 active:scale-95 group relative">
-            <i data-lucide="layers" class="w-5 h-5 md:w-6 md:h-6"></i>
-            <span class="absolute right-14 bg-slate-900 text-white text-[11px] font-medium px-2 py-1 rounded-lg opacity-0 group-hover:opacity-100 transition-opacity whitespace-nowrap pointer-events-none border border-white/10 shadow-xl hidden md:block">Map Type</span>
+        <button onclick="toggleMapType()" id="map-type-btn" class="tool-btn group">
+            <i data-lucide="layers" width="24" height="24"></i>
+            <span class="tooltip">Map Type</span>
         </button>
 
-        <!-- Server Switcher (Target/Globe) -->
-        <div class="relative">
-            <button onclick="toggleServerMenu()" id="server-btn" class="w-10 h-10 md:w-12 md:h-12 bg-blue-600/90 backdrop-blur-md border border-white/10 rounded-2xl shadow-xl flex items-center justify-center transition-all text-white hover:bg-blue-500 hover:border-white/20 active:scale-95 group mt-2">
-                <i data-lucide="globe" class="w-5 h-5 md:w-6 md:h-6"></i>
+        <div style="position: relative;">
+            <button onclick="toggleServerMenu()" id="server-btn" class="tool-btn server-btn-active">
+                <i data-lucide="globe" width="24" height="24"></i>
             </button>
             
-            <!-- Server Menu Popover -->
-            <div id="server-menu" class="hidden absolute top-0 right-14 w-48 bg-slate-800/95 backdrop-blur-xl p-2 rounded-2xl shadow-2xl border border-white/10 animate-modal-in origin-top-right">
-                <div class="px-3 py-2 text-[10px] font-bold text-slate-400 uppercase tracking-wider border-b border-white/5 mb-1">Select Server</div>
-                <button onclick="selectServer('Expert')" class="w-full text-left px-3 py-2.5 rounded-xl text-sm font-medium text-white hover:bg-white/5 flex items-center justify-between group transition-colors">
+            <div id="server-menu" class="hidden animate-modal-in">
+                <div class="menu-header">Select Server</div>
+                <button onclick="selectServer('Expert')" class="menu-item">
                     <span>Expert</span>
-                    <i data-lucide="check" class="w-4 h-4 text-green-400 opacity-100 server-check" id="check-Expert"></i>
+                    <i data-lucide="check" width="16" height="16" style="color: #4ade80;" class="server-check" id="check-Expert"></i>
                 </button>
-                <button onclick="selectServer('Training')" class="w-full text-left px-3 py-2.5 rounded-xl text-sm font-medium text-slate-400 hover:text-white hover:bg-white/5 flex items-center justify-between group transition-colors">
+                <button onclick="selectServer('Training')" class="menu-item">
                     <span>Training</span>
-                    <i data-lucide="check" class="w-4 h-4 text-green-400 opacity-0 server-check" id="check-Training"></i>
+                    <i data-lucide="check" width="16" height="16" style="color: #4ade80; opacity: 0;" class="server-check" id="check-Training"></i>
                 </button>
-                <button onclick="selectServer('Casual')" class="w-full text-left px-3 py-2.5 rounded-xl text-sm font-medium text-slate-400 hover:text-white hover:bg-white/5 flex items-center justify-between group transition-colors">
+                <button onclick="selectServer('Casual')" class="menu-item">
                     <span>Casual</span>
-                    <i data-lucide="check" class="w-4 h-4 text-green-400 opacity-0 server-check" id="check-Casual"></i>
+                    <i data-lucide="check" width="16" height="16" style="color: #4ade80; opacity: 0;" class="server-check" id="check-Casual"></i>
                 </button>
             </div>
         </div>
     </div>
 
-    <!-- 4. Bottom Right Weather -->
-    <div class="absolute bottom-8 right-6 z-30 flex flex-col items-end gap-2">
-        <!-- Weather Popup -->
-        <div id="weather-popup" class="hidden mb-2 bg-slate-800/95 backdrop-blur-xl p-4 rounded-2xl shadow-2xl w-64 md:w-72 animate-slide-up origin-bottom-right border border-white/10">
-            <div class="flex justify-between items-center mb-4 border-b border-white/5 pb-3">
-                <span class="text-xs font-bold text-slate-300 uppercase tracking-wide flex items-center gap-2">
-                    <i data-lucide="cloud-sun" class="w-4 h-4 text-blue-400"></i> Weather Layers
+    <div class="weather-container">
+        <div id="weather-popup" class="hidden weather-popup animate-slide-up">
+            <div class="weather-header">
+                <span style="font-size: 12px; font-weight: 700; color: #cbd5e1; text-transform: uppercase; display: flex; align-items: center; gap: 0.5rem;">
+                    <i data-lucide="cloud-sun" style="color: #60a5fa;" width="16" height="16"></i> Weather Layers
                 </span>
-                <button onclick="toggleWeather()" class="text-slate-500 hover:text-white transition-colors"><i data-lucide="x" class="w-4 h-4"></i></button>
+                <button onclick="toggleWeather()" style="color: #64748b;"><i data-lucide="x" width="16" height="16"></i></button>
             </div>
-            <div class="space-y-1">
-                <div class="flex items-center justify-between py-2 border-b border-white/5 last:border-0">
-                    <span class="text-sm font-medium text-slate-300">Radar</span>
-                    <div class="relative inline-block w-9 md:w-10 align-middle select-none">
-                        <input type="checkbox" id="wx-radar" class="toggle-checkbox absolute block w-5 h-5 rounded-full bg-white border-4 appearance-none cursor-pointer border-slate-700 transition-all duration-300" checked/>
-                        <label for="wx-radar" class="toggle-label block overflow-hidden h-5 rounded-full bg-slate-700 cursor-pointer"></label>
+            <div>
+                <div class="weather-row">
+                    <span style="font-size: 14px; font-weight: 500; color: #cbd5e1;">Radar</span>
+                    <div class="switch-container">
+                        <input type="checkbox" id="wx-radar" class="switch-input" checked/>
+                        <label for="wx-radar" class="switch-label"><span class="switch-handle"></span></label>
                     </div>
                 </div>
-                <div class="flex items-center justify-between py-2 border-b border-white/5 last:border-0">
-                    <span class="text-sm font-medium text-slate-300">SIGMETs</span>
-                    <div class="relative inline-block w-9 md:w-10 align-middle select-none">
-                        <input type="checkbox" id="wx-sigmet" class="toggle-checkbox absolute block w-5 h-5 rounded-full bg-white border-4 appearance-none cursor-pointer border-slate-700 transition-all duration-300" checked/>
-                        <label for="wx-sigmet" class="toggle-label block overflow-hidden h-5 rounded-full bg-slate-700 cursor-pointer"></label>
+                <div class="weather-row">
+                    <span style="font-size: 14px; font-weight: 500; color: #cbd5e1;">SIGMETs</span>
+                    <div class="switch-container">
+                        <input type="checkbox" id="wx-sigmet" class="switch-input" checked/>
+                        <label for="wx-sigmet" class="switch-label"><span class="switch-handle"></span></label>
                     </div>
                 </div>
-                <div class="flex items-center justify-between py-2 border-b border-white/5 last:border-0">
-                    <span class="text-sm font-medium text-slate-300">Clouds</span>
-                    <div class="relative inline-block w-9 md:w-10 align-middle select-none">
-                        <input type="checkbox" id="wx-cloud" class="toggle-checkbox absolute block w-5 h-5 rounded-full bg-white border-4 appearance-none cursor-pointer border-slate-700 transition-all duration-300"/>
-                        <label for="wx-cloud" class="toggle-label block overflow-hidden h-5 rounded-full bg-slate-700 cursor-pointer"></label>
+                <div class="weather-row">
+                    <span style="font-size: 14px; font-weight: 500; color: #cbd5e1;">Clouds</span>
+                    <div class="switch-container">
+                        <input type="checkbox" id="wx-cloud" class="switch-input"/>
+                        <label for="wx-cloud" class="switch-label"><span class="switch-handle"></span></label>
                     </div>
                 </div>
             </div>
         </div>
 
-        <button onclick="toggleWeather()" id="weather-btn" class="h-10 md:h-12 px-3 md:px-4 rounded-2xl shadow-xl flex items-center gap-2 md:gap-3 active:scale-95 transition-all bg-slate-800/90 backdrop-blur-md border border-white/10 text-slate-300 hover:text-white hover:bg-slate-700">
-            <i data-lucide="cloud" class="w-5 h-5 md:w-6 md:h-6"></i>
-            <span class="text-xs font-bold uppercase tracking-wider" id="weather-text">Wx</span>
+        <button onclick="toggleWeather()" id="weather-btn" class="weather-toggle-btn">
+            <i data-lucide="cloud" width="24" height="24"></i>
+            <span style="font-size: 12px; font-weight: 700; text-transform: uppercase;" id="weather-text">Wx</span>
         </button>
     </div>
 
-    <!-- 5. SETTINGS MODAL (Fixed Mobile Layout) -->
-    <div id="settings-modal" class="hidden fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm transition-opacity duration-300">
+    <div id="settings-modal" class="hidden animate-modal-in">
         
-        <!-- Main Card -->
-        <!-- Fixed: Removed h-full from mobile view, changed to flex-col for proper stacking -->
-        <div class="bg-[#18181b] w-full h-full md:w-[900px] md:h-[650px] md:rounded-3xl shadow-2xl flex flex-col md:flex-row overflow-hidden border border-white/10 animate-modal-in font-inter">
+        <div class="settings-card">
             
-            <!-- Left Sidebar (Top Nav on Mobile) -->
-            <!-- Fixed: Added shrink-0 to prevent compression -->
-            <div class="w-full md:w-64 bg-[#131315] flex flex-col md:flex-col border-b md:border-b-0 md:border-r border-white/5 shrink-0 z-20">
+            <div class="settings-sidebar">
                 
-                <!-- Mobile Header -->
-                <div class="flex md:hidden items-center justify-between p-4 border-b border-white/5 w-full bg-[#131315]">
-                    <span class="text-sm font-bold text-white uppercase tracking-wider">Settings</span>
-                    <button onclick="toggleSettings()" class="text-gray-400 hover:text-white p-1"><i data-lucide="x" class="w-6 h-6"></i></button>
+                <div class="mobile-header">
+                    <span style="font-size: 14px; font-weight: 700; color: white; text-transform: uppercase;">Settings</span>
+                    <button onclick="toggleSettings()" style="color: #9ca3af;"><i data-lucide="x" width="24" height="24"></i></button>
                 </div>
 
-                <!-- Navigation -->
-                <div class="p-2 md:p-6 md:pb-2 overflow-x-auto md:overflow-visible no-scrollbar">
-                    <div class="flex md:block gap-2 min-w-max md:min-w-0">
-                        <h2 class="hidden md:block text-xs font-bold text-slate-500 uppercase tracking-wider mb-4 px-3">Customisation</h2>
-                        <nav class="flex md:block gap-2 space-y-0 md:space-y-1">
-                            <button onclick="switchTab('labels')" id="nav-labels" class="w-auto md:w-full text-left px-3 py-2 md:py-2.5 rounded-xl text-sm font-medium bg-[#27272a] text-white flex items-center gap-2 md:gap-3 transition-all shadow-sm whitespace-nowrap">
-                                <i data-lucide="message-square" class="w-4 h-4 text-blue-400"></i> <span class="hidden md:inline">Aircraft</span> Labels
+                <div class="nav-container no-scrollbar">
+                    <div class="nav-items">
+                        <h2 style="display: none; color: #64748b; font-size: 12px; font-weight: 700; text-transform: uppercase; margin-bottom: 1rem; padding-left: 0.75rem;" class="md-block">Customisation</h2>
+                        <style>@media(min-width: 768px) { .md-block { display: block !important; } }</style>
+
+                        <div style="display: flex; flex-direction: column; gap: 0.25rem; width: 100%;">
+                            <button onclick="switchTab('labels')" id="nav-labels" class="nav-btn nav-btn-active">
+                                <i data-lucide="message-square" width="16" height="16"></i> <span><span class="nav-label">Aircraft</span> Labels</span>
                             </button>
-                            <button onclick="switchTab('map')" id="nav-map" class="w-auto md:w-full text-left px-3 py-2 md:py-2.5 rounded-xl text-sm font-medium text-slate-400 hover:bg-white/5 hover:text-white flex items-center gap-2 md:gap-3 transition-all whitespace-nowrap">
-                                <i data-lucide="map" class="w-4 h-4 text-slate-500"></i> Map <span class="hidden md:inline">& Markers</span>
+                            <button onclick="switchTab('map')" id="nav-map" class="nav-btn">
+                                <i data-lucide="map" width="16" height="16"></i> <span>Map <span class="nav-label">& Markers</span></span>
                             </button>
-                            <button onclick="switchTab('theme')" id="nav-theme" class="w-auto md:w-full text-left px-3 py-2 md:py-2.5 rounded-xl text-sm font-medium text-slate-400 hover:bg-white/5 hover:text-white flex items-center gap-2 md:gap-3 transition-all whitespace-nowrap">
-                                <i data-lucide="palette" class="w-4 h-4 text-slate-500"></i> Theme
+                            <button onclick="switchTab('theme')" id="nav-theme" class="nav-btn">
+                                <i data-lucide="palette" width="16" height="16"></i> <span>Theme</span>
                             </button>
-                        </nav>
+                        </div>
                     </div>
                 </div>
 
-                <div class="hidden md:block mt-auto p-6">
-                    <div class="bg-gradient-to-br from-green-900/50 to-emerald-900/20 border border-green-500/20 rounded-2xl p-4">
-                        <h3 class="text-white font-bold text-sm mb-1">Go Pro</h3>
-                        <p class="text-slate-400 text-xs mb-3">Unlock satellite maps & more.</p>
-                        <button class="w-full bg-green-600 hover:bg-green-500 text-white font-bold py-2.5 rounded-lg transition-colors shadow-lg shadow-green-900/40 text-xs uppercase tracking-wide">
-                            Upgrade Now
-                        </button>
+                <div class="promo-box">
+                    <div class="promo-card">
+                        <h3 style="color: white; font-weight: 700; font-size: 14px; margin-bottom: 0.25rem;">Go Pro</h3>
+                        <p style="color: #94a3b8; font-size: 12px; margin-bottom: 0.75rem;">Unlock satellite maps & more.</p>
+                        <button class="upgrade-btn">Upgrade Now</button>
                     </div>
                 </div>
             </div>
 
-            <!-- Right Content Area -->
-            <!-- Fixed: Added min-h-0 and flex-1 to handle scrolling correctly within flex container -->
-            <div class="flex-1 min-h-0 bg-[#18181b] flex flex-col relative">
+            <div class="settings-content-area">
                 
-                <!-- Desktop Tab Header -->
-                <div class="hidden md:flex h-20 items-center justify-between px-8 border-b border-white/5 shrink-0">
+                <div class="desktop-header">
                     <div>
-                        <h2 class="text-xl font-bold text-white" id="settings-header-title">Aircraft Labels</h2>
-                        <p class="text-xs text-slate-500 mt-1" id="settings-header-desc">Customize how flight data appears on the map</p>
+                        <h2 style="font-size: 20px; font-weight: 700; color: white;" id="settings-header-title">Aircraft Labels</h2>
+                        <p style="font-size: 12px; color: #64748b; margin-top: 0.25rem;" id="settings-header-desc">Customize how flight data appears on the map</p>
                     </div>
-                    <div class="flex items-center gap-2">
-                        <button onclick="toggleSettings()" class="w-9 h-9 rounded-full flex items-center justify-center text-slate-500 hover:text-white hover:bg-white/10 transition-colors">
-                            <i data-lucide="x" class="w-5 h-5"></i>
-                        </button>
-                    </div>
+                    <button onclick="toggleSettings()" style="width: 2.25rem; height: 2.25rem; border-radius: 50%; display: flex; align-items: center; justify-content: center; color: #64748b;">
+                        <i data-lucide="x" width="20" height="20"></i>
+                    </button>
                 </div>
 
-                <!-- Scrollable Content -->
-                <div class="flex-1 overflow-y-auto p-4 md:p-8 settings-scroll pb-24 md:pb-8">
+                <div class="settings-scroll-area settings-scroll">
                     
-                    <!-- TAB: AIRCRAFT LABELS -->
-                    <div id="tab-labels" class="space-y-6 md:space-y-8 animate-modal-in">
+                    <div id="tab-labels" class="animate-modal-in">
                         
-                        <!-- Main Toggle -->
-                        <div class="bg-[#202023] p-4 md:p-5 rounded-2xl border border-white/5 flex items-center justify-between shadow-sm">
+                        <div class="setting-box">
                             <div>
-                                <div class="font-bold text-sm text-gray-200">Show Labels</div>
-                                <div class="text-xs text-slate-500 mt-1">Display data next to aircraft</div>
+                                <div style="font-weight: 700; font-size: 14px; color: #e2e8f0;">Show Labels</div>
+                                <div style="font-size: 12px; color: #64748b; margin-top: 0.25rem;">Display data next to aircraft</div>
                             </div>
-                            <div class="relative inline-block w-12 align-middle select-none">
-                                <input type="checkbox" id="toggle-labels" class="toggle-checkbox absolute block w-6 h-6 rounded-full bg-white border-4 appearance-none cursor-pointer border-[#202023] transition-all duration-300" checked/>
-                                <label for="toggle-labels" class="toggle-label block overflow-hidden h-6 rounded-full bg-slate-700 cursor-pointer"></label>
+                            <div class="switch-container">
+                                <input type="checkbox" id="toggle-labels" class="switch-input" checked/>
+                                <label for="toggle-labels" class="switch-label"><span class="switch-handle"></span></label>
                             </div>
                         </div>
 
-                        <!-- Content Section -->
-                        <div>
-                            <h3 class="text-xs font-bold text-slate-500 uppercase mb-4 tracking-wider">Label Content</h3>
+                        <div class="setting-group">
+                            <h3 style="font-size: 12px; font-weight: 700; color: #64748b; text-transform: uppercase; margin-bottom: 1rem; letter-spacing: 0.05em;">Label Content</h3>
                             
-                            <!-- Segmented Control -->
-                            <div class="bg-[#202023] p-1 rounded-xl border border-white/5 flex mb-6">
-                                <button class="flex-1 py-2 text-xs font-bold uppercase tracking-wide bg-[#3f3f46] text-white rounded-lg shadow-sm">Text</button>
-                                <button class="flex-1 py-2 text-xs font-bold uppercase tracking-wide text-slate-500 hover:text-white transition-colors">Logo</button>
+                            <div class="segment-control">
+                                <button class="segment-btn active">Text</button>
+                                <button class="segment-btn">Logo</button>
                             </div>
 
-                            <div class="space-y-1">
-                                <!-- Row 1 -->
-                                <div class="flex items-center justify-between group p-3 rounded-xl hover:bg-white/5 transition-colors cursor-pointer border border-transparent hover:border-white/5">
-                                    <span class="text-sm font-medium text-slate-300">Top Line</span>
-                                    <div class="flex items-center gap-3">
-                                        <span class="text-sm text-blue-400 font-medium">Flight #</span>
-                                        <i data-lucide="chevron-down" class="w-4 h-4 text-slate-600"></i>
+                            <div style="display: flex; flex-direction: column; gap: 0.25rem;">
+                                <div class="list-row">
+                                    <span style="font-size: 14px; font-weight: 500; color: #cbd5e1;">Top Line</span>
+                                    <div style="display: flex; align-items: center; gap: 0.75rem;">
+                                        <span style="font-size: 14px; color: #60a5fa; font-weight: 500;">Flight #</span>
+                                        <i data-lucide="chevron-down" width="16" height="16" style="color: #475569;"></i>
                                     </div>
                                 </div>
-                                <!-- Row 2 (Locked) -->
-                                <div class="flex items-center justify-between p-3 rounded-xl border border-transparent opacity-60">
-                                    <span class="text-sm font-medium text-slate-400">Middle Line</span>
-                                    <div class="flex items-center gap-2 px-3 py-1 bg-green-500/10 rounded-full border border-green-500/20">
-                                        <span class="text-[10px] font-bold text-green-500 uppercase">Pro</span>
-                                        <i data-lucide="lock" class="w-3 h-3 text-green-500"></i>
+                                <div class="list-row locked">
+                                    <span style="font-size: 14px; font-weight: 500; color: #94a3b8;">Middle Line</span>
+                                    <div style="display: flex; align-items: center; gap: 0.5rem; padding: 0.25rem 0.75rem; background-color: rgba(34, 197, 94, 0.1); border-radius: 999px; border: 1px solid rgba(34, 197, 94, 0.2);">
+                                        <span style="font-size: 10px; font-weight: 700; color: #22c55e; text-transform: uppercase;">Pro</span>
+                                        <i data-lucide="lock" width="12" height="12" style="color: #22c55e;"></i>
                                     </div>
                                 </div>
                             </div>
                         </div>
 
-                        <div class="w-full h-px bg-white/5"></div>
+                        <div style="width: 100%; height: 1px; background-color: rgba(255,255,255,0.05); margin-bottom: 1.5rem;"></div>
 
-                        <!-- Appearance -->
-                        <div>
-                            <h3 class="text-xs font-bold text-slate-500 uppercase mb-4 tracking-wider">Appearance</h3>
-                            <div class="space-y-6">
-                                <div>
-                                    <div class="flex justify-between mb-3">
-                                        <span class="text-sm font-medium text-slate-300">Font Size</span>
-                                        <span class="text-xs text-slate-500 font-mono">Medium</span>
-                                    </div>
-                                    <div class="flex items-center gap-4">
-                                        <span class="text-xs font-bold text-slate-600">A</span>
-                                        <input type="range" min="1" max="100" value="40" class="w-full h-1.5 bg-slate-700 rounded-lg appearance-none cursor-pointer accent-blue-500">
-                                        <span class="text-lg font-bold text-slate-600">A</span>
-                                    </div>
+                        <div class="setting-group">
+                            <h3 style="font-size: 12px; font-weight: 700; color: #64748b; text-transform: uppercase; margin-bottom: 1rem; letter-spacing: 0.05em;">Appearance</h3>
+                            <div>
+                                <div style="display: flex; justify-content: space-between; margin-bottom: 0.75rem;">
+                                    <span style="font-size: 14px; font-weight: 500; color: #cbd5e1;">Font Size</span>
+                                    <span style="font-size: 12px; color: #64748b; font-family: var(--font-mono);">Medium</span>
+                                </div>
+                                <div style="display: flex; align-items: center; gap: 1rem;">
+                                    <span style="font-size: 12px; font-weight: 700; color: #475569;">A</span>
+                                    <input type="range" min="1" max="100" value="40" class="range-slider">
+                                    <span style="font-size: 18px; font-weight: 700; color: #475569;">A</span>
                                 </div>
                             </div>
                         </div>
                     </div>
                     
-                    <!-- TAB: MAP & MARKERS -->
-                    <div id="tab-map" class="hidden space-y-8 animate-modal-in">
-                        <!-- Layers Toggles -->
-                        <div>
-                            <h3 class="text-xs font-bold text-slate-500 uppercase mb-4 tracking-wider">Boundaries</h3>
-                            <div class="space-y-4">
-                                <div class="flex items-center justify-between p-3 rounded-xl bg-[#202023] border border-white/5">
-                                    <div class="flex items-center gap-3">
-                                        <div class="w-8 h-8 rounded-lg bg-blue-500/10 flex items-center justify-center text-blue-400">
-                                            <i data-lucide="radio" class="w-4 h-4"></i>
+                    <div id="tab-map" class="hidden animate-modal-in">
+                        <div class="setting-group">
+                            <h3 style="font-size: 12px; font-weight: 700; color: #64748b; text-transform: uppercase; margin-bottom: 1rem; letter-spacing: 0.05em;">Boundaries</h3>
+                            <div style="display: flex; flex-direction: column; gap: 1rem;">
+                                <div class="setting-box" style="margin-bottom: 0;">
+                                    <div style="display: flex; align-items: center; gap: 0.75rem;">
+                                        <div style="width: 2rem; height: 2rem; border-radius: 0.5rem; background-color: rgba(59, 130, 246, 0.1); display: flex; align-items: center; justify-content: center; color: #60a5fa;">
+                                            <i data-lucide="radio" width="16" height="16"></i>
                                         </div>
-                                        <span class="text-sm font-medium text-slate-200">ATC Regions</span>
+                                        <span style="font-size: 14px; font-weight: 500; color: #e2e8f0;">ATC Regions</span>
                                     </div>
-                                    <div class="relative inline-block w-10 align-middle select-none">
-                                        <input type="checkbox" id="layer-atc" class="toggle-checkbox absolute block w-5 h-5 rounded-full bg-white border-4 appearance-none cursor-pointer border-[#202023] transition-all duration-300" checked/>
-                                        <label for="layer-atc" class="toggle-label block overflow-hidden h-5 rounded-full bg-slate-700 cursor-pointer"></label>
+                                    <div class="switch-container">
+                                        <input type="checkbox" id="layer-atc" class="switch-input" checked/>
+                                        <label for="layer-atc" class="switch-label"><span class="switch-handle"></span></label>
                                     </div>
                                 </div>
 
-                                <div class="flex items-center justify-between p-3 rounded-xl bg-[#202023] border border-white/5">
-                                    <div class="flex items-center gap-3">
-                                        <div class="w-8 h-8 rounded-lg bg-purple-500/10 flex items-center justify-center text-purple-400">
-                                            <i data-lucide="plane" class="w-4 h-4"></i>
+                                <div class="setting-box" style="margin-bottom: 0;">
+                                    <div style="display: flex; align-items: center; gap: 0.75rem;">
+                                        <div style="width: 2rem; height: 2rem; border-radius: 0.5rem; background-color: rgba(168, 85, 247, 0.1); display: flex; align-items: center; justify-content: center; color: #c084fc;">
+                                            <i data-lucide="plane" width="16" height="16"></i>
                                         </div>
-                                        <span class="text-sm font-medium text-slate-200">Ground Traffic</span>
+                                        <span style="font-size: 14px; font-weight: 500; color: #e2e8f0;">Ground Traffic</span>
                                     </div>
-                                    <div class="relative inline-block w-10 align-middle select-none">
-                                        <input type="checkbox" id="layer-ground" class="toggle-checkbox absolute block w-5 h-5 rounded-full bg-white border-4 appearance-none cursor-pointer border-[#202023] transition-all duration-300"/>
-                                        <label for="layer-ground" class="toggle-label block overflow-hidden h-5 rounded-full bg-slate-700 cursor-pointer"></label>
+                                    <div class="switch-container">
+                                        <input type="checkbox" id="layer-ground" class="switch-input"/>
+                                        <label for="layer-ground" class="switch-label"><span class="switch-handle"></span></label>
                                     </div>
                                 </div>
                             </div>
                         </div>
                     </div>
 
-                    <!-- TAB: THEME -->
                     <div id="tab-theme" class="hidden animate-modal-in">
-                        <div class="text-center mt-20 text-slate-600">
-                            <i data-lucide="palette" class="w-16 h-16 mx-auto mb-4 opacity-50"></i>
-                            <p class="text-sm">Theme settings coming soon.</p>
+                        <div style="text-center; margin-top: 5rem; color: #475569; display: flex; flex-direction: column; align-items: center;">
+                            <i data-lucide="palette" width="64" height="64" style="margin-bottom: 1rem; opacity: 0.5;"></i>
+                            <p style="font-size: 14px;">Theme settings coming soon.</p>
                         </div>
                     </div>
 
@@ -406,7 +968,6 @@
         </div>
     </div>
 
-    <!-- JAVASCRIPT LOGIC -->
     <script>
         // --- Initialization ---
         document.addEventListener('DOMContentLoaded', () => {
@@ -427,19 +988,19 @@
             
             planeMarkers.forEach(plane => {
                 const btn = document.createElement('div');
-                btn.className = "absolute p-2 transition-transform cursor-pointer group z-10 hover:scale-110";
+                btn.className = "marker-wrapper";
                 btn.style.top = plane.top;
                 btn.style.left = plane.left;
+                // We apply rotation to the SVG wrapper
                 btn.style.transform = `rotate(${plane.rotate}deg)`;
 
                 btn.innerHTML = `
-                    <svg xmlns="http://www.w3.org/2000/svg" width="28" height="28" viewBox="0 0 24 24" fill="#fbbf24" stroke="#0f172a" stroke-width="1" stroke-linecap="round" stroke-linejoin="round" class="drop-shadow-lg filter">
+                    <svg xmlns="http://www.w3.org/2000/svg" width="28" height="28" viewBox="0 0 24 24" fill="#fbbf24" stroke="#0f172a" stroke-width="1" stroke-linecap="round" stroke-linejoin="round" style="filter: drop-shadow(0 4px 3px rgb(0 0 0 / 0.07));">
                         <path d="M2 12h20"/>
                         <path d="M13 4l8 8-8 8"/>
                     </svg>
-                    <!-- Label -->
-                    <div class="absolute hidden group-hover:flex flex-col bg-slate-900/90 backdrop-blur text-white text-[10px] px-2 py-1 rounded-md shadow-xl -top-8 left-1/2 -translate-x-1/2 whitespace-nowrap z-20 border border-white/10 pointer-events-none" style="transform: rotate(-${plane.rotate}deg)">
-                        <span class="font-bold tracking-wide">${plane.id}</span>
+                    <div class="marker-label" style="transform: rotate(-${plane.rotate}deg) translateX(-50%);">
+                        <span style="font-weight: 700; letter-spacing: 0.025em;">${plane.id}</span>
                     </div>
                 `;
                 container.appendChild(btn);
@@ -449,7 +1010,6 @@
         // --- Search Logic ---
         function handleSearch(query) {
             const results = document.getElementById('search-results');
-            const container = document.getElementById('search-container');
             
             if(query.length > 0) {
                 results.classList.remove('hidden');
@@ -474,15 +1034,12 @@
             navIds.forEach(id => {
                 const btn = document.getElementById('nav-' + id);
                 if (id === tabId) {
-                    btn.classList.remove('text-slate-400', 'hover:bg-white/5');
-                    btn.classList.add('bg-[#27272a]', 'text-white', 'shadow-sm');
-                    btn.querySelector('i').classList.add('text-blue-400');
-                    btn.querySelector('i').classList.remove('text-slate-500');
+                    btn.classList.add('nav-btn-active');
+                    // Manually handle icon colors since we lost utility classes
+                    if(btn.querySelector('i')) btn.querySelector('i').style.color = '#60a5fa';
                 } else {
-                    btn.classList.add('text-slate-400', 'hover:bg-white/5');
-                    btn.classList.remove('bg-[#27272a]', 'text-white', 'shadow-sm');
-                    btn.querySelector('i').classList.remove('text-blue-400');
-                    btn.querySelector('i').classList.add('text-slate-500');
+                    btn.classList.remove('nav-btn-active');
+                    if(btn.querySelector('i')) btn.querySelector('i').style.color = '';
                 }
             });
 
@@ -516,12 +1073,10 @@
             
             if (popup.classList.contains('hidden')) {
                 popup.classList.remove('hidden');
-                btn.classList.add('bg-blue-600', 'text-white', 'border-transparent');
-                btn.classList.remove('bg-slate-800/90', 'text-slate-300');
+                btn.classList.add('weather-btn-active');
             } else {
                 popup.classList.add('hidden');
-                btn.classList.remove('bg-blue-600', 'text-white', 'border-transparent');
-                btn.classList.add('bg-slate-800/90', 'text-slate-300');
+                btn.classList.remove('weather-btn-active');
             }
         }
 
@@ -536,18 +1091,13 @@
         }
 
         function selectServer(serverName) {
-            document.querySelectorAll('.server-check').forEach(el => el.classList.remove('opacity-100'));
-            document.querySelectorAll('.server-check').forEach(el => el.classList.add('opacity-0'));
+            document.querySelectorAll('.server-check').forEach(el => el.style.opacity = '0');
             
             const check = document.getElementById('check-' + serverName);
             if(check) {
-                check.classList.remove('opacity-0');
-                check.classList.add('opacity-100');
+                check.style.opacity = '1';
             }
             toggleServerMenu();
-            
-            const btn = document.getElementById('server-btn');
-            // Visual feedback logic...
         }
 
         function toggleMapType() {
@@ -564,7 +1114,6 @@
                 img.style.opacity = '0.5';
             }, 300);
         }
-
     </script>
 </body>
 </html>
