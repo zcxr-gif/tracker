@@ -12,10 +12,13 @@
  * immediately "teleported" to the new coordinates and its
  * properties (like heading) are updated.
  *
- * This version includes a timestamp check to prevent
- * out-of-order data from moving planes backward.
+ * The map source is updated immediately on each 'updateFlight'
+ * or 'removeFlight' call.
  * ===================================================================
  */
+
+// All animation-related constants and the FlightAnimationState class
+// have been removed as they are no longer needed.
 
 /**
  * Main manager for the Mapbox map.
@@ -32,12 +35,15 @@ export class MapAnimator {
         this.map = map;
         this.sourceName = sourceName;
         this.currentMapFeatures = featuresObject; // This is a SHARED REFERENCE
+        
+        // No animation state or loop IDs are needed for teleporting.
     }
 
     /**
      * Starts the animator. (No-op in teleport mode).
      */
     start() {
+        // No animation loop is used in this model.
         console.log('MapAnimator (Teleport) started.');
     }
 
@@ -45,6 +51,7 @@ export class MapAnimator {
      * Stops the animator. (No-op in teleport mode).
      */
     stop() {
+        // No animation loop to stop.
         console.log('MapAnimator (Teleport) stopped.');
     }
 
@@ -54,49 +61,21 @@ export class MapAnimator {
      * @param {object} newPosition - {lon, lat, heading_deg}
      * @param {object} newProperties - The full properties object.
      */
-    updateFlight(newPosition, newProperties) {
+    updateFlight(newPosition, newProperties) { 
         const flightId = newProperties.flightId;
-
-        // --- [THE FIX: TIMESTAMP GUARD] ---
-        
-        // 1. Get the timestamp from the new data.
-        //    !!! IMPORTANT: Change 'last_update' to your data's actual timestamp property !!!
-        const newTimestamp = newProperties.last_update;
-
-        // 2. Check if the flight already exists in our master list
-        const existingFeature = this.currentMapFeatures[flightId];
-
-        if (existingFeature) {
-            // 3. Get the timestamp of the *current* data on the map
-            //    This assumes the timestamp is also stored in the feature's properties.
-            const currentTimestamp = existingFeature.properties.last_update;
-
-            // 4. The Guard Clause:
-            //    If the new data is older than (or equal to) the current data,
-            //    stop right here. Do not process this "old" packet.
-            if (newTimestamp <= currentTimestamp) {
-                // You can uncomment this for debugging
-                // console.warn(`Ignoring out-of-order data for ${flightId}`);
-                return; // Do nothing
-            }
-        }
-        // --- [END OF FIX] ---
-
-        // If we are here, it's either:
-        // a) A brand new flight (existingFeature was false)
-        // b) Newer data for an existing flight (newTimestamp > currentTimestamp)
-
-        // Proceed with the "teleport"
         const newApiLon = newPosition.lon;
         const newApiLat = newPosition.lat;
 
+        // Regardless of 'Ground' or 'Airborne', just
+        // create or update the feature in the master list.
+        // This is the "teleport".
         this.currentMapFeatures[flightId] = {
             type: 'Feature',
             geometry: {
                 type: 'Point',
                 coordinates: [newApiLon, newApiLat]
             },
-            properties: newProperties // This stores the new properties, including the new, later timestamp
+            properties: newProperties // Includes new heading, phase, etc.
         };
 
         // Trigger an immediate update of the map source.
@@ -121,9 +100,12 @@ export class MapAnimator {
     _updateMapSource() {
         const source = this.map.getSource(this.sourceName);
         if (!source || !this.map.isStyleLoaded()) {
+            // If source/style isn't ready, it's fine.
+            // The next update will catch it.
             return;
         }
 
+        // This single call pushes all changes to the map at once.
         source.setData({
             type: 'FeatureCollection',
             features: Object.values(this.currentMapFeatures)
