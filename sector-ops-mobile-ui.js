@@ -1,4 +1,3 @@
-
 const MobileUIHandler = {
     // --- CONFIGURATION ---
     CONFIG: {
@@ -75,6 +74,12 @@ const MobileUIHandler = {
             if (this.isMobile()) {
                 if (!document.getElementById('mobile-hud-controls')) this.injectMobileHudControls();
             } else {
+                // [CRITICAL FIX] Ensure content is returned to original window if we switch to desktop
+                // preventing "empty window" bug on resize/rotation
+                if (this.activeWindow) {
+                    this.closeActiveWindow(true); 
+                }
+
                 const hud = document.getElementById('mobile-hud-controls');
                 if (hud) hud.remove();
                 this.restoreMapControls();
@@ -98,7 +103,7 @@ const MobileUIHandler = {
             }
         });
 
-        console.log("Mobile UI Handler (HUD Rehaul v9.5 - Search Fix) Initialized.");
+        console.log("Mobile UI Handler (HUD Rehaul v9.6 - Stability Fixes) Initialized.");
     },
 
     /**
@@ -121,17 +126,17 @@ const MobileUIHandler = {
         const currentServer = localStorage.getItem('preferredServer') || 'Expert Server';
         const shortServerName = currentServer.split(' ')[0]; // "Expert"
 
-        const serverPillHTML = \`
+        const serverPillHTML = `
             <div id="mobile-server-pill" class="mobile-glass-pill">
                 <div class="status-dot"></div>
-                <span id="mobile-server-name">\${shortServerName}</span>
+                <span id="mobile-server-name">${shortServerName}</span>
                 <i class="fa-solid fa-chevron-down" style="font-size: 0.7rem; opacity: 0.7;"></i>
             </div>
-        \`;
+        `;
 
         // --- 3. Top Right: Action Stack (Search, Weather, Filters) ---
         // [UPDATED] Added Search Button here
-        const actionStackHTML = \`
+        const actionStackHTML = `
             <div class="mobile-action-stack">
                 <button id="mobile-btn-search" class="mobile-glass-sq-btn">
                     <i class="fa-solid fa-magnifying-glass"></i>
@@ -143,7 +148,7 @@ const MobileUIHandler = {
                     <i class="fa-solid fa-layer-group"></i>
                 </button>
             </div>
-        \`;
+        `;
 
         controlsContainer.innerHTML = serverPillHTML + actionStackHTML;
         mapContainer.appendChild(controlsContainer);
@@ -209,38 +214,38 @@ const MobileUIHandler = {
         
         const current = localStorage.getItem('preferredServer') || 'Expert Server';
 
-        sheet.innerHTML = \`
+        sheet.innerHTML = `
             <div class="sheet-header">
                 <span>Select Server</span>
                 <button id="close-server-sheet"><i class="fa-solid fa-xmark"></i></button>
             </div>
             <div class="server-options-list">
-                <button class="server-opt-btn \${current === 'Expert Server' ? 'active' : ''}" data-server="Expert Server">
+                <button class="server-opt-btn ${current === 'Expert Server' ? 'active' : ''}" data-server="Expert Server">
                     <div class="server-icon expert"><i class="fa-solid fa-trophy"></i></div>
                     <div class="server-info">
                         <span class="s-name">Expert Server</span>
                         <span class="s-desc">Strict Rules • Live ATC</span>
                     </div>
-                    \${current === 'Expert Server' ? '<i class="fa-solid fa-check"></i>' : ''}
+                    ${current === 'Expert Server' ? '<i class="fa-solid fa-check"></i>' : ''}
                 </button>
-                <button class="server-opt-btn \${current === 'Training Server' ? 'active' : ''}" data-server="Training Server">
+                <button class="server-opt-btn ${current === 'Training Server' ? 'active' : ''}" data-server="Training Server">
                     <div class="server-icon training"><i class="fa-solid fa-graduation-cap"></i></div>
                     <div class="server-info">
                         <span class="s-name">Training Server</span>
                         <span class="s-desc">Learning Environment</span>
                     </div>
-                    \${current === 'Training Server' ? '<i class="fa-solid fa-check"></i>' : ''}
+                    ${current === 'Training Server' ? '<i class="fa-solid fa-check"></i>' : ''}
                 </button>
-                <button class="server-opt-btn \${current === 'Casual Server' ? 'active' : ''}" data-server="Casual Server">
+                <button class="server-opt-btn ${current === 'Casual Server' ? 'active' : ''}" data-server="Casual Server">
                     <div class="server-icon casual"><i class="fa-solid fa-plane-arrival"></i></div>
                     <div class="server-info">
                         <span class="s-name">Casual Server</span>
                         <span class="s-desc">Free Flight • No Violations</span>
                     </div>
-                    \${current === 'Casual Server' ? '<i class="fa-solid fa-check"></i>' : ''}
+                    ${current === 'Casual Server' ? '<i class="fa-solid fa-check"></i>' : ''}
                 </button>
             </div>
-        \`;
+        `;
 
         // Overlay
         const overlay = document.createElement('div');
@@ -273,7 +278,7 @@ const MobileUIHandler = {
                 if (pillText) pillText.textContent = newServer.split(' ')[0];
 
                 // Trigger Desktop Logic
-                const desktopBtn = document.querySelector(\`.server-btn[data-server="\${newServer}"]\`);
+                const desktopBtn = document.querySelector(`.server-btn[data-server="${newServer}"]`);
                 if (desktopBtn) desktopBtn.click();
 
                 overlay.click(); // Close
@@ -288,7 +293,7 @@ const MobileUIHandler = {
         const styleId = 'mobile-sector-ops-styles';
         if (document.getElementById(styleId)) document.getElementById(styleId).remove();
 
-        const css = \`
+        const css = `
             :root {
                 --hud-bg: rgba(15, 20, 35, 0.85);
                 --hud-blur: 20px;
@@ -303,7 +308,7 @@ const MobileUIHandler = {
                 --island-side-margin: 10px;
 
                 /* --- [NEW] Legacy Sheet Config --- */
-                --legacy-peek-height: \${this.CONFIG.legacyPeekHeight}px;
+                --legacy-peek-height: ${this.CONFIG.legacyPeekHeight}px;
                 --legacy-top-offset: env(safe-area-inset-top, 15px);
             }
             
@@ -335,7 +340,7 @@ const MobileUIHandler = {
             }
 
             /* --- Hide Desktop UI elements on Mobile permanently --- */
-            @media (max-width: \${this.CONFIG.breakpoint}px) {
+            @media (max-width: ${this.CONFIG.breakpoint}px) {
                 #server-selector-container { display: none !important; }
                 
                 /* Hide Mapbox controls by default on mobile if you want a clean HUD look
@@ -495,7 +500,7 @@ const MobileUIHandler = {
             /* ====================================================================
             --- [UPDATED] Search Bar Mobile Positioning (Hidden by default) ---
             ==================================================================== */
-            @media (max-width: \${this.CONFIG.breakpoint}px) {
+            @media (max-width: ${this.CONFIG.breakpoint}px) {
                 #sector-ops-search-container {
                     /* Hide by default on mobile */
                     display: none !important; 
@@ -1026,13 +1031,13 @@ const MobileUIHandler = {
                 /* The handle will wrap this */
             }
 
-            @media (max-width: \${this.CONFIG.breakpoint}px) {
+            @media (max-width: ${this.CONFIG.breakpoint}px) {
                 #aircraft-info-window:not(.mobile-legacy-sheet), 
                 #airport-info-window {
                     display: none !important;
                 }
             }
-        \`;
+        `;
         const style = document.createElement('style');
         style.id = styleId;
         style.type = 'text/css';
@@ -1147,28 +1152,28 @@ const MobileUIHandler = {
         this.miniIslandEl = document.createElement('div');
         this.miniIslandEl.id = 'mobile-island-mini';
         this.miniIslandEl.className = 'mobile-island-bottom';
-        this.miniIslandEl.innerHTML = \`<div class="route-summary-wrapper-mobile"></div>\`;
+        this.miniIslandEl.innerHTML = `<div class="route-summary-wrapper-mobile"></div>`;
         viewContainer.appendChild(this.miniIslandEl);
 
         // 4. Bottom Island - State 1 (Peek)
         this.peekIslandEl = document.createElement('div');
         this.peekIslandEl.id = 'mobile-island-peek';
         this.peekIslandEl.className = 'mobile-island-bottom';
-        this.peekIslandEl.innerHTML = \`
+        this.peekIslandEl.innerHTML = `
             <div class="route-summary-wrapper-mobile"></div>
             <div class="drawer-content"></div>
-        \`;
+        `;
         viewContainer.appendChild(this.peekIslandEl);
         
         // 5. Bottom Island - State 2 (Expanded)
         this.expandedIslandEl = document.createElement('div');
         this.expandedIslandEl.id = 'mobile-island-expanded';
         this.expandedIslandEl.className = 'mobile-island-bottom';
-        this.expandedIslandEl.innerHTML = \`
+        this.expandedIslandEl.innerHTML = `
             <div class="route-summary-wrapper-mobile"></div>
             <div id="expanded-tabs-slot"></div>
             <div class="drawer-content"></div>
-        \`;
+        `;
         viewContainer.appendChild(this.expandedIslandEl);
     },
 
@@ -1252,7 +1257,7 @@ const MobileUIHandler = {
             sourceWindow.prepend(handleWrapper);
             
             // Ensure source window is relative so absolute handle positions correctly
-            sourceWindow.style.position = 'relative'; // Should be redundant due to flex class but good for safety
+            sourceWindow.style.position = 'relative'; 
             
         } else {
             // --- STANDARD MODE LOGIC ---
@@ -1265,7 +1270,10 @@ const MobileUIHandler = {
                 handleWrapper.appendChild(overviewPanel);
                 handleWrapper.appendChild(routeSummaryBar);
             } else {
-                console.warn("Legacy Sheet UI: Could not find header elements for standard mode.");
+                console.warn("Legacy Sheet UI: Could not find header elements for standard mode. Skipping wrap.");
+                // If we don't wrap, handleWrapper is empty and not attached.
+                // We should append it anyway to have a drag handle.
+                sourceWindow.prepend(handleWrapper);
             }
         }
         
@@ -1484,7 +1492,7 @@ const MobileUIHandler = {
 
                 // Activate new tab/pane
                 tabBtn.classList.add('active');
-                const newPane = islandContent.querySelector(\`#\${tabId}\`);
+                const newPane = islandContent.querySelector(`#${tabId}`);
                 if (newPane) {
                     newPane.classList.add('active');
                 }
@@ -1507,7 +1515,7 @@ const MobileUIHandler = {
                                 }
                             });
                         } else {
-                            statsDisplay.innerHTML = \`<p class="error-text" style="padding: 1rem;">Could not load pilot data. Missing userId or helper function.</p>\`;
+                            statsDisplay.innerHTML = `<p class="error-text" style="padding: 1rem;">Could not load pilot data. Missing userId or helper function.</p>`;
                         }
                     }
                 }
@@ -1628,7 +1636,7 @@ const MobileUIHandler = {
     },
 
     handleLegacyTouchMove(e) {
-        if (this.activeMode !== 'legacy' || !this.legacySheetState.isDragging) return;
+        if (this.activeMode !== 'legacy' || !this.legacySheetState.isDragging || !this.activeWindow) return;
         
         e.preventDefault();
         const touchCurrentY = e.touches[0].clientY;
@@ -1646,12 +1654,12 @@ const MobileUIHandler = {
             newY = topStop - (overdrag * 0.3); // Resistance
         }
         
-        this.activeWindow.style.transform = \`translateY(\${newY}px)\`;
+        this.activeWindow.style.transform = `translateY(${newY}px)`;
         this.legacySheetState.currentSheetY = newY; // Store last position
     },
 
     handleLegacyTouchEnd(e) {
-        if (this.activeMode !== 'legacy' || !this.legacySheetState.isDragging) return;
+        if (this.activeMode !== 'legacy' || !this.legacySheetState.isDragging || !this.activeWindow) return;
         
         this.legacySheetState.isDragging = false;
         
@@ -1729,28 +1737,43 @@ const MobileUIHandler = {
             this.legacySheetState.isDragging = false;
         };
 
-        if (force) {
-            overlayToRemove?.remove();
-            if (sheetToClose) {
+        const cleanupSheetDOM = () => {
+             if (sheetToClose) {
                 sheetToClose.style.display = 'none';
                 sheetToClose.classList.remove('mobile-legacy-sheet', 'visible', 'peek');
                 
-                // [MODIFIED] Handle cleanup: un-wrap OR remove custom handle
-                const handle = sheetToClose.querySelector('.legacy-sheet-handle');
-                if (handle) {
-                    if (handle.classList.contains('simple-mode')) {
-                        // Simple Mode: Just remove the bar
-                        handle.remove();
-                    } else {
-                        // Standard Mode: Un-wrap content
-                        const overview = sheetToClose.querySelector('.aircraft-overview-panel');
-                        const routeBar = sheetToClose.querySelector('.route-summary-overlay');
-                        if (overview) sheetToClose.prepend(overview);
-                        if (routeBar) sheetToClose.insertBefore(routeBar, overview.nextSibling);
-                        handle.remove();
+                // [CRITICAL FIX] Handle cleanup with safety checks
+                try {
+                    const handle = sheetToClose.querySelector('.legacy-sheet-handle');
+                    if (handle) {
+                        if (handle.classList.contains('simple-mode')) {
+                            // Simple Mode: Just remove the bar
+                            handle.remove();
+                        } else {
+                            // Standard Mode: Un-wrap content SAFELY
+                            const overview = sheetToClose.querySelector('.aircraft-overview-panel');
+                            const routeBar = sheetToClose.querySelector('.route-summary-overlay');
+                            
+                            // [FIX] Use conditionals to prevent crash if elements are missing/null
+                            if (overview) {
+                                sheetToClose.prepend(overview);
+                                if (routeBar) sheetToClose.insertBefore(routeBar, overview.nextSibling);
+                            } else if (routeBar) {
+                                sheetToClose.prepend(routeBar);
+                            }
+                            
+                            handle.remove();
+                        }
                     }
+                } catch (e) {
+                    console.warn("Mobile UI: Error cleaning up legacy sheet DOM", e);
                 }
             }
+        };
+
+        if (force) {
+            overlayToRemove?.remove();
+            cleanupSheetDOM();
             this.restoreMapControls();
             resetState();
         } else {
@@ -1759,25 +1782,7 @@ const MobileUIHandler = {
             
             this.closeTimer = setTimeout(() => {
                 overlayToRemove?.remove();
-                if (sheetToClose) {
-                    sheetToClose.style.display = 'none';
-                    sheetToClose.classList.remove('mobile-legacy-sheet', 'peek');
-                    
-                    // [MODIFIED] Handle cleanup
-                    const handle = sheetToClose.querySelector('.legacy-sheet-handle');
-                    if (handle) {
-                        if (handle.classList.contains('simple-mode')) {
-                            handle.remove();
-                        } else {
-                            const overview = sheetToClose.querySelector('.aircraft-overview-panel');
-                            const routeBar = sheetToClose.querySelector('.route-summary-overlay');
-                            if (overview) sheetToClose.prepend(overview);
-                            if (routeBar) sheetToClose.insertBefore(routeBar, overview.nextSibling);
-                            handle.remove();
-                        }
-                    }
-                }
-                
+                cleanupSheetDOM();
                 this.restoreMapControls();
                 
                 if (this.activeWindow === sheetToClose) {
@@ -1792,17 +1797,31 @@ const MobileUIHandler = {
      * [NEW] Teardown logic for HUD mode.
      */
     teardownHudView(force, duration) {
-        if (this.activeWindow && this.topWindowEl && this.miniIslandEl && this.peekIslandEl && this.expandedIslandEl) {
-            const topOverviewPanel = this.topWindowEl.querySelector('.aircraft-overview-panel');
-            const mainFlightContent = this.expandedIslandEl.querySelector('.unified-display-main-content');
-            const tabContainer = this.expandedIslandEl.querySelector('.ac-info-window-tabs');
-            const clonedFlightContent = this.peekIslandEl.querySelector('.unified-display-main-content');
-            
-            if (topOverviewPanel) this.activeWindow.appendChild(topOverviewPanel);
-            if (mainFlightContent) this.activeWindow.appendChild(mainFlightContent);
-            if (tabContainer) this.activeWindow.querySelector('.info-window-content').prepend(tabContainer);
-            clonedFlightContent?.remove();
-        }
+        
+        const cleanupHudDOM = () => {
+             if (this.activeWindow && this.topWindowEl && this.miniIslandEl && this.peekIslandEl && this.expandedIslandEl) {
+                try {
+                    const topOverviewPanel = this.topWindowEl.querySelector('.aircraft-overview-panel');
+                    const mainFlightContent = this.expandedIslandEl.querySelector('.unified-display-main-content');
+                    const tabContainer = this.expandedIslandEl.querySelector('.ac-info-window-tabs');
+                    const clonedFlightContent = this.peekIslandEl.querySelector('.unified-display-main-content');
+                    
+                    if (topOverviewPanel) this.activeWindow.appendChild(topOverviewPanel);
+                    if (mainFlightContent) this.activeWindow.appendChild(mainFlightContent);
+                    
+                    // [FIX] Safe prepend for tabs
+                    if (tabContainer) {
+                        const contentContainer = this.activeWindow.querySelector('.info-window-content');
+                        if (contentContainer) contentContainer.prepend(tabContainer);
+                        else this.activeWindow.prepend(tabContainer); // Fallback
+                    }
+                    
+                    clonedFlightContent?.remove();
+                } catch (e) {
+                     console.warn("Mobile UI: Error cleaning up HUD DOM", e);
+                }
+            }
+        };
 
         document.removeEventListener('touchend', this.boundHudTouchEnd);
 
@@ -1825,6 +1844,8 @@ const MobileUIHandler = {
         };
 
         if (force) {
+            cleanupHudDOM();
+            
             overlayToRemove?.remove();
             topWindowToRemove?.remove();
             miniIslandToRemove?.remove();
@@ -1841,6 +1862,8 @@ const MobileUIHandler = {
             if (expandedIslandToRemove) expandedIslandToRemove.classList.remove('island-active');
 
             this.closeTimer = setTimeout(() => {
+                cleanupHudDOM();
+                
                 overlayToRemove?.remove();
                 topWindowToRemove?.remove();
                 miniIslandToRemove?.remove();
@@ -1865,5 +1888,3 @@ document.addEventListener('DOMContentLoaded', () => {
     MobileUIHandler.init();
     window.MobileUIHandler = MobileUIHandler; // Make it globally accessible
 });
-`
-}
