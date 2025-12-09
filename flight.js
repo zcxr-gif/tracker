@@ -2468,7 +2468,8 @@ function injectCustomStyles() {
 #sector-ops-search-container {
     position: absolute;
     top: 20px;
-    left: 20px;
+    right: 80px; /* Changed from left: 20px to right: 80px */
+    left: auto;  /* Ensure left is unset */
     z-index: 1050;
     width: 340px; /* Wider for better data display */
     font-family: var(--font-ui);
@@ -2675,46 +2676,7 @@ function injectCustomStyles() {
 .stat-alt { color: #38bdf8; } /* Sky Blue */
 .stat-gs { color: #fbbf24; font-size: 0.75rem; font-weight: 600; } /* Amber */
 
-/* --- SEARCH BAR HOTFIXES --- */
-        
-        /* 1. Ensure bar allows absolute positioning */
-        .search-bar-container {
-            position: relative !important;
-            display: flex !important;
-            align-items: center !important;
-        }
 
-        /* 2. Add padding to input so text doesn't hit the icons */
-        .search-bar-container input {
-            padding-right: 50px !important; 
-        }
-
-        /* 3. Force the Search Icon to the Top Right & Size Down */
-        .search-icon-label {
-            position: absolute !important;
-            right: 14px !important;       
-            top: 50% !important;
-            transform: translateY(-50%) !important; 
-            margin: 0 !important;
-            width: auto !important;
-            pointer-events: none;         
-        }
-
-        /* 4. Shrink the icon specifically */
-        .search-icon-label i {
-            font-size: 13px !important;   
-            opacity: 0.7;
-        }
-
-        /* 5. Position the Clear 'X' button to the left of the search icon */
-        .search-clear-btn {
-            position: absolute !important;
-            right: 38px !important;       
-            top: 50% !important;
-            transform: translateY(-50%) !important;
-            z-index: 10;
-            margin: 0 !important;
-        }
     `;
 
     const style = document.createElement('style');
