@@ -6914,7 +6914,13 @@ function formatDataForSimpleWindow(flightProps, plan, routePoints, communityData
         mainContentLoader.classList.add('active');
 
         try {
-            // --- 1. Inject Server Selector Pill ---
+            // --- [MOVED UP] 1. Initialize Map FIRST ---
+            // We do this first so the map canvas is created at the bottom of the stack.
+            // Any HTML injected afterwards will correctly sit ON TOP of the map.
+            const selectedHub = "VIDP"; 
+            await initializeSectorOpsMap(selectedHub);
+
+            // --- 2. Inject Server Selector Pill ---
             if (!document.getElementById('server-selector-container')) {
                 const selectorHtml = `
                     <div id="server-selector-container">
@@ -6926,8 +6932,7 @@ function formatDataForSimpleWindow(flightProps, plan, routePoints, communityData
                 mapContainer.insertAdjacentHTML('beforeend', selectorHtml);
             }
 
-            // --- 2. Inject the Search Bar (UPDATED STRUCTURE) ---
-            // --- 2. Inject the Search Bar (REMODELLED) ---
+            // --- 3. Inject the Search Bar ---
             if (!document.getElementById('sector-ops-search-container')) {
                 const searchHtml = `
                     <div id="sector-ops-search-container">
@@ -6949,7 +6954,7 @@ function formatDataForSimpleWindow(flightProps, plan, routePoints, communityData
                 mapContainer.insertAdjacentHTML('beforeend', searchHtml);
             }
 
-            // --- 3. Inject Airport Info Window ---
+            // --- 4. Inject Airport Info Window ---
             if (!document.getElementById('airport-info-window')) {
                  const windowHtml = `
                     <div id="airport-info-window" class="info-window">
@@ -6959,7 +6964,7 @@ function formatDataForSimpleWindow(flightProps, plan, routePoints, communityData
                 mapContainer.insertAdjacentHTML('beforeend', windowHtml);
             }
 
-            // --- 4. Inject Aircraft Info Window ---
+            // --- 5. Inject Aircraft Info Window ---
             if (!document.getElementById('aircraft-info-window')) {
                  const windowHtml = `
                     <div id="aircraft-info-window" class="info-window">
@@ -6969,7 +6974,7 @@ function formatDataForSimpleWindow(flightProps, plan, routePoints, communityData
                 mapContainer.insertAdjacentHTML('beforeend', windowHtml);
             }
 
-            // --- 5. Inject Weather Settings Window ---
+            // --- 6. Inject Weather Settings Window ---
             if (!document.getElementById('weather-settings-window')) {
                 const windowHtml = `
                     <div id="weather-settings-window" class="info-window">
@@ -7021,7 +7026,7 @@ function formatDataForSimpleWindow(flightProps, plan, routePoints, communityData
                 mapContainer.insertAdjacentHTML('beforeend', windowHtml);
             }
 
-            // --- 6. Inject Settings Window (RENAMED) ---
+            // --- 7. Inject Settings Window ---
             if (!document.getElementById('filter-settings-window')) {
                 const windowHtml = `
                     <div id="filter-settings-window" class="info-window">
@@ -7146,7 +7151,7 @@ function formatDataForSimpleWindow(flightProps, plan, routePoints, communityData
                 mapContainer.insertAdjacentHTML('beforeend', windowHtml);
             }
             
-            // --- 7. Inject Toolbar Buttons (if missing) ---
+            // --- 8. Inject Toolbar Buttons (if missing) ---
             const toolbarToggleBtn = document.getElementById('toolbar-toggle-panel-btn');
             if (toolbarToggleBtn) {
                  if (!document.getElementById('airport-recall-btn')) {
@@ -7171,7 +7176,6 @@ function formatDataForSimpleWindow(flightProps, plan, routePoints, communityData
                     `);
                  }
                  if (!document.getElementById('open-filter-settings-btn')) {
-                    // UPDATED: Settings Icon and Title
                     toolbarToggleBtn.parentElement.insertAdjacentHTML('beforeend', `
                         <button id="open-filter-settings-btn" class="toolbar-btn" title="Settings">
                             <i class="fa-solid fa-gear"></i>
@@ -7180,7 +7184,7 @@ function formatDataForSimpleWindow(flightProps, plan, routePoints, communityData
                  }
             }
             
-            // --- 8. Assign Global Variables ---
+            // --- 9. Assign Global Variables ---
             airportInfoWindow = document.getElementById('airport-info-window');
             airportInfoWindowRecallBtn = document.getElementById('airport-recall-btn');
             aircraftInfoWindow = document.getElementById('aircraft-info-window');
@@ -7188,30 +7192,29 @@ function formatDataForSimpleWindow(flightProps, plan, routePoints, communityData
             weatherSettingsWindow = document.getElementById('weather-settings-window');
             filterSettingsWindow = document.getElementById('filter-settings-window');
 
-            // --- 9. Initialize Map and Load Content ---
-            const selectedHub = "VIDP"; 
-            await initializeSectorOpsMap(selectedHub);
+            // --- 10. Load Content and Setup Listeners ---
             await loadExternalPanelContent();
 
-            // --- 10. Set Up Event Listeners ---
             setupSectorOpsEventListeners();
             setupAirportWindowEvents();
             setupAircraftWindowEvents();
             setupWeatherSettingsWindowEvents();
             setupFilterSettingsWindowEvents(); 
+            
+            // --- 11. Setup Search Listeners (Now that elements exist) ---
             setupSearchEventListeners();
 
             // --- [NEW] Initialize Smart Map Click ---
             setupSmartMapBackgroundClick(); 
 
-            // --- 11. Listen for ND_READY signal ---
+            // --- 12. Listen for ND_READY signal ---
             window.addEventListener('message', (event) => {
                 if (event.data && event.data.type === 'ND_READY') {
                     refreshNavDisplayFromCache();
                 }
             });
 
-            // --- 12. Start Live Loop ---
+            // --- 13. Start Live Loop ---
             startSectorOpsLiveLoop();
 
         } catch (error) {
