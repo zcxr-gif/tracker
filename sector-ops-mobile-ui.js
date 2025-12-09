@@ -1103,25 +1103,25 @@ const MobileUIHandler = {
         const mapContainer = document.getElementById('sector-ops-map-fullscreen');
         if (mapContainer) {
             mapContainer.classList.add('mobile-ui-active');
-            mapContainer.classList.add('mobile-window-open'); // [FIX] New class to strictly hide desktop clutter
+            mapContainer.classList.add('mobile-window-open'); 
         }
-        // --- [END FIX] ---
 
         // Hide HUD controls when a window is open
         const hudControls = document.getElementById('mobile-hud-controls');
         if (hudControls) hudControls.style.opacity = '0';
 
-        if (windowElement.id === 'aircraft-info-window') {
-            // --- Hide map controls ---
-            const burgerMenu = document.getElementById('mobile-sidebar-toggle');
-            const mapToolbar = document.getElementById('toolbar-toggle-panel-btn')?.parentElement;
-            const searchBar = document.getElementById('sector-ops-search-container');
-            
-            if (burgerMenu) burgerMenu.style.display = 'none';
-            if (mapToolbar) mapToolbar.style.display = 'none';
-            if (searchBar) searchBar.style.display = 'none';
+        // --- HIDE MAP CONTROLS (Shared) ---
+        const burgerMenu = document.getElementById('mobile-sidebar-toggle');
+        const mapToolbar = document.getElementById('toolbar-toggle-panel-btn')?.parentElement;
+        const searchBar = document.getElementById('sector-ops-search-container');
+        if (burgerMenu) burgerMenu.style.display = 'none';
+        if (mapToolbar) mapToolbar.style.display = 'none';
+        if (searchBar) searchBar.style.display = 'none';
 
-            // --- [NEW] The Router Logic ---
+        // ===============================================
+        // CASE 1: AIRCRAFT WINDOW
+        // ===============================================
+        if (windowElement.id === 'aircraft-info-window') {
             // 1. Check for Simple Mode (iframe existence)
             const isSimpleMode = !!windowElement.querySelector('#simple-flight-window-frame');
 
@@ -1137,15 +1137,31 @@ const MobileUIHandler = {
             this.activeWindow = windowElement;
 
             if (userMode === 'legacy') {
-                // --- Path 1: "Legacy Sheet" Mode ---
                 this.createLegacySheetUI();
                 this.observeOriginalWindow(windowElement);
-
             } else {
-                // --- Path 2: "HUD" Mode ---
-                this.createSplitViewUI(); // Build our new island containers
+                this.createSplitViewUI(); 
                 this.observeOriginalWindow(windowElement);
             }
+        }
+        // ===============================================
+        // CASE 2: AIRPORT WINDOW (The Fix)
+        // ===============================================
+        else if (windowElement.id === 'airport-info-window') {
+            // Airports ALWAYS use the Legacy Sheet mode
+            this.activeMode = 'legacy';
+            this.activeWindow = windowElement;
+
+            this.createLegacySheetUI();
+            
+            // Populate the drag handle (Airport Header)
+            this.populateLegacySheet(windowElement);
+
+            // Animate in immediately (Airports don't wait for observers usually)
+            setTimeout(() => {
+                this.activeWindow.classList.add('visible', 'peek');
+                this.legacySheetState.currentState = 'peek';
+            }, 50);
         }
     },
 
@@ -1281,9 +1297,12 @@ const MobileUIHandler = {
 
     /**
      * [MODIFIED] Wires up interactions for the "Legacy Sheet" mode.
-     * Now handles both STANDARD (wrap content) and SIMPLE (prepend handle) modes.
+     * Now handles STANDARD, SIMPLE, and AIRPORT modes.
      */
     populateLegacySheet(sourceWindow) {
+        // Check if we already have a handle to avoid duplicates
+        if (sourceWindow.querySelector('.legacy-sheet-handle')) return;
+
         // --- 1. Check for Simple Mode (Iframe) ---
         const simpleIframe = sourceWindow.querySelector('#simple-flight-window-frame');
         
@@ -1292,30 +1311,33 @@ const MobileUIHandler = {
 
         if (simpleIframe) {
             // --- SIMPLE MODE LOGIC ---
-            // The iframe occupies the whole window.
-            // We create a distinct "pill bar" handle and put it at the very top.
             handleWrapper.classList.add('simple-mode'); 
-            
-            // Insert handle at the top of the window
             sourceWindow.prepend(handleWrapper);
-            
-            // Ensure source window is relative so absolute handle positions correctly
             sourceWindow.style.position = 'relative'; 
             
         } else {
-            // --- STANDARD MODE LOGIC ---
+            // --- STANDARD / AIRPORT MODE LOGIC ---
+            
+            // Try to find Aircraft elements
             const overviewPanel = sourceWindow.querySelector('.aircraft-overview-panel');
             const routeSummaryBar = sourceWindow.querySelector('.route-summary-overlay');
+            
+            // Try to find Airport elements
+            const airportHero = sourceWindow.querySelector('.airport-hero');
 
             if (overviewPanel && routeSummaryBar) {
-                // Wrap the existing header elements with the handle
+                // AIRCRAFT: Wrap the existing header elements
                 sourceWindow.prepend(handleWrapper);
                 handleWrapper.appendChild(overviewPanel);
                 handleWrapper.appendChild(routeSummaryBar);
-            } else {
-                console.warn("Legacy Sheet UI: Could not find header elements for standard mode. Skipping wrap.");
-                // If we don't wrap, handleWrapper is empty and not attached.
-                // We should append it anyway to have a drag handle.
+            } 
+            else if (airportHero) {
+                // AIRPORT: Wrap the airport hero
+                sourceWindow.prepend(handleWrapper);
+                handleWrapper.appendChild(airportHero);
+            }
+            else {
+                // FALLBACK: Just add the handle bar at the top
                 sourceWindow.prepend(handleWrapper);
             }
         }
@@ -1323,7 +1345,7 @@ const MobileUIHandler = {
         // Wire up interactions
         this.wireUpLegacySheetInteractions(sourceWindow, handleWrapper);
     },
-
+    
     /**
      * [MODIFIED] Moves content from the original window into the new island components.
      * Now clones the tab container into the expanded island.
