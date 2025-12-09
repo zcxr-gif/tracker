@@ -199,7 +199,8 @@ const MobileUIHandler = {
     },
 
     /**
-     * [NEW] Opens a bottom sheet to select the server
+     * [UPDATED] Opens a bottom sheet to select the server
+     * Now fetches and displays live user counts instead of static text.
      */
     openServerSheet() {
         const mapContainer = document.getElementById('sector-ops-map-fullscreen');
@@ -214,33 +215,39 @@ const MobileUIHandler = {
         
         const current = localStorage.getItem('preferredServer') || 'Expert Server';
 
+        // Helper to generate the loading state HTML
+        const loadingState = `<span class="s-desc" style="color: var(--hud-accent);"><i class="fa-solid fa-circle-notch fa-spin"></i> Loading...</span>`;
+
         sheet.innerHTML = `
             <div class="sheet-header">
                 <span>Select Server</span>
                 <button id="close-server-sheet"><i class="fa-solid fa-xmark"></i></button>
             </div>
             <div class="server-options-list">
+                
                 <button class="server-opt-btn ${current === 'Expert Server' ? 'active' : ''}" data-server="Expert Server">
                     <div class="server-icon expert"><i class="fa-solid fa-trophy"></i></div>
                     <div class="server-info">
                         <span class="s-name">Expert Server</span>
-                        <span class="s-desc">Strict Rules • Live ATC</span>
+                        <span class="s-desc" id="cnt-expert">${loadingState}</span>
                     </div>
                     ${current === 'Expert Server' ? '<i class="fa-solid fa-check"></i>' : ''}
                 </button>
+
                 <button class="server-opt-btn ${current === 'Training Server' ? 'active' : ''}" data-server="Training Server">
                     <div class="server-icon training"><i class="fa-solid fa-graduation-cap"></i></div>
                     <div class="server-info">
                         <span class="s-name">Training Server</span>
-                        <span class="s-desc">Learning Environment</span>
+                        <span class="s-desc" id="cnt-training">${loadingState}</span>
                     </div>
                     ${current === 'Training Server' ? '<i class="fa-solid fa-check"></i>' : ''}
                 </button>
+
                 <button class="server-opt-btn ${current === 'Casual Server' ? 'active' : ''}" data-server="Casual Server">
                     <div class="server-icon casual"><i class="fa-solid fa-plane-arrival"></i></div>
                     <div class="server-info">
                         <span class="s-name">Casual Server</span>
-                        <span class="s-desc">Free Flight • No Violations</span>
+                        <span class="s-desc" id="cnt-casual">${loadingState}</span>
                     </div>
                     ${current === 'Casual Server' ? '<i class="fa-solid fa-check"></i>' : ''}
                 </button>
@@ -284,6 +291,41 @@ const MobileUIHandler = {
                 overlay.click(); // Close
             });
         });
+
+        // --- NEW: Fetch Live User Counts ---
+        fetch('https://site--acars-backend--6dmjph8ltlhv.code.run/if-sessions')
+            .then(res => res.json())
+            .then(data => {
+                if (data && Array.isArray(data.sessions)) {
+                    
+                    const updateCount = (elementId, serverNamePart) => {
+                        const el = document.getElementById(elementId);
+                        if (!el) return;
+
+                        // Find session by partial name match
+                        const session = data.sessions.find(s => s.name.toLowerCase().includes(serverNamePart));
+                        
+                        if (session) {
+                            el.innerHTML = `<i class="fa-solid fa-users" style="margin-right: 6px;"></i> ${session.userCount.toLocaleString()} Online`;
+                            el.style.color = "#94a3b8"; // Reset color
+                        } else {
+                            el.textContent = "Offline";
+                        }
+                    };
+
+                    updateCount('cnt-expert', 'expert');
+                    updateCount('cnt-training', 'training');
+                    updateCount('cnt-casual', 'casual');
+                }
+            })
+            .catch(err => {
+                console.warn("Failed to load server counts:", err);
+                // Fallback text on error
+                ['cnt-expert', 'cnt-training', 'cnt-casual'].forEach(id => {
+                    const el = document.getElementById(id);
+                    if (el) el.textContent = "Status Unknown";
+                });
+            });
     },
 
     /**
