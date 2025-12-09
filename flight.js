@@ -531,7 +531,7 @@ function injectCustomStyles() {
         /* --- IMPORT FONTS (Inter & JetBrains Mono) --- */
         @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;700&display=swap');
 
-        /* --- THEME VARIABLES (Based on flightinfo.html) --- */
+        /* --- THEME VARIABLES --- */
         :root {
             /* Palette - Carbon/Zinc Theme */
             --bg-glass: rgba(24, 24, 27, 0.95);      /* Zinc-900 base */
@@ -570,7 +570,7 @@ function injectCustomStyles() {
         }
 
         /* --- GLOBAL OVERRIDES --- */
-        body, .mapboxgl-popup, .info-window {
+        body, .mapboxgl-popup {
             font-family: var(--font-ui);
             color: var(--text-primary);
         }
@@ -587,6 +587,78 @@ function injectCustomStyles() {
             background: var(--bg-panel) !important;
             color: var(--text-primary) !important;
             border-color: var(--text-secondary) !important;
+        }
+
+        /* --- INFO WINDOW STYLES --- */
+        .info-window {
+            font-family: var(--font-ui);
+            color: var(--text-primary);
+            position: absolute;
+            top: 20px; 
+            right: 20px;
+            width: 600px; 
+            max-width: 95vw;
+            max-height: calc(100vh - 40px);
+            background: var(--bg-glass);
+            backdrop-filter: blur(40px) saturate(140%);
+            -webkit-backdrop-filter: blur(40px) saturate(140%);
+            border-radius: var(--radius-lg);
+            border: 1px solid var(--border-glass);
+            box-shadow: 0 20px 50px rgba(0,0,0,0.8); 
+            z-index: 1060; 
+            display: flex;
+            flex-direction: column;
+            overflow: hidden;
+            transition: opacity 0.3s ease, transform 0.3s ease;
+            opacity: 0;
+            transform: translateX(20px);
+            pointer-events: none; 
+        }
+        .info-window.visible { 
+            opacity: 1;
+            transform: translateX(0);
+            pointer-events: auto;
+        }
+        .info-window-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 16px 20px;
+            background: var(--bg-panel);
+            border-bottom: 1px solid var(--border-glass);
+            flex-shrink: 0;
+        }
+        .info-window-header h3 {
+            margin: 0; 
+            font-size: 1.1rem; 
+            color: var(--text-primary);
+            font-weight: 700;
+            letter-spacing: -0.025em;
+        }
+        .info-window-actions button {
+            background: var(--bg-subtle);
+            border: 1px solid var(--border-glass);
+            color: var(--text-secondary);
+            cursor: pointer;
+            font-size: 0.9rem;
+            width: 28px; height: 28px;
+            border-radius: 50%;
+            margin-left: 8px;
+            line-height: 1; 
+            display: grid;
+            place-items: center;
+            transition: all 0.2s ease-in-out;
+        }
+        .info-window-actions button:hover { 
+            background: var(--bg-panel);
+            color: #fff; 
+            border-color: var(--text-secondary);
+        }
+        .info-window-content { 
+            overflow-y: auto; 
+            flex-grow: 1; 
+            padding: 0;
+            background: transparent; 
         }
 
         /* --- VIRTUAL COCKPIT SEAT SENSOR --- */
@@ -697,7 +769,6 @@ function injectCustomStyles() {
         .icon-coffee { color: var(--color-warning); }
         .icon-cloud { color: var(--color-brand); }
 
-        /* Seat Active States */
         .seat.active-green { background: rgba(16, 185, 129, 0.1); border-color: var(--color-success); box-shadow: 0 0 15px rgba(16, 185, 129, 0.2); }
         .seat.active-green::before { border-color: var(--color-success); background: #064e3b; }
 
@@ -759,77 +830,6 @@ function injectCustomStyles() {
             height: 100dvh; 
             overflow: hidden; 
         }
-        
-        /* --- INFO WINDOW STYLES (UPDATED) --- */
-        .info-window {
-            position: absolute;
-            top: 20px; 
-            right: 20px;
-            width: 600px; 
-            max-width: 95vw;
-            max-height: calc(100vh - 40px);
-            background: var(--bg-glass);
-            backdrop-filter: blur(40px) saturate(140%);
-            -webkit-backdrop-filter: blur(40px) saturate(140%);
-            border-radius: var(--radius-lg);
-            border: 1px solid var(--border-glass);
-            box-shadow: 0 20px 50px rgba(0,0,0,0.8); 
-            z-index: 1060; 
-            display: flex;
-            flex-direction: column;
-            overflow: hidden;
-            color: var(--text-primary);
-            transition: opacity 0.3s ease, transform 0.3s ease;
-            opacity: 0;
-            transform: translateX(20px);
-            pointer-events: none; 
-        }
-        .info-window.visible { 
-            opacity: 1;
-            transform: translateX(0);
-            pointer-events: auto;
-        }
-        .info-window-header {
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-            padding: 16px 20px;
-            background: var(--bg-panel);
-            border-bottom: 1px solid var(--border-glass);
-            flex-shrink: 0;
-        }
-        .info-window-header h3 {
-            margin: 0; 
-            font-size: 1.1rem; 
-            color: var(--text-primary);
-            font-weight: 700;
-            letter-spacing: -0.025em;
-        }
-        .info-window-actions button {
-            background: var(--bg-subtle);
-            border: 1px solid var(--border-glass);
-            color: var(--text-secondary);
-            cursor: pointer;
-            font-size: 0.9rem;
-            width: 28px; height: 28px;
-            border-radius: 50%;
-            margin-left: 8px;
-            line-height: 1; 
-            display: grid;
-            place-items: center;
-            transition: all 0.2s ease-in-out;
-        }
-        .info-window-actions button:hover { 
-            background: var(--bg-panel);
-            color: #fff; 
-            border-color: var(--text-secondary);
-        }
-        .info-window-content { 
-            overflow-y: auto; 
-            flex-grow: 1; 
-            padding: 0;
-            background: transparent; 
-        }
 
         .pfd-and-location-grid { 
             display: grid; 
@@ -843,6 +843,7 @@ function injectCustomStyles() {
             gap: 8px;
         }
         
+        /* --- FMS & MODULE STYLES --- */
         .fms-module-container {
             height: 380px; 
             max-height: 380px;
@@ -937,7 +938,7 @@ function injectCustomStyles() {
         .stat-value { color: var(--text-primary); font-weight: bold; }
         .fms-empty-state { text-align: center; padding: 20px; color: var(--text-dim); font-style: italic; }
 
-        /* --- REDESIGNED LOCATION DATA PANEL (No Bleeding) --- */
+        /* --- LOCATION DATA PANEL --- */
         #location-data-panel {
             background: var(--bg-glass);
             border-radius: var(--radius-sm);
@@ -1711,7 +1712,7 @@ function injectCustomStyles() {
             gap: 6px;
         }
 
-        /* 2. Weather Module Refactor */
+        /* Weather Module Refactor */
         .weather-module-grid {
             display: grid;
             grid-template-columns: repeat(4, 1fr);
@@ -1767,7 +1768,7 @@ function injectCustomStyles() {
         .wx-ifr { background: rgba(239, 68, 68, 0.1); color: #f87171; border-color: rgba(239, 68, 68, 0.3); }
         .wx-lifr { background: rgba(168, 85, 247, 0.1); color: #c084fc; border-color: rgba(168, 85, 247, 0.3); }
 
-        /* 3. Route Cards (Flight Strips) */
+        /* Route Cards (Flight Strips) */
         .route-card {
             background: linear-gradient(to right, rgba(30, 41, 59, 0.4), rgba(30, 41, 59, 0.2));
             border: 1px solid var(--border-glass);
@@ -1838,7 +1839,7 @@ function injectCustomStyles() {
             color: #fff;
         }
 
-        /* 4. ATC Grid */
+        /* ATC Grid */
         .atc-grid-card {
             background: #1e293b;
             border: 1px solid var(--border-glass);
@@ -1905,7 +1906,7 @@ function injectCustomStyles() {
             transform: scale(1.1);
         }
 
-        /* --- AIRPORT WINDOW TABS (REDESIGNED) --- */
+        /* --- AIRPORT WINDOW TABS --- */
         .apt-tabs-header {
             display: flex;
             background: rgba(0, 0, 0, 0.2);
@@ -1965,12 +1966,12 @@ function injectCustomStyles() {
             background: rgba(255, 255, 255, 0.05);
         }
         .runway-dropdown-content {
-            display: none; /* Closed by default */
+            display: none; 
             padding: 8px;
             border-top: 1px solid var(--border-glass);
         }
         .runway-dropdown-content.open {
-            display: grid; /* Grid layout when open */
+            display: grid; 
             grid-template-columns: 1fr 1fr; 
             gap: 8px;
             animation: slideDown 0.3s ease-out;
@@ -2001,7 +2002,7 @@ function injectCustomStyles() {
             padding: 4px;
             display: flex;
             gap: 4px;
-            z-index: 1050; /* Above map, below modals */
+            z-index: 1050; /* Above map */
             box-shadow: 0 4px 20px rgba(0,0,0,0.4);
         }
 
@@ -2429,7 +2430,8 @@ function injectCustomStyles() {
         .atis-pill { font-family: var(--font-data); font-size: 0.75rem; font-weight: 700; padding: 2px 6px; border-radius: 3px; border: 1px solid; margin-left: 4px; }
         .pill-arr { background: rgba(16, 185, 129, 0.1); color: #4ade80; border-color: rgba(16, 185, 129, 0.3); }
         .pill-dep { background: rgba(56, 189, 248, 0.1); color: #38bdf8; border-color: rgba(56, 189, 248, 0.3); }
-        /* --- NEW: Mini Module Footer (For ATIS Remarks) --- */
+        
+        /* Mini Module Footer (For ATIS Remarks) */
         .apt-mini-footer {
             padding: 6px 10px;
             background: rgba(0, 0, 0, 0.2);
@@ -2492,7 +2494,7 @@ function injectCustomStyles() {
             position: absolute;
             top: 20px;
             right: 20px;
-            z-index: 1050;
+            z-index: 2000; /* [FIX] Raised to sit above info windows (1060) */
             display: flex;
             flex-direction: column;
             align-items: flex-end; /* Aligns content to the right */
@@ -2502,7 +2504,7 @@ function injectCustomStyles() {
         .search-bar-container {
             pointer-events: auto;
             position: relative;
-            display: block; /* [FIX] Changed from flex to block */
+            display: block; 
             
             height: 44px;
             width: 44px; /* Collapsed width */
@@ -2546,7 +2548,7 @@ function injectCustomStyles() {
             color: var(--text-secondary);
             font-size: 1.1rem;
             z-index: 200; 
-            pointer-events: none; /* [FIX] Let clicks pass through to the input */
+            pointer-events: none; /* Let clicks pass through to the input */
         }
 
         .search-bar-container:hover .search-icon-label {
@@ -2555,13 +2557,13 @@ function injectCustomStyles() {
 
         /* 4. The Input Field (FIXED) */
         .search-bar-container input {
-            /* Force it to sit on top of everything */
+            /* Force it to sit on top of everything inside the container */
             position: absolute !important;
             top: 0;
             left: 0;
             width: 100%;
             height: 100%;
-            z-index: 9999 !important; 
+            z-index: 300 !important; /* [FIX] Higher than icon (200) */
             
             /* Ensure text starts at the left */
             padding-left: 20px !important;
@@ -2617,7 +2619,7 @@ function injectCustomStyles() {
             justify-content: center;
             font-size: 0.6rem;
             cursor: pointer;
-            z-index: 25;
+            z-index: 400; /* [FIX] Higher than input so it can be clicked */
         }
         
         .search-clear-btn:hover {
