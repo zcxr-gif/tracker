@@ -103,7 +103,7 @@ const MobileUIHandler = {
             }
         });
 
-        console.log("Mobile UI Handler (HUD Rehaul v9.6 - Stability Fixes) Initialized.");
+        console.log("Mobile UI Handler (HUD Rehaul v9.8 - Airport Fixes) Initialized.");
     },
 
     /**
@@ -391,6 +391,12 @@ const MobileUIHandler = {
                 .mapboxgl-ctrl-bottom-left, 
                 .mapboxgl-ctrl-bottom-right { 
                     /* optional: display: none; */ 
+                }
+
+                /* [FIX] Ensure Airport Window logic mirrors Aircraft logic for hiding */
+                #aircraft-info-window:not(.mobile-legacy-sheet), 
+                #airport-info-window:not(.mobile-legacy-sheet) {
+                    display: none !important;
                 }
             }
 
@@ -1027,6 +1033,7 @@ const MobileUIHandler = {
             }
 
             /* --- [UPDATED] Specific styling for SIMPLE MODE handle (Seamless Overlay) --- */
+            /* We also use this for AIRPORTS now, as a floating handle */
             .legacy-sheet-handle.simple-mode {
                 position: absolute !important; /* Float over the iframe */
                 top: 0 !important;
@@ -1074,12 +1081,7 @@ const MobileUIHandler = {
                 /* The handle will wrap this */
             }
 
-            @media (max-width: ${this.CONFIG.breakpoint}px) {
-                #aircraft-info-window:not(.mobile-legacy-sheet), 
-                #airport-info-window {
-                    display: none !important;
-                }
-            }
+            
         `;
         const style = document.createElement('style');
         style.id = styleId;
@@ -1225,13 +1227,18 @@ const MobileUIHandler = {
             
             // --- [NEW CHECK] For Simple Window (Iframe) ---
             const simpleIframe = windowElement.querySelector('#simple-flight-window-frame');
+            
+            // --- [NEW CHECK] For Airport Window ---
+            const isAirportWindow = windowElement.id === 'airport-info-window';
+            // Airports might have .airport-overview-panel or similar, but generally if they have children, they are ready.
+            const isAirportReady = isAirportWindow && windowElement.children.length > 0;
 
             // Condition 1: Standard PFD is built
             const isStandardReady = mainContent && attitudeGroup && attitudeGroup.dataset.initialized === 'true';
             // Condition 2: Simple Iframe is present
             const isSimpleReady = !!simpleIframe;
             
-            if (isStandardReady || isSimpleReady) {
+            if (isStandardReady || isSimpleReady || isAirportReady) {
                 
                 // --- [NEW] Router ---
                 if (this.activeMode === 'legacy') {
@@ -1272,19 +1279,22 @@ const MobileUIHandler = {
 
     /**
      * [MODIFIED] Wires up interactions for the "Legacy Sheet" mode.
-     * Now handles both STANDARD (wrap content) and SIMPLE (prepend handle) modes.
+     * Now handles STANDARD, SIMPLE, and AIRPORT modes.
      */
     populateLegacySheet(sourceWindow) {
-        // --- 1. Check for Simple Mode (Iframe) ---
+        // --- 1. Check for Simple Mode (Iframe) or Airport Window ---
         const simpleIframe = sourceWindow.querySelector('#simple-flight-window-frame');
+        const isAirport = sourceWindow.id === 'airport-info-window';
         
         const handleWrapper = document.createElement('div');
         handleWrapper.className = 'legacy-sheet-handle';
 
-        if (simpleIframe) {
-            // --- SIMPLE MODE LOGIC ---
-            // The iframe occupies the whole window.
-            // We create a distinct "pill bar" handle and put it at the very top.
+        if (simpleIframe || isAirport) {
+            // --- SIMPLE / AIRPORT MODE LOGIC ---
+            // For Airports and Iframe windows, we do NOT want to try and "wrap" internal content
+            // because the structure varies too much. 
+            // We use the "Floating Handle" approach (Same as Simple Mode).
+            
             handleWrapper.classList.add('simple-mode'); 
             
             // Insert handle at the top of the window
@@ -1294,7 +1304,8 @@ const MobileUIHandler = {
             sourceWindow.style.position = 'relative'; 
             
         } else {
-            // --- STANDARD MODE LOGIC ---
+            // --- STANDARD AIRCRAFT MODE LOGIC ---
+            // Only try to wrap if we find the specific Aircraft headers
             const overviewPanel = sourceWindow.querySelector('.aircraft-overview-panel');
             const routeSummaryBar = sourceWindow.querySelector('.route-summary-overlay');
 
@@ -1304,10 +1315,13 @@ const MobileUIHandler = {
                 handleWrapper.appendChild(overviewPanel);
                 handleWrapper.appendChild(routeSummaryBar);
             } else {
-                console.warn("Legacy Sheet UI: Could not find header elements for standard mode. Skipping wrap.");
-                // If we don't wrap, handleWrapper is empty and not attached.
-                // We should append it anyway to have a drag handle.
+                console.warn("Legacy Sheet UI: Could not find Standard Aircraft headers. Fallback to floating handle.");
+                
+                // Fallback: If we expected standard but didn't find it, use floating handle
+                // to prevent an invisible/unusable drag handle.
+                handleWrapper.classList.add('simple-mode'); 
                 sourceWindow.prepend(handleWrapper);
+                sourceWindow.style.position = 'relative';
             }
         }
         
@@ -1418,7 +1432,8 @@ const MobileUIHandler = {
         }
         
         // Find desktop buttons (Standard Mode only usually)
-        const closeBtn = sheetElement.querySelector('.aircraft-window-close-btn');
+        // [FIX] broadened search to find ANY close button (Airports often differ)
+        const closeBtn = sheetElement.querySelector('.aircraft-window-close-btn, .close-btn, button[class*="close"]');
         const hideBtn = sheetElement.querySelector('.aircraft-window-hide-btn');
         
         if(closeBtn) {
@@ -1781,7 +1796,7 @@ const MobileUIHandler = {
                     const handle = sheetToClose.querySelector('.legacy-sheet-handle');
                     if (handle) {
                         if (handle.classList.contains('simple-mode')) {
-                            // Simple Mode: Just remove the bar
+                            // Simple Mode / Airport Mode: Just remove the bar
                             handle.remove();
                         } else {
                             // Standard Mode: Un-wrap content SAFELY
