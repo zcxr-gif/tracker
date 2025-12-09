@@ -4,20 +4,17 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>InFlight</title>
-
     <link rel="icon" type="image/x-icon" href="Images/inflightIcon.ico">
 
-    <link href="https://api.mapbox.com/mapbox-gl-js/v3.16.0/mapbox-gl.css" rel="stylesheet">
-    <script src="https://api.mapbox.com/mapbox-gl-js/v3.16.0/mapbox-gl.js"></script>
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/socket.io/4.7.2/socket.io.js"></script>
-
     <script src="https://unpkg.com/lucide@latest"></script>
+    <script src='https://api.mapbox.com/mapbox-gl-js/v3.1.2/mapbox-gl.js'></script>
+    <link href='https://api.mapbox.com/mapbox-gl-js/v3.1.2/mapbox-gl.css' rel='stylesheet' />
+    <script src="https://cdn.socket.io/4.7.4/socket.io.min.js"></script>
+    <script type="text/javascript" src="https://cdn.jsdelivr.net/npm/toastify-js"></script>
+    <link rel="stylesheet" type="text/css" href="https://cdn.jsdelivr.net/npm/toastify-js/src/toastify.min.css">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css">
 
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet">
-
-    <link rel="stylesheet" type="text/css" href="https://cdn.jsdelivr.net/npm/toastify-js/src/toastify.min.css">
-    <script type="text/javascript" src="https://cdn.jsdelivr.net/npm/toastify-js"></script>
-    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
 
     <style>
         /* --- CSS VARIABLES & RESET --- */
@@ -38,15 +35,14 @@
 
         * { box-sizing: border-box; margin: 0; padding: 0; }
         
-        body, html {
-            margin: 0;
-            padding: 0;
-            height: 100%;
-            width: 100%;
+        body {
             font-family: var(--font-main);
             background-color: var(--bg-dark);
             color: var(--text-main);
             overflow: hidden;
+            height: 100vh;
+            width: 100vw;
+            position: relative;
         }
 
         button {
@@ -81,28 +77,33 @@
         }
         .animate-slide-up { animation: slideUp 0.2s ease-out forwards; }
 
-        /* --- MAP CONTAINER --- */
-        .main-content {
-            padding: 0; 
-            height: 100dvh; 
-            overflow: hidden; 
-            position: relative;
+        /* Loading Spinner */
+        .spinner-small {
+            width: 24px;
+            height: 24px;
+            border: 3px solid rgba(255, 255, 255, 0.3);
+            border-radius: 50%;
+            border-top-color: #38bdf8;
+            animation: spin 1s ease-in-out infinite;
         }
+        @keyframes spin { to { transform: rotate(360deg); } }
+        
+        #main-content-loader {
+            position: fixed; inset: 0; z-index: 9999;
+            background: #020617; display: none;
+            align-items: center; justify-content: center;
+        }
+        #main-content-loader.active { display: flex; }
 
-        #standalone-map-view.active {
+        /* --- MAP LAYER --- */
+        #sector-ops-map-fullscreen {
             position: absolute;
             inset: 0;
-            width: 100%;
-            height: 100%;
-            display: block;
+            z-index: 0;
+            background-color: #0f172a;
         }
 
-        #sector-ops-map-fullscreen {
-            width: 100%;
-            height: 100%;
-        }
-
-        /* --- NEW UI: SEARCH BAR --- */
+        /* --- SEARCH BAR --- */
         #search-container {
             position: absolute;
             top: 1.5rem;
@@ -112,7 +113,6 @@
             transition: width 0.3s ease;
         }
 
-        /* Hover/Focus expansion logic */
         #search-container:hover,
         #search-container:focus-within {
             width: 18rem;
@@ -156,7 +156,7 @@
             color: #fff;
         }
 
-        #search-input {
+        #sector-ops-search-input {
             position: absolute;
             inset: 0;
             width: 100%;
@@ -174,12 +174,12 @@
             font-weight: 500;
         }
 
-        #search-container:hover #search-input,
-        #search-container:focus-within #search-input {
+        #search-container:hover #sector-ops-search-input,
+        #search-container:focus-within #sector-ops-search-input {
             opacity: 1;
         }
         
-        #search-input::placeholder { color: #64748b; }
+        #sector-ops-search-input::placeholder { color: #64748b; }
 
         .search-dropdown {
             width: 100%;
@@ -208,6 +208,7 @@
             border-radius: 0.5rem;
             text-align: left;
             transition: background-color 0.2s;
+            cursor: pointer;
         }
         .search-result-item:hover { background-color: rgba(255,255,255,0.05); }
 
@@ -222,7 +223,7 @@
         .icon-blue { background: rgba(59, 130, 246, 0.2); color: #60a5fa; }
         .icon-emerald { background: rgba(16, 185, 129, 0.2); color: #34d399; }
 
-        /* --- NEW UI: TOP RIGHT TOOLS --- */
+        /* --- TOP RIGHT TOOLS --- */
         .sidebar-tools {
             position: absolute;
             top: 1.5rem;
@@ -322,7 +323,7 @@
         .menu-item:hover { background-color: rgba(255,255,255,0.05); color: white; }
         .menu-item span { color: white; }
 
-        /* --- NEW UI: WEATHER WIDGET --- */
+        /* --- WEATHER WIDGET --- */
         .weather-container {
             position: absolute;
             bottom: 2rem;
@@ -396,7 +397,11 @@
             width: 2.5rem;
             height: 1.25rem;
         }
-        .switch-input { opacity: 0; width: 0; height: 0; }
+        .switch-input {
+            opacity: 0;
+            width: 0;
+            height: 0;
+        }
         .switch-label {
             position: absolute;
             cursor: pointer;
@@ -415,7 +420,7 @@
             background-color: white;
             transition: .3s;
             border-radius: 50%;
-            border: 4px solid #334155; 
+            border: 4px solid #334155; /* Fake padding */
         }
         .switch-input:checked + .switch-label { background-color: #3b82f6; }
         .switch-input:checked + .switch-label .switch-handle {
@@ -423,11 +428,11 @@
             border-color: #3b82f6;
         }
 
-        /* --- NEW UI: SETTINGS MODAL --- */
-        #settings-modal {
+        /* --- SETTINGS MODAL --- */
+        #settings-modal, #filter-settings-window {
             position: fixed;
             inset: 0;
-            z-index: 9999; /* Highest priority */
+            z-index: 50;
             display: flex;
             align-items: center;
             justify-content: center;
@@ -492,8 +497,7 @@
             color: white;
             box-shadow: 0 1px 2px 0 rgba(0, 0, 0, 0.05);
         }
-
-        .promo-box { display: none; }
+        .nav-btn-active i { color: #60a5fa; } 
 
         .settings-content-area {
             flex: 1;
@@ -513,6 +517,7 @@
             padding-bottom: 6rem;
         }
 
+        /* Settings Components */
         .setting-group { margin-bottom: 2rem; }
         .setting-box {
             background-color: #202023;
@@ -526,79 +531,20 @@
             margin-bottom: 1rem;
         }
 
-        .segment-control {
-            background-color: #202023;
-            padding: 0.25rem;
-            border-radius: 0.75rem;
-            border: 1px solid rgba(255,255,255,0.05);
-            display: flex;
-            margin-bottom: 1.5rem;
-        }
-        .segment-btn {
-            flex: 1;
-            padding: 0.5rem;
-            font-size: 0.75rem;
-            font-weight: 700;
-            text-transform: uppercase;
-            letter-spacing: 0.05em;
-            border-radius: 0.5rem;
-            color: var(--text-muted);
-            transition: color 0.2s;
-        }
-        .segment-btn.active {
-            background-color: #3f3f46;
-            color: white;
-            box-shadow: 0 1px 2px 0 rgba(0, 0, 0, 0.05);
-        }
-
-        .list-row {
-            display: flex;
-            align-items: center;
-            justify-content: space-between;
-            padding: 0.75rem;
-            border-radius: 0.75rem;
-            cursor: pointer;
-            border: 1px solid transparent;
-            transition: background 0.2s;
-        }
-        .list-row:hover { background-color: rgba(255,255,255,0.05); border-color: rgba(255,255,255,0.05); }
-        .list-row.locked { opacity: 0.6; cursor: default; }
-
-        .range-slider {
-            width: 100%;
-            height: 0.375rem;
-            background: #334155;
-            border-radius: 0.5rem;
-            -webkit-appearance: none;
-            cursor: pointer;
-        }
-        .range-slider::-webkit-slider-thumb {
-            -webkit-appearance: none;
-            height: 1rem; width: 1rem;
-            border-radius: 50%;
-            background: #ffffff;
-            cursor: pointer;
-            box-shadow: 0 1px 3px rgba(0,0,0,0.3);
-        }
-
-        /* Desktop Media Query */
+        /* --- MEDIA QUERIES (DESKTOP) --- */
         @media (min-width: 768px) {
-            /* Search */
             #search-container { width: 3rem; height: 3rem; }
             #search-container:hover, #search-container:focus-within { width: 20rem; }
             .search-input-wrapper { height: 3rem; }
             .search-icon-box { min-width: 3rem; }
-            #search-input { padding-left: 3rem; padding-right: 1rem; font-size: 0.875rem; }
+            #sector-ops-search-input { padding-left: 3rem; padding-right: 1rem; font-size: 0.875rem; }
             
-            /* Tools */
             .tool-btn { width: 3rem; height: 3rem; }
             .tooltip { display: block; }
             
-            /* Weather */
             .weather-toggle-btn { height: 3rem; padding: 0 1rem; }
             .weather-popup { width: 18rem; }
 
-            /* Settings Modal Desktop Structure */
             .settings-card {
                 flex-direction: row;
                 width: 900px;
@@ -615,32 +561,8 @@
             .nav-container { padding: 1.5rem; padding-bottom: 0.5rem; overflow: visible; }
             .nav-items { display: block; }
             .nav-btn { width: 100%; margin-bottom: 0.25rem; padding: 0.625rem 0.75rem; }
+            .nav-label { display: inline; }
             
-            .promo-box {
-                display: block;
-                margin-top: auto;
-                padding: 1.5rem;
-            }
-            .promo-card {
-                background: linear-gradient(to bottom right, rgba(20, 83, 45, 0.5), rgba(6, 78, 59, 0.2));
-                border: 1px solid rgba(34, 197, 94, 0.2);
-                border-radius: 1rem;
-                padding: 1rem;
-            }
-            .upgrade-btn {
-                width: 100%;
-                background-color: #16a34a;
-                color: white;
-                font-weight: 700;
-                padding: 0.625rem;
-                border-radius: 0.5rem;
-                font-size: 0.75rem;
-                text-transform: uppercase;
-                margin-top: 0.75rem;
-                transition: background 0.2s;
-            }
-            .upgrade-btn:hover { background-color: #15803d; }
-
             .desktop-header {
                 display: flex;
                 height: 5rem;
@@ -651,324 +573,229 @@
                 flex-shrink: 0;
             }
             .settings-scroll-area { padding: 2rem; padding-bottom: 2rem; }
-            
-            .md-block { display: block !important; }
-        }
-
-        /* --- LOADERS --- */
-        .main-loader-overlay {
-            position: fixed;
-            inset: 0;
-            background: rgba(13, 17, 23, 0.9);
-            display: none; 
-            align-items: center;
-            justify-content: center;
-            z-index: 9999;
-        }
-        .main-loader-overlay.active { display: flex; }
-        .spinner-large {
-            width: 56px; height: 56px;
-            border: 6px solid #484f58;
-            border-bottom-color: #00a8ff;
-            border-radius: 50%;
-            display: inline-block;
-            box-sizing: border-box;
-            animation: rotation 1s linear infinite;
-        }
-        @keyframes rotation {
-            0% { transform: rotate(0deg); }
-            100% { transform: rotate(360deg); }
         }
     </style>
 </head>
 <body>
+    
+    <div id="sector-ops-map-fullscreen"></div>
 
-    <div class="main-content">
-        <div id="standalone-map-view" class="active">
-            <div id="sector-ops-map-fullscreen"></div>
-        </div>
+    <div id="main-content-loader" class="active">
+        <div class="spinner-small"></div>
+    </div>
 
+    <div id="sector-ops-search-container">
         <div id="search-container">
-            <div class="search-box" id="search-box">
+            <div class="search-box">
                 <div class="search-input-wrapper">
                     <div class="search-icon-box">
                         <i data-lucide="search" width="20" height="20"></i>
                     </div>
-                    <input type="text" id="search-input" oninput="handleSearch(this.value)" placeholder="Search flight, airport...">
+                    <input type="text" id="sector-ops-search-input" placeholder="Search flight, airport...">
+                    <button id="sector-ops-search-clear" style="display:none; position: absolute; right: 10px; color:#999; background:none; border:none; cursor:pointer;"><i data-lucide="x" width="16"></i></button>
                 </div>
-                <div id="search-results" class="hidden search-dropdown">
-                    <div class="search-header">Suggested</div>
-                    <button class="search-result-item">
-                        <div class="result-icon icon-blue">
-                            <i data-lucide="plane" width="16" height="16"></i>
-                        </div>
-                        <div>
-                            <div style="font-size: 12px; font-weight: 700; color: white;">BA249</div>
-                            <div style="font-size: 10px; color: var(--text-muted);">British Airways • LHR-GIG</div>
-                        </div>
-                    </button>
+                <div id="search-results-dropdown" class="search-dropdown hidden">
+                    <div class="search-header">Results</div>
                 </div>
             </div>
         </div>
+    </div>
 
-        <div class="sidebar-tools">
-            <button onclick="toggleSettings()" class="tool-btn group">
-                <i data-lucide="settings-2" width="24" height="24"></i>
-                <span class="tooltip">Settings</span>
+    <div class="sidebar-tools">
+        
+        <button id="open-filter-settings-btn" class="tool-btn group">
+            <i data-lucide="settings-2" width="24" height="24"></i>
+            <span class="tooltip">Settings</span>
+        </button>
+
+        <div style="position: relative;" id="server-selector-container">
+            <button onclick="toggleServerMenu()" id="server-btn" class="tool-btn server-btn-active">
+                <i data-lucide="globe" width="24" height="24"></i>
             </button>
-            <button onclick="toggleMapType()" id="map-type-btn" class="tool-btn group">
-                <i data-lucide="layers" width="24" height="24"></i>
-                <span class="tooltip">Map Type</span>
-            </button>
-            <div style="position: relative;">
-                <button onclick="toggleServerMenu()" id="server-btn" class="tool-btn server-btn-active">
-                    <i data-lucide="globe" width="24" height="24"></i>
+            
+            <div id="server-menu" class="hidden animate-modal-in">
+                <div class="menu-header">Select Server</div>
+                <button class="menu-item server-btn active" data-server="Expert Server">
+                    <span>Expert</span>
+                    <i data-lucide="check" width="16" height="16" style="color: #4ade80;" class="server-check" id="check-Expert"></i>
                 </button>
-                <div id="server-menu" class="hidden animate-modal-in">
-                    <div class="menu-header">Select Server</div>
-                    <button onclick="selectServer('Expert')" class="menu-item">
-                        <span>Expert</span>
-                        <i data-lucide="check" width="16" height="16" style="color: #4ade80;" class="server-check" id="check-Expert"></i>
-                    </button>
-                    <button onclick="selectServer('Training')" class="menu-item">
-                        <span>Training</span>
-                        <i data-lucide="check" width="16" height="16" style="color: #4ade80; opacity: 0;" class="server-check" id="check-Training"></i>
-                    </button>
-                    <button onclick="selectServer('Casual')" class="menu-item">
-                        <span>Casual</span>
-                        <i data-lucide="check" width="16" height="16" style="color: #4ade80; opacity: 0;" class="server-check" id="check-Casual"></i>
-                    </button>
+                <button class="menu-item server-btn" data-server="Training Server">
+                    <span>Training</span>
+                    <i data-lucide="check" width="16" height="16" style="color: #4ade80; opacity: 0;" class="server-check" id="check-Training"></i>
+                </button>
+                <button class="menu-item server-btn" data-server="Casual Server">
+                    <span>Casual</span>
+                    <i data-lucide="check" width="16" height="16" style="color: #4ade80; opacity: 0;" class="server-check" id="check-Casual"></i>
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <div class="weather-container">
+        <div id="weather-settings-window" class="hidden weather-popup animate-slide-up">
+            <div class="weather-header">
+                <span style="font-size: 12px; font-weight: 700; color: #cbd5e1; text-transform: uppercase; display: flex; align-items: center; gap: 0.5rem;">
+                    <i data-lucide="cloud-sun" style="color: #60a5fa;" width="16" height="16"></i> Weather Layers
+                </span>
+                <button class="weather-window-close-btn" style="color: #64748b;"><i data-lucide="x" width="16" height="16"></i></button>
+            </div>
+            <div class="weather-toggle-list">
+                <div class="weather-row">
+                    <span style="font-size: 14px; font-weight: 500; color: #cbd5e1;">Radar</span>
+                    <div class="switch-container">
+                        <input type="checkbox" id="weather-toggle-precip" class="switch-input"/>
+                        <label for="weather-toggle-precip" class="switch-label"><span class="switch-handle"></span></label>
+                    </div>
+                </div>
+                <div class="weather-row">
+                    <span style="font-size: 14px; font-weight: 500; color: #cbd5e1;">SIGMETs</span>
+                    <div class="switch-container">
+                        <input type="checkbox" id="weather-toggle-sigmets" class="switch-input"/>
+                        <label for="weather-toggle-sigmets" class="switch-label"><span class="switch-handle"></span></label>
+                    </div>
+                </div>
+                <div class="weather-row">
+                    <span style="font-size: 14px; font-weight: 500; color: #cbd5e1;">Clouds</span>
+                    <div class="switch-container">
+                        <input type="checkbox" id="weather-toggle-clouds" class="switch-input"/>
+                        <label for="weather-toggle-clouds" class="switch-label"><span class="switch-handle"></span></label>
+                    </div>
+                </div>
+                <div class="weather-row">
+                    <span style="font-size: 14px; font-weight: 500; color: #cbd5e1;">Wind</span>
+                    <div class="switch-container">
+                        <input type="checkbox" id="weather-toggle-wind" class="switch-input"/>
+                        <label for="weather-toggle-wind" class="switch-label"><span class="switch-handle"></span></label>
+                    </div>
                 </div>
             </div>
         </div>
 
-        <div class="weather-container">
-            <div id="weather-popup" class="hidden weather-popup animate-slide-up">
-                <div class="weather-header">
-                    <span style="font-size: 12px; font-weight: 700; color: #cbd5e1; text-transform: uppercase; display: flex; align-items: center; gap: 0.5rem;">
-                        <i data-lucide="cloud-sun" style="color: #60a5fa;" width="16" height="16"></i> Weather Layers
-                    </span>
-                    <button onclick="toggleWeather()" style="color: #64748b;"><i data-lucide="x" width="16" height="16"></i></button>
+        <button id="open-weather-settings-btn" class="weather-toggle-btn">
+            <i data-lucide="cloud" width="24" height="24"></i>
+            <span style="font-size: 12px; font-weight: 700; text-transform: uppercase;" id="weather-text">Wx</span>
+        </button>
+    </div>
+
+    <div id="filter-settings-window" class="hidden animate-modal-in">
+        <div class="settings-card">
+            <div class="settings-sidebar">
+                <div class="mobile-header">
+                    <span style="font-size: 14px; font-weight: 700; color: white; text-transform: uppercase;">Settings</span>
+                    <button class="filter-window-close-btn" style="color: #9ca3af;"><i data-lucide="x" width="24" height="24"></i></button>
                 </div>
-                <div>
-                    <div class="weather-row">
-                        <span style="font-size: 14px; font-weight: 500; color: #cbd5e1;">Radar</span>
-                        <div class="switch-container">
-                            <input type="checkbox" id="wx-radar" class="switch-input" checked/>
-                            <label for="wx-radar" class="switch-label"><span class="switch-handle"></span></label>
-                        </div>
-                    </div>
-                    <div class="weather-row">
-                        <span style="font-size: 14px; font-weight: 500; color: #cbd5e1;">SIGMETs</span>
-                        <div class="switch-container">
-                            <input type="checkbox" id="wx-sigmet" class="switch-input" checked/>
-                            <label for="wx-sigmet" class="switch-label"><span class="switch-handle"></span></label>
+
+                <div class="nav-container no-scrollbar">
+                    <div class="nav-items">
+                        <div style="display: flex; flex-direction: column; gap: 0.25rem; width: 100%;">
+                            <button id="nav-labels" class="nav-btn nav-btn-active">
+                                <i data-lucide="message-square" width="16" height="16"></i> <span><span class="nav-label">Map</span> Filters</span>
+                            </button>
                         </div>
                     </div>
                 </div>
             </div>
 
-            <button onclick="toggleWeather()" id="weather-btn" class="weather-toggle-btn">
-                <i data-lucide="cloud" width="24" height="24"></i>
-                <span style="font-size: 12px; font-weight: 700; text-transform: uppercase;" id="weather-text">Wx</span>
-            </button>
-        </div>
-
-        <div id="settings-modal" class="hidden animate-modal-in">
-            <div class="settings-card">
-                <div class="settings-sidebar">
-                    <div class="mobile-header">
-                        <span style="font-size: 14px; font-weight: 700; color: white; text-transform: uppercase;">Settings</span>
-                        <button onclick="toggleSettings()" style="color: #9ca3af;"><i data-lucide="x" width="24" height="24"></i></button>
+            <div class="settings-content-area">
+                <div class="desktop-header">
+                    <div>
+                        <h2 style="font-size: 20px; font-weight: 700; color: white;">Map Filters</h2>
+                        <p style="font-size: 12px; color: #64748b; margin-top: 0.25rem;">Customize your view</p>
                     </div>
-                    <div class="nav-container no-scrollbar">
-                        <div class="nav-items">
-                            <h2 style="display: none; color: #64748b; font-size: 12px; font-weight: 700; text-transform: uppercase; margin-bottom: 1rem; padding-left: 0.75rem;" class="md-block">Customisation</h2>
-                            <div style="display: flex; flex-direction: column; gap: 0.25rem; width: 100%;">
-                                <button onclick="switchTab('labels')" id="nav-labels" class="nav-btn nav-btn-active">
-                                    <i data-lucide="message-square" width="16" height="16"></i> <span><span class="nav-label">Aircraft</span> Labels</span>
-                                </button>
-                                <button onclick="switchTab('map')" id="nav-map" class="nav-btn">
-                                    <i data-lucide="map" width="16" height="16"></i> <span>Map <span class="nav-label">& Markers</span></span>
-                                </button>
-                                <button onclick="switchTab('theme')" id="nav-theme" class="nav-btn">
-                                    <i data-lucide="palette" width="16" height="16"></i> <span>Theme</span>
-                                </button>
-                            </div>
-                        </div>
-                    </div>
-                    <div class="promo-box">
-                        <div class="promo-card">
-                            <h3 style="color: white; font-weight: 700; font-size: 14px; margin-bottom: 0.25rem;">Go Pro</h3>
-                            <p style="color: #94a3b8; font-size: 12px; margin-bottom: 0.75rem;">Unlock satellite maps & more.</p>
-                            <button class="upgrade-btn">Upgrade Now</button>
-                        </div>
-                    </div>
+                    <button class="filter-window-close-btn" style="width: 2.25rem; height: 2.25rem; border-radius: 50%; display: flex; align-items: center; justify-content: center; color: #64748b;">
+                        <i data-lucide="x" width="20" height="20"></i>
+                    </button>
                 </div>
 
-                <div class="settings-content-area">
-                    <div class="desktop-header">
-                        <div>
-                            <h2 style="font-size: 20px; font-weight: 700; color: white;" id="settings-header-title">Aircraft Labels</h2>
-                            <p style="font-size: 12px; color: #64748b; margin-top: 0.25rem;" id="settings-header-desc">Customize how flight data appears on the map</p>
-                        </div>
-                        <button onclick="toggleSettings()" style="width: 2.25rem; height: 2.25rem; border-radius: 50%; display: flex; align-items: center; justify-content: center; color: #64748b;">
-                            <i data-lucide="x" width="20" height="20"></i>
-                        </button>
-                    </div>
-
-                    <div class="settings-scroll-area settings-scroll">
-                        <div id="tab-labels" class="animate-modal-in">
-                            <div class="setting-box">
-                                <div>
-                                    <div style="font-weight: 700; font-size: 14px; color: #e2e8f0;">Show Labels</div>
-                                    <div style="font-size: 12px; color: #64748b; margin-top: 0.25rem;">Display data next to aircraft</div>
-                                </div>
-                                <div class="switch-container">
-                                    <input type="checkbox" id="toggle-labels" class="switch-input" checked/>
-                                    <label for="toggle-labels" class="switch-label"><span class="switch-handle"></span></label>
-                                </div>
+                <div class="settings-scroll-area settings-scroll">
+                    <div id="tab-labels" class="animate-modal-in">
+                        
+                        <div class="setting-box">
+                            <div>
+                                <div style="font-weight: 700; font-size: 14px; color: #e2e8f0;">Show Aircraft Labels</div>
                             </div>
-                            <div class="setting-group">
-                                <h3 style="font-size: 12px; font-weight: 700; color: #64748b; text-transform: uppercase; margin-bottom: 1rem; letter-spacing: 0.05em;">Label Content</h3>
-                                <div class="segment-control">
-                                    <button class="segment-btn active">Text</button>
-                                    <button class="segment-btn">Logo</button>
-                                </div>
-                                <div style="display: flex; flex-direction: column; gap: 0.25rem;">
-                                    <div class="list-row">
-                                        <span style="font-size: 14px; font-weight: 500; color: #cbd5e1;">Top Line</span>
-                                        <div style="display: flex; align-items: center; gap: 0.75rem;">
-                                            <span style="font-size: 14px; color: #60a5fa; font-weight: 500;">Flight #</span>
-                                            <i data-lucide="chevron-down" width="16" height="16" style="color: #475569;"></i>
-                                        </div>
-                                    </div>
-                                </div>
+                            <div class="switch-container">
+                                <input type="checkbox" id="filter-toggle-aircraft-labels" class="switch-input"/>
+                                <label for="filter-toggle-aircraft-labels" class="switch-label"><span class="switch-handle"></span></label>
+                            </div>
+                        </div>
+
+                        <div class="setting-box">
+                            <div>
+                                <div style="font-weight: 700; font-size: 14px; color: #e2e8f0;">Satellite Mode</div>
+                            </div>
+                            <div class="switch-container">
+                                <input type="checkbox" id="filter-toggle-satellite-mode" class="switch-input"/>
+                                <label for="filter-toggle-satellite-mode" class="switch-label"><span class="switch-handle"></span></label>
+                            </div>
+                        </div>
+
+                        <div class="setting-box">
+                            <div>
+                                <div style="font-weight: 700; font-size: 14px; color: #e2e8f0;">Hide Staffed Airports</div>
+                            </div>
+                            <div class="switch-container">
+                                <input type="checkbox" id="filter-toggle-atc" class="switch-input"/>
+                                <label for="filter-toggle-atc" class="switch-label"><span class="switch-handle"></span></label>
                             </div>
                         </div>
                         
-                        <div id="tab-map" class="hidden animate-modal-in">
-                            <div class="setting-group">
-                                <h3 style="font-size: 12px; font-weight: 700; color: #64748b; text-transform: uppercase; margin-bottom: 1rem; letter-spacing: 0.05em;">Boundaries</h3>
-                                <div style="display: flex; flex-direction: column; gap: 1rem;">
-                                    <div class="setting-box" style="margin-bottom: 0;">
-                                        <div style="display: flex; align-items: center; gap: 0.75rem;">
-                                            <div style="width: 2rem; height: 2rem; border-radius: 0.5rem; background-color: rgba(59, 130, 246, 0.1); display: flex; align-items: center; justify-content: center; color: #60a5fa;">
-                                                <i data-lucide="radio" width="16" height="16"></i>
-                                            </div>
-                                            <span style="font-size: 14px; font-weight: 500; color: #e2e8f0;">ATC Regions</span>
-                                        </div>
-                                        <div class="switch-container">
-                                            <input type="checkbox" id="layer-atc" class="switch-input" checked/>
-                                            <label for="layer-atc" class="switch-label"><span class="switch-handle"></span></label>
-                                        </div>
-                                    </div>
-                                </div>
+                        <div class="setting-box">
+                            <div>
+                                <div style="font-weight: 700; font-size: 14px; color: #e2e8f0;">Simple Flight Window</div>
+                                <div style="font-size: 12px; color: #64748b; margin-top: 4px;">Use optimized mobile view</div>
+                            </div>
+                            <div class="switch-container">
+                                <input type="checkbox" id="filter-toggle-simple-window" class="switch-input"/>
+                                <label for="filter-toggle-simple-window" class="switch-label"><span class="switch-handle"></span></label>
                             </div>
                         </div>
 
-                        <div id="tab-theme" class="hidden animate-modal-in">
-                            <div style="text-center; margin-top: 5rem; color: #475569; display: flex; flex-direction: column; align-items: center;">
-                                <i data-lucide="palette" width="64" height="64" style="margin-bottom: 1rem; opacity: 0.5;"></i>
-                                <p style="font-size: 14px;">Theme settings coming soon.</p>
+                        <div style="margin-top: 2rem;">
+                            <div style="font-size: 12px; font-weight: 700; color: #64748b; text-transform: uppercase; margin-bottom: 1rem;">Window Theme</div>
+                            <div class="setting-box">
+                                <div style="font-weight: 700; font-size: 14px; color: #e2e8f0;">Gradient Start</div>
+                                <input type="color" id="theme-color-start" value="#121426" style="background: none; border: none; width: 40px; height: 40px; cursor: pointer;">
                             </div>
+                            <div class="setting-box">
+                                <div style="font-weight: 700; font-size: 14px; color: #e2e8f0;">Gradient End</div>
+                                <input type="color" id="theme-color-end" value="#121426" style="background: none; border: none; width: 40px; height: 40px; cursor: pointer;">
+                            </div>
+                            <button id="theme-reset-btn" style="width: 100%; padding: 12px; background: rgba(255,255,255,0.05); color: #cbd5e1; border-radius: 8px; font-size: 13px; font-weight: 600;">Reset Default Theme</button>
                         </div>
+
                     </div>
                 </div>
             </div>
         </div>
     </div>
 
-    <div id="main-content-loader" class="main-loader-overlay active">
-        <div class="spinner-large"></div>
+    <div id="airport-info-window" class="info-window">
+        <div id="airport-window-content"></div>
     </div>
+    
+    <div id="aircraft-info-window" class="info-window">
+        </div>
+    
+    <button id="aircraft-recall-btn" class="toolbar-btn" style="position: fixed; bottom: 20px; left: 50%; transform: translateX(-50%); z-index: 1005;">
+        <i class="fa-solid fa-plane-up"></i>
+    </button>
+    <button id="airport-recall-btn" class="toolbar-btn" style="position: fixed; bottom: 20px; left: calc(50% + 50px); transform: translateX(-50%); z-index: 1005;">
+        <i class="fa-solid fa-tower-control"></i>
+    </button>
 
     <script src="https://unpkg.com/three@0.126.0/build/three.min.js"></script>
     <script src="https://unpkg.com/three@0.126.0/examples/js/loaders/FontLoader.js"></script>
     <script src="https://unpkg.com/three@0.126.0/examples/js/geometries/TextGeometry.js"></script>
+    
     <script src="simbrief.apiv1.js"></script>
     <script src="sb.js"></script>
     <script src="mapAnimator.js" type="module"></script>
     <script src="weather.js"></script>
     <script src="sector-ops-mobile-ui.js" defer></script>
     <script type="module" src="flight.js"></script>
-    <script src="feature-lock.js" defer></script>
 
     <script>
-        document.addEventListener('DOMContentLoaded', () => {
-            // Initialize Lucide Icons
-            lucide.createIcons();
-        });
-
-        // --- Search Logic ---
-        function handleSearch(query) {
-            const results = document.getElementById('search-results');
-            if(query.length > 0) {
-                results.classList.remove('hidden');
-            } else {
-                results.classList.add('hidden');
-            }
-        }
-
-        // --- Settings Modal Logic ---
-        function toggleSettings() {
-            const modal = document.getElementById('settings-modal');
-            if (modal.classList.contains('hidden')) {
-                modal.classList.remove('hidden');
-            } else {
-                modal.classList.add('hidden');
-            }
-        }
-
-        function switchTab(tabId) {
-            const navIds = ['labels', 'map', 'theme'];
-            navIds.forEach(id => {
-                const btn = document.getElementById('nav-' + id);
-                if (id === tabId) {
-                    btn.classList.add('nav-btn-active');
-                    if(btn.querySelector('i')) btn.querySelector('i').style.color = '#60a5fa';
-                } else {
-                    btn.classList.remove('nav-btn-active');
-                    if(btn.querySelector('i')) btn.querySelector('i').style.color = '';
-                }
-            });
-
-            const titles = {
-                'labels': { title: 'Aircraft Labels', desc: 'Customize how flight data appears on the map' },
-                'map': { title: 'Map & Markers', desc: 'Manage layers, boundaries, and map style' },
-                'theme': { title: 'Theme', desc: 'Adjust the visual appearance of the interface' }
-            };
-            const t = titles[tabId];
-            if(t) {
-                const titleEl = document.getElementById('settings-header-title');
-                if(titleEl) {
-                    titleEl.textContent = t.title;
-                    document.getElementById('settings-header-desc').textContent = t.desc;
-                }
-            }
-
-            document.getElementById('tab-labels').classList.add('hidden');
-            document.getElementById('tab-map').classList.add('hidden');
-            document.getElementById('tab-theme').classList.add('hidden');
-            
-            document.getElementById('tab-' + tabId).classList.remove('hidden');
-        }
-
-        // --- Weather Logic ---
-        function toggleWeather() {
-            const popup = document.getElementById('weather-popup');
-            const btn = document.getElementById('weather-btn');
-            
-            if (popup.classList.contains('hidden')) {
-                popup.classList.remove('hidden');
-                btn.classList.add('weather-btn-active');
-            } else {
-                popup.classList.add('hidden');
-                btn.classList.remove('weather-btn-active');
-            }
-        }
-
-        // --- Server Switcher Logic ---
         function toggleServerMenu() {
             const menu = document.getElementById('server-menu');
             if (menu.classList.contains('hidden')) {
@@ -977,20 +804,10 @@
                 menu.classList.add('hidden');
             }
         }
-
-        function selectServer(serverName) {
-            document.querySelectorAll('.server-check').forEach(el => el.style.opacity = '0');
-            const check = document.getElementById('check-' + serverName);
-            if(check) {
-                check.style.opacity = '1';
-            }
-            toggleServerMenu();
-        }
-
-        function toggleMapType() {
-            console.log("Toggle Map Type Triggered");
-            // Add mapbox layer switching logic here if needed
-        }
+        document.addEventListener('DOMContentLoaded', () => {
+            // Initialize Lucide icons
+            lucide.createIcons();
+        });
     </script>
 </body>
 </html>

@@ -2905,53 +2905,79 @@ function generateTrafficForecastHTML(congestion) {
         currentServerName = newServerName;
         localStorage.setItem('preferredServer', currentServerName);
 
-        // 2. Update New UI Checkmarks
-        // Matches IDs: check-Expert, check-Training, check-Casual
-        const shortName = newServerName.split(' ')[0]; // "Expert", "Training", etc.
-        document.querySelectorAll('.server-check').forEach(el => el.style.opacity = '0');
-        const check = document.getElementById(`check-${shortName}`);
-        if (check) check.style.opacity = '1';
-
-        // 3. Clear Live Aircraft Data (Visuals)
+        // 2. Clear Live Aircraft Data (Visuals)
+        
+        // Remove pilot markers
         Object.keys(pilotMarkers).forEach(fid => {
             if (pilotMarkers[fid].marker) pilotMarkers[fid].marker.remove();
         });
         pilotMarkers = {};
-        liveTrailCache.clear();
-        for (const key in currentMapFeatures) delete currentMapFeatures[key];
         
+        // Clear caches
+        liveTrailCache.clear();
+        
+        // Clear feature object
+        for (const key in currentMapFeatures) {
+            delete currentMapFeatures[key];
+        }
+        
+        // Flush MapAnimator
         if (mapAnimator && typeof mapAnimator._updateMapSource === 'function') {
             mapAnimator._updateMapSource(); 
         }
         
         // Close flight window if open
         if (currentFlightInWindow) {
-            closeAircraftWindow();
+            const closeBtn = document.querySelector('.aircraft-window-close-btn');
+            if (closeBtn) closeBtn.click();
         }
 
-        // 4. ATC & Airport Marker Reset
+        // --- 3. ATC & AIRPORT MARKER RESET (The Fix) ---
+        
+        // A. Stop the polling interval immediately to prevent race conditions
         if (sectorOpsAtcNotamInterval) {
             clearInterval(sectorOpsAtcNotamInterval);
             sectorOpsAtcNotamInterval = null;
         }
 
+        // B. Manually remove every existing airport marker from the map instance
+        // This ensures visual removal of "old" red dots immediately.
         Object.values(airportAndAtcMarkers).forEach(obj => {
-            if (obj && obj.marker) obj.marker.remove();
+            if (obj && obj.marker) {
+                obj.marker.remove();
+            }
         });
-        airportAndAtcMarkers = {}; 
+        airportAndAtcMarkers = {}; // Reset the tracking object
+
+        // C. Wipe the data arrays
         activeAtcFacilities = [];
         activeNotams = [];
-        renderAirportMarkers(); // Draw clean state
+        
+        // D. Render the "Clean State"
+        // Since activeAtcFacilities is empty, this draws only standard blue route dots (if configured)
+        // and ensures no leftover red dots remain.
+        renderAirportMarkers();
+
+        // 4. UI Updates
+        document.querySelectorAll('.server-btn').forEach(btn => {
+            if (btn.dataset.server === currentServerName) {
+                btn.classList.add('active');
+            } else {
+                btn.classList.remove('active');
+            }
+        });
 
         // 5. Show Notification
         showNotification(`Switching to ${currentServerName}...`, 'info');
 
-        // 6. Socket Handshake
+        // 6. Socket Handshake (Join new room)
         if (sectorOpsSocket && sectorOpsSocket.connected) {
             sectorOpsSocket.emit('join_server_room', currentServerName);
         }
 
         // 7. Restart Data Polling
+        // This fetches new data -> populates activeAtcFacilities -> calls renderAirportMarkers() again
+        // to draw the *new* red dots for the selected server.
         updateSectorOpsSecondaryData();
         sectorOpsAtcNotamInterval = setInterval(updateSectorOpsSecondaryData, DATA_REFRESH_INTERVAL_MS);
     }
@@ -3356,51 +3382,6 @@ async function loadExternalPanelContent() {
     }
 
 
-    /**
-     * --- [UPDATED] Renders search results matching new HTML structure.
-     */
-    function renderSearchResultsDropdown(matches) {
-        const dropdown = document.getElementById('search-results');
-        if (!dropdown) return;
-
-        if (matches.length === 0) {
-            dropdown.innerHTML = '<div class="search-header">No results found</div>';
-            return;
-        }
-
-        const html = matches.slice(0, 10).map(feature => {
-            const props = feature.properties;
-            const coords = feature.geometry.coordinates;
-            
-            // Safe data serialization
-            const propsString = JSON.stringify(props).replace(/'/g, "&apos;");
-            const coordsString = JSON.stringify(coords);
-
-            // Determine Icon Color based on role
-            const iconClass = props.isStaff ? 'icon-emerald' : 'icon-blue';
-            const subtext = props.username ? `${props.username} • ${props.callsign}` : props.callsign;
-
-            return `
-            <button class="search-result-item" 
-                 data-flight-id="${props.flightId}"
-                 data-coordinates='${coordsString}'
-                 data-properties='${propsString}'>
-                <div class="result-icon ${iconClass}">
-                    <i data-lucide="plane" width="16" height="16"></i>
-                </div>
-                <div style="text-align: left;">
-                    <div style="font-size: 12px; font-weight: 700; color: white;">${props.callsign}</div>
-                    <div style="font-size: 10px; color: var(--text-muted);">${subtext}</div>
-                </div>
-            </button>
-            `;
-        }).join('');
-
-        dropdown.innerHTML = `<div class="search-header">Results</div>${html}`;
-        
-        // Re-initialize Lucide icons for the new elements
-        if (window.lucide) window.lucide.createIcons();
-    }
 
     /**
      * --- [FIXED] Handles the click on a search result item.
@@ -6610,64 +6591,46 @@ function formatDataForSimpleWindow(flightProps, plan, routePoints, communityData
         }
     }
 
+    // --- UPDATED: Main Initialization for the New HTML Structure ---
     async function initializeSectorOpsView() {
         const mapContainer = document.getElementById('sector-ops-map-fullscreen');
-        const viewContainer = document.getElementById('standalone-map-view'); 
-        
-        if (!viewContainer || !mapContainer) return;
+        if (!mapContainer) return;
         
         mainContentLoader.classList.add('active');
 
         try {
-            // --- 1. Inject Airport Info Window (Still needed as popup) ---
-            if (!document.getElementById('airport-info-window')) {
-                 const windowHtml = `
-                    <div id="airport-info-window" class="info-window">
-                        <div id="airport-window-content" class="info-window-content"></div>
-                    </div>
-                `;
-                mapContainer.insertAdjacentHTML('beforeend', windowHtml);
-            }
+            // We no longer inject HTML here. The HTML is already in index.html.
+            // We just need to grab references.
 
-            // --- 2. Inject Aircraft Info Window (Still needed as popup) ---
-            if (!document.getElementById('aircraft-info-window')) {
-                 const windowHtml = `
-                    <div id="aircraft-info-window" class="info-window">
-                        
-                    </div>
-                `;
-                mapContainer.insertAdjacentHTML('beforeend', windowHtml);
-            }
-            
-            // --- 3. Assign Global Variables ---
+            // --- 1. Assign Global Variables ---
             airportInfoWindow = document.getElementById('airport-info-window');
-            // Note: Recall buttons are removed from new UI, so we handle nulls safely in other functions
-            airportInfoWindowRecallBtn = document.getElementById('airport-recall-btn'); 
             aircraftInfoWindow = document.getElementById('aircraft-info-window');
-            aircraftInfoWindowRecallBtn = document.getElementById('aircraft-recall-btn');
+            weatherSettingsWindow = document.getElementById('weather-settings-window');
+            filterSettingsWindow = document.getElementById('filter-settings-window');
 
-            // --- 4. Initialize Map and Load Content ---
+            // --- 2. Initialize Map ---
             const selectedHub = "VIDP"; 
             await initializeSectorOpsMap(selectedHub);
             
-            // We still load panel content for SimBrief (logic hidden, but ready)
-            await loadExternalPanelContent();
-
-            // --- 5. Set Up New UI Event Listeners ---
-            setupNewFrontendListeners(); // <--- NEW WIRING FUNCTION
-            setupSearchEventListeners(); // <--- UPDATED SEARCH FUNCTION
+            // --- 3. Set Up Event Listeners ---
+            setupSectorOpsEventListeners();
             setupAirportWindowEvents();
             setupAircraftWindowEvents();
+            setupWeatherSettingsWindowEvents();
+            setupFilterSettingsWindowEvents(); 
+            setupSearchEventListeners();
+
+            // --- 4. Initialize Smart Map Click ---
             setupSmartMapBackgroundClick(); 
 
-            // --- 6. Listen for ND_READY signal ---
+            // --- 5. Listen for ND_READY signal ---
             window.addEventListener('message', (event) => {
                 if (event.data && event.data.type === 'ND_READY') {
                     refreshNavDisplayFromCache();
                 }
             });
 
-            // --- 7. Start Live Loop ---
+            // --- 6. Start Live Loop ---
             startSectorOpsLiveLoop();
 
         } catch (error) {
@@ -6678,70 +6641,177 @@ function formatDataForSimpleWindow(flightProps, plan, routePoints, communityData
         }
     }
 
-    /**
-     * --- [NEW] Wires up the new index.html UI elements to flight logic ---
-     */
-    function setupNewFrontendListeners() {
-        // --- 1. Weather Widget Wiring ---
-        const radarToggle = document.getElementById('wx-radar');
-        const sigmetToggle = document.getElementById('wx-sigmet');
+    // --- UPDATED: Search Dropdown Renderer to match new CSS ---
+    function renderSearchResultsDropdown(matches) {
+        const dropdown = document.getElementById('search-results-dropdown');
+        if (!dropdown) return;
 
-        if (radarToggle) {
-            radarToggle.addEventListener('change', (e) => toggleWeatherLayer(e.target.checked));
-        }
-        if (sigmetToggle) {
-            sigmetToggle.addEventListener('change', (e) => toggleSigmetLayer(e.target.checked));
+        if (matches.length === 0) {
+            dropdown.classList.add('hidden');
+            dropdown.innerHTML = '';
+            return;
         }
 
-        // --- 2. Settings Modal Wiring ---
+        dropdown.classList.remove('hidden');
         
-        // Aircraft Labels Toggle
-        const labelsToggle = document.getElementById('toggle-labels');
-        if (labelsToggle) {
-            // Set initial state
-            labelsToggle.checked = mapFilters.showAircraftLabels;
-            labelsToggle.addEventListener('change', (e) => {
-                mapFilters.showAircraftLabels = e.target.checked;
-                saveFiltersToLocalStorage();
-                updateAircraftLabelVisibility();
+        // Add Header
+        let html = '<div class="search-header">Results</div>';
+
+        // Add Items
+        html += matches.slice(0, 8).map(feature => {
+            const props = feature.properties;
+            const coords = feature.geometry.coordinates;
+            const propsString = JSON.stringify(props).replace(/'/g, "&apos;");
+            const coordsString = JSON.stringify(coords);
+            
+            // Determine icon color based on type
+            let iconClass = 'icon-blue';
+            let iconName = 'plane';
+            if(props.category === 'jumbo' || props.category === 'widebody') iconClass = 'icon-emerald';
+
+            return `
+            <div class="search-result-item" 
+                 data-flight-id="${props.flightId}"
+                 data-coordinates='${coordsString}'
+                 data-properties='${propsString}'>
+                <div class="result-icon ${iconClass}">
+                    <i data-lucide="${iconName}" width="16" height="16"></i>
+                </div>
+                <div>
+                    <div style="font-size: 12px; font-weight: 700; color: white;">${props.callsign}</div>
+                    <div style="font-size: 10px; color: var(--text-muted);">${props.username || 'Unknown Pilot'}</div>
+                </div>
+            </div>
+            `;
+        }).join('');
+
+        dropdown.innerHTML = html;
+        lucide.createIcons(); // Refresh icons in the dropdown
+    }
+
+    // --- UPDATED: Search Listeners ---
+    function setupSearchEventListeners() {
+        const searchInput = document.getElementById('sector-ops-search-input');
+        const searchClear = document.getElementById('sector-ops-search-clear');
+        const searchContainer = document.getElementById('search-container'); // Note ID change
+        const dropdown = document.getElementById('search-results-dropdown');
+
+        if (!searchInput) return;
+
+        searchInput.addEventListener('input', () => {
+            handleSearchInput(searchInput.value);
+            if(searchClear) searchClear.style.display = searchInput.value ? 'block' : 'none';
+        });
+
+        if(searchClear) {
+            searchClear.addEventListener('click', () => {
+                searchInput.value = '';
+                handleSearchInput('');
+                searchClear.style.display = 'none';
             });
         }
 
-        // Map Layers / ATC Toggle (#layer-atc)
-        // Assuming checked = Show ATC (Hide = false)
-        const atcLayerToggle = document.getElementById('layer-atc');
-        if (atcLayerToggle) {
-            atcLayerToggle.checked = !mapFilters.hideAtcMarkers; // Set initial
-            atcLayerToggle.addEventListener('change', (e) => {
-                mapFilters.hideAtcMarkers = !e.target.checked; // Unchecked means hide
-                saveFiltersToLocalStorage();
-                renderAirportMarkers();
+        if(dropdown) {
+            dropdown.addEventListener('click', (e) => {
+                const item = e.target.closest('.search-result-item');
+                if (item) onSearchResultClick(item); 
             });
-        }
-
-        // --- 3. Server Switcher Wiring ---
-        // Your HTML calls selectServer(), which handles UI. We need to hook into the clicks.
-        const expertBtn = document.querySelector('button[onclick="selectServer(\'Expert\')"]');
-        const trainingBtn = document.querySelector('button[onclick="selectServer(\'Training\')"]');
-        const casualBtn = document.querySelector('button[onclick="selectServer(\'Casual\')"]');
-
-        if (expertBtn) expertBtn.addEventListener('click', () => switchServer('Expert Server'));
-        if (trainingBtn) trainingBtn.addEventListener('click', () => switchServer('Training Server'));
-        if (casualBtn) casualBtn.addEventListener('click', () => switchServer('Casual Server'));
-
-        // --- 4. Map Type Toggle ---
-        const mapTypeBtn = document.getElementById('map-type-btn');
-        if (mapTypeBtn) {
-            mapTypeBtn.addEventListener('click', () => {
-                // Toggle between Dark and Satellite
-                const newStyle = (currentMapStyle === MAP_STYLE_DARK) ? MAP_STYLE_SATELLITE : MAP_STYLE_DARK;
-                console.log(`Switching map style to: ${newStyle}`);
-                currentMapStyle = newStyle;
-                sectorOpsMap.setStyle(newStyle);
-                // Note: rebuildDynamicLayers is handled by the style.load event listener in initializeSectorOpsMap
-            });
+            dropdown.addEventListener('mousedown', (e) => e.preventDefault());
         }
     }
+
+    // --- UPDATED: Weather Window Events ---
+    function setupWeatherSettingsWindowEvents() {
+        const win = document.getElementById('weather-settings-window');
+        if (!win) return;
+
+        // Close button logic
+        win.addEventListener('click', (e) => {
+            if (e.target.closest('.weather-window-close-btn')) {
+                win.classList.add('hidden');
+                document.getElementById('open-weather-settings-btn').classList.remove('weather-btn-active');
+            }
+        });
+
+        // Toggle logic
+        win.addEventListener('change', (e) => {
+            const target = e.target;
+            if (target.type === 'checkbox') {
+                const isChecked = target.checked;
+                switch (target.id) {
+                    case 'weather-toggle-precip': toggleWeatherLayer(isChecked); break;
+                    case 'weather-toggle-sigmets': toggleSigmetLayer(isChecked); break;
+                    case 'weather-toggle-clouds': toggleCloudLayer(isChecked); break;
+                    case 'weather-toggle-wind': toggleWindLayer(isChecked); break;
+                }
+            }
+        });
+    }
+
+    // --- UPDATED: Filter/Settings Window Events ---
+    function setupFilterSettingsWindowEvents() {
+        const win = document.getElementById('filter-settings-window');
+        if (!win) return;
+
+        // Open logic (Button is in sidebar)
+        const openBtn = document.getElementById('open-filter-settings-btn');
+        if(openBtn) {
+            openBtn.addEventListener('click', () => {
+                win.style.display = 'flex'; // It's a flex modal in CSS
+                win.classList.remove('hidden');
+            });
+        }
+
+        // Close logic
+        win.addEventListener('click', (e) => {
+            if (e.target.closest('.filter-window-close-btn')) {
+                win.classList.add('hidden');
+                setTimeout(() => { win.style.display = 'none'; }, 200); // Wait for animation
+            }
+        });
+
+        // Toggle logic
+        win.addEventListener('change', (e) => {
+            if (e.target.id === 'filter-toggle-satellite-mode') {
+                const style = e.target.checked ? 'mapbox://styles/mapbox/satellite-streets-v12' : 'mapbox://styles/mapbox/dark-v11';
+                sectorOpsMap.setStyle(style);
+            }
+            if (e.target.id === 'filter-toggle-aircraft-labels') {
+                mapFilters.showAircraftLabels = e.target.checked;
+                updateAircraftLabelVisibility();
+            }
+            if (e.target.id === 'filter-toggle-atc') {
+                mapFilters.hideAtcMarkers = e.target.checked;
+                renderAirportMarkers();
+            }
+        });
+    }
+
+    // --- UPDATED: Server Switcher Logic ---
+    // Add this to your setupSectorOpsEventListeners or call it in initialize
+    function setupServerSwitcher() {
+        const menu = document.getElementById('server-menu');
+        if(!menu) return;
+
+        menu.addEventListener('click', (e) => {
+            const btn = e.target.closest('.server-btn');
+            if(btn) {
+                const serverName = btn.dataset.server;
+                
+                // Visual Update
+                document.querySelectorAll('.server-check').forEach(el => el.style.opacity = '0');
+                const check = btn.querySelector('.server-check');
+                if(check) check.style.opacity = '1';
+                
+                // Logic Update
+                switchServer(serverName);
+                
+                // Close menu
+                menu.classList.add('hidden');
+            }
+        });
+    }
+
 
 function initializeSectorOpsMap(centerICAO) {
     if (!MAPBOX_ACCESS_TOKEN) {
@@ -7862,23 +7932,22 @@ async function handleAircraftClick(flightProps, sessionId) {
     // 1. Reset UI & State
     isAircraftWindowLoading = true;
     
-    // Clear old data intervals
+    // Clear old data
     if (activePfdUpdateInterval) clearInterval(activePfdUpdateInterval);
     if (activeGeocodeUpdateInterval) clearInterval(activeGeocodeUpdateInterval);
     
-    // Visual Resets
     resetPfdState();
-    clearLiveFlightPath(currentFlightInWindow); // Clear the PREVIOUS active flight
-    clearHistoryMapLayers(); // Explicitly clear any existing gray history lines
+    clearLiveFlightPath(currentFlightInWindow); // Clear the OLD active flight
+    clearHistoryMapLayers(); // <--- NEW: Clear old history lines
     
     liveTrailCache.delete(currentFlightInWindow);
 
-    // Set new Active Flight State
+    // Set new Active Flight
     currentFlightInWindow = flightProps.flightId; 
     currentAircraftPositionForGeocode = flightProps.position; 
     cachedFlightDataForStatsView = { flightProps: null, plan: null };
 
-    // Show Window (Mobile vs Desktop)
+    // Show Window
     if (window.MobileUIHandler && window.MobileUIHandler.isMobile()) {
         window.MobileUIHandler.openWindow(aircraftInfoWindow);
     } else {
@@ -7886,7 +7955,7 @@ async function handleAircraftClick(flightProps, sessionId) {
     }
     aircraftInfoWindowRecallBtn.classList.remove('visible');
 
-    // Show Loading Screen
+    // Loading Screen
     const windowEl = document.getElementById('aircraft-info-window');
     windowEl.innerHTML = `
         <div style="display: flex; flex-direction: column; align-items: center; justify-content: center; height: 300px; color: #fff;">
@@ -7901,82 +7970,69 @@ async function handleAircraftClick(flightProps, sessionId) {
         const livName = flightProps.aircraft?.liveryName || '';
 
         // --- STEP 1: PARALLEL DATA FETCHING ---
-        // Fetch Active Plan, User Logbook, and Aircraft Image details
+        // We fetch: Plan, Logbook (History), and Image Lookup
         const [planRes, logbookRes, imageRes] = await Promise.all([
             fetch(`${LIVE_FLIGHTS_API_URL}/${sessionId}/${flightProps.flightId}/plan`),
-            fetch(`${ACARS_USER_API_URL}/${userId}/logbook?page=1`),
+            fetch(`${ACARS_USER_API_URL}/${userId}/logbook?page=1`), // <--- Fetch History
             fetch(`${API_BASE_URL}/api/aircraft/lookup?type=${encodeURIComponent(acName)}&livery=${encodeURIComponent(livName)}`)
         ]);
 
-        // Process Plan
         const planData = planRes.ok ? await planRes.json() : null;
         const plan = (planData && planData.ok) ? planData.plan : null;
         
-        // Process Image
+        let logbookFlights = [];
+        if (logbookRes.ok) {
+            const lbData = await logbookRes.json();
+            // Get last 5 flights
+            logbookFlights = lbData.flights ? lbData.flights.slice(0, 5) : [];
+        }
+
         let communityAircraftData = null;
         if (imageRes.ok) communityAircraftData = await imageRes.json();
 
-        // --- STEP 2: PREPARE FLIGHT IDs FOR ROUTE FETCHING ---
-        // We define the specific list of IDs we want to visualize.
-        // 1. Always include the CURRENT flight ID.
-        let flightIdsToFetch = [flightProps.flightId]; 
-        let logbookFlights = [];
-
-        if (logbookRes.ok) {
-            const lbData = await logbookRes.json();
-            if (lbData && Array.isArray(lbData.flights)) {
-                // Strict rule: Take exactly the last 5 flights from the logbook
-                logbookFlights = lbData.flights.slice(0, 5);
-                
-                // Add their specific IDs to the fetch list
-                logbookFlights.forEach(f => {
-                    if (f.id) flightIdsToFetch.push(f.id);
-                });
-            }
-        }
-
-        // Remove duplicates (in case the active flight is also in the history list)
+        // --- STEP 2: BATCH ROUTE FETCHING ---
+        // We need routes for:
+        // 1. The ACTIVE flight (must have)
+        // 2. The HISTORY flights (nice to have)
+        const flightIdsToFetch = [flightProps.flightId, ...logbookFlights.map(f => f.id)];
+        
+        // Remove duplicates
         const uniqueIds = [...new Set(flightIdsToFetch)];
 
-        // --- STEP 3: BATCH ROUTE FETCHING ---
-        // Pass the exact list of IDs to the backend.
+        // Call the new Batch Endpoint
         const batchRoutes = await fetchBatchRoutes(sessionId, uniqueIds);
 
-        // --- STEP 4: PLOT HISTORY ROUTES (Grey Lines) ---
-        // We iterate specifically through the 5 logbook flights we identified in Step 2.
+        // --- STEP 3: PLOT HISTORY (The "Last 3-5 Flights") ---
+        // We do this BEFORE the active flight so the active flight draws ON TOP.
         logbookFlights.forEach(histFlight => {
-            // Do not plot the history line if it is the EXACT same flight as the active one.
-            // (The active logic below handles the colorful line for the current flight).
+            // Skip if this is the currently active flight (we handle that specifically below)
             if (histFlight.id === flightProps.flightId) return;
 
-            // Retrieve the route specifically associated with this ID from the batch result
             const histTrail = batchRoutes[histFlight.id];
 
-            if (histTrail && Array.isArray(histTrail) && histTrail.length > 2) {
-                // Plot the actual flown trail (Grey)
-                plotSecondaryRoute(histFlight.id, histTrail, '#475569', 'solid'); 
+            if (histTrail && histTrail.length > 2) {
+                // Case A: We found a live trail for this history item! (e.g. recent flight in same session)
+                plotSecondaryRoute(histFlight.id, histTrail, '#64748b', 'solid'); // Slate color
             } else {
-                // Fallback: If no trail data exists for this ID, draw a straight dashed line.
-                // This ensures we visualize the history even if the route data is gone.
+                // Case B: No trail found (Flight is old/offline).
+                // Plot Straight Line from Origin -> Dest
                 plotStraightLineRoute(histFlight.id, histFlight.originAirport, histFlight.destinationAirport);
             }
         });
 
-        // --- STEP 5: PLOT ACTIVE FLIGHT (Colored Line) ---
-        // Retrieve the route for the active ID
+        // --- STEP 4: PLOT ACTIVE FLIGHT (Newest) ---
         const activeRoute = batchRoutes[flightProps.flightId] || [];
         
-        // Save to cache so live updates (socket) can append to it
+        // Save to cache for live updates
         liveTrailCache.set(flightProps.flightId, activeRoute);
-        
-        // Store for Stats/Simple view switching
         cachedFlightDataForStatsView = { flightProps, plan };
 
-        // Generate the colorful, altitude-aware line
+        // Generate the colorful, altitude-aware line for the active flight
         const routeFeatureCollection = generateAltitudeColoredRoute(activeRoute, flightProps.position, plan);
+        
         const flownLayerId = `flown-path-${flightProps.flightId}`;
         
-        // Add Source & Layer for Active Flight (ensuring it is above history)
+        // Add Source
         if (!sectorOpsMap.getSource(flownLayerId)) {
             sectorOpsMap.addSource(flownLayerId, {
                 type: 'geojson',
@@ -7991,33 +8047,33 @@ async function handleAircraftClick(flightProps, sessionId) {
                         'interpolate',
                         ['linear'],
                         ['get', 'avgAltitude'],
-                        0,     '#e6e600', // Ground Yellow
+                        0,     '#e6e600', // Yellow (Ground)
                         10000, '#ff9900', 
                         20000, '#ff3300', 
                         29000, '#00BFFF', // Cyan
                         38000, '#9400D3'  // Purple
                     ],
                     'line-width': 4,
-                    'line-opacity': 1.0,
+                    'line-opacity': 1.0, // Active is fully opaque
                     'line-translate': [0, -2], 
                     'line-translate-anchor': 'viewport'
                 }
-            }, 'sector-ops-live-flights-layer'); // Ensure it draws underneath the plane icon
+            }, 'sector-ops-live-flights-layer');
         } else {
              sectorOpsMap.getSource(flownLayerId).setData(routeFeatureCollection);
         }
 
-        // Register active layer for cleanup later
+        // Register active layer for cleanup
         sectorOpsLiveFlightPathLayers[flightProps.flightId] = { flown: flownLayerId };
 
-        // Plot Planned Route (Pink/Blue dashed line) if plan exists
+        // Plot Planned Route (Pink/Blue dashed line)
         if (plan) {
             updateFlightPlanLayer(flightProps.flightId, plan, flightProps.position);
         }
 
-        // --- STEP 6: RENDER INFO WINDOW UI ---
+        // --- STEP 5: RENDER UI ---
         
-        // Handle Simple vs Standard Window View
+        // Handle Simple vs Standard Window
         if (mapFilters.useSimpleFlightWindow) {
             windowEl.style.width = '420px'; 
             windowEl.style.height = 'calc(100vh - 40px)';
@@ -8028,17 +8084,15 @@ async function handleAircraftClick(flightProps, sessionId) {
                             scrolling="no"></iframe>
                 </div>
             `;
-            // Note: The iframe will request data via postMessage; processed by handleIframeMessage
+            // Iframe logic handles the rest via postMessage
         } else {
             windowEl.style.width = ''; 
             windowEl.style.height = ''; 
-            // Render Standard HTML Window
+            // Render Standard Window
             populateAircraftInfoWindow(flightProps, plan, activeRoute, communityAircraftData);
         }
 
-        // --- STEP 7: START INTERVALS ---
-        
-        // Initial Geocode & Nav Update
+        // Initialize Intervals/Widgets
         fetchAndDisplayGeocode(flightProps.position.lat, flightProps.position.lon);
         updateNavPanelData(
             flightProps.position.lat,
@@ -8049,7 +8103,6 @@ async function handleAircraftClick(flightProps, sessionId) {
             flightProps.position.wind_spd_kts || 0
         );
 
-        // Start Geocode Interval (5 mins)
         const FIVE_MINUTES_MS = 300000; 
         activeGeocodeUpdateInterval = setInterval(() => {
             if (currentAircraftPositionForGeocode) {
@@ -8057,7 +8110,6 @@ async function handleAircraftClick(flightProps, sessionId) {
             }
         }, FIVE_MINUTES_MS);
         
-        // Start Weather Interval (5 mins)
         fetchAndDisplayWeather();
         if (activeWeatherUpdateInterval) clearInterval(activeWeatherUpdateInterval);
         activeWeatherUpdateInterval = setInterval(fetchAndDisplayWeather, FIVE_MINUTES_MS);
@@ -10314,6 +10366,95 @@ function updateFmsLegsModule(plan, currentPos) {
     }
 
 
+
+function setupSectorOpsEventListeners() {
+    const panel = document.getElementById('sector-ops-floating-panel');
+    if (!panel || panel.dataset.listenersAttached === 'true') return;
+    panel.dataset.listenersAttached = 'true';
+
+    // --- START: REFACTORED for Toolbar and Panel Toggle ---
+    const internalToggleBtn = document.getElementById('sector-ops-toggle-btn');
+    const toolbarToggleBtn = document.getElementById('toolbar-toggle-panel-btn');
+
+    const togglePanel = () => {
+        const isNowCollapsed = panel.classList.toggle('panel-collapsed');
+        
+        // Update UI state for both buttons
+        if (internalToggleBtn) {
+            internalToggleBtn.setAttribute('aria-expanded', !isNowCollapsed);
+        }
+        if (toolbarToggleBtn) {
+            toolbarToggleBtn.classList.toggle('active', !isNowCollapsed);
+        }
+
+        // Resize the map
+        if (sectorOpsMap) {
+            setTimeout(() => {
+                sectorOpsMap.resize();
+            }, 400); // Match CSS transition duration
+        }
+    };
+
+    if (internalToggleBtn) {
+        internalToggleBtn.addEventListener('click', togglePanel);
+    }
+    if (toolbarToggleBtn) {
+        toolbarToggleBtn.addEventListener('click', togglePanel);
+    }
+    // --- END: REFACTORED for Toolbar and Panel Toggle ---
+
+    // --- [MODIFIED] Add listener for the NEW single weather button ---
+    const openWeatherBtn = document.getElementById('open-weather-settings-btn');
+    if (openWeatherBtn) {
+        openWeatherBtn.addEventListener('click', () => {
+            // Toggle visibility of the new window
+            if (weatherSettingsWindow) {
+                const isVisible = weatherSettingsWindow.classList.toggle('visible');
+                if (isVisible) {
+                    if (typeof MobileUIHandler !== 'undefined') MobileUIHandler.openWindow(weatherSettingsWindow);
+                } else {
+                    if (typeof MobileUIHandler !== 'undefined') MobileUIHandler.closeActiveWindow();
+                }
+            }
+        });
+    }
+
+    // --- [START NEW FILTER BUTTON LISTENER] ---
+    const openFilterBtn = document.getElementById('open-filter-settings-btn');
+    if (openFilterBtn) {
+        openFilterBtn.addEventListener('click', () => {
+            // Toggle visibility of the new window
+            if (filterSettingsWindow) {
+                const isVisible = filterSettingsWindow.classList.toggle('visible');
+                if (isVisible) {
+                    if (typeof MobileUIHandler !== 'undefined') MobileUIHandler.openWindow(filterSettingsWindow);
+                } else {
+                    if (typeof MobileUIHandler !== 'undefined') MobileUIHandler.closeActiveWindow();
+                }
+            }
+        });
+    }
+    // --- [END NEW FILTER BUTTON LISTENER] ---
+
+    // --- [NEW] Server Selector Listeners ---
+    const serverContainer = document.getElementById('server-selector-container');
+    if (serverContainer) {
+        serverContainer.addEventListener('click', (e) => {
+            const btn = e.target.closest('.server-btn');
+            if (btn) {
+                const selectedServer = btn.dataset.server;
+                if (selectedServer) {
+                    // Call the global switch logic
+                    switchServer(selectedServer);
+                }
+            }
+        });
+    }
+
+    // --- [NEW] Global Message Listener for Iframe Communication ---
+    window.addEventListener('message', handleIframeMessage);
+}
+
 /**
  * --- [UPDATED] Handles messages from the Simple Flight Window Iframe ---
  * Now includes logic to parse raw API data into the format flightinfo.html expects.
@@ -10563,58 +10704,307 @@ function processRawPilotData(gradeInfo) {
         openWeatherBtn.classList.toggle('active', isAnyActive);
     }
 
-   /**
-     * --- [UPDATED] Sets up event listeners for the NEW search bar.
+    /**
+     * Sets up event listeners for the Weather Settings info window.
      */
-    function setupSearchEventListeners() {
-        const searchInput = document.getElementById('search-input');
-        const searchResults = document.getElementById('search-results');
-
-        if (!searchInput || !searchResults) {
-            console.warn("Could not find search elements.");
+    function setupWeatherSettingsWindowEvents() {
+        if (!weatherSettingsWindow || weatherSettingsWindow.dataset.eventsAttached === 'true') {
             return;
         }
 
-        // Remove old inline handler if present to prevent conflicts
-        searchInput.removeAttribute('oninput');
+        // Use a single listener on the window for better performance
+        weatherSettingsWindow.addEventListener('click', (e) => {
+            const target = e.target;
 
-        // Input Listener
-        searchInput.addEventListener('input', () => {
-            const query = searchInput.value;
-            if (query.length > 1) {
-                handleSearchInput(query);
-                searchResults.classList.remove('hidden');
+            // Handle Close or Hide buttons
+            if (target.closest('.weather-window-close-btn') || target.closest('.weather-window-hide-btn')) {
+                weatherSettingsWindow.classList.remove('visible');
+                if (typeof MobileUIHandler !== 'undefined') MobileUIHandler.closeActiveWindow();
+            }
+        });
+
+        // Use a 'change' listener for the toggles
+        weatherSettingsWindow.addEventListener('change', (e) => {
+            const target = e.target;
+
+            if (target.type === 'checkbox') {
+                const isChecked = target.checked;
+                
+                switch (target.id) {
+                    case 'weather-toggle-precip':
+                        toggleWeatherLayer(isChecked);
+                        break;
+                    case 'weather-toggle-sigmets':
+                        toggleSigmetLayer(isChecked);
+                        break;
+                    case 'weather-toggle-clouds':
+                        toggleCloudLayer(isChecked);
+                        break;
+                    case 'weather-toggle-wind':
+                        toggleWindLayer(isChecked);
+                        break;
+                }
+                
+                // Update the toolbar button's active state
+                // This assumes updateWeatherToolbarButtonState() checks all boxes including the new SIGMET one
+                const openWeatherBtn = document.getElementById('open-weather-settings-btn');
+                if (openWeatherBtn) {
+                    const isAnyActive = document.querySelectorAll('.weather-toggle-list input[type="checkbox"]:checked').length > 0;
+                    openWeatherBtn.classList.toggle('active', isAnyActive);
+                }
+            }
+        });
+
+        weatherSettingsWindow.dataset.eventsAttached = 'true';
+    }
+
+
+
+function setupFilterSettingsWindowEvents() {
+    if (!filterSettingsWindow || filterSettingsWindow.dataset.eventsAttached === 'true') {
+        return;
+    }
+
+    // --- Helper: Convert Hex to RGBA ---
+    const hexToRgba = (hex, alpha) => {
+        const r = parseInt(hex.slice(1, 3), 16);
+        const g = parseInt(hex.slice(3, 5), 16);
+        const b = parseInt(hex.slice(5, 7), 16);
+        return `rgba(${r}, ${g}, ${b}, ${alpha})`;
+    };
+
+    // --- Helper: Apply Theme to CSS Vars ---
+    const applyWindowTheme = (startHex, endHex) => {
+        const root = document.documentElement;
+        const opacity = (mapFilters.themeOpacity || 95) / 100;
+        
+        root.style.setProperty('--iw-bg-start', hexToRgba(startHex, opacity));
+        root.style.setProperty('--iw-bg-end', hexToRgba(endHex, opacity));
+    };
+
+    // --- Helper: Set UI from State ---
+    const setUIFromState = () => {
+        // Toggles
+        document.getElementById('filter-toggle-atc').checked = mapFilters.hideAtcMarkers;
+        document.getElementById('filter-toggle-satellite-mode').checked = (currentMapStyle === MAP_STYLE_SATELLITE);
+        document.getElementById('filter-toggle-aircraft-labels').checked = mapFilters.showAircraftLabels;
+        
+        // Simple Window Toggle
+        const simpleWindowToggle = document.getElementById('filter-toggle-simple-window');
+        if (simpleWindowToggle) {
+            simpleWindowToggle.checked = mapFilters.useSimpleFlightWindow;
+        }
+
+        // Radios
+        const colorRadio = document.querySelector(`input[name="icon-color-mode"][value="${mapFilters.iconColorMode}"]`);
+        if (colorRadio) colorRadio.checked = true;
+        
+        const planRadio = document.querySelector(`input[name="plan-display-mode"][value="${mapFilters.planDisplayMode}"]`);
+        if (planRadio) planRadio.checked = true;
+
+        // Colors
+        document.getElementById('theme-color-start').value = mapFilters.themeStartColor || '#121426';
+        document.getElementById('theme-color-end').value = mapFilters.themeEndColor || '#121426';
+        
+        // Apply immediately on load
+        applyWindowTheme(mapFilters.themeStartColor, mapFilters.themeEndColor);
+
+        // Mobile-specific
+        const currentMobileMode = localStorage.getItem('mobileDisplayMode') || 'legacy'; // Default to legacy
+        const mobileModeHud = document.getElementById('mobile-mode-hud');
+        const mobileModeLegacy = document.getElementById('mobile-mode-legacy');
+        
+        if (mobileModeHud && mobileModeLegacy) {
+            // [UPDATED] If Simple Window is active, force UI to reflect Locked Legacy Mode
+            if (mapFilters.useSimpleFlightWindow) {
+                mobileModeLegacy.checked = true;
+                mobileModeHud.disabled = true; // Lock HUD option
+                mobileModeHud.parentElement.style.opacity = '0.5'; // Visual feedback
             } else {
-                searchResults.innerHTML = '';
-                searchResults.classList.add('hidden');
+                mobileModeHud.disabled = false;
+                mobileModeHud.parentElement.style.opacity = '1';
+                
+                if (currentMobileMode === 'legacy') {
+                    mobileModeLegacy.checked = true;
+                } else {
+                    mobileModeHud.checked = true;
+                }
             }
-        });
+        }
+    };
+    
+    // --- Set the UI when the window is first set up ---
+    setUIFromState();
 
-        // Click Listener for Results (Event Delegation)
-        searchResults.addEventListener('click', (e) => {
-            const item = e.target.closest('.search-result-item');
-            if (item) {
-                onSearchResultClick(item);
-                // Clear and hide after click
-                searchInput.value = '';
-                searchResults.classList.add('hidden');
-                searchResults.innerHTML = '';
-            }
-        });
+    // --- Event Listener: Color Inputs (Input = Realtime Preview) ---
+    const startPicker = document.getElementById('theme-color-start');
+    const endPicker = document.getElementById('theme-color-end');
+    const resetBtn = document.getElementById('theme-reset-btn');
 
-        // Prevent blur when clicking results
-        searchResults.addEventListener('mousedown', (e) => {
-            e.preventDefault();
-        });
+    const handleColorChange = () => {
+        const s = startPicker.value;
+        const e = endPicker.value;
+        applyWindowTheme(s, e);
+        // Update state
+        mapFilters.themeStartColor = s;
+        mapFilters.themeEndColor = e;
+        saveFiltersToLocalStorage();
+    };
 
-        // Hide when clicking outside
-        document.addEventListener('click', (e) => {
-            const searchContainer = document.getElementById('search-box');
-            if (searchContainer && !searchContainer.contains(e.target)) {
-                searchResults.classList.add('hidden');
-            }
+    if (startPicker) startPicker.addEventListener('input', handleColorChange);
+    if (endPicker) endPicker.addEventListener('input', handleColorChange);
+
+    if (resetBtn) {
+        resetBtn.addEventListener('click', () => {
+            const defColor = '#121426';
+            startPicker.value = defColor;
+            endPicker.value = defColor;
+            applyWindowTheme(defColor, defColor);
+            
+            mapFilters.themeStartColor = defColor;
+            mapFilters.themeEndColor = defColor;
+            saveFiltersToLocalStorage();
+            showNotification("Window theme reset to default.", "success");
         });
     }
+
+    // Use a single listener on the window for better performance
+    filterSettingsWindow.addEventListener('click', (e) => {
+        const target = e.target;
+        if (target.closest('.filter-window-close-btn') || target.closest('.filter-window-hide-btn')) {
+            filterSettingsWindow.classList.remove('visible');
+            MobileUIHandler.closeActiveWindow();
+        }
+    });
+
+    // Use a 'change' listener for all toggles and radios
+    filterSettingsWindow.addEventListener('change', (e) => {
+        const target = e.target;
+        
+        // [UPDATED] Handle Simple Window Toggle & Interdependency
+        if (target.id === 'filter-toggle-simple-window') {
+            mapFilters.useSimpleFlightWindow = target.checked;
+            saveFiltersToLocalStorage();
+            
+            const mobileModeHud = document.getElementById('mobile-mode-hud');
+            const mobileModeLegacy = document.getElementById('mobile-mode-legacy');
+
+            if (target.checked) {
+                // LOCK OUT HUD MODE
+                if (mobileModeHud) {
+                    mobileModeHud.disabled = true;
+                    mobileModeHud.parentElement.style.opacity = '0.5';
+                }
+                if (mobileModeLegacy) {
+                    mobileModeLegacy.checked = true;
+                }
+                // Force save 'legacy' to storage so UI Handler picks it up next time
+                localStorage.setItem('mobileDisplayMode', 'legacy');
+            } else {
+                // UNLOCK HUD MODE
+                if (mobileModeHud) {
+                    mobileModeHud.disabled = false;
+                    mobileModeHud.parentElement.style.opacity = '1';
+                }
+            }
+            
+            // If a window is currently open, reload it to reflect changes
+            if (currentFlightInWindow) {
+                const closeBtn = document.querySelector('.aircraft-window-close-btn');
+                if (closeBtn) closeBtn.click();
+            }
+            return;
+        }
+
+        // Handle Flight Plan Radio Logic
+        if (target.name === 'plan-display-mode') {
+            mapFilters.planDisplayMode = target.value;
+            saveFiltersToLocalStorage(); 
+            if (currentFlightInWindow && cachedFlightDataForStatsView.plan) {
+                const { flightProps, plan } = cachedFlightDataForStatsView;
+                const position = currentAircraftPositionForGeocode || flightProps.position;
+                updateFlightPlanLayer(currentFlightInWindow, plan, position);
+            }
+            return;
+        }
+        
+        // Handle Icon Color Radio Logic
+        if (target.name === 'icon-color-mode') {
+            mapFilters.iconColorMode = target.value;
+            saveFiltersToLocalStorage(); 
+            const newExpression = getIconImageExpression(mapFilters.iconColorMode);
+            if (sectorOpsMap && sectorOpsMap.getLayer('sector-ops-live-flights-layer')) {
+                sectorOpsMap.setLayoutProperty('sector-ops-live-flights-layer', 'icon-image', newExpression);
+            }
+            return; 
+        }
+        
+        // Handle Mobile Display Mode Radio Logic
+        if (target.name === 'mobile-display-mode') {
+            // Prevent changing if locked (double check for safety)
+            if (mapFilters.useSimpleFlightWindow && target.value === 'hud') {
+                target.checked = false;
+                document.getElementById('mobile-mode-legacy').checked = true;
+                return;
+            }
+
+            const newMode = target.value;
+            localStorage.setItem('mobileDisplayMode', newMode);
+            if (!document.getElementById('mobile-mode-note')) {
+                document.getElementById('mobile-mode-filter-group').insertAdjacentHTML(
+                    'beforeend',
+                    '<p id="mobile-mode-note" class="muted-text" style="padding: 10px 0 0 0; text-align: left; font-size: 0.8rem;">Changes will apply the next time you open an aircraft window.</p>'
+                );
+            }
+            return; 
+        }
+
+        if (target.type !== 'checkbox') return;
+
+        // Handle Aircraft Label Toggle
+        if (target.id === 'filter-toggle-aircraft-labels') {
+            mapFilters.showAircraftLabels = target.checked;
+            saveFiltersToLocalStorage(); 
+            updateAircraftLabelVisibility(); 
+            return;
+        }
+
+        // Handle Map Style Logic
+        const satelliteModeToggle = document.getElementById('filter-toggle-satellite-mode');
+        let styleChanged = false;
+        let newMapStyle = currentMapStyle;
+
+        if (target.id === 'filter-toggle-satellite-mode') {
+            if (target.checked) {
+                newMapStyle = MAP_STYLE_SATELLITE;
+            } else {
+                newMapStyle = MAP_STYLE_DARK; 
+            }
+            styleChanged = true;
+        }
+
+        // Update mapFilters state
+        mapFilters.showVaOnly = document.getElementById('filter-toggle-members-only')?.checked || false;
+        mapFilters.hideAtcMarkers = document.getElementById('filter-toggle-atc')?.checked || false;
+        mapFilters.hideNoAtcMarkers = document.getElementById('filter-toggle-no-atc')?.checked || false;
+        
+        if (styleChanged && newMapStyle !== currentMapStyle) {
+            console.log(`Changing map style to: ${newMapStyle}`);
+            currentMapStyle = newMapStyle;
+            sectorOpsMap.setStyle(currentMapStyle);
+        } else if (!styleChanged) {
+            saveFiltersToLocalStorage(); 
+            updateMapFilters();
+        }
+
+        updateToolbarButtonStates(); 
+    });
+
+    filterSettingsWindow.dataset.eventsAttached = 'true';
+}
+
+
+   
 
     // ==========================================================
     // END: SECTOR OPS / ROUTE EXPLORER LOGIC
