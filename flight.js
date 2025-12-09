@@ -2553,34 +2553,35 @@ function injectCustomStyles() {
             color: #fff;
         }
 
+        /* 4. The Input Field (FIXED) */
         .search-bar-container input {
-            position: absolute;
+            /* Force it to sit on top of everything */
+            position: absolute !important;
             top: 0;
             left: 0;
             width: 100%;
             height: 100%;
+            z-index: 9999 !important; 
             
-            /* [FIX] Text starts at 20px from left */
+            /* Ensure text starts at the left */
             padding-left: 20px !important;
-            padding-right: 50px !important; 
+            padding-right: 50px !important; /* Space for icon */
             
             background: transparent !important;
             border: none !important;
             outline: none !important;
             
-            color: #ffffff !important;
+            /* Force white text */
+            color: #ffffff !important; 
             font-family: var(--font-ui);
             font-size: 0.9rem;
             font-weight: 500;
-            text-align: left !important; /* [FIX] Force text alignment */
-            
-            z-index: 150;
-            cursor: text;
+            text-align: left !important;
             
             opacity: 0; 
+            cursor: pointer; 
             transition: opacity 0.2s ease; 
         }
-
         /* Show Input when Expanded */
         .search-bar-container:hover input,
         .search-bar-container:focus-within input,
