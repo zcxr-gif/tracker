@@ -605,7 +605,7 @@ function injectCustomStyles() {
             border-radius: var(--radius-lg);
             border: 1px solid var(--border-glass);
             box-shadow: 0 20px 50px rgba(0,0,0,0.8); 
-            z-index: 1060; 
+            z-index: 2100; 
             display: flex;
             flex-direction: column;
             overflow: hidden;
