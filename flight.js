@@ -2564,26 +2564,36 @@ function injectCustomStyles() {
             position: absolute !important;
             top: 0;
             left: 0;
-            width: 100%;
-            height: 100%;
+            
+            /* FORCE FULL WIDTH: Prevents text from being crushed when collapsed */
+            width: 260px !important; 
+            height: 100% !important;
+            
             z-index: 20 !important; /* Above icon */
+            
+            /* Include padding in calculations */
+            box-sizing: border-box !important;
             
             /* Padding to avoid text hitting the icon */
             padding-left: 20px !important;
             padding-right: 44px !important; 
             
+            /* Reset browser default styles */
             background: transparent !important;
             border: none !important;
             outline: none !important;
+            -webkit-appearance: none; /* Fix for iOS/Safari */
+            appearance: none;
             
-            /* Force Text Color */
+            /* Force Text Color & Alignment */
             color: #ffffff !important; 
             font-family: var(--font-ui);
             font-size: 0.9rem;
             font-weight: 500;
             text-align: left !important;
+            line-height: 44px !important; /* Vertically center text */
             
-            /* Remove opacity transition - rely on overflow hidden */
+            /* Ensure visibility */
             opacity: 1 !important; 
             cursor: text;
         }
