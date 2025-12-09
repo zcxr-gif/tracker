@@ -2566,23 +2566,23 @@ function injectCustomStyles() {
             width: 100%;
             height: 100%;
             
-            /* --- [FIX] Increased padding-right to 75px to account for Search Icon + Clear 'X' --- */
+            /* Account for Search Icon + Clear 'X' */
             padding: 0 75px 0 20px; 
             
             background: transparent;
             border: none;
             outline: none;
             
-            /* [FIX] Ensure input is strictly above background */
             position: relative; 
-            z-index: 15; 
+            z-index: 100; /* Increased Z-Index to ensure it sits on top */
             
-            color: var(--text-primary) !important;
+            /* [FIX] Hardcoded white color to prevent invisible text issues */
+            color: #ffffff !important; 
             font-family: var(--font-ui);
             font-size: 0.9rem;
             font-weight: 500;
             
-            opacity: 0; /* Hidden when collapsed */
+            opacity: 0; 
             cursor: pointer; 
             transition: opacity 0.2s ease; 
         }
@@ -2591,9 +2591,10 @@ function injectCustomStyles() {
         .search-bar-container:hover input,
         .search-bar-container:focus-within input,
         .search-bar-container.has-results input {
-            opacity: 1;
+            opacity: 1 !important; /* Force visibility */
             cursor: text;
         }
+
 
         /* [FIX] Ensure hint text is fully opaque and visible */
         .search-bar-container input::placeholder {
