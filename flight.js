@@ -575,52 +575,7 @@ function injectCustomStyles() {
             color: var(--text-primary);
         }
 
-        /* --- [FIX] FORCE TOOLBAR & SEARCH TO ADOPT THEME --- */
-        .search-bar-container {
-            background: var(--bg-glass) !important;
-            border: 1px solid var(--border-glass) !important;
-            backdrop-filter: blur(20px) !important;
-            -webkit-backdrop-filter: blur(20px) !important;
-            box-shadow: 0 4px 20px rgba(0,0,0,0.4) !important;
-            color: var(--text-primary) !important;
-        }
-
-        .search-bar-container input {
-    width: 100%;
-    height: 100%;
-    padding: 0 44px 0 16px; /* Right padding makes room for the icon */
-    
-    background: transparent;
-    border: none;
-    outline: none;
-    
-    /* --- FIX: Bring Input to Front --- */
-    position: relative; 
-    z-index: 15; /* Higher than background, lower than Icon (20) */
-    /* -------------------------------- */
-
-    color: var(--text-primary) !important;
-    font-family: var(--font-ui);
-    font-size: 0.9rem;
-    font-weight: 500;
-    
-    opacity: 0; /* Hidden when collapsed */
-    cursor: pointer; 
-    transition: opacity 0.2s ease; /* Smooth fade in */
-}
-
-/* Show Input when Expanded */
-.search-bar-container:hover input,
-.search-bar-container:focus-within input,
-.search-bar-container.has-results input {
-    opacity: 1;
-    cursor: text;
-}
-        
-        .search-bar-container input::placeholder {
-            color: var(--text-secondary) !important;
-        }
-
+        /* --- TOOLBAR STYLES --- */
         .toolbar-btn {
             background: var(--bg-glass) !important;
             border: 1px solid var(--border-glass) !important;
@@ -2606,19 +2561,21 @@ function injectCustomStyles() {
             color: #fff;
         }
 
-        /* 4. The Input Field */
+        /* 4. The Input Field (FIXED) */
         .search-bar-container input {
             width: 100%;
             height: 100%;
-            padding: 0 44px 0 16px; /* Right padding makes room for the icon */
+            
+            /* --- [FIX] Increased padding-right to 75px to account for Search Icon + Clear 'X' --- */
+            padding: 0 75px 0 20px; 
             
             background: transparent;
             border: none;
             outline: none;
             
-            /* [FIX] Ensure input is on top of background but below icon if needed */
+            /* [FIX] Ensure input is strictly above background */
             position: relative; 
-            z-index: 10; 
+            z-index: 15; 
             
             color: var(--text-primary) !important;
             font-family: var(--font-ui);
@@ -2626,7 +2583,8 @@ function injectCustomStyles() {
             font-weight: 500;
             
             opacity: 0; /* Hidden when collapsed */
-            cursor: pointer; /* Pointer when collapsed so clicking anywhere opens it */
+            cursor: pointer; 
+            transition: opacity 0.2s ease; 
         }
 
         /* Show Input when Expanded */
@@ -2637,9 +2595,10 @@ function injectCustomStyles() {
             cursor: text;
         }
 
+        /* [FIX] Ensure hint text is fully opaque and visible */
         .search-bar-container input::placeholder {
             color: var(--text-secondary) !important;
-            opacity: 0.7;
+            opacity: 1; 
         }
 
         /* 5. Clear 'X' Button */
@@ -2693,7 +2652,7 @@ function injectCustomStyles() {
             scrollbar-color: var(--border-glass) transparent;
         }
         
-        /* Result Item Styling (Kept mostly same, just ensured vars) */
+        /* Result Item Styling */
         .search-result-item {
             display: grid;
             grid-template-columns: 40px 1fr auto;
