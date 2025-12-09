@@ -1088,48 +1088,42 @@ const MobileUIHandler = {
         document.head.appendChild(style);
     },
 
-    /**
-     * [MODIFIED] Intercepts the window open command.
-     * This now acts as a ROUTER, checking the user's preferred mode.
-     */
     openWindow(windowElement) {
         if (!this.isMobile()) return;
 
         if (this.activeWindow) {
-            this.closeActiveWindow(true); // 'true' = force close
+            this.closeActiveWindow(true); 
         }
 
-        // --- [FIX] Add 'mobile-ui-active' class to the correct map container ---
         const mapContainer = document.getElementById('sector-ops-map-fullscreen');
         if (mapContainer) {
             mapContainer.classList.add('mobile-ui-active');
-            mapContainer.classList.add('mobile-window-open'); // [FIX] New class to strictly hide desktop clutter
+            mapContainer.classList.add('mobile-window-open'); 
         }
-        // --- [END FIX] ---
 
-        // Hide HUD controls when a window is open
         const hudControls = document.getElementById('mobile-hud-controls');
         if (hudControls) hudControls.style.opacity = '0';
 
-        if (windowElement.id === 'aircraft-info-window') {
-            // --- Hide map controls ---
-            const burgerMenu = document.getElementById('mobile-sidebar-toggle');
-            const mapToolbar = document.getElementById('toolbar-toggle-panel-btn')?.parentElement;
-            const searchBar = document.getElementById('sector-ops-search-container');
-            
-            if (burgerMenu) burgerMenu.style.display = 'none';
-            if (mapToolbar) mapToolbar.style.display = 'none';
-            if (searchBar) searchBar.style.display = 'none';
+        const burgerMenu = document.getElementById('mobile-sidebar-toggle');
+        const mapToolbar = document.getElementById('toolbar-toggle-panel-btn')?.parentElement;
+        const searchBar = document.getElementById('sector-ops-search-container');
+        
+        if (burgerMenu) burgerMenu.style.display = 'none';
+        if (mapToolbar) mapToolbar.style.display = 'none';
+        if (searchBar) searchBar.style.display = 'none';
 
-            // --- [NEW] The Router Logic ---
+        // --- UPDATED ROUTER LOGIC ---
+        // Accept BOTH Aircraft and Airport windows
+        if (windowElement.id === 'aircraft-info-window' || windowElement.id === 'airport-info-window') {
+            
             // 1. Check for Simple Mode (iframe existence)
             const isSimpleMode = !!windowElement.querySelector('#simple-flight-window-frame');
 
-            // 2. Get user preference (defaulting to legacy)
+            // 2. Get user preference
             let userMode = localStorage.getItem('mobileDisplayMode') || this.CONFIG.defaultMode;
 
-            // 3. FORCE Legacy mode if Simple Flight Window is active
-            if (isSimpleMode) {
+            // 3. FORCE Legacy mode if it's the Airport Window OR Simple Mode is active
+            if (isSimpleMode || windowElement.id === 'airport-info-window') {
                 userMode = 'legacy';
             }
 
@@ -1137,13 +1131,10 @@ const MobileUIHandler = {
             this.activeWindow = windowElement;
 
             if (userMode === 'legacy') {
-                // --- Path 1: "Legacy Sheet" Mode ---
                 this.createLegacySheetUI();
                 this.observeOriginalWindow(windowElement);
-
             } else {
-                // --- Path 2: "HUD" Mode ---
-                this.createSplitViewUI(); // Build our new island containers
+                this.createSplitViewUI(); 
                 this.observeOriginalWindow(windowElement);
             }
         }
