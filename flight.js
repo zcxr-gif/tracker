@@ -2395,114 +2395,114 @@ function injectCustomStyles() {
         }
 
         /* --- ATIS & TERMINAL STYLES --- */
-.atis-status-row {
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-    margin-bottom: 8px;
-    font-family: var(--font-data);
-}
+        .atis-status-row {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 8px;
+            font-family: var(--font-data);
+        }
 
-.atis-code-large {
-    font-size: 1.2rem;
-    font-weight: 700;
-    color: #fbbf24; /* Amber */
-    text-shadow: 0 0 5px rgba(251, 191, 36, 0.3);
-}
+        .atis-code-large {
+            font-size: 1.2rem;
+            font-weight: 700;
+            color: #fbbf24; /* Amber */
+            text-shadow: 0 0 5px rgba(251, 191, 36, 0.3);
+        }
 
-.atis-timestamp {
-    font-size: 0.75rem;
-    color: #94a3b8;
-}
+        .atis-timestamp {
+            font-size: 0.75rem;
+            color: #94a3b8;
+        }
 
-/* The Digital Text Box */
-.terminal-text-box {
-    background: rgba(10, 12, 16, 0.6);
-    border: 1px solid rgba(255, 255, 255, 0.1);
-    border-radius: 6px;
-    padding: 10px;
-    font-family: 'JetBrains Mono', 'Consolas', monospace;
-    font-size: 0.7rem;
-    color: #86efac; /* Terminal Green */
-    line-height: 1.5;
-    white-space: pre-wrap;
-    box-shadow: inset 0 0 10px rgba(0,0,0,0.5);
-    max-height: 120px;
-    overflow-y: auto;
-    text-transform: uppercase;
-}
+        /* The Digital Text Box */
+        .terminal-text-box {
+            background: rgba(10, 12, 16, 0.6);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            border-radius: 6px;
+            padding: 10px;
+            font-family: 'JetBrains Mono', 'Consolas', monospace;
+            font-size: 0.7rem;
+            color: #86efac; /* Terminal Green */
+            line-height: 1.5;
+            white-space: pre-wrap;
+            box-shadow: inset 0 0 10px rgba(0,0,0,0.5);
+            max-height: 120px;
+            overflow-y: auto;
+            text-transform: uppercase;
+        }
 
-/* Scrollbar for terminal */
-.terminal-text-box::-webkit-scrollbar { width: 4px; }
-.terminal-text-box::-webkit-scrollbar-thumb { background: #334155; border-radius: 2px; }
+        /* Scrollbar for terminal */
+        .terminal-text-box::-webkit-scrollbar { width: 4px; }
+        .terminal-text-box::-webkit-scrollbar-thumb { background: #334155; border-radius: 2px; }
 
-/* Fallback / Calculated Mode Styles */
-.atis-runway-row {
-    display: flex; align-items: center; justify-content: space-between;
-    background: rgba(255, 255, 255, 0.02); padding: 6px 8px;
-    border-radius: 4px; border: 1px solid var(--border-glass); margin-bottom: 4px;
-}
-.atis-label { font-size: 0.65rem; font-weight: 700; color: #94a3b8; min-width: 40px; }
-.atis-pill { font-family: var(--font-data); font-size: 0.75rem; font-weight: 700; padding: 2px 6px; border-radius: 3px; border: 1px solid; margin-left: 4px; }
-.pill-arr { background: rgba(16, 185, 129, 0.1); color: #4ade80; border-color: rgba(16, 185, 129, 0.3); }
-.pill-dep { background: rgba(56, 189, 248, 0.1); color: #38bdf8; border-color: rgba(56, 189, 248, 0.3); }
-/* --- NEW: Mini Module Footer (For ATIS Remarks) --- */
-.apt-mini-footer {
-    padding: 6px 10px;
-    background: rgba(0, 0, 0, 0.2);
-    border-top: 1px solid var(--border-glass);
-    font-size: 0.65rem;
-    color: #cbd5e1;
-    display: flex;
-    align-items: center;
-    min-height: 24px;
-    white-space: nowrap;
-    overflow: hidden;
-    text-overflow: ellipsis;
-}
-.apt-mini-footer i { margin-right: 6px; color: #fbbf24; } /* Amber icon for remarks */
+        /* Fallback / Calculated Mode Styles */
+        .atis-runway-row {
+            display: flex; align-items: center; justify-content: space-between;
+            background: rgba(255, 255, 255, 0.02); padding: 6px 8px;
+            border-radius: 4px; border: 1px solid var(--border-glass); margin-bottom: 4px;
+        }
+        .atis-label { font-size: 0.65rem; font-weight: 700; color: #94a3b8; min-width: 40px; }
+        .atis-pill { font-family: var(--font-data); font-size: 0.75rem; font-weight: 700; padding: 2px 6px; border-radius: 3px; border: 1px solid; margin-left: 4px; }
+        .pill-arr { background: rgba(16, 185, 129, 0.1); color: #4ade80; border-color: rgba(16, 185, 129, 0.3); }
+        .pill-dep { background: rgba(56, 189, 248, 0.1); color: #38bdf8; border-color: rgba(56, 189, 248, 0.3); }
+        /* --- NEW: Mini Module Footer (For ATIS Remarks) --- */
+        .apt-mini-footer {
+            padding: 6px 10px;
+            background: rgba(0, 0, 0, 0.2);
+            border-top: 1px solid var(--border-glass);
+            font-size: 0.65rem;
+            color: #cbd5e1;
+            display: flex;
+            align-items: center;
+            min-height: 24px;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+        .apt-mini-footer i { margin-right: 6px; color: #fbbf24; } /* Amber icon for remarks */
 
 
-.search-badge-ac {
-    font-size: 0.6rem;
-    background: rgba(255,255,255,0.1);
-    border: 1px solid rgba(255,255,255,0.1);
-    color: #cbd5e1;
-    padding: 1px 6px;
-    border-radius: 4px;
-    font-weight: 600;
-    letter-spacing: 0.5px;
-}
+        .search-badge-ac {
+            font-size: 0.6rem;
+            background: rgba(255,255,255,0.1);
+            border: 1px solid rgba(255,255,255,0.1);
+            color: #cbd5e1;
+            padding: 1px 6px;
+            border-radius: 4px;
+            font-weight: 600;
+            letter-spacing: 0.5px;
+        }
 
-.search-sub-text {
-    color: #94a3b8;
-    font-size: 0.75rem;
-    white-space: nowrap;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    font-weight: 500;
-}
+        .search-sub-text {
+            color: #94a3b8;
+            font-size: 0.75rem;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            font-weight: 500;
+        }
 
-/* Column 3: Stats (Alt/Speed) */
-.search-result-stats {
-    display: flex;
-    flex-direction: column;
-    align-items: flex-end;
-    justify-content: center;
-    gap: 3px;
-}
+        /* Column 3: Stats (Alt/Speed) */
+        .search-result-stats {
+            display: flex;
+            flex-direction: column;
+            align-items: flex-end;
+            justify-content: center;
+            gap: 3px;
+        }
 
-.search-stat-pill {
-    font-family: var(--font-data);
-    font-size: 0.85rem;
-    font-weight: 700;
-    text-shadow: 0 0 10px rgba(0,0,0,0.5);
-}
+        .search-stat-pill {
+            font-family: var(--font-data);
+            font-size: 0.85rem;
+            font-weight: 700;
+            text-shadow: 0 0 10px rgba(0,0,0,0.5);
+        }
 
-.stat-alt { color: #38bdf8; } /* Sky Blue */
-.stat-gs { color: #fbbf24; font-size: 0.75rem; font-weight: 600; } /* Amber */
+        .stat-alt { color: #38bdf8; } /* Sky Blue */
+        .stat-gs { color: #fbbf24; font-size: 0.75rem; font-weight: 600; } /* Amber */
 
-/* --- RE-DESIGNED SEARCH BAR (MATCHING BOTTOM TOOLS) --- */
+        /* --- RE-DESIGNED SEARCH BAR (MATCHING BOTTOM TOOLS) --- */
 
         /* 1. Container Positioning */
         #sector-ops-search-container {
@@ -2587,6 +2587,10 @@ function injectCustomStyles() {
             background: transparent;
             border: none;
             outline: none;
+            
+            /* [FIX] Ensure input is on top of background but below icon if needed */
+            position: relative; 
+            z-index: 10; 
             
             color: var(--text-primary) !important;
             font-family: var(--font-ui);
@@ -11340,7 +11344,7 @@ function setupFilterSettingsWindowEvents() {
 }
 
 
-   /**
+ /**
  * --- [RE-DONE] Sets up event listeners for the map search bar.
  * Handles styling toggles and persistent open state.
  */
@@ -11371,6 +11375,15 @@ function setupSearchEventListeners() {
         dropdown.style.display = 'none';
         searchBar.classList.remove('has-results'); // Round bottom corners
     };
+
+    // --- [FIX] FORCE FOCUS ON CLICK ---
+    // This solves the issue where clicking the bar expands it but doesn't focus the input
+    // because the input might be hidden or z-index obscured.
+    if (searchBar) {
+        searchBar.addEventListener('click', () => {
+            searchInput.focus();
+        });
+    }
 
     // 1. INPUT EVENT: Typing
     searchInput.addEventListener('input', () => {
