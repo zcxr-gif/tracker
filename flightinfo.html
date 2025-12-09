@@ -18,6 +18,7 @@
         --bg-glass: rgba(24, 24, 27, 0.90); /* Zinc-900 base */
         --bg-panel: rgba(63, 63, 70, 0.35); /* Zinc-700 lighter gray */
 
+        /* Dynamic Theme Variables (Updated via JS) */
         --theme-bg-start: rgba(24, 24, 27, 0.90);
         --theme-bg-end: rgba(24, 24, 27, 0.90);
         
@@ -63,6 +64,7 @@
     .avionics-window {
         width: 100%;
         height: 100%;
+        /* Use the dynamic variables here */
         background: linear-gradient(135deg, var(--theme-bg-start), var(--theme-bg-end));
         backdrop-filter: blur(40px) saturate(140%);
         -webkit-backdrop-filter: blur(40px) saturate(140%);
@@ -81,7 +83,8 @@
         display: flex;
         justify-content: space-between;
         align-items: flex-start;
-        background: linear-gradient(180deg, rgba(24,24,27,0.9) 0%, rgba(24,24,27,0) 100%);
+        /* UPDATED: Use dynamic variable for seamless blend */
+        background: linear-gradient(180deg, var(--theme-bg-start) 0%, rgba(0,0,0,0) 100%);
     }
 
     .identity-group {
@@ -540,7 +543,8 @@
     /* --- FOOTER --- */
     .footer-bar {
         margin-top: auto; padding: 16px;
-        background: rgba(24,24,27,0.8);
+        /* UPDATED: Use dynamic variable */
+        background: var(--theme-bg-end);
         border-top: 1px solid var(--border-glass);
         display: flex; justify-content: space-between;
         backdrop-filter: blur(20px);
@@ -569,7 +573,6 @@
         <header class="header-section">
             <div class="identity-group">
                 <div class="main-callsign skeleton" id="callsign">WAITING</div>
-                <!-- Updated: Onclick now calls scrollToProfile -->
                 <div class="pilot-row" onclick="scrollToProfile()">
                     <i class="fa-solid fa-user-astronaut"></i>
                     <span id="username">PILOT</span>
@@ -693,12 +696,10 @@
                 </div>
             </div>
 
-            <!-- START NEW PROFILE SECTION -->
             <div id="profile-anchor">
                 <div class="grid-section-label">Pilot Manifest</div>
                 <div class="profile-card">
                     
-                    <!-- Identity Header -->
                     <div class="profile-header-row">
                         <div class="grade-badge-group">
                             <span class="grade-label">GRADE</span>
@@ -718,7 +719,6 @@
 
                     <hr class="profile-divider">
 
-                    <!-- Core Stats Grid -->
                     <div class="profile-stats-grid">
                         <div class="p-stat-item">
                             <span class="p-stat-label">Total XP</span>
@@ -738,18 +738,14 @@
                         </div>
                     </div>
 
-                    <!-- Progression & Detailed Violations -->
                     <div class="profile-details-wrapper">
                         
-                        <!-- Progression Column -->
                         <div class="p-col">
                             <div class="p-col-header">Grade Progression</div>
                             <div id="progression-list" class="progression-list">
-                                <!-- Injected via JS -->
-                            </div>
+                                </div>
                         </div>
 
-                        <!-- Violations Column -->
                         <div class="p-col border-left">
                             <div class="p-col-header">Violation History</div>
                             <div class="violation-list">
@@ -776,9 +772,7 @@
 
                 </div>
             </div>
-            <!-- END NEW PROFILE SECTION -->
-
-        </div>
+            </div>
 
         <footer class="footer-bar">
             <div class="footer-stat">
@@ -1129,19 +1123,6 @@
                 el.style.display = 'none';
             }
         }
-
-        // --- MESSAGE LISTENER ---
-        window.addEventListener('message', (event) => {
-            // 1. Regular Flight Data
-            if (event.data && event.data.type === 'FLIGHT_DATA_UPDATE') {
-                window.updateFlightInterface(event.data.payload);
-            }
-            
-            // 2. Pilot Profile Data (New)
-            if (event.data && event.data.type === 'PILOT_STATS_DATA') {
-                window.updatePilotProfile(event.data.payload.profile);
-            }
-        });
 
         // --- ON LOAD: REQUEST STATS ---
         window.addEventListener('load', () => {
