@@ -339,12 +339,13 @@ const MobileUIHandler = {
                 display: none !important;
             }
 
-            /* --- Hide Desktop UI elements on Mobile permanently --- */
             @media (max-width: ${this.CONFIG.breakpoint}px) {
                 #server-selector-container { display: none !important; }
                 
-                /* Hide Mapbox controls by default on mobile if you want a clean HUD look
-                   Or only hide them when windows are open (logic above) */
+                /* [FIX] Hide the old desktop toolbar on mobile */
+                .dashboard-toolbar { display: none !important; } 
+
+                /* Hide Mapbox controls by default on mobile if you want a clean HUD look */
                 .mapboxgl-ctrl-bottom-left, 
                 .mapboxgl-ctrl-bottom-right { 
                     /* optional: display: none; */ 
