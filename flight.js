@@ -2462,20 +2462,27 @@ function injectCustomStyles() {
 }
 .apt-mini-footer i { margin-right: 6px; color: #fbbf24; } /* Amber icon for remarks */
 
-/* --- RE-DESIGNED SEARCH BAR & DROPDOWN --- */
+/* --- RE-DESIGNED SEARCH BAR & DROPDOWN (EXPANDING LEFT) --- */
 
 /* 1. Container Positioning */
 #sector-ops-search-container {
     position: absolute;
     top: 20px;
-    right: 20px; /* Changed from left: 20px to right: 20px */
-    left: auto;  /* Ensure left is unset */
+    right: 20px; /* Anchor to RIGHT */
+    left: auto;  /* Ensure left is free */
     z-index: 1050;
-    width: 260px; /* Reduced Width (was 340px) */
+    width: 40px; /* Start collapsed (icon width) */
     font-family: var(--font-ui);
     display: flex;
     flex-direction: column;
-    filter: drop-shadow(0 10px 30px rgba(0,0,0,0.5)); /* Deep shadow for pop-out effect */
+    filter: drop-shadow(0 10px 30px rgba(0,0,0,0.5));
+    transition: width 0.4s cubic-bezier(0.16, 1, 0.3, 1); /* Smooth slide */
+}
+
+/* Expansion Logic: Hover or Focus expands width */
+#sector-ops-search-container:focus-within,
+#sector-ops-search-container.has-results {
+    width: 260px; /* Full width */
 }
 
 /* 2. The Input Bar */
@@ -2483,37 +2490,54 @@ function injectCustomStyles() {
     position: relative;
     display: flex;
     align-items: center;
-    height: 40px; /* Reduced Height (was 50px) */
-    background: rgba(24, 24, 27, 0.95); /* Deep Zinc */
+    justify-content: flex-end; /* Keep icon to the right */
+    height: 40px; 
+    background: rgba(24, 24, 27, 0.95); 
     backdrop-filter: blur(20px);
     -webkit-backdrop-filter: blur(20px);
     border: 1px solid rgba(255, 255, 255, 0.1);
-    border-radius: 10px; /* Slightly adjusted radius */
-    padding: 0 12px; /* Adjusted padding */
-    transition: all 0.2s ease;
+    border-radius: 20px; /* Pill shape when collapsed */
+    padding: 0; /* Remove padding for tight fit */
+    transition: all 0.3s ease;
     z-index: 20;
+    overflow: hidden; /* Clip input when collapsed */
 }
 
-/* When dropdown is open, flatten bottom corners to merge */
+/* Adjust radius when expanded */
+#sector-ops-search-container:focus-within .search-bar-container,
+#sector-ops-search-container.has-results .search-bar-container {
+    border-radius: 10px;
+}
+
+/* Flatten bottom when dropdown opens */
 .search-bar-container.has-results {
-    border-bottom-left-radius: 0;
-    border-bottom-right-radius: 0;
-    border-bottom: 1px solid rgba(255,255,255,0.05); /* Subtle separator */
-    background: rgba(24, 24, 27, 1); /* Solid when active */
+    border-bottom-left-radius: 0 !important;
+    border-bottom-right-radius: 0 !important;
+    border-bottom: 1px solid rgba(255,255,255,0.05); 
+    background: rgba(24, 24, 27, 1);
 }
 
-/* Icons inside bar - UPDATED */
+/* Icons inside bar */
 .search-icon-label {
-    color: #94a3b8;
-    font-size: 0.85rem; /* Smaller icon size */
-    cursor: default;
+    width: 40px;
+    height: 40px;
     display: flex;
     align-items: center;
-    margin-left: 8px; /* Spacing from clear button */
-    margin-right: 0;
+    justify-content: center;
+    color: #94a3b8;
+    font-size: 0.85rem;
+    cursor: pointer;
+    margin: 0;
+    flex-shrink: 0; /* Don't shrink icon */
+    z-index: 10;
+    transition: color 0.2s;
 }
 
-/* The Input Field */
+.search-bar-container:hover .search-icon-label {
+    color: #fff;
+}
+
+/* The Input Field (Hidden by default) */
 .search-bar-container input {
     flex-grow: 1;
     background: transparent;
@@ -2524,10 +2548,24 @@ function injectCustomStyles() {
     outline: none;
     font-family: var(--font-ui);
     height: 100%;
+    
+    /* Animation Props */
+    width: 0;
+    opacity: 0;
+    padding: 0;
+    transition: all 0.3s ease;
+}
+
+/* Show Input on Expand */
+#sector-ops-search-container:focus-within input,
+#sector-ops-search-container.has-results input {
+    width: 100%;
+    opacity: 1;
+    padding: 0 0 0 16px; /* Left padding */
 }
 
 .search-bar-container input::placeholder {
-    color: #52525b; /* Darker placeholder */
+    color: #52525b; 
     font-weight: 400;
 }
 
@@ -2545,6 +2583,8 @@ function injectCustomStyles() {
     font-size: 0.8rem;
     cursor: pointer;
     transition: all 0.2s;
+    margin-right: 4px; /* Space from icon */
+    display: none; /* JS toggles flex */
 }
 
 .search-clear-btn:hover {
