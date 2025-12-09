@@ -4712,6 +4712,29 @@ function handleSocketFlightUpdate(data) {
         }
 
         const flightId = flight.flightId;
+
+        // --- [CRITICAL FIX] STALENESS CHECK ---
+        // 1. Calculate the timestamp of the incoming data
+        // We prefer the position report time, falling back to the packet time.
+        const newTimestampRaw = flight.position.lastReport || data.timestamp;
+        const newTime = new Date(newTimestampRaw).getTime();
+
+        // 2. Get the timestamp of the data we already have (if any)
+        let existingTime = 0;
+        if (currentMapFeatures[flightId] && 
+            currentMapFeatures[flightId].properties && 
+            currentMapFeatures[flightId].properties.last_update) {
+            existingTime = new Date(currentMapFeatures[flightId].properties.last_update).getTime();
+        }
+
+        // 3. If new data is OLDER than or EQUAL to existing data, ignore it.
+        // This prevents the plane from "jumping back" to a previous position.
+        if (newTime <= existingTime) {
+            updatedFlightIds.add(flightId); // Mark as active so it doesn't get deleted
+            return; 
+        }
+        // --- [END FIX] ---
+
         updatedFlightIds.add(flightId);
 
         const litePhase = getLiteFlightPhase(flight.position);
@@ -4739,33 +4762,25 @@ function handleSocketFlightUpdate(data) {
             isVAMember: flight.isVAMember,
             phase: litePhase,
             pilotState: flight.pilotState,
-            last_update: flight.position.lastReport || data.timestamp,
+            last_update: newTimestampRaw, // Store the specific time used for the check
             // Preserve existing cached data (Images + TAIL NUMBER)
             communityImageUrl: existingProps.communityImageUrl || null, 
             contributorName: existingProps.contributorName || null,
             tailNumber: existingProps.tailNumber || null 
         };
 
-        // --- START: ASYNCHRONOUS LOOKUP LOGIC FOR HOVER CARD (NEGATIVE CACHING FIX) ---
+        // --- START: ASYNCHRONOUS LOOKUP LOGIC FOR HOVER CARD ---
         if (acName && livName && !existingProps.communityImageUrl) {
-            
-            // 1. Check if we have ALREADY looked this up (Success OR Failure)
             if (communityAircraftCache.has(lookupKey)) {
                 const cachedData = communityAircraftCache.get(lookupKey);
-                
-                // Only apply if the result was a SUCCESS (not null)
-                // If cachedData is null, we do nothing. We tried before and failed.
                 if (cachedData) {
                     newProperties.communityImageUrl = cachedData.communityImageUrl;
                     newProperties.contributorName = cachedData.contributorName;
                     newProperties.tailNumber = cachedData.tailNumber;
                 }
-                
             } else if (!lookupQueue.has(lookupKey)) {
-                // 2. Not in cache, and not currently fetching? Go get it.
                 fetchCommunityAircraftDetails(acName, livName)
                     .then(result => {
-                        // Only update if we actually got a valid result back
                         if (result && currentMapFeatures[flightId]) {
                             currentMapFeatures[flightId].properties.communityImageUrl = result.communityImageUrl;
                             currentMapFeatures[flightId].properties.contributorName = result.contributorName;
@@ -4779,7 +4794,7 @@ function handleSocketFlightUpdate(data) {
                             }
                         }
                     })
-                    .catch(() => { /* Ignore errors, handled in fetch function */ });
+                    .catch(() => { /* Ignore errors */ });
             }
         }
         // --- END: ASYNCHRONOUS LOOKUP LOGIC ---
@@ -4841,7 +4856,6 @@ function handleSocketFlightUpdate(data) {
                 // --- [NEW] Update Simple Iframe if Active ---
                 const simpleIframe = document.getElementById('simple-flight-window-frame');
                 if (mapFilters.useSimpleFlightWindow && simpleIframe && simpleIframe.contentWindow) {
-                    // We need to re-format the data with the newest position/telemetry
                     const freshData = formatDataForSimpleWindow(
                         fullFlightProps, 
                         cachedFlightDataForStatsView.plan, 
@@ -4859,10 +4873,7 @@ function handleSocketFlightUpdate(data) {
                     }, '*');
                 } 
                 else if (!mapFilters.useSimpleFlightWindow) {
-                    // 5. Update PFD Display (Standard View)
                     updatePfdDisplay(flight.position);
-
-                    // Update Nav Panel (Standard View)
                     updateNavPanelData(
                         flight.position.lat,
                         flight.position.lon,
@@ -4871,130 +4882,16 @@ function handleSocketFlightUpdate(data) {
                         cachedWindDir,
                         cachedWindSpd
                     );
-                    
-                    // 6. Update Info Window UI (Standard View)
                     updateAircraftInfoWindow(fullFlightProps, cachedFlightDataForStatsView.plan, localTrail);
                 }
 
-                // 6.5 Update Navigation Display Iframe (Traffic, Plan, Wind) - Runs for both views
+                // 6.5 Update Navigation Display Iframe
                 const navIframe = document.getElementById('nav-display-frame');
                 if (navIframe && navIframe.contentWindow) {
-                    
-                    // A. Process Traffic
-                    const ndTraffic = [];
-                    const myLat = flight.position.lat;
-                    const myLon = flight.position.lon;
-                    const myAlt = flight.position.alt_ft;
-
-                    flights.forEach(other => {
-                        if (other.flightId === flightId) return; 
-                        const otherFeature = currentMapFeatures[other.flightId];
-                        if (!otherFeature || !otherFeature.properties || !otherFeature.properties.position) return;
-
-                        let otherPos;
-                        try {
-                             otherPos = JSON.parse(otherFeature.properties.position);
-                        } catch (e) { return; }
-
-                        const latDiff = Math.abs(otherPos.lat - myLat);
-                        const lonDiff = Math.abs(otherPos.lon - myLon);
-                        if (latDiff > 1 || lonDiff > 1) return; 
-
-                        const distKm = getDistanceKm(myLat, myLon, otherPos.lat, otherPos.lon);
-                        const distNM = distKm / 1.852;
-
-                        if (distNM < 45) {
-                            const bearingTo = getBearing(myLat, myLon, otherPos.lat, otherPos.lon);
-                            let relBearing = bearingTo - flight.position.heading_deg;
-                            if (relBearing > 180) relBearing -= 360;
-                            if (relBearing < -180) relBearing += 360;
-                            const altDiffFt = otherPos.alt_ft - myAlt;
-                            const altDiff100 = Math.round(altDiffFt / 100);
-
-                            ndTraffic.push({
-                                id: other.flightId,
-                                bearing: relBearing,
-                                dist: distNM,
-                                altDiff: altDiff100,
-                                vs: otherPos.vs_fpm
-                            });
-                        }
-                    });
-
-                    // B. Process Flight Plan for ND
-                    let ndFlightPlan = [];
-                    let ndNextWp = "WYPT";
-                    let ndDist = 0;
-                    let ndEte = "00:00";
-
-                    if (cachedFlightDataForStatsView && cachedFlightDataForStatsView.plan) {
-                        const planItems = cachedFlightDataForStatsView.plan.flightPlanItems;
-                        const flatWaypoints = getFlatWaypointObjects(planItems);
-                        
-                        ndFlightPlan = flatWaypoints.map(wp => {
-                            if (!wp.location || wp.location.latitude == null || wp.location.longitude == null) return null;
-                            const distKm = getDistanceKm(myLat, myLon, wp.location.latitude, wp.location.longitude);
-                            const distNM = distKm / 1.852;
-                            const bearingTo = getBearing(myLat, myLon, wp.location.latitude, wp.location.longitude);
-                            const rad = bearingTo * Math.PI / 180;
-                            return {
-                                name: wp.identifier || wp.name || 'WP',
-                                x: Math.sin(rad) * distNM, 
-                                y: Math.cos(rad) * distNM 
-                            };
-                        }).filter(Boolean);
-
-                        const currentTrack = flight.position.heading_deg;
-                        let bestIndex = -1;
-                        let minDist = Infinity;
-
-                        if (flatWaypoints.length > 1) {
-                            for (let i = 1; i < flatWaypoints.length; i++) {
-                                const wp = flatWaypoints[i];
-                                if (!wp.location) continue;
-                                
-                                const dKm = getDistanceKm(myLat, myLon, wp.location.latitude, wp.location.longitude);
-                                const b = getBearing(myLat, myLon, wp.location.latitude, wp.location.longitude);
-                                const bDiff = Math.abs(normalizeBearingDiff(currentTrack - b));
-                                
-                                if (bDiff <= 100 && dKm < minDist) {
-                                    minDist = dKm;
-                                    bestIndex = i;
-                                }
-                            }
-                        }
-
-                        if (bestIndex !== -1) {
-                            const wp = flatWaypoints[bestIndex];
-                            const distNM = minDist / 1.852;
-                            const gs = Math.max(1, flight.position.gs_kt || 0);
-                            
-                            ndNextWp = wp.identifier || wp.name || "WPT";
-                            ndDist = Math.round(distNM);
-                            
-                            const totalMinutes = (distNM / gs) * 60;
-                            const h = Math.floor(totalMinutes / 60);
-                            const m = Math.floor(totalMinutes % 60);
-                            ndEte = `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}`;
-                        }
-                    }
-
-                    navIframe.contentWindow.postMessage({
-                        heading: flight.position.heading_deg,
-                        track: flight.position.heading_deg,
-                        gs: Math.round(flight.position.gs_kt),
-                        tas: calculatedTas, 
-                        windDir: cachedWindDir, 
-                        windSpd: cachedWindSpd,
-                        traffic: ndTraffic,
-                        flightPlan: ndFlightPlan,
-                        nextWp: ndNextWp,
-                        nextWpDist: ndDist,
-                        nextWpEte: ndEte
-                    }, '*');
+                    refreshNavDisplayFromCache(); // Reuse helper logic for consistency
                 }
 
-                // 8. Update Map Trail (Standard for both views)
+                // 8. Update Map Trail
                 if (isMapReady) {
                     const layerId = sectorOpsLiveFlightPathLayers[flightId]?.flown;
                     const source = layerId ? sectorOpsMap.getSource(layerId) : null;
@@ -5005,7 +4902,7 @@ function handleSocketFlightUpdate(data) {
                 }
             }
 
-            // 9. Update Planned Route Line (Standard for both views)
+            // 9. Update Planned Route Line
             if (cachedFlightDataForStatsView.plan && mapFilters.planDisplayMode !== 'none' && isMapReady) {
                 updateFlightPlanLayer(flightId, cachedFlightDataForStatsView.plan, flight.position);
             }
