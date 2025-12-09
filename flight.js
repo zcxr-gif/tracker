@@ -586,8 +586,36 @@ function injectCustomStyles() {
         }
 
         .search-bar-container input {
-            color: var(--text-primary) !important;
-        }
+    width: 100%;
+    height: 100%;
+    padding: 0 44px 0 16px; /* Right padding makes room for the icon */
+    
+    background: transparent;
+    border: none;
+    outline: none;
+    
+    /* --- FIX: Bring Input to Front --- */
+    position: relative; 
+    z-index: 15; /* Higher than background, lower than Icon (20) */
+    /* -------------------------------- */
+
+    color: var(--text-primary) !important;
+    font-family: var(--font-ui);
+    font-size: 0.9rem;
+    font-weight: 500;
+    
+    opacity: 0; /* Hidden when collapsed */
+    cursor: pointer; 
+    transition: opacity 0.2s ease; /* Smooth fade in */
+}
+
+/* Show Input when Expanded */
+.search-bar-container:hover input,
+.search-bar-container:focus-within input,
+.search-bar-container.has-results input {
+    opacity: 1;
+    cursor: text;
+}
         
         .search-bar-container input::placeholder {
             color: var(--text-secondary) !important;
@@ -11344,108 +11372,85 @@ function setupFilterSettingsWindowEvents() {
 }
 
 
- /**
- * --- [RE-DONE] Sets up event listeners for the map search bar.
- * Handles styling toggles and persistent open state.
- */
 function setupSearchEventListeners() {
     const searchInput = document.getElementById('sector-ops-search-input');
     const searchClear = document.getElementById('sector-ops-search-clear');
     const searchContainer = document.getElementById('sector-ops-search-container');
     const dropdown = document.getElementById('search-results-dropdown');
-    // Get the bar specifically to toggle corners
-    const searchBar = searchContainer.querySelector('.search-bar-container');
+    const searchBar = searchContainer ? searchContainer.querySelector('.search-bar-container') : null;
 
-    if (!searchInput || !searchClear || !searchContainer || !dropdown) {
-        return;
-    }
+    if (!searchInput || !searchClear || !searchContainer || !dropdown) return;
     
-    let isListening = searchContainer.dataset.searchListeners === 'true';
-    if (isListening) return; 
+    // Prevent attaching listeners multiple times
+    if (searchContainer.dataset.searchListeners === 'true') return; 
 
-    // Helper to open/close
+    // --- Helper Functions ---
     const openDropdown = () => {
         if (searchInput.value.length >= 2 && dropdown.children.length > 0) {
             dropdown.style.display = 'block';
-            searchBar.classList.add('has-results'); // Flatten bottom corners
+            searchBar.classList.add('has-results');
         }
     };
 
     const closeDropdown = () => {
         dropdown.style.display = 'none';
-        searchBar.classList.remove('has-results'); // Round bottom corners
+        searchBar.classList.remove('has-results');
     };
 
-    // --- [FIX] FORCE FOCUS ON CLICK ---
-    // This solves the issue where clicking the bar expands it but doesn't focus the input
-    // because the input might be hidden or z-index obscured.
-    if (searchBar) {
-        searchBar.addEventListener('click', () => {
-            searchInput.focus();
-        });
-    }
+    // --- 1. FORCE FOCUS ON CLICK (The Fix) ---
+    // This ensures clicking the glass bar actually activates the hidden input
+    searchBar.addEventListener('click', () => {
+        searchInput.focus();
+    });
 
-    // 1. INPUT EVENT: Typing
+    // --- 2. Input Typing ---
     searchInput.addEventListener('input', () => {
         const val = searchInput.value;
-        
-        // Show/Hide Clear "X"
         searchClear.style.display = val ? 'flex' : 'none';
 
         if (val.length >= 2) {
-            handleSearchInput(val); // This populates the dropdown
-            // We check children in a small timeout to allow render to finish, or rely on handleSearchInput to show it
+            handleSearchInput(val);
+            // Slight delay to allow render to finish
             setTimeout(() => {
-                if (dropdown.children.length > 0) {
-                    openDropdown();
-                } else {
-                    closeDropdown();
-                }
+                if (dropdown.children.length > 0) openDropdown();
+                else closeDropdown();
             }, 50);
         } else {
             closeDropdown();
         }
     });
 
-    // 2. FOCUS EVENT: Clicking back into the box
-    // If there is text, re-run search or just re-open if we didn't clear results
+    // --- 3. Re-open on Focus ---
     searchInput.addEventListener('focus', () => {
         if (searchInput.value.length >= 2) {
-            // Re-run search to be safe (updates altitudes etc)
-            handleSearchInput(searchInput.value);
+            handleSearchInput(searchInput.value); // Refresh data
             openDropdown();
         }
     });
 
-    // 3. CLEAR BUTTON
+    // --- 4. Clear Button ---
     searchClear.addEventListener('click', (e) => {
-        e.stopPropagation(); // Prevent closing immediately
+        e.stopPropagation(); 
         searchInput.value = '';
-        handleSearchInput(''); // Clears data
+        handleSearchInput('');
         searchClear.style.display = 'none';
         closeDropdown();
         searchInput.focus(); 
     });
 
-    // 4. DROPDOWN CLICK (Item Selection)
+    // --- 5. Result Selection ---
     dropdown.addEventListener('click', (e) => {
         const item = e.target.closest('.search-result-item');
         if (item) {
             onSearchResultClick(item); 
-            // Optional: Close on select, or keep open? Usually select = close.
-            // If you want it to stay open, comment this out.
-            // closeDropdown(); 
         }
     });
 
-    // Prevent blur when clicking dropdown scrollbar or items
-    dropdown.addEventListener('mousedown', (e) => {
-        e.preventDefault();
-    });
+    // Prevent blur when clicking dropdown
+    dropdown.addEventListener('mousedown', (e) => e.preventDefault());
 
-    // 5. CLICK OUTSIDE (The only way to close it without clearing)
+    // --- 6. Click Outside to Close ---
     document.addEventListener('click', (e) => {
-        // If click is NOT inside the search container
         if (!searchContainer.contains(e.target)) {
             closeDropdown();
         }
