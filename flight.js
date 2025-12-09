@@ -531,7 +531,7 @@ function injectCustomStyles() {
         /* --- IMPORT FONTS (Inter & JetBrains Mono) --- */
         @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;700&display=swap');
 
-        /* --- THEME VARIABLES (Based on flightinfo.html) --- */
+        /* --- THEME VARIABLES --- */
         :root {
             /* Palette - Carbon/Zinc Theme */
             --bg-glass: rgba(24, 24, 27, 0.95);      /* Zinc-900 base */
@@ -549,7 +549,7 @@ function injectCustomStyles() {
             
             /* Functional Colors */
             --color-accent: #e4e4e7;    /* Zinc-200 */
-            --color-brand: #38bdf8;     /* Sky Blue (Primary Brand) */
+            --color-brand: #38bdf8;     /* Sky Blue */
             --color-success: #10b981;   /* Emerald */
             --color-warning: #f59e0b;   /* Amber */
             --color-danger: #ef4444;    /* Red */
@@ -575,24 +575,245 @@ function injectCustomStyles() {
             color: var(--text-primary);
         }
 
-        /* --- [FIX] FORCE TOOLBAR & SEARCH TO ADOPT THEME --- */
-        .search-bar-container {
-            background: var(--bg-glass) !important;
-            border: 1px solid var(--border-glass) !important;
-            backdrop-filter: blur(20px) !important;
-            -webkit-backdrop-filter: blur(20px) !important;
-            box-shadow: 0 4px 20px rgba(0,0,0,0.4) !important;
-            color: var(--text-primary) !important;
+        /* =========================================================== */
+        /* === NEW SEARCH BAR & DROPDOWN STYLES (FIXED ALIGNMENT) === */
+        /* =========================================================== */
+
+        /* 1. Main Container - Top Right Anchor */
+        #sector-ops-search-container {
+            position: absolute;
+            top: 20px;
+            right: 20px;
+            left: auto;
+            z-index: 1050;
+            width: 44px; /* Start as perfect square/circle width */
+            font-family: var(--font-ui);
+            display: flex;
+            flex-direction: column;
+            filter: drop-shadow(0 10px 30px rgba(0,0,0,0.5));
+            transition: width 0.4s cubic-bezier(0.16, 1, 0.3, 1);
         }
 
+        /* Expansion Logic */
+        #sector-ops-search-container:focus-within,
+        #sector-ops-search-container.has-results {
+            width: 320px; /* Wider for better result readability */
+        }
+
+        /* 2. The Input Bar */
+        .search-bar-container {
+            position: relative;
+            display: flex;
+            align-items: center;
+            justify-content: space-between; /* Pushes icon to right, input to left */
+            height: 44px; 
+            background: var(--bg-glass);
+            backdrop-filter: blur(20px);
+            -webkit-backdrop-filter: blur(20px);
+            border: 1px solid rgba(255, 255, 255, 0.15);
+            border-radius: 22px; /* Pill shape */
+            padding: 0;
+            transition: all 0.3s ease;
+            z-index: 20;
+            overflow: hidden;
+        }
+
+        /* Flat bottom corners when dropdown is open */
+        .search-bar-container.has-results {
+            border-bottom-left-radius: 0 !important;
+            border-bottom-right-radius: 0 !important;
+            border-bottom: 1px solid rgba(255,255,255,0.05); 
+            background: #18181b; /* Solid background matches dropdown */
+        }
+
+        /* The Search Icon Wrapper - PERFECT CENTERING FIX */
+        .search-icon-label {
+            width: 44px;
+            height: 44px;
+            display: grid; /* Grid is best for centering icons */
+            place-items: center; 
+            color: var(--text-secondary);
+            font-size: 1rem;
+            cursor: pointer;
+            margin: 0;
+            flex-shrink: 0;
+            z-index: 10;
+            transition: color 0.2s;
+        }
+
+        .search-bar-container:hover .search-icon-label {
+            color: #fff;
+        }
+
+        /* Input Field */
         .search-bar-container input {
-            color: var(--text-primary) !important;
+            flex-grow: 1;
+            height: 100%;
+            background: transparent;
+            border: none;
+            color: #fff;
+            font-size: 0.9rem;
+            font-weight: 500;
+            outline: none;
+            font-family: var(--font-ui);
+            padding: 0 0 0 16px;
+            
+            /* Animation Props */
+            width: 0;
+            opacity: 0;
+            transition: all 0.3s ease;
+        }
+
+        /* Show Input on Expand */
+        #sector-ops-search-container:focus-within input,
+        #sector-ops-search-container.has-results input {
+            width: 100%;
+            opacity: 1;
+        }
+
+        .search-bar-container input::placeholder {
+            color: var(--text-dim);
+            font-weight: 400;
+        }
+
+        /* Clear 'X' Button */
+        .search-clear-btn {
+            background: transparent;
+            border: none;
+            color: var(--text-secondary);
+            width: 30px;
+            height: 100%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 0.9rem;
+            cursor: pointer;
+            transition: all 0.2s;
+            margin-right: 0;
+            display: none; 
+        }
+
+        .search-clear-btn:hover {
+            color: #fff;
+        }
+
+        /* 3. The Dropdown Results */
+        .search-results-dropdown {
+            display: none;
+            background: #18181b; /* Solid dark background */
+            border: 1px solid rgba(255, 255, 255, 0.15);
+            border-top: none; 
+            border-radius: 0 0 16px 16px;
+            max-height: 450px;
+            overflow-y: auto;
+            width: 100%;
+            padding-bottom: 8px;
+            box-shadow: 0 10px 40px rgba(0,0,0,0.5);
+            
+            /* Custom Scrollbar */
+            scrollbar-width: thin;
+            scrollbar-color: #3f3f46 transparent;
+        }
+
+        .search-results-dropdown::-webkit-scrollbar { width: 6px; }
+        .search-results-dropdown::-webkit-scrollbar-thumb { background-color: #3f3f46; border-radius: 3px; }
+
+        /* Result Row */
+        .search-result-item {
+            display: grid;
+            grid-template-columns: 42px 1fr auto; /* Fixed Icon | Fluid Text | Fixed Stats */
+            gap: 12px;
+            padding: 10px 16px;
+            border-bottom: 1px solid rgba(255,255,255,0.03);
+            cursor: pointer;
+            transition: background 0.15s ease;
+            align-items: center;
+        }
+
+        .search-result-item:last-child { border-bottom: none; }
+        .search-result-item:hover { background: rgba(56, 189, 248, 0.08); /* Brand color tint */ }
+
+        /* Column 1: Image Box */
+        .search-result-img-box {
+            width: 42px;
+            height: 42px;
+            display: grid;
+            place-items: center;
+            background: rgba(255,255,255,0.03);
+            border-radius: 8px;
+            border: 1px solid rgba(255,255,255,0.05);
+            overflow: hidden;
+        }
+
+        .search-result-logo {
+            width: 32px;
+            height: auto;
+            object-fit: contain;
+        }
+
+        /* Column 2: Text Info */
+        .search-result-info {
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            gap: 2px;
+            overflow: hidden;
+        }
+
+        .search-main-text {
+            color: #f4f4f5;
+            font-size: 0.9rem;
+            font-weight: 600;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .search-badge-ac {
+            font-size: 0.6rem;
+            background: rgba(255,255,255,0.1);
+            color: #d4d4d8;
+            padding: 1px 5px;
+            border-radius: 4px;
+            font-weight: 700;
+            font-family: var(--font-data);
+            letter-spacing: 0.5px;
+        }
+
+        .search-sub-text {
+            color: #a1a1aa;
+            font-size: 0.75rem;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            display: flex;
+            align-items: center;
+            gap: 6px;
         }
         
-        .search-bar-container input::placeholder {
-            color: var(--text-secondary) !important;
+        .separator { font-size: 0.5rem; opacity: 0.5; }
+        .livery-text { color: #71717a; font-style: italic; }
+
+        /* Column 3: Stats */
+        .search-result-stats {
+            display: flex;
+            flex-direction: column;
+            align-items: flex-end;
+            justify-content: center;
+            gap: 2px;
         }
 
+        .stat-row { font-family: var(--font-data); font-size: 0.8rem; }
+        .stat-val { font-weight: 700; }
+        .stat-val.alt { color: var(--color-brand); }
+        .stat-val.gs { color: var(--color-warning); }
+        .stat-unit { font-size: 0.65rem; color: #52525b; font-weight: 500; margin-left: 2px; }
+
+        /* =========================================================== */
+        /* === END SEARCH STYLES === */
+        /* =========================================================== */
+
+        /* --- TOOLBAR BUTTONS --- */
         .toolbar-btn {
             background: var(--bg-glass) !important;
             border: 1px solid var(--border-glass) !important;
@@ -777,7 +998,7 @@ function injectCustomStyles() {
             overflow: hidden; 
         }
         
-        /* --- INFO WINDOW STYLES (UPDATED) --- */
+        /* --- INFO WINDOW STYLES --- */
         .info-window {
             position: absolute;
             top: 20px; 
@@ -860,6 +1081,7 @@ function injectCustomStyles() {
             gap: 8px;
         }
         
+        /* --- FMS MODULE --- */
         .fms-module-container {
             height: 380px; 
             max-height: 380px;
@@ -954,7 +1176,7 @@ function injectCustomStyles() {
         .stat-value { color: var(--text-primary); font-weight: bold; }
         .fms-empty-state { text-align: center; padding: 20px; color: var(--text-dim); font-style: italic; }
 
-        /* --- REDESIGNED LOCATION DATA PANEL (No Bleeding) --- */
+        /* --- LOCATION DATA PANEL --- */
         #location-data-panel {
             background: var(--bg-glass);
             border-radius: var(--radius-sm);
@@ -1075,6 +1297,7 @@ function injectCustomStyles() {
             .nav-span-2 { grid-column: span 2; }
         }
         
+        /* --- AIRCRAFT OVERVIEW HEADER --- */
         .aircraft-overview-panel { 
             position: relative; 
             height: 200px; 
@@ -1123,6 +1346,7 @@ function injectCustomStyles() {
         #ac-header-actype { animation: secondarySubtextAnimation 8s infinite ease-in-out; }
         .overview-actions { position: absolute; top: 16px; right: 16px; z-index: 3; display: flex; gap: 8px; }
         
+        /* --- ROUTE PROGRESS OVERLAY --- */
         .route-summary-overlay { 
             position: relative; 
             padding: 15px 20px 12px 20px; 
@@ -1164,6 +1388,7 @@ function injectCustomStyles() {
         .ac-tab-pane { display: none; flex-direction: column; gap: 16px; animation: fadeIn 0.4s; }
         .ac-tab-pane.active { display: flex; }
         
+        /* --- PFD & BEZEL STYLES --- */
         .pfd-main-panel { 
             display: flex; 
             flex-direction: column; 
@@ -1319,6 +1544,7 @@ function injectCustomStyles() {
             border-color: var(--color-warning);
         }
         
+        /* --- VSD STYLES --- */
         .vsd-module-container {
             height: 260px; 
             max-height: 260px;
@@ -1449,6 +1675,7 @@ function injectCustomStyles() {
         .dot-plan { width: 6px; height: 6px; background: #444; border-radius: 50%; }
         .dot-flown { width: 6px; height: 6px; background: var(--color-success); border-radius: 50%; box-shadow: 0 0 4px var(--color-success); }
         
+        /* --- AIRCRAFT WINDOW TABS --- */
         .ac-info-window-tabs {
             display: flex;
             justify-content: space-between;
@@ -1922,7 +2149,7 @@ function injectCustomStyles() {
             transform: scale(1.1);
         }
 
-        /* --- AIRPORT WINDOW TABS (REDESIGNED) --- */
+        /* --- AIRPORT WINDOW TABS --- */
         .apt-tabs-header {
             display: flex;
             background: rgba(0, 0, 0, 0.2);
@@ -2395,328 +2622,72 @@ function injectCustomStyles() {
         }
 
         /* --- ATIS & TERMINAL STYLES --- */
-.atis-status-row {
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-    margin-bottom: 8px;
-    font-family: var(--font-data);
-}
+        .atis-status-row {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 8px;
+            font-family: var(--font-data);
+        }
 
-.atis-code-large {
-    font-size: 1.2rem;
-    font-weight: 700;
-    color: #fbbf24; /* Amber */
-    text-shadow: 0 0 5px rgba(251, 191, 36, 0.3);
-}
+        .atis-code-large {
+            font-size: 1.2rem;
+            font-weight: 700;
+            color: #fbbf24; /* Amber */
+            text-shadow: 0 0 5px rgba(251, 191, 36, 0.3);
+        }
 
-.atis-timestamp {
-    font-size: 0.75rem;
-    color: #94a3b8;
-}
+        .atis-timestamp {
+            font-size: 0.75rem;
+            color: #94a3b8;
+        }
 
-/* The Digital Text Box */
-.terminal-text-box {
-    background: rgba(10, 12, 16, 0.6);
-    border: 1px solid rgba(255, 255, 255, 0.1);
-    border-radius: 6px;
-    padding: 10px;
-    font-family: 'JetBrains Mono', 'Consolas', monospace;
-    font-size: 0.7rem;
-    color: #86efac; /* Terminal Green */
-    line-height: 1.5;
-    white-space: pre-wrap;
-    box-shadow: inset 0 0 10px rgba(0,0,0,0.5);
-    max-height: 120px;
-    overflow-y: auto;
-    text-transform: uppercase;
-}
+        /* The Digital Text Box */
+        .terminal-text-box {
+            background: rgba(10, 12, 16, 0.6);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            border-radius: 6px;
+            padding: 10px;
+            font-family: 'JetBrains Mono', 'Consolas', monospace;
+            font-size: 0.7rem;
+            color: #86efac; /* Terminal Green */
+            line-height: 1.5;
+            white-space: pre-wrap;
+            box-shadow: inset 0 0 10px rgba(0,0,0,0.5);
+            max-height: 120px;
+            overflow-y: auto;
+            text-transform: uppercase;
+        }
 
-/* Scrollbar for terminal */
-.terminal-text-box::-webkit-scrollbar { width: 4px; }
-.terminal-text-box::-webkit-scrollbar-thumb { background: #334155; border-radius: 2px; }
+        /* Scrollbar for terminal */
+        .terminal-text-box::-webkit-scrollbar { width: 4px; }
+        .terminal-text-box::-webkit-scrollbar-thumb { background: #334155; border-radius: 2px; }
 
-/* Fallback / Calculated Mode Styles */
-.atis-runway-row {
-    display: flex; align-items: center; justify-content: space-between;
-    background: rgba(255, 255, 255, 0.02); padding: 6px 8px;
-    border-radius: 4px; border: 1px solid var(--border-glass); margin-bottom: 4px;
-}
-.atis-label { font-size: 0.65rem; font-weight: 700; color: #94a3b8; min-width: 40px; }
-.atis-pill { font-family: var(--font-data); font-size: 0.75rem; font-weight: 700; padding: 2px 6px; border-radius: 3px; border: 1px solid; margin-left: 4px; }
-.pill-arr { background: rgba(16, 185, 129, 0.1); color: #4ade80; border-color: rgba(16, 185, 129, 0.3); }
-.pill-dep { background: rgba(56, 189, 248, 0.1); color: #38bdf8; border-color: rgba(56, 189, 248, 0.3); }
-/* --- NEW: Mini Module Footer (For ATIS Remarks) --- */
-.apt-mini-footer {
-    padding: 6px 10px;
-    background: rgba(0, 0, 0, 0.2);
-    border-top: 1px solid var(--border-glass);
-    font-size: 0.65rem;
-    color: #cbd5e1;
-    display: flex;
-    align-items: center;
-    min-height: 24px;
-    white-space: nowrap;
-    overflow: hidden;
-    text-overflow: ellipsis;
-}
-.apt-mini-footer i { margin-right: 6px; color: #fbbf24; } /* Amber icon for remarks */
-
-/* --- RE-DESIGNED SEARCH BAR & DROPDOWN (EXPANDING LEFT) --- */
-
-/* 1. Container Positioning */
-#sector-ops-search-container {
-    position: absolute;
-    top: 20px;
-    right: 20px; /* Anchor to RIGHT */
-    left: auto;  /* Ensure left is free */
-    z-index: 1050;
-    width: 40px; /* Start collapsed (icon width) */
-    font-family: var(--font-ui);
-    display: flex;
-    flex-direction: column;
-    filter: drop-shadow(0 10px 30px rgba(0,0,0,0.5));
-    transition: width 0.4s cubic-bezier(0.16, 1, 0.3, 1); /* Smooth slide */
-}
-
-/* Expansion Logic: Hover or Focus expands width */
-#sector-ops-search-container:focus-within,
-#sector-ops-search-container.has-results {
-    width: 260px; /* Full width */
-}
-
-/* 2. The Input Bar */
-.search-bar-container {
-    position: relative;
-    display: flex;
-    align-items: center;
-    justify-content: flex-end; /* Keep icon to the right */
-    height: 40px; 
-    background: rgba(24, 24, 27, 0.95); 
-    backdrop-filter: blur(20px);
-    -webkit-backdrop-filter: blur(20px);
-    border: 1px solid rgba(255, 255, 255, 0.1);
-    border-radius: 20px; /* Pill shape when collapsed */
-    padding: 0; /* Remove padding for tight fit */
-    transition: all 0.3s ease;
-    z-index: 20;
-    overflow: hidden; /* Clip input when collapsed */
-}
-
-/* Adjust radius when expanded */
-#sector-ops-search-container:focus-within .search-bar-container,
-#sector-ops-search-container.has-results .search-bar-container {
-    border-radius: 10px;
-}
-
-/* Flatten bottom when dropdown opens */
-.search-bar-container.has-results {
-    border-bottom-left-radius: 0 !important;
-    border-bottom-right-radius: 0 !important;
-    border-bottom: 1px solid rgba(255,255,255,0.05); 
-    background: rgba(24, 24, 27, 1);
-}
-
-/* Icons inside bar */
-.search-icon-label {
-    width: 40px;
-    height: 40px;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    color: #94a3b8;
-    font-size: 0.85rem;
-    cursor: pointer;
-    margin: 0;
-    flex-shrink: 0; /* Don't shrink icon */
-    z-index: 10;
-    transition: color 0.2s;
-}
-
-.search-bar-container:hover .search-icon-label {
-    color: #fff;
-}
-
-/* The Input Field (Hidden by default) */
-.search-bar-container input {
-    flex-grow: 1;
-    background: transparent;
-    border: none;
-    color: #fff;
-    font-size: 0.95rem;
-    font-weight: 500;
-    outline: none;
-    font-family: var(--font-ui);
-    height: 100%;
-    
-    /* Animation Props */
-    width: 0;
-    opacity: 0;
-    padding: 0;
-    transition: all 0.3s ease;
-}
-
-/* Show Input on Expand */
-#sector-ops-search-container:focus-within input,
-#sector-ops-search-container.has-results input {
-    width: 100%;
-    opacity: 1;
-    padding: 0 0 0 16px; /* Left padding */
-}
-
-.search-bar-container input::placeholder {
-    color: #52525b; 
-    font-weight: 400;
-}
-
-/* Clear 'X' Button */
-.search-clear-btn {
-    background: rgba(255,255,255,0.1);
-    border: none;
-    color: #a1a1aa;
-    width: 24px;
-    height: 24px;
-    border-radius: 50%;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    font-size: 0.8rem;
-    cursor: pointer;
-    transition: all 0.2s;
-    margin-right: 4px; /* Space from icon */
-    display: none; /* JS toggles flex */
-}
-
-.search-clear-btn:hover {
-    background: rgba(255,255,255,0.2);
-    color: #fff;
-}
-
-/* 3. The Dropdown Results */
-.search-results-dropdown {
-    display: none; /* Hidden by default */
-    background: rgba(24, 24, 27, 0.95); /* Match bar background */
-    backdrop-filter: blur(20px);
-    -webkit-backdrop-filter: blur(20px);
-    border: 1px solid rgba(255, 255, 255, 0.1);
-    border-top: none; /* Seamless merge */
-    border-radius: 0 0 12px 12px;
-    max-height: 450px;
-    overflow-y: auto;
-    width: 100%;
-    padding-top: 4px;
-    padding-bottom: 8px;
-    /* Scrollbar Styling */
-    scrollbar-width: thin;
-    scrollbar-color: #3f3f46 transparent;
-}
-
-.search-results-dropdown::-webkit-scrollbar {
-    width: 6px;
-}
-.search-results-dropdown::-webkit-scrollbar-thumb {
-    background-color: #3f3f46;
-    border-radius: 3px;
-}
-
-/* --- RESULT ROW STYLING (The content) --- */
-.search-result-item {
-    display: grid;
-    grid-template-columns: 40px 1fr auto; /* Logo | Info | Stats */
-    gap: 12px;
-    padding: 12px 16px;
-    border-bottom: 1px solid rgba(255,255,255,0.03);
-    cursor: pointer;
-    transition: background 0.15s ease;
-    align-items: center;
-}
-
-.search-result-item:hover {
-    background: rgba(56, 189, 248, 0.1); /* Brand color highlight */
-}
-
-.search-result-item:last-child {
-    border-bottom: none;
-}
-
-/* Column 1: Image Box */
-.search-result-img-box {
-    width: 40px;
-    height: 40px;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    background: rgba(0,0,0,0.3);
-    border-radius: 8px;
-    border: 1px solid rgba(255,255,255,0.05);
-    overflow: hidden;
-}
-
-.search-result-logo {
-    max-width: 32px;
-    max-height: 32px;
-    object-fit: contain;
-}
-
-/* Column 2: Text Info */
-.search-result-info {
-    display: flex;
-    flex-direction: column;
-    justify-content: center;
-    gap: 3px;
-    overflow: hidden;
-}
-
-.search-main-text {
-    color: #f4f4f5;
-    font-weight: 700;
-    font-size: 0.95rem;
-    font-family: var(--font-data);
-    display: flex;
-    align-items: center;
-    gap: 8px;
-}
-
-.search-badge-ac {
-    font-size: 0.6rem;
-    background: rgba(255,255,255,0.1);
-    border: 1px solid rgba(255,255,255,0.1);
-    color: #cbd5e1;
-    padding: 1px 6px;
-    border-radius: 4px;
-    font-weight: 600;
-    letter-spacing: 0.5px;
-}
-
-.search-sub-text {
-    color: #94a3b8;
-    font-size: 0.75rem;
-    white-space: nowrap;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    font-weight: 500;
-}
-
-/* Column 3: Stats (Alt/Speed) */
-.search-result-stats {
-    display: flex;
-    flex-direction: column;
-    align-items: flex-end;
-    justify-content: center;
-    gap: 3px;
-}
-
-.search-stat-pill {
-    font-family: var(--font-data);
-    font-size: 0.85rem;
-    font-weight: 700;
-    text-shadow: 0 0 10px rgba(0,0,0,0.5);
-}
-
-.stat-alt { color: #38bdf8; } /* Sky Blue */
-.stat-gs { color: #fbbf24; font-size: 0.75rem; font-weight: 600; } /* Amber */
-
-
+        /* Fallback / Calculated Mode Styles */
+        .atis-runway-row {
+            display: flex; align-items: center; justify-content: space-between;
+            background: rgba(255, 255, 255, 0.02); padding: 6px 8px;
+            border-radius: 4px; border: 1px solid var(--border-glass); margin-bottom: 4px;
+        }
+        .atis-label { font-size: 0.65rem; font-weight: 700; color: #94a3b8; min-width: 40px; }
+        .atis-pill { font-family: var(--font-data); font-size: 0.75rem; font-weight: 700; padding: 2px 6px; border-radius: 3px; border: 1px solid; margin-left: 4px; }
+        .pill-arr { background: rgba(16, 185, 129, 0.1); color: #4ade80; border-color: rgba(16, 185, 129, 0.3); }
+        .pill-dep { background: rgba(56, 189, 248, 0.1); color: #38bdf8; border-color: rgba(56, 189, 248, 0.3); }
+        /* --- NEW: Mini Module Footer (For ATIS Remarks) --- */
+        .apt-mini-footer {
+            padding: 6px 10px;
+            background: rgba(0, 0, 0, 0.2);
+            border-top: 1px solid var(--border-glass);
+            font-size: 0.65rem;
+            color: #cbd5e1;
+            display: flex;
+            align-items: center;
+            min-height: 24px;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+        .apt-mini-footer i { margin-right: 6px; color: #fbbf24; } /* Amber icon for remarks */
     `;
 
     const style = document.createElement('style');
@@ -3667,7 +3638,7 @@ async function loadExternalPanelContent() {
     }
 
 
-    /**
+ /**
  * --- [RE-DONE] Renders detailed search results.
  * Manages the visibility and styling of the dropdown container.
  */
@@ -3677,14 +3648,22 @@ function renderSearchResultsDropdown(matches) {
     
     if (!dropdown || !searchBar) return;
 
+    // Clear previous content
+    dropdown.innerHTML = '';
+
     if (matches.length === 0) {
-        dropdown.innerHTML = '<div style="padding:16px; color:#94a3b8; text-align:center; font-size:0.85rem; font-style:italic;">No active flights found.</div>';
+        dropdown.innerHTML = `
+            <div style="padding: 24px 16px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 8px; color: #94a3b8; opacity: 0.8;">
+                <i class="fa-solid fa-plane-slash" style="font-size: 1.2rem;"></i>
+                <span style="font-size: 0.85rem; font-weight: 500;">No active flights found</span>
+            </div>
+        `;
         dropdown.style.display = 'block';
-        searchBar.classList.add('has-results'); // Keep the merged look even for "No results"
+        searchBar.classList.add('has-results'); // Keep the merged look
         return;
     }
 
-    // Render HTML (Using the logic from the previous prompt)
+    // Render HTML
     dropdown.innerHTML = matches.slice(0, 15).map(feature => {
         const props = feature.properties;
         const coords = feature.geometry.coordinates;
@@ -3717,7 +3696,8 @@ function renderSearchResultsDropdown(matches) {
         const sanitizedLogoName = logoName.toLowerCase().replace(/[^a-z0-9\s]/g, '').replace(/\s+/g, '_');
         const logoPath = `Images/airline_logos/${sanitizedLogoName}.png`;
 
-        const propsString = JSON.stringify(props).replace(/'/g, "&apos;");
+        // Escape quotes for data attributes
+        const propsString = JSON.stringify(props).replace(/'/g, "&apos;").replace(/"/g, "&quot;");
         const coordsString = JSON.stringify(coords);
 
         return `
@@ -3727,22 +3707,28 @@ function renderSearchResultsDropdown(matches) {
              data-properties='${propsString}'>
             
             <div class="search-result-img-box">
-                <img src="${logoPath}" class="search-result-logo" onerror="this.style.display='none';this.parentElement.innerHTML='<i class=\'fa-solid fa-plane\'></i>'">
+                <img src="${logoPath}" class="search-result-logo" onerror="this.style.display='none';this.parentElement.innerHTML='<i class=\'fa-solid fa-plane\' style=\'color:#52525b;\'></i>'">
             </div>
 
             <div class="search-result-info">
                 <div class="search-main-text">
-                    ${props.callsign}
+                    <span class="callsign-text">${props.callsign}</span>
                     <span class="search-badge-ac">${shortType}</span>
                 </div>
                 <div class="search-sub-text">
-                    <span style="color: #e2e8f0;">${props.username}</span> <span style="color:#52525b;">|</span> ${livName}
+                    <span class="username-text">${props.username}</span>
+                    <span class="separator">•</span>
+                    <span class="livery-text">${livName}</span>
                 </div>
             </div>
 
             <div class="search-result-stats">
-                <span class="search-stat-pill stat-alt">${altDisplay} ft</span>
-                <span class="search-stat-pill stat-gs">${gsDisplay} kts</span>
+                <div class="stat-row">
+                    <span class="stat-val alt">${altDisplay}</span> <span class="stat-unit">ft</span>
+                </div>
+                <div class="stat-row">
+                    <span class="stat-val gs">${gsDisplay}</span> <span class="stat-unit">kts</span>
+                </div>
             </div>
         </div>
         `;
