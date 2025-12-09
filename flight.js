@@ -528,262 +528,462 @@ function injectCustomStyles() {
     if (document.getElementById(styleId)) return;
 
     const css = `
-        /* --- IMPORT FONTS (Inter & JetBrains Mono) --- */
+        /* =========================================
+           1. CORE & VARIABLES
+           ========================================= */
         @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;700&display=swap');
 
-        /* --- THEME VARIABLES (Based on flightinfo.html) --- */
         :root {
-            /* Palette - Carbon/Zinc Theme */
-            --bg-glass: rgba(24, 24, 27, 0.95);      /* Zinc-900 base */
-            --bg-panel: rgba(63, 63, 70, 0.35);      /* Zinc-700 lighter gray */
-            --bg-subtle: rgba(255, 255, 255, 0.03);  /* Very subtle highlight */
-            
-            /* Borders */
+            /* --- Colors (Merged) --- */
+            --bg-dark: #020617; 
+            --bg-panel: #1e293b; 
+            --bg-panel-translucent: rgba(30, 41, 59, 0.9);
+            --bg-glass: rgba(24, 24, 27, 0.95);
+            --bg-modal: #18181b;
+            --bg-sidebar: #131315;
+            --bg-subtle: rgba(255, 255, 255, 0.03);
+
+            /* --- Borders --- */
+            --border-white: rgba(255, 255, 255, 0.1);
             --border-glass: rgba(255, 255, 255, 0.08);
             --border-highlight: rgba(255, 255, 255, 0.12);
-            
-            /* Typography */
-            --text-primary: #fafafa;    /* Zinc-50 */
-            --text-secondary: #a1a1aa;  /* Zinc-400 */
-            --text-dim: #52525b;        /* Zinc-600 */
-            
-            /* Functional Colors */
-            --color-accent: #e4e4e7;    /* Zinc-200 */
-            --color-brand: #38bdf8;     /* Sky Blue (Primary Brand) */
-            --color-success: #10b981;   /* Emerald */
-            --color-warning: #f59e0b;   /* Amber */
-            --color-danger: #ef4444;    /* Red */
-            --color-purple: #c084fc;    /* Purple */
 
-            /* Dimensions */
-            --radius-sm: 8px;
-            --radius-md: 12px;
-            --radius-lg: 16px;
-            
-            /* Fonts */
+            /* --- Text --- */
+            --text-main: #f1f5f9;
+            --text-muted: #94a3b8;
+            --text-primary: #fafafa;
+            --text-secondary: #a1a1aa;
+            --text-dim: #52525b;
+
+            /* --- Functional Colors --- */
+            --primary-blue: #2563eb;
+            --accent-green: #22c55e;
+            --color-brand: #38bdf8;
+            --color-success: #10b981;
+            --color-warning: #f59e0b;
+            --color-danger: #ef4444;
+            --color-purple: #c084fc;
+
+            /* --- Fonts --- */
+            --font-main: 'Inter', sans-serif;
+            --font-mono: 'JetBrains Mono', monospace;
             --font-ui: 'Inter', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
             --font-data: 'JetBrains Mono', 'Consolas', monospace;
 
-            /* Legacy compatibility vars */
-            --iw-bg-start: var(--bg-glass);
-            --iw-bg-end: var(--bg-glass);
+            /* --- Dimensions --- */
+            --radius-sm: 8px;
+            --radius-md: 12px;
+            --radius-lg: 16px;
         }
 
-        /* --- GLOBAL OVERRIDES --- */
+        /* Global Resets */
+        * { box-sizing: border-box; }
         body, .mapboxgl-popup, .info-window {
             font-family: var(--font-ui);
             color: var(--text-primary);
         }
+        button { cursor: pointer; font-family: inherit; }
 
-        /* --- [FIX] FORCE TOOLBAR & SEARCH TO ADOPT THEME --- */
-        .search-bar-container {
-            background: var(--bg-glass) !important;
-            border: 1px solid var(--border-glass) !important;
-            backdrop-filter: blur(20px) !important;
-            -webkit-backdrop-filter: blur(20px) !important;
-            box-shadow: 0 4px 20px rgba(0,0,0,0.4) !important;
-            color: var(--text-primary) !important;
-        }
-
-        .search-bar-container input {
-            color: var(--text-primary) !important;
-        }
+        /* Utilities */
+        .hidden { display: none !important; }
+        .no-scrollbar::-webkit-scrollbar { display: none; }
+        .no-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
         
-        .search-bar-container input::placeholder {
-            color: var(--text-secondary) !important;
-        }
+        .settings-scroll { overflow-y: auto; }
+        .settings-scroll::-webkit-scrollbar { width: 6px; }
+        .settings-scroll::-webkit-scrollbar-track { background: transparent; }
+        .settings-scroll::-webkit-scrollbar-thumb { background-color: #374151; border-radius: 20px; }
 
-        .toolbar-btn {
-            background: var(--bg-glass) !important;
-            border: 1px solid var(--border-glass) !important;
-            color: var(--text-secondary) !important;
-            backdrop-filter: blur(10px);
+        /* Animations */
+        @keyframes fadeIn {
+            from { opacity: 0; transform: scale(0.98); }
+            to { opacity: 1; transform: scale(1); }
         }
-
-        .toolbar-btn:hover, .toolbar-btn.active {
-            background: var(--bg-panel) !important;
-            color: var(--text-primary) !important;
-            border-color: var(--text-secondary) !important;
+        .animate-modal-in { animation: fadeIn 0.2s cubic-bezier(0.16, 1, 0.3, 1) forwards; }
+        
+        @keyframes slideUp {
+            from { opacity: 0; transform: translateY(10px); }
+            to { opacity: 1; transform: translateY(0); }
         }
+        .animate-slide-up { animation: slideUp 0.2s ease-out forwards; }
 
-        /* --- VIRTUAL COCKPIT SEAT SENSOR --- */
-        .seat-sensor-wrapper {
-            background: var(--bg-glass); 
-            border: 1px solid var(--border-glass); 
-            border-radius: var(--radius-sm); 
+        /* =========================================
+           2. MAIN INTERFACE ELEMENTS (NEW UI)
+           ========================================= */
+
+        /* --- SEARCH BAR --- */
+        #sector-ops-search-container {
+            position: absolute;
+            top: 1.5rem;
+            left: 1.5rem;
+            z-index: 30;
+        }
+        #search-container {
+            width: 3rem; /* Mobile default */
+            transition: width 0.3s ease;
+        }
+        #search-container:hover,
+        #search-container:focus-within {
+            width: 18rem;
+        }
+        .search-box {
+            background-color: var(--bg-panel-translucent);
+            backdrop-filter: blur(12px);
+            -webkit-backdrop-filter: blur(12px);
+            border: 1px solid var(--border-white);
+            border-radius: 1rem;
+            box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.1), 0 10px 10px -5px rgba(0, 0, 0, 0.04);
             display: flex;
             flex-direction: column;
-            box-shadow: 0 4px 20px rgba(0,0,0,0.5);
-            overflow: hidden;
+            overflow: visible;
             position: relative;
         }
-
-        .sensor-header {
-            background: var(--bg-panel);
-            padding: 8px 12px;
-            border-bottom: 1px solid var(--border-glass);
+        .search-input-wrapper {
+            height: 2.5rem;
             display: flex;
-            justify-content: space-between;
-            font-size: 0.75rem;
-            font-weight: 700;
-            color: var(--text-secondary);
-            flex-shrink: 0;
-            text-transform: uppercase;
-            letter-spacing: 0.05em;
-        }
-
-        .sensor-body {
-            padding: 15px;
-            display: flex;
-            flex-direction: column;
             align-items: center;
             position: relative;
-            background: transparent; 
+            width: 100%;
         }
-
-        .cockpit-view {
-            position: relative;
-            width: 140px;
-            height: 80px;
-            background: rgba(0,0,0,0.3);
-            border-radius: 40px 40px 10px 10px;
-            border: 1px solid var(--border-glass);
+        .search-icon-box {
+            min-width: 2.5rem;
+            height: 100%;
             display: flex;
-            justify-content: space-between;
-            padding: 10px 20px;
-            box-sizing: border-box;
-            margin-bottom: 10px;
-        }
-
-        .cockpit-view::after {
-            content: '';
-            position: absolute;
-            left: 50%;
-            bottom: 10px;
-            transform: translateX(-50%);
-            width: 14px;
-            height: 40px;
-            background: #333;
-            border-radius: 4px;
-            border: 1px solid #555;
-        }
-
-        .seat {
-            width: 35px;
-            height: 40px;
-            background: #222;
-            border-radius: 6px;
-            border: 1px solid #444;
-            transition: all 0.5s ease;
-            position: relative;
-            display: flex;
+            align-items: center;
             justify-content: center;
-            align-items: center;
-        }
-
-        .seat::before {
-            content: '';
-            position: absolute;
-            top: -8px;
-            width: 25px;
-            height: 8px;
-            background: inherit;
-            border-radius: 4px;
-            border: 1px solid #444;
-        }
-
-        .cockpit-overlay-icon {
-            position: absolute;
-            top: 50%;
-            left: 50%;
-            transform: translate(-50%, -50%);
-            font-size: 2.5rem;
             z-index: 10;
-            opacity: 0;
-            transition: opacity 0.3s ease, transform 0.3s ease;
             pointer-events: none;
-            text-shadow: 0 2px 10px rgba(0,0,0,0.8);
+            color: var(--text-muted);
+            transition: color 0.3s;
         }
-
-        .cockpit-overlay-icon.visible {
-            opacity: 1;
-            transform: translate(-50%, -50%) scale(1);
-        }
-
-        .icon-parking { color: var(--color-danger); border: 3px solid var(--color-danger); border-radius: 50%; width: 45px; height: 45px; display: flex; align-items: center; justify-content: center; font-weight: bold; background: rgba(0,0,0,0.6); font-family: sans-serif; }
-        .icon-coffee { color: var(--color-warning); }
-        .icon-cloud { color: var(--color-brand); }
-
-        /* Seat Active States */
-        .seat.active-green { background: rgba(16, 185, 129, 0.1); border-color: var(--color-success); box-shadow: 0 0 15px rgba(16, 185, 129, 0.2); }
-        .seat.active-green::before { border-color: var(--color-success); background: #064e3b; }
-
-        .seat.active-amber { background: rgba(245, 158, 11, 0.1); border-color: var(--color-warning); box-shadow: 0 0 15px rgba(245, 158, 11, 0.2); }
-        .seat.active-amber::before { border-color: var(--color-warning); background: #78350f; }
-
-        .seat.active-blue { background: rgba(56, 189, 248, 0.1); border-color: var(--color-brand); box-shadow: 0 0 15px rgba(56, 189, 248, 0.2); }
-        .seat.active-blue::before { border-color: var(--color-brand); background: #0c4a6e; }
-
-        .seat::after { content: attr(data-role); font-size: 0.6rem; font-weight: bold; color: var(--text-dim); margin-top: 2px; }
-        .seat.active-green::after, .seat.active-amber::after, .seat.active-blue::after { color: #fff; text-shadow: 0 0 5px currentColor; }
-
-        .seat-status-display {
-            margin-top: 8px;
-            font-family: var(--font-data);
-            font-size: 0.75rem;
-            text-align: center;
-            width: 100%;
-            display: flex;
-            justify-content: space-between;
-            color: var(--text-secondary);
-        }
-
-        .status-pill { padding: 2px 8px; border-radius: 4px; background: rgba(255,255,255,0.05); border: 1px solid var(--border-glass); }
-        .status-pill.green { color: var(--color-success); border-color: rgba(16, 185, 129, 0.3); background: rgba(16, 185, 129, 0.1); }
-        .status-pill.amber { color: var(--color-warning); border-color: rgba(245, 158, 11, 0.3); background: rgba(245, 158, 11, 0.1); }
-        .status-pill.blue { color: var(--color-brand); border-color: rgba(56, 189, 248, 0.3); background: rgba(56, 189, 248, 0.1); }
-        .status-pill.red { color: var(--color-danger); border-color: rgba(239, 68, 68, 0.3); background: rgba(239, 68, 68, 0.1); }
-
-        #seat-narrative-text {
-            font-family: var(--font-ui);
-            font-size: 0.7rem;
-            color: var(--text-secondary);
-            margin-top: 8px;
-            text-align: center;
-            border-top: 1px solid var(--border-glass);
-            padding-top: 6px;
-            width: 100%;
-            font-style: italic;
-        }
+        #search-container:hover .search-icon-box,
+        #search-container:focus-within .search-icon-box { color: #fff; }
         
-        #view-rosters.active {
+        #sector-ops-search-input {
             position: absolute;
             inset: 0;
             width: 100%;
             height: 100%;
-            padding: 0;
-            overflow: hidden;
-            display: grid;
-            grid-template-columns: 1fr;
-            grid-template-rows: 1fr;
+            background: transparent;
+            border: none;
+            padding-left: 2.5rem;
+            padding-right: 1rem;
+            font-size: 0.75rem;
+            color: white;
+            outline: none;
+            opacity: 0;
+            transition: opacity 0.3s;
+            border-radius: 1rem;
+            font-weight: 500;
+            font-family: var(--font-main);
         }
-        #sector-ops-map-fullscreen {
-            grid-column: 1 / -1;
-            grid-row: 1 / -1;
+        #search-container:hover #sector-ops-search-input,
+        #search-container:focus-within #sector-ops-search-input { opacity: 1; }
+        #sector-ops-search-input::placeholder { color: #64748b; }
+
+        .search-dropdown {
+            width: 100%;
+            background-color: rgba(30, 41, 59, 0.95);
+            border-top: 1px solid var(--border-white);
+            padding: 0.5rem;
+            border-bottom-left-radius: 1rem;
+            border-bottom-right-radius: 1rem;
         }
-        .main-content:has(#view-rosters.active) {
-            padding: 0; 
-            height: 100dvh; 
-            overflow: hidden; 
+        .search-header {
+            padding: 0.25rem 0.5rem;
+            font-size: 10px;
+            text-transform: uppercase;
+            color: var(--text-muted);
+            font-weight: 700;
+            letter-spacing: 0.05em;
         }
+        .search-result-item {
+            width: 100%;
+            display: flex;
+            align-items: center;
+            gap: 0.75rem;
+            padding: 0.5rem;
+            border-radius: 0.5rem;
+            text-align: left;
+            transition: background-color 0.2s;
+            cursor: pointer;
+            color: white;
+        }
+        .search-result-item:hover { background-color: rgba(255,255,255,0.05); }
+
+        /* --- SIDEBAR TOOLS --- */
+        .sidebar-tools {
+            position: absolute;
+            top: 1.5rem;
+            right: 1.5rem;
+            display: flex;
+            flex-direction: column;
+            gap: 0.75rem;
+            z-index: 20;
+            align-items: flex-end;
+        }
+        .tool-btn {
+            width: 2.5rem; height: 2.5rem;
+            background-color: var(--bg-panel-translucent);
+            backdrop-filter: blur(12px);
+            -webkit-backdrop-filter: blur(12px);
+            border: 1px solid var(--border-white);
+            border-radius: 1rem;
+            box-shadow: 0 20px 25px -5px rgba(0,0,0,0.1);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            color: #cbd5e1;
+            transition: all 0.2s;
+            position: relative;
+            cursor: pointer;
+        }
+        .tool-btn:hover { background-color: #334155; color: white; border-color: rgba(255,255,255,0.2); }
+        .tool-btn:active { transform: scale(0.95); }
         
-        /* --- INFO WINDOW STYLES (UPDATED) --- */
+        .tooltip {
+            position: absolute;
+            right: 3.5rem;
+            background-color: var(--bg-dark);
+            color: white;
+            font-size: 11px;
+            font-weight: 500;
+            padding: 0.25rem 0.5rem;
+            border-radius: 0.5rem;
+            opacity: 0;
+            transition: opacity 0.2s;
+            pointer-events: none;
+            white-space: nowrap;
+            border: 1px solid var(--border-white);
+            box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1);
+            display: none;
+        }
+        .tool-btn:hover .tooltip { opacity: 1; }
+        .server-btn-active { background-color: rgba(37, 99, 235, 0.9); color: white; margin-top: 0.5rem; }
+        .server-btn-active:hover { background-color: #3b82f6; }
+
+        /* Server Menu */
+        #server-menu {
+            position: absolute;
+            top: 0;
+            right: 3.5rem;
+            width: 12rem;
+            background-color: rgba(30, 41, 59, 0.95);
+            backdrop-filter: blur(20px);
+            -webkit-backdrop-filter: blur(20px);
+            padding: 0.5rem;
+            border-radius: 1rem;
+            box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.25);
+            border: 1px solid var(--border-white);
+            transform-origin: top right;
+        }
+        .menu-header {
+            padding: 0.5rem 0.75rem;
+            font-size: 10px;
+            font-weight: 700;
+            color: var(--text-muted);
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+            border-bottom: 1px solid rgba(255,255,255,0.05);
+            margin-bottom: 0.25rem;
+        }
+        .menu-item {
+            width: 100%;
+            text-align: left;
+            padding: 0.625rem 0.75rem;
+            border-radius: 0.75rem;
+            font-size: 0.875rem;
+            font-weight: 500;
+            color: var(--text-muted);
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            transition: background-color 0.2s, color 0.2s;
+            cursor: pointer;
+            background: none; border: none;
+        }
+        .menu-item:hover { background-color: rgba(255,255,255,0.05); color: white; }
+        .menu-item span { color: white; }
+
+        /* --- WEATHER WIDGET --- */
+        .weather-container {
+            position: absolute;
+            bottom: 2rem;
+            right: 1.5rem;
+            z-index: 30;
+            display: flex;
+            flex-direction: column;
+            align-items: flex-end;
+            gap: 0.5rem;
+        }
+        .weather-popup {
+            margin-bottom: 0.5rem;
+            background-color: rgba(30, 41, 59, 0.95);
+            backdrop-filter: blur(20px);
+            -webkit-backdrop-filter: blur(20px);
+            padding: 1rem;
+            border-radius: 1rem;
+            box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.1);
+            width: 16rem;
+            transform-origin: bottom right;
+            border: 1px solid var(--border-white);
+        }
+        .weather-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 1rem;
+            border-bottom: 1px solid rgba(255,255,255,0.05);
+            padding-bottom: 0.75rem;
+        }
+        .weather-row {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding: 0.5rem 0;
+            border-bottom: 1px solid rgba(255,255,255,0.05);
+        }
+        .weather-row:last-child { border-bottom: none; }
+        .weather-toggle-btn {
+            height: 2.5rem;
+            padding: 0 0.75rem;
+            border-radius: 1rem;
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+            background-color: var(--bg-panel-translucent);
+            backdrop-filter: blur(12px);
+            -webkit-backdrop-filter: blur(12px);
+            border: 1px solid var(--border-white);
+            color: #cbd5e1;
+            transition: all 0.2s;
+            box-shadow: 0 4px 6px -1px rgba(0,0,0,0.1);
+            cursor: pointer;
+        }
+        .weather-toggle-btn:hover { background-color: #334155; color: white; }
+        .weather-toggle-btn.active {
+            background-color: var(--primary-blue) !important;
+            color: white !important;
+            border-color: transparent !important;
+        }
+
+        /* Toggle Switch */
+        .switch-container { position: relative; display: inline-block; width: 2.5rem; height: 1.25rem; }
+        .switch-input { opacity: 0; width: 0; height: 0; }
+        .switch-label {
+            position: absolute; cursor: pointer; top: 0; left: 0; right: 0; bottom: 0;
+            background-color: #334155; transition: .3s; border-radius: 999px;
+        }
+        .switch-handle {
+            position: absolute; content: ""; height: 1.25rem; width: 1.25rem;
+            left: 0; bottom: 0; background-color: white; transition: .3s;
+            border-radius: 50%; border: 4px solid #334155;
+        }
+        .switch-input:checked + .switch-label { background-color: #3b82f6; }
+        .switch-input:checked + .switch-label .switch-handle {
+            transform: translateX(1.25rem); border-color: #3b82f6;
+        }
+
+        /* --- SETTINGS MODAL --- */
+        #filter-settings-window {
+            position: fixed;
+            inset: 0;
+            z-index: 50;
+            display: none;
+            align-items: center;
+            justify-content: center;
+            background-color: rgba(0, 0, 0, 0.8);
+            backdrop-filter: blur(4px);
+            -webkit-backdrop-filter: blur(4px);
+            transition: opacity 0.3s;
+        }
+        #filter-settings-window.visible { display: flex; }
+
+        .settings-card {
+            background-color: var(--bg-modal);
+            width: 100%;
+            height: 100%;
+            box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.25);
+            display: flex;
+            flex-direction: column;
+            overflow: hidden;
+            border: 1px solid var(--border-white);
+            font-family: var(--font-main);
+        }
+        .settings-sidebar {
+            width: 100%;
+            background-color: var(--bg-sidebar);
+            display: flex;
+            flex-direction: column;
+            border-bottom: 1px solid rgba(255,255,255,0.05);
+            flex-shrink: 0;
+            z-index: 20;
+        }
+        .mobile-header {
+            display: flex; align-items: center; justify-content: space-between;
+            padding: 1rem; border-bottom: 1px solid rgba(255,255,255,0.05);
+            background-color: var(--bg-sidebar);
+        }
+        .nav-container { padding: 0.5rem; overflow-x: auto; }
+        .nav-items { display: flex; gap: 0.5rem; min-width: max-content; }
+        .nav-btn {
+            width: auto; text-align: left; padding: 0.5rem 0.75rem;
+            border-radius: 0.75rem; font-size: 0.875rem; font-weight: 500;
+            color: var(--text-muted); display: flex; align-items: center;
+            gap: 0.5rem; transition: all 0.2s; white-space: nowrap;
+            background: transparent; border: none; cursor: pointer;
+        }
+        .nav-btn:hover { background-color: rgba(255,255,255,0.05); color: white; }
+        .nav-btn-active {
+            background-color: #27272a; color: white;
+            box-shadow: 0 1px 2px 0 rgba(0, 0, 0, 0.05);
+        }
+        .nav-btn-active i { color: #60a5fa; }
+        .settings-content-area {
+            flex: 1; min-height: 0; background-color: var(--bg-modal);
+            display: flex; flex-direction: column; position: relative;
+        }
+        .desktop-header { display: none; }
+        .settings-scroll-area { flex: 1; overflow-y: auto; padding: 1rem; padding-bottom: 6rem; }
+        .setting-box {
+            background-color: #202023; padding: 1rem 1.25rem;
+            border-radius: 1rem; border: 1px solid rgba(255,255,255,0.05);
+            display: flex; align-items: center; justify-content: space-between;
+            box-shadow: 0 1px 2px 0 rgba(0, 0, 0, 0.05); margin-bottom: 1rem;
+        }
+
+        /* --- DESKTOP MEDIA QUERIES --- */
+        @media (min-width: 768px) {
+            #search-container { width: 3rem; height: 3rem; }
+            #search-container:hover, #search-container:focus-within { width: 20rem; }
+            .search-input-wrapper { height: 3rem; }
+            .search-icon-box { min-width: 3rem; }
+            #sector-ops-search-input { padding-left: 3rem; padding-right: 1rem; font-size: 0.875rem; }
+            .tool-btn { width: 3rem; height: 3rem; }
+            .tooltip { display: block; }
+            .weather-toggle-btn { height: 3rem; padding: 0 1rem; }
+            .weather-popup { width: 18rem; }
+            .settings-card { flex-direction: row; width: 900px; height: 650px; border-radius: 1.5rem; }
+            .settings-sidebar { width: 16rem; height: 100%; border-bottom: none; border-right: 1px solid rgba(255,255,255,0.05); }
+            .mobile-header { display: none; }
+            .nav-container { padding: 1.5rem; padding-bottom: 0.5rem; overflow: visible; }
+            .nav-items { display: block; }
+            .nav-btn { width: 100%; margin-bottom: 0.25rem; padding: 0.625rem 0.75rem; }
+            .desktop-header {
+                display: flex; height: 5rem; align-items: center; justify-content: space-between;
+                padding: 0 2rem; border-bottom: 1px solid rgba(255,255,255,0.05); flex-shrink: 0;
+            }
+            .settings-scroll-area { padding: 2rem; padding-bottom: 2rem; }
+        }
+
+        /* =========================================
+           3. AIRCRAFT INFO WINDOW (EXISTING STYLES)
+           ========================================= */
+        
         .info-window {
             position: absolute;
-            top: 20px; 
-            right: 20px;
-            width: 600px; 
-            max-width: 95vw;
+            top: 20px; right: 20px;
+            width: 600px; max-width: 95vw;
             max-height: calc(100vh - 40px);
             background: var(--bg-glass);
             backdrop-filter: blur(40px) saturate(140%);
@@ -792,193 +992,171 @@ function injectCustomStyles() {
             border: 1px solid var(--border-glass);
             box-shadow: 0 20px 50px rgba(0,0,0,0.8); 
             z-index: 1060; 
-            display: flex;
-            flex-direction: column;
-            overflow: hidden;
-            color: var(--text-primary);
+            display: flex; flex-direction: column;
+            overflow: hidden; color: var(--text-primary);
             transition: opacity 0.3s ease, transform 0.3s ease;
-            opacity: 0;
-            transform: translateX(20px);
+            opacity: 0; transform: translateX(20px);
             pointer-events: none; 
         }
         .info-window.visible { 
-            opacity: 1;
-            transform: translateX(0);
-            pointer-events: auto;
+            opacity: 1; transform: translateX(0); pointer-events: auto;
         }
         .info-window-header {
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-            padding: 16px 20px;
-            background: var(--bg-panel);
-            border-bottom: 1px solid var(--border-glass);
-            flex-shrink: 0;
+            display: flex; justify-content: space-between; align-items: center;
+            padding: 16px 20px; background: var(--bg-panel);
+            border-bottom: 1px solid var(--border-glass); flex-shrink: 0;
         }
         .info-window-header h3 {
-            margin: 0; 
-            font-size: 1.1rem; 
-            color: var(--text-primary);
-            font-weight: 700;
-            letter-spacing: -0.025em;
+            margin: 0; font-size: 1.1rem; color: var(--text-primary);
+            font-weight: 700; letter-spacing: -0.025em;
         }
         .info-window-actions button {
-            background: var(--bg-subtle);
-            border: 1px solid var(--border-glass);
-            color: var(--text-secondary);
-            cursor: pointer;
-            font-size: 0.9rem;
-            width: 28px; height: 28px;
-            border-radius: 50%;
-            margin-left: 8px;
-            line-height: 1; 
-            display: grid;
-            place-items: center;
+            background: var(--bg-subtle); border: 1px solid var(--border-glass);
+            color: var(--text-secondary); cursor: pointer; font-size: 0.9rem;
+            width: 28px; height: 28px; border-radius: 50%; margin-left: 8px;
+            line-height: 1; display: grid; place-items: center;
             transition: all 0.2s ease-in-out;
         }
         .info-window-actions button:hover { 
-            background: var(--bg-panel);
-            color: #fff; 
-            border-color: var(--text-secondary);
+            background: var(--bg-panel); color: #fff; border-color: var(--text-secondary);
         }
         .info-window-content { 
-            overflow-y: auto; 
-            flex-grow: 1; 
-            padding: 0;
-            background: transparent; 
+            overflow-y: auto; flex-grow: 1; padding: 0; background: transparent; 
         }
 
-        .pfd-and-location-grid { 
-            display: grid; 
-            grid-template-columns: 2fr 1fr; 
-            gap: 8px;
-        }
-
-        .info-right-col {
-            display: flex;
-            flex-direction: column;
-            gap: 8px;
-        }
-        
-        .fms-module-container {
-            height: 380px; 
-            max-height: 380px;
+        /* --- Tech Module (Shared) --- */
+        .tech-module {
             background: var(--bg-glass);
-            color: var(--color-success); 
-            font-family: var(--font-data);
-            display: flex;
-            flex-direction: column;
             border: 1px solid var(--border-glass);
-            border-radius: var(--radius-sm);
-            box-shadow: inset 0 0 20px rgba(0,0,0,0.5);
-            box-sizing: border-box;
-            overflow: hidden; 
+            border-radius: var(--radius-md);
+            overflow: hidden;
+            box-shadow: 0 4px 15px rgba(0, 0, 0, 0.5);
+            margin-bottom: 8px; 
+            display: flex; flex-direction: column;
         }
-        .fms-header {
-            background: var(--bg-panel);
-            padding: 6px 10px;
+        .tech-module-header {
+            background: var(--bg-panel); padding: 8px 12px;
             border-bottom: 1px solid var(--border-glass);
-            display: flex;
-            justify-content: space-between;
-            font-size: 0.75rem;
-            font-weight: 700;
-            color: var(--text-primary);
-            flex-shrink: 0;
+            display: flex; justify-content: space-between; align-items: center;
         }
+        .tech-module-title {
+            font-size: 0.75rem; font-weight: 700; color: var(--text-secondary);
+            text-transform: uppercase; letter-spacing: 0.05em;
+            display: flex; align-items: center; gap: 8px;
+        }
+        .tech-module-body {
+            padding: 12px; background: transparent; position: relative;
+        }
+
+        /* --- Cockpit Seat Sensor --- */
+        .seat-sensor-wrapper {
+            background: var(--bg-glass); 
+            border: 1px solid var(--border-glass); 
+            border-radius: var(--radius-sm); 
+            display: flex; flex-direction: column;
+            box-shadow: 0 4px 20px rgba(0,0,0,0.5);
+            overflow: hidden; position: relative;
+        }
+        .cockpit-view {
+            position: relative; width: 140px; height: 80px;
+            background: rgba(0,0,0,0.3); border-radius: 40px 40px 10px 10px;
+            border: 1px solid var(--border-glass);
+            display: flex; justify-content: space-between;
+            padding: 10px 20px; margin-bottom: 10px;
+        }
+        .cockpit-view::after {
+            content: ''; position: absolute; left: 50%; bottom: 10px;
+            transform: translateX(-50%); width: 14px; height: 40px;
+            background: #333; border-radius: 4px; border: 1px solid #555;
+        }
+        .seat {
+            width: 35px; height: 40px; background: #222; border-radius: 6px;
+            border: 1px solid #444; transition: all 0.5s ease;
+            position: relative; display: flex; justify-content: center; align-items: center;
+        }
+        .seat::before {
+            content: ''; position: absolute; top: -8px; width: 25px; height: 8px;
+            background: inherit; border-radius: 4px; border: 1px solid #444;
+        }
+        .seat.active-green { background: rgba(16, 185, 129, 0.1); border-color: var(--color-success); box-shadow: 0 0 15px rgba(16, 185, 129, 0.2); }
+        .seat.active-green::before { border-color: var(--color-success); background: #064e3b; }
+        .seat.active-amber { background: rgba(245, 158, 11, 0.1); border-color: var(--color-warning); box-shadow: 0 0 15px rgba(245, 158, 11, 0.2); }
+        .seat.active-amber::before { border-color: var(--color-warning); background: #78350f; }
+        .seat.active-blue { background: rgba(56, 189, 248, 0.1); border-color: var(--color-brand); box-shadow: 0 0 15px rgba(56, 189, 248, 0.2); }
+        .seat.active-blue::before { border-color: var(--color-brand); background: #0c4a6e; }
+        
+        .cockpit-overlay-icon {
+            position: absolute; top: 50%; left: 50%;
+            transform: translate(-50%, -50%); font-size: 2.5rem; z-index: 10;
+            opacity: 0; transition: opacity 0.3s ease; pointer-events: none;
+            text-shadow: 0 2px 10px rgba(0,0,0,0.8);
+        }
+        .cockpit-overlay-icon.visible { opacity: 1; }
+        .icon-parking { color: var(--color-danger); border: 3px solid var(--color-danger); border-radius: 50%; width: 45px; height: 45px; display: flex; align-items: center; justify-content: center; font-weight: bold; background: rgba(0,0,0,0.6); }
+        .icon-coffee { color: var(--color-warning); }
+        .icon-cloud { color: var(--color-brand); }
+        
+        .seat-status-display {
+            margin-top: 8px; font-family: var(--font-data); font-size: 0.75rem;
+            text-align: center; width: 100%; display: flex; justify-content: space-between;
+            color: var(--text-secondary);
+        }
+        .status-pill { padding: 2px 8px; border-radius: 4px; background: rgba(255,255,255,0.05); border: 1px solid var(--border-glass); }
+        .status-pill.green { color: var(--color-success); border-color: rgba(16, 185, 129, 0.3); background: rgba(16, 185, 129, 0.1); }
+        .status-pill.amber { color: var(--color-warning); border-color: rgba(245, 158, 11, 0.3); background: rgba(245, 158, 11, 0.1); }
+        .status-pill.blue { color: var(--color-brand); border-color: rgba(56, 189, 248, 0.3); background: rgba(56, 189, 248, 0.1); }
+        .status-pill.red { color: var(--color-danger); border-color: rgba(239, 68, 68, 0.3); background: rgba(239, 68, 68, 0.1); }
+        #seat-narrative-text {
+            font-family: var(--font-ui); font-size: 0.7rem; color: var(--text-secondary);
+            margin-top: 8px; text-align: center; border-top: 1px solid var(--border-glass);
+            padding-top: 6px; width: 100%; font-style: italic;
+        }
+
+        /* --- FMS & Route --- */
         .fms-columns {
-            display: grid;
-            grid-template-columns: 2fr 1fr 1fr;
-            padding: 4px 10px;
-            border-bottom: 1px dashed var(--border-glass);
-            font-size: 0.7rem;
-            color: var(--color-brand);
-            flex-shrink: 0;
+            display: grid; grid-template-columns: 2fr 1fr 1fr;
+            padding: 4px 10px; border-bottom: 1px dashed var(--border-glass);
+            font-size: 0.7rem; color: var(--color-brand); flex-shrink: 0;
         }
         .fms-list-scrollarea {
-            flex-grow: 1;
-            overflow-y: auto;
-            padding: 5px 0;
-            scrollbar-width: thin;
-            scrollbar-color: var(--border-glass) transparent;
+            flex-grow: 1; overflow-y: auto; padding: 5px 0;
+            scrollbar-width: thin; scrollbar-color: var(--border-glass) transparent;
         }
-        .fms-list-scrollarea::-webkit-scrollbar { width: 4px; }
-        .fms-list-scrollarea::-webkit-scrollbar-track { background: transparent; }
-        .fms-list-scrollarea::-webkit-scrollbar-thumb { background-color: var(--border-glass); border-radius: 2px; }
-        
         .fms-row {
-            display: grid;
-            grid-template-columns: 2fr 1fr 1fr;
-            padding: 4px 10px;
-            font-size: 0.85rem;
-            border-bottom: 1px solid rgba(255,255,255,0.03);
-            align-items: center;
+            display: grid; grid-template-columns: 2fr 1fr 1fr;
+            padding: 4px 10px; font-size: 0.85rem;
+            border-bottom: 1px solid rgba(255,255,255,0.03); align-items: center;
         }
-        .fms-row.active-leg {
-            background: rgba(192, 132, 252, 0.1);
-            color: var(--color-purple);
-            font-weight: bold;
-        }
+        .fms-row.active-leg { background: rgba(192, 132, 252, 0.1); color: var(--color-purple); font-weight: bold; }
         .fms-row.passed-leg { color: var(--text-dim); }
         .fms-proc-header {
-            padding: 4px 10px;
-            background: rgba(255,255,255,0.02);
-            color: var(--text-secondary);
-            font-size: 0.75rem;
-            font-weight: bold;
-            border-top: 1px solid var(--border-glass);
-            border-bottom: 1px solid var(--border-glass);
-            display: flex;
-            align-items: center;
-            gap: 6px;
+            padding: 4px 10px; background: rgba(255,255,255,0.02);
+            color: var(--text-secondary); font-size: 0.75rem; font-weight: bold;
+            border-top: 1px solid var(--border-glass); border-bottom: 1px solid var(--border-glass);
+            display: flex; align-items: center; gap: 6px;
         }
         .proc-tag {
-            font-size: 0.6rem;
-            padding: 1px 4px;
-            border-radius: 2px;
-            background: rgba(255,255,255,0.05);
-            color: var(--text-secondary);
+            font-size: 0.6rem; padding: 1px 4px; border-radius: 2px;
+            background: rgba(255,255,255,0.05); color: var(--text-secondary);
         }
         .proc-tag.sid { background: rgba(16, 185, 129, 0.1); color: var(--color-success); }
         .proc-tag.star { background: rgba(245, 158, 11, 0.1); color: var(--color-warning); }
         .fms-row.is-child { padding-left: 20px; }
         .fms-footer {
-            background: var(--bg-panel);
-            padding: 6px 10px;
+            background: var(--bg-panel); padding: 6px 10px;
             border-top: 1px solid var(--border-glass);
-            display: flex;
-            justify-content: space-between;
-            flex-shrink: 0;
+            display: flex; justify-content: space-between; flex-shrink: 0;
         }
         .fms-stat { display: flex; gap: 8px; font-size: 0.8rem; }
         .stat-label { color: var(--text-dim); }
         .stat-value { color: var(--text-primary); font-weight: bold; }
         .fms-empty-state { text-align: center; padding: 20px; color: var(--text-dim); font-style: italic; }
 
-        /* --- REDESIGNED LOCATION DATA PANEL (No Bleeding) --- */
+        /* --- Location Panel --- */
         #location-data-panel {
-            background: var(--bg-glass);
-            border-radius: var(--radius-sm);
-            border: 1px solid var(--border-glass);
-            box-shadow: none;
-            width: 100%;
-            display: flex;
-            flex-direction: column;
-            overflow: visible; 
-        }
-        .nav-header {
-            background: var(--bg-panel);
-            padding: 8px 12px;
-            border-bottom: 1px solid var(--border-glass);
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-        }
-        .nav-title { 
-            font-size: 0.7rem; 
-            font-weight: 700; 
-            color: var(--text-dim); 
-            letter-spacing: 1px; 
-            font-family: var(--font-ui);
+            background: var(--bg-glass); border-radius: var(--radius-sm);
+            border: 1px solid var(--border-glass); width: 100%;
+            display: flex; flex-direction: column; overflow: visible; 
         }
         .nav-status-indicator {
             display: flex; align-items: center; gap: 6px;
@@ -987,85 +1165,373 @@ function injectCustomStyles() {
         }
         .nav-blink {
             width: 6px; height: 6px; border-radius: 50%; background: var(--color-success);
-            box-shadow: 0 0 6px var(--color-success);
-            animation: navPulse 2s infinite;
+            box-shadow: 0 0 6px var(--color-success); animation: navPulse 2s infinite;
         }
         @keyframes navPulse { 0% { opacity: 1; } 50% { opacity: 0.4; } 100% { opacity: 1; } }
-        
         .nav-grid-container {
-            padding: 10px;
-            display: grid;
-            grid-template-columns: repeat(4, 1fr);
-            gap: 8px;
+            padding: 10px; display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px;
         }
         .nav-cell {
-            background: var(--bg-panel);
-            border-radius: 4px;
-            padding: 6px 10px;
-            display: flex;
-            flex-direction: column;
-            justify-content: space-between;
-            height: auto; 
-            min-height: 45px;
-            border: 1px solid var(--border-glass);
-            transition: background 0.2s;
-            overflow: visible;
-        }
-        .nav-cell:hover {
-            background: rgba(255, 255, 255, 0.06);
-            border-color: var(--border-highlight);
+            background: var(--bg-panel); border-radius: 4px; padding: 6px 10px;
+            display: flex; flex-direction: column; justify-content: space-between;
+            min-height: 45px; border: 1px solid var(--border-glass);
         }
         .nav-span-2 { grid-column: span 2; }
-        .nav-span-4 { grid-column: span 4; }
         .nav-label {
-            font-size: 0.6rem;
-            color: var(--color-brand);
-            text-transform: uppercase;
-            margin-bottom: 4px;
-            font-weight: 600;
-            letter-spacing: 0.5px;
-            display: flex;
-            align-items: center;
-            gap: 6px;
-            white-space: nowrap; 
+            font-size: 0.6rem; color: var(--color-brand); text-transform: uppercase;
+            margin-bottom: 4px; font-weight: 600;
         }
-        .nav-label i { opacity: 0.7; font-size: 0.7rem; }
-        
         .nav-value {
-            font-family: var(--font-data);
-            font-size: 1.0rem; 
-            color: var(--text-primary);
-            font-weight: 600;
-            white-space: normal;  
-            overflow: visible;    
-            text-overflow: clip;  
-            word-wrap: break-word; 
-            line-height: 1.2;     
+            font-family: var(--font-data); font-size: 1.0rem; color: var(--text-primary);
+            font-weight: 600; line-height: 1.2;     
         }
-        
-        .nav-value.large { font-size: 1.2rem; }
-        .nav-value.small { font-size: 0.85rem; color: var(--text-secondary); }
         .nav-value.highlight { color: var(--color-success); text-shadow: 0 0 5px rgba(16, 185, 129, 0.2); }
-        .nav-value.accent { color: var(--color-warning); }
-        
         .nav-row {
-            display: flex;
-            justify-content: space-between;
-            align-items: baseline;
-            width: 100%;
-            flex-wrap: wrap; 
-            gap: 4px; 
+            display: flex; justify-content: space-between; align-items: baseline; width: 100%;
         }
-        
-        .nav-unit {
-            font-size: 0.7rem;
-            color: var(--text-dim);
-            margin-left: 2px;
-            font-family: var(--font-ui);
-            font-weight: 400;
-            white-space: nowrap;
+        .nav-unit { font-size: 0.7rem; color: var(--text-dim); margin-left: 2px; }
+
+        /* --- Tech Card (Aircraft) --- */
+        .tech-card {
+            background: var(--bg-glass); border: 1px solid var(--border-glass);
+            border-radius: var(--radius-md); overflow: hidden;
+            box-shadow: 0 4px 15px rgba(0, 0, 0, 0.5); position: relative;
+            font-family: var(--font-ui); margin-bottom: 12px; 
+        }
+        .tech-card-header {
+            padding: 12px 16px 4px; display: flex; justify-content: space-between;
+            align-items: flex-start; position: relative; z-index: 10;
+        }
+        .tech-badge {
+            display: inline-flex; align-items: center; gap: 4px; padding: 1px 6px;
+            border-radius: 999px; background: rgba(16, 185, 129, 0.1);
+            border: 1px solid rgba(16, 185, 129, 0.2); font-size: 9px;
+            font-weight: 700; color: var(--color-success); text-transform: uppercase;
+        }
+        .tech-ping { position: relative; display: flex; height: 5px; width: 5px; }
+        .tech-ping span {
+            position: absolute; display: inline-flex; height: 100%; width: 100%;
+            border-radius: 50%; background-color: var(--color-success);
+        }
+        .tech-ping .animate { animation: ping 1s cubic-bezier(0, 0, 0.2, 1) infinite; opacity: 0.75; }
+        @keyframes ping { 75%, 100% { transform: scale(2); opacity: 0; } }
+        .tech-model {
+            font-size: 1.1rem; font-weight: 700; color: var(--text-primary); margin: 0;
+        }
+        .tech-airline {
+            font-size: 0.75rem; font-weight: 500; color: rgba(56, 189, 248, 0.9); margin-top: 0px;
+        }
+        .tech-content { padding: 12px; position: relative; z-index: 10; }
+        .tech-image-container {
+            position: relative; width: 100%; aspect-ratio: 21 / 9;
+            border-radius: var(--radius-sm); overflow: hidden;
+            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.2);
+            border: 1px solid var(--border-glass); background: #000;
+        }
+        .tech-image { width: 100%; height: 100%; object-fit: cover; transition: transform 0.7s ease-out; }
+        .tech-image-container:hover .tech-image { transform: scale(1.05); }
+        .tech-image-overlay {
+            position: absolute; inset: 0;
+            background: linear-gradient(to top, rgba(2, 6, 23, 0.9), transparent, transparent);
+            opacity: 0.8;
+        }
+        .tech-image-info {
+            position: absolute; bottom: 8px; left: 10px; right: 10px;
+            display: flex; justify-content: space-between; align-items: flex-end;
+        }
+        .tech-grid {
+            display: grid; grid-template-columns: repeat(2, 1fr); gap: 8px; margin-top: 12px;
+        }
+        .tech-stat-card {
+            background: var(--bg-panel); border: 1px solid var(--border-glass);
+            padding: 8px 10px; border-radius: 6px;
+        }
+        .tech-stat-header {
+            display: flex; align-items: center; justify-content: space-between; margin-bottom: 2px;
+        }
+        .tech-stat-label {
+            font-size: 9px; font-weight: 600; color: #94a3b8; text-transform: uppercase;
+        }
+        .tech-stat-value {
+            font-family: var(--font-data); font-size: 0.95rem; color: #fff; font-weight: 600;
+        }
+        .tech-country-card {
+            grid-column: span 2; background: var(--bg-panel);
+            border: 1px solid var(--border-glass); padding: 6px 10px;
+            border-radius: 6px; display: flex; align-items: center; justify-content: space-between;
+        }
+        .tech-country-left { display: flex; align-items: center; gap: 8px; }
+        .tech-country-icon {
+            width: 24px; height: 24px; border-radius: 4px;
+            background: rgba(51, 65, 85, 0.5); color: #94a3b8;
+            display: flex; align-items: center; justify-content: center;
+        }
+        .tech-bottom-bar {
+            height: 3px; width: 100%; background: linear-gradient(to right, #0ea5e9, #2563eb, #4f46e5); opacity: 0.8;
         }
 
+        /* --- PFD & VSD Layouts --- */
+        .pfd-and-location-grid { display: grid; grid-template-columns: 2fr 1fr; gap: 8px; }
+        .info-right-col { display: flex; flex-direction: column; gap: 8px; }
+        .pfd-main-panel { display: flex; flex-direction: column; width: 100%; gap: 16px; }
+        .display-bezel { 
+            position: relative; background-color: #1f2937; border: 4px solid #374151; 
+            padding: 12px; border-radius: var(--radius-md); 
+            box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.5); 
+        }
+        .screw { 
+            position: absolute; width: 0.5rem; height: 0.5rem; background-color: #4b5563; 
+            border-radius: 50%; box-shadow: inset 1px 1px 2px rgba(0,0,0,0.5); z-index: 5; 
+        }
+        .screw.tl { top: 0.35rem; left: 0.35rem; } 
+        .screw.tr { top: 0.35rem; right: 0.35rem; } 
+        .screw.bl { bottom: 0.35rem; left: 0.35rem; } 
+        .screw.br { bottom: 0.35rem; right: 0.35rem; }
+        .crt-container { 
+            width: 100%; position: relative; border: 2px solid #111827; 
+            background: #000; border-radius: 12px; overflow: hidden; 
+            box-shadow: inset 0 0 20px rgba(0,0,0,0.8); display: flex; 
+        }
+        .scanlines::before { 
+            content: " "; display: block; position: absolute; top: 0; left: 0; bottom: 0; right: 0; 
+            background: linear-gradient(rgba(18, 16, 16, 0) 50%, rgba(0, 0, 0, 0.25) 50%), 
+                        linear-gradient(90deg, rgba(255, 0, 0, 0.06), rgba(0, 255, 0, 0.02), rgba(0, 0, 255, 0.06)); 
+            z-index: 10; background-size: 100% 2px, 3px 100%; pointer-events: none; 
+        }
+        #pfd-container svg { 
+            width: 100%; height: auto; display: block; background-color: #1a1a1a; 
+            filter: brightness(1.3) contrast(1.2) drop-shadow(0 0 2px rgba(255, 255, 255, 0.3)); 
+        }
+        #nd-container { width: 100%; aspect-ratio: 787 / 800; background: transparent; }
+        #nav-display-frame { width: 100%; height: 100%; border: none; display: block; }
+
+        .vsd-module-container {
+            height: 260px; max-height: 260px; background: var(--bg-glass);
+            border: 1px solid var(--border-glass); border-radius: var(--radius-sm);
+            display: flex; flex-direction: column; overflow: hidden; margin-bottom: 16px; 
+        }
+        .vsd-panel { 
+            display: flex; flex-direction: column; flex-grow: 1; position: relative; overflow: hidden; width: 100%; 
+        }
+        .vsd-graph-window { 
+            position: relative; width: 100%; height: 100%; overflow: hidden; 
+            padding-left: 35px; background: #0f172a; 
+        }
+        #vsd-y-axis {
+            position: absolute; top: 0; left: 0; width: 35px; height: 100%;
+            background: var(--bg-panel); border-right: 1px solid var(--border-glass); z-index: 10;
+        }
+        .y-axis-label {
+            position: absolute; right: 4px; font-family: var(--font-data);
+            font-size: 0.65rem; color: var(--text-dim); transform: translateY(-50%);
+        }
+        #vsd-graph-content { position: relative; height: 100%; }
+        #vsd-profile-svg { position: absolute; top: 0; left: 0; width: 100%; height: 100%; }
+        #vsd-profile-path { fill: none; stroke: #444; stroke-width: 2; stroke-dasharray: 4, 2; }
+        #vsd-flown-path {
+            fill: none; stroke: var(--color-success); stroke-width: 3;
+            filter: drop-shadow(0 0 4px rgba(0, 230, 0, 0.5));
+        }
+        #vsd-aircraft-icon {
+            position: absolute; width: 14px; height: 14px;
+            background-image: url('data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><path fill="%2338bdf8" d="M488 256l-112-80v-96l-80 48-80-48v96L104 256 24 288v64l192-48v96l-32 32v32l72-24 72 24v-32l-32-32v-96l192 48v-64l-80-32z"/></svg>');
+            background-size: contain; background-repeat: no-repeat;
+            transform: translate(-50%, -50%); z-index: 20;
+        }
+        .vsd-footer {
+            background: var(--bg-panel); padding: 4px 10px;
+            border-top: 1px solid var(--border-glass);
+            display: flex; justify-content: space-between; font-size: 0.7rem;
+            color: var(--text-dim); flex-shrink: 0;
+        }
+        .vsd-legend-item { display: flex; align-items: center; gap: 5px; }
+        .dot-plan { width: 6px; height: 6px; background: #444; border-radius: 50%; }
+        .dot-flown { width: 6px; height: 6px; background: var(--color-success); border-radius: 50%; box-shadow: 0 0 4px var(--color-success); }
+
+        .ac-info-window-tabs {
+            display: flex; justify-content: space-between; align-items: center;
+            background: var(--bg-glass); border-bottom: 1px solid var(--border-glass);
+            padding: 0 20px; height: 60px;
+        }
+        .ac-tabs-wrapper { display: flex; gap: 20px; height: 100%; }
+        .ac-info-tab-logo { height: 32px; width: auto; object-fit: contain; opacity: 0.8; }
+        .ac-info-tab-btn {
+            padding: 0 10px; height: 100%; border: none; background: transparent;
+            color: var(--text-secondary); cursor: pointer; font-size: 0.95rem;
+            font-family: var(--font-ui); font-weight: 600;
+            display: flex; align-items: center; gap: 10px;
+            border-bottom: 3px solid transparent; transition: all 0.3s ease;
+        }
+        .ac-info-tab-btn.active {
+            color: #fff; border-bottom-color: var(--color-brand);
+            text-shadow: 0 0 10px rgba(56, 189, 248, 0.5);
+        }
+        .unified-display-main-content { 
+            padding: 16px; flex-grow: 1; display: flex; flex-direction: column; gap: 16px; 
+            background: linear-gradient(180deg, var(--bg-glass), var(--bg-glass));
+            border-top: 1px solid var(--border-glass);
+        }
+        .ac-tab-pane { display: none; flex-direction: column; gap: 16px; animation: fadeIn 0.4s; }
+        .ac-tab-pane.active { display: flex; }
+
+        .aircraft-overview-panel { 
+            position: relative; height: 200px; background-size: cover; background-position: center; 
+            color: #fff; display: flex; flex-direction: column; justify-content: space-between; 
+            margin-bottom: -40px; 
+        }
+        .aircraft-overview-panel::before { 
+            content: ''; position: absolute; inset: 0; z-index: 1; 
+            background: linear-gradient(to bottom, rgba(0,0,0,0.7) 0%, rgba(0,0,0,0) 35%, rgba(0,0,0,0.2) 80%, rgba(24,24,27,1) 100%); 
+        }
+        .overview-content { position: relative; z-index: 2; padding: 16px 20px 0 20px; display: flex; justify-content: space-between; align-items: flex-start; }
+        .overview-col-left h3 { margin: 0; font-size: 1.6rem; font-weight: 700; text-shadow: 0 4px 10px rgba(0,0,0,0.7); }
+        .ac-header-logo { height: 1.8rem; width: auto; max-width: 100px; object-fit: contain; filter: drop-shadow(0 2px 4px rgba(0,0,0,0.7)); }
+        .ac-header-subtext { display: block; font-size: 1.0rem; color: #e8eaf6; text-shadow: 0 2px 5px rgba(0,0,0,0.6); }
+        .overview-actions { position: absolute; top: 16px; right: 16px; z-index: 3; display: flex; gap: 8px; }
+        .hero-btn {
+            background: rgba(0,0,0,0.3); border: 1px solid rgba(255,255,255,0.2); color: #fff;
+            width: 32px; height: 32px; border-radius: 50%; display: grid; place-items: center;
+            backdrop-filter: blur(4px); transition: all 0.2s ease;
+        }
+        .hero-btn:hover { background: rgba(255,255,255,0.2); transform: scale(1.1); }
+
+        .route-summary-overlay { 
+            position: relative; padding: 15px 20px 12px 20px; 
+            background: linear-gradient(180deg, transparent 0%, rgba(0,0,0,0.2) 40%, rgba(24,24,27,1) 100%); 
+            display: grid; grid-template-columns: auto 1fr auto; align-items: center; gap: 16px; width: 100%; 
+        }
+        .route-summary-airport { display: flex; flex-direction: column; }
+        #route-summary-dep { text-align: left; }
+        #route-summary-arr { text-align: right; }
+        .route-summary-airport .icao { font-family: var(--font-data); font-size: 1.2rem; font-weight: 700; text-shadow: 0 1px 3px rgba(0,0,0,0.5); }
+        .route-summary-airport .time { font-size: 0.85rem; font-weight: 600; color: var(--text-secondary); }
+        .route-progress-container { display: grid; grid-template-columns: 1fr; grid-template-rows: 1fr; align-items: center; justify-items: center; position: relative; min-height: 28px; }
+        .route-progress-bar-container { width: 100%; height: 6px; background: var(--bg-panel); border-radius: 3px; overflow: hidden; grid-row: 1; grid-column: 1; z-index: 1; }
+        .progress-bar-fill { height: 100%; width: 0%; background: var(--color-brand); border-radius: 3px; }
+        .flight-phase-indicator { 
+            padding: 4px 12px; border-radius: 20px; font-size: 0.75rem; font-weight: 700; color: #fff; 
+            border: 1px solid var(--border-glass); grid-row: 1; grid-column: 1; z-index: 2; box-shadow: 0 4px 15px rgba(0,0,0,0.5); 
+        }
+        .phase-climb { background: var(--color-success); opacity: 0.9; } 
+        .phase-cruise { background: var(--color-brand); opacity: 0.9; } 
+        .phase-descent { background: var(--color-warning); opacity: 0.9; } 
+        .phase-approach { background: var(--color-purple); opacity: 0.9; } 
+        .phase-enroute { background: var(--text-dim); opacity: 0.9; }
+
+        /* --- Hover Card (FR24) --- */
+        .fr24-card-container {
+            width: 160px; display: flex; flex-direction: column; gap: 3px; pointer-events: none;
+        }
+        .fr24-image-box {
+            height: 85px; width: 100%; background-color: #2c2c2e; background-size: cover;
+            border-radius: var(--radius-sm); position: relative; overflow: hidden;
+        }
+        .fr24-image-overlay { position: absolute; inset: 0; background: linear-gradient(to top, rgba(0,0,0,0.6) 0%, transparent 40%); }
+        .fr24-copyright {
+            position: absolute; bottom: 3px; left: 6px; color: rgba(255,255,255,0.7);
+            font-size: 7px; font-weight: 500; text-shadow: 0 1px 2px rgba(0,0,0,1); z-index: 2;
+        }
+        .fr24-info-box {
+            background-color: #2c2c2e; border-radius: var(--radius-sm); padding: 6px 8px;
+            display: flex; flex-direction: column; gap: 4px; color: #ffffff;
+        }
+        .fr24-header-row { display: flex; align-items: center; gap: 6px; }
+        .fr24-airline-logo { height: 14px; width: auto; max-width: 35px; object-fit: contain; }
+        .fr24-callsign { font-size: 13px; font-weight: 700; line-height: 1; }
+        .fr24-ac-badge {
+            background-color: #3a3a3c; border: 1px solid #48484a; color: #d1d1d6;
+            font-size: 8px; font-weight: 600; padding: 0px 3px; border-radius: 3px;
+        }
+        .fr24-progress-track {
+            height: 3px; width: 100%; background-color: #3a3a3c; border-radius: 1.5px; overflow: hidden; margin-top: 1px;
+        }
+        .fr24-progress-fill { height: 100%; background-color: var(--color-danger); border-radius: 1.5px; }
+        .fr24-stats-row { font-size: 10px; color: #98989d; font-weight: 600; margin-top: 1px; }
+
+        /* --- Airport Window Specifics --- */
+        .airport-hero {
+            background: linear-gradient(135deg, rgba(30, 41, 59, 0.8) 0%, rgba(15, 23, 42, 0.9) 100%);
+            border-bottom: 1px solid var(--border-glass); padding: 20px;
+            display: flex; justify-content: space-between; align-items: center; position: relative; overflow: hidden;
+        }
+        .apt-ident-group { display: flex; flex-direction: column; z-index: 2; }
+        .apt-icao {
+            font-family: var(--font-data); font-size: 2.5rem; font-weight: 800;
+            color: #fff; line-height: 1; text-shadow: 0 4px 10px rgba(0,0,0,0.5);
+        }
+        .apt-name { font-size: 0.9rem; color: #94a3b8; margin-top: 6px; font-weight: 500; }
+        .apt-meta-badge {
+            background: rgba(255,255,255,0.05); border: 1px solid var(--border-glass);
+            padding: 4px 8px; border-radius: 4px; font-size: 0.75rem; color: #cbd5e1;
+        }
+        .apt-quick-info-strip {
+            display: flex; align-items: center; gap: 12px; padding: 10px 16px;
+            background: rgba(0, 0, 0, 0.2); border-bottom: 1px solid var(--border-glass);
+            font-size: 0.75rem; color: #94a3b8; overflow-x: auto; white-space: nowrap;
+        }
+        .apt-feature-pill {
+            display: flex; align-items: center; gap: 6px; background: var(--bg-subtle);
+            padding: 3px 8px; border-radius: 4px; border: 1px solid var(--border-glass); font-weight: 600;
+        }
+        .apt-dashboard-grid {
+            display: grid; grid-template-columns: 1fr 1fr; gap: 8px; padding: 0 16px; margin-bottom: 8px;
+        }
+        .apt-mini-module {
+            background: rgba(15, 23, 42, 0.6); border: 1px solid rgba(255, 255, 255, 0.08);
+            border-radius: var(--radius-sm); display: flex; flex-direction: column; overflow: hidden;
+        }
+        .apt-mini-header {
+            background: var(--bg-subtle); padding: 6px 10px; font-size: 0.7rem;
+            font-weight: 700; color: #94a3b8; text-transform: uppercase;
+            display: flex; justify-content: space-between; align-items: center;
+            border-bottom: 1px solid var(--border-glass);
+        }
+        .apt-mini-body { padding: 10px; flex-grow: 1; display: flex; flex-direction: column; justify-content: center; }
+        .stat-grid-compact { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+        .compact-stat-box { text-align: center; background: rgba(255,255,255,0.02); border-radius: 4px; padding: 4px; }
+        .compact-label { font-size: 0.6rem; color: #64748b; display: block; }
+        .compact-value { font-family: var(--font-data); font-size: 0.9rem; color: #e2e8f0; font-weight: 600; }
+        .metar-strip {
+            background: rgba(0,0,0,0.3); padding: 8px 16px; font-family: var(--font-data);
+            font-size: 0.7rem; color: #94a3b8; border-bottom: 1px solid var(--border-glass);
+            white-space: pre-wrap; line-height: 1.3;
+        }
+        .apt-tabs-header {
+            display: flex; background: rgba(0,0,0,0.2); border-bottom: 1px solid var(--border-glass); margin-bottom: 16px;
+        }
+        .apt-tab-btn {
+            flex: 1; padding: 12px 10px; background: transparent; border: none;
+            color: #94a3b8; font-size: 0.85rem; font-weight: 600; text-transform: uppercase;
+            cursor: pointer; border-bottom: 2px solid transparent; transition: all 0.3s ease;
+        }
+        .apt-tab-btn.active {
+            color: var(--color-brand); border-bottom-color: var(--color-brand);
+            background: rgba(56, 189, 248, 0.1);
+        }
+        .apt-tab-content { display: none; animation: fadeIn 0.3s ease; }
+        .apt-tab-content.active { display: block; }
+        
+        .route-card {
+            background: linear-gradient(to right, rgba(30,41,59,0.4), rgba(30,41,59,0.2));
+            border: 1px solid var(--border-glass); border-left: 3px solid var(--color-brand);
+            border-radius: 4px; padding: 10px 14px; margin-bottom: 8px;
+            display: flex; justify-content: space-between; align-items: center; transition: all 0.2s;
+        }
+        .route-card:hover { background: rgba(30,41,59,0.7); transform: translateX(2px); }
+        .atc-grid-card {
+            background: #1e293b; border: 1px solid var(--border-glass); border-radius: 6px;
+            padding: 10px; margin-bottom: 8px; display: flex; justify-content: space-between; align-items: center;
+        }
+        .atc-type-badge {
+            padding: 4px 8px; border-radius: 4px; font-size: 0.75rem; font-weight: 800;
+            text-transform: uppercase; width: 80px; text-align: center;
+        }
+        .atc-type-gnd { background: #0f172a; color: #94a3b8; border: 1px solid #334155; }
+        .atc-type-twr { background: #1e3a8a; color: #60a5fa; border: 1px solid #2563eb; }
+        .atc-type-app { background: #312e81; color: #818cf8; border: 1px solid #4f46e5; }
+        .atc-type-obs { background: #3f3f46; color: #a1a1aa; border: 1px solid #52525b; }
+
+        /* Media Queries for Aircraft Window */
         @media (max-width: 992px) {
             .info-window { width: 95vw; top: 10px; right: 2.5vw; left: 2.5vw; max-height: calc(100vh - 20px); }
             .pfd-and-location-grid { grid-template-columns: 1fr; } 
@@ -1073,1394 +1539,23 @@ function injectCustomStyles() {
             #location-data-panel { min-height: auto; }
             .nav-grid-container { grid-template-columns: repeat(2, 1fr); }
             .nav-span-2 { grid-column: span 2; }
+            .ac-info-tab-logo { display: none !important; }
+            .apt-dashboard-grid { grid-template-columns: 1fr; }
         }
         
-        .aircraft-overview-panel { 
-            position: relative; 
-            height: 200px; 
-            background-size: cover; 
-            background-position: center; 
-            border-bottom-left-radius: 0; 
-            border-bottom-right-radius: 0; 
-            color: #fff; 
-            display: flex; 
-            flex-direction: column; 
-            justify-content: space-between; 
-            margin-bottom: -40px; 
-        }
-        
-        .aircraft-overview-panel::before { 
-            content: ''; 
-            position: absolute; 
-            inset: 0; 
-            z-index: 1; 
-            background: linear-gradient(
-                to bottom,
-                rgba(0, 0, 0, 0.7) 0%, 
-                rgba(0, 0, 0, 0) 35%, 
-                rgba(0, 0, 0, 0.2) 80%, 
-                rgba(24, 24, 27, 1) 100%
-            ); 
-        }
-        
-        .overview-content { position: relative; z-index: 2; padding: 16px 20px 0 20px; display: flex; justify-content: space-between; align-items: flex-start; }
-        .overview-col-left h3 { margin: 0; font-size: 1.6rem; font-weight: 700; text-shadow: 0 4px 10px rgba(0, 0, 0, 0.7); display: flex; align-items: center; gap: 12px; }
-        .ac-header-logo { height: 1.8rem; width: auto; max-width: 100px; object-fit: contain; filter: drop-shadow(0 2px 4px rgba(0,0,0,0.7)); }
-        .overview-col-left p { position: relative; margin: 0; font-size: 1.0rem; color: #e8eaf6; font-weight: 400; text-shadow: 0 2px 5px rgba(0, 0, 0, 0.6); min-height: 1.2em; margin-top: 4px; }
-        
-        .ac-header-subtext { 
-            position: absolute; 
-            top: 0; 
-            left: 0; 
-            width: 100%; 
-            opacity: 0; 
-            white-space: normal; 
-        }
-        
-        @keyframes primarySubtextAnimation { 0% { opacity: 1; transform: translateY(0); } 40% { opacity: 1; transform: translateY(0); } 50% { opacity: 0; transform: translateY(10px); } 51% { opacity: 0; transform: translateY(-10px); } 90% { opacity: 0; transform: translateY(-10px); } 100% { opacity: 1; transform: translateY(0); } }
-        @keyframes secondarySubtextAnimation { 0% { opacity: 0; transform: translateY(-10px); } 40% { opacity: 0; transform: translateY(-10px); } 50% { opacity: 1; transform: translateY(0); } 90% { opacity: 1; transform: translateY(0); } 100% { opacity: 0; transform: translateY(10px); } }
-        #ac-header-livery { animation: primarySubtextAnimation 8s infinite ease-in-out; }
-        #ac-header-actype { animation: secondarySubtextAnimation 8s infinite ease-in-out; }
-        .overview-actions { position: absolute; top: 16px; right: 16px; z-index: 3; display: flex; gap: 8px; }
-        
-        .route-summary-overlay { 
-            position: relative; 
-            padding: 15px 20px 12px 20px; 
-            background: linear-gradient(180deg, 
-                transparent 0%, 
-                rgba(0, 0, 0, 0.2) 40%, 
-                rgba(24, 24, 27, 1) 100%
-            ); 
-            display: grid; 
-            grid-template-columns: auto 1fr auto; 
-            align-items: center; 
-            gap: 16px; 
-            width: 100%; 
-        }
-        
-        .route-summary-airport { display: flex; flex-direction: column; }
-        #route-summary-dep { text-align: left; align-items: center; }
-        #route-summary-arr { text-align: right; align-items: center; }
-        .route-summary-airport .airport-line { display: flex; align-items: center; gap: 8px; }
-        .route-summary-airport .icao { font-family: var(--font-data); font-size: 1.2rem; font-weight: 700; color: #fff; text-shadow: 0 1px 3px rgba(0,0,0,0.5); }
-        .route-summary-airport .time { font-size: 0.85rem; font-weight: 600; color: var(--text-secondary); margin-top: 4px; text-align: center; }
-        .country-flag { width: 20px; height: auto; border-radius: 3px; border: 1px solid rgba(255, 255, 255, 0.2); display: none; }
-        .route-progress-container { display: grid; grid-template-columns: 1fr; grid-template-rows: 1fr; align-items: center; justify-items: center; position: relative; min-height: 28px; }
-        .route-progress-bar-container { width: 100%; height: 6px; background: var(--bg-panel); border-radius: 3px; overflow: hidden; grid-row: 1; grid-column: 1; z-index: 1; }
-        .progress-bar-fill { height: 100%; width: 0%; background: var(--color-brand); transition: width 0.5s ease-out; border-radius: 3px; }
-        .flight-phase-indicator { padding: 4px 12px; border-radius: 20px; font-size: 0.75rem; font-weight: 700; color: #fff; border: 1px solid var(--border-glass); grid-row: 1; grid-column: 1; z-index: 2; box-shadow: 0 4px 15px rgba(0, 0, 0, 0.5); }
-        .phase-climb { background: var(--color-success); opacity: 0.9; } .phase-cruise { background: var(--color-brand); opacity: 0.9; } .phase-descent { background: var(--color-warning); opacity: 0.9; } .phase-approach { background: var(--color-purple); opacity: 0.9; } .phase-enroute { background: var(--text-dim); opacity: 0.9; }
-        
-        .unified-display-main-content { 
-            padding: 16px; 
-            flex-grow: 1; 
-            display: flex; 
-            flex-direction: column; 
-            gap: 16px; 
-            background: linear-gradient(180deg, var(--bg-glass), var(--bg-glass));
-            border-top: 1px solid var(--border-glass);
-        }
-
-        .ac-tab-pane { display: none; flex-direction: column; gap: 16px; animation: fadeIn 0.4s; }
-        .ac-tab-pane.active { display: flex; }
-        
-        .pfd-main-panel { 
-            display: flex; 
-            flex-direction: column; 
-            width: 100%; 
-            align-items: center; 
-            gap: 16px; 
-        }
-
-        .display-bezel { 
-            position: relative; 
-            background-color: #1f2937; 
-            border: 4px solid #374151; 
-            padding: 12px; 
-            border-radius: var(--radius-md); 
-            box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.5); 
-            width: 100%; 
-            box-sizing: border-box; 
-            display: flex;
-            flex-direction: column;
-        }
-        
-        .screw { 
-            position: absolute; 
-            width: 0.5rem; 
-            height: 0.5rem; 
-            background-color: #4b5563; 
-            border-radius: 50%; 
-            box-shadow: inset 1px 1px 2px rgba(0,0,0,0.5); 
-            z-index: 5; 
-        }
-        .screw.tl { top: 0.35rem; left: 0.35rem; } 
-        .screw.tr { top: 0.35rem; right: 0.35rem; } 
-        .screw.bl { bottom: 0.35rem; left: 0.35rem; } 
-        .screw.br { bottom: 0.35rem; right: 0.35rem; }
-        
-        .crt-container { 
-            width: 100%; 
-            position: relative; 
-            border: 2px solid #111827; 
-            background: #000; 
-            border-radius: 12px; 
-            overflow: hidden; 
-            box-shadow: inset 0 0 20px rgba(0,0,0,0.8); 
-            display: flex; 
-        }
-        
-        .scanlines::before { 
-            content: " "; 
-            display: block; 
-            position: absolute; 
-            top: 0; left: 0; bottom: 0; right: 0; 
-            background: linear-gradient(rgba(18, 16, 16, 0) 50%, rgba(0, 0, 0, 0.25) 50%), 
-                        linear-gradient(90deg, rgba(255, 0, 0, 0.06), rgba(0, 255, 0, 0.02), rgba(0, 0, 255, 0.06)); 
-            z-index: 10; 
-            background-size: 100% 2px, 3px 100%; 
-            pointer-events: none; 
-        }
-        
-        #pfd-container { width: 100%; }
-        
-        #pfd-container svg { 
-            width: 100%; 
-            height: auto; 
-            display: block;
-            margin: 0; 
-            max-width: none; 
-            aspect-ratio: 787 / 800; 
-            background-color: #1a1a1a; 
-            overflow: hidden; 
-            border-radius: 0; 
-            filter: brightness(1.3) contrast(1.2) drop-shadow(0 0 2px rgba(255, 255, 255, 0.3)); 
-        }
-        
-        #nd-container { 
-            width: 100%;
-            aspect-ratio: 787 / 800; 
-            background: transparent; 
-            overflow: hidden; 
-            display: flex; 
-            justify-content: center; 
-            height: auto; 
-        }
-        
-        #nav-display-frame {
-            width: 100%; 
-            height: 100%; 
-            border: none;
-            display: block;
-        }
-
-        .rules-module-container {
-            background: var(--bg-glass);
-            border: 1px solid var(--border-glass);
-            border-radius: var(--radius-sm);
-            display: flex;
-            flex-direction: column;
-            box-shadow: inset 0 0 20px rgba(0,0,0,0.8);
-            overflow: hidden;
-        }
-
-        .rules-header {
-            background: var(--bg-panel);
-            padding: 6px 10px;
-            border-bottom: 1px solid var(--border-glass);
-            display: flex;
-            justify-content: space-between;
-            font-size: 0.8rem;
-            font-weight: bold;
-            color: var(--text-primary);
-            font-family: var(--font-data);
-        }
-
-        .rules-body {
-            padding: 12px;
-            display: flex;
-            justify-content: center;
-            align-items: center;
-            background: transparent; 
-        }
-
-        .flight-rules-badge {
-            padding: 6px 16px;
-            border-radius: 4px;
-            font-family: var(--font-data);
-            font-weight: bold;
-            font-size: 1.1rem;
-            text-align: center;
-            width: 100%;
-            border: 1px solid rgba(255,255,255,0.1);
-            box-shadow: 0 4px 15px rgba(0,0,0,0.5);
-            text-shadow: 0 1px 2px rgba(0,0,0,0.8);
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            gap: 10px;
-        }
-
-        .badge-ifr {
-            background: linear-gradient(180deg, rgba(0, 119, 255, 0.2) 0%, rgba(0, 60, 130, 0.4) 100%);
-            color: var(--color-brand);
-            border-color: var(--color-brand);
-        }
-
-        .badge-vfr {
-            background: linear-gradient(180deg, rgba(40, 167, 69, 0.2) 0%, rgba(20, 80, 35, 0.4) 100%);
-            color: var(--color-success);
-            border-color: var(--color-success);
-        }
-
-        .badge-svfr {
-            background: linear-gradient(180deg, rgba(255, 193, 7, 0.2) 0%, rgba(130, 100, 5, 0.4) 100%);
-            color: var(--color-warning);
-            border-color: var(--color-warning);
-        }
-        
-        .vsd-module-container {
-            height: 260px; 
-            max-height: 260px;
-            background: var(--bg-glass);
-            border: 1px solid var(--border-glass);
-            border-radius: var(--radius-sm);
-            display: flex;
-            flex-direction: column;
-            box-shadow: inset 0 0 20px rgba(0,0,0,0.8);
-            box-sizing: border-box;
-            overflow: hidden;
-            margin-bottom: 16px; 
-        }
-
-        .vsd-panel { 
-            display: flex; 
-            flex-direction: column; 
-            background: transparent; 
-            flex-grow: 1;
-            position: relative;
-            overflow: hidden; 
-            width: 100%; 
-        }
-
-        .vsd-graph-window { 
-            position: relative; 
-            width: 100%; 
-            height: 100%; 
-            overflow: hidden; 
-            padding-left: 35px; 
-            box-sizing: border-box; 
-        }
-
-        #vsd-y-axis {
-            position: absolute;
-            top: 0;
-            left: 0;
-            width: 35px;
-            height: 100%;
-            background: var(--bg-panel);
-            border-right: 1px solid var(--border-glass);
-            z-index: 10;
-        }
-        .y-axis-label {
-            position: absolute;
-            right: 4px;
-            font-family: var(--font-data);
-            font-size: 0.65rem;
-            color: var(--text-dim);
-            transform: translateY(-50%);
-        }
-
-        #vsd-graph-content {
-            position: relative;
-            height: 100%;
-        }
-
-        #vsd-profile-svg {
-            position: absolute;
-            top: 0;
-            left: 0;
-            width: 100%;
-            height: 100%;
-            overflow: visible;
-        }
-
-        #vsd-profile-path {
-            fill: none;
-            stroke: #444; 
-            stroke-width: 2;
-            stroke-dasharray: 4, 2;
-        }
-
-        #vsd-flown-path {
-            fill: none;
-            stroke: var(--color-success); 
-            stroke-width: 3;
-            filter: drop-shadow(0 0 4px rgba(0, 230, 0, 0.5));
-        }
-
-        #vsd-aircraft-icon {
-            position: absolute;
-            width: 14px;
-            height: 14px;
-            background-image: url('data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><path fill="%2338bdf8" d="M488 256l-112-80v-96l-80 48-80-48v96L104 256 24 288v64l192-48v96l-32 32v32l72-24 72 24v-32l-32-32v-96l192 48v-64l-80-32z"/></svg>');
-            background-size: contain;
-            background-repeat: no-repeat;
-            transform: translate(-50%, -50%);
-            z-index: 20;
-        }
-
-        .vsd-wp-label {
-            position: absolute;
-            transform: translateX(-50%);
-            font-family: var(--font-data);
-            text-align: center;
-            width: 60px;
-            pointer-events: none;
-        }
-        .vsd-wp-label .wp-name {
-            display: block;
-            font-size: 0.7rem;
-            color: var(--color-brand);
-            font-weight: bold;
-            background: rgba(0,0,0,0.7);
-            padding: 1px 3px;
-            border-radius: 2px;
-        }
-        .vsd-wp-label .wp-alt {
-            display: block;
-            font-size: 0.6rem;
-            color: var(--text-secondary);
-            margin-top: 1px;
-        }
-        
-        .vsd-footer {
-            background: var(--bg-panel);
-            padding: 4px 10px;
-            border-top: 1px solid var(--border-glass);
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-            font-size: 0.7rem;
-            color: var(--text-dim);
-            flex-shrink: 0;
-        }
-        .vsd-legend-item { display: flex; align-items: center; gap: 5px; }
-        .dot-plan { width: 6px; height: 6px; background: #444; border-radius: 50%; }
-        .dot-flown { width: 6px; height: 6px; background: var(--color-success); border-radius: 50%; box-shadow: 0 0 4px var(--color-success); }
-        
-        .ac-info-window-tabs {
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-            background: var(--bg-glass);
-            border-bottom: 1px solid var(--border-glass);
-            padding: 0 20px;
-            height: 60px;
-        }
-
-        .ac-tabs-wrapper {
-            display: flex;
-            gap: 20px;
-            height: 100%;
-        }
-
-        .ac-info-tab-logo {
-            height: 32px; 
-            width: auto;
-            object-fit: contain;
-            opacity: 0.8;
-        }
-
-        .ac-info-tab-btn {
-            padding: 0 10px;
-            height: 100%;
-            border: none;
-            background: transparent;
-            color: var(--text-secondary);
-            cursor: pointer;
-            font-size: 0.95rem;
-            font-family: var(--font-ui);
-            font-weight: 600;
-            position: relative;
-            display: flex;
-            align-items: center;
-            gap: 10px;
-            transition: all 0.3s ease;
-            border-bottom: 3px solid transparent;
-        }
-
-        .ac-info-tab-btn:hover {
-            color: #fff;
-        }
-
-        .ac-info-tab-btn.active {
-            color: #fff;
-            border-bottom-color: var(--color-brand);
-            text-shadow: 0 0 10px rgba(56, 189, 248, 0.5);
-        }
-        .ac-info-tab-btn.active i {
-            color: var(--color-brand);
-        }
-
-        .ac-info-tab-btn.pilot-tab-btn {
-            color: var(--text-primary);
-            font-weight: 700;
-            letter-spacing: 0.5px;
-        }
-        .ac-info-tab-btn.pilot-tab-btn i {
-            color: var(--color-warning); 
-        }
-        .ac-info-tab-btn.pilot-tab-btn.active {
-            color: #fff;
-            border-bottom-color: var(--color-warning); 
-            text-shadow: 0 0 10px rgba(255, 183, 77, 0.5);
-        }
-
-        @media (max-width: 768px) {
-            .ac-info-tab-logo {
-                display: none !important;
-            }
-            .ac-info-window-tabs {
-                justify-content: center;
-                padding: 0 10px;
-            }
-            .ac-tabs-wrapper {
-                width: 100%;
-                justify-content: space-around;
-                gap: 0;
-            }
-        }
-
-        .vsd-disclaimer { background: rgba(10, 12, 26, 0.5); border: 1px solid var(--border-glass); border-radius: var(--radius-sm); padding: 10px 14px; margin-top: 0; }
-
-        /* --- MAPBOX POPUP OVERRIDES (FIXED) --- */
+        /* Mapbox Popup Overrides */
         .mapboxgl-popup-content {
-            background: transparent !important;
-            box-shadow: none !important;
-            padding: 0 !important;
-            border: none !important;
-            pointer-events: none !important; 
+            background: transparent !important; box-shadow: none !important;
+            padding: 0 !important; border: none !important; pointer-events: none !important; 
         }
-        .mapboxgl-popup-tip {
-            display: none !important;
-        }
+        .mapboxgl-popup-tip { display: none !important; }
         
-        /* --- FR24 STYLE CARD CONTAINER (MICRO) --- */
-        .fr24-card-container {
-            width: 160px;
-            display: flex;
-            flex-direction: column;
-            gap: 3px;
-            font-family: var(--font-ui);
-            pointer-events: none; 
-        }
-
-        /* --- TOP IMAGE BUBBLE --- */
-        .fr24-image-box {
-            height: 85px;
-            width: 100%;
-            background-color: #2c2c2e;
-            background-size: cover;
-            background-position: center;
-            border-radius: var(--radius-sm);
-            position: relative;
-            box-shadow: 0 2px 8px rgba(0,0,0,0.4);
-            overflow: hidden;
-        }
-        
-        .fr24-copyright {
-            position: absolute;
-            bottom: 3px;
-            left: 6px;
-            color: rgba(255, 255, 255, 0.7);
-            font-size: 7px;
-            font-weight: 500;
-            text-shadow: 0 1px 2px rgba(0,0,0,1);
-            z-index: 2;
-        }
-        
-        .fr24-image-overlay {
-            position: absolute;
-            inset: 0;
-            background: linear-gradient(to top, rgba(0,0,0,0.6) 0%, transparent 40%);
-        }
-
-        /* --- BOTTOM INFO BUBBLE --- */
-        .fr24-info-box {
-            background-color: #2c2c2e;
-            border-radius: var(--radius-sm);
-            padding: 6px 8px;
-            box-shadow: 0 2px 8px rgba(0,0,0,0.4);
-            display: flex;
-            flex-direction: column;
-            gap: 4px;
-            color: #ffffff;
-        }
-
-        .fr24-header-row {
-            display: flex;
-            align-items: center;
-            gap: 6px;
-        }
-
-        .fr24-airline-logo {
-            height: 14px;
-            width: auto;
-            max-width: 35px;
-            object-fit: contain;
-            border-radius: 1px;
-        }
-
-        .fr24-ident-group {
-            display: flex;
-            align-items: center;
-            gap: 4px;
-        }
-
-        .fr24-callsign {
-            font-size: 13px;
-            font-weight: 700;
-            color: #fff;
-            line-height: 1;
-        }
-
-        .fr24-ac-badge {
-            background-color: #3a3a3c;
-            border: 1px solid #48484a;
-            color: #d1d1d6;
-            font-size: 8px;
-            font-weight: 600;
-            padding: 0px 3px;
-            border-radius: 3px;
-            line-height: 1.1;
-        }
-
-        .fr24-route {
-            font-size: 10px;
-            font-weight: 500;
-            color: #d1d1d6;
-            white-space: nowrap;
-            overflow: hidden;
-            text-overflow: ellipsis;
-            max-width: 100px;
-        }
-
-        .fr24-progress-track {
-            height: 3px;
-            width: 100%;
-            background-color: #3a3a3c;
-            border-radius: 1.5px;
-            overflow: hidden;
-            margin-top: 1px;
-        }
-
-        .fr24-progress-fill {
-            height: 100%;
-            background-color: var(--color-danger);
-            border-radius: 1.5px;
-        }
-
-        .fr24-stats-row {
-            font-size: 10px;
-            color: #98989d;
-            font-weight: 600;
-            margin-top: 1px;
-        }
-
-        /* --- AIRPORT WINDOW SPECIFIC STYLES --- */
-
-        .airport-hero {
-            background: linear-gradient(135deg, rgba(30, 41, 59, 0.8) 0%, rgba(15, 23, 42, 0.9) 100%);
-            border-bottom: 1px solid var(--border-glass);
-            padding: 20px;
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-            position: relative;
-            overflow: hidden;
-        }
-
-        .airport-hero::before {
-            content: '';
-            position: absolute;
-            top: 0; right: 0; bottom: 0; left: 0;
-            background-image: radial-gradient(#ffffff 1px, transparent 1px);
-            background-size: 20px 20px;
-            opacity: 0.05;
-            pointer-events: none;
-        }
-
-        .apt-ident-group {
-            display: flex;
-            flex-direction: column;
-            z-index: 2;
-        }
-
-        .apt-icao {
-            font-family: var(--font-data);
-            font-size: 2.5rem;
-            font-weight: 800;
-            color: #fff;
-            line-height: 1;
-            text-shadow: 0 4px 10px rgba(0,0,0,0.5);
-            display: flex;
-            align-items: center;
-            gap: 12px;
-        }
-
-        .apt-name {
-            font-size: 0.9rem;
-            color: #94a3b8;
-            margin-top: 6px;
-            font-weight: 500;
-        }
-
-        .apt-meta-badge {
-            background: rgba(255,255,255,0.05);
-            border: 1px solid var(--border-glass);
-            padding: 4px 8px;
-            border-radius: 4px;
-            font-size: 0.75rem;
-            color: #cbd5e1;
-            display: flex;
-            align-items: center;
-            gap: 6px;
-        }
-
-        /* 2. Weather Module Refactor */
-        .weather-module-grid {
-            display: grid;
-            grid-template-columns: repeat(4, 1fr);
-            gap: 8px;
-            margin-top: 12px;
-        }
-
-        .wx-stat-box {
-            background: var(--bg-subtle);
-            border-radius: 6px;
-            padding: 8px;
-            display: flex;
-            flex-direction: column;
-            align-items: center;
-            text-align: center;
-        }
-
-        .wx-label {
-            font-size: 0.65rem;
-            color: #64748b;
-            text-transform: uppercase;
-            font-weight: 700;
-            margin-bottom: 4px;
-        }
-
-        .wx-value {
-            font-family: var(--font-data);
-            font-size: 0.95rem;
-            color: #e2e8f0;
-            font-weight: 600;
-        }
-
-        .wx-condition-pill {
-            grid-column: span 4;
-            background: rgba(16, 185, 129, 0.1); 
-            border: 1px solid rgba(16, 185, 129, 0.2);
-            color: var(--color-success);
-            padding: 8px;
-            border-radius: 6px;
-            text-align: center;
-            font-weight: 700;
-            font-size: 0.9rem;
-            margin-top: 4px;
-            display: flex;
-            justify-content: center;
-            align-items: center;
-            gap: 8px;
-        }
-
-        /* Dynamic colors for flight rules */
-        .wx-vfr { background: rgba(34, 197, 94, 0.1); color: #4ade80; border-color: rgba(34, 197, 94, 0.3); }
-        .wx-mvfr { background: rgba(59, 130, 246, 0.1); color: #60a5fa; border-color: rgba(59, 130, 246, 0.3); }
-        .wx-ifr { background: rgba(239, 68, 68, 0.1); color: #f87171; border-color: rgba(239, 68, 68, 0.3); }
-        .wx-lifr { background: rgba(168, 85, 247, 0.1); color: #c084fc; border-color: rgba(168, 85, 247, 0.3); }
-
-        /* 3. Route Cards (Flight Strips) */
-        .route-card {
-            background: linear-gradient(to right, rgba(30, 41, 59, 0.4), rgba(30, 41, 59, 0.2));
-            border: 1px solid var(--border-glass);
-            border-left: 3px solid var(--color-brand);
-            border-radius: 4px;
-            padding: 10px 14px;
-            margin-bottom: 8px;
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-            transition: all 0.2s;
-        }
-
-        .route-card:hover {
-            background: rgba(30, 41, 59, 0.7);
-            transform: translateX(2px);
-            border-color: var(--border-highlight);
-        }
-
-        .route-info {
-            display: flex;
-            flex-direction: column;
-            gap: 4px;
-        }
-
-        .route-callsign {
-            font-family: var(--font-data);
-            font-size: 1rem;
-            color: #fff;
-            font-weight: 700;
-            display: flex;
-            align-items: center;
-            gap: 8px;
-        }
-
-        .route-details {
-            font-size: 0.75rem;
-            color: #94a3b8;
-            display: flex;
-            align-items: center;
-            gap: 10px;
-        }
-
-        .route-ac-badge {
-            background: #1e293b;
-            padding: 2px 6px;
-            border-radius: 3px;
-            color: #cbd5e1;
-            font-weight: 600;
-            font-size: 0.7rem;
-            border: 1px solid var(--border-glass);
-        }
-
-        .plan-btn-mini {
-            background: rgba(14, 165, 233, 0.1);
-            color: var(--color-brand);
-            border: 1px solid rgba(14, 165, 233, 0.3);
-            padding: 6px 12px;
-            border-radius: 4px;
-            font-size: 0.8rem;
-            font-weight: 600;
-            cursor: pointer;
-            transition: all 0.2s;
-        }
-
-        .plan-btn-mini:hover {
-            background: var(--color-brand);
-            color: #fff;
-        }
-
-        /* 4. ATC Grid */
-        .atc-grid-card {
-            background: #1e293b;
-            border: 1px solid var(--border-glass);
-            border-radius: 6px;
-            padding: 10px;
-            margin-bottom: 8px;
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-        }
-
-        .atc-type-badge {
-            padding: 4px 8px;
-            border-radius: 4px;
-            font-size: 0.75rem;
-            font-weight: 800;
-            text-transform: uppercase;
-            width: 80px;
-            text-align: center;
-        }
-        .atc-type-gnd { background: #0f172a; color: #94a3b8; border: 1px solid #334155; }
-        .atc-type-twr { background: #1e3a8a; color: #60a5fa; border: 1px solid #2563eb; }
-        .atc-type-app { background: #312e81; color: #818cf8; border: 1px solid #4f46e5; }
-        .atc-type-obs { background: #3f3f46; color: #a1a1aa; border: 1px solid #52525b; }
-
-        .atc-controller {
-            font-weight: 600;
-            color: #e2e8f0;
-            font-size: 0.9rem;
-        }
-
-        .atc-duration {
-            font-family: monospace;
-            color: #64748b;
-            font-size: 0.8rem;
-        }
-
-        /* --- HERO ACTION BUTTONS --- */
-        .hero-actions {
-            position: absolute;
-            top: 15px;
-            right: 15px;
-            display: flex;
-            gap: 8px;
-            z-index: 10;
-        }
-
-        .hero-btn {
-            background: rgba(0, 0, 0, 0.3);
-            border: 1px solid rgba(255, 255, 255, 0.2);
-            color: #fff;
-            width: 32px;
-            height: 32px;
-            border-radius: 50%;
-            cursor: pointer;
-            display: grid;
-            place-items: center;
-            transition: all 0.2s ease;
-            backdrop-filter: blur(4px);
-        }
-
-        .hero-btn:hover {
-            background: rgba(255, 255, 255, 0.2);
-            transform: scale(1.1);
-        }
-
-        /* --- AIRPORT WINDOW TABS (REDESIGNED) --- */
-        .apt-tabs-header {
-            display: flex;
-            background: rgba(0, 0, 0, 0.2);
-            border-bottom: 1px solid var(--border-glass);
-            margin-bottom: 16px;
-        }
-
-        .apt-tab-btn {
-            flex: 1;
-            padding: 12px 10px;
-            background: transparent;
-            border: none;
-            color: #94a3b8;
-            font-size: 0.85rem;
-            font-weight: 600;
-            text-transform: uppercase;
-            cursor: pointer;
-            border-bottom: 2px solid transparent;
-            transition: all 0.3s ease;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            gap: 8px;
-        }
-
-        .apt-tab-btn:hover {
-            color: #fff;
-            background: rgba(255, 255, 255, 0.05);
-        }
-
-        .apt-tab-btn.active {
-            color: var(--color-brand);
-            border-bottom-color: var(--color-brand);
-            background: rgba(56, 189, 248, 0.1);
-        }
-
-        .apt-tab-content {
-            display: none;
-            animation: fadeIn 0.3s ease;
-        }
-
-        .apt-tab-content.active {
-            display: block;
-        }
-
-        @keyframes fadeIn {
-            from { opacity: 0; transform: translateY(5px); }
-            to { opacity: 1; transform: translateY(0); }
-        }
-
-        /* --- RUNWAY DROPDOWN STYLES --- */
-        .runway-dropdown-header {
-            cursor: pointer;
-            transition: background 0.2s;
-        }
-        .runway-dropdown-header:hover {
-            background: rgba(255, 255, 255, 0.05);
-        }
-        .runway-dropdown-content {
-            display: none; /* Closed by default */
-            padding: 8px;
-            border-top: 1px solid var(--border-glass);
-        }
-        .runway-dropdown-content.open {
-            display: grid; /* Grid layout when open */
-            grid-template-columns: 1fr 1fr; 
-            gap: 8px;
-            animation: slideDown 0.3s ease-out;
-        }
-        .runway-toggle-icon {
-            color: #94a3b8;
-            transition: transform 0.3s ease;
-        }
-        .runway-dropdown-header.open .runway-toggle-icon {
-            transform: rotate(180deg);
-        }
-        
-        @keyframes slideDown {
-            from { opacity: 0; transform: translateY(-5px); }
-            to { opacity: 1; transform: translateY(0); }
-        }
-
-        /* --- SERVER SELECTOR PILL --- */
-        #server-selector-container {
-            position: absolute;
-            top: 20px;
-            left: 50%;
-            transform: translateX(-50%);
-            background: rgba(15, 23, 42, 0.9);
-            backdrop-filter: blur(10px);
-            border: 1px solid var(--border-glass);
-            border-radius: 999px; /* Pill shape */
-            padding: 4px;
-            display: flex;
-            gap: 4px;
-            z-index: 1050; /* Above map, below modals */
-            box-shadow: 0 4px 20px rgba(0,0,0,0.4);
-        }
-
-        .server-btn {
-            background: transparent;
-            border: none;
-            color: #94a3b8;
-            padding: 6px 16px;
-            font-size: 0.8rem;
-            font-weight: 600;
-            border-radius: 999px;
-            cursor: pointer;
-            transition: all 0.2s ease;
-            white-space: nowrap;
-            font-family: var(--font-ui);
-        }
-
-        .server-btn:hover {
-            color: #fff;
-            background: rgba(255, 255, 255, 0.05);
-        }
-
-        .server-btn.active {
-            background: #3b82f6; 
-            color: #fff;
-            box-shadow: 0 2px 10px rgba(59, 130, 246, 0.4);
-        }
-
-        /* Mobile adjustment */
-        @media (max-width: 768px) {
-            #server-selector-container {
-                top: 70px;
-                width: auto;
-                max-width: 90vw;
-            }
-            .server-btn {
-                padding: 6px 12px;
-                font-size: 0.75rem;
-            }
-        }
-
-        .apt-quick-info-strip {
-            display: flex;
-            align-items: center;
-            gap: 12px;
-            padding: 10px 16px;
-            background: rgba(0, 0, 0, 0.2);
-            border-bottom: 1px solid var(--border-glass);
-            font-size: 0.75rem;
-            color: #94a3b8;
-            overflow-x: auto;
-            white-space: nowrap;
-        }
-
-        .apt-feature-pill {
-            display: flex;
-            align-items: center;
-            gap: 6px;
-            background: var(--bg-subtle);
-            padding: 3px 8px;
-            border-radius: 4px;
-            border: 1px solid var(--border-glass);
-            font-weight: 600;
-        }
-
-        .apt-dashboard-grid {
-            display: grid;
-            grid-template-columns: 1fr 1fr;
-            gap: 8px;
-            padding: 0 16px;
-            margin-bottom: 8px;
-        }
-
-        @media (max-width: 600px) {
-            .apt-dashboard-grid {
-                grid-template-columns: 1fr;
-            }
-        }
-
-        .apt-mini-module {
-            background: rgba(15, 23, 42, 0.6);
-            border: 1px solid rgba(255, 255, 255, 0.08);
-            border-radius: var(--radius-sm);
-            display: flex;
-            flex-direction: column;
-            overflow: hidden;
-        }
-
-        .apt-mini-header {
-            background: var(--bg-subtle);
-            padding: 6px 10px;
-            font-size: 0.7rem;
-            font-weight: 700;
-            color: #94a3b8;
-            text-transform: uppercase;
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-            border-bottom: 1px solid var(--border-glass);
-        }
-
-        .apt-mini-body {
-            padding: 10px;
-            flex-grow: 1;
-            display: flex;
-            flex-direction: column;
-            justify-content: center;
-        }
-
-        .stat-grid-compact {
-            display: grid;
-            grid-template-columns: 1fr 1fr;
-            gap: 8px;
-        }
-
-        .compact-stat-box {
-            text-align: center;
-            background: rgba(255, 255, 255, 0.02);
-            border-radius: 4px;
-            padding: 4px;
-        }
-        .compact-label { font-size: 0.6rem; color: #64748b; display: block; }
-        .compact-value { font-family: var(--font-data); font-size: 0.9rem; color: #e2e8f0; font-weight: 600; }
-
-        .metar-strip {
-            background: rgba(0, 0, 0, 0.3);
-            padding: 8px 16px;
-            font-family: var(--font-data);
-            font-size: 0.7rem;
-            color: #94a3b8;
-            border-bottom: 1px solid var(--border-glass);
-            white-space: pre-wrap;
-            line-height: 1.3;
-        }
-
-        /* --- Shared Tech Style --- */
-        .tech-module {
-            background: var(--bg-glass);
-            border: 1px solid var(--border-glass);
-            border-radius: var(--radius-md);
-            overflow: hidden;
-            box-shadow: 0 4px 15px rgba(0, 0, 0, 0.5);
-            margin-bottom: 8px; 
-            display: flex;
-            flex-direction: column;
-        }
-
-        .tech-module-header {
-            background: var(--bg-panel);
-            padding: 8px 12px;
-            border-bottom: 1px solid var(--border-glass);
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-        }
-        
-        .tech-module-title {
-            font-size: 0.75rem;
-            font-weight: 700;
-            color: var(--text-secondary);
-            text-transform: uppercase;
-            letter-spacing: 0.05em;
-            display: flex;
-            align-items: center;
-            gap: 8px;
-        }
-
-        .tech-module-body {
-            padding: 12px;
-            background: transparent;
-            position: relative;
-        }
-
-        /* --- Tech Card Specifics --- */
-        .tech-card {
-            background: var(--bg-glass); 
-            border: 1px solid var(--border-glass);
-            border-radius: var(--radius-md); 
-            overflow: hidden;
-            box-shadow: 0 4px 15px rgba(0, 0, 0, 0.5);
-            position: relative;
-            font-family: var(--font-ui);
-            margin-bottom: 12px; 
-        }
-        .tech-card-header {
-            padding: 12px 16px 4px; 
-            display: flex;
-            justify-content: space-between;
-            align-items: flex-start;
-            position: relative;
-            z-index: 10;
-        }
-        .tech-badge {
-            display: inline-flex;
-            align-items: center;
-            gap: 4px;
-            padding: 1px 6px;
-            border-radius: 999px;
-            background: rgba(16, 185, 129, 0.1);
-            border: 1px solid rgba(16, 185, 129, 0.2);
-            font-size: 9px;
-            font-weight: 700;
-            color: var(--color-success);
-            text-transform: uppercase;
-            letter-spacing: 0.05em;
-        }
-        .tech-ping {
-            position: relative;
-            display: flex;
-            height: 5px;
-            width: 5px;
-        }
-        .tech-ping span {
-            position: absolute;
-            display: inline-flex;
-            height: 100%;
-            width: 100%;
-            border-radius: 50%;
-            background-color: var(--color-success);
-        }
-        .tech-ping .animate {
-            animation: ping 1s cubic-bezier(0, 0, 0.2, 1) infinite;
-            opacity: 0.75;
-        }
-        @keyframes ping {
-            75%, 100% { transform: scale(2); opacity: 0; }
-        }
-        .tech-model {
-            font-size: 1.1rem;
-            font-weight: 700;
-            color: var(--text-primary);
-            letter-spacing: -0.025em;
-            margin: 0;
-            line-height: 1.2;
-        }
-        .tech-airline {
-            font-size: 0.75rem;
-            font-weight: 500;
-            color: rgba(56, 189, 248, 0.9);
-            margin-top: 0px;
-            display: flex;
-            align-items: center;
-            gap: 5px;
-        }
-        .tech-content {
-            padding: 12px;
-            position: relative;
-            z-index: 10;
-        }
-        .tech-image-container {
-            position: relative;
-            width: 100%;
-            aspect-ratio: 21 / 9;
-            border-radius: var(--radius-sm);
-            overflow: hidden;
-            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.2);
-            border: 1px solid var(--border-glass);
-            background: #000;
-        }
-        .tech-image {
-            width: 100%;
-            height: 100%;
-            object-fit: cover;
-            transition: transform 0.7s ease-out;
-        }
-        .tech-image-container:hover .tech-image {
-            transform: scale(1.05);
-        }
-        .tech-image-overlay {
-            position: absolute;
-            inset: 0;
-            background: linear-gradient(to top, rgba(2, 6, 23, 0.9), transparent, transparent);
-            opacity: 0.8;
-        }
-        .tech-image-info {
-            position: absolute;
-            bottom: 8px;
-            left: 10px;
-            right: 10px;
-            display: flex;
-            justify-content: space-between;
-            align-items: flex-end;
-        }
-        .tech-photographer {
-            display: flex;
-            flex-direction: column;
-        }
-        .tech-photo-label {
-            font-size: 9px;
-            color: #cbd5e1;
-            font-weight: 500;
-            margin-bottom: 0px;
-            line-height: 1;
-        }
-        .tech-photo-name {
-            display: flex;
-            align-items: center;
-            gap: 4px;
-            font-size: 10px;
-            font-weight: 600;
-            color: #fff;
-        }
-        .tech-grid {
-            display: grid;
-            grid-template-columns: repeat(2, 1fr);
-            gap: 8px;
-            margin-top: 12px;
-        }
-        .tech-stat-card {
-            background: var(--bg-panel);
-            border: 1px solid var(--border-glass);
-            padding: 8px 10px;
-            border-radius: 6px;
-            transition: background 0.2s;
-        }
-        .tech-stat-card:hover {
-            background: rgba(63, 63, 70, 0.6);
-        }
-        .tech-stat-header {
-            display: flex;
-            align-items: center;
-            justify-content: space-between;
-            margin-bottom: 2px;
-        }
-        .tech-stat-label {
-            font-size: 9px;
-            font-weight: 600;
-            color: #94a3b8;
-            text-transform: uppercase;
-            letter-spacing: 0.05em;
-        }
-        .tech-stat-value {
-            font-family: var(--font-data);
-            font-size: 0.95rem;
-            color: #fff;
-            font-weight: 600;
-            letter-spacing: -0.025em;
-        }
-        .tech-country-card {
-            grid-column: span 2;
-            background: var(--bg-panel);
-            border: 1px solid var(--border-glass);
-            padding: 6px 10px;
-            border-radius: 6px;
-            display: flex;
-            align-items: center;
-            justify-content: space-between;
-        }
-        .tech-country-left {
-            display: flex;
-            align-items: center;
-            gap: 8px;
-        }
-        .tech-country-icon {
-            width: 24px;
-            height: 24px;
-            border-radius: 4px;
-            background: rgba(51, 65, 85, 0.5);
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            color: #94a3b8;
-        }
-        .tech-bottom-bar {
-            height: 3px;
-            width: 100%;
-            background: linear-gradient(to right, #0ea5e9, #2563eb, #4f46e5);
-            opacity: 0.8;
-        }
-
-        #simple-flight-window-frame {
-            border-radius: var(--radius-md); 
-            background: var(--bg-glass); 
-        }
-
-        /* --- ATIS & TERMINAL STYLES --- */
-.atis-status-row {
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-    margin-bottom: 8px;
-    font-family: var(--font-data);
-}
-
-.atis-code-large {
-    font-size: 1.2rem;
-    font-weight: 700;
-    color: #fbbf24; /* Amber */
-    text-shadow: 0 0 5px rgba(251, 191, 36, 0.3);
-}
-
-.atis-timestamp {
-    font-size: 0.75rem;
-    color: #94a3b8;
-}
-
-/* The Digital Text Box */
-.terminal-text-box {
-    background: rgba(10, 12, 16, 0.6);
-    border: 1px solid rgba(255, 255, 255, 0.1);
-    border-radius: 6px;
-    padding: 10px;
-    font-family: 'JetBrains Mono', 'Consolas', monospace;
-    font-size: 0.7rem;
-    color: #86efac; /* Terminal Green */
-    line-height: 1.5;
-    white-space: pre-wrap;
-    box-shadow: inset 0 0 10px rgba(0,0,0,0.5);
-    max-height: 120px;
-    overflow-y: auto;
-    text-transform: uppercase;
-}
-
-/* Scrollbar for terminal */
-.terminal-text-box::-webkit-scrollbar { width: 4px; }
-.terminal-text-box::-webkit-scrollbar-thumb { background: #334155; border-radius: 2px; }
-
-/* Fallback / Calculated Mode Styles */
-.atis-runway-row {
-    display: flex; align-items: center; justify-content: space-between;
-    background: rgba(255, 255, 255, 0.02); padding: 6px 8px;
-    border-radius: 4px; border: 1px solid var(--border-glass); margin-bottom: 4px;
-}
-.atis-label { font-size: 0.65rem; font-weight: 700; color: #94a3b8; min-width: 40px; }
-.atis-pill { font-family: var(--font-data); font-size: 0.75rem; font-weight: 700; padding: 2px 6px; border-radius: 3px; border: 1px solid; margin-left: 4px; }
-.pill-arr { background: rgba(16, 185, 129, 0.1); color: #4ade80; border-color: rgba(16, 185, 129, 0.3); }
-.pill-dep { background: rgba(56, 189, 248, 0.1); color: #38bdf8; border-color: rgba(56, 189, 248, 0.3); }
-/* --- NEW: Mini Module Footer (For ATIS Remarks) --- */
-.apt-mini-footer {
-    padding: 6px 10px;
-    background: rgba(0, 0, 0, 0.2);
-    border-top: 1px solid var(--border-glass);
-    font-size: 0.65rem;
-    color: #cbd5e1;
-    display: flex;
-    align-items: center;
-    min-height: 24px;
-    white-space: nowrap;
-    overflow: hidden;
-    text-overflow: ellipsis;
-}
-.apt-mini-footer i { margin-right: 6px; color: #fbbf24; } /* Amber icon for remarks */
+        /* Spinner */
+        .spinner-small {
+            width: 24px; height: 24px; border: 3px solid rgba(255,255,255,0.3);
+            border-radius: 50%; border-top-color: #38bdf8; animation: spin 1s ease-in-out infinite;
+        }
+        @keyframes spin { to { transform: rotate(360deg); } }
     `;
 
     const style = document.createElement('style');
@@ -6597,320 +5692,266 @@ function formatDataForSimpleWindow(flightProps, plan, routePoints, communityData
     }
 
     async function initializeSectorOpsView() {
-        const mapContainer = document.getElementById('sector-ops-map-fullscreen');
-        const viewContainer = document.getElementById('standalone-map-view'); 
-        
-        if (!viewContainer || !mapContainer) return;
-        
-        mainContentLoader.classList.add('active');
+    const mapContainer = document.getElementById('sector-ops-map-fullscreen');
+    // Ensure we have the map container
+    if (!mapContainer) return;
+    
+    mainContentLoader.classList.add('active');
 
-        try {
-            // --- 1. Inject Server Selector Pill ---
-            if (!document.getElementById('server-selector-container')) {
-                const selectorHtml = `
-                    <div id="server-selector-container">
-                        <button class="server-btn ${currentServerName === 'Expert Server' ? 'active' : ''}" data-server="Expert Server">Expert</button>
-                        <button class="server-btn ${currentServerName === 'Training Server' ? 'active' : ''}" data-server="Training Server">Training</button>
-                        <button class="server-btn ${currentServerName === 'Casual Server' ? 'active' : ''}" data-server="Casual Server">Casual</button>
+    try {
+        // --- 1. Inject Search Bar (Updated UI) ---
+        if (!document.getElementById('sector-ops-search-container')) {
+            const searchHtml = `
+                <div id="sector-ops-search-container">
+                    <div id="search-container">
+                        <div class="search-box">
+                            <div class="search-input-wrapper">
+                                <div class="search-icon-box">
+                                    <i class="fa-solid fa-magnifying-glass" style="font-size: 16px;"></i>
+                                </div>
+                                <input type="text" id="sector-ops-search-input" placeholder="Search flight, airport...">
+                                <button id="sector-ops-search-clear" style="display:none; position: absolute; right: 10px; color:#999; background:none; border:none; cursor:pointer;"><i class="fa-solid fa-xmark"></i></button>
+                            </div>
+                            <div id="search-results-dropdown" class="search-dropdown hidden">
+                                <div class="search-header">Results</div>
+                            </div>
+                        </div>
                     </div>
-                `;
-                mapContainer.insertAdjacentHTML('beforeend', selectorHtml);
-            }
+                </div>
+            `;
+            mapContainer.insertAdjacentHTML('beforeend', searchHtml);
+        }
 
-            // --- 2. Inject the Search Bar ---
-            if (!document.getElementById('sector-ops-search-container')) {
-                const searchHtml = `
-                    <div id="sector-ops-search-container" class="sector-ops-search">
-                        <div class="search-bar-container">
-                            <label for="sector-ops-search-input" class="search-icon-label">
-                                <i class="fa-solid fa-magnifying-glass search-icon"></i>
-                            </label>
-                            <input type="text" id="sector-ops-search-input" placeholder="Search callsign or username..." aria-label="Search callsign or username" autocomplete="off">
-                            <button id="sector-ops-search-clear" class="search-clear-btn" aria-label="Clear search" style="display: none;">
-                                <i class="fa-solid fa-xmark"></i>
+        // --- 2. Inject Sidebar Tools (Server Menu + Settings) ---
+        if (!document.querySelector('.sidebar-tools')) {
+            const sidebarHtml = `
+                <div class="sidebar-tools">
+                    <button id="open-filter-settings-btn" class="tool-btn group">
+                        <i class="fa-solid fa-sliders" style="font-size: 20px;"></i>
+                        <span class="tooltip">Settings</span>
+                    </button>
+
+                    <div style="position: relative;">
+                        <button id="server-btn" class="tool-btn server-btn-active">
+                            <i class="fa-solid fa-globe" style="font-size: 20px;"></i>
+                        </button>
+                        
+                        <div id="server-menu" class="hidden animate-modal-in">
+                            <div class="menu-header">Select Server</div>
+                            <button class="menu-item server-select-btn ${currentServerName === 'Expert Server' ? 'active' : ''}" data-server="Expert Server">
+                                <span>Expert</span>
+                                <i class="fa-solid fa-check server-check" style="color: #4ade80; opacity: ${currentServerName === 'Expert Server' ? 1 : 0};"></i>
+                            </button>
+                            <button class="menu-item server-select-btn ${currentServerName === 'Training Server' ? 'active' : ''}" data-server="Training Server">
+                                <span>Training</span>
+                                <i class="fa-solid fa-check server-check" style="color: #4ade80; opacity: ${currentServerName === 'Training Server' ? 1 : 0};"></i>
+                            </button>
+                            <button class="menu-item server-select-btn ${currentServerName === 'Casual Server' ? 'active' : ''}" data-server="Casual Server">
+                                <span>Casual</span>
+                                <i class="fa-solid fa-check server-check" style="color: #4ade80; opacity: ${currentServerName === 'Casual Server' ? 1 : 0};"></i>
                             </button>
                         </div>
-                        <div id="search-results-dropdown" class="search-results-dropdown"></div>
                     </div>
-                `;
-                mapContainer.insertAdjacentHTML('beforeend', searchHtml);
-            }
-
-            // --- 3. Inject Airport Info Window ---
-            if (!document.getElementById('airport-info-window')) {
-                 const windowHtml = `
-                    <div id="airport-info-window" class="info-window">
-                        <div id="airport-window-content" class="info-window-content"></div>
-                    </div>
-                `;
-                mapContainer.insertAdjacentHTML('beforeend', windowHtml);
-            }
-
-            // --- 4. Inject Aircraft Info Window ---
-            if (!document.getElementById('aircraft-info-window')) {
-                 const windowHtml = `
-                    <div id="aircraft-info-window" class="info-window">
-                        
-                    </div>
-                `;
-                mapContainer.insertAdjacentHTML('beforeend', windowHtml);
-            }
-
-            // --- 5. Inject Weather Settings Window (UPDATED WITH SIGMETS) ---
-            if (!document.getElementById('weather-settings-window')) {
-                const windowHtml = `
-                    <div id="weather-settings-window" class="info-window">
-                        <div class="info-window-header">
-                            <h3><i class="fa-solid fa-cloud-sun" style="margin-right: 10px;"></i> Weather Settings</h3>
-                            <div class="info-window-actions">
-                                <button class="weather-window-hide-btn" title="Hide"><i class="fa-solid fa-compress"></i></button>
-                                <button class="weather-window-close-btn" title="Close"><i class="fa-solid fa-xmark"></i></button>
-                            </div>
-                        </div>
-                        <div id="weather-window-content" class="info-window-content">
-                            <ul class="weather-toggle-list">
-                                <li class="weather-toggle-item">
-                                    <span class="weather-toggle-label"><i class="fa-solid fa-cloud-rain"></i> Radar (Precip)</span>
-                                    <label class="toggle-switch">
-                                        <input type="checkbox" id="weather-toggle-precip">
-                                        <span class="toggle-slider"></span>
-                                    </label>
-                                </li>
-                                <li class="weather-toggle-item">
-                                    <span class="weather-toggle-label"><i class="fa-solid fa-triangle-exclamation"></i> SIGMETs</span>
-                                    <label class="toggle-switch">
-                                        <input type="checkbox" id="weather-toggle-sigmets">
-                                        <span class="toggle-slider"></span>
-                                    </label>
-                                </li>
-                                <li class="weather-toggle-item">
-                                    <span class="weather-toggle-label"><i class="fa-solid fa-cloud"></i> Cloud Cover</span>
-                                    <label class="toggle-switch">
-                                        <input type="checkbox" id="weather-toggle-clouds">
-                                        <span class="toggle-slider"></span>
-                                    </label>
-                                </li>
-                                <li class="weather-toggle-item">
-                                    <span class="weather-toggle-label"><i class="fa-solid fa-wind"></i> Wind Speed</span>
-                                    <label class="toggle-switch">
-                                        <input type="checkbox" id="weather-toggle-wind">
-                                        <span class="toggle-slider"></span>
-                                    </label>
-                                </li>
-                            </ul>
-                            <div class="weather-disclaimer-note">
-                                <i class="fa-solid fa-server"></i>
-                                <strong>Note:</strong> Radar provided by RainViewer. SIGMETs provided by NOAA AWC.
-                            </div>
-                        </div>
-                    </div>
-                `;
-                mapContainer.insertAdjacentHTML('beforeend', windowHtml);
-            }
-
-            // --- 6. Inject Filter Settings Window ---
-            if (!document.getElementById('filter-settings-window')) {
-                const windowHtml = `
-                    <div id="filter-settings-window" class="info-window">
-                        <div class="info-window-header">
-                            <h3><i class="fa-solid fa-filter" style="margin-right: 10px;"></i> Map Filters</h3>
-                            <div class="info-window-actions">
-                                <button class="filter-window-hide-btn" title="Hide"><i class="fa-solid fa-compress"></i></button>
-                                <button class="filter-window-close-btn" title="Close"><i class="fa-solid fa-xmark"></i></button>
-                            </div>
-                        </div>
-                        <div id="filter-window-content" class="info-window-content">
-                            <ul class="filter-toggle-list">
-                                <li class="filter-toggle-item">
-                                    <span class="filter-toggle-label"><i class="fa-solid fa-tower-broadcast"></i> Hide Staffed Airports</span>
-                                    <label class="toggle-switch">
-                                        <input type="checkbox" id="filter-toggle-atc">
-                                        <span class="toggle-slider"></span>
-                                    </label>
-                                </li>
-
-                                <li class="filter-toggle-item">
-                                    <span class="filter-toggle-label"><i class="fa-solid fa-satellite"></i> Satellite Mode</span>
-                                    <label class="toggle-switch">
-                                        <input type="checkbox" id="filter-toggle-satellite-mode">
-                                        <span class="toggle-slider"></span>
-                                    </label>
-                                </li>
-                                
-                                <li class="filter-toggle-item">
-                                    <span class="filter-toggle-label"><i class="fa-solid fa-tags"></i> Show Aircraft Labels</span>
-                                    <label class="toggle-switch">
-                                        <input type="checkbox" id="filter-toggle-aircraft-labels">
-                                        <span class="toggle-slider"></span>
-                                    </label>
-                                </li>
-                            </ul>
-
-                            <div class="filter-section-divider">
-                                <span class="filter-section-title">Interface Style</span>
-                            </div>
-                            <ul class="filter-toggle-list" style="padding-top: 8px;">
-                                <li class="filter-toggle-item">
-                                    <span class="filter-toggle-label"><i class="fa-solid fa-tablet-screen-button"></i> Simple Flight Window</span>
-                                    <label class="toggle-switch">
-                                        <input type="checkbox" id="filter-toggle-simple-window">
-                                        <span class="toggle-slider"></span>
-                                    </label>
-                                </li>
-                            </ul>
-
-                            <div class="filter-section-divider">
-                                <span class="filter-section-title">Aircraft Icon Color</span>
-                            </div>
-                            <ul class="filter-toggle-list" id="icon-color-filter-group" style="padding-top: 8px;">
-                                <li class="filter-radio-item">
-                                    <input type="radio" id="icon-color-default" name="icon-color-mode" value="default" checked>
-                                    <label for="icon-color-default"><i class="fa-solid fa-plane" style="color: #fff;"></i> Default (White)</label>
-                                </li>
-                                <li class="filter-radio-item">
-                                    <input type="radio" id="icon-color-blue" name="icon-color-mode" value="blue">
-                                    <label for="icon-color-blue"><i class="fa-solid fa-plane" style="color: #00a8ff;"></i> Blue</label>
-                                </li>
-                                <li class="filter-radio-item">
-                                    <input type="radio" id="icon-color-orange" name="icon-color-mode" value="orange">
-                                    <label for="icon-color-orange"><i class="fa-solid fa-plane" style="color: #ff9900;"></i> Orange</label>
-                                </li>
-                            </ul>
-                            
-                            <div class="filter-section-divider">
-                                <span class="filter-section-title">Active Flight Plan Display</span>
-                            </div>
-                            <ul class="filter-toggle-list" id="plan-filter-group" style="padding-top: 8px;">
-                                <li class="filter-radio-item">
-                                    <input type="radio" id="plan-filter-none" name="plan-display-mode" value="none" checked>
-                                    <label for="plan-filter-none"><i class="fa-solid fa-eye-slash"></i> Hide Plan</label>
-                                </li>
-                                <li class="filter-radio-item">
-                                    <input type="radio" id="plan-filter-direct" name="plan-display-mode" value="direct">
-                                    <label for="plan-filter-direct"><i class="fa-solid fa-route"></i> Direct to Destination</label>
-                                </li>
-                                <li class="filter-radio-item">
-                                    <input type="radio" id="plan-filter-full" name="plan-display-mode" value="full">
-                                    <label for="plan-filter-full"><i class="fa-solid fa-diagram-project"></i> Full Filed Plan</label>
-                                </li>
-                            </ul>
-
-                            <div class="mobile-only-filter-section">
-                                <div class="filter-section-divider">
-                                    <span class="filter-section-title">Mobile Display Mode</span>
-                                </div>
-                                <ul class="filter-toggle-list" id="mobile-mode-filter-group" style="padding-top: 8px;">
-                                    <li class="filter-radio-item">
-                                        <input type="radio" id="mobile-mode-hud" name="mobile-display-mode" value="hud" checked>
-                                        <label for="mobile-mode-hud"><i class="fa-solid fa-rocket"></i> HUD View</label>
-                                    </li>
-                                    <li class="filter-radio-item">
-                                        <input type="radio" id="mobile-mode-legacy" name="mobile-display-mode" value="legacy">
-                                        <label for="mobile-mode-legacy"><i class="fa-solid fa-layer-group"></i> Legacy Sheet</label>
-                                    </li>
-                                </ul>
-                            </div>
-
-                            <div class="filter-section-divider">
-                                <span class="filter-section-title">Window Appearance</span>
-                            </div>
-                            <div class="filter-appearance-controls" style="padding: 10px; display: flex; flex-direction: column; gap: 10px;">
-                                <div style="display: flex; justify-content: space-between; align-items: center;">
-                                    <span style="color: #ccc; font-size: 0.9rem;">Gradient Start Color</span>
-                                    <input type="color" id="theme-color-start" value="#121426" style="background: none; border: none; width: 50px; height: 30px; cursor: pointer;">
-                                </div>
-                                <div style="display: flex; justify-content: space-between; align-items: center;">
-                                    <span style="color: #ccc; font-size: 0.9rem;">Gradient End Color</span>
-                                    <input type="color" id="theme-color-end" value="#121426" style="background: none; border: none; width: 50px; height: 30px; cursor: pointer;">
-                                </div>
-                                <div style="display: flex; gap: 10px;">
-                                     <button id="theme-reset-btn" class="cta-button" style="width: 100%; padding: 8px; font-size: 0.85rem; border-radius: 4px; background: rgba(255,255,255,0.1); border: 1px solid #444; color: #fff; cursor: pointer;">Reset Default Theme</button>
-                                </div>
-                            </div>
-                        </div>
-                    </div>
-                `;
-                mapContainer.insertAdjacentHTML('beforeend', windowHtml);
-            }
-            
-            // --- 7. Inject Toolbar Buttons (if missing) ---
-            const toolbarToggleBtn = document.getElementById('toolbar-toggle-panel-btn');
-            if (toolbarToggleBtn) {
-                 if (!document.getElementById('airport-recall-btn')) {
-                    toolbarToggleBtn.parentElement.insertAdjacentHTML('beforeend', `
-                        <button id="airport-recall-btn" class="toolbar-btn" title="Show Airport Info">
-                            <i class="fa-solid fa-location-dot"></i>
-                        </button>
-                    `);
-                 }
-                 if (!document.getElementById('aircraft-recall-btn')) {
-                      toolbarToggleBtn.parentElement.insertAdjacentHTML('beforeend', `
-                        <button id="aircraft-recall-btn" class="toolbar-btn" title="Show Aircraft Info">
-                            <i class="fa-solid fa-plane-up"></i>
-                        </button>
-                    `);
-                 }
-                 if (!document.getElementById('open-weather-settings-btn')) {
-                    toolbarToggleBtn.parentElement.insertAdjacentHTML('beforeend', `
-                        <button id="open-weather-settings-btn" class="toolbar-btn" title="Weather Settings">
-                            <i class="fa-solid fa-cloud-sun"></i>
-                        </button>
-                    `);
-                 }
-                 if (!document.getElementById('open-filter-settings-btn')) {
-                    toolbarToggleBtn.parentElement.insertAdjacentHTML('beforeend', `
-                        <button id="open-filter-settings-btn" class="toolbar-btn" title="Map Filters">
-                            <i class="fa-solid fa-filter"></i>
-                        </button>
-                    `);
-                 }
-            }
-            
-            // --- 8. Assign Global Variables ---
-            airportInfoWindow = document.getElementById('airport-info-window');
-            airportInfoWindowRecallBtn = document.getElementById('airport-recall-btn');
-            aircraftInfoWindow = document.getElementById('aircraft-info-window');
-            aircraftInfoWindowRecallBtn = document.getElementById('aircraft-recall-btn');
-            weatherSettingsWindow = document.getElementById('weather-settings-window');
-            filterSettingsWindow = document.getElementById('filter-settings-window');
-
-            // --- 9. Initialize Map and Load Content ---
-            const selectedHub = "VIDP"; 
-            await initializeSectorOpsMap(selectedHub);
-            await loadExternalPanelContent();
-
-            // --- 10. Set Up Event Listeners ---
-            setupSectorOpsEventListeners();
-            setupAirportWindowEvents();
-            setupAircraftWindowEvents();
-            setupWeatherSettingsWindowEvents();
-            setupFilterSettingsWindowEvents(); 
-            setupSearchEventListeners();
-
-            // --- [NEW] Initialize Smart Map Click ---
-            setupSmartMapBackgroundClick(); 
-
-            // --- 11. Listen for ND_READY signal ---
-            window.addEventListener('message', (event) => {
-                if (event.data && event.data.type === 'ND_READY') {
-                    refreshNavDisplayFromCache();
-                }
-            });
-
-            // --- 12. Start Live Loop ---
-            startSectorOpsLiveLoop();
-
-        } catch (error) {
-            console.error("Error initializing Sector Ops view:", error);
-            showNotification(error.message, 'error');
-            const panelContentWrapper = document.querySelector('#sector-ops-floating-panel .panel-content-wrapper');
-            if (panelContentWrapper) {
-                panelContentWrapper.innerHTML = `<p class="error-text" style="padding: 20px;">${error.message}</p>`;
-            }
-        } finally {
-            mainContentLoader.classList.remove('active');
+                </div>
+            `;
+            mapContainer.insertAdjacentHTML('beforeend', sidebarHtml);
         }
+
+        // --- 3. Inject Weather Widget (Bottom Right) ---
+        if (!document.querySelector('.weather-container')) {
+            const weatherHtml = `
+                <div class="weather-container">
+                    <div id="weather-settings-window" class="hidden weather-popup animate-slide-up">
+                        <div class="weather-header">
+                            <span style="font-size: 12px; font-weight: 700; color: #cbd5e1; text-transform: uppercase; display: flex; align-items: center; gap: 0.5rem;">
+                                <i class="fa-solid fa-cloud-sun" style="color: #60a5fa;"></i> Weather Layers
+                            </span>
+                            <button class="weather-window-close-btn" style="color: #64748b; background:none; border:none; cursor:pointer;"><i class="fa-solid fa-xmark"></i></button>
+                        </div>
+                        <div class="weather-toggle-list">
+                            <div class="weather-row">
+                                <span style="font-size: 14px; font-weight: 500; color: #cbd5e1;">Radar</span>
+                                <div class="switch-container">
+                                    <input type="checkbox" id="weather-toggle-precip" class="switch-input"/>
+                                    <label for="weather-toggle-precip" class="switch-label"><span class="switch-handle"></span></label>
+                                </div>
+                            </div>
+                            <div class="weather-row">
+                                <span style="font-size: 14px; font-weight: 500; color: #cbd5e1;">SIGMETs</span>
+                                <div class="switch-container">
+                                    <input type="checkbox" id="weather-toggle-sigmets" class="switch-input"/>
+                                    <label for="weather-toggle-sigmets" class="switch-label"><span class="switch-handle"></span></label>
+                                </div>
+                            </div>
+                            <div class="weather-row">
+                                <span style="font-size: 14px; font-weight: 500; color: #cbd5e1;">Clouds</span>
+                                <div class="switch-container">
+                                    <input type="checkbox" id="weather-toggle-clouds" class="switch-input"/>
+                                    <label for="weather-toggle-clouds" class="switch-label"><span class="switch-handle"></span></label>
+                                </div>
+                            </div>
+                            <div class="weather-row">
+                                <span style="font-size: 14px; font-weight: 500; color: #cbd5e1;">Wind</span>
+                                <div class="switch-container">
+                                    <input type="checkbox" id="weather-toggle-wind" class="switch-input"/>
+                                    <label for="weather-toggle-wind" class="switch-label"><span class="switch-handle"></span></label>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <button id="open-weather-settings-btn" class="weather-toggle-btn">
+                        <i class="fa-solid fa-cloud" style="font-size: 20px;"></i>
+                        <span style="font-size: 12px; font-weight: 700; text-transform: uppercase;">Wx</span>
+                    </button>
+                </div>
+            `;
+            mapContainer.insertAdjacentHTML('beforeend', weatherHtml);
+        }
+
+        // --- 4. Inject Settings Modal (The Card Layout) ---
+        if (!document.getElementById('filter-settings-window')) {
+            const settingsHtml = `
+                <div id="filter-settings-window" class="hidden animate-modal-in">
+                    <div class="settings-card">
+                        <div class="settings-sidebar">
+                            <div class="mobile-header">
+                                <span style="font-size: 14px; font-weight: 700; color: white; text-transform: uppercase;">Settings</span>
+                                <button class="filter-window-close-btn" style="color: #9ca3af; background:none; border:none;"><i class="fa-solid fa-xmark" style="font-size:20px;"></i></button>
+                            </div>
+
+                            <div class="nav-container no-scrollbar">
+                                <div class="nav-items">
+                                    <div style="display: flex; flex-direction: column; gap: 0.25rem; width: 100%;">
+                                        <button id="nav-labels" class="nav-btn nav-btn-active">
+                                            <i class="fa-solid fa-map"></i> <span><span class="nav-label">Map</span> Filters</span>
+                                        </button>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div class="settings-content-area">
+                            <div class="desktop-header">
+                                <div>
+                                    <h2 style="font-size: 20px; font-weight: 700; color: white;">Map Filters</h2>
+                                    <p style="font-size: 12px; color: #64748b; margin-top: 0.25rem;">Customize your view</p>
+                                </div>
+                                <button class="filter-window-close-btn" style="width: 2.25rem; height: 2.25rem; border-radius: 50%; display: flex; align-items: center; justify-content: center; color: #64748b; background: rgba(255,255,255,0.05); border:none; cursor:pointer;">
+                                    <i class="fa-solid fa-xmark"></i>
+                                </button>
+                            </div>
+
+                            <div class="settings-scroll-area settings-scroll">
+                                <div id="tab-labels" class="animate-modal-in">
+                                    
+                                    <div class="setting-box">
+                                        <div>
+                                            <div style="font-weight: 700; font-size: 14px; color: #e2e8f0;">Show Aircraft Labels</div>
+                                        </div>
+                                        <div class="switch-container">
+                                            <input type="checkbox" id="filter-toggle-aircraft-labels" class="switch-input"/>
+                                            <label for="filter-toggle-aircraft-labels" class="switch-label"><span class="switch-handle"></span></label>
+                                        </div>
+                                    </div>
+
+                                    <div class="setting-box">
+                                        <div>
+                                            <div style="font-weight: 700; font-size: 14px; color: #e2e8f0;">Satellite Mode</div>
+                                        </div>
+                                        <div class="switch-container">
+                                            <input type="checkbox" id="filter-toggle-satellite-mode" class="switch-input"/>
+                                            <label for="filter-toggle-satellite-mode" class="switch-label"><span class="switch-handle"></span></label>
+                                        </div>
+                                    </div>
+
+                                    <div class="setting-box">
+                                        <div>
+                                            <div style="font-weight: 700; font-size: 14px; color: #e2e8f0;">Hide Staffed Airports</div>
+                                        </div>
+                                        <div class="switch-container">
+                                            <input type="checkbox" id="filter-toggle-atc" class="switch-input"/>
+                                            <label for="filter-toggle-atc" class="switch-label"><span class="switch-handle"></span></label>
+                                        </div>
+                                    </div>
+                                    
+                                    <div class="setting-box">
+                                        <div>
+                                            <div style="font-weight: 700; font-size: 14px; color: #e2e8f0;">Simple Flight Window</div>
+                                        </div>
+                                        <div class="switch-container">
+                                            <input type="checkbox" id="filter-toggle-simple-window" class="switch-input"/>
+                                            <label for="filter-toggle-simple-window" class="switch-label"><span class="switch-handle"></span></label>
+                                        </div>
+                                    </div>
+
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            `;
+            mapContainer.insertAdjacentHTML('beforeend', settingsHtml);
+        }
+
+        // --- 5. Inject Info Windows (Airport & Aircraft) ---
+        if (!document.getElementById('airport-info-window')) {
+             mapContainer.insertAdjacentHTML('beforeend', `<div id="airport-info-window" class="info-window"><div id="airport-window-content" class="info-window-content"></div></div>`);
+        }
+        if (!document.getElementById('aircraft-info-window')) {
+             mapContainer.insertAdjacentHTML('beforeend', `<div id="aircraft-info-window" class="info-window"></div>`);
+        }
+
+        // --- 6. Assign Global Variables ---
+        airportInfoWindow = document.getElementById('airport-info-window');
+        aircraftInfoWindow = document.getElementById('aircraft-info-window');
+        weatherSettingsWindow = document.getElementById('weather-settings-window');
+        filterSettingsWindow = document.getElementById('filter-settings-window');
+        // Retrieve recall buttons if they exist or create logic for them later
+        airportInfoWindowRecallBtn = document.getElementById('airport-recall-btn') || createRecallButton('airport');
+        aircraftInfoWindowRecallBtn = document.getElementById('aircraft-recall-btn') || createRecallButton('aircraft');
+
+        // --- 7. Initialize Map and Load Content ---
+        const selectedHub = "VIDP"; 
+        await initializeSectorOpsMap(selectedHub);
+        await loadExternalPanelContent();
+
+        // --- 8. Set Up Event Listeners ---
+        setupSectorOpsEventListeners(); // Handles Sidebar & Weather
+        setupFilterSettingsWindowEvents(); // Handles Settings Modal
+        setupSearchEventListeners(); // Handles Search
+        setupAirportWindowEvents();
+        setupAircraftWindowEvents();
+        
+        setupSmartMapBackgroundClick(); 
+
+        // --- 9. Listen for ND_READY signal ---
+        window.addEventListener('message', (event) => {
+            if (event.data && event.data.type === 'ND_READY') {
+                refreshNavDisplayFromCache();
+            }
+        });
+
+        // --- 10. Start Live Loop ---
+        startSectorOpsLiveLoop();
+
+    } catch (error) {
+        console.error("Error initializing Sector Ops view:", error);
+        showNotification(error.message, 'error');
+    } finally {
+        mainContentLoader.classList.remove('active');
     }
+}
+
+// Helper to create recall buttons if they aren't in the DOM
+function createRecallButton(type) {
+    // This is just a placeholder to prevent crashes if elements aren't found
+    const btn = document.createElement('button');
+    btn.id = `${type}-recall-btn`;
+    btn.style.display = 'none';
+    document.body.appendChild(btn);
+    return btn;
+}
 
 
 function initializeSectorOpsMap(centerICAO) {
@@ -10387,91 +9428,99 @@ function updateFmsLegsModule(plan, currentPos) {
 
 
 function setupSectorOpsEventListeners() {
-    const panel = document.getElementById('sector-ops-floating-panel');
-    if (!panel || panel.dataset.listenersAttached === 'true') return;
-    panel.dataset.listenersAttached = 'true';
+    // --- 1. Server Menu Toggle Logic ---
+    const serverBtn = document.getElementById('server-btn');
+    const serverMenu = document.getElementById('server-menu');
+    
+    if (serverBtn && serverMenu) {
+        // Toggle menu on button click
+        serverBtn.addEventListener('click', (e) => {
+            e.stopPropagation(); // Prevent closing immediately
+            serverMenu.classList.toggle('hidden');
+        });
 
-    // --- START: REFACTORED for Toolbar and Panel Toggle ---
-    const internalToggleBtn = document.getElementById('sector-ops-toggle-btn');
-    const toolbarToggleBtn = document.getElementById('toolbar-toggle-panel-btn');
+        // Close menu when clicking outside
+        document.addEventListener('click', (e) => {
+            if (!serverBtn.contains(e.target) && !serverMenu.contains(e.target)) {
+                serverMenu.classList.add('hidden');
+            }
+        });
 
-    const togglePanel = () => {
-        const isNowCollapsed = panel.classList.toggle('panel-collapsed');
-        
-        // Update UI state for both buttons
-        if (internalToggleBtn) {
-            internalToggleBtn.setAttribute('aria-expanded', !isNowCollapsed);
-        }
-        if (toolbarToggleBtn) {
-            toolbarToggleBtn.classList.toggle('active', !isNowCollapsed);
-        }
-
-        // Resize the map
-        if (sectorOpsMap) {
-            setTimeout(() => {
-                sectorOpsMap.resize();
-            }, 400); // Match CSS transition duration
-        }
-    };
-
-    if (internalToggleBtn) {
-        internalToggleBtn.addEventListener('click', togglePanel);
+        // Handle Server Selection logic
+        const serverOptions = serverMenu.querySelectorAll('.server-select-btn');
+        serverOptions.forEach(btn => {
+            btn.addEventListener('click', (e) => {
+                const targetServer = btn.dataset.server;
+                if (targetServer && targetServer !== currentServerName) {
+                    switchServer(targetServer);
+                    
+                    // Visual Update: Active Class & Checkmark
+                    serverOptions.forEach(b => {
+                        const check = b.querySelector('.server-check');
+                        if (b.dataset.server === targetServer) {
+                            b.classList.add('active');
+                            if(check) check.style.opacity = '1';
+                        } else {
+                            b.classList.remove('active');
+                            if(check) check.style.opacity = '0';
+                        }
+                    });
+                }
+                // Close menu
+                serverMenu.classList.add('hidden');
+            });
+        });
     }
-    if (toolbarToggleBtn) {
-        toolbarToggleBtn.addEventListener('click', togglePanel);
-    }
-    // --- END: REFACTORED for Toolbar and Panel Toggle ---
 
-    // --- [MODIFIED] Add listener for the NEW single weather button ---
+    // --- 2. Weather Toggle Logic ---
     const openWeatherBtn = document.getElementById('open-weather-settings-btn');
-    if (openWeatherBtn) {
-        openWeatherBtn.addEventListener('click', () => {
-            // Toggle visibility of the new window
-            if (weatherSettingsWindow) {
-                const isVisible = weatherSettingsWindow.classList.toggle('visible');
-                if (isVisible) {
-                    if (typeof MobileUIHandler !== 'undefined') MobileUIHandler.openWindow(weatherSettingsWindow);
-                } else {
-                    if (typeof MobileUIHandler !== 'undefined') MobileUIHandler.closeActiveWindow();
+    if (openWeatherBtn && weatherSettingsWindow) {
+        openWeatherBtn.addEventListener('click', (e) => {
+            e.stopPropagation();
+            // Toggle the 'hidden' class to show/hide
+            if (weatherSettingsWindow.classList.contains('hidden')) {
+                weatherSettingsWindow.classList.remove('hidden');
+                openWeatherBtn.classList.add('active'); // Highlight button
+            } else {
+                weatherSettingsWindow.classList.add('hidden');
+                // Only remove active if no layers are actually on (checked in listener)
+                updateToolbarButtonStates();
+            }
+        });
+
+        // Close button inside the widget
+        const closeWxBtn = weatherSettingsWindow.querySelector('.weather-window-close-btn');
+        if (closeWxBtn) {
+            closeWxBtn.addEventListener('click', () => {
+                weatherSettingsWindow.classList.add('hidden');
+                updateToolbarButtonStates();
+            });
+        }
+
+        // Setup the switches inside the weather widget
+        weatherSettingsWindow.addEventListener('change', (e) => {
+            const target = e.target;
+            if (target.type === 'checkbox') {
+                const isChecked = target.checked;
+                switch (target.id) {
+                    case 'weather-toggle-precip': toggleWeatherLayer(isChecked); break;
+                    case 'weather-toggle-sigmets': toggleSigmetLayer(isChecked); break;
+                    case 'weather-toggle-clouds': toggleCloudLayer(isChecked); break; // Ensure this func exists or remove
+                    case 'weather-toggle-wind': toggleWindLayer(isChecked); break; // Ensure this func exists or remove
                 }
+                updateToolbarButtonStates();
             }
         });
     }
 
-    // --- [START NEW FILTER BUTTON LISTENER] ---
-    const openFilterBtn = document.getElementById('open-filter-settings-btn');
-    if (openFilterBtn) {
-        openFilterBtn.addEventListener('click', () => {
-            // Toggle visibility of the new window
-            if (filterSettingsWindow) {
-                const isVisible = filterSettingsWindow.classList.toggle('visible');
-                if (isVisible) {
-                    if (typeof MobileUIHandler !== 'undefined') MobileUIHandler.openWindow(filterSettingsWindow);
-                } else {
-                    if (typeof MobileUIHandler !== 'undefined') MobileUIHandler.closeActiveWindow();
-                }
-            }
+    // --- 3. Settings Open Button ---
+    const openSettingsBtn = document.getElementById('open-filter-settings-btn');
+    if (openSettingsBtn && filterSettingsWindow) {
+        openSettingsBtn.addEventListener('click', () => {
+            filterSettingsWindow.classList.remove('hidden');
+            filterSettingsWindow.classList.add('visible'); // Use flex via CSS
         });
     }
-    // --- [END NEW FILTER BUTTON LISTENER] ---
-
-    // --- [NEW] Server Selector Listeners ---
-    const serverContainer = document.getElementById('server-selector-container');
-    if (serverContainer) {
-        serverContainer.addEventListener('click', (e) => {
-            const btn = e.target.closest('.server-btn');
-            if (btn) {
-                const selectedServer = btn.dataset.server;
-                if (selectedServer) {
-                    // Call the global switch logic
-                    switchServer(selectedServer);
-                }
-            }
-        });
-    }
-
-    // --- [NEW] Global Message Listener for Iframe Communication ---
-    window.addEventListener('message', handleIframeMessage);
 }
 
 /**
@@ -10780,243 +9829,71 @@ function processRawPilotData(gradeInfo) {
 
 
 function setupFilterSettingsWindowEvents() {
-    if (!filterSettingsWindow || filterSettingsWindow.dataset.eventsAttached === 'true') {
-        return;
-    }
+    if (!filterSettingsWindow || filterSettingsWindow.dataset.eventsAttached === 'true') return;
 
-    // --- Helper: Convert Hex to RGBA ---
-    const hexToRgba = (hex, alpha) => {
-        const r = parseInt(hex.slice(1, 3), 16);
-        const g = parseInt(hex.slice(3, 5), 16);
-        const b = parseInt(hex.slice(5, 7), 16);
-        return `rgba(${r}, ${g}, ${b}, ${alpha})`;
+    // --- 1. Close/Hide Logic ---
+    const closeSettings = () => {
+        filterSettingsWindow.classList.remove('visible');
+        filterSettingsWindow.classList.add('hidden');
     };
 
-    // --- Helper: Apply Theme to CSS Vars ---
-    const applyWindowTheme = (startHex, endHex) => {
-        const root = document.documentElement;
-        const opacity = (mapFilters.themeOpacity || 95) / 100;
-        
-        root.style.setProperty('--iw-bg-start', hexToRgba(startHex, opacity));
-        root.style.setProperty('--iw-bg-end', hexToRgba(endHex, opacity));
-    };
-
-    // --- Helper: Set UI from State ---
-    const setUIFromState = () => {
-        // Toggles
-        document.getElementById('filter-toggle-atc').checked = mapFilters.hideAtcMarkers;
-        document.getElementById('filter-toggle-satellite-mode').checked = (currentMapStyle === MAP_STYLE_SATELLITE);
-        document.getElementById('filter-toggle-aircraft-labels').checked = mapFilters.showAircraftLabels;
-        
-        // Simple Window Toggle
-        const simpleWindowToggle = document.getElementById('filter-toggle-simple-window');
-        if (simpleWindowToggle) {
-            simpleWindowToggle.checked = mapFilters.useSimpleFlightWindow;
-        }
-
-        // Radios
-        const colorRadio = document.querySelector(`input[name="icon-color-mode"][value="${mapFilters.iconColorMode}"]`);
-        if (colorRadio) colorRadio.checked = true;
-        
-        const planRadio = document.querySelector(`input[name="plan-display-mode"][value="${mapFilters.planDisplayMode}"]`);
-        if (planRadio) planRadio.checked = true;
-
-        // Colors
-        document.getElementById('theme-color-start').value = mapFilters.themeStartColor || '#121426';
-        document.getElementById('theme-color-end').value = mapFilters.themeEndColor || '#121426';
-        
-        // Apply immediately on load
-        applyWindowTheme(mapFilters.themeStartColor, mapFilters.themeEndColor);
-
-        // Mobile-specific
-        const currentMobileMode = localStorage.getItem('mobileDisplayMode') || 'legacy'; // Default to legacy
-        const mobileModeHud = document.getElementById('mobile-mode-hud');
-        const mobileModeLegacy = document.getElementById('mobile-mode-legacy');
-        
-        if (mobileModeHud && mobileModeLegacy) {
-            // [UPDATED] If Simple Window is active, force UI to reflect Locked Legacy Mode
-            if (mapFilters.useSimpleFlightWindow) {
-                mobileModeLegacy.checked = true;
-                mobileModeHud.disabled = true; // Lock HUD option
-                mobileModeHud.parentElement.style.opacity = '0.5'; // Visual feedback
-            } else {
-                mobileModeHud.disabled = false;
-                mobileModeHud.parentElement.style.opacity = '1';
-                
-                if (currentMobileMode === 'legacy') {
-                    mobileModeLegacy.checked = true;
-                } else {
-                    mobileModeHud.checked = true;
-                }
-            }
-        }
-    };
-    
-    // --- Set the UI when the window is first set up ---
-    setUIFromState();
-
-    // --- Event Listener: Color Inputs (Input = Realtime Preview) ---
-    const startPicker = document.getElementById('theme-color-start');
-    const endPicker = document.getElementById('theme-color-end');
-    const resetBtn = document.getElementById('theme-reset-btn');
-
-    const handleColorChange = () => {
-        const s = startPicker.value;
-        const e = endPicker.value;
-        applyWindowTheme(s, e);
-        // Update state
-        mapFilters.themeStartColor = s;
-        mapFilters.themeEndColor = e;
-        saveFiltersToLocalStorage();
-    };
-
-    if (startPicker) startPicker.addEventListener('input', handleColorChange);
-    if (endPicker) endPicker.addEventListener('input', handleColorChange);
-
-    if (resetBtn) {
-        resetBtn.addEventListener('click', () => {
-            const defColor = '#121426';
-            startPicker.value = defColor;
-            endPicker.value = defColor;
-            applyWindowTheme(defColor, defColor);
-            
-            mapFilters.themeStartColor = defColor;
-            mapFilters.themeEndColor = defColor;
-            saveFiltersToLocalStorage();
-            showNotification("Window theme reset to default.", "success");
-        });
-    }
-
-    // Use a single listener on the window for better performance
     filterSettingsWindow.addEventListener('click', (e) => {
         const target = e.target;
-        if (target.closest('.filter-window-close-btn') || target.closest('.filter-window-hide-btn')) {
-            filterSettingsWindow.classList.remove('visible');
-            MobileUIHandler.closeActiveWindow();
+        // Close on X button
+        if (target.closest('.filter-window-close-btn')) {
+            closeSettings();
+        }
+        // Close on clicking backdrop (the dark overlay)
+        if (target === filterSettingsWindow) {
+            closeSettings();
         }
     });
 
-    // Use a 'change' listener for all toggles and radios
+    // --- 2. Initial State Sync ---
+    // Sync toggles with current mapFilters state
+    const setChecked = (id, val) => {
+        const el = document.getElementById(id);
+        if(el) el.checked = val;
+    };
+    
+    setChecked('filter-toggle-atc', mapFilters.hideAtcMarkers);
+    setChecked('filter-toggle-satellite-mode', currentMapStyle === MAP_STYLE_SATELLITE);
+    setChecked('filter-toggle-aircraft-labels', mapFilters.showAircraftLabels);
+    setChecked('filter-toggle-simple-window', mapFilters.useSimpleFlightWindow);
+
+    // --- 3. Toggle Logic ---
     filterSettingsWindow.addEventListener('change', (e) => {
         const target = e.target;
-        
-        // [UPDATED] Handle Simple Window Toggle & Interdependency
-        if (target.id === 'filter-toggle-simple-window') {
-            mapFilters.useSimpleFlightWindow = target.checked;
-            saveFiltersToLocalStorage();
-            
-            const mobileModeHud = document.getElementById('mobile-mode-hud');
-            const mobileModeLegacy = document.getElementById('mobile-mode-legacy');
+        if (target.type !== 'checkbox') return;
 
-            if (target.checked) {
-                // LOCK OUT HUD MODE
-                if (mobileModeHud) {
-                    mobileModeHud.disabled = true;
-                    mobileModeHud.parentElement.style.opacity = '0.5';
-                }
-                if (mobileModeLegacy) {
-                    mobileModeLegacy.checked = true;
-                }
-                // Force save 'legacy' to storage so UI Handler picks it up next time
-                localStorage.setItem('mobileDisplayMode', 'legacy');
-            } else {
-                // UNLOCK HUD MODE
-                if (mobileModeHud) {
-                    mobileModeHud.disabled = false;
-                    mobileModeHud.parentElement.style.opacity = '1';
-                }
-            }
-            
-            // If a window is currently open, reload it to reflect changes
+        // Map filters
+        if (target.id === 'filter-toggle-atc') {
+            mapFilters.hideAtcMarkers = target.checked;
+            renderAirportMarkers();
+        }
+        else if (target.id === 'filter-toggle-aircraft-labels') {
+            mapFilters.showAircraftLabels = target.checked;
+            updateAircraftLabelVisibility();
+        }
+        else if (target.id === 'filter-toggle-simple-window') {
+            mapFilters.useSimpleFlightWindow = target.checked;
+            // Force reload window if open
             if (currentFlightInWindow) {
                 const closeBtn = document.querySelector('.aircraft-window-close-btn');
                 if (closeBtn) closeBtn.click();
             }
-            return;
         }
-
-        // Handle Flight Plan Radio Logic
-        if (target.name === 'plan-display-mode') {
-            mapFilters.planDisplayMode = target.value;
-            saveFiltersToLocalStorage(); 
-            if (currentFlightInWindow && cachedFlightDataForStatsView.plan) {
-                const { flightProps, plan } = cachedFlightDataForStatsView;
-                const position = currentAircraftPositionForGeocode || flightProps.position;
-                updateFlightPlanLayer(currentFlightInWindow, plan, position);
-            }
-            return;
-        }
-        
-        // Handle Icon Color Radio Logic
-        if (target.name === 'icon-color-mode') {
-            mapFilters.iconColorMode = target.value;
-            saveFiltersToLocalStorage(); 
-            const newExpression = getIconImageExpression(mapFilters.iconColorMode);
-            if (sectorOpsMap && sectorOpsMap.getLayer('sector-ops-live-flights-layer')) {
-                sectorOpsMap.setLayoutProperty('sector-ops-live-flights-layer', 'icon-image', newExpression);
-            }
-            return; 
-        }
-        
-        // Handle Mobile Display Mode Radio Logic
-        if (target.name === 'mobile-display-mode') {
-            // Prevent changing if locked (double check for safety)
-            if (mapFilters.useSimpleFlightWindow && target.value === 'hud') {
-                target.checked = false;
-                document.getElementById('mobile-mode-legacy').checked = true;
-                return;
-            }
-
-            const newMode = target.value;
-            localStorage.setItem('mobileDisplayMode', newMode);
-            if (!document.getElementById('mobile-mode-note')) {
-                document.getElementById('mobile-mode-filter-group').insertAdjacentHTML(
-                    'beforeend',
-                    '<p id="mobile-mode-note" class="muted-text" style="padding: 10px 0 0 0; text-align: left; font-size: 0.8rem;">Changes will apply the next time you open an aircraft window.</p>'
-                );
-            }
-            return; 
-        }
-
-        if (target.type !== 'checkbox') return;
-
-        // Handle Aircraft Label Toggle
-        if (target.id === 'filter-toggle-aircraft-labels') {
-            mapFilters.showAircraftLabels = target.checked;
-            saveFiltersToLocalStorage(); 
-            updateAircraftLabelVisibility(); 
-            return;
-        }
-
-        // Handle Map Style Logic
-        const satelliteModeToggle = document.getElementById('filter-toggle-satellite-mode');
-        let styleChanged = false;
-        let newMapStyle = currentMapStyle;
-
-        if (target.id === 'filter-toggle-satellite-mode') {
+        else if (target.id === 'filter-toggle-satellite-mode') {
             if (target.checked) {
-                newMapStyle = MAP_STYLE_SATELLITE;
+                currentMapStyle = MAP_STYLE_SATELLITE;
             } else {
-                newMapStyle = MAP_STYLE_DARK; 
+                currentMapStyle = MAP_STYLE_DARK;
             }
-            styleChanged = true;
-        }
-
-        // Update mapFilters state
-        mapFilters.showVaOnly = document.getElementById('filter-toggle-members-only')?.checked || false;
-        mapFilters.hideAtcMarkers = document.getElementById('filter-toggle-atc')?.checked || false;
-        mapFilters.hideNoAtcMarkers = document.getElementById('filter-toggle-no-atc')?.checked || false;
-        
-        if (styleChanged && newMapStyle !== currentMapStyle) {
-            console.log(`Changing map style to: ${newMapStyle}`);
-            currentMapStyle = newMapStyle;
+            console.log(`Changing map style to: ${currentMapStyle}`);
             sectorOpsMap.setStyle(currentMapStyle);
-        } else if (!styleChanged) {
-            saveFiltersToLocalStorage(); 
-            updateMapFilters();
         }
 
-        updateToolbarButtonStates(); 
+        saveFiltersToLocalStorage();
     });
 
     filterSettingsWindow.dataset.eventsAttached = 'true';
