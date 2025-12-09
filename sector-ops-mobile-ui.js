@@ -1,3 +1,7 @@
+{
+type: "file_content",
+fileName: "sector-ops-mobile-ui.js",
+fullContent: `
 const MobileUIHandler = {
     // --- CONFIGURATION ---
     CONFIG: {
@@ -12,7 +16,7 @@ const MobileUIHandler = {
     activeMode: 'legacy', // Defaults to legacy
     topWindowEl: null, // HUD Mode: Top window
     overlayEl: null, // Shared: Overlay
-    serverSheetEl: null, // [NEW] Server Switcher Sheet
+    serverSheetEl: null, // Server Switcher Sheet
     closeTimer: null,
     
     // [HUD] Island elements
@@ -44,25 +48,13 @@ const MobileUIHandler = {
 
     /**
      * [MODIFIED] Restores the main map UI controls
-     * and clears any inline styles that were set.
      */
     restoreMapControls() {
-        const burgerMenu = document.getElementById('mobile-sidebar-toggle');
-        // Find the map toolbar by finding the parent of one of its buttons
-        const mapToolbar = document.getElementById('toolbar-toggle-panel-btn')?.parentElement;
-        const searchBar = document.getElementById('sector-ops-search-container');
-        const desktopServerPill = document.getElementById('server-selector-container'); // [NEW] Desktop Pill
-        
-        // Revert to stylesheet defaults
-        if (burgerMenu) burgerMenu.style.display = ''; 
-        if (mapToolbar) mapToolbar.style.display = '';
-        if (searchBar) searchBar.style.display = '';
-        if (desktopServerPill) desktopServerPill.style.display = '';
-        
-        // --- [FIX] Remove 'mobile-ui-active' class from the map container ---
         const mapContainer = document.getElementById('sector-ops-map-fullscreen');
-        if (mapContainer) mapContainer.classList.remove('mobile-ui-active');
-        // --- [END FIX] ---
+        if (mapContainer) {
+            mapContainer.classList.remove('mobile-ui-active'); // For general mobile state
+            mapContainer.classList.remove('mobile-window-open'); // [FIX] Specific flag for open windows
+        }
     },
 
     /**
@@ -92,7 +84,24 @@ const MobileUIHandler = {
             }
         });
         
-        console.log("Mobile UI Handler (HUD Rehaul v9.0 - Icons) Initialized.");
+        // Listen for clicks outside search to close it (if active)
+        document.addEventListener('click', (e) => {
+            if (this.isMobile()) {
+                const searchContainer = document.getElementById('sector-ops-search-container');
+                const searchBtn = document.getElementById('mobile-btn-search');
+                const mapContainer = document.getElementById('sector-ops-map-fullscreen');
+                
+                // If search is open
+                if (mapContainer && mapContainer.classList.contains('mobile-search-open')) {
+                    // If click is NOT inside search container AND NOT on the search button
+                    if (searchContainer && !searchContainer.contains(e.target) && (!searchBtn || !searchBtn.contains(e.target))) {
+                        this.toggleMobileSearch(false);
+                    }
+                }
+            }
+        });
+
+        console.log("Mobile UI Handler (HUD Rehaul v9.5 - Search Fix) Initialized.");
     },
 
     /**
@@ -115,17 +124,21 @@ const MobileUIHandler = {
         const currentServer = localStorage.getItem('preferredServer') || 'Expert Server';
         const shortServerName = currentServer.split(' ')[0]; // "Expert"
 
-        const serverPillHTML = `
+        const serverPillHTML = \`
             <div id="mobile-server-pill" class="mobile-glass-pill">
                 <div class="status-dot"></div>
-                <span id="mobile-server-name">${shortServerName}</span>
+                <span id="mobile-server-name">\${shortServerName}</span>
                 <i class="fa-solid fa-chevron-down" style="font-size: 0.7rem; opacity: 0.7;"></i>
             </div>
-        `;
+        \`;
 
-        // --- 3. Top Right: Action Stack (Weather & Filters) ---
-        const actionStackHTML = `
+        // --- 3. Top Right: Action Stack (Search, Weather, Filters) ---
+        // [UPDATED] Added Search Button here
+        const actionStackHTML = \`
             <div class="mobile-action-stack">
+                <button id="mobile-btn-search" class="mobile-glass-sq-btn">
+                    <i class="fa-solid fa-magnifying-glass"></i>
+                </button>
                 <button id="mobile-btn-weather" class="mobile-glass-sq-btn">
                     <i class="fa-solid fa-cloud-sun"></i>
                 </button>
@@ -133,7 +146,7 @@ const MobileUIHandler = {
                     <i class="fa-solid fa-layer-group"></i>
                 </button>
             </div>
-        `;
+        \`;
 
         controlsContainer.innerHTML = serverPillHTML + actionStackHTML;
         mapContainer.appendChild(controlsContainer);
@@ -143,6 +156,12 @@ const MobileUIHandler = {
         // Server Switcher
         document.getElementById('mobile-server-pill').addEventListener('click', () => {
             this.openServerSheet();
+        });
+
+        // [NEW] Mobile Search Toggle
+        document.getElementById('mobile-btn-search').addEventListener('click', (e) => {
+            e.stopPropagation(); // Prevent document click from closing it immediately
+            this.toggleMobileSearch(true);
         });
 
         // Weather
@@ -156,6 +175,25 @@ const MobileUIHandler = {
             const btn = document.getElementById('open-filter-settings-btn'); // Trigger desktop logic
             if (btn) btn.click();
         });
+    },
+
+    /**
+     * [NEW] Toggles the visibility of the search bar on mobile
+     */
+    toggleMobileSearch(show) {
+        const mapContainer = document.getElementById('sector-ops-map-fullscreen');
+        const searchInput = document.getElementById('sector-ops-search-input');
+        
+        if (!mapContainer) return;
+
+        if (show) {
+            mapContainer.classList.add('mobile-search-open');
+            // Focus the input automatically
+            if (searchInput) setTimeout(() => searchInput.focus(), 100);
+        } else {
+            mapContainer.classList.remove('mobile-search-open');
+            if (searchInput) searchInput.blur();
+        }
     },
 
     /**
@@ -174,38 +212,38 @@ const MobileUIHandler = {
         
         const current = localStorage.getItem('preferredServer') || 'Expert Server';
 
-        sheet.innerHTML = `
+        sheet.innerHTML = \`
             <div class="sheet-header">
                 <span>Select Server</span>
                 <button id="close-server-sheet"><i class="fa-solid fa-xmark"></i></button>
             </div>
             <div class="server-options-list">
-                <button class="server-opt-btn ${current === 'Expert Server' ? 'active' : ''}" data-server="Expert Server">
+                <button class="server-opt-btn \${current === 'Expert Server' ? 'active' : ''}" data-server="Expert Server">
                     <div class="server-icon expert"><i class="fa-solid fa-trophy"></i></div>
                     <div class="server-info">
                         <span class="s-name">Expert Server</span>
                         <span class="s-desc">Strict Rules • Live ATC</span>
                     </div>
-                    ${current === 'Expert Server' ? '<i class="fa-solid fa-check"></i>' : ''}
+                    \${current === 'Expert Server' ? '<i class="fa-solid fa-check"></i>' : ''}
                 </button>
-                <button class="server-opt-btn ${current === 'Training Server' ? 'active' : ''}" data-server="Training Server">
+                <button class="server-opt-btn \${current === 'Training Server' ? 'active' : ''}" data-server="Training Server">
                     <div class="server-icon training"><i class="fa-solid fa-graduation-cap"></i></div>
                     <div class="server-info">
                         <span class="s-name">Training Server</span>
                         <span class="s-desc">Learning Environment</span>
                     </div>
-                    ${current === 'Training Server' ? '<i class="fa-solid fa-check"></i>' : ''}
+                    \${current === 'Training Server' ? '<i class="fa-solid fa-check"></i>' : ''}
                 </button>
-                <button class="server-opt-btn ${current === 'Casual Server' ? 'active' : ''}" data-server="Casual Server">
+                <button class="server-opt-btn \${current === 'Casual Server' ? 'active' : ''}" data-server="Casual Server">
                     <div class="server-icon casual"><i class="fa-solid fa-plane-arrival"></i></div>
                     <div class="server-info">
                         <span class="s-name">Casual Server</span>
                         <span class="s-desc">Free Flight • No Violations</span>
                     </div>
-                    ${current === 'Casual Server' ? '<i class="fa-solid fa-check"></i>' : ''}
+                    \${current === 'Casual Server' ? '<i class="fa-solid fa-check"></i>' : ''}
                 </button>
             </div>
-        `;
+        \`;
 
         // Overlay
         const overlay = document.createElement('div');
@@ -238,7 +276,7 @@ const MobileUIHandler = {
                 if (pillText) pillText.textContent = newServer.split(' ')[0];
 
                 // Trigger Desktop Logic
-                const desktopBtn = document.querySelector(`.server-btn[data-server="${newServer}"]`);
+                const desktopBtn = document.querySelector(\`.server-btn[data-server="\${newServer}"]\`);
                 if (desktopBtn) desktopBtn.click();
 
                 overlay.click(); // Close
@@ -248,13 +286,12 @@ const MobileUIHandler = {
 
     /**
      * [MODIFIED] Injects all the CSS for the new HUD-themed floating islands.
-     * Includes improved styling for the mobile search bar.
      */
     injectMobileStyles() {
         const styleId = 'mobile-sector-ops-styles';
         if (document.getElementById(styleId)) document.getElementById(styleId).remove();
 
-        const css = `
+        const css = \`
             :root {
                 --hud-bg: rgba(15, 20, 35, 0.85);
                 --hud-blur: 20px;
@@ -269,7 +306,7 @@ const MobileUIHandler = {
                 --island-side-margin: 10px;
 
                 /* --- [NEW] Legacy Sheet Config --- */
-                --legacy-peek-height: ${this.CONFIG.legacyPeekHeight}px;
+                --legacy-peek-height: \${this.CONFIG.legacyPeekHeight}px;
                 --legacy-top-offset: env(safe-area-inset-top, 15px);
             }
             
@@ -279,9 +316,37 @@ const MobileUIHandler = {
                 overflow: hidden;
             }
 
-            /* --- Hide Desktop UI elements on Mobile --- */
-            @media (max-width: ${this.CONFIG.breakpoint}px) {
+            /* --- [CRITICAL FIX] Hide Clutter when Mobile Window (or Search) is Open --- */
+            /* This effectively clears the "other icons" the user complained about */
+            
+            #sector-ops-map-fullscreen.mobile-window-open .mapboxgl-control-container,
+            #sector-ops-map-fullscreen.mobile-window-open .mobile-action-stack,
+            #sector-ops-map-fullscreen.mobile-window-open #mobile-server-pill,
+            #sector-ops-map-fullscreen.mobile-window-open #mobile-sidebar-toggle,
+            #sector-ops-map-fullscreen.mobile-window-open #server-selector-container {
+                display: none !important;
+                opacity: 0 !important;
+                pointer-events: none !important;
+            }
+
+            /* Also hide controls when SEARCH is open */
+            #sector-ops-map-fullscreen.mobile-search-open .mobile-action-stack,
+            #sector-ops-map-fullscreen.mobile-search-open #mobile-server-pill,
+            #sector-ops-map-fullscreen.mobile-search-open #mobile-sidebar-toggle,
+            #sector-ops-map-fullscreen.mobile-search-open .mapboxgl-control-container {
+                display: none !important;
+            }
+
+            /* --- Hide Desktop UI elements on Mobile permanently --- */
+            @media (max-width: \${this.CONFIG.breakpoint}px) {
                 #server-selector-container { display: none !important; }
+                
+                /* Hide Mapbox controls by default on mobile if you want a clean HUD look
+                   Or only hide them when windows are open (logic above) */
+                .mapboxgl-ctrl-bottom-left, 
+                .mapboxgl-ctrl-bottom-right { 
+                    /* optional: display: none; */ 
+                }
             }
 
             /* ====================================================================
@@ -319,7 +384,7 @@ const MobileUIHandler = {
                 font-weight: 600;
                 font-size: 0.85rem;
                 box-shadow: 0 4px 15px rgba(0,0,0,0.3);
-                transition: transform 0.2s ease;
+                transition: transform 0.2s ease, opacity 0.2s;
             }
             .mobile-glass-pill:active { transform: scale(0.95); }
 
@@ -339,6 +404,7 @@ const MobileUIHandler = {
                 flex-direction: column;
                 gap: 10px;
                 pointer-events: auto;
+                transition: opacity 0.2s;
             }
 
             .mobile-glass-sq-btn {
@@ -430,56 +496,59 @@ const MobileUIHandler = {
             .s-desc { font-size: 0.8rem; color: #94a3b8; }
 
             /* ====================================================================
-            --- [START] UPDATED: Search Bar Mobile Positioning (Glass Pill) ---
+            --- [UPDATED] Search Bar Mobile Positioning (Hidden by default) ---
             ==================================================================== */
-            @media (max-width: ${this.CONFIG.breakpoint}px) {
+            @media (max-width: \${this.CONFIG.breakpoint}px) {
                 #sector-ops-search-container {
+                    /* Hide by default on mobile */
+                    display: none !important; 
+                    
                     position: absolute !important;
-                    /* Sits lower to clear the notch/status bar gracefully */
                     top: calc(env(safe-area-inset-top, 20px) + 15px) !important; 
-                    left: 50% !important;
-                    transform: translateX(-50%) !important;
-                    /* Narrower to fit between new buttons */
-                    width: calc(100% - 140px) !important; 
-                    max-width: 450px !important;
+                    left: 15px !important;
+                    right: 15px !important;
+                    width: auto !important; /* Full width minus margins */
+                    max-width: none !important;
                     z-index: 1030 !important;
                     pointer-events: auto !important;
+                    
+                    /* Animation */
+                    opacity: 0;
+                    transform: translateY(-20px);
+                    transition: all 0.3s cubic-bezier(0.16, 1, 0.3, 1) !important;
+                }
+
+                /* Show when parent map has 'mobile-search-open' class */
+                #sector-ops-map-fullscreen.mobile-search-open #sector-ops-search-container {
+                    display: flex !important;
+                    opacity: 1;
+                    transform: translateY(0);
                 }
 
                 #sector-ops-search-container .search-bar-container {
                     display: flex !important;
                     align-items: center !important;
-                    /* Darker, richer background for better contrast */
-                    background: rgba(15, 20, 35, 0.90) !important;
-                    backdrop-filter: blur(20px) !important;
-                    -webkit-backdrop-filter: blur(20px) !important;
-                    
-                    border: 1px solid rgba(255, 255, 255, 0.1) !important;
-                    /* Full pill shape */
-                    border-radius: 50px !important; 
-                    
-                    box-shadow: 0 8px 32px rgba(0, 0, 0, 0.5) !important;
-                    padding: 0 6px !important; /* Padding for the icons */
-                    height: 44px !important; /* Matches the square buttons */
+                    background: rgba(15, 20, 35, 0.95) !important;
+                    backdrop-filter: blur(25px) !important;
+                    -webkit-backdrop-filter: blur(25px) !important;
+                    border: 1px solid var(--hud-accent) !important; /* Blue border when active */
+                    border-radius: 12px !important; /* Rectangle vs Pill */
+                    box-shadow: 0 8px 32px rgba(0, 0, 0, 0.6) !important;
+                    padding: 0 6px !important;
+                    height: 50px !important; /* Slightly taller */
                     transition: all 0.3s ease !important;
                 }
                 
-                /* Focus state glow */
-                #sector-ops-search-container:focus-within .search-bar-container {
-                    border-color: var(--hud-accent) !important;
-                    box-shadow: 0 8px 32px rgba(0, 0, 0, 0.6), 0 0 15px rgba(0, 168, 255, 0.2) !important;
-                }
-
                 /* Search Icon */
                 #sector-ops-search-container .search-icon-label {
                     display: flex !important;
                     align-items: center !important;
                     justify-content: center !important;
                     width: 40px !important;
-                    height: 40px !important;
+                    height: 100% !important;
                     margin: 0 !important;
                     color: var(--hud-accent) !important;
-                    opacity: 0.8;
+                    opacity: 1;
                 }
 
                 /* Input Field */
@@ -508,25 +577,25 @@ const MobileUIHandler = {
                     color: #fff !important;
                     border: none !important;
                     border-radius: 50% !important;
-                    width: 28px !important;
-                    height: 28px !important;
+                    width: 32px !important;
+                    height: 32px !important;
                     display: flex !important;
                     align-items: center !important;
                     justify-content: center !important;
                     margin-right: 6px !important;
                     cursor: pointer !important;
-                    font-size: 0.9rem !important;
+                    font-size: 1rem !important;
                 }
                 
                 /* Results Dropdown - Floating Card Style */
                 #search-results-dropdown {
-                    margin-top: 12px !important; /* Gap between bar and results */
+                    margin-top: 8px !important; 
                     width: 100% !important;
                     background: rgba(15, 20, 35, 0.95) !important;
                     backdrop-filter: blur(25px) !important;
                     -webkit-backdrop-filter: blur(25px) !important;
                     border: 1px solid rgba(255, 255, 255, 0.08) !important;
-                    border-radius: 16px !important;
+                    border-radius: 12px !important;
                     overflow: hidden !important;
                     box-shadow: 0 15px 50px rgba(0, 0, 0, 0.6) !important;
                     max-height: 60vh !important;
@@ -960,13 +1029,13 @@ const MobileUIHandler = {
                 /* The handle will wrap this */
             }
 
-            @media (max-width: ${this.CONFIG.breakpoint}px) {
+            @media (max-width: \${this.CONFIG.breakpoint}px) {
                 #aircraft-info-window:not(.mobile-legacy-sheet), 
                 #airport-info-window {
                     display: none !important;
                 }
             }
-        `;
+        \`;
         const style = document.createElement('style');
         style.id = styleId;
         style.type = 'text/css';
@@ -977,7 +1046,6 @@ const MobileUIHandler = {
     /**
      * [MODIFIED] Intercepts the window open command.
      * This now acts as a ROUTER, checking the user's preferred mode.
-     * **NEW: Forces 'Legacy' mode if the Simple Flight Window is active.**
      */
     openWindow(windowElement) {
         if (!this.isMobile()) return;
@@ -988,7 +1056,10 @@ const MobileUIHandler = {
 
         // --- [FIX] Add 'mobile-ui-active' class to the correct map container ---
         const mapContainer = document.getElementById('sector-ops-map-fullscreen');
-        if (mapContainer) mapContainer.classList.add('mobile-ui-active');
+        if (mapContainer) {
+            mapContainer.classList.add('mobile-ui-active');
+            mapContainer.classList.add('mobile-window-open'); // [FIX] New class to strictly hide desktop clutter
+        }
         // --- [END FIX] ---
 
         // Hide HUD controls when a window is open
@@ -1015,9 +1086,6 @@ const MobileUIHandler = {
             // 3. FORCE Legacy mode if Simple Flight Window is active
             if (isSimpleMode) {
                 userMode = 'legacy';
-                // Optional: We can update local storage here if we want the preference to persist
-                // even after they switch simple mode off, or just override it temporarily.
-                // For now, we just override the active session variable.
             }
 
             this.activeMode = userMode;
@@ -1082,28 +1150,28 @@ const MobileUIHandler = {
         this.miniIslandEl = document.createElement('div');
         this.miniIslandEl.id = 'mobile-island-mini';
         this.miniIslandEl.className = 'mobile-island-bottom';
-        this.miniIslandEl.innerHTML = `<div class="route-summary-wrapper-mobile"></div>`;
+        this.miniIslandEl.innerHTML = \`<div class="route-summary-wrapper-mobile"></div>\`;
         viewContainer.appendChild(this.miniIslandEl);
 
         // 4. Bottom Island - State 1 (Peek)
         this.peekIslandEl = document.createElement('div');
         this.peekIslandEl.id = 'mobile-island-peek';
         this.peekIslandEl.className = 'mobile-island-bottom';
-        this.peekIslandEl.innerHTML = `
+        this.peekIslandEl.innerHTML = \`
             <div class="route-summary-wrapper-mobile"></div>
             <div class="drawer-content"></div>
-        `;
+        \`;
         viewContainer.appendChild(this.peekIslandEl);
         
         // 5. Bottom Island - State 2 (Expanded)
         this.expandedIslandEl = document.createElement('div');
         this.expandedIslandEl.id = 'mobile-island-expanded';
         this.expandedIslandEl.className = 'mobile-island-bottom';
-        this.expandedIslandEl.innerHTML = `
+        this.expandedIslandEl.innerHTML = \`
             <div class="route-summary-wrapper-mobile"></div>
             <div id="expanded-tabs-slot"></div>
             <div class="drawer-content"></div>
-        `;
+        \`;
         viewContainer.appendChild(this.expandedIslandEl);
     },
 
@@ -1419,7 +1487,7 @@ const MobileUIHandler = {
 
                 // Activate new tab/pane
                 tabBtn.classList.add('active');
-                const newPane = islandContent.querySelector(`#${tabId}`);
+                const newPane = islandContent.querySelector(\`#\${tabId}\`);
                 if (newPane) {
                     newPane.classList.add('active');
                 }
@@ -1442,7 +1510,7 @@ const MobileUIHandler = {
                                 }
                             });
                         } else {
-                            statsDisplay.innerHTML = `<p class="error-text" style="padding: 1rem;">Could not load pilot data. Missing userId or helper function.</p>`;
+                            statsDisplay.innerHTML = \`<p class="error-text" style="padding: 1rem;">Could not load pilot data. Missing userId or helper function.</p>\`;
                         }
                     }
                 }
@@ -1581,7 +1649,7 @@ const MobileUIHandler = {
             newY = topStop - (overdrag * 0.3); // Resistance
         }
         
-        this.activeWindow.style.transform = `translateY(${newY}px)`;
+        this.activeWindow.style.transform = \`translateY(\${newY}px)\`;
         this.legacySheetState.currentSheetY = newY; // Store last position
     },
 
@@ -1800,3 +1868,5 @@ document.addEventListener('DOMContentLoaded', () => {
     MobileUIHandler.init();
     window.MobileUIHandler = MobileUIHandler; // Make it globally accessible
 });
+`
+}
