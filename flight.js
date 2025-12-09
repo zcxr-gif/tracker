@@ -2487,29 +2487,32 @@ function injectCustomStyles() {
         .stat-alt { color: #38bdf8; } /* Sky Blue */
         .stat-gs { color: #fbbf24; font-size: 0.75rem; font-weight: 600; } /* Amber */
 
-        /* --- RE-DESIGNED SEARCH BAR (MATCHING BOTTOM TOOLS) --- */
+        /* --- [FIXED] RE-DESIGNED SEARCH BAR --- */
 
         /* 1. Container Positioning */
         #sector-ops-search-container {
             position: absolute;
             top: 20px;
             right: 20px;
-            z-index: 2000; /* [FIX] Raised to sit above info windows (1060) */
+            z-index: 2000;
             display: flex;
             flex-direction: column;
-            align-items: flex-end; /* Aligns content to the right */
-            pointer-events: none; /* Let clicks pass through around the bar */
+            align-items: flex-end;
+            pointer-events: none; /* Let background clicks pass */
         }
 
+        /* 2. The Main Capsule */
         .search-bar-container {
-            pointer-events: auto;
+            pointer-events: auto; /* Re-enable clicks */
             position: relative;
-            display: block; 
+            display: flex;
+            align-items: center;
             
             height: 44px;
-            width: 44px; /* Collapsed width */
+            width: 44px; /* Collapsed Width */
             
-            background: var(--bg-glass) !important;
+            /* Dark Glass Background */
+            background: rgba(24, 24, 27, 0.85) !important;
             border: 1px solid var(--border-glass) !important;
             border-radius: 22px; 
             
@@ -2518,24 +2521,24 @@ function injectCustomStyles() {
             box-shadow: 0 4px 20px rgba(0,0,0,0.4) !important;
             
             transition: width 0.4s cubic-bezier(0.16, 1, 0.3, 1), border-radius 0.2s ease;
-            overflow: hidden;
+            overflow: hidden; /* Important for hiding the input text when collapsed */
         }
 
         /* Hover or Focus: Expand Width */
         .search-bar-container:hover,
         .search-bar-container:focus-within,
         .search-bar-container.has-results {
-            width: 260px;
+            width: 260px; /* Expanded Width */
         }
 
-        /* When dropdown is open, flatten bottom corners */
+        /* Flatten bottom when dropdown is open */
         .search-bar-container.has-results {
             border-bottom-left-radius: 0;
             border-bottom-right-radius: 0;
             border-bottom-color: transparent !important;
         }
 
-        /* 3. The Search Icon (The Trigger) */
+        /* 3. The Search Icon (Right Side) */
         .search-icon-label {
             position: absolute;
             right: 0;
@@ -2547,79 +2550,68 @@ function injectCustomStyles() {
             justify-content: center;
             color: var(--text-secondary);
             font-size: 1.1rem;
-            z-index: 200; 
-            pointer-events: none; /* Let clicks pass through to the input */
+            z-index: 10;
+            cursor: pointer;
         }
 
         .search-bar-container:hover .search-icon-label {
             color: #fff;
         }
 
-        /* 4. The Input Field (FIXED) */
+        /* 4. The Input Field [FIXED] */
         .search-bar-container input {
-            /* Force it to sit on top of everything inside the container */
+            /* Position absolutely to fill the container */
             position: absolute !important;
             top: 0;
             left: 0;
             width: 100%;
             height: 100%;
-            z-index: 300 !important; /* [FIX] Higher than icon (200) */
+            z-index: 20 !important; /* Above icon */
             
-            /* Ensure text starts at the left */
+            /* Padding to avoid text hitting the icon */
             padding-left: 20px !important;
-            padding-right: 50px !important; /* Space for icon */
+            padding-right: 44px !important; 
             
             background: transparent !important;
             border: none !important;
             outline: none !important;
             
-            /* Force white text */
+            /* Force Text Color */
             color: #ffffff !important; 
             font-family: var(--font-ui);
             font-size: 0.9rem;
             font-weight: 500;
             text-align: left !important;
             
-            opacity: 0; 
-            cursor: pointer; 
-            transition: opacity 0.2s ease; 
-        }
-        /* Show Input when Expanded */
-        .search-bar-container:hover input,
-        .search-bar-container:focus-within input,
-        .search-bar-container.has-results input {
-            opacity: 1 !important; /* Force visibility */
+            /* Remove opacity transition - rely on overflow hidden */
+            opacity: 1 !important; 
             cursor: text;
         }
 
-
-        /* [FIX] Ensure hint text is fully opaque and visible */
+        /* Fix Placeholder Color */
         .search-bar-container input::placeholder {
-            color: var(--text-secondary) !important;
+            color: #a1a1aa !important;
             opacity: 1; 
         }
 
         /* 5. Clear 'X' Button */
         .search-clear-btn {
             position: absolute;
-            right: 40px; /* Position to the left of the magnifying glass */
+            right: 40px; 
             top: 50%;
             transform: translateY(-50%);
-            
             width: 20px;
             height: 20px;
-            
             background: rgba(255,255,255,0.1);
             border-radius: 50%;
             border: none;
             color: #fff;
-            
             display: none; /* JS toggles flex */
             align-items: center;
             justify-content: center;
             font-size: 0.6rem;
             cursor: pointer;
-            z-index: 400; /* [FIX] Higher than input so it can be clicked */
+            z-index: 30; /* Topmost */
         }
         
         .search-clear-btn:hover {
@@ -2645,7 +2637,6 @@ function injectCustomStyles() {
             overflow-y: auto;
             pointer-events: auto;
             
-            /* Scrollbar */
             scrollbar-width: thin;
             scrollbar-color: var(--border-glass) transparent;
         }
