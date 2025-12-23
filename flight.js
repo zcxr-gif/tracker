@@ -8726,13 +8726,11 @@ function populateAircraftInfoWindow(baseProps, plan, sortedRoutePoints, communit
             position: relative;
         }
         
-        /* --- Seat Sensor Black Compact Redesign --- */
+        /* --- Seat Sensor MINI REDESIGN --- */
         #cockpit-seat-sensor {
             background: #000000;
             border: 1px solid #222;
-            height: 100%; /* Fill the container height */
-            display: flex;
-            flex-direction: column;
+            height: auto; /* Allow it to shrink */
             margin-bottom: 0;
             border-radius: 12px;
             overflow: hidden;
@@ -8741,42 +8739,44 @@ function populateAircraftInfoWindow(baseProps, plan, sortedRoutePoints, communit
         #cockpit-seat-sensor .tech-module-header {
             background: #111;
             border-bottom: 1px solid #222;
-            padding: 6px 10px; /* Reduced header padding */
-            min-height: 28px;
+            padding: 4px 8px; /* Tighter header */
+            min-height: 24px;
+        }
+        #cockpit-seat-sensor .tech-module-title {
+             font-size: 0.65rem; /* Smaller title */
         }
         #cockpit-seat-sensor .tech-module-body {
             background: #050505;
-            flex: 1;
             display: flex;
             flex-direction: column;
-            justify-content: center; /* Center content vertically if space allows */
-            padding: 8px; /* Compact padding */
+            justify-content: flex-start;
+            padding: 6px; /* Very tight padding */
             gap: 6px;
         }
         
         .cockpit-view-container {
-            flex: 0 0 auto; /* Don't grow too much */
+            flex: 0 0 auto;
             display: flex;
             align-items: center;
             justify-content: center;
             background: radial-gradient(circle at center, #1a1a1a 0%, #000 70%);
-            border-radius: 8px;
+            border-radius: 6px;
             border: 1px solid #222;
-            padding: 8px;
+            padding: 6px 4px; /* Reduced padding */
             position: relative;
         }
         .cockpit-view {
             display: flex;
-            gap: 16px; /* Reduced gap */
+            gap: 12px; /* Tighter gap between seats */
             position: relative;
         }
-        /* --- COMPACT SEAT SIZE --- */
+        /* --- MINI SEATS --- */
         .seat {
-            width: 32px;  /* Much smaller width */
-            height: 48px; /* Much smaller height */
+            width: 24px; /* Minified Width */
+            height: 36px; /* Minified Height */
             background: linear-gradient(180deg, #1e1e1e 0%, #0a0a0a 100%);
-            border-radius: 4px 4px 12px 12px;
-            border: 2px solid #333;
+            border-radius: 3px 3px 8px 8px;
+            border: 1px solid #333; /* Thinner border */
             position: relative;
             transition: all 0.3s ease;
             box-shadow: inset 0 0 5px rgba(0,0,0,0.8);
@@ -8784,15 +8784,15 @@ function populateAircraftInfoWindow(baseProps, plan, sortedRoutePoints, communit
         .seat.occupied {
             background: rgba(16, 185, 129, 0.1);
             border-color: #10b981;
-            box-shadow: 0 0 10px rgba(16, 185, 129, 0.3), inset 0 0 5px rgba(16, 185, 129, 0.1);
+            box-shadow: 0 0 8px rgba(16, 185, 129, 0.3), inset 0 0 5px rgba(16, 185, 129, 0.1);
         }
         .seat::after {
             content: attr(data-role);
             position: absolute;
-            top: -14px;
+            top: -10px; /* Adjusted for mini size */
             left: 50%;
             transform: translateX(-50%);
-            font-size: 8px; /* Smaller font */
+            font-size: 7px; /* Tiny font */
             font-weight: 700;
             color: #555;
             font-family: monospace;
@@ -8801,27 +8801,28 @@ function populateAircraftInfoWindow(baseProps, plan, sortedRoutePoints, communit
             color: #10b981;
             text-shadow: 0 0 5px rgba(16, 185, 129, 0.5);
         }
-        /* Resize icons for compact view */
+        /* Resize icons for mini view */
         .cockpit-overlay-icon {
-            font-size: 1.5rem; /* Slightly smaller cloud */
+            font-size: 1.1rem; /* Smaller icons */
         }
 
         .seat-status-display {
             display: grid;
             grid-template-columns: 1fr 1fr;
-            gap: 4px; /* Tighter gap */
+            gap: 3px;
             margin-bottom: 0;
         }
         .status-pill {
             background: #0a0a0a;
-            padding: 4px; /* Tighter padding */
-            border-radius: 4px;
+            padding: 3px;
+            border-radius: 3px;
             text-align: center;
-            font-size: 0.65rem; /* Smaller font */
+            font-size: 0.6rem; /* Tiny font */
             color: #444;
             border: 1px solid #222;
             font-family: monospace;
             font-weight: 600;
+            line-height: 1;
         }
         .status-pill.active {
             color: #38bdf8;
@@ -8830,12 +8831,13 @@ function populateAircraftInfoWindow(baseProps, plan, sortedRoutePoints, communit
         }
         #seat-narrative-text {
             font-family: monospace;
-            font-size: 0.65rem;
+            font-size: 0.6rem;
             color: #555;
             text-align: center;
             border-top: 1px solid #222;
-            padding-top: 6px;
+            padding-top: 4px;
             text-transform: uppercase;
+            line-height: 1.1;
         }
 
         /* --- Tech Card Specifics --- */
@@ -8890,7 +8892,8 @@ function populateAircraftInfoWindow(baseProps, plan, sortedRoutePoints, communit
             opacity: 0.75;
         }
         @keyframes ping {
-            75%, 100% { transform: scale(2); opacity: 0; }
+            75%, 100% { transform: scale(2);
+            opacity: 0; }
         }
         .tech-model {
             font-size: 1.1rem;
@@ -9079,26 +9082,27 @@ function populateAircraftInfoWindow(baseProps, plan, sortedRoutePoints, communit
         
         /* --- LAYOUT GRID FOR HEIGHT MATCHING (Row 1) --- */
         .pfd-and-location-grid {
-            display: flex; 
+            display: flex;
             gap: 12px;
-            align-items: stretch; /* Use stretch to match heights */
+            align-items: flex-start; /* FIX: Prevents stretching blank space below PFD */
             margin-bottom: 12px;
             width: 100%;
         }
         .pfd-main-panel {
             flex: 0 0 62%;
             width: 62%;
-            aspect-ratio: 787 / 800;
+            /* Remove fixed aspect ratio here to let SVG define height naturally if needed */
             position: relative;
         }
         .info-right-col {
             flex: 1;
             display: flex;
             flex-direction: column;
-            /* Height will match PFD due to align-items: stretch */
         }
         /* Ensure bezel fills height */
-        .pfd-main-panel .display-bezel { height: 100%; }
+        .pfd-main-panel .display-bezel { 
+            height: auto; /* Allow auto height */
+        }
 
         /* --- LAYOUT FOR FULL WIDTH ND (Row 2) --- */
         .nd-full-width-section {
@@ -9131,7 +9135,7 @@ function populateAircraftInfoWindow(baseProps, plan, sortedRoutePoints, communit
         <div class="route-summary-overlay">
             <div class="route-summary-airport" id="route-summary-dep">
                 <div class="airport-line">
-                    <img src="${depFlagSrc}" class="country-flag" id="ac-bar-dep-flag" alt="${depCountryCode}" style="display: ${depFlagDisplay};">
+                     <img src="${depFlagSrc}" class="country-flag" id="ac-bar-dep-flag" alt="${depCountryCode}" style="display: ${depFlagDisplay};">
                      <span class="icao" id="ac-bar-dep">${departureIcao}</span>
                 </div>
                 <span class="time" id="ac-bar-atd">${atdTime} Z</span>
@@ -9296,7 +9300,7 @@ function populateAircraftInfoWindow(baseProps, plan, sortedRoutePoints, communit
                                         </g> 
                                     </g>
                                 </svg>
-                            </div>
+                        </div>
                         </div>
                     </div> 
                     
@@ -9310,7 +9314,7 @@ function populateAircraftInfoWindow(baseProps, plan, sortedRoutePoints, communit
                                 
                                 <div class="cockpit-view-container">
                                     <div class="cockpit-view">
-                                        <div id="seat-cpt" class="seat" data-role="CPT"></div>
+                                    <div id="seat-cpt" class="seat" data-role="CPT"></div>
                                         <div id="seat-fo" class="seat" data-role="FO"></div>
                                         <div id="icon-parking-overlay" class="cockpit-overlay-icon icon-parking">P</div>
                                         <div id="icon-coffee-overlay" class="cockpit-overlay-icon icon-coffee"><i class="fa-solid fa-mug-hot"></i></div>
@@ -9318,7 +9322,7 @@ function populateAircraftInfoWindow(baseProps, plan, sortedRoutePoints, communit
                                     </div>
                                 </div>
 
-                                <div style="display: flex; justify-content: space-between; margin-bottom: 8px;">
+                                <div style="display: flex; justify-content: space-between; margin-bottom: 2px;">
                                     <span class="tech-stat-label">System Status</span>
                                     <span class="tech-stat-label" style="color: #34d399;">ONLINE</span>
                                 </div>

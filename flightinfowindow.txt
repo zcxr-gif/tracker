@@ -1,11 +1,3 @@
-/**
- * --- [MERGED & COMPLETE] Populates the aircraft info window.
- * Changes:
- * 1. LAYOUT SPLIT: PFD and Seat Sensor are side-by-side (Row 1).
- * 2. FULL WIDTH: ND/FMC is now in its own full-width container (Row 2).
- * 3. FIX: Seat sensor height now matches PFD height automatically.
- * 4. FIX: ND takes full width as requested.
- */
 function populateAircraftInfoWindow(baseProps, plan, sortedRoutePoints, communityAircraftData) {
     // --- Helper function to update all elements matching a selector ---
     const updateAll = (selector, value, isHTML = false) => {
@@ -32,13 +24,11 @@ function populateAircraftInfoWindow(baseProps, plan, sortedRoutePoints, communit
     const originalFlatWaypointObjects = (plan && plan.flightPlanItems) ? getFlatWaypointObjects(plan.flightPlanItems) : [];
     const hasPlan = originalFlatWaypoints.length >= 2;
     const windowEl = document.getElementById('aircraft-info-window');
-    
     // --- Aircraft Info ---
     const aircraftName = baseProps.aircraft?.aircraftName || 'Unknown Type';
     const airlineName = baseProps.aircraft?.liveryName || 'Generic Livery';
     const liveryName = baseProps.aircraft?.liveryName || '';
     const reg = baseProps.aircraft?.registration || 'N/A';
-    
     // --- Logo Logic ---
     const words = liveryName.trim().split(/\s+/);
     let logoName = words.length > 1 && /[^a-zA-Z0-9]/.test(words[1]) ? words[0] : (words[0] + (words[1] ? ' ' + words[1] : ''));
@@ -59,7 +49,6 @@ function populateAircraftInfoWindow(baseProps, plan, sortedRoutePoints, communit
     const arrFlagSrc = arrCountryCode ? `https://flagcdn.com/w20/${arrCountryCode}.png` : '';
     const depFlagDisplay = depCountryCode ? 'block' : 'none';
     const arrFlagDisplay = arrCountryCode ? 'block' : 'none';
-    
     // --- Plan Button ---
     const simbriefAircraftValue = findSimbriefAircraftValue(aircraftName);
     let planButtonHtml = '';
@@ -127,7 +116,7 @@ function populateAircraftInfoWindow(baseProps, plan, sortedRoutePoints, communit
     <style>
         /* --- Shared Tech Style --- */
         .tech-module {
-            background: #0f172a; /* Solid Dark Slate */
+            background: #0f172a; 
             border: 1px solid rgba(255, 255, 255, 0.1);
             border-radius: 12px;
             overflow: hidden;
@@ -160,89 +149,116 @@ function populateAircraftInfoWindow(baseProps, plan, sortedRoutePoints, communit
             position: relative;
         }
         
-        /* --- Seat Sensor Redesign Styles --- */
+        /* --- Seat Sensor Black Compact Redesign --- */
         #cockpit-seat-sensor {
-            height: 100%; /* Forces it to fill the grid cell */
+            background: #000000;
+            border: 1px solid #222;
+            height: 100%; /* Fill the container height */
             display: flex;
             flex-direction: column;
-            margin-bottom: 0; /* Remove bottom margin to flush with container */
+            margin-bottom: 0;
+            border-radius: 12px;
+            overflow: hidden;
+            box-shadow: 0 4px 20px rgba(0,0,0,0.8);
+        }
+        #cockpit-seat-sensor .tech-module-header {
+            background: #111;
+            border-bottom: 1px solid #222;
+            padding: 6px 10px; /* Reduced header padding */
+            min-height: 28px;
         }
         #cockpit-seat-sensor .tech-module-body {
-            flex: 1; /* Grow to fill height */
+            background: #050505;
+            flex: 1;
             display: flex;
             flex-direction: column;
-            justify-content: space-between; /* Space out elements vertically */
-            padding: 16px;
+            justify-content: center; /* Center content vertically if space allows */
+            padding: 8px; /* Compact padding */
+            gap: 6px;
         }
+        
         .cockpit-view-container {
-            flex: 1;
+            flex: 0 0 auto; /* Don't grow too much */
             display: flex;
             align-items: center;
             justify-content: center;
-            background: rgba(0,0,0,0.2);
+            background: radial-gradient(circle at center, #1a1a1a 0%, #000 70%);
             border-radius: 8px;
-            border: 1px solid rgba(255,255,255,0.05);
-            margin-bottom: 12px;
-            padding: 10px; /* Slightly reduced padding to handle compact height */
+            border: 1px solid #222;
+            padding: 8px;
             position: relative;
         }
         .cockpit-view {
             display: flex;
-            gap: 20px;
+            gap: 16px; /* Reduced gap */
             position: relative;
         }
+        /* --- COMPACT SEAT SIZE --- */
         .seat {
-            width: 45px; /* Slightly slimmer for compact look */
-            height: 65px;
-            background: rgba(255,255,255,0.1);
-            border-radius: 6px 6px 20px 20px;
-            border: 2px solid #334155;
+            width: 32px;  /* Much smaller width */
+            height: 48px; /* Much smaller height */
+            background: linear-gradient(180deg, #1e1e1e 0%, #0a0a0a 100%);
+            border-radius: 4px 4px 12px 12px;
+            border: 2px solid #333;
             position: relative;
             transition: all 0.3s ease;
+            box-shadow: inset 0 0 5px rgba(0,0,0,0.8);
         }
         .seat.occupied {
-            background: rgba(16, 185, 129, 0.2);
-            border-color: #34d399;
-            box-shadow: 0 0 15px rgba(16, 185, 129, 0.2);
+            background: rgba(16, 185, 129, 0.1);
+            border-color: #10b981;
+            box-shadow: 0 0 10px rgba(16, 185, 129, 0.3), inset 0 0 5px rgba(16, 185, 129, 0.1);
         }
         .seat::after {
             content: attr(data-role);
             position: absolute;
-            top: -15px;
+            top: -14px;
             left: 50%;
             transform: translateX(-50%);
-            font-size: 9px;
+            font-size: 8px; /* Smaller font */
             font-weight: 700;
-            color: #94a3b8;
+            color: #555;
+            font-family: monospace;
         }
+        .seat.occupied::after {
+            color: #10b981;
+            text-shadow: 0 0 5px rgba(16, 185, 129, 0.5);
+        }
+        /* Resize icons for compact view */
+        .cockpit-overlay-icon {
+            font-size: 1.5rem; /* Slightly smaller cloud */
+        }
+
         .seat-status-display {
             display: grid;
             grid-template-columns: 1fr 1fr;
-            gap: 8px;
-            margin-bottom: 12px;
+            gap: 4px; /* Tighter gap */
+            margin-bottom: 0;
         }
         .status-pill {
-            background: rgba(30, 41, 59, 0.5);
-            padding: 6px;
+            background: #0a0a0a;
+            padding: 4px; /* Tighter padding */
             border-radius: 4px;
             text-align: center;
-            font-size: 0.75rem;
-            color: #94a3b8;
-            border: 1px solid rgba(255,255,255,0.05);
+            font-size: 0.65rem; /* Smaller font */
+            color: #444;
+            border: 1px solid #222;
             font-family: monospace;
+            font-weight: 600;
         }
         .status-pill.active {
             color: #38bdf8;
             border-color: rgba(56, 189, 248, 0.3);
-            background: rgba(56, 189, 248, 0.1);
+            background: rgba(56, 189, 248, 0.05);
         }
         #seat-narrative-text {
             font-family: monospace;
-            font-size: 0.7rem;
-            color: #64748b;
+            font-size: 0.65rem;
+            color: #555;
             text-align: center;
-            border-top: 1px solid rgba(255,255,255,0.05);
-            padding-top: 8px;
+            border-top: 1px solid #222;
+            padding-top: 6px;
+            text-transform: uppercase;
         }
 
         /* --- Tech Card Specifics --- */
@@ -486,23 +502,31 @@ function populateAircraftInfoWindow(baseProps, plan, sortedRoutePoints, communit
         
         /* --- LAYOUT GRID FOR HEIGHT MATCHING (Row 1) --- */
         .pfd-and-location-grid {
-            display: grid;
-            grid-template-columns: 2fr 1fr; /* PFD (Left) vs Seat Sensor (Right) */
-            gap: 8px;
-            align-items: stretch; /* Matches heights */
-            margin-bottom: 8px; /* Space between Row 1 and Row 2 */
+            display: flex; 
+            gap: 12px;
+            align-items: stretch; /* Use stretch to match heights */
+            margin-bottom: 12px;
+            width: 100%;
+        }
+        .pfd-main-panel {
+            flex: 0 0 62%;
+            width: 62%;
+            aspect-ratio: 787 / 800;
+            position: relative;
         }
         .info-right-col {
+            flex: 1;
             display: flex;
             flex-direction: column;
-            height: 100%;
+            /* Height will match PFD due to align-items: stretch */
         }
+        /* Ensure bezel fills height */
+        .pfd-main-panel .display-bezel { height: 100%; }
 
         /* --- LAYOUT FOR FULL WIDTH ND (Row 2) --- */
         .nd-full-width-section {
             width: 100%;
             margin-bottom: 12px;
-            /* Mimic the tech-module logic but slightly different if needed */
         }
     </style>
 
@@ -541,12 +565,12 @@ function populateAircraftInfoWindow(baseProps, plan, sortedRoutePoints, communit
                 </div>
                 <div class="flight-phase-indicator" id="ac-phase-indicator">ENROUTE</div>
             </div>
-            <div class="route-summary-airport" id="route-summary-arr">
+             <div class="route-summary-airport" id="route-summary-arr">
                  <div class="airport-line">
                      <span class="icao" id="ac-bar-arr">${arrivalIcao}</span>
                      <img src="${arrFlagSrc}" class="country-flag" id="ac-bar-arr-flag" alt="${arrCountryCode}" style="display: ${arrFlagDisplay};">
                 </div>
-                <span class="time" id="ac-bar-eta">${etaTime} Z</span>
+                 <span class="time" id="ac-bar-eta">${etaTime} Z</span>
             </div>
         </div>
 
@@ -697,8 +721,10 @@ function populateAircraftInfoWindow(baseProps, plan, sortedRoutePoints, communit
                                 </svg>
                             </div>
                         </div>
-                    </div> <div class="info-right-col">
-                        <div class="tech-module" id="cockpit-seat-sensor">
+                    </div> 
+                    
+                    <div class="info-right-col">
+                         <div class="tech-module" id="cockpit-seat-sensor">
                             <div class="tech-module-header">
                                 <span class="tech-module-title"><i class="fa-solid fa-chair"></i> COCKPIT STATE</span>
                                 <div class="tech-ping"><span class="animate"></span><span></span></div>
@@ -730,7 +756,10 @@ function populateAircraftInfoWindow(baseProps, plan, sortedRoutePoints, communit
                                 </div>
                             </div>
                         </div>
-                    </div> </div> <div class="nd-full-width-section">
+                    </div> 
+                </div> 
+
+                <div class="nd-full-width-section">
                      <div class="display-toggle-bar" style="display: flex; background: var(--bg-panel); border-radius: 6px; padding: 2px; margin-bottom: 0px; width: 100%; box-sizing: border-box; border: 1px solid var(--border-glass);">
                          <button class="display-toggle-btn active" data-target="nd-view" style="flex: 1; background: rgba(255,255,255,0.1); border: none; color: #fff; padding: 6px; cursor: pointer; border-radius: 4px; font-size: 0.75rem; font-weight: 700; transition: all 0.2s;">
                             NAV DISPLAY
@@ -854,7 +883,7 @@ function populateAircraftInfoWindow(baseProps, plan, sortedRoutePoints, communit
                                 <i class="fa-solid fa-plane" style="font-size: 12px;"></i>
                                 <span>${airlineName}</span>
                             </p>
-                        </div>
+                         </div>
                          <button style="padding: 8px; color: #94a3b8; background: transparent; border: none; cursor: pointer;">
                             <i class="fa-solid fa-ellipsis" style="font-size: 16px;"></i>
                          </button>
@@ -941,12 +970,10 @@ function populateAircraftInfoWindow(baseProps, plan, sortedRoutePoints, communit
         </div>
     </div>
     `;
-
     // --- POST-RENDER LOGIC ---
     createPfdDisplay();
     updatePfdDisplay(baseProps.position);
     updateAircraftInfoWindow(baseProps, plan, sortedRoutePoints, communityAircraftData);
-    
     // --- FIX IMPLEMENTATION: SET THE DATA ATTRIBUTE ON THE HEADER HERE ---
     const imagePath = techCardImagePath;
     const fallbackPath = '/CommunityPlanes/default.png';
@@ -960,7 +987,6 @@ function populateAircraftInfoWindow(baseProps, plan, sortedRoutePoints, communit
         overviewPanel.dataset.currentPath = imagePath;
         // --- END CRITICAL FIX ---
     });
-
     // --- DISPLAY TOGGLE LOGIC ---
     const toggleBtns = windowEl.querySelectorAll('.display-toggle-btn');
     const ndContainer = windowEl.querySelector('#nd-view-container');
@@ -985,7 +1011,6 @@ function populateAircraftInfoWindow(baseProps, plan, sortedRoutePoints, communit
             }
         });
     });
-
     // Ensure initial state prevents "mixing"
     ndContainer.style.display = 'block';
     fmcContainer.style.display = 'none';
