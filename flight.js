@@ -8726,109 +8726,137 @@ function populateAircraftInfoWindow(baseProps, plan, sortedRoutePoints, communit
             position: relative;
         }
         
-        /* --- Seat Sensor MINI REDESIGN --- */
+        /* --- Seat Sensor REDESIGN (Digital Annunciator Style) --- */
         #cockpit-seat-sensor {
             background: #000000;
             border: 1px solid #222;
-            height: auto; /* Allow it to shrink */
+            height: auto;
             margin-bottom: 0;
             border-radius: 12px;
             overflow: hidden;
             box-shadow: 0 4px 20px rgba(0,0,0,0.8);
         }
         #cockpit-seat-sensor .tech-module-header {
-            background: #111;
+            background: #0a0a0a;
             border-bottom: 1px solid #222;
-            padding: 4px 8px; /* Tighter header */
+            padding: 6px 10px;
             min-height: 24px;
         }
         #cockpit-seat-sensor .tech-module-title {
-             font-size: 0.65rem; /* Smaller title */
+             font-size: 0.65rem;
+             color: #666;
         }
         #cockpit-seat-sensor .tech-module-body {
             background: #050505;
             display: flex;
             flex-direction: column;
             justify-content: flex-start;
-            padding: 6px; /* Very tight padding */
+            padding: 8px;
+            gap: 8px;
+        }
+        
+        /* The Grid for the Pilot Panels */
+        .cockpit-crew-grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 6px;
+        }
+
+        /* The "Seat" is now a digital panel */
+        .crew-panel {
+            background: #0f0f0f;
+            border: 1px solid #333;
+            border-radius: 6px;
+            height: 50px; /* Fixed height for consistency */
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            position: relative;
+            transition: all 0.3s ease;
+        }
+        
+        /* When the existing logic adds 'occupied' to the ID */
+        #seat-cpt.occupied {
+            background: linear-gradient(135deg, rgba(234, 179, 8, 0.1) 0%, rgba(234, 179, 8, 0.0) 100%);
+            border-color: rgba(234, 179, 8, 0.6);
+            box-shadow: 0 0 10px rgba(234, 179, 8, 0.1);
+        }
+        #seat-fo.occupied {
+            background: linear-gradient(135deg, rgba(56, 189, 248, 0.1) 0%, rgba(56, 189, 248, 0.0) 100%);
+            border-color: rgba(56, 189, 248, 0.6);
+            box-shadow: 0 0 10px rgba(56, 189, 248, 0.1);
+        }
+
+        .crew-panel-role {
+            font-size: 0.6rem;
+            font-weight: 700;
+            color: #555;
+            position: absolute;
+            top: 2px;
+            left: 4px;
+        }
+        #seat-cpt.occupied .crew-panel-role { color: #eab308; }
+        #seat-fo.occupied .crew-panel-role { color: #38bdf8; }
+
+        .crew-panel-icon {
+            font-size: 1.2rem;
+            color: #333;
+        }
+        #seat-cpt.occupied .crew-panel-icon { color: #eab308; text-shadow: 0 0 5px rgba(234, 179, 8, 0.5); }
+        #seat-fo.occupied .crew-panel-icon { color: #38bdf8; text-shadow: 0 0 5px rgba(56, 189, 248, 0.5); }
+
+        /* The Status Text Grid */
+        .crew-status-row {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
             gap: 6px;
         }
         
-        .cockpit-view-container {
-            flex: 0 0 auto;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            background: radial-gradient(circle at center, #1a1a1a 0%, #000 70%);
-            border-radius: 6px;
-            border: 1px solid #222;
-            padding: 6px 4px; /* Reduced padding */
-            position: relative;
-        }
-        .cockpit-view {
-            display: flex;
-            gap: 12px; /* Tighter gap between seats */
-            position: relative;
-        }
-        /* --- MINI SEATS --- */
-        .seat {
-            width: 24px; /* Minified Width */
-            height: 36px; /* Minified Height */
-            background: linear-gradient(180deg, #1e1e1e 0%, #0a0a0a 100%);
-            border-radius: 3px 3px 8px 8px;
-            border: 1px solid #333; /* Thinner border */
-            position: relative;
-            transition: all 0.3s ease;
-            box-shadow: inset 0 0 5px rgba(0,0,0,0.8);
-        }
-        .seat.occupied {
-            background: rgba(16, 185, 129, 0.1);
-            border-color: #10b981;
-            box-shadow: 0 0 8px rgba(16, 185, 129, 0.3), inset 0 0 5px rgba(16, 185, 129, 0.1);
-        }
-        .seat::after {
-            content: attr(data-role);
-            position: absolute;
-            top: -10px; /* Adjusted for mini size */
-            left: 50%;
-            transform: translateX(-50%);
-            font-size: 7px; /* Tiny font */
-            font-weight: 700;
-            color: #555;
-            font-family: monospace;
-        }
-        .seat.occupied::after {
-            color: #10b981;
-            text-shadow: 0 0 5px rgba(16, 185, 129, 0.5);
-        }
-        /* Resize icons for mini view */
-        .cockpit-overlay-icon {
-            font-size: 1.1rem; /* Smaller icons */
-        }
-
-        .seat-status-display {
-            display: grid;
-            grid-template-columns: 1fr 1fr;
-            gap: 3px;
-            margin-bottom: 0;
-        }
         .status-pill {
             background: #0a0a0a;
-            padding: 3px;
-            border-radius: 3px;
-            text-align: center;
-            font-size: 0.6rem; /* Tiny font */
-            color: #444;
             border: 1px solid #222;
+            border-radius: 4px;
+            text-align: center;
+            font-size: 0.6rem;
             font-family: monospace;
-            font-weight: 600;
-            line-height: 1;
+            padding: 3px 0;
+            color: #444;
+            transition: all 0.2s;
         }
         .status-pill.active {
-            color: #38bdf8;
-            border-color: rgba(56, 189, 248, 0.3);
-            background: rgba(56, 189, 248, 0.05);
+            background: rgba(255, 255, 255, 0.05);
+            border-color: #444;
+            color: #fff;
         }
+        /* Target specific text colors via the update logic if needed, or CSS */
+        #status-cpt-text.active { color: #eab308; border-color: rgba(234, 179, 8, 0.3); }
+        #status-fo-text.active { color: #38bdf8; border-color: rgba(56, 189, 248, 0.3); }
+
+        /* Icon Bar - Where Coffee/Sleep icons go */
+        .cockpit-annunciator-bar {
+            display: flex;
+            gap: 4px;
+            height: 20px;
+            background: #080808;
+            border-radius: 4px;
+            border: 1px solid #1a1a1a;
+            align-items: center;
+            justify-content: center;
+            padding: 0 4px;
+        }
+        
+        /* These classes replace the absolute positioning overlays */
+        .status-icon {
+            font-size: 0.8rem;
+            margin: 0 4px;
+            /* Standard state is hidden by the JS setting display:none usually */
+        }
+        
+        .icon-parking { color: #ef4444; font-weight: bold; font-family: sans-serif; border: 1px solid #ef4444; border-radius: 2px; padding: 0 3px; font-size: 0.6rem; line-height: 1.2; }
+        .icon-coffee { color: #f97316; }
+        .icon-cloud { color: #8b5cf6; }
+
         #seat-narrative-text {
             font-family: monospace;
             font-size: 0.6rem;
@@ -9084,14 +9112,13 @@ function populateAircraftInfoWindow(baseProps, plan, sortedRoutePoints, communit
         .pfd-and-location-grid {
             display: flex;
             gap: 12px;
-            align-items: flex-start; /* FIX: Prevents stretching blank space below PFD */
+            align-items: flex-start; 
             margin-bottom: 12px;
             width: 100%;
         }
         .pfd-main-panel {
             flex: 0 0 62%;
             width: 62%;
-            /* Remove fixed aspect ratio here to let SVG define height naturally if needed */
             position: relative;
         }
         .info-right-col {
@@ -9099,9 +9126,8 @@ function populateAircraftInfoWindow(baseProps, plan, sortedRoutePoints, communit
             display: flex;
             flex-direction: column;
         }
-        /* Ensure bezel fills height */
         .pfd-main-panel .display-bezel { 
-            height: auto; /* Allow auto height */
+            height: auto;
         }
 
         /* --- LAYOUT FOR FULL WIDTH ND (Row 2) --- */
@@ -9312,24 +9338,26 @@ function populateAircraftInfoWindow(baseProps, plan, sortedRoutePoints, communit
                             </div>
                             <div class="tech-module-body">
                                 
-                                <div class="cockpit-view-container">
-                                    <div class="cockpit-view">
-                                    <div id="seat-cpt" class="seat" data-role="CPT"></div>
-                                        <div id="seat-fo" class="seat" data-role="FO"></div>
-                                        <div id="icon-parking-overlay" class="cockpit-overlay-icon icon-parking">P</div>
-                                        <div id="icon-coffee-overlay" class="cockpit-overlay-icon icon-coffee"><i class="fa-solid fa-mug-hot"></i></div>
-                                        <div id="icon-cloud-overlay" class="cockpit-overlay-icon icon-cloud"><i class="fa-solid fa-cloud"></i></div>
+                                <div class="cockpit-crew-grid">
+                                    <div id="seat-cpt" class="crew-panel" data-role="CPT">
+                                        <span class="crew-panel-role">CPT</span>
+                                        <div class="crew-panel-icon"><i class="fa-solid fa-user-pilot"></i></div>
+                                    </div>
+                                    <div id="seat-fo" class="crew-panel" data-role="FO">
+                                        <span class="crew-panel-role">FO</span>
+                                        <div class="crew-panel-icon"><i class="fa-solid fa-user-pilot"></i></div>
                                     </div>
                                 </div>
 
-                                <div style="display: flex; justify-content: space-between; margin-bottom: 2px;">
-                                    <span class="tech-stat-label">System Status</span>
-                                    <span class="tech-stat-label" style="color: #34d399;">ONLINE</span>
-                                </div>
-
-                                <div class="seat-status-display">
+                                <div class="crew-status-row">
                                     <span id="status-cpt-text" class="status-pill active">CMD: ---</span>
                                     <span id="status-fo-text" class="status-pill">FO: ---</span>
+                                </div>
+
+                                <div class="cockpit-annunciator-bar">
+                                    <div id="icon-parking-overlay" class="status-icon icon-parking">P</div>
+                                    <div id="icon-coffee-overlay" class="status-icon icon-coffee"><i class="fa-solid fa-mug-hot"></i></div>
+                                    <div id="icon-cloud-overlay" class="status-icon icon-cloud"><i class="fa-solid fa-bed"></i></div>
                                 </div>
 
                                 <div id="seat-narrative-text">
