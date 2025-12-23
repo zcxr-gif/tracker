@@ -8580,10 +8580,10 @@ function rebuildDynamicLayers() {
 /**
  * --- [MERGED & COMPLETE] Populates the aircraft info window.
  * Includes:
- * 1. NAV/FMC Toggle Switch (Source 1)
- * 2. Full TOD Calculation Logic (Source 2)
- * 3. Complete CSS Styles & SVG Graphics (Source 2)
- * 4. Data/Image Fixes (Source 2)
+ * 1. NAV/FMC Toggle Switch (FIXED)
+ * 2. Full TOD Calculation Logic
+ * 3. Complete CSS Styles & SVG Graphics
+ * 4. Data/Image Fixes
  */
 function populateAircraftInfoWindow(baseProps, plan, sortedRoutePoints, communityAircraftData) {
     // --- Helper function to update all elements matching a selector ---
@@ -8632,7 +8632,6 @@ function populateAircraftInfoWindow(baseProps, plan, sortedRoutePoints, communit
 
     const departureIcao = hasPlan ? originalFlatWaypointObjects[0]?.identifier || originalFlatWaypointObjects[0]?.name : 'N/A';
     const arrivalIcao = hasPlan ? originalFlatWaypointObjects[originalFlatWaypointObjects.length - 1]?.identifier || originalFlatWaypointObjects[originalFlatWaypointObjects.length - 1]?.name : 'N/A';
-    
     const depCountryCode = airportsData[departureIcao]?.country ? airportsData[departureIcao].country.toLowerCase() : '';
     const arrCountryCode = airportsData[arrivalIcao]?.country ? airportsData[arrivalIcao].country.toLowerCase() : '';
     const depFlagSrc = depCountryCode ? `https://flagcdn.com/w20/${depCountryCode}.png` : '';
@@ -8657,7 +8656,7 @@ function populateAircraftInfoWindow(baseProps, plan, sortedRoutePoints, communit
     const pilotUsername = baseProps.username || 'N/A';
     const pilotReportTabText = (pilotUsername !== 'N/A' && pilotUsername) ? pilotUsername : 'Pilot Report';
 
-    // --- DYNAMIC IMAGE & CONTRIBUTOR LOGIC (Source 2 Fixes) ---
+    // --- DYNAMIC IMAGE & CONTRIBUTOR LOGIC ---
     let techCardImagePath = '/CommunityPlanes/default.png';
     let photographerName = 'IF Community';
     let techCardTail = reg;
@@ -8673,7 +8672,7 @@ function populateAircraftInfoWindow(baseProps, plan, sortedRoutePoints, communit
         }
     }
 
-    // --- GENERATE FMS LEGS HTML (For the Toggle View) ---
+    // --- GENERATE FMS LEGS HTML ---
     let fmsLegsHtml = '';
     if (originalFlatWaypointObjects.length > 0) {
         originalFlatWaypointObjects.forEach((wp, index) => {
@@ -8702,7 +8701,7 @@ function populateAircraftInfoWindow(baseProps, plan, sortedRoutePoints, communit
         fmsLegsHtml = `<div class="fms-empty-state">NO ROUTE LOADED</div>`;
     }
 
-    // --- TOD Calculator Logic (Restored from Source 2) ---
+    // --- TOD Calculator Logic ---
     let distanceToDestNM = 0;
     if (hasPlan) {
         let totalDistanceKm = 0;
@@ -8750,7 +8749,7 @@ function populateAircraftInfoWindow(baseProps, plan, sortedRoutePoints, communit
                 <span class="tech-module-title"><i class="fa-solid fa-calculator"></i> DESCENT (3:1)</span>
                 <span class="tech-badge" style="background: rgba(16, 185, 129, 0.1); color: ${statusColor}; border-color: ${statusColor};">
                      ${statusText}
-                </span>
+                 </span>
             </div>
             <div class="tech-module-body" style="padding: 8px; display: flex; gap: 8px; align-items: center;">
                 <div style="flex: 1; display: flex; flex-direction: column; align-items: center; background: rgba(255,255,255,0.03); border-radius: 6px; padding: 6px;">
@@ -9081,7 +9080,7 @@ function populateAircraftInfoWindow(baseProps, plan, sortedRoutePoints, communit
         <div class="route-summary-overlay">
             <div class="route-summary-airport" id="route-summary-dep">
                 <div class="airport-line">
-                     <img src="${depFlagSrc}" class="country-flag" id="ac-bar-dep-flag" alt="${depCountryCode}" style="display: ${depFlagDisplay};">
+                    <img src="${depFlagSrc}" class="country-flag" id="ac-bar-dep-flag" alt="${depCountryCode}" style="display: ${depFlagDisplay};">
                      <span class="icao" id="ac-bar-dep">${departureIcao}</span>
                 </div>
                 <span class="time" id="ac-bar-atd">${atdTime} Z</span>
@@ -9093,7 +9092,7 @@ function populateAircraftInfoWindow(baseProps, plan, sortedRoutePoints, communit
                 <div class="flight-phase-indicator" id="ac-phase-indicator">ENROUTE</div>
             </div>
             <div class="route-summary-airport" id="route-summary-arr">
-                <div class="airport-line">
+                 <div class="airport-line">
                      <span class="icao" id="ac-bar-arr">${arrivalIcao}</span>
                      <img src="${arrFlagSrc}" class="country-flag" id="ac-bar-arr-flag" alt="${arrCountryCode}" style="display: ${arrFlagDisplay};">
                 </div>
@@ -9261,13 +9260,13 @@ function populateAircraftInfoWindow(baseProps, plan, sortedRoutePoints, communit
                             <div class="screw tl"></div><div class="screw tr"></div><div class="screw bl"></div><div class="screw br"></div>
                             <div class="crt-container scanlines">
                                 
-                                <div id="nd-view-container" style="width: 100%; height: 100%;">
+                                <div id="nd-view-container" style="width: 100%; height: 100%; display: block;">
                                     <div id="nd-container">
                                         <iframe id="nav-display-frame" src="nav.html" scrolling="no"></iframe>
                                     </div>
                                 </div>
 
-                                <div id="fmc-view-container" style="display: none; width: 100%; height: 100%; background: #000; display: flex; flex-direction: column;">
+                                <div id="fmc-view-container" style="display: none; width: 100%; height: 100%; background: #000; flex-direction: column;">
                                     <div class="fms-module-container" style="height: 100%; max-height: 100%; width: 100%; border: none; background: transparent; box-shadow: none; border-radius: 0;">
                                         <div class="fms-header" style="background: rgba(255,255,255,0.05); border-bottom: 1px solid #333;">
                                             <span class="tech-module-title"><i class="fa-solid fa-route"></i> ACTIVE FLIGHT PLAN</span>
@@ -9400,7 +9399,7 @@ function populateAircraftInfoWindow(baseProps, plan, sortedRoutePoints, communit
                                 <i class="fa-solid fa-plane" style="font-size: 12px;"></i>
                                 <span>${airlineName}</span>
                             </p>
-                         </div>
+                        </div>
                          <button style="padding: 8px; color: #94a3b8; background: transparent; border: none; cursor: pointer;">
                             <i class="fa-solid fa-ellipsis" style="font-size: 16px;"></i>
                          </button>
@@ -9462,7 +9461,7 @@ function populateAircraftInfoWindow(baseProps, plan, sortedRoutePoints, communit
                         <span class="fms-page-count">VSD</span>
                     </div>
                     <div id="vsd-panel" class="vsd-panel active" data-plan-id="" data-profile-built="false">
-                         <div id="vsd-graph-window" class="vsd-graph-window">
+                        <div id="vsd-graph-window" class="vsd-graph-window">
                              <div id="vsd-aircraft-icon"></div>
                              <div id="vsd-graph-content">
                                  <svg id="vsd-profile-svg" xmlns="http://www.w3.org/2000/svg">
@@ -9472,7 +9471,7 @@ function populateAircraftInfoWindow(baseProps, plan, sortedRoutePoints, communit
                                  <div id="vsd-waypoint-labels"></div>
                              </div>
                              ${planButtonHtml}
-                         </div>
+                        </div>
                     </div>
                     <div class="vsd-footer">
                         <div class="vsd-legend-item"><div class="dot-plan"></div> PLANNED</div>
@@ -9492,7 +9491,7 @@ function populateAircraftInfoWindow(baseProps, plan, sortedRoutePoints, communit
     createPfdDisplay();
     updatePfdDisplay(baseProps.position);
     updateAircraftInfoWindow(baseProps, plan, sortedRoutePoints, communityAircraftData);
-
+    
     // --- FIX IMPLEMENTATION: SET THE DATA ATTRIBUTE ON THE HEADER HERE ---
     const imagePath = techCardImagePath;
     const fallbackPath = '/CommunityPlanes/default.png';
@@ -9502,11 +9501,39 @@ function populateAircraftInfoWindow(baseProps, plan, sortedRoutePoints, communit
     overviewPanels.forEach(overviewPanel => {
         // Set the background image
         overviewPanel.style.backgroundImage = newImageUrl;
-        
         // --- CRITICAL FIX: Set the path to the high-quality image ---
         overviewPanel.dataset.currentPath = imagePath;
         // --- END CRITICAL FIX ---
     });
+
+    // --- DISPLAY TOGGLE LOGIC (FIXED) ---
+    const toggleBtns = windowEl.querySelectorAll('.display-toggle-btn');
+    const ndContainer = windowEl.querySelector('#nd-view-container');
+    const fmcContainer = windowEl.querySelector('#fmc-view-container');
+
+    // Add event listeners to fix the "broken button"
+    toggleBtns.forEach(btn => {
+        btn.addEventListener('click', (e) => {
+            // Remove active class from all
+            toggleBtns.forEach(b => b.classList.remove('active'));
+            // Add active to clicked
+            e.currentTarget.classList.add('active');
+
+            const target = e.currentTarget.dataset.target; // 'nd-view' or 'fmc-view'
+
+            if (target === 'nd-view') {
+                ndContainer.style.display = 'block';
+                fmcContainer.style.display = 'none';
+            } else {
+                ndContainer.style.display = 'none';
+                fmcContainer.style.display = 'flex'; // Use flex to maintain FMS layout
+            }
+        });
+    });
+
+    // Ensure initial state prevents "mixing"
+    ndContainer.style.display = 'block';
+    fmcContainer.style.display = 'none';
 }
 
 /**
