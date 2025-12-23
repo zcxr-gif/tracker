@@ -837,131 +837,90 @@ function updateNavPanelData(lat, lon, heading, oat, windDir, windSpd) {
 }
 
         function updateSeatSensor(flightProps) {
-    const seatCpt = document.getElementById('seat-cpt');
-    const seatFo = document.getElementById('seat-fo');
-    const statusCpt = document.getElementById('status-cpt-text');
-    const statusFo = document.getElementById('status-fo-text');
-    const narrative = document.getElementById('seat-narrative-text');
-    
-    // Overlays
-    const parkingOverlay = document.getElementById('icon-parking-overlay');
-    const coffeeOverlay = document.getElementById('icon-coffee-overlay');
-    const cloudOverlay = document.getElementById('icon-cloud-overlay');
+            const seatCpt = document.getElementById('seat-cpt');
+            const seatFo = document.getElementById('seat-fo');
+            const statusCpt = document.getElementById('status-cpt-text');
+            const statusFo = document.getElementById('status-fo-text');
+            const narrative = document.getElementById('seat-narrative-text');
+            
+            // Overlays
+            const parkingOverlay = document.getElementById('icon-parking-overlay');
+            const coffeeOverlay = document.getElementById('icon-coffee-overlay');
+            const cloudOverlay = document.getElementById('icon-cloud-overlay');
 
-    if (!seatCpt || !seatFo) return;
+            if (!seatCpt || !seatFo) return;
 
-    // 1. DETERMINE STATE
-    // Default to 0 (Active) if undefined
-    let state = flightProps.pilotState !== undefined ? flightProps.pilotState : 0;
+            // 1. DETERMINE STATE
+            // Default to 0 (Active) if undefined
+            // Support passing the raw integer OR the full object for compatibility
+            let state = (typeof flightProps === 'object' && flightProps !== null && flightProps.pilotState !== undefined) 
+                ? flightProps.pilotState 
+                : (Number.isInteger(flightProps) ? flightProps : 0);
 
-    // 2. RESET VISUALS
-    // Remove all active color classes
-    seatCpt.classList.remove('active-green', 'active-amber', 'active-blue');
-    seatFo.classList.remove('active-green', 'active-amber', 'active-blue');
-    
-    // Reset pills
-    statusCpt.className = 'status-pill';
-    statusFo.className = 'status-pill';
-    
-    // Hide all overlays
-    if(parkingOverlay) parkingOverlay.classList.remove('visible');
-    if(coffeeOverlay) coffeeOverlay.classList.remove('visible');
-    if(cloudOverlay) cloudOverlay.classList.remove('visible');
+            // 2. RESET VISUALS
+            seatCpt.classList.remove('active-green', 'active-amber', 'active-blue');
+            seatFo.classList.remove('active-green', 'active-amber', 'active-blue');
+            
+            statusCpt.className = 'status-pill';
+            statusFo.className = 'status-pill';
+            
+            if(parkingOverlay) parkingOverlay.classList.remove('visible');
+            if(coffeeOverlay) coffeeOverlay.classList.remove('visible');
+            if(cloudOverlay) cloudOverlay.classList.remove('visible');
 
-    // Reset Narrative Display
-    if(narrative) narrative.style.display = 'block';
-
-    // 3. APPLY LOGIC
-    switch (state) {
-        case 0: // ACTIVE
-            seatCpt.classList.add('active-green');
-            
-            statusCpt.classList.add('green');
-            statusCpt.textContent = 'CMD: PILOT';
-            
-            statusFo.textContent = 'FO: MONITOR';
-            
-            narrative.textContent = "Manual inputs detected. Pilot has controls.";
-            break;
-
-        case 1: // AWAY (IN FLIGHT) - Monitoring
-            seatCpt.classList.add('active-amber');
-            
-            statusCpt.classList.add('amber');
-            statusCpt.textContent = 'CMD: AUTO';
-            
-            statusFo.textContent = 'FO: MONITOR';
-            
-            if(coffeeOverlay) coffeeOverlay.classList.add('visible');
-            narrative.textContent = "No recent inputs. Pilot is monitoring cruise systems.";
-            break;
-
-        case 2: // AWAY (PARKED) - Secured
-            // Seats remain dark/grey (no active class)
-            
-            statusCpt.classList.add('red'); // Use red border/text for park brake
-            statusCpt.textContent = 'PARK BRK: SET';
-            statusCpt.style.width = '100%'; // Span full width
-            statusCpt.style.textAlign = 'center';
-            
-            statusFo.style.display = 'none'; // Hide FO pill in this specific state
-            
-            if(parkingOverlay) parkingOverlay.classList.add('visible');
-            narrative.textContent = "Cockpit secured. Parking brake set.";
-            break;
-
-        case 3: // BACKGROUND - Relief Pilot / Rest
-            seatFo.classList.add('active-blue');
-            
-            statusCpt.textContent = 'CMD: REST';
-            
-            statusFo.classList.add('blue');
-            statusFo.textContent = 'FO: ACTIVE';
-            
-            if(cloudOverlay) cloudOverlay.classList.add('visible');
-            
-            // [MODIFIED] Removed the "Relief Pilot" text and hid the element to push content up
             if(narrative) {
-                narrative.textContent = ""; 
-                narrative.style.display = 'none';
+                narrative.style.display = 'block';
+                narrative.textContent = '';
             }
-            break;
 
-        default:
-            narrative.textContent = "No telemetry data available.";
-            break;
-    }
+            // 3. APPLY LOGIC
+            switch (state) {
+                case 0: // ACTIVE
+                    seatCpt.classList.add('active-green');
+                    statusCpt.classList.add('green');
+                    statusCpt.textContent = 'CMD: PILOT';
+                    statusFo.textContent = 'FO: MONITOR';
+                    if(narrative) narrative.textContent = "Manual inputs detected. Pilot has controls.";
+                    break;
 
-    // Restore FO display if not in state 2
-    if (state !== 2) {
-        statusFo.style.display = 'block';
-        statusCpt.style.width = 'auto';
-        statusCpt.style.textAlign = 'left';
-    }
-}
-            const cpt = document.getElementById('seat-cpt');
-            const fo = document.getElementById('seat-fo');
-            const statCpt = document.getElementById('status-cpt');
-            const statFo = document.getElementById('status-fo');
-            
-            cpt.className = 'seat'; fo.className = 'seat';
-            statCpt.className = 'status-pill'; statFo.className = 'status-pill';
+                case 1: // AWAY (IN FLIGHT)
+                    seatCpt.classList.add('active-amber');
+                    statusCpt.classList.add('amber');
+                    statusCpt.textContent = 'CMD: AUTO';
+                    statusFo.textContent = 'FO: MONITOR';
+                    if(coffeeOverlay) coffeeOverlay.classList.add('visible');
+                    if(narrative) narrative.textContent = "No recent inputs. Pilot is monitoring cruise.";
+                    break;
 
-            if(state === 0) { // Active
-                cpt.classList.add('active-green');
-                statCpt.classList.add('green'); statCpt.textContent = 'CMD: PILOT';
-                statFo.textContent = 'FO: MONITOR';
-            } else if(state === 1) { // Cruise/Auto
-                cpt.classList.add('active-amber');
-                statCpt.classList.add('amber'); statCpt.textContent = 'CMD: AUTO';
-                statFo.textContent = 'FO: MONITOR';
-            } else if(state === 2) { // Parked
-                statCpt.classList.add('red'); statCpt.textContent = 'PARK BRK: SET';
-                statFo.textContent = '';
-            } else { // Relief
-                fo.classList.add('active-blue');
-                statCpt.textContent = 'CMD: REST';
-                statFo.classList.add('blue'); statFo.textContent = 'FO: ACTIVE';
+                case 2: // AWAY (PARKED)
+                    statusCpt.classList.add('red');
+                    statusCpt.textContent = 'PARK BRK: SET';
+                    statusCpt.style.width = '100%'; 
+                    statusCpt.style.textAlign = 'center';
+                    statusFo.style.display = 'none';
+                    if(parkingOverlay) parkingOverlay.classList.add('visible');
+                    if(narrative) narrative.textContent = "Cockpit secured. Parking brake set.";
+                    break;
+
+                case 3: // BACKGROUND / RELIEF
+                    seatFo.classList.add('active-blue');
+                    statusCpt.textContent = 'CMD: REST';
+                    statusFo.classList.add('blue');
+                    statusFo.textContent = 'FO: ACTIVE';
+                    if(cloudOverlay) cloudOverlay.classList.add('visible');
+                    if(narrative) narrative.style.display = 'none';
+                    break;
+
+                default:
+                    if(narrative) narrative.textContent = "No telemetry data.";
+                    break;
+            }
+
+            // Restore FO display if not in state 2
+            if (state !== 2) {
+                statusFo.style.display = 'block';
+                statusCpt.style.width = 'auto';
+                statusCpt.style.textAlign = 'left';
             }
         }
 

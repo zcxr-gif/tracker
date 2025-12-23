@@ -2175,13 +2175,18 @@ function getLiteFlightPhase(position) {
         if(plan) {
             const flat = getFlatWaypointObjects(plan.flightPlanItems);
             let cum = 0;
-            let lastLat=flat[0]?.location.latitude, lastLon=flat[0]?.location.longitude;
+            // FIX: Safe navigation for flat[0] to prevent crash if route is empty
+            let lastLat = flat[0]?.location?.latitude || pos.lat;
+            let lastLon = flat[0]?.location?.longitude || pos.lon;
+            
             const profile = flat.map(wp => {
+                if(!wp.location) return null;
                 const d = getDistanceKm(lastLat, lastLon, wp.location.latitude, wp.location.longitude)/1.852;
                 cum += d;
                 lastLat = wp.location.latitude; lastLon = wp.location.longitude;
                 return { name: wp.identifier, dist: cum, alt: wp.altitude || 0 };
-            });
+            }).filter(p => p !== null);
+            
             vsd = { profile, totalDist: cum };
         }
 
@@ -2189,16 +2194,11 @@ function getLiteFlightPhase(position) {
             baseProps,
             images,
             telemetry: {
-                pitch: 0, // IF API doesn't provide pitch, assume 0 or derive from VS/Speed if needed
-                roll: 0, // IF API doesn't provide roll? Wait, mapAnimator calculates it?
-                         // Actually the API sends `bank` sometimes, or we derive it.
-                         // For now, we use 0 or MapAnimator's value if accessed. 
-                         // *Correction*: API sends `heading`, `vs`, `gs`. No roll/pitch. 
-                         // The PFD logic in the previous file DERIVED roll from turn rate. 
-                         // The iframe PFD logic will need to do the same derivation based on Heading changes.
+                pitch: 0, 
+                roll: 0, 
                 heading: pos.heading_deg,
                 altitude: pos.alt_ft,
-                speed: pos.gs_kt, // IAS approx as GS
+                speed: pos.gs_kt,
                 groundSpeed: pos.gs_kt,
                 verticalSpeed: pos.vs_fpm,
                 windDir: flightProps.wind_dir,
@@ -2211,8 +2211,8 @@ function getLiteFlightPhase(position) {
                 depCountry, arrCountry,
                 originTime, eta,
                 progress,
-                progressAlongRouteNM: (progress/100)*totalDistNM, // Approx
-                flightPhase: getFlightPhase(pos, progress),
+                progressAlongRouteNM: (progress/100)*totalDistNM, 
+                flightPhase: getLiteFlightPhase(pos), // FIX: Changed from getFlightPhase to getLiteFlightPhase
                 simbriefAircraft: simbriefAc,
                 nearestAirport: nearest,
                 tod: tod
