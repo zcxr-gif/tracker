@@ -2769,33 +2769,240 @@ function getIntermediatePoint(lat1, lon1, lat2, lon2, fraction) {
     }
 
 function handleSocketFlightUpdate(data) {
-    if (!data || !Array.isArray(data.flights)) return;
+    if (!data || !Array.isArray(data.flights) || !data.timestamp) {
+        console.warn('Socket: Received invalid or untimestamped flights data packet.');
+        return;
+    }
     
-    data.flights.forEach(flight => {
+    // --- [FIX] Race Condition Check (Case Insensitive) ---
+    // Ignore packets that don't match the currently selected server.
+    if (data.server && data.server.toLowerCase() !== currentServerName.toLowerCase()) {
+        return; 
+    }
+    
+    lastSocketUpdateTimestamp = new Date(data.timestamp).getTime();
+
+    const isMapReady = (sectorOpsMap && sectorOpsMap.isStyleLoaded() && mapAnimator);
+    const flights = data.flights;
+    const updatedFlightIds = new Set();
+
+    flights.forEach(flight => {
+        if (!flight.position || !isFinite(flight.position.lat) || !isFinite(flight.position.lon)) {
+            return; // Skip this flight
+        }
+
         const flightId = flight.flightId;
-        if (flightId === currentFlightInWindow) {
-            currentAircraftPositionForGeocode = flight.position;
-            const aircraftData = flight.aircraft || {};
-            const fullFlightProps = { ...flight, position: flight.position, aircraft: aircraftData };
 
-            // Push to Simple Window
-            const simpleIframe = document.getElementById('simple-flight-window-frame');
-            if (simpleIframe && simpleIframe.contentWindow) {
-                const simpleData = formatDataForSimpleWindow(fullFlightProps, cachedFlightDataForStatsView.plan, liveTrailCache.get(flightId));
-                simpleIframe.contentWindow.postMessage({ type: 'FLIGHT_DATA_UPDATE', payload: simpleData }, '*');
-            }
+        // --- [CRITICAL FIX] STALENESS CHECK ---
+        // 1. Calculate the timestamp of the incoming data
+        // We prefer the position report time, falling back to the packet time.
+        const newTimestampRaw = flight.position.lastReport || data.timestamp;
+        const newTime = new Date(newTimestampRaw).getTime();
 
-            // Push to Standard Window
-            const standardIframe = document.getElementById('standard-flight-window-frame');
-            if (standardIframe && standardIframe.contentWindow) {
-                const standardData = formatWindowPayload(fullFlightProps, cachedFlightDataForStatsView.plan, liveTrailCache.get(flightId));
-                standardIframe.contentWindow.postMessage({ type: 'FLIGHT_DATA_UPDATE', payload: standardData }, '*');
+        // 2. Get the timestamp of the data we already have (if any)
+        let existingTime = 0;
+        if (currentMapFeatures[flightId] && 
+            currentMapFeatures[flightId].properties && 
+            currentMapFeatures[flightId].properties.last_update) {
+            existingTime = new Date(currentMapFeatures[flightId].properties.last_update).getTime();
+        }
+
+        // 3. If new data is OLDER than or EQUAL to existing data, ignore it.
+        // This prevents the plane from "jumping back" to a previous position.
+        if (newTime <= existingTime) {
+            updatedFlightIds.add(flightId); // Mark as active so it doesn't get deleted
+            return; 
+        }
+        // --- [END FIX] ---
+
+        updatedFlightIds.add(flightId);
+
+        const litePhase = getLiteFlightPhase(flight.position);
+        const aircraftData = flight.aircraft || null;
+        const acName = aircraftData?.aircraftName || '';
+        const livName = aircraftData?.liveryName || '';
+        const lookupKey = `${acName}/${livName}`;
+        
+        let existingFeature = currentMapFeatures[flightId] || {};
+        let existingProps = existingFeature.properties || {};
+
+        const newProperties = {
+            flightId: flight.flightId,
+            callsign: flight.callsign,
+            username: flight.username,
+            altitude: flight.position.alt_ft,
+            speed: flight.position.gs_kt || 0,
+            verticalSpeed: flight.position.vs_fpm || 0,
+            position: JSON.stringify(flight.position),
+            aircraft: JSON.stringify(aircraftData),
+            userId: flight.userId,
+            category: getAircraftCategory(acName),
+            heading: flight.position.heading_deg, 
+            isStaff: flight.isStaff,
+            isVAMember: flight.isVAMember,
+            phase: litePhase,
+            pilotState: flight.pilotState,
+            last_update: newTimestampRaw, // Store the specific time used for the check
+            // Preserve existing cached data (Images + TAIL NUMBER)
+            communityImageUrl: existingProps.communityImageUrl || null, 
+            contributorName: existingProps.contributorName || null,
+            tailNumber: existingProps.tailNumber || null 
+        };
+
+        // --- START: ASYNCHRONOUS LOOKUP LOGIC FOR HOVER CARD ---
+        if (acName && livName && !existingProps.communityImageUrl) {
+            if (communityAircraftCache.has(lookupKey)) {
+                const cachedData = communityAircraftCache.get(lookupKey);
+                if (cachedData) {
+                    newProperties.communityImageUrl = cachedData.communityImageUrl;
+                    newProperties.contributorName = cachedData.contributorName;
+                    newProperties.tailNumber = cachedData.tailNumber;
+                }
+            } else if (!lookupQueue.has(lookupKey)) {
+                fetchCommunityAircraftDetails(acName, livName)
+                    .then(result => {
+                        if (result && currentMapFeatures[flightId]) {
+                            currentMapFeatures[flightId].properties.communityImageUrl = result.communityImageUrl;
+                            currentMapFeatures[flightId].properties.contributorName = result.contributorName;
+                            currentMapFeatures[flightId].properties.tailNumber = result.tailNumber;
+                            
+                            if (isMapReady && sectorOpsMap.getSource('sector-ops-live-flights-source')) {
+                                sectorOpsMap.getSource('sector-ops-live-flights-source').setData({
+                                    type: 'FeatureCollection', 
+                                    features: Object.values(currentMapFeatures)
+                                });
+                            }
+                        }
+                    })
+                    .catch(() => { /* Ignore errors */ });
             }
         }
-        
-        // Map Animation logic remains unchanged
-        if (mapAnimator) mapAnimator.updateFlight(flight.position, flight);
+        // --- END: ASYNCHRONOUS LOOKUP LOGIC ---
+
+        // Manually update the data cache
+        if (!currentMapFeatures[flightId]) {
+            currentMapFeatures[flightId] = {
+                type: 'Feature',
+                geometry: {
+                    type: 'Point',
+                    coordinates: [flight.position.lon, flight.position.lat]
+                },
+                properties: newProperties
+            };
+        } else {
+            currentMapFeatures[flightId].properties = newProperties;
+            currentMapFeatures[flightId].geometry.coordinates = [flight.position.lon, flight.position.lat];
+        }
+
+        // ================================================================
+        // === SELECTED AIRCRAFT UPDATE LOGIC ===
+        // ================================================================
+        if (flightId === currentFlightInWindow) {
+            
+            // 1. Update the shared position object
+            currentAircraftPositionForGeocode = flight.position;
+            
+            // 2. Retrieve Cached Weather Data
+            const cachedOat = currentAircraftPositionForGeocode.oat_c ?? 15; 
+            const cachedWindDir = currentAircraftPositionForGeocode.wind_dir || 0;
+            const cachedWindSpd = currentAircraftPositionForGeocode.wind_spd_kts || 0;
+
+            // 3. Calculate TAS
+            let calculatedTas = 0;
+            if (flight.position.alt_ft != null) {
+                calculatedTas = calculateTas(
+                    flight.position.alt_ft, 
+                    cachedOat, 
+                    flight.position.gs_kt || 0
+                );
+            }
+
+            // 4. Update Trail Cache
+            const localTrail = liveTrailCache.get(flightId);
+            const fullFlightProps = { ...newProperties, position: flight.position, aircraft: aircraftData };
+
+            if (localTrail) {
+                const newRoutePoint = {
+                    latitude: flight.position.lat,
+                    longitude: flight.position.lon,
+                    altitude: flight.position.alt_ft,
+                    groundSpeed: flight.position.gs_kt,
+                    track: flight.position.heading_deg,
+                    date: new Date(flight.position.lastReport || Date.now()).toISOString()
+                };
+                localTrail.push(newRoutePoint);
+                liveTrailCache.set(flightId, localTrail);
+
+                // --- [NEW] Update Simple Iframe if Active ---
+                const simpleIframe = document.getElementById('simple-flight-window-frame');
+                if (mapFilters.useSimpleFlightWindow && simpleIframe && simpleIframe.contentWindow) {
+                    const freshData = formatDataForSimpleWindow(
+                        fullFlightProps, 
+                        cachedFlightDataForStatsView.plan, 
+                        liveTrailCache.get(flightId),
+                        { 
+                            imageUrl: fullFlightProps.communityImageUrl, 
+                            contributorName: fullFlightProps.contributorName,
+                            tailNumber: fullFlightProps.tailNumber
+                        }
+                    );
+                    
+                    simpleIframe.contentWindow.postMessage({
+                        type: 'FLIGHT_DATA_UPDATE',
+                        payload: freshData
+                    }, '*');
+                } 
+                else if (!mapFilters.useSimpleFlightWindow) {
+                    updatePfdDisplay(flight.position);
+                    updateNavPanelData(
+                        flight.position.lat,
+                        flight.position.lon,
+                        flight.position.heading_deg,
+                        cachedOat,
+                        cachedWindDir,
+                        cachedWindSpd
+                    );
+                    updateAircraftInfoWindow(fullFlightProps, cachedFlightDataForStatsView.plan, localTrail);
+                }
+
+                // 6.5 Update Navigation Display Iframe
+                const navIframe = document.getElementById('nav-display-frame');
+                if (navIframe && navIframe.contentWindow) {
+                    refreshNavDisplayFromCache(); // Reuse helper logic for consistency
+                }
+
+                // 8. Update Map Trail
+                if (isMapReady) {
+                    const layerId = sectorOpsLiveFlightPathLayers[flightId]?.flown;
+                    const source = layerId ? sectorOpsMap.getSource(layerId) : null;
+                    if (source) {
+                        const newRouteData = generateAltitudeColoredRoute(localTrail, flight.position, cachedFlightDataForStatsView.plan);
+                        source.setData(newRouteData);
+                    }
+                }
+            }
+
+            // 9. Update Planned Route Line
+            if (cachedFlightDataForStatsView.plan && mapFilters.planDisplayMode !== 'none' && isMapReady) {
+                updateFlightPlanLayer(flightId, cachedFlightDataForStatsView.plan, flight.position);
+            }
+        }
+
+        // Only update the Map Animation/Icons if the map is actually ready.
+        if (isMapReady) {
+            mapAnimator.updateFlight(flight.position, newProperties);
+        }
     });
+
+    // Clean up old flights
+    for (const flightId in currentMapFeatures) {
+        if (!updatedFlightIds.has(String(flightId))) {
+            if (isMapReady) {
+                mapAnimator.removeFlight(flightId);
+            }
+            delete currentMapFeatures[flightId]; 
+        }
+    }
 }
 
 // Ensure displayPilotStats is globally accessible for the info-window listeners
