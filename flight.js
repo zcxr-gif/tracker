@@ -8579,11 +8579,11 @@ function rebuildDynamicLayers() {
 
 /**
  * --- [MERGED & COMPLETE] Populates the aircraft info window.
- * Includes:
- * 1. NAV/FMC Toggle Switch (FIXED)
- * 2. Full TOD Calculation Logic
- * 3. Complete CSS Styles & SVG Graphics
- * 4. Data/Image Fixes
+ * Changes:
+ * 1. REMOVED Descent Calculator (TOD).
+ * 2. REDESIGNED Seat Sensor (Taller, fills vertical space).
+ * 3. MATCHED Height of Seat Sensor to PFD.
+ * 4. Includes previous Fixes (Nav Toggle, Images, etc).
  */
 function populateAircraftInfoWindow(baseProps, plan, sortedRoutePoints, communityAircraftData) {
     // --- Helper function to update all elements matching a selector ---
@@ -8701,85 +8701,8 @@ function populateAircraftInfoWindow(baseProps, plan, sortedRoutePoints, communit
         fmsLegsHtml = `<div class="fms-empty-state">NO ROUTE LOADED</div>`;
     }
 
-    // --- TOD Calculator Logic ---
-    let distanceToDestNM = 0;
-    if (hasPlan) {
-        let totalDistanceKm = 0;
-        for (let i = 0; i < originalFlatWaypoints.length - 1; i++) {
-            const [lon1, lat1] = originalFlatWaypoints[i];
-            const [lon2, lat2] = originalFlatWaypoints[i + 1];
-            totalDistanceKm += getDistanceKm(lat1, lon1, lat2, lon2);
-        }
-        const totalDistanceNM = totalDistanceKm / 1.852;
-        if (totalDistanceNM > 0) {
-            const [destLon, destLat] = originalFlatWaypoints[originalFlatWaypoints.length - 1];
-            const remainingDistanceKm = getDistanceKm(baseProps.position.lat, baseProps.position.lon, destLat, destLon);
-            distanceToDestNM = remainingDistanceKm / 1.852;
-        }
-    }
-
-    let todHtml = '';
-    if (hasPlan && baseProps.position.alt_ft > 5000 && distanceToDestNM > 20) {
-        const currentAlt = baseProps.position.alt_ft;
-        const destElev = (plan.destination && plan.destination.elevation_ft) ? parseInt(plan.destination.elevation_ft) : 0;
-        const altToLose = currentAlt - destElev;
-        const descentDistanceNM = (altToLose / 1000) * 3;
-        const distToTodNM = distanceToDestNM - descentDistanceNM;
-        
-        let timeToTodStr = '--:--';
-        if (baseProps.position.gs_kt > 50) {
-            const timeHours = distToTodNM / baseProps.position.gs_kt;
-            const minutes = Math.floor(timeHours * 60);
-            const seconds = Math.floor((timeHours * 60 - minutes) * 60);
-            if (distToTodNM > 0) {
-                 timeToTodStr = `${String(minutes).padStart(2, '0')}:${String(seconds).padStart(2, '0')}`;
-            } else {
-                 timeToTodStr = 'NOW';
-            }
-        }
-
-        const isPastTod = distToTodNM <= 0;
-        const statusColor = isPastTod ? '#ef4444' : '#34d399';
-        const statusText = isPastTod ? 'DESCEND NOW' : 'CRUISING';
-        const distDisplay = isPastTod ? `+${Math.abs(distToTodNM).toFixed(1)} NM` : `${distToTodNM.toFixed(1)} NM`;
-        
-        todHtml = `
-        <div class="tech-module" id="tod-calculator-module">
-            <div class="tech-module-header">
-                <span class="tech-module-title"><i class="fa-solid fa-calculator"></i> DESCENT (3:1)</span>
-                <span class="tech-badge" style="background: rgba(16, 185, 129, 0.1); color: ${statusColor}; border-color: ${statusColor};">
-                     ${statusText}
-                 </span>
-            </div>
-            <div class="tech-module-body" style="padding: 8px; display: flex; gap: 8px; align-items: center;">
-                <div style="flex: 1; display: flex; flex-direction: column; align-items: center; background: rgba(255,255,255,0.03); border-radius: 6px; padding: 6px;">
-                    <span class="tech-stat-label" style="font-size: 8px; color: #94a3b8; margin-bottom: 2px;">DIST TO TOD</span>
-                    <span class="tech-stat-value" style="font-size: 1.0rem;">${distDisplay}</span>
-                </div>
-                <div style="flex: 1; display: flex; flex-direction: column; align-items: center; background: rgba(255,255,255,0.03); border-radius: 6px; padding: 6px;">
-                    <span class="tech-stat-label" style="font-size: 8px; color: #94a3b8; margin-bottom: 2px;">TIME TO TOD</span>
-                    <span class="tech-stat-value" style="font-size: 1.0rem; color: #38bdf8;">${timeToTodStr}</span>
-                </div>
-                <div style="flex: 1; display: flex; flex-direction: column; align-items: center; background: rgba(255,255,255,0.03); border-radius: 6px; padding: 6px;">
-                    <span class="tech-stat-label" style="font-size: 8px; color: #94a3b8; margin-bottom: 2px;">REQ. RATE</span>
-                    <span class="tech-stat-value" style="font-size: 1.0rem; color: #fbbf24;">-${Math.round(baseProps.position.gs_kt * 5)}</span>
-                </div>
-            </div>
-        </div>`;
-    } else if (hasPlan && baseProps.position.alt_ft <= 5000) {
-         todHtml = `
-        <div class="tech-module">
-            <div class="tech-module-header">
-                <span class="tech-module-title"><i class="fa-solid fa-calculator"></i> DESCENT PHASE</span>
-                <span class="tech-badge" style="color: #38bdf8; border-color: #38bdf8;">ACTIVE</span>
-            </div>
-            <div class="tech-module-body" style="padding: 12px; text-align: center; color: #94a3b8; font-size: 0.8rem;">
-                Aircraft is in terminal phase.
-            </div>
-        </div>`;
-    }
-
     // --- HTML Construction ---
+    // NOTE: Added specific CSS for height matching in .pfd-and-location-grid and #cockpit-seat-sensor
     windowEl.innerHTML = `
     <style>
         /* --- Shared Tech Style --- */
@@ -8816,6 +8739,91 @@ function populateAircraftInfoWindow(baseProps, plan, sortedRoutePoints, communit
             background: #0f172a;
             position: relative;
         }
+        
+        /* --- Seat Sensor Redesign Styles --- */
+        #cockpit-seat-sensor {
+            height: 100%; /* Forces it to fill the grid cell */
+            display: flex;
+            flex-direction: column;
+            margin-bottom: 0; /* Remove bottom margin to flush with container */
+        }
+        #cockpit-seat-sensor .tech-module-body {
+            flex: 1; /* Grow to fill height */
+            display: flex;
+            flex-direction: column;
+            justify-content: space-between; /* Space out elements vertically */
+            padding: 16px;
+        }
+        .cockpit-view-container {
+            flex: 1;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            background: rgba(0,0,0,0.2);
+            border-radius: 8px;
+            border: 1px solid rgba(255,255,255,0.05);
+            margin-bottom: 12px;
+            position: relative;
+        }
+        .cockpit-view {
+            display: flex;
+            gap: 20px;
+            position: relative;
+        }
+        .seat {
+            width: 50px;
+            height: 70px;
+            background: rgba(255,255,255,0.1);
+            border-radius: 6px 6px 20px 20px;
+            border: 2px solid #334155;
+            position: relative;
+            transition: all 0.3s ease;
+        }
+        .seat.occupied {
+            background: rgba(16, 185, 129, 0.2);
+            border-color: #34d399;
+            box-shadow: 0 0 15px rgba(16, 185, 129, 0.2);
+        }
+        .seat::after {
+            content: attr(data-role);
+            position: absolute;
+            top: -15px;
+            left: 50%;
+            transform: translateX(-50%);
+            font-size: 9px;
+            font-weight: 700;
+            color: #94a3b8;
+        }
+        .seat-status-display {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 8px;
+            margin-bottom: 12px;
+        }
+        .status-pill {
+            background: rgba(30, 41, 59, 0.5);
+            padding: 8px;
+            border-radius: 4px;
+            text-align: center;
+            font-size: 0.75rem;
+            color: #94a3b8;
+            border: 1px solid rgba(255,255,255,0.05);
+            font-family: monospace;
+        }
+        .status-pill.active {
+            color: #38bdf8;
+            border-color: rgba(56, 189, 248, 0.3);
+            background: rgba(56, 189, 248, 0.1);
+        }
+        #seat-narrative-text {
+            font-family: monospace;
+            font-size: 0.7rem;
+            color: #64748b;
+            text-align: center;
+            border-top: 1px solid rgba(255,255,255,0.05);
+            padding-top: 8px;
+        }
+
         /* --- Tech Card Specifics --- */
         .tech-card {
             background: #0f172a;
@@ -9053,6 +9061,19 @@ function populateAircraftInfoWindow(baseProps, plan, sortedRoutePoints, communit
         #vsd-y-axis {
             background: #0f172a;
             border-right: 1px solid rgba(255, 255, 255, 0.1);
+        }
+        
+        /* --- LAYOUT GRID FOR HEIGHT MATCHING --- */
+        .pfd-and-location-grid {
+            display: grid;
+            grid-template-columns: 2fr 1fr; /* Adjust ratio as needed */
+            gap: 8px;
+            align-items: stretch; /* CRITICAL: Matches height of children */
+        }
+        .info-right-col {
+            display: flex;
+            flex-direction: column;
+            height: 100%; /* Ensure it fills the grid cell */
         }
     </style>
 
@@ -9302,28 +9323,36 @@ function populateAircraftInfoWindow(baseProps, plan, sortedRoutePoints, communit
                         <div class="tech-module" id="cockpit-seat-sensor">
                             <div class="tech-module-header">
                                 <span class="tech-module-title"><i class="fa-solid fa-chair"></i> COCKPIT STATE</span>
+                                <div class="tech-ping"><span class="animate"></span><span></span></div>
                             </div>
                             <div class="tech-module-body">
-                                <div class="cockpit-view">
-                                    <div id="seat-cpt" class="seat" data-role="CPT"></div>
-                                    <div id="seat-fo" class="seat" data-role="FO"></div>
-                                    <div id="icon-parking-overlay" class="cockpit-overlay-icon icon-parking">P</div>
-                                    <div id="icon-coffee-overlay" class="cockpit-overlay-icon icon-coffee"><i class="fa-solid fa-mug-hot"></i></div>
-                                    <div id="icon-cloud-overlay" class="cockpit-overlay-icon icon-cloud"><i class="fa-solid fa-cloud"></i></div>
+                                
+                                <div class="cockpit-view-container">
+                                    <div class="cockpit-view">
+                                        <div id="seat-cpt" class="seat" data-role="CPT"></div>
+                                        <div id="seat-fo" class="seat" data-role="FO"></div>
+                                        <div id="icon-parking-overlay" class="cockpit-overlay-icon icon-parking">P</div>
+                                        <div id="icon-coffee-overlay" class="cockpit-overlay-icon icon-coffee"><i class="fa-solid fa-mug-hot"></i></div>
+                                        <div id="icon-cloud-overlay" class="cockpit-overlay-icon icon-cloud"><i class="fa-solid fa-cloud"></i></div>
+                                    </div>
                                 </div>
+
+                                <div style="display: flex; justify-content: space-between; margin-bottom: 8px;">
+                                    <span class="tech-stat-label">System Status</span>
+                                    <span class="tech-stat-label" style="color: #34d399;">ONLINE</span>
+                                </div>
+
                                 <div class="seat-status-display">
-                                    <span id="status-cpt-text" class="status-pill">CMD: ---</span>
+                                    <span id="status-cpt-text" class="status-pill active">CMD: ---</span>
                                     <span id="status-fo-text" class="status-pill">FO: ---</span>
                                 </div>
+
                                 <div id="seat-narrative-text">
-                                    Initializing...
+                                    Awaiting Telemetry...
                                 </div>
                             </div>
                         </div>
-
-                        ${todHtml}
-
-                    </div>
+                        </div>
                 </div>
 
                 <div class="tech-module" id="location-data-panel">
@@ -9506,12 +9535,12 @@ function populateAircraftInfoWindow(baseProps, plan, sortedRoutePoints, communit
         // --- END CRITICAL FIX ---
     });
 
-    // --- DISPLAY TOGGLE LOGIC (FIXED) ---
+    // --- DISPLAY TOGGLE LOGIC ---
     const toggleBtns = windowEl.querySelectorAll('.display-toggle-btn');
     const ndContainer = windowEl.querySelector('#nd-view-container');
     const fmcContainer = windowEl.querySelector('#fmc-view-container');
 
-    // Add event listeners to fix the "broken button"
+    // Add event listeners
     toggleBtns.forEach(btn => {
         btn.addEventListener('click', (e) => {
             // Remove active class from all
