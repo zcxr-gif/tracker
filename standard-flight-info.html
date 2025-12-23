@@ -1,0 +1,1026 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Standard Flight Info</title>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <style>
+        :root {
+            --iw-bg-start: #121426;
+            --iw-bg-end: #121426;
+            --text-main: #ffffff;
+            --text-muted: #94a3b8;
+            --accent: #38bdf8;
+        }
+
+        body {
+            margin: 0;
+            padding: 0;
+            background: linear-gradient(135deg, var(--iw-bg-start) 0%, var(--iw-bg-end) 100%);
+            color: var(--text-main);
+            font-family: 'Inter', sans-serif;
+            overflow: hidden; /* Prevent iframe scrollbars */
+            user-select: none;
+        }
+
+        /* --- Scrollbar --- */
+        ::-webkit-scrollbar { width: 6px; }
+        ::-webkit-scrollbar-track { background: rgba(0, 0, 0, 0.1); }
+        ::-webkit-scrollbar-thumb { background: rgba(255, 255, 255, 0.2); border-radius: 3px; }
+
+        /* --- Layout --- */
+        .container {
+            display: flex;
+            flex-direction: column;
+            height: 100vh;
+        }
+
+        /* --- Header / Overview --- */
+        .aircraft-overview-panel {
+            padding: 16px;
+            background-size: cover;
+            background-position: center;
+            position: relative;
+            flex-shrink: 0;
+            height: 140px; /* Fixed height for header */
+        }
+        .overview-overlay {
+            position: absolute;
+            inset: 0;
+            background: linear-gradient(to bottom, rgba(0,0,0,0.3), rgba(0,0,0,0.9));
+        }
+        .overview-content {
+            position: relative;
+            z-index: 2;
+            display: flex;
+            justify-content: space-between;
+            align-items: flex-end;
+            height: 100%;
+        }
+        .ac-header-callsign { font-size: 1.8rem; font-weight: 800; margin: 0; display: flex; align-items: center; gap: 10px; }
+        .ac-header-logo { height: 24px; width: auto; background: rgba(255,255,255,0.9); padding: 2px 4px; border-radius: 2px; }
+        .ac-header-subtext { font-size: 0.85rem; color: #cbd5e1; display: block; }
+        .route-icao { font-family: monospace; font-size: 1.4rem; font-weight: 700; color: var(--accent); }
+
+        /* --- Progress Bar Overlay --- */
+        .route-summary-overlay {
+            background: rgba(15, 23, 42, 0.95);
+            padding: 12px 16px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            border-bottom: 1px solid rgba(255,255,255,0.1);
+            flex-shrink: 0;
+        }
+        .route-summary-airport { display: flex; flex-direction: column; }
+        .airport-line { display: flex; align-items: center; gap: 6px; }
+        .country-flag { height: 12px; border-radius: 2px; }
+        .icao { font-weight: 700; font-size: 1rem; }
+        .time { font-size: 0.75rem; color: var(--text-muted); font-family: monospace; }
+        .route-progress-container { flex-grow: 1; margin: 0 16px; display: flex; flex-direction: column; gap: 4px; }
+        .route-progress-bar-container { height: 4px; background: rgba(255,255,255,0.1); border-radius: 2px; overflow: hidden; }
+        .progress-bar-fill { height: 100%; background: var(--accent); width: 0%; transition: width 0.5s; }
+        .flight-phase-indicator { font-size: 0.65rem; text-align: center; text-transform: uppercase; letter-spacing: 1px; font-weight: 700; }
+        
+        /* Phase Colors */
+        .phase-climb { color: #4ade80; }
+        .phase-cruise { color: #38bdf8; }
+        .phase-descent { color: #fbbf24; }
+        .phase-approach { color: #a33ea3; }
+        .phase-enroute { color: #94a3b8; }
+
+        /* --- Tabs --- */
+        .tabs-header {
+            display: flex;
+            background: rgba(0,0,0,0.2);
+            padding: 0 16px;
+            gap: 16px;
+            flex-shrink: 0;
+        }
+        .tab-btn {
+            background: none;
+            border: none;
+            color: var(--text-muted);
+            padding: 12px 0;
+            font-size: 0.85rem;
+            cursor: pointer;
+            border-bottom: 2px solid transparent;
+            transition: all 0.2s;
+        }
+        .tab-btn.active { color: #fff; border-bottom-color: var(--accent); }
+        .tab-btn:hover { color: #fff; }
+
+        /* --- Content Area --- */
+        .content-area {
+            flex-grow: 1;
+            overflow-y: auto;
+            padding: 16px;
+            display: none; /* Hidden by default */
+        }
+        .content-area.active { display: block; }
+
+        /* --- Tech Modules (Shared) --- */
+        .tech-module {
+            background: #0f172a;
+            border: 1px solid rgba(255,255,255,0.1);
+            border-radius: 8px;
+            overflow: hidden;
+            margin-bottom: 12px;
+        }
+        .tech-module-header {
+            padding: 8px 12px;
+            background: rgba(30, 41, 59, 0.5);
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            font-size: 0.75rem;
+            font-weight: 700;
+            color: var(--text-muted);
+            border-bottom: 1px solid rgba(255,255,255,0.05);
+        }
+        .tech-module-body { padding: 12px; }
+        .tech-value { color: #fff; font-family: monospace; font-size: 0.95rem; }
+
+        /* --- PFD Layout --- */
+        .pfd-grid {
+            display: grid;
+            grid-template-columns: 3fr 2fr;
+            gap: 12px;
+        }
+        .pfd-container {
+            aspect-ratio: 1/1;
+            background: #000;
+            border-radius: 8px;
+            overflow: hidden;
+            border: 4px solid #333;
+            position: relative;
+        }
+        /* Scanlines */
+        .scanlines::before {
+            content: " ";
+            display: block;
+            position: absolute;
+            top: 0; left: 0; bottom: 0; right: 0;
+            background: linear-gradient(rgba(18, 16, 16, 0) 50%, rgba(0, 0, 0, 0.25) 50%);
+            background-size: 100% 4px;
+            z-index: 10;
+            pointer-events: none;
+        }
+
+        /* --- Nav Data Grid --- */
+        .nav-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+        .nav-cell { background: rgba(255,255,255,0.03); padding: 8px; border-radius: 4px; }
+        .nav-label { font-size: 0.65rem; color: var(--text-muted); display: block; margin-bottom: 2px; text-transform: uppercase; }
+        .nav-unit { font-size: 0.65rem; color: #64748b; }
+        .nav-full { grid-column: span 2; }
+        .nav-row { display: flex; justify-content: space-between; align-items: baseline; }
+
+        /* --- VSD --- */
+        .vsd-graph { height: 150px; width: 100%; position: relative; background: #0f172a; overflow: hidden; border-radius: 4px; }
+        #vsd-aircraft-icon {
+            position: absolute;
+            width: 14px; height: 14px;
+            background: #eab308;
+            border: 2px solid #fff;
+            border-radius: 50%;
+            transform: translate(-50%, -50%);
+            z-index: 20;
+            box-shadow: 0 0 10px rgba(234, 179, 8, 0.8);
+        }
+        #vsd-graph-content { position: absolute; top: 0; left: 0; height: 100%; width: 100%; transform-origin: left; transition: transform 0.1s linear; }
+        #vsd-profile-svg { width: 100%; height: 100%; position: absolute; top: 0; left: 0; overflow: visible; }
+        #vsd-profile-path { fill: none; stroke: #a33ea3; stroke-width: 2; fill: rgba(163, 62, 163, 0.2); }
+        #vsd-flown-path { fill: none; stroke: #4ade80; stroke-width: 2; }
+        .vsd-wp-label { position: absolute; font-family: monospace; font-size: 9px; color: #fff; transform: translateX(-50%); white-space: nowrap; }
+        .vsd-wp-label.high-label::after { content: ''; position: absolute; left: 50%; top: 100%; height: 10px; border-left: 1px dotted #555; }
+        .vsd-wp-label.low-label::before { content: ''; position: absolute; left: 50%; bottom: 100%; height: 10px; border-left: 1px dotted #555; }
+
+        /* --- FMS Legs --- */
+        .fms-list { max-height: 250px; overflow-y: auto; font-family: monospace; font-size: 0.85rem; }
+        .fms-row { display: grid; grid-template-columns: 2fr 1fr 1fr; padding: 6px 8px; border-bottom: 1px solid rgba(255,255,255,0.05); }
+        .fms-row.active { background: rgba(56, 189, 248, 0.2); color: #38bdf8; font-weight: 700; }
+        .fms-row.passed { color: #475569; }
+        .fms-header { font-size: 0.7rem; color: #64748b; padding: 4px 8px; background: rgba(0,0,0,0.2); }
+        .proc-tag { font-size: 0.65rem; padding: 1px 4px; border-radius: 3px; margin-right: 6px; }
+        .proc-tag.sid { background: rgba(34, 197, 94, 0.2); color: #4ade80; }
+        .proc-tag.star { background: rgba(234, 179, 8, 0.2); color: #facc15; }
+        .proc-tag.appr { background: rgba(168, 85, 247, 0.2); color: #c084fc; }
+
+        /* --- Seat Sensor --- */
+        .cockpit-view { display: flex; gap: 8px; margin-bottom: 8px; position: relative; height: 60px; }
+        .seat { flex: 1; border: 2px solid #334155; border-radius: 6px; background: #1e293b; transition: all 0.3s; }
+        .seat.active-green { background: #064e3b; border-color: #34d399; box-shadow: 0 0 10px rgba(52, 211, 153, 0.3); }
+        .seat.active-amber { background: #451a03; border-color: #fbbf24; box-shadow: 0 0 10px rgba(251, 191, 36, 0.3); }
+        .seat.active-blue { background: #1e3a8a; border-color: #60a5fa; box-shadow: 0 0 10px rgba(96, 165, 250, 0.3); }
+        .status-pill { display: block; font-size: 0.7rem; font-weight: 700; padding: 4px; text-align: center; border-radius: 4px; background: #334155; color: #94a3b8; margin-bottom: 4px; }
+        .status-pill.green { background: #064e3b; color: #34d399; }
+        .status-pill.amber { background: #451a03; color: #fbbf24; }
+        .status-pill.blue { background: #172554; color: #60a5fa; }
+        .status-pill.red { background: #450a0a; color: #f87171; border: 1px solid #f87171; }
+
+        /* --- Pilot Stats Tab --- */
+        .stats-rehaul-container { padding: 8px; }
+        .kpi-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-bottom: 12px; }
+        .kpi-card { background: rgba(255,255,255,0.03); padding: 10px; border-radius: 6px; text-align: center; }
+        .kpi-value { font-size: 1.1rem; font-weight: 700; color: #fff; }
+        .kpi-label { font-size: 0.7rem; color: #94a3b8; text-transform: uppercase; }
+        
+        /* Accordion */
+        .accordion-item { border: 1px solid rgba(255,255,255,0.1); border-radius: 6px; margin-bottom: 8px; overflow: hidden; }
+        .accordion-header { width: 100%; background: rgba(30,41,59,0.5); border: none; padding: 10px; color: #fff; display: flex; justify-content: space-between; cursor: pointer; text-align: left; }
+        .accordion-content { max-height: 0; overflow: hidden; transition: max-height 0.3s ease-out; background: rgba(0,0,0,0.2); }
+        .accordion-item.active .accordion-content { max-height: 500px; }
+        .detail-item { display: flex; justify-content: space-between; padding: 8px 10px; border-bottom: 1px solid rgba(255,255,255,0.05); font-size: 0.85rem; }
+        .progress-bar-bg { height: 6px; background: #334155; border-radius: 3px; margin-top: 4px; overflow: hidden; }
+        .progress-bar-fg { height: 100%; background: var(--accent); }
+
+        /* --- Buttons --- */
+        .plan-btn { width: 100%; padding: 10px; background: var(--accent); border: none; border-radius: 6px; color: #000; font-weight: 700; cursor: pointer; margin-top: 16px; display: none; }
+        .plan-btn:hover { filter: brightness(1.1); }
+        .error-msg { color: #f87171; padding: 20px; text-align: center; }
+        
+        /* Spinner */
+        .spinner { border: 3px solid rgba(255,255,255,0.1); border-top: 3px solid var(--accent); border-radius: 50%; width: 30px; height: 30px; animation: spin 1s linear infinite; margin: 50px auto; }
+        @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
+    </style>
+</head>
+<body>
+
+    <div id="loading" class="spinner"></div>
+
+    <div class="container" id="main-ui" style="display: none;">
+        
+        <div class="aircraft-overview-panel" id="header-panel">
+            <div class="overview-overlay"></div>
+            <div class="overview-content">
+                <div>
+                    <h3 class="ac-header-callsign"><span id="header-logo"></span> <span id="header-callsign">---</span></h3>
+                    <span class="ac-header-subtext" id="header-livery">---</span>
+                    <span class="ac-header-subtext" id="header-type">---</span>
+                </div>
+                <div style="text-align: right;">
+                    <div class="route-icao" id="header-route">--- &rarr; ---</div>
+                </div>
+            </div>
+        </div>
+
+        <div class="route-summary-overlay">
+            <div class="route-summary-airport">
+                <div class="airport-line">
+                    <img id="dep-flag" class="country-flag" style="display:none;">
+                    <span class="icao" id="dep-icao">---</span>
+                </div>
+                <span class="time" id="val-atd">--:-- Z</span>
+            </div>
+            <div class="route-progress-container">
+                <div class="route-progress-bar-container">
+                    <div class="progress-bar-fill" id="progress-bar"></div>
+                </div>
+                <div class="flight-phase-indicator" id="phase-indicator">---</div>
+            </div>
+            <div class="route-summary-airport">
+                 <div class="airport-line">
+                    <span class="icao" id="arr-icao">---</span>
+                    <img id="arr-flag" class="country-flag" style="display:none;">
+                </div>
+                <span class="time" id="val-eta">--:-- Z</span>
+            </div>
+        </div>
+
+        <div class="tabs-header">
+            <button class="tab-btn active" onclick="switchTab('tab-flight')"><i class="fa-solid fa-gauge-high"></i> Flight Display</button>
+            <button class="tab-btn" onclick="switchTab('tab-pilot')"><i class="fa-solid fa-chart-simple"></i> Pilot Report</button>
+        </div>
+
+        <div id="tab-flight" class="content-area active">
+            
+            <div class="pfd-grid">
+                <div>
+                    <div class="display-bezel">
+                        <div class="pfd-container scanlines">
+                             <svg width="100%" height="100%" viewBox="0 0 787 800" fill="none" xmlns="http://www.w3.org/2000/svg" id="pfd-svg">
+                                <g id="PFD_Root" transform="scale(1)">
+                                    <g id="attitude_group">
+                                        <rect x="-500" y="-500" width="2000" height="1000" fill="#0596FF"/> <rect x="-500" y="312.5" width="2000" height="1000" fill="#9A4710"/> <line x1="-200" y1="312.5" x2="1000" y2="312.5" stroke="white" stroke-width="2" />
+                                    </g>
+
+                                    <rect x="-10" y="0" width="200" height="800" fill="#030309"/> <rect x="590" y="0" width="200" height="800" fill="#030309"/> <rect x="0" y="600" width="787" height="200" fill="#030309"/> <rect x="0" y="0" width="787" height="100" fill="#030309"/> <g transform="translate(40, 0)">
+                                        <rect x="0" y="100" width="80" height="500" fill="#76767A" />
+                                        <g id="speed_tape_group"></g>
+                                        <polygon points="80,300 95,312.5 80,325" fill="#FDFD03" />
+                                        <text id="speed_readout" x="40" y="320" fill="#00FF00" font-size="24" text-anchor="middle" font-weight="bold">0</text>
+                                    </g>
+
+                                    <g transform="translate(660, 0)">
+                                        <rect x="0" y="100" width="80" height="500" fill="#76767A" />
+                                        <g id="altitude_tape_group"></g>
+                                        <polygon points="0,300 -15,312.5 0,325" fill="#FDFD03" />
+                                        <g id="altitude_readout_group">
+                                            <rect x="0" y="290" width="75" height="45" fill="black"/>
+                                            <text id="altitude_readout" x="40" y="320" fill="#00FF00" font-size="24" text-anchor="middle" font-weight="bold">000</text>
+                                        </g>
+                                    </g>
+
+                                    <g transform="translate(243, 620)">
+                                        <rect x="0" y="0" width="300" height="60" fill="#76767A" />
+                                        <g id="heading_tape_group"></g>
+                                        <rect x="125" y="-10" width="50" height="25" fill="black" stroke="white" />
+                                        <text id="heading_readout" x="150" y="8" fill="#00FF00" font-size="20" text-anchor="middle" font-weight="bold">000</text>
+                                    </g>
+                                    
+                                    <path d="M250 312 L350 312 M450 312 L550 312 M400 312 L400 300" stroke="#FDFD03" stroke-width="4" stroke-linecap="round"/>
+                                    
+                                    <text id="fma_text" x="393" y="60" fill="#00FF00" font-family="monospace" font-size="24" text-anchor="middle">SPEED | ALT | NAV</text>
+                                </g>
+                            </svg>
+                        </div>
+                    </div>
+                </div>
+
+                <div>
+                     <div class="tech-module">
+                        <div class="tech-module-header"><span><i class="fa-solid fa-chair"></i> COCKPIT STATE</span></div>
+                        <div class="tech-module-body">
+                            <div class="cockpit-view">
+                                <div id="seat-cpt" class="seat"></div>
+                                <div id="seat-fo" class="seat"></div>
+                            </div>
+                            <div style="display:flex; justify-content:space-between;">
+                                <span id="status-cpt" class="status-pill">CMD: ---</span>
+                                <span id="status-fo" class="status-pill">FO: ---</span>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div id="tod-module" class="tech-module" style="display:none;">
+                         <div class="tech-module-header">
+                            <span><i class="fa-solid fa-calculator"></i> DESCENT</span>
+                            <span id="tod-status" class="status-pill blue">CRUISING</span>
+                         </div>
+                         <div class="tech-module-body" style="display:flex; gap:10px; text-align:center;">
+                             <div style="flex:1;"><span class="nav-label">DIST TO TOD</span><span class="tech-value" id="tod-dist">--</span></div>
+                             <div style="flex:1;"><span class="nav-label">TIME TO TOD</span><span class="tech-value" id="tod-time">--</span></div>
+                         </div>
+                    </div>
+
+                    <div class="tech-module">
+                        <div class="tech-module-header"><span><i class="fa-solid fa-location-crosshairs"></i> NAV DATA</span></div>
+                        <div class="tech-module-body nav-grid">
+                            <div class="nav-cell">
+                                <span class="nav-label">Wind</span>
+                                <span class="tech-value" id="nav-wind">---/--</span>
+                            </div>
+                            <div class="nav-cell">
+                                <span class="nav-label">OAT</span>
+                                <span class="tech-value" id="nav-oat">--°C</span>
+                            </div>
+                            <div class="nav-cell">
+                                <span class="nav-label">Ground Spd</span>
+                                <span class="tech-value" id="nav-gs">---</span>
+                            </div>
+                            <div class="nav-cell">
+                                <span class="nav-label">Vertical Spd</span>
+                                <span class="tech-value" id="nav-vs">---</span>
+                            </div>
+                            <div class="nav-cell nav-full">
+                                <span class="nav-label">Nearest Airport</span>
+                                <div class="nav-row">
+                                    <span class="tech-value" id="nav-nearest-icao">---</span>
+                                    <span class="nav-unit" id="nav-nearest-dist">-- NM</span>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                </div>
+            </div>
+
+            <div class="tech-module" style="margin-top: 12px;">
+                <div class="tech-module-header"><span><i class="fa-solid fa-chart-area"></i> VERTICAL PROFILE (VSD)</span></div>
+                <div class="tech-module-body" style="padding:0;">
+                    <div class="vsd-graph">
+                        <div id="vsd-aircraft-icon"></div>
+                        <div id="vsd-content">
+                            <svg id="vsd-svg" width="100%" height="100%"></svg>
+                            <div id="vsd-labels"></div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="tech-module">
+                <div class="tech-module-header"><span><i class="fa-solid fa-list"></i> FLIGHT PLAN</span></div>
+                <div class="fms-header fms-row">
+                    <span>WPT</span><span style="text-align:center;">CRS</span><span style="text-align:right;">DIST</span>
+                </div>
+                <div id="fms-list" class="fms-list">
+                    <div style="padding:10px; text-align:center; color:#64748b;">No Flight Plan Loaded</div>
+                </div>
+            </div>
+            
+            <button id="plan-btn" class="plan-btn"><i class="fa-solid fa-file-invoice"></i> Plan This Flight</button>
+
+        </div>
+
+        <div id="tab-pilot" class="content-area">
+            <div id="pilot-stats-container">
+                <div class="spinner"></div>
+                <p style="text-align:center;">Loading statistics...</p>
+            </div>
+        </div>
+
+    </div>
+
+    <script>
+        // --- State ---
+        let currentData = null;
+        let lastPfdState = { rollDisp: 0, pitchDisp: 0, hdgDisp: 0, lastTime: 0 };
+        const PFD_PITCH_SCALE = 8;
+        let statsLoaded = false;
+
+        // --- Communication ---
+        window.addEventListener('message', (event) => {
+            const msg = event.data;
+            if (!msg) return;
+
+            if (msg.type === 'INITIAL_LOAD') {
+                init(msg.payload);
+            } else if (msg.type === 'FLIGHT_DATA_UPDATE') {
+                update(msg.payload);
+            } else if (msg.type === 'PILOT_STATS_DATA') {
+                renderPilotStats(msg.payload.profile);
+            } else if (msg.type === 'THEME_UPDATE') {
+                applyTheme(msg.payload);
+            }
+        });
+
+        function switchTab(tabId) {
+            document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+            document.querySelectorAll('.content-area').forEach(c => c.classList.remove('active'));
+            
+            event.currentTarget.classList.add('active');
+            document.getElementById(tabId).classList.add('active');
+
+            if (tabId === 'tab-pilot' && !statsLoaded && currentData) {
+                // Request stats from parent
+                window.parent.postMessage({ type: 'REQUEST_PILOT_STATS', userId: currentData.userId }, '*');
+                statsLoaded = true; // Prevent multiple requests
+            }
+        }
+
+        function applyTheme(theme) {
+            if(!theme) return;
+            document.documentElement.style.setProperty('--iw-bg-start', theme.start || '#121426');
+            document.documentElement.style.setProperty('--iw-bg-end', theme.end || '#121426');
+        }
+
+        // --- Initialization ---
+        function init(payload) {
+            currentData = payload;
+            statsLoaded = false;
+            
+            document.getElementById('loading').style.display = 'none';
+            document.getElementById('main-ui').style.display = 'flex';
+            
+            // Header
+            document.getElementById('header-panel').style.backgroundImage = `url('${payload.images?.url || ''}'), url('/CommunityPlanes/default.png')`;
+            document.getElementById('header-callsign').textContent = payload.baseProps?.callsign || 'N/A';
+            document.getElementById('header-livery').textContent = payload.baseProps?.aircraft?.liveryName || 'Unknown Livery';
+            document.getElementById('header-type').textContent = payload.baseProps?.aircraft?.aircraftName || 'Unknown Type';
+            
+            // Logos
+            const livName = payload.baseProps?.aircraft?.liveryName || '';
+            if(livName) {
+                const words = livName.trim().split(/\s+/);
+                let logoName = words.length > 1 && /[^a-zA-Z0-9]/.test(words[1]) ? words[0] : (words[0] + (words[1] ? ' ' + words[1] : ''));
+                const sanName = logoName.toLowerCase().replace(/[^a-z0-9\s]/g, '').replace(/\s+/g, '_');
+                document.getElementById('header-logo').innerHTML = `<img src="Images/airline_logos/${sanName}.png" style="height:20px;" onerror="this.style.display='none'">`;
+            }
+
+            // Route Header
+            const dep = payload.derived?.departureIcao || '---';
+            const arr = payload.derived?.arrivalIcao || '---';
+            document.getElementById('header-route').innerHTML = `${dep} &rarr; ${arr}`;
+            document.getElementById('dep-icao').textContent = dep;
+            document.getElementById('arr-icao').textContent = arr;
+
+            // Flags
+            if(payload.derived?.depCountry) {
+                const img = document.getElementById('dep-flag');
+                img.src = `https://flagcdn.com/w20/${payload.derived.depCountry}.png`;
+                img.style.display = 'block';
+            }
+            if(payload.derived?.arrCountry) {
+                const img = document.getElementById('arr-flag');
+                img.src = `https://flagcdn.com/w20/${payload.derived.arrCountry}.png`;
+                img.style.display = 'block';
+            }
+
+            // Times
+            document.getElementById('val-atd').textContent = (payload.derived?.originTime || '--:--') + ' Z';
+            document.getElementById('val-eta').textContent = (payload.derived?.eta || '--:--') + ' Z';
+
+            // Plan Button
+            const btn = document.getElementById('plan-btn');
+            if(payload.derived?.simbriefAircraft) {
+                btn.style.display = 'block';
+                btn.onclick = () => {
+                    window.parent.postMessage({
+                        type: 'PLAN_FLIGHT',
+                        dep: dep, arr: arr, ac: payload.derived.simbriefAircraft
+                    }, '*');
+                };
+            } else {
+                btn.style.display = 'none';
+            }
+
+            // Render FMS List
+            renderFms(payload.fms);
+            
+            // Initial PFD Setup (Static lines)
+            setupPfdGraphics();
+            
+            // Setup VSD (Static profile)
+            if(payload.vsd) setupVsd(payload.vsd);
+            
+            // Apply theme if provided
+            if(payload.theme) applyTheme(payload.theme);
+
+            // Initial Update
+            update(payload);
+        }
+
+        // --- High Frequency Update ---
+        function update(payload) {
+            currentData = payload; // Store for stats request
+            const tel = payload.telemetry || {};
+            const derived = payload.derived || {};
+
+            // 1. PFD Update
+            updatePfd(tel.pitch, tel.roll, tel.heading, tel.speed, tel.altitude, tel.vs);
+
+            // 2. Nav Grid
+            document.getElementById('nav-wind').textContent = `${String(tel.windDir||0).padStart(3,'0')}°/${tel.windSpd||0}`;
+            document.getElementById('nav-oat').textContent = `${tel.oat||15}°C`;
+            document.getElementById('nav-gs').textContent = Math.round(tel.groundSpeed||0);
+            document.getElementById('nav-vs').textContent = Math.round(tel.verticalSpeed||0);
+            document.getElementById('nav-nearest-icao').textContent = derived.nearestAirport?.icao || '---';
+            document.getElementById('nav-nearest-dist').textContent = (derived.nearestAirport?.dist?.toFixed(1) || '--') + ' NM';
+
+            // 3. Progress
+            document.getElementById('progress-bar').style.width = (derived.progress || 0) + '%';
+            
+            // 4. Phase
+            const phaseEl = document.getElementById('phase-indicator');
+            phaseEl.textContent = derived.flightPhase || 'ENROUTE';
+            // Reset classes
+            phaseEl.className = 'flight-phase-indicator'; 
+            if(derived.flightPhase?.includes('CLIMB')) phaseEl.classList.add('phase-climb');
+            else if(derived.flightPhase?.includes('DESCENT')) phaseEl.classList.add('phase-descent');
+            else if(derived.flightPhase?.includes('APPROACH') || derived.flightPhase?.includes('LANDING')) phaseEl.classList.add('phase-approach');
+            else if(derived.flightPhase?.includes('CRUISE')) phaseEl.classList.add('phase-cruise');
+            else phaseEl.classList.add('phase-enroute');
+
+            // 5. TOD
+            const todMod = document.getElementById('tod-module');
+            if(derived.tod && derived.tod.dist > 0) {
+                todMod.style.display = 'block';
+                document.getElementById('tod-status').textContent = derived.tod.status;
+                document.getElementById('tod-status').className = `status-pill ${derived.tod.status === 'DESCEND NOW' ? 'red' : 'green'}`;
+                document.getElementById('tod-dist').textContent = derived.tod.dist.toFixed(0) + ' NM';
+                document.getElementById('tod-time').textContent = derived.tod.time;
+            } else {
+                todMod.style.display = 'none';
+            }
+
+            // 6. Seat Sensor
+            updateSeatSensor(payload.seatSensor);
+
+            // 7. Update VSD Aircraft Icon
+            updateVsdPosition(derived.progressAlongRouteNM, tel.altitude, payload.vsd);
+        }
+
+        // --- PFD Logic ---
+        function setupPfdGraphics() {
+            // Generate Speed/Alt lines dynamically
+            const spdGroup = document.getElementById('speed_tape_group');
+            const altGroup = document.getElementById('altitude_tape_group');
+            const hdgGroup = document.getElementById('heading_tape_group');
+            const svgNS = "http://www.w3.org/2000/svg";
+
+            spdGroup.innerHTML = ''; altGroup.innerHTML = ''; hdgGroup.innerHTML = '';
+
+            // Speed: 0 to 600
+            for(let s=0; s<=600; s+=10) {
+                const y = -s * 7; // 7px per knot
+                const isMajor = s%20===0;
+                const line = document.createElementNS(svgNS, 'line');
+                line.setAttribute('x1', isMajor ? 50 : 60); line.setAttribute('x2', 80);
+                line.setAttribute('y1', y); line.setAttribute('y2', y);
+                line.setAttribute('stroke', 'white');
+                spdGroup.appendChild(line);
+                if(isMajor) {
+                    const txt = document.createElementNS(svgNS, 'text');
+                    txt.setAttribute('x', 40); txt.setAttribute('y', y+5);
+                    txt.setAttribute('fill','white'); txt.setAttribute('text-anchor','end');
+                    txt.textContent = s;
+                    spdGroup.appendChild(txt);
+                }
+            }
+
+            // Alt: 0 to 50000
+            for(let a=0; a<=50000; a+=100) {
+                const y = -a * 0.7; // 0.7px per ft
+                const isMajor = a%500===0;
+                const line = document.createElementNS(svgNS, 'line');
+                line.setAttribute('x1', 0); line.setAttribute('x2', isMajor ? 30 : 20);
+                line.setAttribute('y1', y); line.setAttribute('y2', y);
+                line.setAttribute('stroke', 'white');
+                altGroup.appendChild(line);
+                if(isMajor) {
+                    const txt = document.createElementNS(svgNS, 'text');
+                    txt.setAttribute('x', 40); txt.setAttribute('y', y+5);
+                    txt.setAttribute('fill','white'); 
+                    txt.textContent = a/100;
+                    altGroup.appendChild(txt);
+                }
+            }
+            
+            // Heading: -360 to 720
+            for(let h=-360; h<=720; h+=10) {
+                 const x = h * 5; // 5px per deg
+                 const line = document.createElementNS(svgNS, 'line');
+                 line.setAttribute('x1', x); line.setAttribute('x2', x);
+                 line.setAttribute('y1', 0); line.setAttribute('y2', h%90===0 ? 20 : 10);
+                 line.setAttribute('stroke', 'white');
+                 hdgGroup.appendChild(line);
+                 if(h%30===0) {
+                     const txt = document.createElementNS(svgNS, 'text');
+                     txt.setAttribute('x', x); txt.setAttribute('y', 35);
+                     txt.setAttribute('fill','white'); txt.setAttribute('text-anchor','middle');
+                     let val = (h+360)%360;
+                     if(val===0) val='N'; else if(val===90) val='E'; else if(val===180) val='S'; else if(val===270) val='W';
+                     else val = val/10;
+                     txt.textContent = val;
+                     hdgGroup.appendChild(txt);
+                 }
+            }
+        }
+
+        function updatePfd(pitch, roll, hdg, spd, alt, vs) {
+            // Smoothing
+            const now = performance.now();
+            // Simple approach for iframe: Direct transform
+            const pScale = 8; 
+            // Pitch center is y=312.5. Move up/down.
+            const attGroup = document.getElementById('attitude_group');
+            // Clamp pitch
+            const safePitch = Math.max(-25, Math.min(25, pitch||0));
+            attGroup.setAttribute('transform', `translate(400, 312.5) rotate(${-roll||0}) translate(0, ${safePitch * pScale}) translate(-400, -312.5)`);
+
+            // Tapes
+            document.getElementById('speed_tape_group').setAttribute('transform', `translate(0, ${312.5 + (spd||0)*7})`);
+            document.getElementById('speed_readout').textContent = Math.round(spd||0);
+
+            document.getElementById('altitude_tape_group').setAttribute('transform', `translate(0, ${312.5 + (alt||0)*0.7})`);
+            document.getElementById('altitude_readout').textContent = Math.floor((alt||0)/100)*100; // Show nearest 100 for readability
+
+            const hOffset = 400 - (hdg||0)*5;
+            document.getElementById('heading_tape_group').setAttribute('transform', `translate(${hOffset}, 0)`);
+            document.getElementById('heading_readout').textContent = String(Math.round(hdg||0)).padStart(3,'0');
+
+            // FMA
+            let vert = "ALT";
+            if((vs||0) > 400) vert = "CLB"; else if((vs||0) < -400) vert = "DES";
+            document.getElementById('fma_text').textContent = `SPEED | ${vert} | NAV`;
+        }
+
+        // --- VSD Logic ---
+        function setupVsd(vsdData) {
+             const svg = document.getElementById('vsd-svg');
+             const labels = document.getElementById('vsd-labels');
+             if(!vsdData || !vsdData.profile || vsdData.profile.length === 0) {
+                 svg.innerHTML = ''; labels.innerHTML = ''; return;
+             }
+             
+             // X Scale: 4px per NM
+             // Y Scale: height / 45000
+             const H = 150; 
+             const YS = H / 45000;
+             const XS = 4;
+
+             let d = '';
+             let html = '';
+             vsdData.profile.forEach((pt, i) => {
+                 const x = pt.dist * XS;
+                 const y = H - (pt.alt * YS);
+                 if(i===0) d += `M ${x} ${y}`; else d += ` L ${x} ${y}`;
+                 
+                 // Label
+                 if(i > 0 && i < vsdData.profile.length - 1 && i % 2 === 0) {
+                     html += `<div class="vsd-wp-label high-label" style="left:${x}px; top:${y-15}px;">${pt.name}</div>`;
+                 }
+             });
+             
+             document.getElementById('vsd-profile-path').setAttribute('d', d);
+             labels.innerHTML = html;
+             
+             // Set content width
+             const totalW = vsdData.totalDist * XS + 100;
+             document.getElementById('vsd-content').style.width = totalW + 'px';
+        }
+
+        function updateVsdPosition(progressNM, alt, vsdData) {
+            if(!vsdData) return;
+            const H = 150; const YS = H/45000; const XS = 4;
+            
+            const x = progressNM * XS;
+            const y = H - (alt * YS);
+            
+            const icon = document.getElementById('vsd-aircraft-icon');
+            icon.style.left = x + 'px';
+            icon.style.top = y + 'px';
+            
+            // Scroll container to keep icon centered
+            const containerW = document.querySelector('.vsd-graph').clientWidth;
+            const center = containerW / 2;
+            const transX = Math.min(0, center - x);
+            document.getElementById('vsd-content').style.transform = `translateX(${transX}px)`;
+            
+            // Draw flown path
+            // Simplified: Just draw line from 0,0 to curr pos
+            // Real implementation would pass historical points
+             const startAlt = vsdData.profile?.[0]?.alt || 0;
+             const startY = H - (startAlt * YS);
+             document.getElementById('vsd-flown-path').setAttribute('d', `M 0 ${startY} L ${x} ${y}`);
+        }
+
+        // --- FMS List ---
+        function renderFms(fmsData) {
+            const list = document.getElementById('fms-list');
+            if(!fmsData || fmsData.length === 0) {
+                list.innerHTML = '<div style="padding:10px;text-align:center;">No Plan</div>'; return;
+            }
+            let html = '';
+            fmsData.forEach((row, i) => {
+                if(row.isHeader) {
+                    html += `<div class="fms-header fms-row"><span class="proc-tag ${row.typeClass}">${row.type}</span><span>${row.ident}</span></div>`;
+                } else {
+                    const activeClass = row.active ? 'active' : (row.passed ? 'passed' : '');
+                    html += `<div class="fms-row ${activeClass}" id="leg-${i}">
+                        <span>${row.ident}</span>
+                        <span style="text-align:center;">${row.crs}</span>
+                        <span style="text-align:right;">${row.dist}</span>
+                    </div>`;
+                }
+            });
+            list.innerHTML = html;
+            // Scroll to active
+            setTimeout(() => {
+                const act = list.querySelector('.active');
+                if(act) act.scrollIntoView({block: 'center', behavior: 'smooth'});
+            }, 100);
+        }
+
+        /**
+ * --- [UPDATED] Updates the Navigation Data Panel ---
+ */
+function updateNavPanelData(lat, lon, heading, oat, windDir, windSpd) {
+    // 1. Update Coordinates (Clean formatting)
+    const latEl = document.getElementById('ac-lat');
+    const lonEl = document.getElementById('ac-lon');
+    
+    // Use toFixed(3) to save space and prevent "falling out"
+    if (latEl) latEl.textContent = lat.toFixed(3);
+    if (lonEl) lonEl.textContent = lon.toFixed(3);
+
+    // 2. Update Environment
+    const windEl = document.getElementById('ac-env-wind');
+    const oatEl = document.getElementById('ac-env-oat');
+    
+    // Format: 270 / 15
+    if (windEl) windEl.textContent = `${String(windDir).padStart(3, '0')}° / ${windSpd}`;
+    if (oatEl) oatEl.textContent = `${oat}°C`;
+
+    // 3. Nearest Airport Logic (Unchanged, just targets)
+    if (airportsData && Object.keys(airportsData).length > 0) {
+        let nearestICAO = '---';
+        let minDist = Infinity;
+        
+        // Optimization: Only check airports within ~2 degrees lat/lon
+        for (const icao in airportsData) {
+            const apt = airportsData[icao];
+            if (!apt || apt.lat == null || apt.lon == null) continue;
+
+            const latDiff = Math.abs(apt.lat - lat);
+            const lonDiff = Math.abs(apt.lon - lon);
+
+            if (latDiff > 2 || lonDiff > 2) continue;
+
+            const dist = getDistanceKm(lat, lon, apt.lat, apt.lon);
+            if (dist < minDist) {
+                minDist = dist;
+                nearestICAO = icao;
+            }
+        }
+
+        const nearestEl = document.getElementById('ac-nearest-apt');
+        const nearestDistEl = document.getElementById('ac-nearest-apt-dist');
+        
+        if (nearestEl && minDist !== Infinity) {
+            nearestEl.textContent = nearestICAO;
+            const distNM = (minDist / 1.852).toFixed(1);
+            nearestDistEl.textContent = `${distNM} NM`;
+        }
+    }
+}
+
+        function updateSeatSensor(flightProps) {
+    const seatCpt = document.getElementById('seat-cpt');
+    const seatFo = document.getElementById('seat-fo');
+    const statusCpt = document.getElementById('status-cpt-text');
+    const statusFo = document.getElementById('status-fo-text');
+    const narrative = document.getElementById('seat-narrative-text');
+    
+    // Overlays
+    const parkingOverlay = document.getElementById('icon-parking-overlay');
+    const coffeeOverlay = document.getElementById('icon-coffee-overlay');
+    const cloudOverlay = document.getElementById('icon-cloud-overlay');
+
+    if (!seatCpt || !seatFo) return;
+
+    // 1. DETERMINE STATE
+    // Default to 0 (Active) if undefined
+    let state = flightProps.pilotState !== undefined ? flightProps.pilotState : 0;
+
+    // 2. RESET VISUALS
+    // Remove all active color classes
+    seatCpt.classList.remove('active-green', 'active-amber', 'active-blue');
+    seatFo.classList.remove('active-green', 'active-amber', 'active-blue');
+    
+    // Reset pills
+    statusCpt.className = 'status-pill';
+    statusFo.className = 'status-pill';
+    
+    // Hide all overlays
+    if(parkingOverlay) parkingOverlay.classList.remove('visible');
+    if(coffeeOverlay) coffeeOverlay.classList.remove('visible');
+    if(cloudOverlay) cloudOverlay.classList.remove('visible');
+
+    // Reset Narrative Display
+    if(narrative) narrative.style.display = 'block';
+
+    // 3. APPLY LOGIC
+    switch (state) {
+        case 0: // ACTIVE
+            seatCpt.classList.add('active-green');
+            
+            statusCpt.classList.add('green');
+            statusCpt.textContent = 'CMD: PILOT';
+            
+            statusFo.textContent = 'FO: MONITOR';
+            
+            narrative.textContent = "Manual inputs detected. Pilot has controls.";
+            break;
+
+        case 1: // AWAY (IN FLIGHT) - Monitoring
+            seatCpt.classList.add('active-amber');
+            
+            statusCpt.classList.add('amber');
+            statusCpt.textContent = 'CMD: AUTO';
+            
+            statusFo.textContent = 'FO: MONITOR';
+            
+            if(coffeeOverlay) coffeeOverlay.classList.add('visible');
+            narrative.textContent = "No recent inputs. Pilot is monitoring cruise systems.";
+            break;
+
+        case 2: // AWAY (PARKED) - Secured
+            // Seats remain dark/grey (no active class)
+            
+            statusCpt.classList.add('red'); // Use red border/text for park brake
+            statusCpt.textContent = 'PARK BRK: SET';
+            statusCpt.style.width = '100%'; // Span full width
+            statusCpt.style.textAlign = 'center';
+            
+            statusFo.style.display = 'none'; // Hide FO pill in this specific state
+            
+            if(parkingOverlay) parkingOverlay.classList.add('visible');
+            narrative.textContent = "Cockpit secured. Parking brake set.";
+            break;
+
+        case 3: // BACKGROUND - Relief Pilot / Rest
+            seatFo.classList.add('active-blue');
+            
+            statusCpt.textContent = 'CMD: REST';
+            
+            statusFo.classList.add('blue');
+            statusFo.textContent = 'FO: ACTIVE';
+            
+            if(cloudOverlay) cloudOverlay.classList.add('visible');
+            
+            // [MODIFIED] Removed the "Relief Pilot" text and hid the element to push content up
+            if(narrative) {
+                narrative.textContent = ""; 
+                narrative.style.display = 'none';
+            }
+            break;
+
+        default:
+            narrative.textContent = "No telemetry data available.";
+            break;
+    }
+
+    // Restore FO display if not in state 2
+    if (state !== 2) {
+        statusFo.style.display = 'block';
+        statusCpt.style.width = 'auto';
+        statusCpt.style.textAlign = 'left';
+    }
+}
+            const cpt = document.getElementById('seat-cpt');
+            const fo = document.getElementById('seat-fo');
+            const statCpt = document.getElementById('status-cpt');
+            const statFo = document.getElementById('status-fo');
+            
+            cpt.className = 'seat'; fo.className = 'seat';
+            statCpt.className = 'status-pill'; statFo.className = 'status-pill';
+
+            if(state === 0) { // Active
+                cpt.classList.add('active-green');
+                statCpt.classList.add('green'); statCpt.textContent = 'CMD: PILOT';
+                statFo.textContent = 'FO: MONITOR';
+            } else if(state === 1) { // Cruise/Auto
+                cpt.classList.add('active-amber');
+                statCpt.classList.add('amber'); statCpt.textContent = 'CMD: AUTO';
+                statFo.textContent = 'FO: MONITOR';
+            } else if(state === 2) { // Parked
+                statCpt.classList.add('red'); statCpt.textContent = 'PARK BRK: SET';
+                statFo.textContent = '';
+            } else { // Relief
+                fo.classList.add('active-blue');
+                statCpt.textContent = 'CMD: REST';
+                statFo.classList.add('blue'); statFo.textContent = 'FO: ACTIVE';
+            }
+        }
+
+        // --- Pilot Stats Renderer ---
+        function renderPilotStats(profile) {
+            const c = document.getElementById('pilot-stats-container');
+            if(!profile) {
+                c.innerHTML = '<p class="error-msg">No data available.</p>'; return;
+            }
+            
+            // Helper for Progress Bar
+            const prog = (curr, tgt) => Math.min(100, (curr/tgt)*100).toFixed(1);
+
+            let html = `
+            <div class="stats-rehaul-container">
+                <div class="kpi-grid">
+                    <div class="kpi-card"><div class="kpi-label">Grade</div><div class="kpi-value">${profile.grade}</div></div>
+                    <div class="kpi-card"><div class="kpi-label">XP</div><div class="kpi-value">${profile.xp.toLocaleString()}</div></div>
+                    <div class="kpi-card"><div class="kpi-label">Violations</div><div class="kpi-value">${profile.totalViolations}</div></div>
+                    <div class="kpi-card"><div class="kpi-label">ATC Rank</div><div class="kpi-value">${profile.atcRank}</div></div>
+                </div>`;
+
+            if(profile.progression) {
+                profile.progression.forEach(p => {
+                    const isMax = p.type === 'MAX_LIMIT';
+                    const met = isMax ? p.current <= p.target : p.current >= p.target;
+                    const width = isMax ? (p.current/p.target)*100 : prog(p.current, p.target);
+                    const color = met ? (isMax?'#4ade80':'#4ade80') : '#f87171';
+                    
+                    html += `
+                    <div class="accordion-item active">
+                        <div class="accordion-header" style="cursor:default;">
+                            <span>${p.label}</span>
+                            <span>${p.current} / ${p.target}</span>
+                        </div>
+                        <div class="accordion-content" style="max-height:100px; padding:0 10px 10px 10px;">
+                            <div class="progress-bar-bg">
+                                <div class="progress-bar-fg" style="width:${Math.min(100, width)}%; background:${color};"></div>
+                            </div>
+                        </div>
+                    </div>`;
+                });
+            }
+
+            html += `
+                <div class="accordion-item">
+                    <button class="accordion-header" onclick="this.parentElement.classList.toggle('active')">
+                        Detailed Stats <i class="fa-solid fa-chevron-down"></i>
+                    </button>
+                    <div class="accordion-content">
+                        <div class="detail-item"><span>Last Violation</span><span>${profile.lastViolationDate}</span></div>
+                        <div class="detail-item"><span>Lvl 1 Count</span><span>${profile.violationDetails.level1}</span></div>
+                    </div>
+                </div>
+            </div>`;
+            
+            c.innerHTML = html;
+        }
+
+    </script>
+</body>
+</html>
