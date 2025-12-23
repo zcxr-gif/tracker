@@ -8577,6 +8577,9 @@ function rebuildDynamicLayers() {
 
 
 
+/**
+ * --- [UPDATED] Populates the aircraft info window with data from backend lookup.
+ */
 function populateAircraftInfoWindow(baseProps, plan, sortedRoutePoints, communityAircraftData) {
     // --- Helper function to update all elements matching a selector ---
     const updateAll = (selector, value, isHTML = false) => {
@@ -8607,10 +8610,10 @@ function populateAircraftInfoWindow(baseProps, plan, sortedRoutePoints, communit
     // Aircraft Info
     const aircraftName = baseProps.aircraft?.aircraftName || 'Unknown Type';
     const airlineName = baseProps.aircraft?.liveryName || 'Generic Livery';
+    const liveryName = baseProps.aircraft?.liveryName || '';
     const reg = baseProps.aircraft?.registration || 'N/A';
     
-    // Logo Logic
-    const liveryName = baseProps.aircraft?.liveryName || '';
+    // Logo Logic (Client-side logic for Airline Logo remains useful)
     const words = liveryName.trim().split(/\s+/);
     let logoName = words.length > 1 && /[^a-zA-Z0-9]/.test(words[1]) ? words[0] : (words[0] + (words[1] ? ' ' + words[1] : ''));
     const sanitizedLogoName = logoName.toLowerCase().replace(/[^a-z0-9\s]/g, '').replace(/\s+/g, '_');
@@ -8639,8 +8642,8 @@ function populateAircraftInfoWindow(baseProps, plan, sortedRoutePoints, communit
                 data-departure="${departureIcao}" 
                 data-arrival="${arrivalIcao}" 
                 data-aircraft="${simbriefAircraftValue}"
-                style="width: 100%; margin-top: auto; border: 1px solid rgba(56, 189, 248, 0.3); background: rgba(56, 189, 248, 0.1); color: #38bdf8;">
-            <i class="fa-solid fa-file-invoice"></i> Plan Flight
+                style="width: 100%; margin-top: 16px;">
+            <i class="fa-solid fa-file-invoice"></i> Plan This Flight
         </button>`;
     }
 
@@ -8648,20 +8651,26 @@ function populateAircraftInfoWindow(baseProps, plan, sortedRoutePoints, communit
     const pilotReportTabText = (pilotUsername !== 'N/A' && pilotUsername) ? pilotUsername : 'Pilot Report';
 
     // --- DYNAMIC IMAGE & CONTRIBUTOR LOGIC ---
+    // Default Fallback
     let techCardImagePath = '/CommunityPlanes/default.png';
     let photographerName = 'IF Community';
-    let techCardTail = reg; 
+    let techCardTail = reg; // Default to live registration
 
+    // [FIX START] Handle if data comes as an array (common with DB lookups)
     if (Array.isArray(communityAircraftData)) {
         communityAircraftData = communityAircraftData.length > 0 ? communityAircraftData[0] : null;
     }
+
+    // If backend returned data, use it
     if (communityAircraftData && communityAircraftData.imageUrl) {
         techCardImagePath = communityAircraftData.imageUrl;
         photographerName = communityAircraftData.contributorName || 'IF Community';
+        // [FIX] Uncommented this to show the tail number from your DB
         if (communityAircraftData.tailNumber) {
             techCardTail = communityAircraftData.tailNumber; 
         }
     }
+    // [FIX END]
 
     // --- Distance Calc for TOD Logic ---
     let distanceToDestNM = 0;
@@ -8682,18 +8691,30 @@ function populateAircraftInfoWindow(baseProps, plan, sortedRoutePoints, communit
 
     // --- TOD Calculator Logic ---
     let todHtml = '';
+    
+    // We need a destination and valid physics to calculate TOD
     if (hasPlan && baseProps.position.alt_ft > 5000 && distanceToDestNM > 20) {
+        // 1. Get Altitudes
         const currentAlt = baseProps.position.alt_ft;
+        // Try to get destination elevation from plan, default to 0 (Sea Level) if missing
         const destElev = (plan.destination && plan.destination.elevation_ft) ? parseInt(plan.destination.elevation_ft) : 0;
+        
+        // 2. Calculate Descent
         const altToLose = currentAlt - destElev;
+        // 3:1 Rule: 3nm distance for every 1000ft height
         const descentDistanceNM = (altToLose / 1000) * 3;
+        
+        // 3. Calculate TOD location relative to us
         const distToTodNM = distanceToDestNM - descentDistanceNM;
         
+        // 4. Calculate Time to TOD (based on current GS)
         let timeToTodStr = '--:--';
         if (baseProps.position.gs_kt > 50) {
             const timeHours = distToTodNM / baseProps.position.gs_kt;
             const minutes = Math.floor(timeHours * 60);
             const seconds = Math.floor((timeHours * 60 - minutes) * 60);
+            
+            // Format nicely
             if (distToTodNM > 0) {
                  timeToTodStr = `${String(minutes).padStart(2, '0')}:${String(seconds).padStart(2, '0')}`;
             } else {
@@ -8701,163 +8722,339 @@ function populateAircraftInfoWindow(baseProps, plan, sortedRoutePoints, communit
             }
         }
 
+        // 5. Determine State (Cruise vs Descent)
         const isPastTod = distToTodNM <= 0;
-        const statusColor = isPastTod ? '#ef4444' : '#34d399'; 
-        const statusText = isPastTod ? 'DESCEND' : 'CRUISE';
-        const distDisplay = isPastTod ? `+${Math.abs(distToTodNM).toFixed(0)}` : `${distToTodNM.toFixed(0)}`;
+        const statusColor = isPastTod ? '#ef4444' : '#34d399'; // Red if past, Green if pending
+        const statusText = isPastTod ? 'DESCEND NOW' : 'CRUISING';
+        const distDisplay = isPastTod ? `+${Math.abs(distToTodNM).toFixed(1)} NM` : `${distToTodNM.toFixed(1)} NM`;
 
+        // 6. Build the HTML Module
         todHtml = `
-        <div class="avionics-module" style="flex-shrink: 0;">
-            <div class="avionics-header">
-                <span><i class="fa-solid fa-calculator"></i> VNAV CALC</span>
-                <span style="color: ${statusColor}">${statusText}</span>
+        <div class="tech-module" id="tod-calculator-module">
+            <div class="tech-module-header">
+                <span class="tech-module-title"><i class="fa-solid fa-calculator"></i> DESCENT (3:1)</span>
+                <span class="tech-badge" style="background: rgba(16, 185, 129, 0.1); color: ${statusColor}; border-color: ${statusColor};">
+                    ${statusText}
+                </span>
             </div>
-            <div style="padding: 10px; display: grid; grid-template-columns: 1fr 1fr; gap: 8px;">
-                <div style="text-align: center;">
-                    <div style="font-size: 0.6rem; color: #71717a;">TOD DIST</div>
-                    <div style="font-family: var(--font-data); font-size: 1.1rem; color: #fff;">${distDisplay} <span style="font-size: 0.7rem;">NM</span></div>
+            <div class="tech-module-body" style="padding: 8px; display: flex; gap: 8px; align-items: center;">
+                
+                <div style="flex: 1; display: flex; flex-direction: column; align-items: center; background: rgba(255,255,255,0.03); border-radius: 6px; padding: 6px;">
+                    <span class="tech-stat-label" style="font-size: 8px; color: #94a3b8; margin-bottom: 2px;">DIST TO TOD</span>
+                    <span class="tech-stat-value" style="font-size: 1.0rem;">${distDisplay}</span>
                 </div>
-                <div style="text-align: center;">
-                    <div style="font-size: 0.6rem; color: #71717a;">TIME</div>
-                    <div style="font-family: var(--font-data); font-size: 1.1rem; color: #38bdf8;">${timeToTodStr}</div>
+
+                <div style="flex: 1; display: flex; flex-direction: column; align-items: center; background: rgba(255,255,255,0.03); border-radius: 6px; padding: 6px;">
+                    <span class="tech-stat-label" style="font-size: 8px; color: #94a3b8; margin-bottom: 2px;">TIME TO TOD</span>
+                    <span class="tech-stat-value" style="font-size: 1.0rem; color: #38bdf8;">${timeToTodStr}</span>
                 </div>
+
+                <div style="flex: 1; display: flex; flex-direction: column; align-items: center; background: rgba(255,255,255,0.03); border-radius: 6px; padding: 6px;">
+                    <span class="tech-stat-label" style="font-size: 8px; color: #94a3b8; margin-bottom: 2px;">REQ. RATE</span>
+                    <span class="tech-stat-value" style="font-size: 1.0rem; color: #fbbf24;">-${Math.round(baseProps.position.gs_kt * 5)}</span>
+                </div>
+
             </div>
         </div>
         `;
+    } else if (hasPlan && baseProps.position.alt_ft <= 5000) {
+         todHtml = `
+        <div class="tech-module">
+            <div class="tech-module-header">
+                <span class="tech-module-title"><i class="fa-solid fa-calculator"></i> DESCENT PHASE</span>
+                <span class="tech-badge" style="color: #38bdf8; border-color: #38bdf8;">ACTIVE</span>
+            </div>
+            <div class="tech-module-body" style="padding: 12px; text-align: center; color: #94a3b8; font-size: 0.8rem;">
+                Aircraft is in terminal phase.
+            </div>
+        </div>`;
     }
 
     // --- HTML Construction ---
     windowEl.innerHTML = `
     <style>
-        /* --- INTERNAL STYLES FOR REDESIGN --- */
-        .pfd-and-location-grid { 
-            display: grid; 
-            grid-template-columns: minmax(0, 1fr) 240px; /* Fixed Right Column */
-            gap: 12px;
-            margin-bottom: 12px;
-            align-items: start;
-        }
-
-        .avionics-right-col {
-            display: flex;
-            flex-direction: column;
-            gap: 12px;
-            height: 100%;
-        }
-
-        .avionics-module {
-            background: #131316;
-            border: 1px solid rgba(255,255,255,0.1);
-            border-radius: 6px;
+        /* --- Shared Tech Style --- */
+        .tech-module {
+            background: #0f172a; /* Solid Dark Slate */
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            border-radius: 12px;
             overflow: hidden;
-            box-shadow: 0 4px 6px rgba(0,0,0,0.3);
+            box-shadow: 0 4px 15px rgba(0, 0, 0, 0.5);
+            margin-bottom: 8px; 
             display: flex;
             flex-direction: column;
         }
 
-        .avionics-header {
-            background: rgba(30, 41, 59, 0.4);
-            padding: 6px 10px;
-            font-size: 0.7rem;
+        .tech-module-header {
+            background: rgba(30, 41, 59, 0.5); /* Slightly lighter header */
+            padding: 8px 12px;
+            border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+        
+        .tech-module-title {
+            font-size: 0.75rem;
             font-weight: 700;
-            color: #94a3b8;
+            color: #94a3b8; /* Muted text */
             text-transform: uppercase;
             letter-spacing: 0.05em;
             display: flex;
-            justify-content: space-between;
             align-items: center;
-            border-bottom: 1px solid rgba(255,255,255,0.05);
+            gap: 8px;
         }
 
-        .telemetry-strip {
-            display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(70px, 1fr));
-            gap: 1px; 
-            background: rgba(255,255,255,0.1); /* Border color */
-            border: 1px solid rgba(255,255,255,0.1);
+        .tech-module-body {
+            padding: 12px;
+            background: #0f172a;
+            position: relative;
+        }
+
+        /* --- Tech Card Specifics --- */
+        .tech-card {
+            background: #0f172a; 
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            border-radius: 12px; 
+            overflow: hidden;
+            box-shadow: 0 4px 15px rgba(0, 0, 0, 0.5);
+            position: relative;
+            font-family: 'Inter', sans-serif;
+            margin-bottom: 12px; 
+        }
+        .tech-card-header {
+            padding: 12px 16px 4px; 
+            display: flex;
+            justify-content: space-between;
+            align-items: flex-start;
+            position: relative;
+            z-index: 10;
+        }
+        .tech-badge {
+            display: inline-flex;
+            align-items: center;
+            gap: 4px;
+            padding: 1px 6px;
+            border-radius: 999px;
+            background: rgba(16, 185, 129, 0.1);
+            border: 1px solid rgba(16, 185, 129, 0.2);
+            font-size: 9px;
+            font-weight: 700;
+            color: #34d399;
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+        }
+        .tech-ping {
+            position: relative;
+            display: flex;
+            height: 5px;
+            width: 5px;
+        }
+        .tech-ping span {
+            position: absolute;
+            display: inline-flex;
+            height: 100%;
+            width: 100%;
+            border-radius: 50%;
+            background-color: #34d399;
+        }
+        .tech-ping .animate {
+            animation: ping 1s cubic-bezier(0, 0, 0.2, 1) infinite;
+            opacity: 0.75;
+        }
+        @keyframes ping {
+            75%, 100% { transform: scale(2); opacity: 0; }
+        }
+        .tech-model {
+            font-size: 1.1rem;
+            font-weight: 700;
+            color: #fff;
+            letter-spacing: -0.025em;
+            margin: 0;
+            line-height: 1.2;
+        }
+        .tech-airline {
+            font-size: 0.75rem;
+            font-weight: 500;
+            color: rgba(56, 189, 248, 0.9);
+            margin-top: 0px;
+            display: flex;
+            align-items: center;
+            gap: 5px;
+        }
+        .tech-content {
+            padding: 12px;
+            position: relative;
+            z-index: 10;
+        }
+        .tech-image-container {
+            position: relative;
+            width: 100%;
+            aspect-ratio: 21 / 9;
             border-radius: 8px;
             overflow: hidden;
-            margin-top: 6px; 
+            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.2);
+            border: 1px solid rgba(255, 255, 255, 0.05);
+            background: #000;
         }
-
-        .telemetry-cell {
-            background: #0f172a; 
-            padding: 6px 4px;
+        .tech-image {
+            width: 100%;
+            height: 100%;
+            object-fit: cover;
+            transition: transform 0.7s ease-out;
+        }
+        .tech-image-container:hover .tech-image {
+            transform: scale(1.05);
+        }
+        .tech-image-overlay {
+            position: absolute;
+            inset: 0;
+            background: linear-gradient(to top, rgba(2, 6, 23, 0.9), transparent, transparent);
+            opacity: 0.8;
+        }
+        .tech-image-info {
+            position: absolute;
+            bottom: 8px;
+            left: 10px;
+            right: 10px;
+            display: flex;
+            justify-content: space-between;
+            align-items: flex-end;
+        }
+        .tech-photographer {
             display: flex;
             flex-direction: column;
-            justify-content: center;
-            align-items: center;
-            text-align: center;
         }
-
-        .t-label {
-            font-size: 0.55rem;
-            color: #64748b;
-            font-weight: 700;
-            text-transform: uppercase;
+        .tech-photo-label {
+            font-size: 9px;
+            color: #cbd5e1;
+            font-weight: 500;
+            margin-bottom: 0px;
+            line-height: 1;
+        }
+        .tech-photo-name {
+            display: flex;
+            align-items: center;
+            gap: 4px;
+            font-size: 10px;
+            font-weight: 600;
+            color: #fff;
+        }
+        .tech-grid {
+            display: grid;
+            grid-template-columns: repeat(2, 1fr);
+            gap: 8px;
+            margin-top: 12px;
+        }
+        .tech-stat-card {
+            background: rgba(30, 41, 59, 0.5);
+            border: 1px solid rgba(255, 255, 255, 0.05);
+            padding: 8px 10px;
+            border-radius: 6px;
+            transition: background 0.2s;
+        }
+        .tech-stat-card:hover {
+            background: rgba(30, 41, 59, 0.8);
+        }
+        .tech-stat-header {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
             margin-bottom: 2px;
         }
-
-        .t-value {
-            font-family: var(--font-data);
-            font-size: 0.9rem;
-            color: #e2e8f0;
+        .tech-stat-label {
+            font-size: 9px;
             font-weight: 600;
+            color: #94a3b8;
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
         }
-        .t-value.accent { color: #38bdf8; }
-        .t-value.warn { color: #fbbf24; }
-
-        .lower-console-grid {
-            display: grid;
-            grid-template-columns: 2fr 1fr;
-            gap: 12px;
+        .tech-stat-value {
+            font-family: 'Consolas', 'Monaco', monospace;
+            font-size: 0.95rem;
+            color: #fff;
+            font-weight: 600;
+            letter-spacing: -0.025em;
         }
-
-        .efb-card {
-            background: #131316;
-            border: 1px solid rgba(255,255,255,0.1);
-            border-radius: 8px;
-            padding: 0;
+        .tech-country-card {
+            grid-column: span 2;
+            background: rgba(30, 41, 59, 0.3);
+            border: 1px solid rgba(255, 255, 255, 0.05);
+            padding: 6px 10px;
+            border-radius: 6px;
             display: flex;
-            flex-direction: column;
-            height: 100%;
-        }
-        
-        .efb-header {
-            padding: 8px 12px;
-            border-bottom: 1px solid rgba(255,255,255,0.1);
-            display: flex;
-            justify-content: space-between;
             align-items: center;
-            background: rgba(30, 41, 59, 0.4);
+            justify-content: space-between;
         }
-        
-        .efb-body {
-            padding: 12px;
+        .tech-country-left {
             display: flex;
-            flex-direction: column;
+            align-items: center;
             gap: 8px;
-            flex-grow: 1;
         }
-
-        .efb-row {
+        .tech-country-icon {
+            width: 24px;
+            height: 24px;
+            border-radius: 4px;
+            background: rgba(51, 65, 85, 0.5);
             display: flex;
-            justify-content: space-between;
             align-items: center;
-            padding-bottom: 6px;
-            border-bottom: 1px dashed rgba(255,255,255,0.1);
+            justify-content: center;
+            color: #94a3b8;
         }
-        .efb-row:last-child { border-bottom: none; }
-        
-        .efb-key { font-size: 0.7rem; color: #64748b; font-weight: 600; }
-        .efb-val { font-family: var(--font-data); font-size: 0.8rem; color: #fff; }
+        .tech-bottom-bar {
+            height: 3px;
+            width: 100%;
+            background: linear-gradient(to right, #0ea5e9, #2563eb, #4f46e5);
+            opacity: 0.8;
+        }
 
-        .fms-module-container { height: auto; flex-grow: 1; min-height: 200px; border: none; box-shadow: none; }
-        
-        @media (max-width: 992px) {
-            .pfd-and-location-grid { grid-template-columns: 1fr; }
-            .lower-console-grid { grid-template-columns: 1fr; }
-            .avionics-right-col { display: none; } /* Hide Right col on mobile */
+        /* --- FMS Overrides for Tech Style --- */
+        .fms-columns {
+            border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+            color: #94a3b8;
+        }
+        .fms-row {
+            border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+        }
+        .fms-footer {
+            background: rgba(30, 41, 59, 0.3);
+            border-top: 1px solid rgba(255, 255, 255, 0.1);
+        }
+
+        /* --- Nav Data Overrides --- */
+        .nav-header {
+             display: none; /* We use the tech-module-header now */
+        }
+        #location-data-panel {
+            background: transparent;
+            border: none;
+            box-shadow: none;
+        }
+        .nav-grid-container {
+            padding: 0; /* Remove internal padding as body handles it */
+        }
+        .nav-cell {
+            background: rgba(30, 41, 59, 0.5); /* Match tech-stat-card */
+            border: 1px solid rgba(255, 255, 255, 0.05);
+        }
+
+        /* --- VSD Overrides --- */
+        .vsd-module-container {
+             background: transparent; 
+             border: none;
+             box-shadow: none;
+             margin-bottom: 12px;
+        }
+        .vsd-footer {
+            background: rgba(30, 41, 59, 0.3);
+            border-top: 1px solid rgba(255, 255, 255, 0.1);
+        }
+        .vsd-graph-window {
+            background: #0f172a; /* Match background */
+        }
+        #vsd-y-axis {
+            background: #0f172a;
+            border-right: 1px solid rgba(255, 255, 255, 0.1);
         }
     </style>
 
@@ -8885,7 +9082,7 @@ function populateAircraftInfoWindow(baseProps, plan, sortedRoutePoints, communit
         <div class="route-summary-overlay">
             <div class="route-summary-airport" id="route-summary-dep">
                 <div class="airport-line">
-                    <img src="${depFlagSrc}" class="country-flag" id="ac-bar-dep-flag" style="display: ${depFlagDisplay};">
+                    <img src="${depFlagSrc}" class="country-flag" id="ac-bar-dep-flag" alt="${depCountryCode}" style="display: ${depFlagDisplay};">
                     <span class="icao" id="ac-bar-dep">${departureIcao}</span>
                 </div>
                 <span class="time" id="ac-bar-atd">${atdTime} Z</span>
@@ -8899,7 +9096,7 @@ function populateAircraftInfoWindow(baseProps, plan, sortedRoutePoints, communit
             <div class="route-summary-airport" id="route-summary-arr">
                  <div class="airport-line">
                     <span class="icao" id="ac-bar-arr">${arrivalIcao}</span>
-                    <img src="${arrFlagSrc}" class="country-flag" id="ac-bar-arr-flag" style="display: ${arrFlagDisplay};">
+                    <img src="${arrFlagSrc}" class="country-flag" id="ac-bar-arr-flag" alt="${arrCountryCode}" style="display: ${arrFlagDisplay};">
                 </div>
                 <span class="time" id="ac-bar-eta">${etaTime} Z</span>
             </div>
@@ -8908,7 +9105,7 @@ function populateAircraftInfoWindow(baseProps, plan, sortedRoutePoints, communit
         <div class="ac-info-window-tabs">
             <div class="ac-tabs-wrapper">
                 <button class="ac-info-tab-btn active" data-tab="ac-tab-flight-data">
-                    <i class="fa-solid fa-gauge-high"></i> Flight Deck
+                    <i class="fa-solid fa-gauge-high"></i> Flight Display
                 </button>
                 <button class="ac-info-tab-btn pilot-tab-btn" data-tab="ac-tab-pilot-report" data-user-id="${baseProps.userId}" data-username="${pilotUsername}">
                     <i class="fa-solid fa-chart-simple"></i> ${pilotReportTabText}
@@ -8918,10 +9115,9 @@ function populateAircraftInfoWindow(baseProps, plan, sortedRoutePoints, communit
         </div>
 
         <div class="unified-display-main-content">
-            <div id="ac-tab-flight-data" class="ac-tab-pane active">
+            <div id="ac-tab-flight-data" class="ac-tab-pane active" style="gap: 6px;">
                 
                 <div class="pfd-and-location-grid">
-                    
                     <div class="pfd-main-panel">
                         <div class="display-bezel">
                             <div class="screw tl"></div><div class="screw tr"></div><div class="screw bl"></div><div class="screw br"></div>
@@ -9062,48 +9258,20 @@ function populateAircraftInfoWindow(baseProps, plan, sortedRoutePoints, communit
                             </div>
                         </div>
 
-                        <div class="telemetry-strip" style="width: 100%;">
-                            <div class="telemetry-cell">
-                                <span class="t-label">GS</span>
-                                <span class="t-value accent" id="ac-location-gs">${baseProps.position.gs_kt}</span>
-                            </div>
-                            <div class="telemetry-cell">
-                                <span class="t-label">ALT</span>
-                                <span class="t-value accent" id="ac-location-alt">${baseProps.position.alt_ft}</span>
-                            </div>
-                            <div class="telemetry-cell">
-                                <span class="t-label">VS</span>
-                                <span class="t-value" id="ac-vs">---</span>
-                            </div>
-                            <div class="telemetry-cell">
-                                <span class="t-label">WIND</span>
-                                <span class="t-value" id="ac-env-wind">---/--</span>
-                            </div>
-                            <div class="telemetry-cell">
-                                <span class="t-label">OAT</span>
-                                <span class="t-value" id="ac-env-oat">--°C</span>
-                            </div>
-                            <div class="telemetry-cell">
-                                <span class="t-label">DTG</span>
-                                <span class="t-value" id="ac-dist">---</span>
-                            </div>
-                            <div class="telemetry-cell">
-                                <span class="t-label">ETE</span>
-                                <span class="t-value warn" id="ac-ete">--:--</span>
-                            </div>
-                        </div>
                     </div>
                     
-                    <div class="avionics-right-col">
+                    <div class="info-right-col">
                         
-                        <div class="avionics-module" style="flex-shrink: 0;">
-                            <div class="avionics-header">
-                                <span><i class="fa-solid fa-chair"></i> SEAT SENSOR</span>
+                        <div class="tech-module" id="cockpit-seat-sensor">
+                            <div class="tech-module-header">
+                                <span class="tech-module-title"><i class="fa-solid fa-chair"></i> COCKPIT STATE</span>
+                                <span class="fms-page-count"><i class="fa-solid fa-satellite-dish"></i></span>
                             </div>
-                            <div class="sensor-body">
+                            <div class="tech-module-body">
                                 <div class="cockpit-view">
                                     <div id="seat-cpt" class="seat" data-role="CPT"></div>
                                     <div id="seat-fo" class="seat" data-role="FO"></div>
+                                    
                                     <div id="icon-parking-overlay" class="cockpit-overlay-icon icon-parking">P</div>
                                     <div id="icon-coffee-overlay" class="cockpit-overlay-icon icon-coffee"><i class="fa-solid fa-mug-hot"></i></div>
                                     <div id="icon-cloud-overlay" class="cockpit-overlay-icon icon-cloud"><i class="fa-solid fa-cloud"></i></div>
@@ -9112,89 +9280,207 @@ function populateAircraftInfoWindow(baseProps, plan, sortedRoutePoints, communit
                                     <span id="status-cpt-text" class="status-pill">CMD: ---</span>
                                     <span id="status-fo-text" class="status-pill">FO: ---</span>
                                 </div>
+                                <div id="seat-narrative-text">
+                                    Initializing...
+                                </div>
                             </div>
                         </div>
 
                         ${todHtml}
 
-                        <div class="avionics-module fms-module-container">
-                            <div class="avionics-header">
-                                <span><i class="fa-solid fa-route"></i> FMS LEGS</span>
-                                <span class="fms-page-count">ACT</span>
+                        <div id="fms-legs-module" class="tech-module" style="height: 380px; max-height: 380px; display: flex; flex-direction: column; margin-top: 12px;">
+                            <div class="tech-module-header">
+                                <span class="tech-module-title"><i class="fa-solid fa-route"></i> ACTIVE FLIGHT PLAN</span>
+                                <span class="fms-page-count">1/1</span>
                             </div>
                             
                             <div class="fms-columns">
-                                <span class="col-wpt">ID</span>
+                                <span class="col-wpt">LEGS</span>
                                 <span class="col-data text-center">CRS</span>
-                                <span class="col-data text-right">NM</span>
+                                <span class="col-data text-right">DIST</span>
                             </div>
 
                             <div id="fms-legs-list" class="fms-list-scrollarea">
-                                <div class="fms-empty-state">NO ROUTE</div>
+                                <div class="fms-empty-state">NO ROUTE LOADED</div>
                             </div>
                             
                             <div class="fms-footer">
                                 <div class="fms-stat">
-                                    <span class="stat-label">REMAINING</span>
+                                    <span class="stat-label">DTG</span>
                                     <span id="fms-total-dist" class="stat-value">---- NM</span>
+                                </div>
+                                <div class="fms-stat">
+                                    <span class="stat-label">ETE</span>
+                                    <span id="fms-total-ete" class="stat-value">--:--</span>
                                 </div>
                             </div>
                         </div>
                     </div>
                 </div>
                 
-                <div class="lower-console-grid">
+                <div class="tech-module" id="location-data-panel">
+                    <div class="tech-module-header">
+                        <span class="tech-module-title"><i class="fa-solid fa-location-crosshairs"></i> NAV DATA</span>
+                        <span class="nav-status-indicator"><div class="nav-blink"></div> LIVE</span>
+                    </div>
                     
-                    <div class="avionics-module vsd-module-container">
-                        <div class="avionics-header">
-                            <span><i class="fa-solid fa-chart-area"></i> PROFILE VIEW</span>
-                        </div>
-                        
-                        <div id="vsd-panel" class="vsd-panel active" data-plan-id="" data-profile-built="false">
-                            <div id="vsd-graph-window" class="vsd-graph-window" style="background: #131316;">
-                                <div id="vsd-aircraft-icon"></div>
-                                <div id="vsd-graph-content">
-                                    <svg id="vsd-profile-svg" xmlns="http://www.w3.org/2000/svg">
-                                        <path id="vsd-flown-path" d="" />
-                                        <path id="vsd-profile-path" d="" />
-                                    </svg>
-                                    <div id="vsd-waypoint-labels"></div>
+                    <div class="tech-module-body" style="padding: 8px;">
+                        <div class="nav-grid-container">
+                            <div class="nav-cell">
+                                <span class="nav-label"><i class="fa-solid fa-map-location-dot"></i> Region</span>
+                                <span class="nav-value small" id="ac-location">Scanning...</span>
+                            </div>
+                            <div class="nav-cell">
+                                <span class="nav-label"><i class="fa-solid fa-tower-control"></i> Nearest</span>
+                                <div class="nav-row">
+                                    <span class="nav-value highlight" id="ac-nearest-apt">---</span>
+                                    <span class="nav-value" id="ac-nearest-apt-dist">--.- <span class="nav-unit">NM</span></span>
+                                </div>
+                            </div>
+                            <div class="nav-cell">
+                                <span class="nav-label"><i class="fa-solid fa-wind"></i> Wind</span>
+                                <span class="nav-value" id="ac-env-wind">---/--</span>
+                            </div>
+                            <div class="nav-cell">
+                                <span class="nav-label"><i class="fa-solid fa-temperature-half"></i> OAT</span>
+                                <span class="nav-value" id="ac-env-oat">--°C</span>
+                            </div>
+
+                            <div class="nav-cell nav-span-2">
+                                <span class="nav-label"><i class="fa-solid fa-location-crosshairs"></i> Position</span>
+                                <div class="nav-row">
+                                    <div><span class="nav-unit">LAT</span> <span class="nav-value" id="ac-lat">---</span></div>
+                                    <div><span class="nav-unit">LON</span> <span class="nav-value" id="ac-lon">---</span></div>
+                                </div>
+                            </div>
+                            <div class="nav-cell nav-span-2">
+                                 <span class="nav-label"><i class="fa-solid fa-arrow-up-right-dots"></i> Vertical Speed</span>
+                                 <span class="nav-value large highlight" id="ac-vs">--- <span class="nav-unit">fpm</span></span>
+                            </div>
+
+                            <div class="nav-cell nav-span-2">
+                                <span class="nav-label"><i class="fa-solid fa-location-arrow"></i> Next Waypoint</span>
+                                <div class="nav-row">
+                                    <span class="nav-value accent" id="ac-next-wp">---</span>
+                                    <span class="nav-value" id="ac-next-wp-dist">--.- <span class="nav-unit">NM</span></span>
+                                </div>
+                            </div>
+                            <div class="nav-cell nav-span-2">
+                                <span class="nav-label"><i class="fa-solid fa-flag-checkered"></i> Destination</span>
+                                <div class="nav-row">
+                                    <div><span class="nav-unit">DIST</span> <span class="nav-value" id="ac-dist">---</span></div>
+                                    <div><span class="nav-unit">ETE</span> <span class="nav-value" id="ac-ete">--:--</span></div>
                                 </div>
                             </div>
                         </div>
                     </div>
+                </div>
 
-                    <div class="efb-card">
-                        <div class="efb-header">
-                            <span style="font-weight: 700; color: #fff;">EFB - AIRCRAFT</span>
-                            <span style="font-size: 0.6rem; background: #38bdf8; color: #000; padding: 2px 6px; border-radius: 2px; font-weight: bold;">CONN</span>
+                <div class="tech-card">
+                    <div class="tech-card-header">
+                        <div>
+                            <div style="display: flex; align-items: center; gap: 8px; margin-bottom: 4px;">
+                                <div class="tech-badge">
+                                    <span class="tech-ping">
+                                      <span class="animate"></span>
+                                      <span></span>
+                                    </span>
+                                    Active
+                                </div>
+                                <span style="font-size: 10px; font-weight: 600; color: #94a3b8; text-transform: uppercase; letter-spacing: 0.1em;">Flight Data</span>
+                            </div>
+                            <h1 class="tech-model">${aircraftName}</h1>
+                            <p class="tech-airline">
+                                <i class="fa-solid fa-plane" style="font-size: 12px;"></i>
+                                <span>${airlineName}</span>
+                            </p>
                         </div>
-                        <div class="tech-image-container" style="border-radius: 0; border: none; border-bottom: 1px solid rgba(255,255,255,0.1); max-height: 120px;">
-                            <img src="${techCardImagePath}" onerror="this.src='/CommunityPlanes/default.png'" class="tech-image" alt="Aircraft">
-                            <div class="tech-image-overlay"></div>
-                            <div class="tech-image-info">
-                                <span class="tech-photo-label" style="text-shadow: 0 1px 2px black;">${photographerName}</span>
-                            </div>
-                        </div>
-                        <div class="efb-body">
-                            <div class="efb-row">
-                                <span class="efb-key">TYPE</span>
-                                <span class="efb-val">${aircraftName}</span>
-                            </div>
-                            <div class="efb-row">
-                                <span class="efb-key">REG</span>
-                                <span class="efb-val">${techCardTail}</span>
-                            </div>
-                            <div class="efb-row">
-                                <span class="efb-key">LIVERY</span>
-                                <span class="efb-val" style="font-size: 0.75rem;">${airlineName}</span>
-                            </div>
-                             ${planButtonHtml}
-                        </div>
+                        <button style="padding: 8px; color: #94a3b8; background: transparent; border: none; cursor: pointer;">
+                            <i class="fa-solid fa-ellipsis" style="font-size: 16px;"></i>
+                        </button>
                     </div>
 
+                    <div class="tech-content">
+                        <div class="tech-image-container">
+                            <img src="${techCardImagePath}" onerror="this.src='/CommunityPlanes/default.png'" class="tech-image" alt="Aircraft">
+                            <div class="tech-image-overlay"></div>
+                            
+                            <div class="tech-image-info">
+                                <div class="tech-photographer">
+                                    <span class="tech-photo-label">Contributor</span>
+                                    <div class="tech-photo-name">
+                                        <i class="fa-solid fa-camera" style="color: #38bdf8; font-size: 12px;"></i>
+                                        <span>${photographerName}</span>
+                                    </div>
+                                </div>
+                                <a href="#" style="padding: 8px; background: rgba(255,255,255,0.1); border-radius: 8px; color: #fff; border: 1px solid rgba(255,255,255,0.1); display: flex;">
+                                    <i class="fa-solid fa-arrow-up-right-from-square" style="font-size: 14px;"></i>
+                                </a>
+                            </div>
+                        </div>
+
+                        <div class="tech-grid">
+                            <div class="tech-stat-card">
+                                <div class="tech-stat-header">
+                                    <span class="tech-stat-label">Registration</span>
+                                    <i class="fa-solid fa-hashtag" style="font-size: 12px; color: #475569;"></i>
+                                </div>
+                                <span class="tech-stat-value">${techCardTail}</span>
+                            </div>
+
+                            <div class="tech-stat-card">
+                                <div class="tech-stat-header">
+                                    <span class="tech-stat-label">Callsign</span>
+                                    <i class="fa-solid fa-tag" style="font-size: 12px; color: #475569;"></i>
+                                </div>
+                                <span class="tech-stat-value">${baseProps.callsign}</span>
+                            </div>
+
+                            <div class="tech-country-card">
+    <div class="tech-country-left">
+        <div class="tech-country-icon">
+            <i class="fa-solid fa-plane-up" style="font-size: 14px;"></i>
+        </div>
+        <div style="display: flex; flex-direction: column;">
+            <span class="tech-stat-label" style="font-size: 9px; margin-bottom: 2px;">Category</span>
+            <span style="font-size: 13px; font-weight: 600; color: #fff; text-transform: capitalize;">${baseProps.category || 'Standard'}</span>
+        </div>
+    </div>
+    <div style="padding: 4px 8px; background: rgba(51, 65, 85, 0.5); border-radius: 4px; border: 1px solid rgba(255, 255, 255, 0.05);">
+        <span style="font-family: monospace; font-size: 10px; color: #cbd5e1;">CLASS</span>
+    </div>
+</div>
+                        </div>
+                    </div>
+                    <div class="tech-bottom-bar"></div>
+                </div>
+
+                <div class="tech-module vsd-module-container">
+                    <div class="tech-module-header">
+                        <span class="tech-module-title"><i class="fa-solid fa-chart-area"></i> VERTICAL SITUATION DISPLAY</span>
+                        <span class="fms-page-count">VSD</span>
+                    </div>
+                    
+                    <div id="vsd-panel" class="vsd-panel active" data-plan-id="" data-profile-built="false">
+                        <div id="vsd-graph-window" class="vsd-graph-window">
+                            <div id="vsd-aircraft-icon"></div>
+                            <div id="vsd-graph-content">
+                                <svg id="vsd-profile-svg" xmlns="http://www.w3.org/2000/svg">
+                                    <path id="vsd-flown-path" d="" />
+                                    <path id="vsd-profile-path" d="" />
+                                </svg>
+                                <div id="vsd-waypoint-labels"></div>
+                            </div>
+                        ${planButtonHtml} </div>
+                    </div>
+
+                    <div class="vsd-footer">
+                        <div class="vsd-legend-item"><div class="dot-plan"></div> PLANNED</div>
+                        <div class="vsd-legend-item"><div class="dot-flown"></div> FLOWN</div>
+                        <div>ALTITUDE PROFILE</div>
+                    </div>
+                </div>
                 </div> 
-            </div> 
             
             <div id="ac-tab-pilot-report" class="ac-tab-pane">
                 <div id="pilot-stats-display"></div>
@@ -9208,15 +9494,22 @@ function populateAircraftInfoWindow(baseProps, plan, sortedRoutePoints, communit
     updatePfdDisplay(baseProps.position);
     updateAircraftInfoWindow(baseProps, plan, sortedRoutePoints, communityAircraftData);
     
-    // Set Header Image
+    // --- FIX IMPLEMENTATION: SET THE DATA ATTRIBUTE ON THE HEADER HERE ---
     const imagePath = techCardImagePath; 
     const fallbackPath = '/CommunityPlanes/default.png';
     const newImageUrl = `url('${imagePath}'), url('${fallbackPath}')`; 
+
     const overviewPanels = document.querySelectorAll('#ac-overview-panel');
+    
     overviewPanels.forEach(overviewPanel => {
+        // Set the background image
         overviewPanel.style.backgroundImage = newImageUrl;
+        
+        // --- CRITICAL FIX: Set the path to the high-quality image ---
         overviewPanel.dataset.currentPath = imagePath;
+        // --- END CRITICAL FIX ---
     });
+
 }
 
 /**
