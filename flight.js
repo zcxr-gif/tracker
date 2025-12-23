@@ -8726,11 +8726,11 @@ function populateAircraftInfoWindow(baseProps, plan, sortedRoutePoints, communit
             position: relative;
         }
         
-        /* --- Seat Sensor Black Redesign --- */
+        /* --- Seat Sensor Black Compact Redesign --- */
         #cockpit-seat-sensor {
-            background: #000000; /* Pure Black Background */
-            border: 1px solid #222; /* Dark Border */
-            height: 100%;
+            background: #000000;
+            border: 1px solid #222;
+            height: 100%; /* Fill the container height */
             display: flex;
             flex-direction: column;
             margin-bottom: 0;
@@ -8739,96 +8739,102 @@ function populateAircraftInfoWindow(baseProps, plan, sortedRoutePoints, communit
             box-shadow: 0 4px 20px rgba(0,0,0,0.8);
         }
         #cockpit-seat-sensor .tech-module-header {
-            background: #111; /* Dark header */
+            background: #111;
             border-bottom: 1px solid #222;
+            padding: 6px 10px; /* Reduced header padding */
+            min-height: 28px;
         }
         #cockpit-seat-sensor .tech-module-body {
-            background: #050505; /* Almost black body */
+            background: #050505;
             flex: 1;
             display: flex;
             flex-direction: column;
-            justify-content: space-between;
-            padding: 16px;
+            justify-content: center; /* Center content vertically if space allows */
+            padding: 8px; /* Compact padding */
+            gap: 6px;
         }
         
         .cockpit-view-container {
-            flex: 1;
+            flex: 0 0 auto; /* Don't grow too much */
             display: flex;
             align-items: center;
             justify-content: center;
-            background: radial-gradient(circle at center, #1a1a1a 0%, #000 70%); /* Subtle radial spotlight */
+            background: radial-gradient(circle at center, #1a1a1a 0%, #000 70%);
             border-radius: 8px;
             border: 1px solid #222;
-            margin-bottom: 12px;
-            padding: 10px;
+            padding: 8px;
             position: relative;
         }
         .cockpit-view {
             display: flex;
-            gap: 20px;
+            gap: 16px; /* Reduced gap */
             position: relative;
         }
+        /* --- COMPACT SEAT SIZE --- */
         .seat {
-            width: 45px;
-            height: 65px;
-            background: linear-gradient(180deg, #1e1e1e 0%, #0a0a0a 100%); /* Dark gradient seat */
-            border-radius: 6px 6px 20px 20px;
+            width: 32px;  /* Much smaller width */
+            height: 48px; /* Much smaller height */
+            background: linear-gradient(180deg, #1e1e1e 0%, #0a0a0a 100%);
+            border-radius: 4px 4px 12px 12px;
             border: 2px solid #333;
             position: relative;
             transition: all 0.3s ease;
             box-shadow: inset 0 0 5px rgba(0,0,0,0.8);
         }
         .seat.occupied {
-            background: rgba(16, 185, 129, 0.1); /* Very faint green fill */
-            border-color: #10b981; /* Bright green border */
-            box-shadow: 0 0 15px rgba(16, 185, 129, 0.3), inset 0 0 10px rgba(16, 185, 129, 0.1);
+            background: rgba(16, 185, 129, 0.1);
+            border-color: #10b981;
+            box-shadow: 0 0 10px rgba(16, 185, 129, 0.3), inset 0 0 5px rgba(16, 185, 129, 0.1);
         }
         .seat::after {
             content: attr(data-role);
             position: absolute;
-            top: -18px; /* Lifted label slightly */
+            top: -14px;
             left: 50%;
             transform: translateX(-50%);
-            font-size: 9px;
+            font-size: 8px; /* Smaller font */
             font-weight: 700;
-            color: #555; /* Dark gray label */
+            color: #555;
             font-family: monospace;
         }
         .seat.occupied::after {
-            color: #10b981; /* Green label when occupied */
+            color: #10b981;
             text-shadow: 0 0 5px rgba(16, 185, 129, 0.5);
+        }
+        /* Resize icons for compact view */
+        .cockpit-overlay-icon {
+            font-size: 1.5rem; /* Slightly smaller cloud */
         }
 
         .seat-status-display {
             display: grid;
             grid-template-columns: 1fr 1fr;
-            gap: 8px;
-            margin-bottom: 12px;
+            gap: 4px; /* Tighter gap */
+            margin-bottom: 0;
         }
         .status-pill {
             background: #0a0a0a;
-            padding: 8px 6px;
+            padding: 4px; /* Tighter padding */
             border-radius: 4px;
             text-align: center;
-            font-size: 0.75rem;
+            font-size: 0.65rem; /* Smaller font */
             color: #444;
             border: 1px solid #222;
             font-family: monospace;
             font-weight: 600;
         }
         .status-pill.active {
-            color: #38bdf8; /* Cyan text */
+            color: #38bdf8;
             border-color: rgba(56, 189, 248, 0.3);
             background: rgba(56, 189, 248, 0.05);
-            box-shadow: 0 0 8px rgba(56, 189, 248, 0.1);
         }
         #seat-narrative-text {
             font-family: monospace;
-            font-size: 0.7rem;
+            font-size: 0.65rem;
             color: #555;
             text-align: center;
             border-top: 1px solid #222;
-            padding-top: 8px;
+            padding-top: 6px;
             text-transform: uppercase;
         }
 
@@ -9071,25 +9077,25 @@ function populateAircraftInfoWindow(baseProps, plan, sortedRoutePoints, communit
             border-right: 1px solid rgba(255, 255, 255, 0.1);
         }
         
-        /* --- LAYOUT GRID FOR HEIGHT MATCHING (Row 1) with SQUISH FIX --- */
+        /* --- LAYOUT GRID FOR HEIGHT MATCHING (Row 1) --- */
         .pfd-and-location-grid {
             display: flex; 
             gap: 12px;
-            align-items: flex-start; 
+            align-items: stretch; /* Use stretch to match heights */
             margin-bottom: 12px;
             width: 100%;
         }
         .pfd-main-panel {
             flex: 0 0 62%;
             width: 62%;
-            aspect-ratio: 787 / 800; /* FORCE exact aspect ratio */
+            aspect-ratio: 787 / 800;
             position: relative;
         }
         .info-right-col {
             flex: 1;
             display: flex;
             flex-direction: column;
-            height: 100%; 
+            /* Height will match PFD due to align-items: stretch */
         }
         /* Ensure bezel fills height */
         .pfd-main-panel .display-bezel { height: 100%; }
