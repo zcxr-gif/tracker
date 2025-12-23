@@ -8576,14 +8576,13 @@ function rebuildDynamicLayers() {
 }
 
 
-
 /**
  * --- [MERGED & COMPLETE] Populates the aircraft info window.
  * Changes:
- * 1. REMOVED Descent Calculator (TOD).
- * 2. REDESIGNED Seat Sensor (Taller, fills vertical space).
- * 3. MATCHED Height of Seat Sensor to PFD.
- * 4. Includes previous Fixes (Nav Toggle, Images, etc).
+ * 1. LAYOUT SPLIT: PFD and Seat Sensor are side-by-side (Row 1).
+ * 2. FULL WIDTH: ND/FMC is now in its own full-width container (Row 2).
+ * 3. FIX: Seat sensor height now matches PFD height automatically.
+ * 4. FIX: ND takes full width as requested.
  */
 function populateAircraftInfoWindow(baseProps, plan, sortedRoutePoints, communityAircraftData) {
     // --- Helper function to update all elements matching a selector ---
@@ -8702,7 +8701,6 @@ function populateAircraftInfoWindow(baseProps, plan, sortedRoutePoints, communit
     }
 
     // --- HTML Construction ---
-    // NOTE: Added specific CSS for height matching in .pfd-and-location-grid and #cockpit-seat-sensor
     windowEl.innerHTML = `
     <style>
         /* --- Shared Tech Style --- */
@@ -8763,6 +8761,7 @@ function populateAircraftInfoWindow(baseProps, plan, sortedRoutePoints, communit
             border-radius: 8px;
             border: 1px solid rgba(255,255,255,0.05);
             margin-bottom: 12px;
+            padding: 10px; /* Slightly reduced padding to handle compact height */
             position: relative;
         }
         .cockpit-view {
@@ -8771,8 +8770,8 @@ function populateAircraftInfoWindow(baseProps, plan, sortedRoutePoints, communit
             position: relative;
         }
         .seat {
-            width: 50px;
-            height: 70px;
+            width: 45px; /* Slightly slimmer for compact look */
+            height: 65px;
             background: rgba(255,255,255,0.1);
             border-radius: 6px 6px 20px 20px;
             border: 2px solid #334155;
@@ -8802,7 +8801,7 @@ function populateAircraftInfoWindow(baseProps, plan, sortedRoutePoints, communit
         }
         .status-pill {
             background: rgba(30, 41, 59, 0.5);
-            padding: 8px;
+            padding: 6px;
             border-radius: 4px;
             text-align: center;
             font-size: 0.75rem;
@@ -9063,17 +9062,25 @@ function populateAircraftInfoWindow(baseProps, plan, sortedRoutePoints, communit
             border-right: 1px solid rgba(255, 255, 255, 0.1);
         }
         
-        /* --- LAYOUT GRID FOR HEIGHT MATCHING --- */
+        /* --- LAYOUT GRID FOR HEIGHT MATCHING (Row 1) --- */
         .pfd-and-location-grid {
             display: grid;
-            grid-template-columns: 2fr 1fr; /* Adjust ratio as needed */
+            grid-template-columns: 2fr 1fr; /* PFD (Left) vs Seat Sensor (Right) */
             gap: 8px;
-            align-items: stretch; /* CRITICAL: Matches height of children */
+            align-items: stretch; /* Matches heights */
+            margin-bottom: 8px; /* Space between Row 1 and Row 2 */
         }
         .info-right-col {
             display: flex;
             flex-direction: column;
-            height: 100%; /* Ensure it fills the grid cell */
+            height: 100%;
+        }
+
+        /* --- LAYOUT FOR FULL WIDTH ND (Row 2) --- */
+        .nd-full-width-section {
+            width: 100%;
+            margin-bottom: 12px;
+            /* Mimic the tech-module logic but slightly different if needed */
         }
     </style>
 
@@ -9135,6 +9142,7 @@ function populateAircraftInfoWindow(baseProps, plan, sortedRoutePoints, communit
 
         <div class="unified-display-main-content">
             <div id="ac-tab-flight-data" class="ac-tab-pane active" style="gap: 6px;">
+                
                 <div class="pfd-and-location-grid">
                     
                     <div class="pfd-main-panel">
@@ -9267,59 +9275,7 @@ function populateAircraftInfoWindow(baseProps, plan, sortedRoutePoints, communit
                                 </svg>
                             </div>
                         </div>
-
-                        <div class="display-toggle-bar" style="display: flex; background: var(--bg-panel); border-radius: 6px; padding: 2px; margin-bottom: 0px; width: 100%; box-sizing: border-box; border: 1px solid var(--border-glass);">
-                             <button class="display-toggle-btn active" data-target="nd-view" style="flex: 1; background: rgba(255,255,255,0.1); border: none; color: #fff; padding: 6px; cursor: pointer; border-radius: 4px; font-size: 0.75rem; font-weight: 700; transition: all 0.2s;">
-                                NAV DISPLAY
-                             </button>
-                             <button class="display-toggle-btn" data-target="fmc-view" style="flex: 1; background: transparent; border: none; color: #94a3b8; padding: 6px; cursor: pointer; border-radius: 4px; font-size: 0.75rem; font-weight: 700; transition: all 0.2s;">
-                                FLIGHT PLAN
-                             </button>
-                        </div>
-
-                        <div class="display-bezel">
-                            <div class="screw tl"></div><div class="screw tr"></div><div class="screw bl"></div><div class="screw br"></div>
-                            <div class="crt-container scanlines">
-                                
-                                <div id="nd-view-container" style="width: 100%; height: 100%; display: block;">
-                                    <div id="nd-container">
-                                        <iframe id="nav-display-frame" src="nav.html" scrolling="no"></iframe>
-                                    </div>
-                                </div>
-
-                                <div id="fmc-view-container" style="display: none; width: 100%; height: 100%; background: #000; flex-direction: column;">
-                                    <div class="fms-module-container" style="height: 100%; max-height: 100%; width: 100%; border: none; background: transparent; box-shadow: none; border-radius: 0;">
-                                        <div class="fms-header" style="background: rgba(255,255,255,0.05); border-bottom: 1px solid #333;">
-                                            <span class="tech-module-title"><i class="fa-solid fa-route"></i> ACTIVE FLIGHT PLAN</span>
-                                            <span class="fms-page-count">1/1</span>
-                                        </div>
-                                        <div class="fms-columns" style="border-bottom: 1px dashed #444;">
-                                            <span class="col-wpt">LEGS</span>
-                                            <span class="col-data text-center">CRS</span>
-                                            <span class="col-data text-right">DIST</span>
-                                        </div>
-                                        <div id="fms-legs-list" class="fms-list-scrollarea" style="scrollbar-color: #333 transparent;">
-                                            ${fmsLegsHtml}
-                                        </div>
-                                        <div class="fms-footer" style="background: rgba(255,255,255,0.05); border-top: 1px solid #333;">
-                                            <div class="fms-stat">
-                                                <span class="stat-label">DTG</span>
-                                                <span id="fms-total-dist" class="stat-value">---- NM</span>
-                                            </div>
-                                            <div class="fms-stat">
-                                                <span class="stat-label">ETE</span>
-                                                <span id="fms-total-ete" class="stat-value">--:--</span>
-                                            </div>
-                                        </div>
-                                    </div>
-                                </div>
-
-                            </div>
-                        </div>
-                    </div>
-
-                    <div class="info-right-col">
-                        
+                    </div> <div class="info-right-col">
                         <div class="tech-module" id="cockpit-seat-sensor">
                             <div class="tech-module-header">
                                 <span class="tech-module-title"><i class="fa-solid fa-chair"></i> COCKPIT STATE</span>
@@ -9352,7 +9308,55 @@ function populateAircraftInfoWindow(baseProps, plan, sortedRoutePoints, communit
                                 </div>
                             </div>
                         </div>
+                    </div> </div> <div class="nd-full-width-section">
+                     <div class="display-toggle-bar" style="display: flex; background: var(--bg-panel); border-radius: 6px; padding: 2px; margin-bottom: 0px; width: 100%; box-sizing: border-box; border: 1px solid var(--border-glass);">
+                         <button class="display-toggle-btn active" data-target="nd-view" style="flex: 1; background: rgba(255,255,255,0.1); border: none; color: #fff; padding: 6px; cursor: pointer; border-radius: 4px; font-size: 0.75rem; font-weight: 700; transition: all 0.2s;">
+                            NAV DISPLAY
+                         </button>
+                         <button class="display-toggle-btn" data-target="fmc-view" style="flex: 1; background: transparent; border: none; color: #94a3b8; padding: 6px; cursor: pointer; border-radius: 4px; font-size: 0.75rem; font-weight: 700; transition: all 0.2s;">
+                            FLIGHT PLAN
+                         </button>
+                    </div>
+
+                    <div class="display-bezel">
+                        <div class="screw tl"></div><div class="screw tr"></div><div class="screw bl"></div><div class="screw br"></div>
+                        <div class="crt-container scanlines">
+                            
+                            <div id="nd-view-container" style="width: 100%; height: 100%; display: block;">
+                                <div id="nd-container">
+                                    <iframe id="nav-display-frame" src="nav.html" scrolling="no"></iframe>
+                                </div>
+                            </div>
+
+                            <div id="fmc-view-container" style="display: none; width: 100%; height: 100%; background: #000; flex-direction: column;">
+                                <div class="fms-module-container" style="height: 100%; max-height: 100%; width: 100%; border: none; background: transparent; box-shadow: none; border-radius: 0;">
+                                    <div class="fms-header" style="background: rgba(255,255,255,0.05); border-bottom: 1px solid #333;">
+                                        <span class="tech-module-title"><i class="fa-solid fa-route"></i> ACTIVE FLIGHT PLAN</span>
+                                        <span class="fms-page-count">1/1</span>
+                                    </div>
+                                    <div class="fms-columns" style="border-bottom: 1px dashed #444;">
+                                        <span class="col-wpt">LEGS</span>
+                                        <span class="col-data text-center">CRS</span>
+                                        <span class="col-data text-right">DIST</span>
+                                    </div>
+                                    <div id="fms-legs-list" class="fms-list-scrollarea" style="scrollbar-color: #333 transparent;">
+                                        ${fmsLegsHtml}
+                                    </div>
+                                    <div class="fms-footer" style="background: rgba(255,255,255,0.05); border-top: 1px solid #333;">
+                                        <div class="fms-stat">
+                                            <span class="stat-label">DTG</span>
+                                            <span id="fms-total-dist" class="stat-value">---- NM</span>
+                                        </div>
+                                        <div class="fms-stat">
+                                            <span class="stat-label">ETE</span>
+                                            <span id="fms-total-ete" class="stat-value">--:--</span>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+
                         </div>
+                    </div>
                 </div>
 
                 <div class="tech-module" id="location-data-panel">
