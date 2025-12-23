@@ -596,7 +596,10 @@ function injectCustomStyles() {
             position: absolute;
             top: 20px; 
             right: 20px;
-            width: 600px; 
+            
+            /* [CHANGED] Reduced width to minified size */
+            width: 460px; 
+            
             max-width: 95vw;
             max-height: calc(100vh - 40px);
             background: linear-gradient(135deg, var(--iw-bg-start), var(--iw-bg-end));
@@ -833,8 +836,11 @@ function injectCustomStyles() {
 
         .pfd-and-location-grid { 
             display: grid; 
-            grid-template-columns: 2fr 1fr; 
-            gap: 8px;
+            
+            /* Left takes available space, Right is fixed to fit the seat sensor (140px + margin) */
+            grid-template-columns: 1fr 150px; 
+            
+            gap: 6px;
         }
 
         .info-right-col {
@@ -1136,11 +1142,11 @@ function injectCustomStyles() {
         .phase-climb { background: var(--color-success); opacity: 0.9; } .phase-cruise { background: var(--color-brand); opacity: 0.9; } .phase-descent { background: var(--color-warning); opacity: 0.9; } .phase-approach { background: var(--color-purple); opacity: 0.9; } .phase-enroute { background: var(--text-dim); opacity: 0.9; }
         
         .unified-display-main-content { 
-            padding: 16px; 
+            padding: 10px; 
             flex-grow: 1; 
             display: flex; 
             flex-direction: column; 
-            gap: 16px; 
+            gap: 10px; 
             background: linear-gradient(180deg, var(--bg-glass), var(--bg-glass));
             border-top: 1px solid var(--border-glass);
         }
