@@ -8575,7 +8575,6 @@ function rebuildDynamicLayers() {
     renderAirportMarkers();
 }
 
-
 function populateAircraftInfoWindow(baseProps, plan, sortedRoutePoints, communityAircraftData) {
     // --- Helper function to update all elements matching a selector ---
     const updateAll = (selector, value, isHTML = false) => {
@@ -8694,7 +8693,7 @@ function populateAircraftInfoWindow(baseProps, plan, sortedRoutePoints, communit
     <style>
         /* --- Shared Tech Style --- */
         .tech-module {
-            background: #0f172a; /* Solid Dark Slate */
+            background: #0f172a; 
             border: 1px solid rgba(255, 255, 255, 0.1);
             border-radius: 12px;
             overflow: hidden;
@@ -8727,100 +8726,109 @@ function populateAircraftInfoWindow(baseProps, plan, sortedRoutePoints, communit
             position: relative;
         }
         
-        /* --- EICAS / CREW DISPLAY REDESIGN --- */
-        .eicas-screen {
-            background: #000;
-            width: 100%;
+        /* --- Seat Sensor Black Redesign --- */
+        #cockpit-seat-sensor {
+            background: #000000; /* Pure Black Background */
+            border: 1px solid #222; /* Dark Border */
             height: 100%;
             display: flex;
             flex-direction: column;
-            padding: 15px;
-            box-sizing: border-box;
-            font-family: 'Consolas', 'Monaco', monospace;
-            position: relative;
+            margin-bottom: 0;
+            border-radius: 12px;
+            overflow: hidden;
+            box-shadow: 0 4px 20px rgba(0,0,0,0.8);
         }
-        .eicas-header {
-            display: flex;
-            justify-content: space-between;
-            border-bottom: 2px solid #333;
-            padding-bottom: 5px;
-            margin-bottom: 20px;
+        #cockpit-seat-sensor .tech-module-header {
+            background: #111; /* Dark header */
+            border-bottom: 1px solid #222;
         }
-        .eicas-title {
-            color: #ccc;
-            font-size: 11px;
-            font-weight: bold;
-        }
-        .eicas-mode {
-            color: #00ff00;
-            font-size: 11px;
-            font-weight: bold;
-        }
-        .eicas-visual {
+        #cockpit-seat-sensor .tech-module-body {
+            background: #050505; /* Almost black body */
             flex: 1;
             display: flex;
-            justify-content: center;
-            align-items: center;
-            gap: 20px;
-            margin-bottom: 20px;
-        }
-        /* Schematic Seat Design */
-        .seat-schematic {
-            width: 40px;
-            height: 70px;
-            border: 2px solid #555;
-            border-radius: 4px 4px 15px 15px;
-            position: relative;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            transition: all 0.3s ease;
-        }
-        .seat-schematic::before {
-            content: '';
-            position: absolute;
-            top: -5px; left: 5px; right: 5px;
-            height: 5px;
-            border: 2px solid #555;
-            border-bottom: none;
-            border-radius: 4px 4px 0 0;
-        }
-        .seat-schematic.occupied {
-            border-color: #00ff00;
-            box-shadow: 0 0 10px rgba(0, 255, 0, 0.2);
-        }
-        .seat-schematic.occupied::before {
-            border-color: #00ff00;
-        }
-        .seat-schematic .seat-label {
-            font-size: 10px;
-            color: #555;
-            font-weight: bold;
-            z-index: 2;
-        }
-        .seat-schematic.occupied .seat-label {
-            color: #00ff00;
-            text-shadow: 0 0 5px rgba(0,255,0,0.5);
-        }
-        .eicas-data-table {
-            width: 100%;
-            border-top: 2px solid #333;
-            padding-top: 10px;
-        }
-        .eicas-row {
-            display: flex;
+            flex-direction: column;
             justify-content: space-between;
-            margin-bottom: 4px;
-            font-size: 12px;
+            padding: 16px;
         }
-        .eicas-label { color: #00cccc; }
-        .eicas-value { color: #fff; }
-        .eicas-value.active { color: #00ff00; }
-        .eicas-msg {
-            margin-top: 10px;
-            color: #eab308; /* Amber */
-            font-size: 10px;
+        
+        .cockpit-view-container {
+            flex: 1;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            background: radial-gradient(circle at center, #1a1a1a 0%, #000 70%); /* Subtle radial spotlight */
+            border-radius: 8px;
+            border: 1px solid #222;
+            margin-bottom: 12px;
+            padding: 10px;
+            position: relative;
+        }
+        .cockpit-view {
+            display: flex;
+            gap: 20px;
+            position: relative;
+        }
+        .seat {
+            width: 45px;
+            height: 65px;
+            background: linear-gradient(180deg, #1e1e1e 0%, #0a0a0a 100%); /* Dark gradient seat */
+            border-radius: 6px 6px 20px 20px;
+            border: 2px solid #333;
+            position: relative;
+            transition: all 0.3s ease;
+            box-shadow: inset 0 0 5px rgba(0,0,0,0.8);
+        }
+        .seat.occupied {
+            background: rgba(16, 185, 129, 0.1); /* Very faint green fill */
+            border-color: #10b981; /* Bright green border */
+            box-shadow: 0 0 15px rgba(16, 185, 129, 0.3), inset 0 0 10px rgba(16, 185, 129, 0.1);
+        }
+        .seat::after {
+            content: attr(data-role);
+            position: absolute;
+            top: -18px; /* Lifted label slightly */
+            left: 50%;
+            transform: translateX(-50%);
+            font-size: 9px;
+            font-weight: 700;
+            color: #555; /* Dark gray label */
+            font-family: monospace;
+        }
+        .seat.occupied::after {
+            color: #10b981; /* Green label when occupied */
+            text-shadow: 0 0 5px rgba(16, 185, 129, 0.5);
+        }
+
+        .seat-status-display {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 8px;
+            margin-bottom: 12px;
+        }
+        .status-pill {
+            background: #0a0a0a;
+            padding: 8px 6px;
+            border-radius: 4px;
             text-align: center;
+            font-size: 0.75rem;
+            color: #444;
+            border: 1px solid #222;
+            font-family: monospace;
+            font-weight: 600;
+        }
+        .status-pill.active {
+            color: #38bdf8; /* Cyan text */
+            border-color: rgba(56, 189, 248, 0.3);
+            background: rgba(56, 189, 248, 0.05);
+            box-shadow: 0 0 8px rgba(56, 189, 248, 0.1);
+        }
+        #seat-narrative-text {
+            font-family: monospace;
+            font-size: 0.7rem;
+            color: #555;
+            text-align: center;
+            border-top: 1px solid #222;
+            padding-top: 8px;
             text-transform: uppercase;
         }
 
@@ -9063,36 +9071,28 @@ function populateAircraftInfoWindow(baseProps, plan, sortedRoutePoints, communit
             border-right: 1px solid rgba(255, 255, 255, 0.1);
         }
         
-        /* --- REDESIGNED ROW 1: FLEX & ASPECT RATIO CONTROL --- */
+        /* --- LAYOUT GRID FOR HEIGHT MATCHING (Row 1) with SQUISH FIX --- */
         .pfd-and-location-grid {
             display: flex; 
             gap: 12px;
-            align-items: flex-start; /* Do not stretch height, let PFD define its ratio */
+            align-items: flex-start; 
             margin-bottom: 12px;
             width: 100%;
         }
-        
-        /* The PFD takes 62% width but MUST preserve aspect ratio to avoid squishing */
         .pfd-main-panel {
             flex: 0 0 62%;
             width: 62%;
-            aspect-ratio: 787 / 800; /* FORCE the exact aspect ratio of the SVG */
+            aspect-ratio: 787 / 800; /* FORCE exact aspect ratio */
             position: relative;
         }
-
-        /* The Info/Cockpit Panel takes the remaining space */
         .info-right-col {
             flex: 1;
             display: flex;
             flex-direction: column;
-            /* Match height logic: It will just flow naturally, but we can make it fill */
             height: 100%; 
         }
-
-        /* Redesign the bezel to be 100% height of its new flexible container */
-        .pfd-main-panel .display-bezel {
-            height: 100%;
-        }
+        /* Ensure bezel fills height */
+        .pfd-main-panel .display-bezel { height: 100%; }
 
         /* --- LAYOUT FOR FULL WIDTH ND (Row 2) --- */
         .nd-full-width-section {
@@ -9295,38 +9295,35 @@ function populateAircraftInfoWindow(baseProps, plan, sortedRoutePoints, communit
                     </div> 
                     
                     <div class="info-right-col">
-                        <div class="display-bezel" style="flex: 1; display: flex; flex-direction: column;">
-                            <div class="screw tl"></div><div class="screw tr"></div><div class="screw bl"></div><div class="screw br"></div>
-                            <div class="crt-container scanlines" id="cockpit-seat-sensor" style="height: 100%;">
-                                <div class="eicas-screen">
-                                    <div class="eicas-header">
-                                        <span class="eicas-title">SYSTEM DISPLAY</span>
-                                        <span class="eicas-mode">CREW MON</span>
+                         <div class="tech-module" id="cockpit-seat-sensor">
+                            <div class="tech-module-header">
+                                <span class="tech-module-title"><i class="fa-solid fa-chair"></i> COCKPIT STATE</span>
+                                <div class="tech-ping"><span class="animate"></span><span></span></div>
+                            </div>
+                            <div class="tech-module-body">
+                                
+                                <div class="cockpit-view-container">
+                                    <div class="cockpit-view">
+                                        <div id="seat-cpt" class="seat" data-role="CPT"></div>
+                                        <div id="seat-fo" class="seat" data-role="FO"></div>
+                                        <div id="icon-parking-overlay" class="cockpit-overlay-icon icon-parking">P</div>
+                                        <div id="icon-coffee-overlay" class="cockpit-overlay-icon icon-coffee"><i class="fa-solid fa-mug-hot"></i></div>
+                                        <div id="icon-cloud-overlay" class="cockpit-overlay-icon icon-cloud"><i class="fa-solid fa-cloud"></i></div>
                                     </div>
-                                    
-                                    <div class="eicas-visual">
-                                        <div id="seat-cpt" class="seat-schematic" data-role="CPT">
-                                            <span class="seat-label">CPT</span>
-                                        </div>
-                                        <div id="seat-fo" class="seat-schematic" data-role="FO">
-                                            <span class="seat-label">FO</span>
-                                        </div>
-                                    </div>
+                                </div>
 
-                                    <div class="eicas-data-table">
-                                        <div class="eicas-row">
-                                            <span class="eicas-label">COMMANDER</span>
-                                            <span id="status-cpt-text" class="eicas-value active">ACTIVE</span>
-                                        </div>
-                                        <div class="eicas-row">
-                                            <span class="eicas-label">F. OFFICER</span>
-                                            <span id="status-fo-text" class="eicas-value">MONITOR</span>
-                                        </div>
-                                    </div>
+                                <div style="display: flex; justify-content: space-between; margin-bottom: 8px;">
+                                    <span class="tech-stat-label">System Status</span>
+                                    <span class="tech-stat-label" style="color: #34d399;">ONLINE</span>
+                                </div>
 
-                                    <div id="seat-narrative-text" class="eicas-msg">
-                                        SYSTEMS NORMAL
-                                    </div>
+                                <div class="seat-status-display">
+                                    <span id="status-cpt-text" class="status-pill active">CMD: ---</span>
+                                    <span id="status-fo-text" class="status-pill">FO: ---</span>
+                                </div>
+
+                                <div id="seat-narrative-text">
+                                    Awaiting Telemetry...
                                 </div>
                             </div>
                         </div>
