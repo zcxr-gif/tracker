@@ -8706,6 +8706,13 @@ function populateAircraftInfoWindow(baseProps, plan, sortedRoutePoints, communit
     if (originalFlatWaypointObjects.length > 0) {
         originalFlatWaypointObjects.forEach((wp, index) => {
             const ident = wp.identifier || wp.name || `WP${index + 1}`;
+            
+            // --- Altitude Constraint Logic ---
+            let altDisplay = '---';
+            if (wp.altitude && wp.altitude > 0) {
+                altDisplay = wp.altitude; 
+            }
+
             let distDisplay = '----';
             if (index > 0) {
                 const prev = originalFlatWaypointObjects[index - 1];
@@ -8720,11 +8727,12 @@ function populateAircraftInfoWindow(baseProps, plan, sortedRoutePoints, communit
             if (index <= 1 && hasPlan) procTag = `<span class="proc-tag sid">SID</span>`;
             else if (index >= originalFlatWaypointObjects.length - 2 && hasPlan) procTag = `<span class="proc-tag star">STAR</span>`;
 
+            // Note: Added flex styles to ensure columns align with header
             fmsLegsHtml += `
-            <div class="fms-row ${index === 0 ? 'active-leg' : ''}">
-                <span style="display:flex; align-items:center; gap:6px;">${ident} ${procTag}</span>
-                <span class="text-center" style="color:#fff;">---°</span>
-                <span class="text-right">${distDisplay}</span>
+            <div class="fms-row ${index === 0 ? 'active-leg' : ''}" style="display: flex; align-items: center;">
+                <span style="flex: 2; display:flex; align-items:center; gap:6px; overflow: hidden; white-space: nowrap;">${ident} ${procTag}</span>
+                <span class="text-center" style="flex: 1; color: ${altDisplay !== '---' ? '#38bdf8' : '#64748b'}; font-family: monospace;">${altDisplay}</span>
+                <span class="text-right" style="flex: 1;">${distDisplay}</span>
             </div>`;
         });
     } else {
@@ -9380,10 +9388,10 @@ function populateAircraftInfoWindow(baseProps, plan, sortedRoutePoints, communit
                                         <span class="tech-module-title"><i class="fa-solid fa-route"></i> ACTIVE FLIGHT PLAN</span>
                                         <span class="fms-page-count">1/1</span>
                                     </div>
-                                    <div class="fms-columns" style="border-bottom: 1px dashed #444;">
-                                        <span class="col-wpt">LEGS</span>
-                                        <span class="col-data text-center">CRS</span>
-                                        <span class="col-data text-right">DIST</span>
+                                    <div class="fms-columns" style="border-bottom: 1px dashed #444; display: flex;">
+                                        <span class="col-wpt" style="flex: 2;">LEGS</span>
+                                        <span class="col-data text-center" style="flex: 1;">ALT</span>
+                                        <span class="col-data text-right" style="flex: 1;">DIST</span>
                                     </div>
                                     <div id="fms-legs-list" class="fms-list-scrollarea" style="flex: 1; overflow-y: auto; min-height: 0; scrollbar-color: #333 transparent;">
                                         ${fmsLegsHtml}
