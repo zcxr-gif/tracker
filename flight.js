@@ -8601,13 +8601,11 @@ function populateAircraftInfoWindow(baseProps, plan, sortedRoutePoints, communit
     const originalFlatWaypointObjects = (plan && plan.flightPlanItems) ? getFlatWaypointObjects(plan.flightPlanItems) : [];
     const hasPlan = originalFlatWaypoints.length >= 2;
     const windowEl = document.getElementById('aircraft-info-window');
-
     // --- Aircraft Info ---
     const aircraftName = baseProps.aircraft?.aircraftName || 'Unknown Type';
     const airlineName = baseProps.aircraft?.liveryName || 'Generic Livery';
     const liveryName = baseProps.aircraft?.liveryName || '';
     const reg = baseProps.aircraft?.registration || 'N/A';
-
     // --- Logo Logic ---
     const words = liveryName.trim().split(/\s+/);
     let logoName = words.length > 1 && /[^a-zA-Z0-9]/.test(words[1]) ? words[0] : (words[0] + (words[1] ? ' ' + words[1] : ''));
@@ -8620,31 +8618,14 @@ function populateAircraftInfoWindow(baseProps, plan, sortedRoutePoints, communit
     const atdTime = atdTimestamp ? formatTimeFromTimestamp(atdTimestamp) : '--:--';
     const etaTime = '--:--';
 
-    // --- Calculate Initial Elapsed Time ---
-    let elapsedDisplay = '--:--';
-    if (atdTimestamp) {
-        const now = new Date().getTime();
-        const start = new Date(atdTimestamp).getTime();
-        const diffMs = now - start;
-        if (diffMs > 0) {
-            const diffHrs = Math.floor(diffMs / 3600000);
-            const diffMins = Math.floor((diffMs % 3600000) / 60000);
-            elapsedDisplay = `${diffHrs.toString().padStart(2, '0')}:${diffMins.toString().padStart(2, '0')}`;
-        }
-    }
-
     const departureIcao = hasPlan ? originalFlatWaypointObjects[0]?.identifier || originalFlatWaypointObjects[0]?.name : 'N/A';
     const arrivalIcao = hasPlan ? originalFlatWaypointObjects[originalFlatWaypointObjects.length - 1]?.identifier || originalFlatWaypointObjects[originalFlatWaypointObjects.length - 1]?.name : 'N/A';
-    
     const depCountryCode = airportsData[departureIcao]?.country ? airportsData[departureIcao].country.toLowerCase() : '';
     const arrCountryCode = airportsData[arrivalIcao]?.country ? airportsData[arrivalIcao].country.toLowerCase() : '';
-    
     const depFlagSrc = depCountryCode ? `https://flagcdn.com/w20/${depCountryCode}.png` : '';
     const arrFlagSrc = arrCountryCode ? `https://flagcdn.com/w20/${arrCountryCode}.png` : '';
-    
     const depFlagDisplay = depCountryCode ? 'block' : 'none';
     const arrFlagDisplay = arrCountryCode ? 'block' : 'none';
-
     // --- Plan Button ---
     const simbriefAircraftValue = findSimbriefAircraftValue(aircraftName);
     let planButtonHtml = '';
@@ -8678,6 +8659,49 @@ function populateAircraftInfoWindow(baseProps, plan, sortedRoutePoints, communit
         }
     }
 
+    // --- REAL-TIME COCKPIT STATE LOGIC (UPDATED) ---
+    // Mapping: 0=Active, 1=AwayInFlight, 2=AwayParked, 3=InBackground(AP+)
+    // We now explicitly look for 'pilotState'
+    const pilotStateValue = (typeof baseProps.pilotState !== 'undefined') ? Number(baseProps.pilotState) : 0; 
+
+    let psTitle = "ACTIVE";
+    let psIcon = "fa-user-check";
+    let psColor = "#4ade80"; // Green
+    let psDesc = "Pilot is active";
+    let psBg = "rgba(74, 222, 128, 0.15)"; // Glow color
+
+    switch (pilotStateValue) {
+        case 1: // AwayInFlight
+            psTitle = "AWAY";
+            psIcon = "fa-plane-slash"; // or fa-stopwatch
+            psColor = "#facc15"; // Yellow/Orange
+            psDesc = "Online (No Input)";
+            psBg = "rgba(250, 204, 21, 0.15)";
+            break;
+        case 2: // AwayParked
+            psTitle = "PARKED";
+            psIcon = "fa-square-parking";
+            psColor = "#94a3b8"; // Slate Grey
+            psDesc = "Away (On Ground)";
+            psBg = "rgba(148, 163, 184, 0.15)";
+            break;
+        case 3: // InBackground (AP+)
+            psTitle = "AUTO-PILOT+";
+            psIcon = "fa-cloud-arrow-up";
+            psColor = "#60a5fa"; // Blue
+            psDesc = "Cloud Session";
+            psBg = "rgba(96, 165, 250, 0.15)";
+            break;
+        case 0: // Active
+        default:
+            psTitle = "ACTIVE";
+            psIcon = "fa-user-check";
+            psColor = "#4ade80"; // Green
+            psDesc = "Pilot is active";
+            psBg = "rgba(74, 222, 128, 0.15)";
+            break;
+    }
+
     // --- GENERATE FMS LEGS HTML ---
     let fmsLegsHtml = '';
     if (originalFlatWaypointObjects.length > 0) {
@@ -8698,7 +8722,7 @@ function populateAircraftInfoWindow(baseProps, plan, sortedRoutePoints, communit
 
             fmsLegsHtml += `
             <div class="fms-row ${index === 0 ? 'active-leg' : ''}">
-                 <span style="display:flex; align-items:center; gap:6px;">${ident} ${procTag}</span>
+               <span style="display:flex; align-items:center; gap:6px;">${ident} ${procTag}</span>
                 <span class="text-center" style="color:#fff;">---°</span>
                 <span class="text-right">${distDisplay}</span>
             </div>`;
@@ -8710,7 +8734,7 @@ function populateAircraftInfoWindow(baseProps, plan, sortedRoutePoints, communit
     // --- HTML Construction ---
     windowEl.innerHTML = `
     <style>
-        /* --- Shared Tech Style --- */
+       /* --- Shared Tech Style --- */
         .tech-module {
             background: #0f172a; 
             border: 1px solid rgba(255, 255, 255, 0.1);
@@ -8745,12 +8769,11 @@ function populateAircraftInfoWindow(baseProps, plan, sortedRoutePoints, communit
             position: relative;
         }
         
-        /* --- FLIGHT STATUS & SENSOR MODULE (New Full Height Design) --- */
-        #flight-status-module {
+        /* --- Seat Sensor REDESIGN (Full Height Timer) --- */
+        #cockpit-seat-sensor {
             background: #000000;
             border: 1px solid #222;
-            /* CRITICAL: Height must match parent flex container */
-            height: 100%; 
+            height: 100%; /* Fill the column height */
             margin-bottom: 0;
             border-radius: 12px;
             overflow: hidden;
@@ -8758,128 +8781,33 @@ function populateAircraftInfoWindow(baseProps, plan, sortedRoutePoints, communit
             display: flex;
             flex-direction: column;
         }
-        #flight-status-module .tech-module-header {
-            background: #0a0a0a;
-            border-bottom: 1px solid #222;
-            padding: 6px 10px;
-            min-height: 24px;
-            flex-shrink: 0;
-        }
-        #flight-status-module .tech-module-body {
-            background: #050505;
-            display: flex;
-            flex-direction: column;
-            flex: 1; /* Fills remaining height */
-            padding: 0;
-            position: relative;
-        }
-
-        /* Time Section (Top Part) */
-        .fs-time-container {
-            flex: 1;
-            padding: 12px;
-            display: flex;
-            flex-direction: column;
-            justify-content: space-evenly;
-            border-bottom: 1px solid #1a1a1a;
-        }
-        .fs-time-row {
-            display: flex;
-            flex-direction: column;
-            align-items: flex-end;
-            margin-bottom: 8px;
-        }
-        .fs-time-row:last-child { margin-bottom: 0; }
         
-        .fs-label {
-            font-size: 0.65rem;
-            color: #555;
-            text-transform: uppercase;
-            letter-spacing: 0.1em;
-            margin-bottom: 2px;
-            width: 100%;
-            text-align: right;
-            border-bottom: 1px solid #111;
-        }
-        .fs-value {
-            font-family: 'Consolas', 'Monaco', monospace;
-            font-size: 1.8rem;
-            font-weight: 700;
-            color: #fff;
-            line-height: 1;
-            text-shadow: 0 0 10px rgba(255,255,255,0.1);
-        }
-        .fs-value.small { font-size: 1.2rem; color: #888; }
-        .fs-value.highlight { color: #38bdf8; text-shadow: 0 0 8px rgba(56, 189, 248, 0.3); }
-        .fs-value.accent { color: #eab308; }
-
-        /* Pilot Status Strip (Bottom Part) */
-        .fs-pilot-strip {
-            height: 44px; /* Fixed height strip */
-            background: #080808;
-            display: flex;
-            align-items: stretch;
-            border-top: 1px solid #222;
-        }
-
-        /* Individual Seat Slots in Strip */
-        .crew-panel-strip {
-            flex: 1;
+        /* State Card Styling */
+        .state-visual-ring {
+            width: 44px;
+            height: 44px;
+            border-radius: 50%;
             display: flex;
             align-items: center;
             justify-content: center;
-            gap: 8px;
-            position: relative;
+            border: 2px solid;
             transition: all 0.3s ease;
-            background: transparent;
-            border-right: 1px solid #1a1a1a;
+            position: relative;
         }
-        .crew-panel-strip:last-child { border-right: none; }
-        
-        /* Seat Status Colors (Dynamic) */
-        #seat-cpt.occupied {
-            background: linear-gradient(to top, rgba(234, 179, 8, 0.15), transparent);
-            box-shadow: inset 0 -2px 0 #eab308;
+        /* Pulse Animation for Active State */
+        .state-visual-ring.pulsing::after {
+            content: '';
+            position: absolute;
+            top: -4px; left: -4px; right: -4px; bottom: -4px;
+            border-radius: 50%;
+            border: 1px solid currentColor;
+            opacity: 0;
+            animation: ringPulse 2s infinite;
         }
-        #seat-fo.occupied {
-            background: linear-gradient(to top, rgba(56, 189, 248, 0.15), transparent);
-            box-shadow: inset 0 -2px 0 #38bdf8;
+        @keyframes ringPulse {
+            0% { transform: scale(1); opacity: 0.5; }
+            100% { transform: scale(1.5); opacity: 0; }
         }
-
-        /* Icons inside the strip */
-        .strip-icon { font-size: 1rem; color: #333; transition: color 0.3s; }
-        #seat-cpt.occupied .strip-icon { color: #eab308; text-shadow: 0 0 5px rgba(234, 179, 8, 0.5); }
-        #seat-fo.occupied .strip-icon { color: #38bdf8; text-shadow: 0 0 5px rgba(56, 189, 248, 0.5); }
-
-        .strip-text {
-            font-size: 0.65rem;
-            font-family: monospace;
-            color: #444;
-            text-transform: uppercase;
-        }
-        #seat-cpt.occupied .strip-text { color: #eab308; }
-        #seat-fo.occupied .strip-text { color: #38bdf8; }
-
-        /* Center Annunciator in Strip */
-        .strip-center {
-            width: 50px;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            gap: 4px;
-            background: #000;
-            border-left: 1px solid #222;
-            border-right: 1px solid #222;
-        }
-        
-        .status-icon {
-            font-size: 0.7rem;
-            margin: 0 1px;
-            /* Standard state is hidden by the JS setting display:none usually */
-        }
-        .icon-parking { color: #ef4444; font-weight: bold; font-family: sans-serif; border: 1px solid #ef4444; border-radius: 2px; padding: 0 2px; font-size: 0.55rem; line-height: 1; }
-        .icon-coffee { color: #f97316; }
-        .icon-cloud { color: #8b5cf6; }
 
         /* --- Tech Card Specifics --- */
         .tech-card {
@@ -9124,7 +9052,7 @@ function populateAircraftInfoWindow(baseProps, plan, sortedRoutePoints, communit
         .pfd-and-location-grid {
             display: flex;
             gap: 12px;
-            align-items: stretch; /* UPDATED: Matches height of children */
+            align-items: stretch;  /* UPDATED: Stretch to equal height */
             margin-bottom: 12px;
             width: 100%;
         }
@@ -9179,7 +9107,7 @@ function populateAircraftInfoWindow(baseProps, plan, sortedRoutePoints, communit
                 <span class="time" id="ac-bar-atd">${atdTime} Z</span>
             </div>
             <div class="route-progress-container">
-                <div class="route-progress-bar-container">
+                 <div class="route-progress-bar-container">
                     <div class="progress-bar-fill" id="ac-progress-bar"></div>
                 </div>
                 <div class="flight-phase-indicator" id="ac-phase-indicator">ENROUTE</div>
@@ -9190,7 +9118,7 @@ function populateAircraftInfoWindow(baseProps, plan, sortedRoutePoints, communit
                      <img src="${arrFlagSrc}" class="country-flag" id="ac-bar-arr-flag" alt="${arrCountryCode}" style="display: ${arrFlagDisplay};">
                 </div>
                  <span class="time" id="ac-bar-eta">${etaTime} Z</span>
-             </div>
+              </div>
         </div>
 
         <div class="ac-info-window-tabs">
@@ -9216,14 +9144,14 @@ function populateAircraftInfoWindow(baseProps, plan, sortedRoutePoints, communit
                             <div class="crt-container scanlines" id="pfd-container">
                                 <svg width="787" height="800" viewBox="0 0 787 800" fill="none" xmlns="http://www.w3.org/2000/svg">
                                     <defs>
-                                        <clipPath id="clip0_1_2890"><rect width="787" height="800" fill="white"/></clipPath>
+                                         <clipPath id="clip0_1_2890"><rect width="787" height="800" fill="white"/></clipPath>
                                         <clipPath id="tensReelClip"><rect x="732" y="269" width="50" height="75"/></clipPath>
                                         <clipPath id="headingClip"><rect x="243" y="620" width="326" height="45"/></clipPath>
                                         <clipPath id="speedTapeClip"><rect x="28" y="73" width="97" height="477"/></clipPath>
                                         <clipPath id="altTapeClip"><rect x="675" y="73" width="72" height="476"/></clipPath>
-                                    </defs>
+                                     </defs>
                                     <g id="PFD" clip-path="url(#clip0_1_2890)">
-                                        <g transform="translate(0, 100)">
+                                       <g transform="translate(0, 100)">
                                             <g id="attitude_group">
                                                 <rect id="Sky" x="-186" y="-222" width="1121" height="600" fill="#0596FF"/>
                                                 <rect id="Ground" x="-138" y="307" width="1024" height="527" fill="#9A4710"/>
@@ -9269,13 +9197,13 @@ function populateAircraftInfoWindow(baseProps, plan, sortedRoutePoints, communit
                                             <line id="Line 2" x1="610" y1="211" x2="610" y2="184" stroke="#DBDBDC" stroke-width="2"/>
                                             <rect id="altitude_bg" x="675" y="73" width="72" height="476" fill="#76767A"/>
                                             <g clip-path="url(#altTapeClip)">
-                                                <svg x="675" y="73" width="72" height="476"><g id="altitude_tape_group"></g></svg>
+                                                 <svg x="675" y="73" width="72" height="476"><g id="altitude_tape_group"></g></svg>
                                             </g>
                                             <g id="altitude_indicator_static">
                                                 <rect id="altitude_1" x="675" y="280" width="73" height="49" fill="#030309"/>
-                                                <text id="altitude_readout_hundreds" x="740" y="316" fill="#00FF00" font-size="32" text-anchor="end" font-weight="bold">0</text>
+                                                 <text id="altitude_readout_hundreds" x="740" y="316" fill="#00FF00" font-size="32" text-anchor="end" font-weight="bold">0</text>
                                                 <g id="altitude_tens_reel_container" clip-path="url(#tensReelClip)"><g id="altitude_tens_reel_group"></g></g>
-                                                <line id="Line 8" x1="669" y1="307" x2="618" y2="307" stroke="#DDDF07" stroke-width="8"/>
+                                                 <line id="Line 8" x1="669" y1="307" x2="618" y2="307" stroke="#DDDF07" stroke-width="8"/>
                                             </g>
                                             <path id="limit" d="M636 336.08L621.413 307.511L650.858 307.651L636 336.08Z" fill="#C477C6"/>
                                             <path id="limit2" d="M636 279L650.722 307.5H621.278L636 279Z" fill="#C477C6"/>
@@ -9286,7 +9214,7 @@ function populateAircraftInfoWindow(baseProps, plan, sortedRoutePoints, communit
                                             <path id="Ellipse 1" d="M636 481C636 484.866 632.866 488 629 488C625.134 488 622 484.866 622 481C622 477.134 625.134 474 629 474C632.866 474 636 477.134 636 481Z" fill="#D9D9D9"/>
                                             <path id="Ellipse 4" d="M636 147C636 150.866 632.866 154 629 154C625.134 154 622 150.866 622 147C622 143.134 625.134 140 629 140C632.866 140 636 143.134 636 147Z" fill="#D9D9D9"/>
                                             <g id="Ellipse 3">
-                                                <path d="M636 229C636 232.866 632.866 236 629 236C625.134 236 622 232.866 622 229C622 225.134 625.134 222 629 222C632.866 222 636 225.134 636 229Z" fill="#D9D9D9"/>
+                                                 <path d="M636 229C636 232.866 632.866 236 629 236C625.134 236 622 232.866 622 229C622 225.134 625.134 222 629 222C632.866 222 636 225.134 636 229Z" fill="#D9D9D9"/>
                                                 <path d="M636 395C636 398.866 632.866 402 629 402C625.134 402 622 398.866 622 395C622 391.134 625.134 388 629 388C632.866 388 636 391.134 636 395Z" fill="#D9D9D9"/>
                                             </g>
                                             <rect id="speed" x="28" y="73" width="97" height="477" fill="#76767A"/>
@@ -9327,7 +9255,7 @@ function populateAircraftInfoWindow(baseProps, plan, sortedRoutePoints, communit
                                                 <g id="heading_static_elements">
                                                     <line x1="406" y1="620" x2="406" y2="635" stroke="#FDFD03" stroke-width="3"/>
                                                     <rect x="381" y="599" width="50" height="20" fill="black" stroke="#FFFFFF" stroke-width="1"/>
-                                                    <text id="heading_readout" x="406" y="615" fill="#00FF00" font-size="16" text-anchor="middle" font-weight="bold">000</text>
+                                                     <text id="heading_readout" x="406" y="615" fill="#00FF00" font-size="16" text-anchor="middle" font-weight="bold">000</text>
                                                 </g>
                                             </g>
                                             <path id="Vector 27" d="M243 599V667" stroke="#FCFCFF" stroke-width="4"/>
@@ -9343,43 +9271,46 @@ function populateAircraftInfoWindow(baseProps, plan, sortedRoutePoints, communit
                     </div> 
                     
                     <div class="info-right-col">
-                        <div class="tech-module" id="flight-status-module">
-                            <div class="tech-module-header">
-                                <span class="tech-module-title"><i class="fa-solid fa-clock"></i> FLIGHT STATUS</span>
-                                <div class="tech-ping"><span class="animate"></span><span></span></div>
+                        <div class="tech-module" id="cockpit-seat-sensor">
+                            <div class="sensor-state-strip" style="background: ${psBg}; border-left: 3px solid ${psColor}; padding: 8px 12px; display: flex; align-items: center; justify-content: space-between; border-bottom: 1px solid #222; flex-shrink: 0;">
+                                <div style="display: flex; align-items: center; gap: 10px;">
+                                    <div style="width: 24px; height: 24px; border-radius: 4px; background: rgba(0,0,0,0.3); display: flex; align-items: center; justify-content: center; border: 1px solid ${psColor}; box-shadow: 0 0 5px ${psColor}40;">
+                                         <i class="fa-solid ${psIcon}" style="color: ${psColor}; font-size: 12px;"></i>
+                                    </div>
+                                    <div style="display: flex; flex-direction: column;">
+                                        <span style="font-weight: 700; font-size: 12px; color: ${psColor}; line-height: 1;">${psTitle}</span>
+                                        <span style="font-size: 9px; color: #64748b; font-family: monospace;">${psDesc}</span>
+                                    </div>
+                                </div>
+                                <div class="tech-ping">
+                                    <span class="animate" style="background-color: ${psColor}"></span>
+                                    <span style="background-color: ${psColor}"></span>
+                                </div>
                             </div>
-                            <div class="tech-module-body">
+
+                            <div class="sensor-timers-body" style="flex: 1; padding: 12px; display: flex; flex-direction: column; justify-content: space-between; background: #050505;">
                                 
-                                <div class="fs-time-container">
-                                    <div class="fs-time-row">
-                                        <span class="fs-label">ELAPSED</span>
-                                        <span class="fs-value highlight" id="fs-elapsed">${elapsedDisplay}</span>
-                                    </div>
-                                    <div class="fs-time-row">
-                                        <span class="fs-label">REMAINING</span>
-                                        <span class="fs-value accent" id="fs-remaining">--:--</span>
-                                    </div>
-                                    <div class="fs-time-row">
-                                        <span class="fs-label">EST TOTAL</span>
-                                        <span class="fs-value small" id="fs-total">--:--</span>
+                                <div class="timer-group">
+                                    <span style="font-size: 9px; color: #64748b; text-transform: uppercase; letter-spacing: 1px; display: block; margin-bottom: 2px;">Elapsed Time</span>
+                                    <div style="background: #000; border: 1px solid #222; padding: 6px 10px; border-radius: 4px; display: flex; align-items: baseline; justify-content: space-between;">
+                                         <i class="fa-solid fa-stopwatch" style="color: #334155; font-size: 12px;"></i>
+                                         <span id="ac-sensor-elapsed" style="font-family: 'Consolas', monospace; font-size: 18px; color: #fff; font-weight: 700; text-shadow: 0 0 10px rgba(255,255,255,0.1);">--:--</span>
                                     </div>
                                 </div>
 
-                                <div class="fs-pilot-strip">
-                                    <div id="seat-cpt" class="crew-panel-strip" data-role="CPT">
-                                        <i class="fa-solid fa-user-pilot strip-icon"></i>
-                                        <span class="strip-text" id="status-cpt-text">CPT</span>
+                                <div class="timer-group">
+                                     <span style="font-size: 9px; color: #64748b; text-transform: uppercase; letter-spacing: 1px; display: block; margin-bottom: 2px;">Estimated Remaining</span>
+                                     <div style="background: #000; border: 1px solid #222; padding: 6px 10px; border-radius: 4px; display: flex; align-items: baseline; justify-content: space-between;">
+                                         <i class="fa-solid fa-hourglass-half" style="color: #334155; font-size: 12px;"></i>
+                                         <span id="ac-sensor-ete" style="font-family: 'Consolas', monospace; font-size: 18px; color: #38bdf8; font-weight: 700;">--:--</span>
                                     </div>
-                                    
-                                    <div class="strip-center">
-                                         <div id="icon-parking-overlay" class="status-icon icon-parking">P</div>
-                                         <div id="icon-coffee-overlay" class="status-icon icon-coffee"><i class="fa-solid fa-mug-hot"></i></div>
-                                         <div id="icon-cloud-overlay" class="status-icon icon-cloud"><i class="fa-solid fa-bed"></i></div>
-                                    </div>
+                                </div>
 
-                                    <div id="seat-fo" class="crew-panel-strip" data-role="FO">
-                                        <span class="strip-text" id="status-fo-text">FO</span>
-                                        <i class="fa-solid fa-user-pilot strip-icon"></i>
+                                <div class="timer-group">
+                                     <span style="font-size: 9px; color: #64748b; text-transform: uppercase; letter-spacing: 1px; display: block; margin-bottom: 2px;">Total Flight Time</span>
+                                     <div style="background: rgba(255,255,255,0.03); border: 1px dashed #333; padding: 4px 10px; border-radius: 4px; display: flex; align-items: baseline; justify-content: space-between;">
+                                         <i class="fa-solid fa-calculator" style="color: #334155; font-size: 10px;"></i>
+                                         <span id="ac-sensor-total" style="font-family: 'Consolas', monospace; font-size: 14px; color: #94a3b8;">--:--</span>
                                     </div>
                                 </div>
 
@@ -9512,11 +9443,12 @@ function populateAircraftInfoWindow(baseProps, plan, sortedRoutePoints, communit
                                 <i class="fa-solid fa-plane" style="font-size: 12px;"></i>
                                 <span>${airlineName}</span>
                             </p>
-                         </div>
+                        </div>
                          <button style="padding: 8px; color: #94a3b8; background: transparent; border: none; cursor: pointer;">
                             <i class="fa-solid fa-ellipsis" style="font-size: 16px;"></i>
                          </button>
                     </div>
+                
                     <div class="tech-content">
                         <div class="tech-image-container">
                             <img src="${techCardImagePath}" onerror="this.src='/CommunityPlanes/default.png'" class="tech-image" alt="Aircraft">
@@ -9577,10 +9509,10 @@ function populateAircraftInfoWindow(baseProps, plan, sortedRoutePoints, communit
                         <div id="vsd-graph-window" class="vsd-graph-window">
                              <div id="vsd-aircraft-icon"></div>
                              <div id="vsd-graph-content">
-                                  <svg id="vsd-profile-svg" xmlns="http://www.w3.org/2000/svg">
+                                   <svg id="vsd-profile-svg" xmlns="http://www.w3.org/2000/svg">
                                     <path id="vsd-flown-path" d="" />
                                     <path id="vsd-profile-path" d="" />
-                                  </svg>
+                                 </svg>
                                  <div id="vsd-waypoint-labels"></div>
                              </div>
                              ${planButtonHtml}
@@ -9593,18 +9525,17 @@ function populateAircraftInfoWindow(baseProps, plan, sortedRoutePoints, communit
                     </div>
                 </div>
             </div>
+ 
             <div id="ac-tab-pilot-report" class="ac-tab-pane">
                  <div id="pilot-stats-display"></div>
             </div>
         </div>
     </div>
     `;
-
     // --- POST-RENDER LOGIC ---
     createPfdDisplay();
     updatePfdDisplay(baseProps.position);
     updateAircraftInfoWindow(baseProps, plan, sortedRoutePoints, communityAircraftData);
-
     // --- FIX IMPLEMENTATION: SET THE DATA ATTRIBUTE ON THE HEADER HERE ---
     const imagePath = techCardImagePath;
     const fallbackPath = '/CommunityPlanes/default.png';
@@ -9618,6 +9549,51 @@ function populateAircraftInfoWindow(baseProps, plan, sortedRoutePoints, communit
         overviewPanel.dataset.currentPath = imagePath;
         // --- END CRITICAL FIX ---
     });
+
+    // --- SENSOR TIMER LOGIC (SELF-CONTAINED) ---
+    const updateSensorTimers = () => {
+        const elElapsed = document.getElementById('ac-sensor-elapsed');
+        const elEte = document.getElementById('ac-sensor-ete');
+        const elTotal = document.getElementById('ac-sensor-total');
+        // Nav Data ETE Source
+        const sourceEte = document.getElementById('ac-ete'); 
+
+        if (elElapsed && atdTimestamp) {
+            const now = Date.now();
+            const start = new Date(atdTimestamp).getTime();
+            const diff = now - start;
+            if (diff >= 0) {
+                const h = Math.floor(diff / 3600000);
+                const m = Math.floor((diff % 3600000) / 60000);
+                elElapsed.textContent = `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}`;
+            }
+        }
+
+        // Sync Remaining & Calc Total
+        if (elEte && sourceEte && elTotal) {
+            const currentEte = sourceEte.textContent;
+            if (currentEte && currentEte.includes(':')) {
+                elEte.textContent = currentEte;
+                
+                // Calculate Total
+                if (elElapsed.textContent !== '--:--') {
+                    const [eH, eM] = elElapsed.textContent.split(':').map(Number);
+                    const [rH, rM] = currentEte.split(':').map(Number);
+                    let tM = eM + rM;
+                    let tH = eH + rH + Math.floor(tM / 60);
+                    tM = tM % 60;
+                    elTotal.textContent = `${String(tH).padStart(2, '0')}:${String(tM).padStart(2, '0')}`;
+                }
+            }
+        }
+    };
+    
+    // Clear any existing interval on the window to prevent duplicates if function called multiple times
+    if (window.sensorTimerInterval) clearInterval(window.sensorTimerInterval);
+    // Run immediately once
+    updateSensorTimers();
+    // Set interval
+    window.sensorTimerInterval = setInterval(updateSensorTimers, 1000);
 
     // --- DISPLAY TOGGLE LOGIC ---
     const toggleBtns = windowEl.querySelectorAll('.display-toggle-btn');
@@ -9643,7 +9619,6 @@ function populateAircraftInfoWindow(baseProps, plan, sortedRoutePoints, communit
             }
         });
     });
-
     // Ensure initial state prevents "mixing"
     ndContainer.style.display = 'block';
     fmcContainer.style.display = 'none';
