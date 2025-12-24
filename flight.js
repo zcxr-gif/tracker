@@ -3563,9 +3563,9 @@ async function loadExternalPanelContent() {
 
 /**
  * --- [FINAL FIX] Generates High-Quality Trip Card ---
- * 1. Forces High-DPI Map Capture.
- * 2. Fetches Image as Blob to bypass CORS (Fixes missing plane image).
- * 3. Robust Image Selector.
+ * 1. Forces High-DPI Map Capture (Sharper Background).
+ * 2. Robust Image Selector (Fixes missing plane photo).
+ * 3. Optimized Performance (Blob URLs + Overlay).
  */
 async function generateTripCard() {
     // 1. Check Library
@@ -3604,11 +3604,7 @@ async function generateTripCard() {
     `;
     document.body.appendChild(loadingOverlay);
 
-    // Allow overlay to render before heavy processing
     setTimeout(async () => {
-        let mapBlobUrl = '';
-        let safeAircraftImgUrl = ''; // Will hold the local Blob URL for the plane
-
         try {
             const feature = currentMapFeatures[currentFlightInWindow];
             const props = feature.properties;
@@ -3620,59 +3616,60 @@ async function generateTripCard() {
             if (sectorOpsMap) {
                 // Center the map
                 sectorOpsMap.jumpTo({ center: coords });
+                
                 // Wait for map to settle
                 await new Promise(r => setTimeout(r, 400));
             }
 
+            // Capture Map Canvas directly (High DPI)
+            let mapBlobUrl = '';
             try {
-                // Force a re-render to ensure fresh buffer
-                sectorOpsMap.triggerRepaint();
+                await new Promise(resolve => {
+                    sectorOpsMap.once('render', resolve);
+                    sectorOpsMap.triggerRepaint();
+                });
+                
+                // Get canvas
                 const mapCanvas = sectorOpsMap.getCanvas();
+                
+                // Create a temporary high-res canvas (2x scale)
                 const highResCanvas = document.createElement('canvas');
                 highResCanvas.width = mapCanvas.width * 2; 
                 highResCanvas.height = mapCanvas.height * 2;
                 const ctx = highResCanvas.getContext('2d');
+                
+                // Draw the map canvas onto the high-res one
                 ctx.drawImage(mapCanvas, 0, 0, highResCanvas.width, highResCanvas.height);
                 
+                // Convert to Blob
                 const blob = await new Promise(resolve => highResCanvas.toBlob(resolve, 'image/png', 1.0));
                 mapBlobUrl = URL.createObjectURL(blob);
             } catch (e) {
                 console.warn("Map capture failed:", e);
             }
 
-            // --- 2. ROBUST PLANE IMAGE SELECTOR & CORS BYPASS ---
-            let rawImgUrl = '/CommunityPlanes/default.png';
+            // --- 2. ROBUST PLANE IMAGE SELECTOR ---
+            let aircraftImgUrl = '/CommunityPlanes/default.png';
             
             // Try Method A: Dataset (Best for full res)
             const overviewPanel = document.getElementById('ac-overview-panel');
             if (overviewPanel && overviewPanel.dataset.currentPath) {
-                rawImgUrl = overviewPanel.dataset.currentPath;
+                aircraftImgUrl = overviewPanel.dataset.currentPath;
             } 
             // Try Method B: Image Tag (Fallback)
             else {
                 const imgTag = document.querySelector('.tech-image');
                 if (imgTag && imgTag.src) {
-                    rawImgUrl = imgTag.src;
+                    aircraftImgUrl = imgTag.src;
                 }
-            }
-
-            // [FIX] Convert External URL to Local Blob to bypass CORS Tainting
-            try {
-                const response = await fetch(rawImgUrl);
-                const imageBlob = await response.blob();
-                safeAircraftImgUrl = URL.createObjectURL(imageBlob);
-            } catch (corsErr) {
-                console.warn("Could not fetch aircraft image as blob (CORS), trying direct link:", corsErr);
-                safeAircraftImgUrl = rawImgUrl; // Fallback to original if fetch fails
             }
 
             // --- 3. CONSTRUCT CARD ---
             const cardContainer = document.createElement('div');
             cardContainer.id = "trip-card-container";
-            // Note: We use the safeAircraftImgUrl in the background-image below
             cardContainer.style.cssText = `
                 position: fixed; top: -9999px; left: -9999px;
-                width: 1200px; height: 675px;
+                width: 1200px; height: 675px; /* Bigger Canvas = Higher Quality */
                 background-color: #0f172a;
                 font-family: 'Inter', sans-serif;
                 overflow: hidden;
@@ -3713,7 +3710,7 @@ async function generateTripCard() {
                 <div style="position: relative; z-index: 10; padding: 40px; margin-top: auto; display: flex; align-items: flex-end; gap: 35px;">
                     
                     <div style="width: 340px; background: #fff; padding: 8px; border-radius: 12px; transform: rotate(-2deg); box-shadow: 0 20px 40px rgba(0,0,0,0.6);">
-                        <div style="width: 100%; height: 210px; background-image: url('${safeAircraftImgUrl}'); background-size: cover; background-position: center; border-radius: 6px; background-color: #cbd5e1;"></div>
+                        <div style="width: 100%; height: 210px; background-image: url('${aircraftImgUrl}'); background-size: cover; background-position: center; border-radius: 6px; background-color: #cbd5e1;"></div>
                         <div style="padding: 12px 6px;">
                              <div style="color: #0f172a; font-weight: 700; font-size: 1.1rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">${aircraftData.aircraftName}</div>
                              <div style="color: #64748b; font-size: 0.85rem; font-weight: 500;">${aircraftData.liveryName}</div>
@@ -3760,7 +3757,7 @@ async function generateTripCard() {
             const canvas = await html2canvas(cardContainer, {
                 backgroundColor: '#0f172a',
                 useCORS: true,
-                scale: 1.5
+                scale: 1.5 // Multiplier for super high res
             });
 
             const link = document.createElement('a');
@@ -3768,10 +3765,7 @@ async function generateTripCard() {
             link.href = canvas.toDataURL('image/png');
             link.click();
             
-            // Clean up Objects
             if (mapBlobUrl) URL.revokeObjectURL(mapBlobUrl);
-            if (safeAircraftImgUrl && safeAircraftImgUrl.startsWith('blob:')) URL.revokeObjectURL(safeAircraftImgUrl);
-            
             document.body.removeChild(cardContainer);
             showNotification("High-Res Card Downloaded!", "success");
 
