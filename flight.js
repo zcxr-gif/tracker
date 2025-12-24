@@ -8756,6 +8756,7 @@ function populateAircraftInfoWindow(baseProps, plan, sortedRoutePoints, communit
                     ${/* your distance variable */ '---'} NM
                 </span>
             </div>
+        `;
         });
     } else {
         fmsLegsHtml = `<div class="fms-empty-state">NO ROUTE LOADED</div>`;
