@@ -3563,8 +3563,7 @@ async function loadExternalPanelContent() {
 
 /**
  * --- [UPDATED] Generates a "Trip Card" screenshot ---
- * Fixes: Branding updated to "Inflight", Layout text overlap fixed,
- * adds a visual focus effect to the map background.
+ * Features: Auto-centers map, includes Aircraft Image, Pilot Name, and Stats.
  */
 async function generateTripCard() {
     // 1. Check/Load html2canvas
@@ -3596,6 +3595,23 @@ async function generateTripCard() {
     const props = feature.properties;
     const aircraftData = JSON.parse(props.aircraft || '{}');
     const position = JSON.parse(props.position || '{}');
+    const coords = feature.geometry.coordinates; // [lon, lat]
+
+    // --- AUTO-CENTER MAP ---
+    // Instantly jump to the aircraft location so it is dead center in the screenshot
+    if (sectorOpsMap) {
+        sectorOpsMap.jumpTo({ center: coords });
+        // Small delay to allow the map renderer to catch up with the jump
+        await new Promise(r => setTimeout(r, 250));
+    }
+
+    // --- GET AIRCRAFT IMAGE ---
+    // Try to grab the image URL currently displayed in the window
+    const overviewPanel = document.getElementById('ac-overview-panel');
+    let aircraftImgUrl = '/CommunityPlanes/default.png'; 
+    if (overviewPanel && overviewPanel.dataset.currentPath) {
+        aircraftImgUrl = overviewPanel.dataset.currentPath;
+    }
 
     // Get Map Snapshot
     let mapImage = '';
@@ -3609,14 +3625,12 @@ async function generateTripCard() {
     const cardContainer = document.createElement('div');
     cardContainer.id = "trip-card-container";
     
-    // --- LAYOUT FIX: Adjusted Flexbox and Z-Index ---
     cardContainer.style.cssText = `
         position: fixed; top: -9999px; left: -9999px;
-        width: 850px; height: 480px; /* Slightly larger for better spacing */
+        width: 900px; height: 500px;
         background-color: #0f172a;
         font-family: 'Inter', sans-serif;
         overflow: hidden;
-        border-radius: 0; 
         z-index: 99999;
         display: flex;
         flex-direction: column;
@@ -3629,66 +3643,73 @@ async function generateTripCard() {
     const sanitizedLogoName = logoName.toLowerCase().replace(/[^a-z0-9\s]/g, '').replace(/\s+/g, '_');
     const logoPath = sanitizedLogoName ? `Images/airline_logos/${sanitizedLogoName}.png` : '';
 
-    // Route Logic
+    // Data Formatting
     const dep = document.getElementById('ac-header-dep') ? document.getElementById('ac-header-dep').textContent : 'N/A';
     const arr = document.getElementById('ac-header-arr') ? document.getElementById('ac-header-arr').textContent : 'N/A';
-    
-    // Format Numbers
+    const pilotName = props.username || "Unknown Pilot";
     const alt = Math.round(position.alt_ft || 0).toLocaleString();
     const spd = Math.round(position.gs_kt || 0);
 
     cardContainer.innerHTML = `
         <div style="position: absolute; top: 0; left: 0; width: 100%; height: 100%; z-index: 1;">
             <div style="width: 100%; height: 100%; background-image: url('${mapImage}'); background-size: cover; background-position: center;"></div>
-            <div style="position: absolute; inset: 0; background: radial-gradient(circle at center, rgba(15, 23, 42, 0.2) 0%, rgba(15, 23, 42, 0.6) 60%, rgba(15, 23, 42, 0.95) 100%);"></div>
+            <div style="position: absolute; inset: 0; background: radial-gradient(circle at center, rgba(15, 23, 42, 0.1) 0%, rgba(15, 23, 42, 0.4) 50%, rgba(15, 23, 42, 0.9) 100%);"></div>
         </div>
 
         <div style="position: relative; z-index: 10; padding: 30px; display: flex; justify-content: flex-end;">
-             <div style="text-align: right;">
-                 <h2 style="margin: 0; color: #fff; font-size: 1.8rem; font-weight: 800; letter-spacing: -0.05em; text-shadow: 0 2px 10px rgba(0,0,0,0.5);">
+             <div style="text-align: right; text-shadow: 0 2px 10px rgba(0,0,0,0.8);">
+                 <h2 style="margin: 0; color: #fff; font-size: 1.8rem; font-weight: 800; letter-spacing: -0.05em;">
                     Inflight<span style="color: #38bdf8;">Tracker</span>
                  </h2>
-                 <p style="margin: 0; color: #cbd5e1; font-size: 0.85rem; font-weight: 500; text-transform: uppercase; letter-spacing: 0.1em;">Live Flight Report</p>
+                 <p style="margin: 0; color: #94a3b8; font-size: 0.85rem; font-weight: 600; text-transform: uppercase; letter-spacing: 0.1em;">
+                    <i class="fa-solid fa-satellite-dish" style="margin-right: 6px; color: #22c55e;"></i>Live Tracking
+                 </p>
             </div>
         </div>
 
-        <div style="position: relative; z-index: 10; padding: 30px; margin-top: auto; display: flex; align-items: flex-end; gap: 20px;">
+        <div style="position: relative; z-index: 10; padding: 30px; margin-top: auto; display: flex; align-items: flex-end; gap: 25px;">
             
-            <div style="flex: 1;">
-                <div style="display: flex; align-items: center; gap: 15px; margin-bottom: 10px;">
-                    ${logoPath ? `<img src="${logoPath}" style="height: 55px; width: auto; filter: drop-shadow(0 4px 6px rgba(0,0,0,0.8));" crossorigin="anonymous">` : ''}
-                    <div>
-                         <h1 style="margin: 0; font-size: 3.5rem; font-weight: 800; color: #fff; line-height: 1; letter-spacing: -0.02em; text-shadow: 0 4px 15px rgba(0,0,0,0.6);">${props.callsign || 'N/A'}</h1>
-                    </div>
-                </div>
-                
-                <div style="margin-bottom: 20px; text-shadow: 0 2px 4px rgba(0,0,0,0.8);">
-                    <p style="margin: 0; font-size: 1.4rem; color: #e2e8f0; font-weight: 600;">${aircraftData.aircraftName || 'Unknown Aircraft'}</p>
-                    <p style="margin: 4px 0 0; font-size: 1rem; color: #94a3b8;">${aircraftData.liveryName || 'Unknown Livery'}</p>
+            <div style="width: 260px; background: #fff; padding: 5px; border-radius: 8px; transform: rotate(-2deg); box-shadow: 0 15px 30px rgba(0,0,0,0.5);">
+                <div style="width: 100%; height: 160px; background-image: url('${aircraftImgUrl}'); background-size: cover; background-position: center; border-radius: 4px; background-color: #cbd5e1;"></div>
+                <div style="padding: 8px 4px;">
+                     <div style="color: #0f172a; font-weight: 700; font-size: 0.9rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">${aircraftData.aircraftName}</div>
+                     <div style="color: #64748b; font-size: 0.7rem; font-weight: 500;">${aircraftData.liveryName}</div>
                 </div>
             </div>
 
-            <div style="background: rgba(15, 23, 42, 0.7); backdrop-filter: blur(12px); border: 1px solid rgba(255, 255, 255, 0.15); padding: 20px 30px; border-radius: 16px; box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.3);">
-                <div style="display: flex; gap: 40px;">
-                    <div style="display: flex; flex-direction: column;">
-                        <span style="font-size: 0.7rem; color: #94a3b8; text-transform: uppercase; letter-spacing: 0.1em; font-weight: 700; margin-bottom: 4px;">Route</span>
-                        <div style="font-size: 1.4rem; color: #fff; font-weight: 700; display: flex; align-items: center; gap: 10px;">
-                            ${dep} <i class="fa-solid fa-arrow-right-long" style="font-size: 0.6em; color: #38bdf8;"></i> ${arr}
+            <div style="flex: 1; padding-bottom: 5px;">
+                <div style="margin-bottom: 20px;">
+                    <div style="display: flex; align-items: center; gap: 10px; margin-bottom: 5px;">
+                         <span style="background: #38bdf8; color: #0f172a; padding: 2px 8px; border-radius: 4px; font-size: 0.75rem; font-weight: 800; text-transform: uppercase;">Pilot</span>
+                         <span style="color: #e2e8f0; font-size: 1.1rem; font-weight: 600; text-shadow: 0 2px 4px rgba(0,0,0,0.8);">${pilotName}</span>
+                    </div>
+                    <div style="display: flex; align-items: center; gap: 15px;">
+                        ${logoPath ? `<img src="${logoPath}" style="height: 45px; width: auto; filter: drop-shadow(0 2px 4px rgba(0,0,0,0.8));" crossorigin="anonymous">` : ''}
+                        <h1 style="margin: 0; font-size: 3.5rem; font-weight: 800; color: #fff; line-height: 1; text-shadow: 0 4px 15px rgba(0,0,0,0.6); letter-spacing: -1px;">${props.callsign || 'N/A'}</h1>
+                    </div>
+                </div>
+
+                <div style="background: rgba(15, 23, 42, 0.6); backdrop-filter: blur(12px); border: 1px solid rgba(255, 255, 255, 0.1); padding: 15px 25px; border-radius: 12px; display: flex; align-items: center; gap: 40px;">
+                    
+                    <div>
+                        <span style="font-size: 0.7rem; color: #94a3b8; text-transform: uppercase; letter-spacing: 0.1em; font-weight: 700; display: block; margin-bottom: 4px;">Route</span>
+                        <div style="font-size: 1.5rem; color: #fff; font-weight: 700; display: flex; align-items: center; gap: 10px; line-height: 1;">
+                            ${dep} <i class="fa-solid fa-plane" style="font-size: 0.6em; color: #38bdf8; transform: rotate(0deg);"></i> ${arr}
                         </div>
                     </div>
                     
-                    <div style="width: 1px; background: rgba(255,255,255,0.1);"></div>
+                    <div style="width: 1px; height: 30px; background: rgba(255,255,255,0.15);"></div>
 
-                    <div style="display: flex; flex-direction: column;">
-                        <span style="font-size: 0.7rem; color: #94a3b8; text-transform: uppercase; letter-spacing: 0.1em; font-weight: 700; margin-bottom: 4px;">Altitude</span>
-                        <span style="font-size: 1.4rem; color: #38bdf8; font-weight: 700; font-family: 'Consolas', monospace;">${alt} <span style="font-size:0.6em; color:#64748b;">ft</span></span>
+                    <div>
+                        <span style="font-size: 0.7rem; color: #94a3b8; text-transform: uppercase; letter-spacing: 0.1em; font-weight: 700; display: block; margin-bottom: 4px;">Altitude</span>
+                        <span style="font-size: 1.5rem; color: #38bdf8; font-weight: 700; font-family: 'Consolas', monospace; line-height: 1;">${alt}</span>
                     </div>
 
-                    <div style="width: 1px; background: rgba(255,255,255,0.1);"></div>
+                    <div style="width: 1px; height: 30px; background: rgba(255,255,255,0.15);"></div>
 
-                    <div style="display: flex; flex-direction: column;">
-                        <span style="font-size: 0.7rem; color: #94a3b8; text-transform: uppercase; letter-spacing: 0.1em; font-weight: 700; margin-bottom: 4px;">Ground Speed</span>
-                        <span style="font-size: 1.4rem; color: #fbbf24; font-weight: 700; font-family: 'Consolas', monospace;">${spd} <span style="font-size:0.6em; color:#64748b;">kts</span></span>
+                    <div>
+                        <span style="font-size: 0.7rem; color: #94a3b8; text-transform: uppercase; letter-spacing: 0.1em; font-weight: 700; display: block; margin-bottom: 4px;">Speed</span>
+                        <span style="font-size: 1.5rem; color: #fbbf24; font-weight: 700; font-family: 'Consolas', monospace; line-height: 1;">${spd} <span style="font-size: 0.5em;">kts</span></span>
                     </div>
                 </div>
             </div>
@@ -3698,16 +3719,17 @@ async function generateTripCard() {
     document.body.appendChild(cardContainer);
 
     // 4. Render & Download
+    // Slightly longer timeout to ensure the "jumpTo" and images are fully ready
     setTimeout(async () => {
         try {
             const canvas = await html2canvas(cardContainer, {
                 backgroundColor: '#0f172a',
                 useCORS: true, 
-                scale: 2 // High Resolution
+                scale: 2 
             });
 
             const link = document.createElement('a');
-            link.download = `Inflight_${props.callsign}_${new Date().getTime()}.png`;
+            link.download = `Inflight_${props.callsign}_${pilotName.replace(/\s+/g, '_')}.png`;
             link.href = canvas.toDataURL('image/png');
             link.click();
             showNotification("Trip card downloaded!", "success");
@@ -3717,7 +3739,7 @@ async function generateTripCard() {
         } finally {
             document.body.removeChild(cardContainer);
         }
-    }, 600);
+    }, 500);
 }
     
     /**
