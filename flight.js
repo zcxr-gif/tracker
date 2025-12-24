@@ -8738,12 +8738,24 @@ function populateAircraftInfoWindow(baseProps, plan, sortedRoutePoints, communit
 
             // HTML for Row
             fmsLegsHtml += `
-            <div class="fms-row ${index === 0 ? 'active-leg' : ''}" style="display: flex; justify-content: space-between; padding: 4px 8px;">
-                 <span style="display:flex; align-items:center; gap:6px; flex: 2; text-align: left; overflow: hidden; white-space: nowrap;">${ident} ${procTag}</span>
-                 <span class="text-center" style="color:#38bdf8; flex: 1;">${altDisplay}</span>
-                 <span class="text-center" style="color:#fff; flex: 1;">---°</span>
-                 <span class="text-right" style="flex: 1;">${distDisplay}</span>
-            </div>`;
+            <div class="fms-row ${/* your active/passed logic class */ ''}">
+                
+                <span class="col-wpt" style="flex: 2; text-align: left;">
+                    ${item.identifier || item.name}
+                </span>
+
+                <span class="col-data text-center" style="flex: 1;">
+                    ${item.altitude ? item.altitude : '---'}
+                </span>
+
+                <span class="col-data text-center" style="flex: 1;">
+                    ${/* your course variable */ '---'}°
+                </span>
+
+                <span class="col-data text-right" style="flex: 1;">
+                    ${/* your distance variable */ '---'} NM
+                </span>
+            </div>
         });
     } else {
         fmsLegsHtml = `<div class="fms-empty-state">NO ROUTE LOADED</div>`;
