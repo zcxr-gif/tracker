@@ -144,22 +144,30 @@ document.addEventListener('DOMContentLoaded', async () => {
     }
 
     /**
-     * --- [NEW] Loads mapFilters from local storage and merges with defaults.
-     */
-    function loadFiltersFromLocalStorage() {
-        const savedFilters = localStorage.getItem('mapFilters');
-        if (savedFilters) {
-            try {
-                const parsedFilters = JSON.parse(savedFilters);
-                // Merge saved filters with defaults to ensure new properties are not lost
-                mapFilters = { ...mapFilters, ...parsedFilters };
-                console.log("Loaded map filters from local storage.", mapFilters);
-            } catch (e) {
-                console.warn("Could not parse saved filters from local storage.", e);
-                // On error, just use the defaults
+ * --- [NEW] Loads mapFilters from local storage and merges with defaults.
+ */
+function loadFiltersFromLocalStorage() {
+    const savedFilters = localStorage.getItem('mapFilters');
+    if (savedFilters) {
+        try {
+            const parsedFilters = JSON.parse(savedFilters);
+            // Merge saved filters with defaults to ensure new properties are not lost
+            mapFilters = { ...mapFilters, ...parsedFilters };
+            
+            // [NEW] Restore currentMapStyle from filters if present
+            if (mapFilters.mapStyle) {
+                if (mapFilters.mapStyle === 'light') currentMapStyle = MAP_STYLE_LIGHT;
+                else if (mapFilters.mapStyle === 'satellite') currentMapStyle = MAP_STYLE_SATELLITE;
+                else currentMapStyle = MAP_STYLE_DARK;
             }
+            
+            console.log("Loaded map filters from local storage.", mapFilters);
+        } catch (e) {
+            console.warn("Could not parse saved filters from local storage.", e);
+            // On error, just use the defaults
         }
     }
+}
 
     async function fetchAndRenderRosters(hubIcao) {
         // This feature is disabled
@@ -6805,328 +6813,261 @@ function formatDataForSimpleWindow(flightProps, plan, routePoints, communityData
     }
 
     async function initializeSectorOpsView() {
-        const mapContainer = document.getElementById('sector-ops-map-fullscreen');
-        const viewContainer = document.getElementById('standalone-map-view'); 
-        
-        if (!viewContainer || !mapContainer) return;
-        
-        mainContentLoader.classList.add('active');
+    const mapContainer = document.getElementById('sector-ops-map-fullscreen');
+    const viewContainer = document.getElementById('standalone-map-view');
+    if (!viewContainer || !mapContainer) return;
 
-        try {
-            // --- [MOVED UP] 1. Initialize Map FIRST ---
-            // We do this first so the map canvas is created at the bottom of the stack.
-            // Any HTML injected afterwards will correctly sit ON TOP of the map.
-            const selectedHub = "VIDP"; 
-            await initializeSectorOpsMap(selectedHub);
+    mainContentLoader.classList.add('active');
 
-            // --- 2. Inject Server Selector Pill ---
-            if (!document.getElementById('server-selector-container')) {
-                const selectorHtml = `
-                    <div id="server-selector-container">
-                        <button class="server-btn ${currentServerName === 'Expert Server' ? 'active' : ''}" data-server="Expert Server">Expert</button>
-                        <button class="server-btn ${currentServerName === 'Training Server' ? 'active' : ''}" data-server="Training Server">Training</button>
-                        <button class="server-btn ${currentServerName === 'Casual Server' ? 'active' : ''}" data-server="Casual Server">Casual</button>
-                    </div>
-                `;
-                mapContainer.insertAdjacentHTML('beforeend', selectorHtml);
-            }
+    try {
+        // --- [MOVED UP] 1. Initialize Map FIRST ---
+        // We do this first so the map canvas is created at the bottom of the stack.
+        // Any HTML injected afterwards will correctly sit ON TOP of the map.
+        const selectedHub = "VIDP";
+        await initializeSectorOpsMap(selectedHub);
 
-            // --- 3. Inject the Search Bar ---
-            if (!document.getElementById('sector-ops-search-container')) {
-                const searchHtml = `
-                    <div id="sector-ops-search-container">
-                        <div class="search-bar-container">
-                            <input type="text" id="sector-ops-search-input" placeholder="Search callsign..." autocomplete="off">
-                            
-                            <button id="sector-ops-search-clear" class="search-clear-btn" title="Clear">
-                                <i class="fa-solid fa-xmark"></i>
-                            </button>
-                            
-                            <div class="search-icon-label">
-                                <i class="fa-solid fa-magnifying-glass"></i>
-                            </div>
-                        </div>
-                        
-                        <div id="search-results-dropdown" class="search-results-dropdown"></div>
-                    </div>
-                `;
-                mapContainer.insertAdjacentHTML('beforeend', searchHtml);
-            }
-
-            // --- 4. Inject Airport Info Window ---
-            if (!document.getElementById('airport-info-window')) {
-                 const windowHtml = `
-                    <div id="airport-info-window" class="info-window">
-                        <div id="airport-window-content" class="info-window-content"></div>
-                    </div>
-                `;
-                mapContainer.insertAdjacentHTML('beforeend', windowHtml);
-            }
-
-            // --- 5. Inject Aircraft Info Window ---
-            if (!document.getElementById('aircraft-info-window')) {
-                 const windowHtml = `
-                    <div id="aircraft-info-window" class="info-window">
-                        
-                    </div>
-                `;
-                mapContainer.insertAdjacentHTML('beforeend', windowHtml);
-            }
-
-            // --- 6. Inject Weather Settings Window ---
-            if (!document.getElementById('weather-settings-window')) {
-                const windowHtml = `
-                    <div id="weather-settings-window" class="info-window">
-                        <div class="info-window-header">
-                            <h3><i class="fa-solid fa-cloud-sun" style="margin-right: 10px;"></i> Weather Settings</h3>
-                            <div class="info-window-actions">
-                                <button class="weather-window-hide-btn" title="Hide"><i class="fa-solid fa-compress"></i></button>
-                                <button class="weather-window-close-btn" title="Close"><i class="fa-solid fa-xmark"></i></button>
-                            </div>
-                        </div>
-                        <div id="weather-window-content" class="info-window-content">
-                            <ul class="weather-toggle-list">
-                                <li class="weather-toggle-item">
-                                    <span class="weather-toggle-label"><i class="fa-solid fa-cloud-rain"></i> Radar (Precip)</span>
-                                    <label class="toggle-switch">
-                                        <input type="checkbox" id="weather-toggle-precip">
-                                        <span class="toggle-slider"></span>
-                                    </label>
-                                </li>
-                                <li class="weather-toggle-item">
-                                    <span class="weather-toggle-label"><i class="fa-solid fa-triangle-exclamation"></i> SIGMETs</span>
-                                    <label class="toggle-switch">
-                                        <input type="checkbox" id="weather-toggle-sigmets">
-                                        <span class="toggle-slider"></span>
-                                    </label>
-                                </li>
-                                <li class="weather-toggle-item">
-                                    <span class="weather-toggle-label"><i class="fa-solid fa-cloud"></i> Cloud Cover</span>
-                                    <label class="toggle-switch">
-                                        <input type="checkbox" id="weather-toggle-clouds">
-                                        <span class="toggle-slider"></span>
-                                    </label>
-                                </li>
-                                <li class="weather-toggle-item">
-                                    <span class="weather-toggle-label"><i class="fa-solid fa-wind"></i> Wind Speed</span>
-                                    <label class="toggle-switch">
-                                        <input type="checkbox" id="weather-toggle-wind">
-                                        <span class="toggle-slider"></span>
-                                    </label>
-                                </li>
-                            </ul>
-                            <div class="weather-disclaimer-note">
-                                <i class="fa-solid fa-server"></i>
-                                <strong>Note:</strong> ONLY rain radar is provided. Other radars (sigmets, clouds, wind) are not available.
-                            </div>
-                        </div>
-                    </div>
-                `;
-                mapContainer.insertAdjacentHTML('beforeend', windowHtml);
-            }
-
-            // --- 7. Inject Settings Window ---
-            if (!document.getElementById('filter-settings-window')) {
-                const windowHtml = `
-                    <div id="filter-settings-window" class="info-window">
-                        <div class="info-window-header">
-                            <h3><i class="fa-solid fa-gear" style="margin-right: 10px;"></i> Settings</h3>
-                            <div class="info-window-actions">
-                                <button class="filter-window-hide-btn" title="Hide"><i class="fa-solid fa-compress"></i></button>
-                                <button class="filter-window-close-btn" title="Close"><i class="fa-solid fa-xmark"></i></button>
-                            </div>
-                        </div>
-                        <div id="filter-window-content" class="info-window-content">
-                            <ul class="filter-toggle-list">
-                                <li class="filter-toggle-item">
-                                    <span class="filter-toggle-label"><i class="fa-solid fa-tower-broadcast"></i> Hide Staffed Airports</span>
-                                    <label class="toggle-switch">
-                                        <input type="checkbox" id="filter-toggle-atc">
-                                        <span class="toggle-slider"></span>
-                                    </label>
-                                </li>
-
-                                <li class="filter-toggle-item">
-                                    <span class="filter-toggle-label"><i class="fa-solid fa-satellite"></i> Satellite Mode</span>
-                                    <label class="toggle-switch">
-                                        <input type="checkbox" id="filter-toggle-satellite-mode">
-                                        <span class="toggle-slider"></span>
-                                    </label>
-                                </li>
-                                
-                                <li class="filter-toggle-item">
-                                    <span class="filter-toggle-label"><i class="fa-solid fa-tags"></i> Show Aircraft Labels</span>
-                                    <label class="toggle-switch">
-                                        <input type="checkbox" id="filter-toggle-aircraft-labels">
-                                        <span class="toggle-slider"></span>
-                                    </label>
-                                </li>
-                            </ul>
-
-                            <div class="filter-section-divider">
-                                <span class="filter-section-title">Interface Style</span>
-                            </div>
-                            <ul class="filter-toggle-list" style="padding-top: 8px;">
-                                <li class="filter-toggle-item">
-                                    <span class="filter-toggle-label"><i class="fa-solid fa-tablet-screen-button"></i> Simple Flight Window</span>
-                                    <label class="toggle-switch">
-                                        <input type="checkbox" id="filter-toggle-simple-window">
-                                        <span class="toggle-slider"></span>
-                                    </label>
-                                </li>
-                            </ul>
-
-                            <div class="filter-section-divider">
-                                <span class="filter-section-title">Aircraft Icon Color</span>
-                            </div>
-                            <ul class="filter-toggle-list" id="icon-color-filter-group" style="padding-top: 8px;">
-                                <li class="filter-radio-item">
-                                    <input type="radio" id="icon-color-default" name="icon-color-mode" value="default" checked>
-                                    <label for="icon-color-default"><i class="fa-solid fa-plane" style="color: #fff;"></i> Default (White)</label>
-                                </li>
-                                <li class="filter-radio-item">
-                                    <input type="radio" id="icon-color-blue" name="icon-color-mode" value="blue">
-                                    <label for="icon-color-blue"><i class="fa-solid fa-plane" style="color: #00a8ff;"></i> Blue</label>
-                                </li>
-                                <li class="filter-radio-item">
-                                    <input type="radio" id="icon-color-orange" name="icon-color-mode" value="orange">
-                                    <label for="icon-color-orange"><i class="fa-solid fa-plane" style="color: #ff9900;"></i> Orange</label>
-                                </li>
-                            </ul>
-                            
-                            <div class="filter-section-divider">
-                                <span class="filter-section-title">Active Flight Plan Display</span>
-                            </div>
-                            <ul class="filter-toggle-list" id="plan-filter-group" style="padding-top: 8px;">
-                                <li class="filter-radio-item">
-                                    <input type="radio" id="plan-filter-none" name="plan-display-mode" value="none" checked>
-                                    <label for="plan-filter-none"><i class="fa-solid fa-eye-slash"></i> Hide Plan</label>
-                                </li>
-                                <li class="filter-radio-item">
-                                    <input type="radio" id="plan-filter-direct" name="plan-display-mode" value="direct">
-                                    <label for="plan-filter-direct"><i class="fa-solid fa-route"></i> Direct to Destination</label>
-                                </li>
-                                <li class="filter-radio-item">
-                                    <input type="radio" id="plan-filter-full" name="plan-display-mode" value="full">
-                                    <label for="plan-filter-full"><i class="fa-solid fa-diagram-project"></i> Full Filed Plan</label>
-                                </li>
-                            </ul>
-
-                            <div class="mobile-only-filter-section">
-                                <div class="filter-section-divider">
-                                    <span class="filter-section-title">Mobile Display Mode</span>
-                                </div>
-                                <ul class="filter-toggle-list" id="mobile-mode-filter-group" style="padding-top: 8px;">
-                                    <li class="filter-radio-item">
-                                        <input type="radio" id="mobile-mode-hud" name="mobile-display-mode" value="hud" checked>
-                                        <label for="mobile-mode-hud"><i class="fa-solid fa-rocket"></i> HUD View</label>
-                                    </li>
-                                    <li class="filter-radio-item">
-                                        <input type="radio" id="mobile-mode-legacy" name="mobile-display-mode" value="legacy">
-                                        <label for="mobile-mode-legacy"><i class="fa-solid fa-layer-group"></i> Legacy Sheet</label>
-                                    </li>
-                                </ul>
-                            </div>
-
-                            <div class="filter-section-divider">
-                                <span class="filter-section-title">Window Appearance</span>
-                            </div>
-                            <div class="filter-appearance-controls" style="padding: 10px; display: flex; flex-direction: column; gap: 10px;">
-                                <div style="display: flex; justify-content: space-between; align-items: center;">
-                                    <span style="color: #ccc; font-size: 0.9rem;">Gradient Start Color</span>
-                                    <input type="color" id="theme-color-start" value="#121426" style="background: none; border: none; width: 50px; height: 30px; cursor: pointer;">
-                                </div>
-                                <div style="display: flex; justify-content: space-between; align-items: center;">
-                                    <span style="color: #ccc; font-size: 0.9rem;">Gradient End Color</span>
-                                    <input type="color" id="theme-color-end" value="#121426" style="background: none; border: none; width: 50px; height: 30px; cursor: pointer;">
-                                </div>
-                                <div style="display: flex; gap: 10px;">
-                                     <button id="theme-reset-btn" class="cta-button" style="width: 100%; padding: 8px; font-size: 0.85rem; border-radius: 4px; background: rgba(255,255,255,0.1); border: 1px solid #444; color: #fff; cursor: pointer;">Reset Default Theme</button>
-                                </div>
-                            </div>
-                        </div>
-                    </div>
-                `;
-                mapContainer.insertAdjacentHTML('beforeend', windowHtml);
-            }
-            
-            // --- 8. Inject Toolbar Buttons (if missing) ---
-            const toolbarToggleBtn = document.getElementById('toolbar-toggle-panel-btn');
-            if (toolbarToggleBtn) {
-                 if (!document.getElementById('airport-recall-btn')) {
-                    toolbarToggleBtn.parentElement.insertAdjacentHTML('beforeend', `
-                        <button id="airport-recall-btn" class="toolbar-btn" title="Show Airport Info">
-                            <i class="fa-solid fa-location-dot"></i>
-                        </button>
-                    `);
-                 }
-                 if (!document.getElementById('aircraft-recall-btn')) {
-                      toolbarToggleBtn.parentElement.insertAdjacentHTML('beforeend', `
-                        <button id="aircraft-recall-btn" class="toolbar-btn" title="Show Aircraft Info">
-                            <i class="fa-solid fa-plane-up"></i>
-                        </button>
-                    `);
-                 }
-                 if (!document.getElementById('open-weather-settings-btn')) {
-                    toolbarToggleBtn.parentElement.insertAdjacentHTML('beforeend', `
-                        <button id="open-weather-settings-btn" class="toolbar-btn" title="Weather Settings">
-                            <i class="fa-solid fa-cloud-sun"></i>
-                        </button>
-                    `);
-                 }
-                 if (!document.getElementById('open-filter-settings-btn')) {
-                    toolbarToggleBtn.parentElement.insertAdjacentHTML('beforeend', `
-                        <button id="open-filter-settings-btn" class="toolbar-btn" title="Settings">
-                            <i class="fa-solid fa-gear"></i>
-                        </button>
-                    `);
-                 }
-            }
-            
-            // --- 9. Assign Global Variables ---
-            airportInfoWindow = document.getElementById('airport-info-window');
-            airportInfoWindowRecallBtn = document.getElementById('airport-recall-btn');
-            aircraftInfoWindow = document.getElementById('aircraft-info-window');
-            aircraftInfoWindowRecallBtn = document.getElementById('aircraft-recall-btn');
-            weatherSettingsWindow = document.getElementById('weather-settings-window');
-            filterSettingsWindow = document.getElementById('filter-settings-window');
-
-            // --- 10. Load Content and Setup Listeners ---
-            await loadExternalPanelContent();
-
-            setupSectorOpsEventListeners();
-            setupAirportWindowEvents();
-            setupAircraftWindowEvents();
-            setupWeatherSettingsWindowEvents();
-            setupFilterSettingsWindowEvents(); 
-            
-            // --- 11. Setup Search Listeners (Now that elements exist) ---
-            setupSearchEventListeners();
-
-            // --- [NEW] Initialize Smart Map Click ---
-            setupSmartMapBackgroundClick(); 
-
-            // --- 12. Listen for ND_READY signal ---
-            window.addEventListener('message', (event) => {
-                if (event.data && event.data.type === 'ND_READY') {
-                    refreshNavDisplayFromCache();
-                }
-            });
-
-            // --- 13. Start Live Loop ---
-            startSectorOpsLiveLoop();
-
-        } catch (error) {
-            console.error("Error initializing Sector Ops view:", error);
-            showNotification(error.message, 'error');
-            const panelContentWrapper = document.querySelector('#sector-ops-floating-panel .panel-content-wrapper');
-            if (panelContentWrapper) {
-                panelContentWrapper.innerHTML = `<p class="error-text" style="padding: 20px;">${error.message}</p>`;
-            }
-        } finally {
-            mainContentLoader.classList.remove('active');
+        // --- 2. Inject Server Selector Pill ---
+        if (!document.getElementById('server-selector-container')) {
+            const selectorHtml = `
+            <div id="server-selector-container">
+                <button class="server-btn ${currentServerName === 'Expert Server' ? 'active' : ''}" data-server="Expert Server">Expert</button>
+                <button class="server-btn ${currentServerName === 'Training Server' ? 'active' : ''}" data-server="Training Server">Training</button>
+                <button class="server-btn ${currentServerName === 'Casual Server' ? 'active' : ''}" data-server="Casual Server">Casual</button>
+            </div>
+        `;
+            mapContainer.insertAdjacentHTML('beforeend', selectorHtml);
         }
+
+        // --- 3. Inject the Search Bar ---
+        if (!document.getElementById('sector-ops-search-container')) {
+            const searchHtml = `
+            <div id="sector-ops-search-container">
+                <div class="search-bar-container">
+                    <input type="text" id="sector-ops-search-input" placeholder="Search callsign..." autocomplete="off">
+                    <button id="sector-ops-search-clear" class="search-clear-btn" title="Clear">
+                        <i class="fa-solid fa-xmark"></i>
+                    </button>
+                    <div class="search-icon-label">
+                         <i class="fa-solid fa-magnifying-glass"></i>
+                    </div>
+                </div>
+                <div id="search-results-dropdown" class="search-results-dropdown"></div>
+            </div>
+        `;
+            mapContainer.insertAdjacentHTML('beforeend', searchHtml);
+        }
+
+        // --- 4. Inject Airport Info Window ---
+        if (!document.getElementById('airport-info-window')) {
+            const windowHtml = `
+            <div id="airport-info-window" class="info-window">
+                <div id="airport-window-content" class="info-window-content"></div>
+            </div>
+        `;
+            mapContainer.insertAdjacentHTML('beforeend', windowHtml);
+        }
+
+        // --- 5. Inject Aircraft Info Window ---
+        if (!document.getElementById('aircraft-info-window')) {
+            const windowHtml = `
+            <div id="aircraft-info-window" class="info-window">
+            </div>
+        `;
+            mapContainer.insertAdjacentHTML('beforeend', windowHtml);
+        }
+
+        // --- 6. Inject Weather Settings Window ---
+        if (!document.getElementById('weather-settings-window')) {
+            const windowHtml = `
+            <div id="weather-settings-window" class="info-window">
+                <div class="info-window-header">
+                    <h3><i class="fa-solid fa-cloud-sun" style="margin-right: 10px;"></i> Weather Settings</h3>
+                    <div class="info-window-actions">
+                        <button class="weather-window-hide-btn" title="Hide"><i class="fa-solid fa-compress"></i></button>
+                        <button class="weather-window-close-btn" title="Close"><i class="fa-solid fa-xmark"></i></button>
+                    </div>
+                </div>
+                <div id="weather-window-content" class="info-window-content">
+                    <ul class="weather-toggle-list">
+                        <li class="weather-toggle-item">
+                            <span class="weather-toggle-label"><i class="fa-solid fa-cloud-rain"></i> Radar (Precip)</span>
+                            <label class="toggle-switch">
+                                <input type="checkbox" id="weather-toggle-precip">
+                                <span class="toggle-slider"></span>
+                            </label>
+                        </li>
+                         <li class="weather-toggle-item">
+                            <span class="weather-toggle-label"><i class="fa-solid fa-triangle-exclamation"></i> SIGMETs</span>
+                            <label class="toggle-switch">
+                                <input type="checkbox" id="weather-toggle-sigmets">
+                                <span class="toggle-slider"></span>
+                            </label>
+                        </li>
+                        <li class="weather-toggle-item">
+                            <span class="weather-toggle-label"><i class="fa-solid fa-cloud"></i> Cloud Cover</span>
+                            <label class="toggle-switch">
+                                <input type="checkbox" id="weather-toggle-clouds">
+                                <span class="toggle-slider"></span>
+                            </label>
+                        </li>
+                        <li class="weather-toggle-item">
+                            <span class="weather-toggle-label"><i class="fa-solid fa-wind"></i> Wind Speed</span>
+                            <label class="toggle-switch">
+                                <input type="checkbox" id="weather-toggle-wind">
+                                <span class="toggle-slider"></span>
+                            </label>
+                        </li>
+                    </ul>
+                    <div class="weather-disclaimer-note">
+                        <i class="fa-solid fa-server"></i> <strong>Note:</strong> ONLY rain radar is provided. Other radars (sigmets, clouds, wind) are not available.
+                    </div>
+                </div>
+            </div>
+        `;
+            mapContainer.insertAdjacentHTML('beforeend', windowHtml);
+        }
+
+        // --- 7. Inject Settings Window ---
+        if (!document.getElementById('filter-settings-window')) {
+            const windowHtml = `
+            <div id="filter-settings-window" class="info-window">
+                <div class="info-window-header">
+                    <h3><i class="fa-solid fa-gear" style="margin-right: 10px;"></i> Settings</h3>
+                    <div class="info-window-actions">
+                        <button class="filter-window-hide-btn" title="Hide"><i class="fa-solid fa-compress"></i></button>
+                        <button class="filter-window-close-btn" title="Close"><i class="fa-solid fa-xmark"></i></button>
+                    </div>
+                </div>
+                <div id="filter-window-content" class="info-window-content">
+                    <ul class="filter-toggle-list">
+                        <li class="filter-toggle-item">
+                            <span class="filter-toggle-label"><i class="fa-solid fa-tower-broadcast"></i> Hide Staffed Airports</span>
+                            <label class="toggle-switch">
+                                <input type="checkbox" id="filter-toggle-atc">
+                                <span class="toggle-slider"></span>
+                            </label>
+                        </li>
+                        <div class="filter-section-divider">
+                            <span class="filter-section-title">Map Style</span>
+                        </div>
+                        <ul class="filter-toggle-list" id="map-style-filter-group" style="padding-top: 8px;">
+                            <li class="filter-radio-item">
+                                <input type="radio" id="map-style-dark" name="map-style-mode" value="dark">
+                                <label for="map-style-dark"><i class="fa-solid fa-moon"></i> Dark</label>
+                            </li>
+                            <li class="filter-radio-item">
+                                <input type="radio" id="map-style-light" name="map-style-mode" value="light">
+                                <label for="map-style-light"><i class="fa-solid fa-sun" style="color: #fbbf24;"></i> Light</label>
+                            </li>
+                             <li class="filter-radio-item">
+                                <input type="radio" id="map-style-satellite" name="map-style-mode" value="satellite">
+                                <label for="map-style-satellite"><i class="fa-solid fa-satellite"></i> Satellite</label>
+                            </li>
+                        </ul>
+                        <div class="filter-section-divider">
+                            <span class="filter-section-title">Labels & UI</span>
+                        </div>
+                        <ul class="filter-toggle-list" style="padding-top: 8px;">
+                            <li class="filter-toggle-item">
+                                <span class="filter-toggle-label"><i class="fa-solid fa-tags"></i> Show Aircraft Labels</span>
+                                <label class="toggle-switch">
+                                    <input type="checkbox" id="filter-toggle-aircraft-labels">
+                                    <span class="toggle-slider"></span>
+                                </label>
+                            </li>
+                            <li class="filter-toggle-item">
+                                <span class="filter-toggle-label"><i class="fa-solid fa-tablet-screen-button"></i> Simple Flight Window</span>
+                                <label class="toggle-switch">
+                                    <input type="checkbox" id="filter-toggle-simple-window">
+                                    <span class="toggle-slider"></span>
+                                </label>
+                            </li>
+                        </ul>
+
+                        <div class="filter-section-divider">
+                            <span class="filter-section-title">Aircraft Icon Color</span>
+                        </div>
+                        <ul class="filter-toggle-list" id="icon-color-filter-group" style="padding-top: 8px;">
+                            <li class="filter-radio-item">
+                                <input type="radio" id="icon-color-default" name="icon-color-mode" value="default" checked>
+                                <label for="icon-color-default"><i class="fa-solid fa-plane" style="color: #fff;"></i> Default (White)</label>
+                            </li>
+                            <li class="filter-radio-item">
+                                <input type="radio" id="icon-color-blue" name="icon-color-mode" value="blue">
+                                <label for="icon-color-blue"><i class="fa-solid fa-plane" style="color: #00a8ff;"></i> Blue</label>
+                            </li>
+                            <li class="filter-radio-item">
+                                <input type="radio" id="icon-color-orange" name="icon-color-mode" value="orange">
+                                <label for="icon-color-orange"><i class="fa-solid fa-plane" style="color: #ff9900;"></i> Orange</label>
+                            </li>
+                        </ul>
+
+                        <div class="filter-section-divider">
+                            <span class="filter-section-title">Active Flight Plan Display</span>
+                        </div>
+                        <ul class="filter-toggle-list" id="plan-filter-group" style="padding-top: 8px;">
+                            <li class="filter-radio-item">
+                                <input type="radio" id="plan-filter-none" name="plan-display-mode" value="none" checked>
+                                <label for="plan-filter-none"><i class="fa-solid fa-eye-slash"></i> Hide Plan</label>
+                            </li>
+                            <li class="filter-radio-item">
+                                <input type="radio" id="plan-filter-direct" name="plan-display-mode" value="direct">
+                                <label for="plan-filter-direct"><i class="fa-solid fa-route"></i> Direct to Destination</label>
+                            </li>
+                            <li class="filter-radio-item">
+                                <input type="radio" id="plan-filter-full" name="plan-display-mode" value="full">
+                                <label for="plan-filter-full"><i class="fa-solid fa-diagram-project"></i> Full Filed Plan</label>
+                            </li>
+                        </ul>
+
+                        <div class="mobile-only-filter-section">
+                            <div class="filter-section-divider">
+                                <span class="filter-section-title">Mobile Display Mode</span>
+                            </div>
+                            <ul class="filter-toggle-list" id="mobile-mode-filter-group" style="padding-top: 8px;">
+                                <li class="filter-radio-item">
+                                    <input type="radio" id="mobile-mode-hud" name="mobile-display-mode" value="hud" checked>
+                                    <label for="mobile-mode-hud"><i class="fa-solid fa-rocket"></i> HUD View</label>
+                                </li>
+                                <li class="filter-radio-item">
+                                    <input type="radio" id="mobile-mode-legacy" name="mobile-display-mode" value="legacy">
+                                    <label for="mobile-mode-legacy"><i class="fa-solid fa-layer-group"></i> Legacy Sheet</label>
+                                </li>
+                            </ul>
+                        </div>
+                        
+                         <div class="filter-section-divider">
+                            <span class="filter-section-title">Window Theme (Experimental)</span>
+                        </div>
+                        <div style="padding: 10px 0; display: grid; grid-template-columns: 1fr 1fr auto; gap: 8px; align-items: center;">
+                            <input type="color" id="theme-color-start" value="#121426" style="width: 100%; height: 32px; cursor: pointer; border: none; background: transparent;">
+                            <input type="color" id="theme-color-end" value="#121426" style="width: 100%; height: 32px; cursor: pointer; border: none; background: transparent;">
+                             <button id="theme-reset-btn" style="background: rgba(255,255,255,0.1); border: 1px solid rgba(255,255,255,0.2); color: #fff; width: 32px; height: 32px; border-radius: 4px; cursor: pointer;"><i class="fa-solid fa-rotate-left"></i></button>
+                        </div>
+
+                    </ul>
+                </div>
+            </div>
+        `;
+            mapContainer.insertAdjacentHTML('beforeend', windowHtml);
+        }
+
+        // --- 8. Setup Event Listeners ---
+        setupAirportWindowEvents();
+        setupAircraftWindowEvents();
+        setupWeatherSettingsWindowEvents();
+        setupFilterSettingsWindowEvents();
+        setupSectorOpsEventListeners();
+
+        // New Smart Map Click
+        setupSmartMapBackgroundClick();
+
+    } catch (err) {
+        console.error("Error initializing Sector Ops View:", err);
+    } finally {
+        mainContentLoader.classList.remove('active');
     }
+}
 
 
 function initializeSectorOpsMap(centerICAO) {
@@ -11509,7 +11450,6 @@ function setupFilterSettingsWindowEvents() {
     const applyWindowTheme = (startHex, endHex) => {
         const root = document.documentElement;
         const opacity = (mapFilters.themeOpacity || 95) / 100;
-        
         root.style.setProperty('--iw-bg-start', hexToRgba(startHex, opacity));
         root.style.setProperty('--iw-bg-end', hexToRgba(endHex, opacity));
     };
@@ -11518,9 +11458,13 @@ function setupFilterSettingsWindowEvents() {
     const setUIFromState = () => {
         // Toggles
         document.getElementById('filter-toggle-atc').checked = mapFilters.hideAtcMarkers;
-        document.getElementById('filter-toggle-satellite-mode').checked = (currentMapStyle === MAP_STYLE_SATELLITE);
+        // [MODIFIED] Set Map Style Radio
+        const styleMode = mapFilters.mapStyle || 'dark'; // Default to dark if undefined
+        const styleRadio = document.querySelector(`input[name="map-style-mode"][value="${styleMode}"]`);
+        if (styleRadio) styleRadio.checked = true;
+
         document.getElementById('filter-toggle-aircraft-labels').checked = mapFilters.showAircraftLabels;
-        
+
         // Simple Window Toggle
         const simpleWindowToggle = document.getElementById('filter-toggle-simple-window');
         if (simpleWindowToggle) {
@@ -11530,14 +11474,14 @@ function setupFilterSettingsWindowEvents() {
         // Radios
         const colorRadio = document.querySelector(`input[name="icon-color-mode"][value="${mapFilters.iconColorMode}"]`);
         if (colorRadio) colorRadio.checked = true;
-        
+
         const planRadio = document.querySelector(`input[name="plan-display-mode"][value="${mapFilters.planDisplayMode}"]`);
         if (planRadio) planRadio.checked = true;
 
         // Colors
         document.getElementById('theme-color-start').value = mapFilters.themeStartColor || '#121426';
         document.getElementById('theme-color-end').value = mapFilters.themeEndColor || '#121426';
-        
+
         // Apply immediately on load
         applyWindowTheme(mapFilters.themeStartColor, mapFilters.themeEndColor);
 
@@ -11545,7 +11489,7 @@ function setupFilterSettingsWindowEvents() {
         const currentMobileMode = localStorage.getItem('mobileDisplayMode') || 'legacy'; // Default to legacy
         const mobileModeHud = document.getElementById('mobile-mode-hud');
         const mobileModeLegacy = document.getElementById('mobile-mode-legacy');
-        
+
         if (mobileModeHud && mobileModeLegacy) {
             // [UPDATED] If Simple Window is active, force UI to reflect Locked Legacy Mode
             if (mapFilters.useSimpleFlightWindow) {
@@ -11555,7 +11499,6 @@ function setupFilterSettingsWindowEvents() {
             } else {
                 mobileModeHud.disabled = false;
                 mobileModeHud.parentElement.style.opacity = '1';
-                
                 if (currentMobileMode === 'legacy') {
                     mobileModeLegacy.checked = true;
                 } else {
@@ -11564,7 +11507,7 @@ function setupFilterSettingsWindowEvents() {
             }
         }
     };
-    
+
     // --- Set the UI when the window is first set up ---
     setUIFromState();
 
@@ -11586,8 +11529,8 @@ function setupFilterSettingsWindowEvents() {
         if (iframe && iframe.contentWindow) {
             iframe.contentWindow.postMessage({
                 type: 'THEME_UPDATE',
-                payload: { 
-                    start: s, 
+                payload: {
+                    start: s,
                     end: e,
                     opacity: mapFilters.themeOpacity || 90
                 }
@@ -11604,7 +11547,6 @@ function setupFilterSettingsWindowEvents() {
             startPicker.value = defColor;
             endPicker.value = defColor;
             applyWindowTheme(defColor, defColor);
-            
             mapFilters.themeStartColor = defColor;
             mapFilters.themeEndColor = defColor;
             saveFiltersToLocalStorage();
@@ -11617,19 +11559,19 @@ function setupFilterSettingsWindowEvents() {
         const target = e.target;
         if (target.closest('.filter-window-close-btn') || target.closest('.filter-window-hide-btn')) {
             filterSettingsWindow.classList.remove('visible');
-            MobileUIHandler.closeActiveWindow();
+            if (typeof MobileUIHandler !== 'undefined') MobileUIHandler.closeActiveWindow();
         }
     });
 
     // Use a 'change' listener for all toggles and radios
     filterSettingsWindow.addEventListener('change', (e) => {
         const target = e.target;
-        
+
         // [UPDATED] Handle Simple Window Toggle & Interdependency
         if (target.id === 'filter-toggle-simple-window') {
             mapFilters.useSimpleFlightWindow = target.checked;
             saveFiltersToLocalStorage();
-            
+
             const mobileModeHud = document.getElementById('mobile-mode-hud');
             const mobileModeLegacy = document.getElementById('mobile-mode-legacy');
 
@@ -11645,108 +11587,69 @@ function setupFilterSettingsWindowEvents() {
                 // Force save 'legacy' to storage so UI Handler picks it up next time
                 localStorage.setItem('mobileDisplayMode', 'legacy');
             } else {
-                // UNLOCK HUD MODE
+                // RESTORE HUD ACCESS
                 if (mobileModeHud) {
                     mobileModeHud.disabled = false;
                     mobileModeHud.parentElement.style.opacity = '1';
                 }
             }
-            
-            // If a window is currently open, reload it to reflect changes
-            if (currentFlightInWindow) {
-                const closeBtn = document.querySelector('.aircraft-window-close-btn');
-                if (closeBtn) closeBtn.click();
-            }
-            return;
         }
-
-        // Handle Flight Plan Radio Logic
-        if (target.name === 'plan-display-mode') {
-            mapFilters.planDisplayMode = target.value;
-            saveFiltersToLocalStorage(); 
-            if (currentFlightInWindow && cachedFlightDataForStatsView.plan) {
-                const { flightProps, plan } = cachedFlightDataForStatsView;
-                const position = currentAircraftPositionForGeocode || flightProps.position;
-                updateFlightPlanLayer(currentFlightInWindow, plan, position);
-            }
-            return;
-        }
-        
-        // Handle Icon Color Radio Logic
-        if (target.name === 'icon-color-mode') {
-            mapFilters.iconColorMode = target.value;
-            saveFiltersToLocalStorage(); 
-            const newExpression = getIconImageExpression(mapFilters.iconColorMode);
-            if (sectorOpsMap && sectorOpsMap.getLayer('sector-ops-live-flights-layer')) {
-                sectorOpsMap.setLayoutProperty('sector-ops-live-flights-layer', 'icon-image', newExpression);
-            }
-            return; 
-        }
-        
-        // Handle Mobile Display Mode Radio Logic
-        if (target.name === 'mobile-display-mode') {
-            // Prevent changing if locked (double check for safety)
-            if (mapFilters.useSimpleFlightWindow && target.value === 'hud') {
-                target.checked = false;
-                document.getElementById('mobile-mode-legacy').checked = true;
-                return;
-            }
-
-            const newMode = target.value;
-            localStorage.setItem('mobileDisplayMode', newMode);
-            if (!document.getElementById('mobile-mode-note')) {
-                document.getElementById('mobile-mode-filter-group').insertAdjacentHTML(
-                    'beforeend',
-                    '<p id="mobile-mode-note" class="muted-text" style="padding: 10px 0 0 0; text-align: left; font-size: 0.8rem;">Changes will apply the next time you open an aircraft window.</p>'
-                );
-            }
-            return; 
-        }
-
-        if (target.type !== 'checkbox') return;
-
-        // Handle Aircraft Label Toggle
-        if (target.id === 'filter-toggle-aircraft-labels') {
-            mapFilters.showAircraftLabels = target.checked;
-            saveFiltersToLocalStorage(); 
-            updateAircraftLabelVisibility(); 
-            return;
-        }
-
-        // Handle Map Style Logic
-        const satelliteModeToggle = document.getElementById('filter-toggle-satellite-mode');
-        let styleChanged = false;
-        let newMapStyle = currentMapStyle;
-
-        if (target.id === 'filter-toggle-satellite-mode') {
-            if (target.checked) {
-                newMapStyle = MAP_STYLE_SATELLITE;
-            } else {
-                newMapStyle = MAP_STYLE_DARK; 
-            }
-            styleChanged = true;
-        }
-
-        // Update mapFilters state
-        mapFilters.showVaOnly = document.getElementById('filter-toggle-members-only')?.checked || false;
-        mapFilters.hideAtcMarkers = document.getElementById('filter-toggle-atc')?.checked || false;
-        mapFilters.hideNoAtcMarkers = document.getElementById('filter-toggle-no-atc')?.checked || false;
-        
-        if (styleChanged && newMapStyle !== currentMapStyle) {
-            console.log(`Changing map style to: ${newMapStyle}`);
-            currentMapStyle = newMapStyle;
-            sectorOpsMap.setStyle(currentMapStyle);
-        } else if (!styleChanged) {
-            saveFiltersToLocalStorage(); 
+        else if (target.id === 'filter-toggle-atc') {
+            mapFilters.hideAtcMarkers = target.checked;
+            saveFiltersToLocalStorage();
             updateMapFilters();
         }
+        // [MODIFIED] Handle Map Style Radios
+        else if (target.name === 'map-style-mode') {
+            const mode = target.value;
+            mapFilters.mapStyle = mode;
+            saveFiltersToLocalStorage();
 
-        updateToolbarButtonStates(); 
+            let newStyleUrl = MAP_STYLE_DARK;
+            if (mode === 'light') newStyleUrl = MAP_STYLE_LIGHT;
+            if (mode === 'satellite') newStyleUrl = MAP_STYLE_SATELLITE;
+
+            if (currentMapStyle !== newStyleUrl) {
+                currentMapStyle = newStyleUrl;
+                // Switch style and rebuild layers on load
+                sectorOpsMap.setStyle(newStyleUrl);
+                sectorOpsMap.once('style.load', () => {
+                    rebuildDynamicLayers();
+                    // NOTE: If mapAnimator needs re-initialization, add that logic here.
+                });
+            }
+        }
+        else if (target.id === 'filter-toggle-aircraft-labels') {
+            mapFilters.showAircraftLabels = target.checked;
+            saveFiltersToLocalStorage();
+            updateAircraftLabelVisibility(); // Call the specific updater
+        } else if (target.name === 'icon-color-mode') {
+            mapFilters.iconColorMode = target.value;
+            saveFiltersToLocalStorage();
+            // Re-render aircraft icons by updating layer property
+            if (sectorOpsMap && sectorOpsMap.getLayer('sector-ops-live-flights-layer')) {
+                sectorOpsMap.setLayoutProperty('sector-ops-live-flights-layer', 'icon-image', getIconImageExpression(mapFilters.iconColorMode));
+            }
+        } else if (target.name === 'plan-display-mode') {
+            mapFilters.planDisplayMode = target.value;
+            saveFiltersToLocalStorage();
+            // Trigger an update for the currently selected flight
+            if (currentFlightInWindow) {
+                // Just re-run the socket update logic for the single flight to redraw the line
+                // or clear/redraw immediately
+                if (cachedFlightDataForStatsView && cachedFlightDataForStatsView.plan) {
+                    updateFlightPlanLayer(currentFlightInWindow, cachedFlightDataForStatsView.plan, currentAircraftPositionForGeocode);
+                }
+            }
+        } else if (target.name === 'mobile-display-mode') {
+            // Save to local storage for MobileUIHandler to pick up
+            localStorage.setItem('mobileDisplayMode', target.value);
+            showNotification("Mobile display mode updated (Reload to apply).", "info");
+        }
     });
 
     filterSettingsWindow.dataset.eventsAttached = 'true';
 }
-
 
 function setupSearchEventListeners() {
     const searchInput = document.getElementById('sector-ops-search-input');
