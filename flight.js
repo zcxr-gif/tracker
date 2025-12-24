@@ -3562,10 +3562,10 @@ async function loadExternalPanelContent() {
 
 
 /**
- * --- [OPTIMIZED] Generates High-Quality Trip Card ---
- * 1. Smart Resolution Scaling (Prevents Memory Leaks on 4K/Retina).
- * 2. Auto-Restore Camera (Doesn't lose user's place).
- * 3. Aggressive Memory Cleanup (Fixes post-screenshot lag).
+ * --- [FINAL FIX] Generates High-Quality Trip Card ---
+ * 1. Forces High-DPI Map Capture (Sharper Background).
+ * 2. Robust Image Selector (Fixes missing plane photo).
+ * 3. Optimized Performance (Blob URLs + Overlay).
  */
 async function generateTripCard() {
     // 1. Check Library
@@ -3593,231 +3593,189 @@ async function generateTripCard() {
     // --- VISUAL OVERLAY ---
     const loadingOverlay = document.createElement('div');
     loadingOverlay.style.cssText = `
-        position: fixed; inset: 0; background: rgba(15, 23, 42, 0.85); backdrop-filter: blur(8px);
+        position: fixed; inset: 0; background: rgba(15, 23, 42, 0.8); backdrop-filter: blur(5px);
         z-index: 100000; display: flex; flex-direction: column; align-items: center; justify-content: center;
         color: white; font-family: 'Inter', sans-serif; transition: opacity 0.3s;
     `;
     loadingOverlay.innerHTML = `
         <i class="fa-solid fa-camera fa-bounce" style="font-size: 3rem; color: #38bdf8; margin-bottom: 20px;"></i>
-        <h2 style="margin: 0; font-weight: 600;">Capturing Trip Card...</h2>
-        <p style="margin: 5px 0 0; color: #94a3b8; font-size: 0.9rem;">Processing High-Res Assets</p>
+        <h2 style="margin: 0; font-weight: 600;">Generating High-Res Card...</h2>
+        <p style="margin: 5px 0 0; color: #94a3b8; font-size: 0.9rem;">Please wait</p>
     `;
     document.body.appendChild(loadingOverlay);
 
-    // Variables for cleanup
-    let highResCanvas = null;
-    let mapBlobUrl = null;
-    let cardContainer = null;
-    let savedCamera = null;
+    setTimeout(async () => {
+        try {
+            const feature = currentMapFeatures[currentFlightInWindow];
+            const props = feature.properties;
+            const aircraftData = JSON.parse(props.aircraft || '{}');
+            const position = JSON.parse(props.position || '{}');
+            const coords = feature.geometry.coordinates;
 
-    try {
-        const feature = currentMapFeatures[currentFlightInWindow];
-        const props = feature.properties;
-        const aircraftData = JSON.parse(props.aircraft || '{}');
-        const position = JSON.parse(props.position || '{}');
-        const coords = feature.geometry.coordinates;
-
-        // --- 1. SAVE & SETUP MAP ---
-        if (sectorOpsMap) {
-            // Save current user view to restore later
-            savedCamera = {
-                center: sectorOpsMap.getCenter(),
-                zoom: sectorOpsMap.getZoom(),
-                pitch: sectorOpsMap.getPitch(),
-                bearing: sectorOpsMap.getBearing()
-            };
-
-            // Move to target for the photo
-            sectorOpsMap.jumpTo({ center: coords });
-
-            // Wait for map to go idle (tiles loaded) or max 1.5 seconds
-            await Promise.race([
-                new Promise(resolve => sectorOpsMap.once('idle', resolve)),
-                new Promise(resolve => setTimeout(resolve, 1500))
-            ]);
-            
-            // Extra tiny buffer for label rendering
-            await new Promise(r => setTimeout(r, 200));
-        }
-
-        // --- 2. OPTIMIZED MAP CAPTURE ---
-        // Force repaint to ensure webgl buffer is fresh
-        sectorOpsMap.triggerRepaint();
-        
-        const mapCanvas = sectorOpsMap.getCanvas();
-        
-        // Smart Scale: If screen is already High-DPI (Retina/4K), don't double it.
-        // Cap max width to ~2500px to prevent VRAM crashes.
-        const currentWidth = mapCanvas.width;
-        const scaleFactor = currentWidth > 2000 ? 1 : 2;
-
-        highResCanvas = document.createElement('canvas');
-        highResCanvas.width = currentWidth * scaleFactor; 
-        highResCanvas.height = mapCanvas.height * scaleFactor;
-        const ctx = highResCanvas.getContext('2d');
-
-        // Draw Mapbox canvas onto our temp canvas
-        ctx.drawImage(mapCanvas, 0, 0, highResCanvas.width, highResCanvas.height);
-
-        // Get Blob (Optimized quality)
-        const blob = await new Promise(resolve => highResCanvas.toBlob(resolve, 'image/jpeg', 0.9)); // JPEG is faster/lighter for backgrounds than PNG
-        mapBlobUrl = URL.createObjectURL(blob);
-
-        // RESTORE MAP IMMEDIATELY (UX Fix)
-        if (savedCamera) {
-            sectorOpsMap.jumpTo({
-                center: savedCamera.center,
-                zoom: savedCamera.zoom,
-                pitch: savedCamera.pitch,
-                bearing: savedCamera.bearing,
-                duration: 0 // Instant
-            });
-        }
-
-        // --- 3. ROBUST IMAGE SELECTOR ---
-        let aircraftImgUrl = '/CommunityPlanes/default.png';
-        const overviewPanel = document.getElementById('ac-overview-panel');
-        
-        // Priority 1: Dataset path (Most reliable for selected plane)
-        if (overviewPanel && overviewPanel.dataset.currentPath && overviewPanel.dataset.currentPath !== 'undefined') {
-            aircraftImgUrl = overviewPanel.dataset.currentPath;
-        } 
-        // Priority 2: Visual Image Tag (Fallback)
-        else {
-            const imgTag = document.querySelector('.tech-image');
-            if (imgTag && imgTag.src) aircraftImgUrl = imgTag.src;
-        }
-
-        // --- 4. BUILD CARD DOM ---
-        cardContainer = document.createElement('div');
-        cardContainer.id = "trip-card-container";
-        // Off-screen but rendered
-        cardContainer.style.cssText = `
-            position: fixed; top: 0; left: 0; transform: translate(-9999px, -9999px);
-            width: 1200px; height: 675px;
-            background-color: #0f172a;
-            font-family: 'Inter', system-ui, sans-serif;
-            overflow: hidden;
-            z-index: 99999;
-            display: flex; flex-direction: column;
-        `;
-
-        // Data Prep
-        const livName = aircraftData.liveryName || '';
-        const words = livName.trim().split(/\s+/);
-        // Better Logo Logic: Handles "Southwest Airlines" -> "Southwest"
-        let logoName = words.length > 0 ? words[0] : '';
-        if (words.length > 1 && !/[^a-zA-Z0-9]/.test(words[1]) && words[1].length < 9) {
-             logoName += ' ' + words[1];
-        }
-        const sanitizedLogoName = logoName.toLowerCase().replace(/[^a-z0-9\s]/g, '').replace(/\s+/g, '_');
-        const logoPath = sanitizedLogoName ? `Images/airline_logos/${sanitizedLogoName}.png` : '';
-
-        const dep = document.getElementById('ac-header-dep') ? document.getElementById('ac-header-dep').textContent : 'N/A';
-        const arr = document.getElementById('ac-header-arr') ? document.getElementById('ac-header-arr').textContent : 'N/A';
-        const pilotName = props.username || "Unknown Pilot";
-        const alt = Math.round(position.alt_ft || 0).toLocaleString();
-        const spd = Math.round(position.gs_kt || 0);
-        const callsign = props.callsign || 'N/A';
-
-        cardContainer.innerHTML = `
-            <div style="position: absolute; top: 0; left: 0; width: 100%; height: 100%; z-index: 1;">
-                <div style="width: 100%; height: 100%; background-image: url('${mapBlobUrl}'); background-size: cover; background-position: center;"></div>
-                <div style="position: absolute; inset: 0; background: radial-gradient(circle at center, rgba(15, 23, 42, 0.1) 0%, rgba(15, 23, 42, 0.4) 50%, rgba(15, 23, 42, 0.95) 100%);"></div>
-            </div>
-
-            <div style="position: relative; z-index: 10; padding: 40px; display: flex; justify-content: flex-end;">
-                 <div style="text-align: right; text-shadow: 0 4px 12px rgba(0,0,0,0.9);">
-                     <h2 style="margin: 0; color: #fff; font-size: 2.2rem; font-weight: 800; letter-spacing: -0.05em;">
-                        Inflight<span style="color: #38bdf8;">Tracker</span>
-                     </h2>
-                     <p style="margin: 0; color: #94a3b8; font-size: 1rem; font-weight: 600; text-transform: uppercase; letter-spacing: 0.1em;">
-                        <i class="fa-solid fa-satellite-dish" style="margin-right: 6px; color: #22c55e;"></i>Live Tracking
-                     </p>
-                </div>
-            </div>
-
-            <div style="position: relative; z-index: 10; padding: 40px; margin-top: auto; display: flex; align-items: flex-end; gap: 35px;">
+            // --- 1. HIGH-QUALITY MAP CAPTURE ---
+            if (sectorOpsMap) {
+                // Center the map
+                sectorOpsMap.jumpTo({ center: coords });
                 
-                <div style="width: 340px; background: #fff; padding: 8px; border-radius: 12px; transform: rotate(-2deg); box-shadow: 0 20px 40px rgba(0,0,0,0.6);">
-                    <div style="width: 100%; height: 210px; background-image: url('${aircraftImgUrl}'); background-size: cover; background-position: center; border-radius: 6px; background-color: #cbd5e1;"></div>
-                    <div style="padding: 12px 6px;">
-                         <div style="color: #0f172a; font-weight: 700; font-size: 1.1rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">${aircraftData.aircraftName || 'Unknown Aircraft'}</div>
-                         <div style="color: #64748b; font-size: 0.85rem; font-weight: 500;">${aircraftData.liveryName || ''}</div>
+                // Wait for map to settle
+                await new Promise(r => setTimeout(r, 400));
+            }
+
+            // Capture Map Canvas directly (High DPI)
+            let mapBlobUrl = '';
+            try {
+                await new Promise(resolve => {
+                    sectorOpsMap.once('render', resolve);
+                    sectorOpsMap.triggerRepaint();
+                });
+                
+                // Get canvas
+                const mapCanvas = sectorOpsMap.getCanvas();
+                
+                // Create a temporary high-res canvas (2x scale)
+                const highResCanvas = document.createElement('canvas');
+                highResCanvas.width = mapCanvas.width * 2; 
+                highResCanvas.height = mapCanvas.height * 2;
+                const ctx = highResCanvas.getContext('2d');
+                
+                // Draw the map canvas onto the high-res one
+                ctx.drawImage(mapCanvas, 0, 0, highResCanvas.width, highResCanvas.height);
+                
+                // Convert to Blob
+                const blob = await new Promise(resolve => highResCanvas.toBlob(resolve, 'image/png', 1.0));
+                mapBlobUrl = URL.createObjectURL(blob);
+            } catch (e) {
+                console.warn("Map capture failed:", e);
+            }
+
+            // --- 2. ROBUST PLANE IMAGE SELECTOR ---
+            let aircraftImgUrl = '/CommunityPlanes/default.png';
+            
+            // Try Method A: Dataset (Best for full res)
+            const overviewPanel = document.getElementById('ac-overview-panel');
+            if (overviewPanel && overviewPanel.dataset.currentPath) {
+                aircraftImgUrl = overviewPanel.dataset.currentPath;
+            } 
+            // Try Method B: Image Tag (Fallback)
+            else {
+                const imgTag = document.querySelector('.tech-image');
+                if (imgTag && imgTag.src) {
+                    aircraftImgUrl = imgTag.src;
+                }
+            }
+
+            // --- 3. CONSTRUCT CARD ---
+            const cardContainer = document.createElement('div');
+            cardContainer.id = "trip-card-container";
+            cardContainer.style.cssText = `
+                position: fixed; top: -9999px; left: -9999px;
+                width: 1200px; height: 675px; /* Bigger Canvas = Higher Quality */
+                background-color: #0f172a;
+                font-family: 'Inter', sans-serif;
+                overflow: hidden;
+                z-index: 99999;
+                display: flex;
+                flex-direction: column;
+            `;
+
+            const livName = aircraftData.liveryName || '';
+            const words = livName.trim().split(/\s+/);
+            let logoName = words.length > 1 && /[^a-zA-Z0-9]/.test(words[1]) ? words[0] : (words[0] + (words[1] ? ' ' + words[1] : ''));
+            const sanitizedLogoName = logoName.toLowerCase().replace(/[^a-z0-9\s]/g, '').replace(/\s+/g, '_');
+            const logoPath = sanitizedLogoName ? `Images/airline_logos/${sanitizedLogoName}.png` : '';
+            
+            const dep = document.getElementById('ac-header-dep') ? document.getElementById('ac-header-dep').textContent : 'N/A';
+            const arr = document.getElementById('ac-header-arr') ? document.getElementById('ac-header-arr').textContent : 'N/A';
+            const pilotName = props.username || "Unknown Pilot";
+            const alt = Math.round(position.alt_ft || 0).toLocaleString();
+            const spd = Math.round(position.gs_kt || 0);
+
+            cardContainer.innerHTML = `
+                <div style="position: absolute; top: 0; left: 0; width: 100%; height: 100%; z-index: 1;">
+                    <div style="width: 100%; height: 100%; background-image: url('${mapBlobUrl}'); background-size: cover; background-position: center;"></div>
+                    <div style="position: absolute; inset: 0; background: radial-gradient(circle at center, rgba(15, 23, 42, 0.1) 0%, rgba(15, 23, 42, 0.4) 50%, rgba(15, 23, 42, 0.95) 100%);"></div>
+                </div>
+
+                <div style="position: relative; z-index: 10; padding: 40px; display: flex; justify-content: flex-end;">
+                     <div style="text-align: right; text-shadow: 0 4px 12px rgba(0,0,0,0.9);">
+                         <h2 style="margin: 0; color: #fff; font-size: 2.2rem; font-weight: 800; letter-spacing: -0.05em;">
+                            Inflight<span style="color: #38bdf8;">Tracker</span>
+                         </h2>
+                         <p style="margin: 0; color: #94a3b8; font-size: 1rem; font-weight: 600; text-transform: uppercase; letter-spacing: 0.1em;">
+                            <i class="fa-solid fa-satellite-dish" style="margin-right: 6px; color: #22c55e;"></i>Live Tracking
+                         </p>
                     </div>
                 </div>
 
-                <div style="flex: 1; padding-bottom: 5px;">
-                    <div style="margin-bottom: 25px;">
-                        <div style="display: flex; align-items: center; gap: 12px; margin-bottom: 8px;">
-                             <span style="background: #38bdf8; color: #0f172a; padding: 3px 10px; border-radius: 4px; font-size: 0.8rem; font-weight: 800; text-transform: uppercase;">Pilot</span>
-                             <span style="color: #e2e8f0; font-size: 1.3rem; font-weight: 600; text-shadow: 0 2px 5px rgba(0,0,0,0.9);">${pilotName}</span>
-                        </div>
-                        <div style="display: flex; align-items: center; gap: 20px;">
-                            ${logoPath ? `<img src="${logoPath}" style="height: 60px; width: auto; filter: drop-shadow(0 4px 8px rgba(0,0,0,0.8));" crossorigin="anonymous" onerror="this.style.display='none'">` : ''}
-                            <h1 style="margin: 0; font-size: 4.5rem; font-weight: 800; color: #fff; line-height: 1; text-shadow: 0 5px 20px rgba(0,0,0,0.7); letter-spacing: -2px;">${callsign}</h1>
+                <div style="position: relative; z-index: 10; padding: 40px; margin-top: auto; display: flex; align-items: flex-end; gap: 35px;">
+                    
+                    <div style="width: 340px; background: #fff; padding: 8px; border-radius: 12px; transform: rotate(-2deg); box-shadow: 0 20px 40px rgba(0,0,0,0.6);">
+                        <div style="width: 100%; height: 210px; background-image: url('${aircraftImgUrl}'); background-size: cover; background-position: center; border-radius: 6px; background-color: #cbd5e1;"></div>
+                        <div style="padding: 12px 6px;">
+                             <div style="color: #0f172a; font-weight: 700; font-size: 1.1rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">${aircraftData.aircraftName}</div>
+                             <div style="color: #64748b; font-size: 0.85rem; font-weight: 500;">${aircraftData.liveryName}</div>
                         </div>
                     </div>
 
-                    <div style="background: rgba(15, 23, 42, 0.6); backdrop-filter: blur(16px); border: 1px solid rgba(255, 255, 255, 0.1); padding: 20px 35px; border-radius: 16px; display: flex; align-items: center; gap: 50px;">
-                        <div>
-                            <span style="font-size: 0.8rem; color: #94a3b8; text-transform: uppercase; letter-spacing: 0.1em; font-weight: 700; display: block; margin-bottom: 6px;">Route</span>
-                            <div style="font-size: 1.8rem; color: #fff; font-weight: 700; display: flex; align-items: center; gap: 12px; line-height: 1;">
-                                ${dep} <i class="fa-solid fa-plane" style="font-size: 0.6em; color: #38bdf8;"></i> ${arr}
+                    <div style="flex: 1; padding-bottom: 5px;">
+                        <div style="margin-bottom: 25px;">
+                            <div style="display: flex; align-items: center; gap: 12px; margin-bottom: 8px;">
+                                 <span style="background: #38bdf8; color: #0f172a; padding: 3px 10px; border-radius: 4px; font-size: 0.8rem; font-weight: 800; text-transform: uppercase;">Pilot</span>
+                                 <span style="color: #e2e8f0; font-size: 1.3rem; font-weight: 600; text-shadow: 0 2px 5px rgba(0,0,0,0.9);">${pilotName}</span>
+                            </div>
+                            <div style="display: flex; align-items: center; gap: 20px;">
+                                ${logoPath ? `<img src="${logoPath}" style="height: 60px; width: auto; filter: drop-shadow(0 4px 8px rgba(0,0,0,0.8));" crossorigin="anonymous">` : ''}
+                                <h1 style="margin: 0; font-size: 4.5rem; font-weight: 800; color: #fff; line-height: 1; text-shadow: 0 5px 20px rgba(0,0,0,0.7); letter-spacing: -2px;">${props.callsign || 'N/A'}</h1>
                             </div>
                         </div>
-                        <div style="width: 1px; height: 40px; background: rgba(255,255,255,0.15);"></div>
-                        <div>
-                            <span style="font-size: 0.8rem; color: #94a3b8; text-transform: uppercase; letter-spacing: 0.1em; font-weight: 700; display: block; margin-bottom: 6px;">Altitude</span>
-                            <span style="font-size: 1.8rem; color: #38bdf8; font-weight: 700; font-family: 'Consolas', monospace; line-height: 1;">${alt}</span>
-                        </div>
-                        <div style="width: 1px; height: 40px; background: rgba(255,255,255,0.15);"></div>
-                        <div>
-                            <span style="font-size: 0.8rem; color: #94a3b8; text-transform: uppercase; letter-spacing: 0.1em; font-weight: 700; display: block; margin-bottom: 6px;">Speed</span>
-                            <span style="font-size: 1.8rem; color: #fbbf24; font-weight: 700; font-family: 'Consolas', monospace; line-height: 1;">${spd} <span style="font-size: 0.5em;">kts</span></span>
+
+                        <div style="background: rgba(15, 23, 42, 0.6); backdrop-filter: blur(16px); border: 1px solid rgba(255, 255, 255, 0.1); padding: 20px 35px; border-radius: 16px; display: flex; align-items: center; gap: 50px;">
+                            <div>
+                                <span style="font-size: 0.8rem; color: #94a3b8; text-transform: uppercase; letter-spacing: 0.1em; font-weight: 700; display: block; margin-bottom: 6px;">Route</span>
+                                <div style="font-size: 1.8rem; color: #fff; font-weight: 700; display: flex; align-items: center; gap: 12px; line-height: 1;">
+                                    ${dep} <i class="fa-solid fa-plane" style="font-size: 0.6em; color: #38bdf8; transform: rotate(0deg);"></i> ${arr}
+                                </div>
+                            </div>
+                            <div style="width: 1px; height: 40px; background: rgba(255,255,255,0.15);"></div>
+                            <div>
+                                <span style="font-size: 0.8rem; color: #94a3b8; text-transform: uppercase; letter-spacing: 0.1em; font-weight: 700; display: block; margin-bottom: 6px;">Altitude</span>
+                                <span style="font-size: 1.8rem; color: #38bdf8; font-weight: 700; font-family: 'Consolas', monospace; line-height: 1;">${alt}</span>
+                            </div>
+                            <div style="width: 1px; height: 40px; background: rgba(255,255,255,0.15);"></div>
+                            <div>
+                                <span style="font-size: 0.8rem; color: #94a3b8; text-transform: uppercase; letter-spacing: 0.1em; font-weight: 700; display: block; margin-bottom: 6px;">Speed</span>
+                                <span style="font-size: 1.8rem; color: #fbbf24; font-weight: 700; font-family: 'Consolas', monospace; line-height: 1;">${spd} <span style="font-size: 0.5em;">kts</span></span>
+                            </div>
                         </div>
                     </div>
                 </div>
-            </div>
-        `;
+            `;
 
-        document.body.appendChild(cardContainer);
+            document.body.appendChild(cardContainer);
 
-        // --- 5. RENDER & DOWNLOAD ---
-        // Using a moderate scale. We don't need excessive upscaling because the map blob is already hi-res.
-        const canvas = await html2canvas(cardContainer, {
-            backgroundColor: '#0f172a',
-            useCORS: true,
-            scale: 1.5, 
-            logging: false, // Turn off logging for perf
-            allowTaint: true
-        });
+            // --- 4. RENDER & DOWNLOAD ---
+            const canvas = await html2canvas(cardContainer, {
+                backgroundColor: '#0f172a',
+                useCORS: true,
+                scale: 1.5 // Multiplier for super high res
+            });
 
-        const link = document.createElement('a');
-        link.download = `Inflight_${callsign}_${pilotName.replace(/\s+/g, '_')}.png`;
-        link.href = canvas.toDataURL('image/png');
-        link.click();
-        
-        showNotification("High-Res Card Downloaded!", "success");
+            const link = document.createElement('a');
+            link.download = `Inflight_${props.callsign}_${pilotName.replace(/\s+/g, '_')}.png`;
+            link.href = canvas.toDataURL('image/png');
+            link.click();
+            
+            if (mapBlobUrl) URL.revokeObjectURL(mapBlobUrl);
+            document.body.removeChild(cardContainer);
+            showNotification("High-Res Card Downloaded!", "success");
 
-    } catch (err) {
-        console.error("Trip Card Gen Error:", err);
-        showNotification("Failed to generate image.", "error");
-    } finally {
-        // --- 6. AGGRESSIVE CLEANUP ---
-        // This is critical to fix the performance downgrade
-        
-        if (loadingOverlay) loadingOverlay.remove();
-        if (cardContainer) cardContainer.remove();
-        if (mapBlobUrl) URL.revokeObjectURL(mapBlobUrl);
-        
-        // Clear canvas references
-        if (highResCanvas) {
-            highResCanvas.width = 1; 
-            highResCanvas.height = 1; 
-            highResCanvas = null;
+        } catch (err) {
+            console.error(err);
+            showNotification("Failed to generate image.", "error");
+        } finally {
+            if (loadingOverlay) document.body.removeChild(loadingOverlay);
         }
-    }
+    }, 100);
 }
     
     /**
@@ -7626,7 +7584,7 @@ function initializeSectorOpsMap(centerICAO) {
         zoom: 4.5,
         interactive: true,
         projection: 'globe',
-        preserveDrawingBuffer: true // <--- Fixes the Black Screen Screenshot
+        preserveDrawingBuffer: false // <--- Fixes the Black Screen Screenshot
     });
 
     sectorOpsMap.on('style.load', async () => {
