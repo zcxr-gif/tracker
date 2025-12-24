@@ -8712,10 +8712,13 @@ function populateAircraftInfoWindow(baseProps, plan, sortedRoutePoints, communit
     }
 
     // --- GENERATE FMS LEGS HTML ---
+    // --- GENERATE FMS LEGS HTML ---
     let fmsLegsHtml = '';
     if (originalFlatWaypointObjects.length > 0) {
         originalFlatWaypointObjects.forEach((wp, index) => {
             const ident = wp.identifier || wp.name || `WP${index + 1}`;
+            
+            // Distance Calculation
             let distDisplay = '----';
             if (index > 0) {
                 const prev = originalFlatWaypointObjects[index - 1];
@@ -8725,8 +8728,8 @@ function populateAircraftInfoWindow(baseProps, plan, sortedRoutePoints, communit
                 }
             }
 
-            // --- Altitude Constraint Logic ---
-            let altDisplay = '---';
+            // Altitude Constraint Logic (Fixed check)
+            let altDisplay = '-----';
             if (wp.altitude !== undefined && wp.altitude !== null && wp.altitude > 0) {
                 altDisplay = wp.altitude;
             }
@@ -8736,17 +8739,20 @@ function populateAircraftInfoWindow(baseProps, plan, sortedRoutePoints, communit
             if (index <= 1 && hasPlan) procTag = `<span class="proc-tag sid">SID</span>`;
             else if (index >= originalFlatWaypointObjects.length - 2 && hasPlan) procTag = `<span class="proc-tag star">STAR</span>`;
 
-            // HTML for Row
+            // HTML for Row - USING STRICT WIDTHS (40% | 20% | 20% | 20%)
             fmsLegsHtml += `
-            <div class="fms-row ${index === 0 ? 'active-leg' : ''}" style="display: flex; justify-content: space-between; padding: 4px 8px;">
-                 <span style="display:flex; align-items:center; gap:6px; flex: 2; text-align: left; overflow: hidden; white-space: nowrap;">${ident} ${procTag}</span>
-                 <span class="text-center" style="color:#38bdf8; flex: 1;">${altDisplay}</span>
-                 <span class="text-center" style="color:#fff; flex: 1;">---°</span>
-                 <span class="text-right" style="flex: 1;">${distDisplay}</span>
+            <div class="fms-row ${index === 0 ? 'active-leg' : ''}" style="display: flex; align-items: center; padding: 4px 8px;">
+                 <span style="flex: 0 0 40%; text-align: left; overflow: hidden; white-space: nowrap; display: flex; align-items: center; gap: 6px;">
+                    <span style="overflow: hidden; text-overflow: ellipsis;">${ident}</span> 
+                    ${procTag}
+                 </span>
+                 <span class="text-center" style="flex: 0 0 20%; color:#38bdf8;">${altDisplay}</span>
+                 <span class="text-center" style="flex: 0 0 20%; color:#fff;">---°</span>
+                 <span class="text-right" style="flex: 0 0 20%;">${distDisplay}</span>
             </div>`;
         });
     } else {
-        fmsLegsHtml = `<div class="fms-empty-state">NO ROUTE LOADED</div>`;
+        fmsLegsHtml = `<div class="fms-empty-state" style="padding: 20px; text-align: center; color: #64748b;">NO ROUTE LOADED</div>`;
     }
 
     // --- HTML Construction ---
@@ -9537,11 +9543,11 @@ function populateAircraftInfoWindow(baseProps, plan, sortedRoutePoints, communit
                                         <span class="fms-page-count">1/1</span>
           
                            </div>
-                                    <div class="fms-columns" style="border-bottom: 1px dashed #444; display: flex; justify-content: space-between; padding: 4px 8px; flex-shrink: 0;">
-                                        <span class="col-wpt" style="flex: 2; text-align: left;">LEGS</span>
-                                        <span class="col-data text-center" style="flex: 1;">ALT</span>
-                                        <span class="col-data text-center" style="flex: 1;">CRS</span>
-                                        <span class="col-data text-right" style="flex: 1;">DIST</span>
+                                    <div class="fms-columns" style="border-bottom: 1px dashed #444; display: flex; align-items: center; padding: 4px 8px; flex-shrink: 0; font-size: 10px; font-weight: 700; color: #94a3b8;">
+                                        <span class="col-wpt" style="flex: 0 0 40%; text-align: left;">LEGS</span>
+                                        <span class="col-data text-center" style="flex: 0 0 20%;">ALT</span>
+                                        <span class="col-data text-center" style="flex: 0 0 20%;">CRS</span>
+                                        <span class="col-data text-right" style="flex: 0 0 20%;">DIST</span>
                                     </div>
                                     <div id="fms-legs-list" class="fms-list-scrollarea" style="flex: 1;
  overflow-y: auto; min-height: 0; scrollbar-color: #333 transparent;">
