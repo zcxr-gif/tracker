@@ -8769,34 +8769,17 @@ function populateAircraftInfoWindow(baseProps, plan, sortedRoutePoints, communit
             position: relative;
         }
         
-        /* --- Seat Sensor REDESIGN (Real State Style) --- */
+        /* --- Seat Sensor REDESIGN (Full Height Timer - RESTORED) --- */
         #cockpit-seat-sensor {
             background: #000000;
             border: 1px solid #222;
-            height: auto;
+            height: 100%; /* Fill the column height */
             margin-bottom: 0;
             border-radius: 12px;
             overflow: hidden;
             box-shadow: 0 4px 20px rgba(0,0,0,0.8);
-        }
-        #cockpit-seat-sensor .tech-module-header {
-            background: #0a0a0a;
-            border-bottom: 1px solid #222;
-            padding: 6px 10px;
-            min-height: 24px;
-        }
-        #cockpit-seat-sensor .tech-module-title {
-             font-size: 0.65rem;
-             color: #666;
-        }
-        #cockpit-seat-sensor .tech-module-body {
-            background: #050505;
             display: flex;
             flex-direction: column;
-            justify-content: center;
-            align-items: center;
-            padding: 12px;
-            gap: 8px;
         }
         
         /* State Card Styling */
@@ -9069,7 +9052,7 @@ function populateAircraftInfoWindow(baseProps, plan, sortedRoutePoints, communit
         .pfd-and-location-grid {
             display: flex;
             gap: 12px;
-            align-items: flex-start; 
+            align-items: stretch; /* Stretch to equal height */
             margin-bottom: 12px;
             width: 100%;
         }
@@ -9093,7 +9076,7 @@ function populateAircraftInfoWindow(baseProps, plan, sortedRoutePoints, communit
             margin-bottom: 12px;
         }
         
-        /* --- NEW: Display Toggle Bar Styling --- */
+        /* --- Display Toggle Bar Styling (THE FIX) --- */
         .display-toggle-bar {
             display: flex;
             background: var(--bg-panel);
@@ -9323,27 +9306,49 @@ function populateAircraftInfoWindow(baseProps, plan, sortedRoutePoints, communit
                     </div> 
                     
                     <div class="info-right-col">
-                         <div class="tech-module" id="cockpit-seat-sensor">
-                            <div class="tech-module-header">
-                                <span class="tech-module-title"><i class="fa-solid fa-tower-broadcast"></i> PILOT STATE</span>
+                        <div class="tech-module" id="cockpit-seat-sensor">
+                            <div class="sensor-state-strip" style="background: ${psBg}; border-left: 3px solid ${psColor}; padding: 8px 12px; display: flex; align-items: center; justify-content: space-between; border-bottom: 1px solid #222; flex-shrink: 0;">
+                                <div style="display: flex; align-items: center; gap: 10px;">
+                                    <div style="width: 24px; height: 24px; border-radius: 4px; background: rgba(0,0,0,0.3); display: flex; align-items: center; justify-content: center; border: 1px solid ${psColor}; box-shadow: 0 0 5px ${psColor}40;">
+                                         <i class="fa-solid ${psIcon}" style="color: ${psColor}; font-size: 12px;"></i>
+                                    </div>
+                                    <div style="display: flex; flex-direction: column;">
+                                        <span style="font-weight: 700; font-size: 12px; color: ${psColor}; line-height: 1;">${psTitle}</span>
+                                        <span style="font-size: 9px; color: #64748b; font-family: monospace;">${psDesc}</span>
+                                    </div>
+                                </div>
                                 <div class="tech-ping">
                                     <span class="animate" style="background-color: ${psColor}"></span>
                                     <span style="background-color: ${psColor}"></span>
                                 </div>
                             </div>
-                            <div class="tech-module-body">
-                                <div class="state-visual-ring ${pilotStateValue == 0 ? 'pulsing' : ''}" 
-                                     style="color: ${psColor}; border-color: ${psColor}; background: ${psBg}; margin-bottom: 8px;">
-                                    <i class="fa-solid ${psIcon}" style="font-size: 18px;"></i>
+
+                            <div class="sensor-timers-body" style="flex: 1; padding: 12px; display: flex; flex-direction: column; justify-content: space-between; background: #050505;">
+                                
+                                <div class="timer-group">
+                                    <span style="font-size: 9px; color: #64748b; text-transform: uppercase; letter-spacing: 1px; display: block; margin-bottom: 2px;">Elapsed Time</span>
+                                    <div style="background: #000; border: 1px solid #222; padding: 6px 10px; border-radius: 4px; display: flex; align-items: baseline; justify-content: space-between;">
+                                         <i class="fa-solid fa-stopwatch" style="color: #334155; font-size: 12px;"></i>
+                                         <span id="ac-sensor-elapsed" style="font-family: 'Consolas', monospace; font-size: 18px; color: #fff; font-weight: 700; text-shadow: 0 0 10px rgba(255,255,255,0.1);">--:--</span>
+                                    </div>
                                 </div>
-                                <div style="display: flex; flex-direction: column; align-items: center;">
-                                    <span style="color: ${psColor}; font-weight: 700; font-size: 0.9rem; letter-spacing: 0.05em; text-shadow: 0 0 10px ${psBg};">
-                                        ${psTitle}
-                                    </span>
-                                    <span style="color: #64748b; font-size: 0.65rem; font-weight: 500; font-family: monospace;">
-                                        ${psDesc}
-                                    </span>
+
+                                <div class="timer-group">
+                                     <span style="font-size: 9px; color: #64748b; text-transform: uppercase; letter-spacing: 1px; display: block; margin-bottom: 2px;">Estimated Remaining</span>
+                                     <div style="background: #000; border: 1px solid #222; padding: 6px 10px; border-radius: 4px; display: flex; align-items: baseline; justify-content: space-between;">
+                                         <i class="fa-solid fa-hourglass-half" style="color: #334155; font-size: 12px;"></i>
+                                         <span id="ac-sensor-ete" style="font-family: 'Consolas', monospace; font-size: 18px; color: #38bdf8; font-weight: 700;">--:--</span>
+                                    </div>
                                 </div>
+
+                                <div class="timer-group">
+                                     <span style="font-size: 9px; color: #64748b; text-transform: uppercase; letter-spacing: 1px; display: block; margin-bottom: 2px;">Total Flight Time</span>
+                                     <div style="background: rgba(255,255,255,0.03); border: 1px dashed #333; padding: 4px 10px; border-radius: 4px; display: flex; align-items: baseline; justify-content: space-between;">
+                                         <i class="fa-solid fa-calculator" style="color: #334155; font-size: 10px;"></i>
+                                         <span id="ac-sensor-total" style="font-family: 'Consolas', monospace; font-size: 14px; color: #94a3b8;">--:--</span>
+                                    </div>
+                                </div>
+
                             </div>
                         </div>
                     </div> 
@@ -9579,6 +9584,49 @@ function populateAircraftInfoWindow(baseProps, plan, sortedRoutePoints, communit
         overviewPanel.dataset.currentPath = imagePath;
         // --- END CRITICAL FIX ---
     });
+
+    // --- SENSOR TIMER LOGIC (RESTORED) ---
+    const updateSensorTimers = () => {
+        const elElapsed = document.getElementById('ac-sensor-elapsed');
+        const elEte = document.getElementById('ac-sensor-ete');
+        const elTotal = document.getElementById('ac-sensor-total');
+        // Nav Data ETE Source
+        const sourceEte = document.getElementById('ac-ete');
+        if (elElapsed && atdTimestamp) {
+            const now = Date.now();
+            const start = new Date(atdTimestamp).getTime();
+            const diff = now - start;
+            if (diff >= 0) {
+                const h = Math.floor(diff / 3600000);
+                const m = Math.floor((diff % 3600000) / 60000);
+                elElapsed.textContent = `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}`;
+            }
+        }
+
+        // Sync Remaining & Calc Total
+        if (elEte && sourceEte && elTotal) {
+            const currentEte = sourceEte.textContent;
+            if (currentEte && currentEte.includes(':')) {
+                elEte.textContent = currentEte;
+                // Calculate Total
+                if (elElapsed.textContent !== '--:--') {
+                    const [eH, eM] = elElapsed.textContent.split(':').map(Number);
+                    const [rH, rM] = currentEte.split(':').map(Number);
+                    let tM = eM + rM;
+                    let tH = eH + rH + Math.floor(tM / 60);
+                    tM = tM % 60;
+                    elTotal.textContent = `${String(tH).padStart(2, '0')}:${String(tM).padStart(2, '0')}`;
+                }
+            }
+        }
+    };
+    // Clear any existing interval on the window to prevent duplicates if function called multiple times
+    if (window.sensorTimerInterval) clearInterval(window.sensorTimerInterval);
+    // Run immediately once
+    updateSensorTimers();
+    // Set interval
+    window.sensorTimerInterval = setInterval(updateSensorTimers, 1000);
+
     // --- DISPLAY TOGGLE LOGIC ---
     const toggleBtns = windowEl.querySelectorAll('.display-toggle-btn');
     const ndContainer = windowEl.querySelector('#nd-view-container');
