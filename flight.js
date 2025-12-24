@@ -8601,11 +8601,13 @@ function populateAircraftInfoWindow(baseProps, plan, sortedRoutePoints, communit
     const originalFlatWaypointObjects = (plan && plan.flightPlanItems) ? getFlatWaypointObjects(plan.flightPlanItems) : [];
     const hasPlan = originalFlatWaypoints.length >= 2;
     const windowEl = document.getElementById('aircraft-info-window');
+
     // --- Aircraft Info ---
     const aircraftName = baseProps.aircraft?.aircraftName || 'Unknown Type';
     const airlineName = baseProps.aircraft?.liveryName || 'Generic Livery';
     const liveryName = baseProps.aircraft?.liveryName || '';
     const reg = baseProps.aircraft?.registration || 'N/A';
+    
     // --- Logo Logic ---
     const words = liveryName.trim().split(/\s+/);
     let logoName = words.length > 1 && /[^a-zA-Z0-9]/.test(words[1]) ? words[0] : (words[0] + (words[1] ? ' ' + words[1] : ''));
@@ -8620,12 +8622,14 @@ function populateAircraftInfoWindow(baseProps, plan, sortedRoutePoints, communit
 
     const departureIcao = hasPlan ? originalFlatWaypointObjects[0]?.identifier || originalFlatWaypointObjects[0]?.name : 'N/A';
     const arrivalIcao = hasPlan ? originalFlatWaypointObjects[originalFlatWaypointObjects.length - 1]?.identifier || originalFlatWaypointObjects[originalFlatWaypointObjects.length - 1]?.name : 'N/A';
+    
     const depCountryCode = airportsData[departureIcao]?.country ? airportsData[departureIcao].country.toLowerCase() : '';
     const arrCountryCode = airportsData[arrivalIcao]?.country ? airportsData[arrivalIcao].country.toLowerCase() : '';
     const depFlagSrc = depCountryCode ? `https://flagcdn.com/w20/${depCountryCode}.png` : '';
     const arrFlagSrc = arrCountryCode ? `https://flagcdn.com/w20/${arrCountryCode}.png` : '';
     const depFlagDisplay = depCountryCode ? 'block' : 'none';
     const arrFlagDisplay = arrCountryCode ? 'block' : 'none';
+
     // --- Plan Button ---
     const simbriefAircraftValue = findSimbriefAircraftValue(aircraftName);
     let planButtonHtml = '';
@@ -8659,6 +8663,49 @@ function populateAircraftInfoWindow(baseProps, plan, sortedRoutePoints, communit
         }
     }
 
+    // --- REAL-TIME COCKPIT STATE LOGIC ---
+    // Mapping: 0=Active, 1=AwayInFlight, 2=AwayParked, 3=InBackground(AP+)
+    // CHANGE 'baseProps.state' below if your property name is different (e.g. baseProps.sessionState)
+    const pilotStateValue = (typeof baseProps.state !== 'undefined') ? baseProps.state : 0; 
+
+    let psTitle = "ACTIVE";
+    let psIcon = "fa-user-check";
+    let psColor = "#4ade80"; // Green
+    let psDesc = "Pilot is active";
+    let psBg = "rgba(74, 222, 128, 0.1)"; // Glow color
+
+    switch (Number(pilotStateValue)) {
+        case 1: // AwayInFlight
+            psTitle = "AWAY";
+            psIcon = "fa-plane-slash"; // or fa-stopwatch
+            psColor = "#facc15"; // Yellow/Orange
+            psDesc = "Online (No Input)";
+            psBg = "rgba(250, 204, 21, 0.15)";
+            break;
+        case 2: // AwayParked
+            psTitle = "PARKED";
+            psIcon = "fa-square-parking";
+            psColor = "#94a3b8"; // Slate Grey
+            psDesc = "Away (On Ground)";
+            psBg = "rgba(148, 163, 184, 0.15)";
+            break;
+        case 3: // InBackground (AP+)
+            psTitle = "AUTO-PILOT+";
+            psIcon = "fa-cloud-arrow-up";
+            psColor = "#60a5fa"; // Blue
+            psDesc = "Cloud Session";
+            psBg = "rgba(96, 165, 250, 0.15)";
+            break;
+        case 0: // Active
+        default:
+            psTitle = "ACTIVE";
+            psIcon = "fa-user-check";
+            psColor = "#4ade80"; // Green
+            psDesc = "Pilot is active";
+            psBg = "rgba(74, 222, 128, 0.15)";
+            break;
+    }
+
     // --- GENERATE FMS LEGS HTML ---
     let fmsLegsHtml = '';
     if (originalFlatWaypointObjects.length > 0) {
@@ -8679,7 +8726,7 @@ function populateAircraftInfoWindow(baseProps, plan, sortedRoutePoints, communit
 
             fmsLegsHtml += `
             <div class="fms-row ${index === 0 ? 'active-leg' : ''}">
-                <span style="display:flex; align-items:center; gap:6px;">${ident} ${procTag}</span>
+                 <span style="display:flex; align-items:center; gap:6px;">${ident} ${procTag}</span>
                 <span class="text-center" style="color:#fff;">---°</span>
                 <span class="text-right">${distDisplay}</span>
             </div>`;
@@ -8691,7 +8738,7 @@ function populateAircraftInfoWindow(baseProps, plan, sortedRoutePoints, communit
     // --- HTML Construction ---
     windowEl.innerHTML = `
     <style>
-        /* --- Shared Tech Style --- */
+         /* --- Shared Tech Style --- */
         .tech-module {
             background: #0f172a; 
             border: 1px solid rgba(255, 255, 255, 0.1);
@@ -8726,7 +8773,7 @@ function populateAircraftInfoWindow(baseProps, plan, sortedRoutePoints, communit
             position: relative;
         }
         
-        /* --- Seat Sensor REDESIGN (Digital Annunciator Style) --- */
+        /* --- Seat Sensor REDESIGN (Real State Style) --- */
         #cockpit-seat-sensor {
             background: #000000;
             border: 1px solid #222;
@@ -8750,122 +8797,37 @@ function populateAircraftInfoWindow(baseProps, plan, sortedRoutePoints, communit
             background: #050505;
             display: flex;
             flex-direction: column;
-            justify-content: flex-start;
-            padding: 8px;
+            justify-content: center;
+            align-items: center;
+            padding: 12px;
             gap: 8px;
         }
         
-        /* The Grid for the Pilot Panels */
-        .cockpit-crew-grid {
-            display: grid;
-            grid-template-columns: 1fr 1fr;
-            gap: 6px;
-        }
-
-        /* The "Seat" is now a digital panel */
-        .crew-panel {
-            background: #0f0f0f;
-            border: 1px solid #333;
-            border-radius: 6px;
-            height: 50px; /* Fixed height for consistency */
+        /* State Card Styling */
+        .state-visual-ring {
+            width: 44px; 
+            height: 44px;
+            border-radius: 50%;
             display: flex;
-            flex-direction: column;
             align-items: center;
             justify-content: center;
-            position: relative;
+            border: 2px solid;
             transition: all 0.3s ease;
+            position: relative;
         }
-        
-        /* When the existing logic adds 'occupied' to the ID */
-        #seat-cpt.occupied {
-            background: linear-gradient(135deg, rgba(234, 179, 8, 0.1) 0%, rgba(234, 179, 8, 0.0) 100%);
-            border-color: rgba(234, 179, 8, 0.6);
-            box-shadow: 0 0 10px rgba(234, 179, 8, 0.1);
-        }
-        #seat-fo.occupied {
-            background: linear-gradient(135deg, rgba(56, 189, 248, 0.1) 0%, rgba(56, 189, 248, 0.0) 100%);
-            border-color: rgba(56, 189, 248, 0.6);
-            box-shadow: 0 0 10px rgba(56, 189, 248, 0.1);
-        }
-
-        .crew-panel-role {
-            font-size: 0.6rem;
-            font-weight: 700;
-            color: #555;
+        /* Pulse Animation for Active State */
+        .state-visual-ring.pulsing::after {
+            content: '';
             position: absolute;
-            top: 2px;
-            left: 4px;
+            top: -4px; left: -4px; right: -4px; bottom: -4px;
+            border-radius: 50%;
+            border: 1px solid currentColor;
+            opacity: 0;
+            animation: ringPulse 2s infinite;
         }
-        #seat-cpt.occupied .crew-panel-role { color: #eab308; }
-        #seat-fo.occupied .crew-panel-role { color: #38bdf8; }
-
-        .crew-panel-icon {
-            font-size: 1.2rem;
-            color: #333;
-        }
-        #seat-cpt.occupied .crew-panel-icon { color: #eab308; text-shadow: 0 0 5px rgba(234, 179, 8, 0.5); }
-        #seat-fo.occupied .crew-panel-icon { color: #38bdf8; text-shadow: 0 0 5px rgba(56, 189, 248, 0.5); }
-
-        /* The Status Text Grid */
-        .crew-status-row {
-            display: grid;
-            grid-template-columns: 1fr 1fr;
-            gap: 6px;
-        }
-        
-        .status-pill {
-            background: #0a0a0a;
-            border: 1px solid #222;
-            border-radius: 4px;
-            text-align: center;
-            font-size: 0.6rem;
-            font-family: monospace;
-            padding: 3px 0;
-            color: #444;
-            transition: all 0.2s;
-        }
-        .status-pill.active {
-            background: rgba(255, 255, 255, 0.05);
-            border-color: #444;
-            color: #fff;
-        }
-        /* Target specific text colors via the update logic if needed, or CSS */
-        #status-cpt-text.active { color: #eab308; border-color: rgba(234, 179, 8, 0.3); }
-        #status-fo-text.active { color: #38bdf8; border-color: rgba(56, 189, 248, 0.3); }
-
-        /* Icon Bar - Where Coffee/Sleep icons go */
-        .cockpit-annunciator-bar {
-            display: flex;
-            gap: 4px;
-            height: 20px;
-            background: #080808;
-            border-radius: 4px;
-            border: 1px solid #1a1a1a;
-            align-items: center;
-            justify-content: center;
-            padding: 0 4px;
-        }
-        
-        /* These classes replace the absolute positioning overlays */
-        .status-icon {
-            font-size: 0.8rem;
-            margin: 0 4px;
-            /* Standard state is hidden by the JS setting display:none usually */
-        }
-        
-        .icon-parking { color: #ef4444; font-weight: bold; font-family: sans-serif; border: 1px solid #ef4444; border-radius: 2px; padding: 0 3px; font-size: 0.6rem; line-height: 1.2; }
-        .icon-coffee { color: #f97316; }
-        .icon-cloud { color: #8b5cf6; }
-
-        #seat-narrative-text {
-            font-family: monospace;
-            font-size: 0.6rem;
-            color: #555;
-            text-align: center;
-            border-top: 1px solid #222;
-            padding-top: 4px;
-            text-transform: uppercase;
-            line-height: 1.1;
+        @keyframes ringPulse {
+            0% { transform: scale(1); opacity: 0.5; }
+            100% { transform: scale(1.5); opacity: 0; }
         }
 
         /* --- Tech Card Specifics --- */
@@ -8920,8 +8882,7 @@ function populateAircraftInfoWindow(baseProps, plan, sortedRoutePoints, communit
             opacity: 0.75;
         }
         @keyframes ping {
-            75%, 100% { transform: scale(2);
-            opacity: 0; }
+            75%, 100% { transform: scale(2); opacity: 0; }
         }
         .tech-model {
             font-size: 1.1rem;
@@ -9178,7 +9139,7 @@ function populateAircraftInfoWindow(baseProps, plan, sortedRoutePoints, communit
                      <img src="${arrFlagSrc}" class="country-flag" id="ac-bar-arr-flag" alt="${arrCountryCode}" style="display: ${arrFlagDisplay};">
                 </div>
                  <span class="time" id="ac-bar-eta">${etaTime} Z</span>
-            </div>
+             </div>
         </div>
 
         <div class="ac-info-window-tabs">
@@ -9272,7 +9233,8 @@ function populateAircraftInfoWindow(baseProps, plan, sortedRoutePoints, communit
                                             <line id="Line 6" x1="746.5" y1="263" x2="746.5" y2="281" stroke="#ECED06" stroke-width="3"/>
                                             <line id="Line 4" x1="746.5" y1="329" x2="746.5" y2="347" stroke="#ECED06" stroke-width="3"/>
                                             <path id="Ellipse 1" d="M636 481C636 484.866 632.866 488 629 488C625.134 488 622 484.866 622 481C622 477.134 625.134 474 629 474C632.866 474 636 477.134 636 481Z" fill="#D9D9D9"/>
-                                            <path id="Ellipse 4" d="M636 147C636 150.866 632.866 154 629 154C625.134 154 622 150.866 622 147C622 143.134 625.134 140 629 140C632.866 140 636 143.134 636 147Z" fill="#D9D9D9"/>
+                                            <path id="Ellipse 4" d="M636 147C636 150.866 632.866 154 629 154C625.134 154 
+622 150.866 622 147C622 143.134 625.134 140 629 140C632.866 140 636 143.134 636 147Z" fill="#D9D9D9"/>
                                             <g id="Ellipse 3">
                                                 <path d="M636 229C636 232.866 632.866 236 629 236C625.134 236 622 232.866 622 229C622 225.134 625.134 222 629 222C632.866 222 636 225.134 636 229Z" fill="#D9D9D9"/>
                                                 <path d="M636 395C636 398.866 632.866 402 629 402C625.134 402 622 398.866 622 395C622 391.134 625.134 388 629 388C632.866 388 636 391.134 636 395Z" fill="#D9D9D9"/>
@@ -9323,45 +9285,34 @@ function populateAircraftInfoWindow(baseProps, plan, sortedRoutePoints, communit
                                             <line id="Line 6_2" x1="671" y1="279.5" x2="748" y2="279.5" stroke="#ECED06" stroke-width="3"/>
                                             <line id="Line 7" x1="671" y1="329.5" x2="748" y2="329.5" stroke="#ECED06" stroke-width="3"/>
                                             <line id="Line 3" x1="746" y1="345.5" x2="786" y2="345.5" stroke="#ECED06" stroke-width="3"/>
-                                        </g> 
+                                            </g> 
                                     </g>
                                 </svg>
-                        </div>
+                            </div>
                         </div>
                     </div> 
                     
                     <div class="info-right-col">
                          <div class="tech-module" id="cockpit-seat-sensor">
                             <div class="tech-module-header">
-                                <span class="tech-module-title"><i class="fa-solid fa-chair"></i> COCKPIT STATE</span>
-                                <div class="tech-ping"><span class="animate"></span><span></span></div>
+                                <span class="tech-module-title"><i class="fa-solid fa-tower-broadcast"></i> PILOT STATE</span>
+                                <div class="tech-ping">
+                                    <span class="animate" style="background-color: ${psColor}"></span>
+                                    <span style="background-color: ${psColor}"></span>
+                                </div>
                             </div>
                             <div class="tech-module-body">
-                                
-                                <div class="cockpit-crew-grid">
-                                    <div id="seat-cpt" class="crew-panel" data-role="CPT">
-                                        <span class="crew-panel-role">CPT</span>
-                                        <div class="crew-panel-icon"><i class="fa-solid fa-user-pilot"></i></div>
-                                    </div>
-                                    <div id="seat-fo" class="crew-panel" data-role="FO">
-                                        <span class="crew-panel-role">FO</span>
-                                        <div class="crew-panel-icon"><i class="fa-solid fa-user-pilot"></i></div>
-                                    </div>
+                                <div class="state-visual-ring ${pilotStateValue == 0 ? 'pulsing' : ''}" 
+                                     style="color: ${psColor}; border-color: ${psColor}; background: ${psBg}; margin-bottom: 8px;">
+                                    <i class="fa-solid ${psIcon}" style="font-size: 18px;"></i>
                                 </div>
-
-                                <div class="crew-status-row">
-                                    <span id="status-cpt-text" class="status-pill active">CMD: ---</span>
-                                    <span id="status-fo-text" class="status-pill">FO: ---</span>
-                                </div>
-
-                                <div class="cockpit-annunciator-bar">
-                                    <div id="icon-parking-overlay" class="status-icon icon-parking">P</div>
-                                    <div id="icon-coffee-overlay" class="status-icon icon-coffee"><i class="fa-solid fa-mug-hot"></i></div>
-                                    <div id="icon-cloud-overlay" class="status-icon icon-cloud"><i class="fa-solid fa-bed"></i></div>
-                                </div>
-
-                                <div id="seat-narrative-text">
-                                    Awaiting Telemetry...
+                                <div style="display: flex; flex-direction: column; align-items: center;">
+                                    <span style="color: ${psColor}; font-weight: 700; font-size: 0.9rem; letter-spacing: 0.05em; text-shadow: 0 0 10px ${psBg};">
+                                        ${psTitle}
+                                    </span>
+                                    <span style="color: #64748b; font-size: 0.65rem; font-weight: 500; font-family: monospace;">
+                                        ${psDesc}
+                                    </span>
                                 </div>
                             </div>
                         </div>
@@ -9400,7 +9351,7 @@ function populateAircraftInfoWindow(baseProps, plan, sortedRoutePoints, communit
                                         <span class="col-data text-right">DIST</span>
                                     </div>
                                     <div id="fms-legs-list" class="fms-list-scrollarea" style="scrollbar-color: #333 transparent;">
-                                        ${fmsLegsHtml}
+                                         ${fmsLegsHtml}
                                     </div>
                                     <div class="fms-footer" style="background: rgba(255,255,255,0.05); border-top: 1px solid #333;">
                                         <div class="fms-stat">
@@ -9492,11 +9443,12 @@ function populateAircraftInfoWindow(baseProps, plan, sortedRoutePoints, communit
                                 <i class="fa-solid fa-plane" style="font-size: 12px;"></i>
                                 <span>${airlineName}</span>
                             </p>
-                         </div>
+                        </div>
                          <button style="padding: 8px; color: #94a3b8; background: transparent; border: none; cursor: pointer;">
                             <i class="fa-solid fa-ellipsis" style="font-size: 16px;"></i>
                          </button>
                     </div>
+                
                     <div class="tech-content">
                         <div class="tech-image-container">
                             <img src="${techCardImagePath}" onerror="this.src='/CommunityPlanes/default.png'" class="tech-image" alt="Aircraft">
@@ -9557,7 +9509,7 @@ function populateAircraftInfoWindow(baseProps, plan, sortedRoutePoints, communit
                         <div id="vsd-graph-window" class="vsd-graph-window">
                              <div id="vsd-aircraft-icon"></div>
                              <div id="vsd-graph-content">
-                                 <svg id="vsd-profile-svg" xmlns="http://www.w3.org/2000/svg">
+                                  <svg id="vsd-profile-svg" xmlns="http://www.w3.org/2000/svg">
                                     <path id="vsd-flown-path" d="" />
                                     <path id="vsd-profile-path" d="" />
                                  </svg>
@@ -9573,6 +9525,7 @@ function populateAircraftInfoWindow(baseProps, plan, sortedRoutePoints, communit
                     </div>
                 </div>
             </div>
+ 
             <div id="ac-tab-pilot-report" class="ac-tab-pane">
                  <div id="pilot-stats-display"></div>
             </div>
