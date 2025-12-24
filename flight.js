@@ -8769,7 +8769,7 @@ function populateAircraftInfoWindow(baseProps, plan, sortedRoutePoints, communit
             position: relative;
         }
         
-        /* --- Seat Sensor REDESIGN (Full Height Timer - RESTORED) --- */
+        /* --- Seat Sensor REDESIGN (Full Height Timer) --- */
         #cockpit-seat-sensor {
             background: #000000;
             border: 1px solid #222;
@@ -9076,7 +9076,7 @@ function populateAircraftInfoWindow(baseProps, plan, sortedRoutePoints, communit
             margin-bottom: 12px;
         }
         
-        /* --- Display Toggle Bar Styling (THE FIX) --- */
+        /* --- Display Toggle Bar Styling --- */
         .display-toggle-bar {
             display: flex;
             background: var(--bg-panel);
@@ -9375,7 +9375,7 @@ function populateAircraftInfoWindow(baseProps, plan, sortedRoutePoints, communit
                             </div>
 
                             <div id="fmc-view-container" style="display: none; width: 100%; height: 100%; background: #000; flex-direction: column;">
-                                <div class="fms-module-container" style="height: 100%; max-height: 100%; width: 100%; border: none; background: transparent; box-shadow: none; border-radius: 0;">
+                                <div class="fms-module-container" style="height: 100%; max-height: 100%; width: 100%; border: none; background: transparent; box-shadow: none; border-radius: 0; display: flex; flex-direction: column; overflow: hidden;">
                                     <div class="fms-header" style="background: rgba(255,255,255,0.05); border-bottom: 1px solid #333;">
                                         <span class="tech-module-title"><i class="fa-solid fa-route"></i> ACTIVE FLIGHT PLAN</span>
                                         <span class="fms-page-count">1/1</span>
@@ -9385,7 +9385,7 @@ function populateAircraftInfoWindow(baseProps, plan, sortedRoutePoints, communit
                                         <span class="col-data text-center">CRS</span>
                                         <span class="col-data text-right">DIST</span>
                                     </div>
-                                    <div id="fms-legs-list" class="fms-list-scrollarea" style="scrollbar-color: #333 transparent;">
+                                    <div id="fms-legs-list" class="fms-list-scrollarea" style="flex: 1; overflow-y: auto; min-height: 0; scrollbar-color: #333 transparent;">
                                         ${fmsLegsHtml}
                                     </div>
                                     <div class="fms-footer" style="background: rgba(255,255,255,0.05); border-top: 1px solid #333;">
