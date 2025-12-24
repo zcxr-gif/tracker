@@ -3562,10 +3562,10 @@ async function loadExternalPanelContent() {
 
 
 /**
- * --- [OPTIMIZED] Generates Trip Card with Performance Fixes ---
- * 1. Uses Blob URLs instead of Base64 (Faster/Less Memory).
- * 2. Adds a visual "Processing" overlay to mask the UI freeze.
- * 3. Uses 'requestAnimationFrame' to ensure the map renders before capturing.
+ * --- [FINAL FIX] Generates High-Quality Trip Card ---
+ * 1. Forces High-DPI Map Capture (Sharper Background).
+ * 2. Robust Image Selector (Fixes missing plane photo).
+ * 3. Optimized Performance (Blob URLs + Overlay).
  */
 async function generateTripCard() {
     // 1. Check Library
@@ -3590,8 +3590,7 @@ async function generateTripCard() {
         return;
     }
 
-    // --- OPTIMIZATION: Show a specific "Capturing" overlay ---
-    // This provides visual feedback during the inevitable 1-second freeze
+    // --- VISUAL OVERLAY ---
     const loadingOverlay = document.createElement('div');
     loadingOverlay.style.cssText = `
         position: fixed; inset: 0; background: rgba(15, 23, 42, 0.8); backdrop-filter: blur(5px);
@@ -3600,53 +3599,75 @@ async function generateTripCard() {
     `;
     loadingOverlay.innerHTML = `
         <i class="fa-solid fa-camera fa-bounce" style="font-size: 3rem; color: #38bdf8; margin-bottom: 20px;"></i>
-        <h2 style="margin: 0; font-weight: 600;">Generating Card...</h2>
+        <h2 style="margin: 0; font-weight: 600;">Generating High-Res Card...</h2>
         <p style="margin: 5px 0 0; color: #94a3b8; font-size: 0.9rem;">Please wait</p>
     `;
     document.body.appendChild(loadingOverlay);
 
-    // Use setTimeout to allow the browser to render the overlay before we freeze it with work
     setTimeout(async () => {
         try {
-            // 2. Gather Data
             const feature = currentMapFeatures[currentFlightInWindow];
             const props = feature.properties;
             const aircraftData = JSON.parse(props.aircraft || '{}');
             const position = JSON.parse(props.position || '{}');
             const coords = feature.geometry.coordinates;
 
-            // --- AUTO-CENTER MAP ---
+            // --- 1. HIGH-QUALITY MAP CAPTURE ---
             if (sectorOpsMap) {
+                // Center the map
                 sectorOpsMap.jumpTo({ center: coords });
-                // Small delay to let WebGL catch up
-                await new Promise(r => setTimeout(r, 200));
+                
+                // Wait for map to settle
+                await new Promise(r => setTimeout(r, 400));
             }
 
-            // --- OPTIMIZATION: Use Blob URL for Map Image ---
-            // Converting to Base64 (toDataURL) is slow and heavy. Blobs are faster.
+            // Capture Map Canvas directly (High DPI)
             let mapBlobUrl = '';
             try {
-                const canvas = sectorOpsMap.getCanvas();
-                const blob = await new Promise(resolve => canvas.toBlob(resolve, 'image/png'));
+                // Force a re-render to ensure fresh buffer
+                sectorOpsMap.triggerRepaint();
+                
+                // Get canvas
+                const mapCanvas = sectorOpsMap.getCanvas();
+                
+                // Create a temporary high-res canvas (2x scale)
+                const highResCanvas = document.createElement('canvas');
+                highResCanvas.width = mapCanvas.width * 2; 
+                highResCanvas.height = mapCanvas.height * 2;
+                const ctx = highResCanvas.getContext('2d');
+                
+                // Draw the map canvas onto the high-res one
+                ctx.drawImage(mapCanvas, 0, 0, highResCanvas.width, highResCanvas.height);
+                
+                // Convert to Blob
+                const blob = await new Promise(resolve => highResCanvas.toBlob(resolve, 'image/png', 1.0));
                 mapBlobUrl = URL.createObjectURL(blob);
             } catch (e) {
                 console.warn("Map capture failed:", e);
             }
 
-            // Get Aircraft Image
-            const overviewPanel = document.getElementById('ac-overview-panel');
+            // --- 2. ROBUST PLANE IMAGE SELECTOR ---
             let aircraftImgUrl = '/CommunityPlanes/default.png';
+            
+            // Try Method A: Dataset (Best for full res)
+            const overviewPanel = document.getElementById('ac-overview-panel');
             if (overviewPanel && overviewPanel.dataset.currentPath) {
                 aircraftImgUrl = overviewPanel.dataset.currentPath;
+            } 
+            // Try Method B: Image Tag (Fallback)
+            else {
+                const imgTag = document.querySelector('.tech-image');
+                if (imgTag && imgTag.src) {
+                    aircraftImgUrl = imgTag.src;
+                }
             }
 
-            // 3. Construct DOM
+            // --- 3. CONSTRUCT CARD ---
             const cardContainer = document.createElement('div');
             cardContainer.id = "trip-card-container";
-            // Use flexbox to center elements for the screenshot
             cardContainer.style.cssText = `
                 position: fixed; top: -9999px; left: -9999px;
-                width: 900px; height: 500px;
+                width: 1200px; height: 675px; /* Bigger Canvas = Higher Quality */
                 background-color: #0f172a;
                 font-family: 'Inter', sans-serif;
                 overflow: hidden;
@@ -3655,7 +3676,6 @@ async function generateTripCard() {
                 flex-direction: column;
             `;
 
-            // Logos & Text
             const livName = aircraftData.liveryName || '';
             const words = livName.trim().split(/\s+/);
             let logoName = words.length > 1 && /[^a-zA-Z0-9]/.test(words[1]) ? words[0] : (words[0] + (words[1] ? ' ' + words[1] : ''));
@@ -3671,57 +3691,58 @@ async function generateTripCard() {
             cardContainer.innerHTML = `
                 <div style="position: absolute; top: 0; left: 0; width: 100%; height: 100%; z-index: 1;">
                     <div style="width: 100%; height: 100%; background-image: url('${mapBlobUrl}'); background-size: cover; background-position: center;"></div>
-                    <div style="position: absolute; inset: 0; background: radial-gradient(circle at center, rgba(15, 23, 42, 0.1) 0%, rgba(15, 23, 42, 0.4) 50%, rgba(15, 23, 42, 0.9) 100%);"></div>
+                    <div style="position: absolute; inset: 0; background: radial-gradient(circle at center, rgba(15, 23, 42, 0.1) 0%, rgba(15, 23, 42, 0.4) 50%, rgba(15, 23, 42, 0.95) 100%);"></div>
                 </div>
 
-                <div style="position: relative; z-index: 10; padding: 30px; display: flex; justify-content: flex-end;">
-                     <div style="text-align: right; text-shadow: 0 2px 10px rgba(0,0,0,0.8);">
-                         <h2 style="margin: 0; color: #fff; font-size: 1.8rem; font-weight: 800; letter-spacing: -0.05em;">
+                <div style="position: relative; z-index: 10; padding: 40px; display: flex; justify-content: flex-end;">
+                     <div style="text-align: right; text-shadow: 0 4px 12px rgba(0,0,0,0.9);">
+                         <h2 style="margin: 0; color: #fff; font-size: 2.2rem; font-weight: 800; letter-spacing: -0.05em;">
                             Inflight<span style="color: #38bdf8;">Tracker</span>
                          </h2>
-                         <p style="margin: 0; color: #94a3b8; font-size: 0.85rem; font-weight: 600; text-transform: uppercase; letter-spacing: 0.1em;">
+                         <p style="margin: 0; color: #94a3b8; font-size: 1rem; font-weight: 600; text-transform: uppercase; letter-spacing: 0.1em;">
                             <i class="fa-solid fa-satellite-dish" style="margin-right: 6px; color: #22c55e;"></i>Live Tracking
                          </p>
                     </div>
                 </div>
 
-                <div style="position: relative; z-index: 10; padding: 30px; margin-top: auto; display: flex; align-items: flex-end; gap: 25px;">
-                    <div style="width: 260px; background: #fff; padding: 5px; border-radius: 8px; transform: rotate(-2deg); box-shadow: 0 15px 30px rgba(0,0,0,0.5);">
-                        <div style="width: 100%; height: 160px; background-image: url('${aircraftImgUrl}'); background-size: cover; background-position: center; border-radius: 4px; background-color: #cbd5e1;"></div>
-                        <div style="padding: 8px 4px;">
-                             <div style="color: #0f172a; font-weight: 700; font-size: 0.9rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">${aircraftData.aircraftName}</div>
-                             <div style="color: #64748b; font-size: 0.7rem; font-weight: 500;">${aircraftData.liveryName}</div>
+                <div style="position: relative; z-index: 10; padding: 40px; margin-top: auto; display: flex; align-items: flex-end; gap: 35px;">
+                    
+                    <div style="width: 340px; background: #fff; padding: 8px; border-radius: 12px; transform: rotate(-2deg); box-shadow: 0 20px 40px rgba(0,0,0,0.6);">
+                        <div style="width: 100%; height: 210px; background-image: url('${aircraftImgUrl}'); background-size: cover; background-position: center; border-radius: 6px; background-color: #cbd5e1;"></div>
+                        <div style="padding: 12px 6px;">
+                             <div style="color: #0f172a; font-weight: 700; font-size: 1.1rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">${aircraftData.aircraftName}</div>
+                             <div style="color: #64748b; font-size: 0.85rem; font-weight: 500;">${aircraftData.liveryName}</div>
                         </div>
                     </div>
 
                     <div style="flex: 1; padding-bottom: 5px;">
-                        <div style="margin-bottom: 20px;">
-                            <div style="display: flex; align-items: center; gap: 10px; margin-bottom: 5px;">
-                                 <span style="background: #38bdf8; color: #0f172a; padding: 2px 8px; border-radius: 4px; font-size: 0.75rem; font-weight: 800; text-transform: uppercase;">Pilot</span>
-                                 <span style="color: #e2e8f0; font-size: 1.1rem; font-weight: 600; text-shadow: 0 2px 4px rgba(0,0,0,0.8);">${pilotName}</span>
+                        <div style="margin-bottom: 25px;">
+                            <div style="display: flex; align-items: center; gap: 12px; margin-bottom: 8px;">
+                                 <span style="background: #38bdf8; color: #0f172a; padding: 3px 10px; border-radius: 4px; font-size: 0.8rem; font-weight: 800; text-transform: uppercase;">Pilot</span>
+                                 <span style="color: #e2e8f0; font-size: 1.3rem; font-weight: 600; text-shadow: 0 2px 5px rgba(0,0,0,0.9);">${pilotName}</span>
                             </div>
-                            <div style="display: flex; align-items: center; gap: 15px;">
-                                ${logoPath ? `<img src="${logoPath}" style="height: 45px; width: auto; filter: drop-shadow(0 2px 4px rgba(0,0,0,0.8));" crossorigin="anonymous">` : ''}
-                                <h1 style="margin: 0; font-size: 3.5rem; font-weight: 800; color: #fff; line-height: 1; text-shadow: 0 4px 15px rgba(0,0,0,0.6); letter-spacing: -1px;">${props.callsign || 'N/A'}</h1>
+                            <div style="display: flex; align-items: center; gap: 20px;">
+                                ${logoPath ? `<img src="${logoPath}" style="height: 60px; width: auto; filter: drop-shadow(0 4px 8px rgba(0,0,0,0.8));" crossorigin="anonymous">` : ''}
+                                <h1 style="margin: 0; font-size: 4.5rem; font-weight: 800; color: #fff; line-height: 1; text-shadow: 0 5px 20px rgba(0,0,0,0.7); letter-spacing: -2px;">${props.callsign || 'N/A'}</h1>
                             </div>
                         </div>
 
-                        <div style="background: rgba(15, 23, 42, 0.6); backdrop-filter: blur(12px); border: 1px solid rgba(255, 255, 255, 0.1); padding: 15px 25px; border-radius: 12px; display: flex; align-items: center; gap: 40px;">
+                        <div style="background: rgba(15, 23, 42, 0.6); backdrop-filter: blur(16px); border: 1px solid rgba(255, 255, 255, 0.1); padding: 20px 35px; border-radius: 16px; display: flex; align-items: center; gap: 50px;">
                             <div>
-                                <span style="font-size: 0.7rem; color: #94a3b8; text-transform: uppercase; letter-spacing: 0.1em; font-weight: 700; display: block; margin-bottom: 4px;">Route</span>
-                                <div style="font-size: 1.5rem; color: #fff; font-weight: 700; display: flex; align-items: center; gap: 10px; line-height: 1;">
+                                <span style="font-size: 0.8rem; color: #94a3b8; text-transform: uppercase; letter-spacing: 0.1em; font-weight: 700; display: block; margin-bottom: 6px;">Route</span>
+                                <div style="font-size: 1.8rem; color: #fff; font-weight: 700; display: flex; align-items: center; gap: 12px; line-height: 1;">
                                     ${dep} <i class="fa-solid fa-plane" style="font-size: 0.6em; color: #38bdf8; transform: rotate(0deg);"></i> ${arr}
                                 </div>
                             </div>
-                            <div style="width: 1px; height: 30px; background: rgba(255,255,255,0.15);"></div>
+                            <div style="width: 1px; height: 40px; background: rgba(255,255,255,0.15);"></div>
                             <div>
-                                <span style="font-size: 0.7rem; color: #94a3b8; text-transform: uppercase; letter-spacing: 0.1em; font-weight: 700; display: block; margin-bottom: 4px;">Altitude</span>
-                                <span style="font-size: 1.5rem; color: #38bdf8; font-weight: 700; font-family: 'Consolas', monospace; line-height: 1;">${alt}</span>
+                                <span style="font-size: 0.8rem; color: #94a3b8; text-transform: uppercase; letter-spacing: 0.1em; font-weight: 700; display: block; margin-bottom: 6px;">Altitude</span>
+                                <span style="font-size: 1.8rem; color: #38bdf8; font-weight: 700; font-family: 'Consolas', monospace; line-height: 1;">${alt}</span>
                             </div>
-                            <div style="width: 1px; height: 30px; background: rgba(255,255,255,0.15);"></div>
+                            <div style="width: 1px; height: 40px; background: rgba(255,255,255,0.15);"></div>
                             <div>
-                                <span style="font-size: 0.7rem; color: #94a3b8; text-transform: uppercase; letter-spacing: 0.1em; font-weight: 700; display: block; margin-bottom: 4px;">Speed</span>
-                                <span style="font-size: 1.5rem; color: #fbbf24; font-weight: 700; font-family: 'Consolas', monospace; line-height: 1;">${spd} <span style="font-size: 0.5em;">kts</span></span>
+                                <span style="font-size: 0.8rem; color: #94a3b8; text-transform: uppercase; letter-spacing: 0.1em; font-weight: 700; display: block; margin-bottom: 6px;">Speed</span>
+                                <span style="font-size: 1.8rem; color: #fbbf24; font-weight: 700; font-family: 'Consolas', monospace; line-height: 1;">${spd} <span style="font-size: 0.5em;">kts</span></span>
                             </div>
                         </div>
                     </div>
@@ -3730,33 +3751,29 @@ async function generateTripCard() {
 
             document.body.appendChild(cardContainer);
 
-            // 4. Capture
+            // --- 4. RENDER & DOWNLOAD ---
             const canvas = await html2canvas(cardContainer, {
                 backgroundColor: '#0f172a',
                 useCORS: true,
-                scale: 2 // Retain high quality
+                scale: 1.5 // Multiplier for super high res
             });
 
-            // 5. Download
             const link = document.createElement('a');
             link.download = `Inflight_${props.callsign}_${pilotName.replace(/\s+/g, '_')}.png`;
             link.href = canvas.toDataURL('image/png');
             link.click();
             
-            // Cleanup
             if (mapBlobUrl) URL.revokeObjectURL(mapBlobUrl);
             document.body.removeChild(cardContainer);
-            
-            showNotification("Trip card downloaded!", "success");
+            showNotification("High-Res Card Downloaded!", "success");
 
         } catch (err) {
-            console.error("Screenshot error:", err);
+            console.error(err);
             showNotification("Failed to generate image.", "error");
         } finally {
-            // Remove overlay after everything is done
             if (loadingOverlay) document.body.removeChild(loadingOverlay);
         }
-    }, 100); // 100ms delay to ensure Overlay renders first
+    }, 100);
 }
     
     /**
