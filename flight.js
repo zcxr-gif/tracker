@@ -8727,7 +8727,6 @@ function populateAircraftInfoWindow(baseProps, plan, sortedRoutePoints, communit
 
             // --- Altitude Constraint Logic ---
             let altDisplay = '---';
-            // Check if altitude exists and is not -1 (common sentinel for no constraint) or 0
             if (wp.altitude !== undefined && wp.altitude !== null && wp.altitude > 0) {
                 altDisplay = wp.altitude;
             }
@@ -8737,7 +8736,7 @@ function populateAircraftInfoWindow(baseProps, plan, sortedRoutePoints, communit
             if (index <= 1 && hasPlan) procTag = `<span class="proc-tag sid">SID</span>`;
             else if (index >= originalFlatWaypointObjects.length - 2 && hasPlan) procTag = `<span class="proc-tag star">STAR</span>`;
 
-            // Updated HTML with Flexbox for 4 columns
+            // HTML for Row
             fmsLegsHtml += `
             <div class="fms-row ${index === 0 ? 'active-leg' : ''}" style="display: flex; justify-content: space-between; padding: 4px 8px;">
                  <span style="display:flex; align-items:center; gap:6px; flex: 2; text-align: left; overflow: hidden; white-space: nowrap;">${ident} ${procTag}</span>
@@ -8753,7 +8752,21 @@ function populateAircraftInfoWindow(baseProps, plan, sortedRoutePoints, communit
     // --- HTML Construction ---
     windowEl.innerHTML = `
     <style>
-   
+      /* --- Custom Scrollbar for FMS --- */
+      .fms-list-scrollarea::-webkit-scrollbar {
+          width: 6px;
+      }
+      .fms-list-scrollarea::-webkit-scrollbar-track {
+          background: rgba(255, 255, 255, 0.05);
+      }
+      .fms-list-scrollarea::-webkit-scrollbar-thumb {
+          background: #475569;
+          border-radius: 3px;
+      }
+      .fms-list-scrollarea::-webkit-scrollbar-thumb:hover {
+          background: #64748b;
+      }
+
       /* --- Shared Tech Style --- */
         .tech-module {
             background: #0f172a; 
@@ -9502,7 +9515,7 @@ function populateAircraftInfoWindow(baseProps, plan, sortedRoutePoints, communit
                  
     <div class="display-bezel">
                         <div class="screw tl"></div><div class="screw tr"></div><div class="screw bl"></div><div class="screw br"></div>
-                        <div class="crt-container scanlines">
+                        <div class="crt-container scanlines" style="aspect-ratio: 1/1; display: flex; flex-direction: column; overflow: hidden;">
                             
           
                    <div id="nd-view-container" style="width: 100%;
@@ -9519,12 +9532,12 @@ function populateAircraftInfoWindow(baseProps, plan, sortedRoutePoints, communit
  max-height: 100%; width: 100%; border: none; background: transparent; box-shadow: none; border-radius: 0; display: flex; flex-direction: column;
  overflow: hidden;">
                                     <div class="fms-header" style="background: rgba(255,255,255,0.05);
- border-bottom: 1px solid #333;">
+ border-bottom: 1px solid #333; flex-shrink: 0;">
                                         <span class="tech-module-title"><i class="fa-solid fa-route"></i> ACTIVE FLIGHT PLAN</span>
                                         <span class="fms-page-count">1/1</span>
           
                            </div>
-                                    <div class="fms-columns" style="border-bottom: 1px dashed #444; display: flex; justify-content: space-between; padding: 4px 8px;">
+                                    <div class="fms-columns" style="border-bottom: 1px dashed #444; display: flex; justify-content: space-between; padding: 4px 8px; flex-shrink: 0;">
                                         <span class="col-wpt" style="flex: 2; text-align: left;">LEGS</span>
                                         <span class="col-data text-center" style="flex: 1;">ALT</span>
                                         <span class="col-data text-center" style="flex: 1;">CRS</span>
@@ -9536,7 +9549,7 @@ function populateAircraftInfoWindow(baseProps, plan, sortedRoutePoints, communit
                                     </div>
                   
                    <div class="fms-footer" style="background: rgba(255,255,255,0.05);
- border-top: 1px solid #333;">
+ border-top: 1px solid #333; flex-shrink: 0;">
                                         <div class="fms-stat">
                                             <span class="stat-label">DTG</span>
            
