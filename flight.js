@@ -8663,18 +8663,18 @@ function populateAircraftInfoWindow(baseProps, plan, sortedRoutePoints, communit
         }
     }
 
-    // --- REAL-TIME COCKPIT STATE LOGIC ---
+    // --- REAL-TIME COCKPIT STATE LOGIC (UPDATED) ---
     // Mapping: 0=Active, 1=AwayInFlight, 2=AwayParked, 3=InBackground(AP+)
-    // CHANGE 'baseProps.state' below if your property name is different (e.g. baseProps.sessionState)
-    const pilotStateValue = (typeof baseProps.state !== 'undefined') ? baseProps.state : 0; 
+    // We now explicitly look for 'pilotState'
+    const pilotStateValue = (typeof baseProps.pilotState !== 'undefined') ? Number(baseProps.pilotState) : 0; 
 
     let psTitle = "ACTIVE";
     let psIcon = "fa-user-check";
     let psColor = "#4ade80"; // Green
     let psDesc = "Pilot is active";
-    let psBg = "rgba(74, 222, 128, 0.1)"; // Glow color
+    let psBg = "rgba(74, 222, 128, 0.15)"; // Glow color
 
-    switch (Number(pilotStateValue)) {
+    switch (pilotStateValue) {
         case 1: // AwayInFlight
             psTitle = "AWAY";
             psIcon = "fa-plane-slash"; // or fa-stopwatch
