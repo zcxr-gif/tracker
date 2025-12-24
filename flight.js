@@ -7309,29 +7309,117 @@ function formatDataForSimpleWindow(flightProps, plan, routePoints, communityData
     }
 }
 
+/**
+ * Sets up the map atmosphere (fog), sources, and layers.
+ * Called when the map loads or when the style changes.
+ */
+async function setupMapLayersAndFog() {
+    if (!sectorOpsMap) return;
+
+    // 1. Set Fog (Atmosphere)
+    // This gives the "globe" look with a dark space background
+    sectorOpsMap.setFog({
+        'range': [0.5, 10],
+        'color': 'rgb(255, 255, 255)',
+        'horizon-blend': 0.05,
+        'high-color': '#242b4b',
+        'space-color': '#0b1026', // Deep dark blue/black for space
+        'star-intensity': 0.6
+    });
+
+    // 2. Add the Live Flights Source
+    if (!sectorOpsMap.getSource('sector-ops-live-flights-source')) {
+        sectorOpsMap.addSource('sector-ops-live-flights-source', {
+            type: 'geojson',
+            data: {
+                type: 'FeatureCollection',
+                features: []
+            }
+        });
+    }
+
+    // 3. Load Aircraft Icon (Generic Fallback) & Add Layer
+    // We try to load a standard icon. If you have a specific local icon path, replace the URL below.
+    if (!sectorOpsMap.hasImage('plane-icon-generic')) {
+        try {
+            const image = await new Promise((resolve, reject) => {
+                sectorOpsMap.loadImage('https://upload.wikimedia.org/wikipedia/commons/thumb/8/87/Airplane_silhouette_%28vertical%29.svg/512px-Airplane_silhouette_%28vertical%29.svg.png', (error, img) => {
+                    if (error) reject(error);
+                    else resolve(img);
+                });
+            });
+            if (!sectorOpsMap.hasImage('plane-icon-generic')) {
+                sectorOpsMap.addImage('plane-icon-generic', image, { sdf: true });
+            }
+        } catch (e) {
+            console.warn("Could not load default plane icon:", e);
+        }
+    }
+
+    // 4. Add the Live Flights Layer
+    if (!sectorOpsMap.getLayer('sector-ops-live-flights-layer')) {
+        sectorOpsMap.addLayer({
+            'id': 'sector-ops-live-flights-layer',
+            'type': 'symbol',
+            'source': 'sector-ops-live-flights-source',
+            'layout': {
+                // Use 'plane-icon-generic' or standard 'airport-15' if image failed
+                'icon-image': ['coalesce', ['image', 'plane-icon-generic'], 'airport-15'],
+                'icon-size': 0.05, // Adjust size for the generic icon
+                'icon-allow-overlap': true,
+                'icon-rotate': ['get', 'heading'],
+                'icon-rotation-alignment': 'map',
+                'text-field': ['get', 'callsign'],
+                'text-font': ['Open Sans Bold', 'Arial Unicode MS Bold'],
+                'text-size': 11,
+                'text-offset': [0, 1.5],
+                'text-anchor': 'top',
+                'text-allow-overlap': false
+            },
+            'paint': {
+                'icon-color': '#ffffff', // White planes (SDF allows coloring)
+                'text-color': '#ffffff',
+                'text-halo-color': '#000000',
+                'text-halo-width': 2
+            }
+        });
+    }
+}
+
 function initializeSectorOpsMap(centerICAO) {
     if (!MAPBOX_ACCESS_TOKEN) {
-        document.getElementById('sector-ops-map-fullscreen').innerHTML = '<p class="map-error-msg">Map service not available.</p>';
+        const el = document.getElementById('sector-ops-map-fullscreen');
+        if (el) el.innerHTML = '<p class="map-error-msg">Map service not available.</p>';
         return;
     }
-    if (sectorOpsMap) sectorOpsMap.remove();
+    
+    // Cleanup existing map instance
+    if (sectorOpsMap) {
+        sectorOpsMap.remove();
+        sectorOpsMap = null;
+    }
 
-    const centerCoords = airportsData[centerICAO] ? [airportsData[centerICAO].lon, airportsData[centerICAO].lat] : [77.2, 28.6];
+    const centerCoords = (airportsData && airportsData[centerICAO]) 
+        ? [airportsData[centerICAO].lon, airportsData[centerICAO].lat] 
+        : [77.2, 28.6];
 
     sectorOpsMap = new mapboxgl.Map({
         container: 'sector-ops-map-fullscreen',
-        style: currentMapStyle, // Use the global state variable
+        style: typeof currentMapStyle !== 'undefined' ? currentMapStyle : 'mapbox://styles/mapbox/dark-v11',
         center: centerCoords,
         zoom: 4.5,
         interactive: true,
         projection: 'globe',
-        preserveDrawingBuffer: true // <--- NEW: Required for screenshots to work
+        preserveDrawingBuffer: true // Required for screenshots
     });
 
+    // Handle Style Reloads (e.g. switching Light/Dark mode)
     sectorOpsMap.on('style.load', async () => {
         console.log("Map style reloading. Rebuilding layers...");
         await setupMapLayersAndFog();
-        rebuildDynamicLayers();
+        if (typeof rebuildDynamicLayers === 'function') {
+            rebuildDynamicLayers();
+        }
     });
 
     return new Promise(resolve => {
