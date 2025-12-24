@@ -143,23 +143,32 @@ document.addEventListener('DOMContentLoaded', async () => {
         }
     }
 
-    /**
-     * --- [NEW] Loads mapFilters from local storage and merges with defaults.
-     */
     function loadFiltersFromLocalStorage() {
-        const savedFilters = localStorage.getItem('mapFilters');
-        if (savedFilters) {
-            try {
-                const parsedFilters = JSON.parse(savedFilters);
-                // Merge saved filters with defaults to ensure new properties are not lost
-                mapFilters = { ...mapFilters, ...parsedFilters };
-                console.log("Loaded map filters from local storage.", mapFilters);
-            } catch (e) {
-                console.warn("Could not parse saved filters from local storage.", e);
-                // On error, just use the defaults
+    const savedFilters = localStorage.getItem('mapFilters');
+    if (savedFilters) {
+        try {
+            const parsedFilters = JSON.parse(savedFilters);
+            // Merge saved filters with defaults to ensure new properties are not lost
+            mapFilters = { ...mapFilters, ...parsedFilters };
+            
+            // [FIXED] Explicitly set the global currentMapStyle based on the saved string
+            if (mapFilters.mapStyle) {
+                if (mapFilters.mapStyle === 'light') {
+                    currentMapStyle = MAP_STYLE_LIGHT;
+                } else if (mapFilters.mapStyle === 'satellite') {
+                    currentMapStyle = MAP_STYLE_SATELLITE;
+                } else {
+                    currentMapStyle = MAP_STYLE_DARK;
+                }
             }
+            
+            console.log("Loaded map filters from local storage.", mapFilters);
+        } catch (e) {
+            console.warn("Could not parse saved filters from local storage.", e);
+            // On error, just use the defaults
         }
     }
+}
 
     async function fetchAndRenderRosters(hubIcao) {
         // This feature is disabled
@@ -6805,6 +6814,10 @@ function formatDataForSimpleWindow(flightProps, plan, routePoints, communityData
     }
 
     async function initializeSectorOpsView() {
+    // [FIX] 1. Load saved preferences FIRST
+    // This updates the global 'currentMapStyle' before the map creates itself.
+    loadFiltersFromLocalStorage(); 
+
     const mapContainer = document.getElementById('sector-ops-map-fullscreen');
     const viewContainer = document.getElementById('standalone-map-view');
     
@@ -6813,13 +6826,12 @@ function formatDataForSimpleWindow(flightProps, plan, routePoints, communityData
     mainContentLoader.classList.add('active');
 
     try {
-        // --- 1. Initialize Map FIRST ---
-        // We do this first so the map canvas is created at the bottom of the stack.
-        // Any HTML injected afterwards will correctly sit ON TOP of the map.
+        // --- 2. Initialize Map ---
+        // Now that filters are loaded, this will use the correct currentMapStyle
         const selectedHub = "VIDP"; 
         await initializeSectorOpsMap(selectedHub);
 
-        // --- 2. Inject Server Selector Pill ---
+        // --- 3. Inject Server Selector Pill ---
         if (!document.getElementById('server-selector-container')) {
             const selectorHtml = `
                 <div id="server-selector-container">
@@ -6831,7 +6843,7 @@ function formatDataForSimpleWindow(flightProps, plan, routePoints, communityData
             mapContainer.insertAdjacentHTML('beforeend', selectorHtml);
         }
 
-        // --- 3. Inject the Search Bar ---
+        // --- 4. Inject the Search Bar ---
         if (!document.getElementById('sector-ops-search-container')) {
             const searchHtml = `
                 <div id="sector-ops-search-container">
@@ -6853,7 +6865,7 @@ function formatDataForSimpleWindow(flightProps, plan, routePoints, communityData
             mapContainer.insertAdjacentHTML('beforeend', searchHtml);
         }
 
-        // --- 4. Inject Airport Info Window ---
+        // --- 5. Inject Airport Info Window ---
         if (!document.getElementById('airport-info-window')) {
                 const windowHtml = `
                 <div id="airport-info-window" class="info-window">
@@ -6863,7 +6875,7 @@ function formatDataForSimpleWindow(flightProps, plan, routePoints, communityData
             mapContainer.insertAdjacentHTML('beforeend', windowHtml);
         }
 
-        // --- 5. Inject Aircraft Info Window ---
+        // --- 6. Inject Aircraft Info Window ---
         if (!document.getElementById('aircraft-info-window')) {
                 const windowHtml = `
                 <div id="aircraft-info-window" class="info-window">
@@ -6872,7 +6884,7 @@ function formatDataForSimpleWindow(flightProps, plan, routePoints, communityData
             mapContainer.insertAdjacentHTML('beforeend', windowHtml);
         }
 
-        // --- 6. Inject Weather Settings Window ---
+        // --- 7. Inject Weather Settings Window ---
         if (!document.getElementById('weather-settings-window')) {
             const windowHtml = `
                 <div id="weather-settings-window" class="info-window">
@@ -6926,7 +6938,7 @@ function formatDataForSimpleWindow(flightProps, plan, routePoints, communityData
             mapContainer.insertAdjacentHTML('beforeend', windowHtml);
         }
 
-        // --- 7. Inject Settings Window ---
+        // --- 8. Inject Settings Window ---
         if (!document.getElementById('filter-settings-window')) {
             const windowHtml = `
                 <div id="filter-settings-window" class="info-window">
@@ -7067,7 +7079,7 @@ function formatDataForSimpleWindow(flightProps, plan, routePoints, communityData
             mapContainer.insertAdjacentHTML('beforeend', windowHtml);
         }
         
-        // --- 8. Inject Toolbar Buttons (if missing) ---
+        // --- 9. Inject Toolbar Buttons (if missing) ---
         const toolbarToggleBtn = document.getElementById('toolbar-toggle-panel-btn');
 
         if (toolbarToggleBtn) {
@@ -7101,7 +7113,7 @@ function formatDataForSimpleWindow(flightProps, plan, routePoints, communityData
              }
         }
         
-        // --- 9. Assign Global Variables ---
+        // --- 10. Assign Global Variables ---
         airportInfoWindow = document.getElementById('airport-info-window');
         airportInfoWindowRecallBtn = document.getElementById('airport-recall-btn');
         aircraftInfoWindow = document.getElementById('aircraft-info-window');
@@ -7109,7 +7121,7 @@ function formatDataForSimpleWindow(flightProps, plan, routePoints, communityData
         weatherSettingsWindow = document.getElementById('weather-settings-window');
         filterSettingsWindow = document.getElementById('filter-settings-window');
 
-        // --- 10. Load Content and Setup Listeners ---
+        // --- 11. Load Content and Setup Listeners ---
         await loadExternalPanelContent();
         setupSectorOpsEventListeners();
         setupAirportWindowEvents();
@@ -7117,20 +7129,20 @@ function formatDataForSimpleWindow(flightProps, plan, routePoints, communityData
         setupWeatherSettingsWindowEvents();
         setupFilterSettingsWindowEvents(); 
         
-        // --- 11. Setup Search Listeners (Now that elements exist) ---
+        // --- 12. Setup Search Listeners (Now that elements exist) ---
         setupSearchEventListeners();
 
-        // --- [NEW] Initialize Smart Map Click ---
+        // --- 13. Initialize Smart Map Click ---
         setupSmartMapBackgroundClick();
 
-        // --- 12. Listen for ND_READY signal ---
+        // --- 14. Listen for ND_READY signal ---
         window.addEventListener('message', (event) => {
             if (event.data && event.data.type === 'ND_READY') {
                 refreshNavDisplayFromCache();
             }
         });
 
-        // --- 13. Start Live Loop ---
+        // --- 15. Start Live Loop ---
         startSectorOpsLiveLoop();
     } catch (error) {
         console.error("Error initializing Sector Ops view:", error);
