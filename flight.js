@@ -3099,6 +3099,7 @@ function generateTrafficForecastHTML(congestion) {
     `;
 }
 
+
 /**
      * --- [NEW] Helper to find the session ID for the currently selected server ---
      */
@@ -3562,10 +3563,10 @@ async function loadExternalPanelContent() {
 
 
 /**
- * --- [FINAL FIX] Generates High-Quality Trip Card ---
- * 1. Forces High-DPI Map Capture (Sharper Background).
- * 2. Robust Image Selector (Fixes missing plane photo).
- * 3. Optimized Performance (Blob URLs + Overlay).
+ * --- [UPDATED] Generates High-Quality Trip Card ---
+ * 1. Forces High-DPI Map Capture.
+ * 2. Robust Image Selector.
+ * 3. USES BACKEND PROXY to fix CORS/Blank Image issues.
  */
 async function generateTripCard() {
     // 1. Check Library
@@ -3600,11 +3601,13 @@ async function generateTripCard() {
     loadingOverlay.innerHTML = `
         <i class="fa-solid fa-camera fa-bounce" style="font-size: 3rem; color: #38bdf8; margin-bottom: 20px;"></i>
         <h2 style="margin: 0; font-weight: 600;">Generating High-Res Card...</h2>
-        <p style="margin: 5px 0 0; color: #94a3b8; font-size: 0.9rem;">Please wait</p>
+        <p style="margin: 5px 0 0; color: #94a3b8; font-size: 0.9rem;">Processing via Proxy...</p>
     `;
     document.body.appendChild(loadingOverlay);
 
     setTimeout(async () => {
+        let mapBlobUrl = null;
+
         try {
             const feature = currentMapFeatures[currentFlightInWindow];
             const props = feature.properties;
@@ -3614,54 +3617,53 @@ async function generateTripCard() {
 
             // --- 1. HIGH-QUALITY MAP CAPTURE ---
             if (sectorOpsMap) {
-                // Center the map
                 sectorOpsMap.jumpTo({ center: coords });
-                
-                // Wait for map to settle
                 await new Promise(r => setTimeout(r, 400));
             }
 
-            // Capture Map Canvas directly (High DPI)
-            let mapBlobUrl = '';
             try {
                 await new Promise(resolve => {
                     sectorOpsMap.once('render', resolve);
                     sectorOpsMap.triggerRepaint();
                 });
                 
-                // Get canvas
                 const mapCanvas = sectorOpsMap.getCanvas();
-                
-                // Create a temporary high-res canvas (2x scale)
                 const highResCanvas = document.createElement('canvas');
                 highResCanvas.width = mapCanvas.width * 2; 
                 highResCanvas.height = mapCanvas.height * 2;
                 const ctx = highResCanvas.getContext('2d');
-                
-                // Draw the map canvas onto the high-res one
                 ctx.drawImage(mapCanvas, 0, 0, highResCanvas.width, highResCanvas.height);
                 
-                // Convert to Blob
                 const blob = await new Promise(resolve => highResCanvas.toBlob(resolve, 'image/png', 1.0));
                 mapBlobUrl = URL.createObjectURL(blob);
             } catch (e) {
                 console.warn("Map capture failed:", e);
             }
 
-            // --- 2. ROBUST PLANE IMAGE SELECTOR ---
-            let aircraftImgUrl = '/CommunityPlanes/default.png';
+            // --- 2. IMAGE SELECTOR WITH PROXY ROUTING ---
+            let originalUrl = '/CommunityPlanes/default.png';
             
             // Try Method A: Dataset (Best for full res)
             const overviewPanel = document.getElementById('ac-overview-panel');
             if (overviewPanel && overviewPanel.dataset.currentPath) {
-                aircraftImgUrl = overviewPanel.dataset.currentPath;
+                originalUrl = overviewPanel.dataset.currentPath;
             } 
             // Try Method B: Image Tag (Fallback)
             else {
                 const imgTag = document.querySelector('.tech-image');
                 if (imgTag && imgTag.src) {
-                    aircraftImgUrl = imgTag.src;
+                    originalUrl = imgTag.src;
                 }
+            }
+
+            // [NEW] Construct the Proxy URL
+            // If the URL is external (starts with http), route it through your backend.
+            // If it is local (e.g., /CommunityPlanes/...), use it as is.
+            let safeAircraftImgUrl = originalUrl;
+            if (originalUrl.startsWith('http')) {
+                // Using the backend URL from your existing code structure
+                const BACKEND_URL = "https://site--acars-backend--6dmjph8ltlhv.code.run";
+                safeAircraftImgUrl = `${BACKEND_URL}/api/image-proxy?url=${encodeURIComponent(originalUrl)}`;
             }
 
             // --- 3. CONSTRUCT CARD ---
@@ -3669,7 +3671,7 @@ async function generateTripCard() {
             cardContainer.id = "trip-card-container";
             cardContainer.style.cssText = `
                 position: fixed; top: -9999px; left: -9999px;
-                width: 1200px; height: 675px; /* Bigger Canvas = Higher Quality */
+                width: 1200px; height: 675px;
                 background-color: #0f172a;
                 font-family: 'Inter', sans-serif;
                 overflow: hidden;
@@ -3690,6 +3692,7 @@ async function generateTripCard() {
             const alt = Math.round(position.alt_ft || 0).toLocaleString();
             const spd = Math.round(position.gs_kt || 0);
 
+            // Note: We use 'safeAircraftImgUrl' in the background-image below
             cardContainer.innerHTML = `
                 <div style="position: absolute; top: 0; left: 0; width: 100%; height: 100%; z-index: 1;">
                     <div style="width: 100%; height: 100%; background-image: url('${mapBlobUrl}'); background-size: cover; background-position: center;"></div>
@@ -3710,7 +3713,7 @@ async function generateTripCard() {
                 <div style="position: relative; z-index: 10; padding: 40px; margin-top: auto; display: flex; align-items: flex-end; gap: 35px;">
                     
                     <div style="width: 340px; background: #fff; padding: 8px; border-radius: 12px; transform: rotate(-2deg); box-shadow: 0 20px 40px rgba(0,0,0,0.6);">
-                        <div style="width: 100%; height: 210px; background-image: url('${aircraftImgUrl}'); background-size: cover; background-position: center; border-radius: 6px; background-color: #cbd5e1;"></div>
+                        <div style="width: 100%; height: 210px; background-image: url('${safeAircraftImgUrl}'); background-size: cover; background-position: center; border-radius: 6px; background-color: #cbd5e1;"></div>
                         <div style="padding: 12px 6px;">
                              <div style="color: #0f172a; font-weight: 700; font-size: 1.1rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">${aircraftData.aircraftName}</div>
                              <div style="color: #64748b; font-size: 0.85rem; font-weight: 500;">${aircraftData.liveryName}</div>
@@ -3756,8 +3759,9 @@ async function generateTripCard() {
             // --- 4. RENDER & DOWNLOAD ---
             const canvas = await html2canvas(cardContainer, {
                 backgroundColor: '#0f172a',
-                useCORS: true,
-                scale: 1.5 // Multiplier for super high res
+                useCORS: true, 
+                allowTaint: true,
+                scale: 1.5 
             });
 
             const link = document.createElement('a');
