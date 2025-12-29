@@ -2740,18 +2740,15 @@ function createFlightMarker(flight) {
     return marker;
 }
 
-/* =========================
- * NEW: LEADERBOARD FUNCTIONS
- * ========================= */
-
-// 1. Send a "View" to the server when a user clicks a plane
 async function trackPilotView(flight) {
     // Safety check: ensure we have a valid user to track
     if (!flight || !flight.userId || !flight.username) return;
 
+    // Direct link to your backend database
+    const BACKEND = "https://site--indgo-backend--6dmjph8ltlhv.code.run";
+
     try {
-        // We use the existing API_BASE_URL variable defined at the top of your file
-        await fetch(`${API_BASE_URL}/api/leaderboard/track`, {
+        await fetch(`${BACKEND}/api/leaderboard/track`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
@@ -2759,7 +2756,6 @@ async function trackPilotView(flight) {
                 pilotName: flight.username
             })
         });
-        // console.log(`✅ Tracked view for ${flight.username}`);
     } catch (e) {
         console.warn("❌ Leaderboard tracking failed:", e);
     }
@@ -8530,6 +8526,10 @@ function closeAircraftWindow() {
 async function handleAircraftClick(flightProps, sessionId) {
     if (!flightProps || !flightProps.flightId) return;
 
+    // --- [NEW] TRACK LEADERBOARD VIEW ---
+    // This is the missing line that fixes the leaderboard
+    trackPilotView(flightProps);
+
     // [RESILIENCE] Prevent new clicks if one is already loading
     if (isAircraftWindowLoading) {
         console.warn("Aircraft click ignored: window is already loading.");
@@ -8576,7 +8576,7 @@ async function handleAircraftClick(flightProps, sessionId) {
     }
     aircraftInfoWindowRecallBtn.classList.remove('visible');
     
-    // [UI] Loading State (Center spinner)
+    // [UI] Loading State
     const windowEl = document.getElementById('aircraft-info-window');
     windowEl.innerHTML = `
         <div style="display: flex; flex-direction: column; align-items: center; justify-content: center; height: 300px; color: #fff;">
@@ -8586,14 +8586,10 @@ async function handleAircraftClick(flightProps, sessionId) {
     `;
 
     try {
-        // Define layer ID for flown path
         const flownLayerId = `flown-path-${flightProps.flightId}`;
-        
-        // --- PREPARE DATA FOR LOOKUP ---
         const acName = flightProps.aircraft?.aircraftName || '';
         const livName = flightProps.aircraft?.liveryName || '';
 
-        // --- FETCH DATA (Parallel: Plan, Route, AND Aircraft Details) ---
         const [planRes, routeRes, aircraftLookupRes] = await Promise.all([
             fetch(`${LIVE_FLIGHTS_API_URL}/${sessionId}/${flightProps.flightId}/plan`),
             fetch(`${LIVE_FLIGHTS_API_URL}/${sessionId}/${flightProps.flightId}/route`),
@@ -8604,15 +8600,11 @@ async function handleAircraftClick(flightProps, sessionId) {
         const plan = (planData && planData.ok) ? planData.plan : null;
         const routeData = routeRes.ok ? await routeRes.json() : null;
 
-        // Process Aircraft Lookup Result
         let communityAircraftData = null;
         if (aircraftLookupRes.ok) {
             communityAircraftData = await aircraftLookupRes.json();
-        } else {
-            console.warn(`Aircraft lookup failed or no match found for ${acName} / ${livName}`);
         }
         
-        // --- Process Route History ---
         let sortedRoutePoints = [];
         if (routeData && routeData.ok && Array.isArray(routeData.route) && routeData.route.length > 0) {
             sortedRoutePoints = routeData.route.sort((a, b) => {
@@ -8622,19 +8614,11 @@ async function handleAircraftClick(flightProps, sessionId) {
             });
         }
         
-        // Seed the cache
         liveTrailCache.set(flightProps.flightId, sortedRoutePoints);
-        // Cache data for stats view
         cachedFlightDataForStatsView = { flightProps, plan };
         
-        // --- [MODIFIED] Choose View Mode ---
         if (mapFilters.useSimpleFlightWindow) {
-            // A. SIMPLE VIEW (IFRAME)
-            
-            // [WIDTH ADJUSTMENT] 420px
             windowEl.style.width = '420px'; 
-            
-            // [HEIGHT ADJUSTMENT] Full height minus top margin (20px) + bottom margin (20px)
             windowEl.style.height = 'calc(100vh - 40px)';
 
             windowEl.innerHTML = `
@@ -8645,42 +8629,25 @@ async function handleAircraftClick(flightProps, sessionId) {
                 </div>
             `;
             
-            // Format initial data
             const simpleData = formatDataForSimpleWindow(flightProps, plan, sortedRoutePoints, communityAircraftData);
-            
-            // Send data once Iframe loads
             const iframe = document.getElementById('simple-flight-window-frame');
             iframe.onload = () => {
-                iframe.contentWindow.postMessage({
-                    type: 'FLIGHT_DATA_UPDATE',
-                    payload: simpleData
-                }, '*');
+                iframe.contentWindow.postMessage({ type: 'FLIGHT_DATA_UPDATE', payload: simpleData }, '*');
             };
-            
-            // Also try sending immediately in case it's cached/fast
             setTimeout(() => {
                 if(iframe && iframe.contentWindow) {
-                    iframe.contentWindow.postMessage({
-                        type: 'FLIGHT_DATA_UPDATE',
-                        payload: simpleData
-                    }, '*');
+                    iframe.contentWindow.postMessage({ type: 'FLIGHT_DATA_UPDATE', payload: simpleData }, '*');
                 }
             }, 500);
 
         } else {
-            // B. STANDARD VIEW (Your existing function)
-            
-            // [RESET STYLE] Remove inline width/height so CSS defaults take over
             windowEl.style.width = ''; 
             windowEl.style.height = ''; 
-
             populateAircraftInfoWindow(flightProps, plan, sortedRoutePoints, communityAircraftData);
         }
         
-        // --- [GEOCODE] Initial Fetch ---
         fetchAndDisplayGeocode(flightProps.position.lat, flightProps.position.lon);
 
-        // --- [NAV PANEL] Initial Update ---
         updateNavPanelData(
             flightProps.position.lat,
             flightProps.position.lon,
@@ -8690,29 +8657,18 @@ async function handleAircraftClick(flightProps, sessionId) {
             flightProps.position.wind_spd_kts || 0
         );
 
-        // --- [MAP] Generate Altitude Colored Route (WITH SIMULATION) ---
-        // Pass 'plan' to enable gap filling
         const routeFeatureCollection = generateAltitudeColoredRoute(sortedRoutePoints, flightProps.position, plan);
 
         if (!sectorOpsMap.getSource(flownLayerId)) {
-            sectorOpsMap.addSource(flownLayerId, {
-                type: 'geojson',
-                data: routeFeatureCollection
-            });
+            sectorOpsMap.addSource(flownLayerId, { type: 'geojson', data: routeFeatureCollection });
             sectorOpsMap.addLayer({
                 id: flownLayerId,
                 type: 'line',
                 source: flownLayerId,
                 paint: {
                     'line-color': [
-                        'interpolate',
-                        ['linear'],
-                        ['get', 'avgAltitude'],
-                        0,     '#e6e600', 
-                        10000, '#ff9900', 
-                        20000, '#ff3300', 
-                        29000, '#00BFFF', 
-                        38000, '#9400D3'  
+                        'interpolate', ['linear'], ['get', 'avgAltitude'],
+                        0, '#e6e600', 10000, '#ff9900', 20000, '#ff3300', 29000, '#00BFFF', 38000, '#9400D3'
                     ],
                     'line-width': 4,
                     'line-opacity': 0.9, 
@@ -8725,40 +8681,28 @@ async function handleAircraftClick(flightProps, sessionId) {
              sectorOpsMap.getSource(flownLayerId).setData(routeFeatureCollection);
         }
 
-        // Store layer ID for cleanup
-        sectorOpsLiveFlightPathLayers[flightProps.flightId] = {
-            flown: flownLayerId
-        };
+        sectorOpsLiveFlightPathLayers[flightProps.flightId] = { flown: flownLayerId };
         
-        // --- [MAP] Draw Planned Route (if exists) ---
         if (plan) {
             updateFlightPlanLayer(flightProps.flightId, plan, flightProps.position);
         }
         
-        // --- [INTERVALS] Start Updates ---
         const FIVE_MINUTES_MS = 300000; 
         activeGeocodeUpdateInterval = setInterval(() => {
             if (currentAircraftPositionForGeocode) {
-                fetchAndDisplayGeocode(
-                    currentAircraftPositionForGeocode.lat,
-                    currentAircraftPositionForGeocode.lon
-                );
+                fetchAndDisplayGeocode(currentAircraftPositionForGeocode.lat, currentAircraftPositionForGeocode.lon);
             }
         }, FIVE_MINUTES_MS);
         
-        // Initial Weather Fetch
         fetchAndDisplayWeather();
         if (activeWeatherUpdateInterval) clearInterval(activeWeatherUpdateInterval);
-        activeWeatherUpdateInterval = setInterval(() => {
-             fetchAndDisplayWeather();
-        }, FIVE_MINUTES_MS);
+        activeWeatherUpdateInterval = setInterval(() => { fetchAndDisplayWeather(); }, FIVE_MINUTES_MS);
 
         isAircraftWindowLoading = false;
 
     } catch (error) {
         console.error("Error fetching or plotting aircraft details:", error);
-        windowEl.innerHTML = `<p class="error-text" style="padding: 2rem; color: #ef4444;">Could not retrieve complete flight details. The aircraft may have landed or disconnected.</p>`;
-        
+        windowEl.innerHTML = `<p class="error-text" style="padding: 2rem; color: #ef4444;">Could not retrieve complete flight details.</p>`;
         isAircraftWindowLoading = false; 
         currentFlightInWindow = null; 
         cachedFlightDataForStatsView = { flightProps: null, plan: null };
