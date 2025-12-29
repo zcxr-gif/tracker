@@ -2750,8 +2750,8 @@ async function trackPilotView(flight) {
     if (!flight || !flight.userId || !flight.username) return;
 
     try {
-        // We use the existing VA_BACKEND_URL variable defined at the top of your file
-        await fetch(`${VA_BACKEND_URL}/api/leaderboard/track`, {
+        // We use the existing API_BASE_URL variable defined at the top of your file
+        await fetch(`${API_BASE_URL}/api/leaderboard/track`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
@@ -2771,7 +2771,7 @@ async function updateLeaderboard() {
     if (!container) return; // specific safety check if element is missing
 
     try {
-        const response = await fetch(`${VA_BACKEND_URL}/api/leaderboard/top`);
+        const response = await fetch(`${API_BASE_URL}/api/leaderboard/top`);
         if (!response.ok) throw new Error('Network response was not ok');
         
         const topPilots = await response.json();
