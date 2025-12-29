@@ -10745,8 +10745,6 @@ function updateFmsLegsModule(plan, currentPos) {
         });
     }
 
-
-
 function setupSectorOpsEventListeners() {
     const panel = document.getElementById('sector-ops-floating-panel');
     if (!panel || panel.dataset.listenersAttached === 'true') return;
@@ -10757,14 +10755,16 @@ function setupSectorOpsEventListeners() {
     const toolbarToggleBtn = document.getElementById('toolbar-toggle-panel-btn');
 
     const togglePanel = () => {
-        const isNowCollapsed = panel.classList.toggle('panel-collapsed');
-        
+        // [FIX] Toggle 'visible' class instead of 'panel-collapsed'
+        // Your CSS uses .visible to switch from display:none to display:flex
+        const isNowVisible = panel.classList.toggle('visible'); 
+
         // Update UI state for both buttons
         if (internalToggleBtn) {
-            internalToggleBtn.setAttribute('aria-expanded', !isNowCollapsed);
+            internalToggleBtn.setAttribute('aria-expanded', isNowVisible);
         }
         if (toolbarToggleBtn) {
-            toolbarToggleBtn.classList.toggle('active', !isNowCollapsed);
+            toolbarToggleBtn.classList.toggle('active', isNowVisible);
         }
 
         // Resize the map
@@ -10787,15 +10787,15 @@ function setupSectorOpsEventListeners() {
     const openWeatherBtn = document.getElementById('open-weather-settings-btn');
     if (openWeatherBtn) {
         openWeatherBtn.addEventListener('click', () => {
-            // Toggle visibility of the new window
-            if (weatherSettingsWindow) {
-                const isVisible = weatherSettingsWindow.classList.toggle('visible');
-                if (isVisible) {
-                    if (typeof MobileUIHandler !== 'undefined') MobileUIHandler.openWindow(weatherSettingsWindow);
-                } else {
-                    if (typeof MobileUIHandler !== 'undefined') MobileUIHandler.closeActiveWindow();
-                }
-            }
+             // Toggle visibility of the new window
+             if (weatherSettingsWindow) {
+                 const isVisible = weatherSettingsWindow.classList.toggle('visible');
+                 if (isVisible) {
+                     if (typeof MobileUIHandler !== 'undefined') MobileUIHandler.openWindow(weatherSettingsWindow);
+                 } else {
+                     if (typeof MobileUIHandler !== 'undefined') MobileUIHandler.closeActiveWindow();
+                 }
+             }
         });
     }
 
@@ -10803,36 +10803,26 @@ function setupSectorOpsEventListeners() {
     const openFilterBtn = document.getElementById('open-filter-settings-btn');
     if (openFilterBtn) {
         openFilterBtn.addEventListener('click', () => {
-            // Toggle visibility of the new window
-            if (filterSettingsWindow) {
-                const isVisible = filterSettingsWindow.classList.toggle('visible');
-                if (isVisible) {
-                    if (typeof MobileUIHandler !== 'undefined') MobileUIHandler.openWindow(filterSettingsWindow);
-                } else {
-                    if (typeof MobileUIHandler !== 'undefined') MobileUIHandler.closeActiveWindow();
-                }
-            }
+             // Toggle visibility of the new window
+             if (filterSettingsWindow) {
+                 const isVisible = filterSettingsWindow.classList.toggle('visible');
+                 if (isVisible) {
+                     if (typeof MobileUIHandler !== 'undefined') MobileUIHandler.openWindow(filterSettingsWindow);
+                 } else {
+                     if (typeof MobileUIHandler !== 'undefined') MobileUIHandler.closeActiveWindow();
+                 }
+             }
         });
     }
-    // --- [END NEW FILTER BUTTON LISTENER] ---
 
     // --- [NEW] Server Selector Listeners ---
-    const serverContainer = document.getElementById('server-selector-container');
-    if (serverContainer) {
-        serverContainer.addEventListener('click', (e) => {
-            const btn = e.target.closest('.server-btn');
-            if (btn) {
-                const selectedServer = btn.dataset.server;
-                if (selectedServer) {
-                    // Call the global switch logic
-                    switchServer(selectedServer);
-                }
-            }
+    const serverBtns = document.querySelectorAll('.server-btn');
+    serverBtns.forEach(btn => {
+        btn.addEventListener('click', () => {
+            const serverName = btn.dataset.server;
+            switchServer(serverName);
         });
-    }
-
-    // --- [NEW] Global Message Listener for Iframe Communication ---
-    window.addEventListener('message', handleIframeMessage);
+    });
 }
 
 /**
