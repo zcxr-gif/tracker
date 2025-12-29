@@ -2691,3 +2691,153 @@ function injectCustomStyles() {
     style.appendChild(document.createTextNode(css));
     document.head.appendChild(style);
 }
+
+    /**
+ * render the flight list on load.
+ */
+async function loadExternalPanelContent() {
+    const panel = document.getElementById('sector-ops-floating-panel');
+    if (!panel) {
+        console.error('Could not find #sector-ops-floating-panel to inject content.');
+        return;
+    }
+
+    // 1. Find and remove the old UI tabs
+    const oldTabs = panel.querySelector('.panel-tabs');
+    if (oldTabs) {
+        oldTabs.remove();
+    }
+
+    // 2. Find the main content container (which we will REUSE)
+    const mainContentContainer = panel.querySelector('.panel-content');
+    if (!mainContentContainer) {
+        console.error('Could not find .panel-content to inject content into.');
+        return;
+    }
+    
+    // 3. Clear this container and show a loading spinner
+    mainContentContainer.innerHTML = '<div class="spinner-small" style="margin: 2rem auto;"></div>';
+
+    // 4. [CRITICAL FIX] Modify the container to be scrollable
+    // The original CSS in index.html has 'overflow: hidden', which we must override.
+    mainContentContainer.style.overflow = 'auto'; 
+    
+    // 5. Fetch and inject the new content
+    try {
+        const response = await fetch('panel-content.html');
+        if (!response.ok) {
+            throw new Error(`Failed to fetch panel-content.html (Status: ${response.status})`);
+        }
+        const htmlContent = await response.text();
+        
+        // Inject the new content directly into the existing .panel-content div
+        mainContentContainer.innerHTML = htmlContent;
+
+        // ===================================================================
+        // START: Logic from panel-tabs.js
+        // We run this logic *after* mainContentContainer.innerHTML is set.
+        // ===================================================================
+        
+        // Note: We query *inside* the mainContentContainer to be specific
+        const tabButtons = mainContentContainer.querySelectorAll('.panel-tab-btn');
+        const tabContents = mainContentContainer.querySelectorAll('.tab-content');
+
+        // Function to switch to a specific tab
+        function activateTab(tabId) {
+            tabButtons.forEach(btn => {
+                if (btn.dataset.tab === tabId) {
+                    btn.classList.add('active');
+                } else {
+                    btn.classList.remove('active');
+                }
+            });
+
+            tabContents.forEach(content => {
+                if (content.id === tabId) {
+                    content.classList.add('active');
+                } else {
+                    content.classList.remove('active');
+                }
+            });
+        }
+
+        // Add click event listener to each tab button
+        tabButtons.forEach(button => {
+            button.addEventListener('click', () => {
+                const tabId = button.dataset.tab;
+                activateTab(tabId);
+            });
+        });
+
+        // --- SimBrief Integration Logic ---
+        const urlParams = new URLSearchParams(window.location.search);
+        if (urlParams.get('view') === 'view-flight-plan' || urlParams.has('ofp_id')) {
+            activateTab('tab-flightplan');
+        } else {
+            // Show the default active tab (Welcome)
+            // The 'active' class is already on the HTML, but this confirms it.
+            activateTab('tab-welcome');
+        }
+
+        const aircraftSelect = mainContentContainer.querySelector('#fp-aircraft');
+        
+        if (aircraftSelect && AIRCRAFT_SELECTION_LIST.length > 0) {
+            // Loop through the constant and create <option> elements
+            AIRCRAFT_SELECTION_LIST.forEach(aircraft => {
+                const option = document.createElement('option');
+                option.value = aircraft.value; // e.g., "A320"
+                option.textContent = aircraft.name; // e.g., "Airbus A320-200"
+                aircraftSelect.appendChild(option);
+            });
+        } else {
+            console.warn("Could not find #fp-aircraft select or AIRCRAFT_SELECTION_LIST is empty.");
+        }
+
+        // Check if SimbriefIntegration object (from sb.js) exists
+        if (typeof SimbriefIntegration !== 'undefined') {
+            
+            // Initialize the module, passing in the helpers it needs
+            SimbriefIntegration.init({
+                // netlifySimbriefUrl is already set in sb.js
+
+                // Pass the main showNotification function from flight.js
+                showNotification: showNotification,
+
+                // Pass the populateDispatchPass function we just added
+                populateDispatchPass: populateDispatchPass,
+
+                // Pass the onFlightSaved callback we just added
+                onFlightSaved: refreshSavedFlightList,
+
+                // (Optional) Max number of flights to save.
+                maxFlights: 2
+            });
+            
+            console.log("SimbriefIntegration module initialized successfully.");
+
+            // --- [NEW CODE TO ADD START] ---
+            
+            // 1. Add the master click listener for the saved flights list
+            // We attach it to mainContentContainer for event delegation
+            mainContentContainer.addEventListener('click', handleSavedFlightListClick);
+
+            // 2. Render the saved flights list on initial load
+            renderSavedFlightList();
+
+            // --- [NEW CODE TO ADD END] ---
+            
+        } else {
+            console.error("SimbriefIntegration (sb.js) is not loaded. SimBrief features will not work.");
+            // We can use the main notification function to tell the user
+            showNotification("SimBrief integration script (sb.js) failed to load.", "error");
+        }
+        
+    } catch (error) {
+        console.error('Error loading external panel content:', error);
+        mainContentContainer.innerHTML = `
+            <div class="info-panel-content">
+                <p class="error-text">Could not load panel content.</p>
+            </div>
+        `;
+    }
+}
