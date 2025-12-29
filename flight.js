@@ -537,49 +537,35 @@ function injectCustomStyles() {
     if (document.getElementById(styleId)) return;
 
     const css = `
-        /* --- IMPORT FONTS (Inter & JetBrains Mono) --- */
+        /* --- IMPORT FONTS --- */
         @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;700&display=swap');
 
         /* --- THEME VARIABLES --- */
         :root {
-            /* Palette - Carbon/Zinc Theme */
-            --bg-glass: rgba(24, 24, 27, 0.95); /* Zinc-900 base */
-            --bg-panel: rgba(63, 63, 70, 0.35); /* Zinc-700 lighter gray */
-            --bg-subtle: rgba(255, 255, 255, 0.03); /* Very subtle highlight */
-            
-            /* Borders */
+            --bg-glass: rgba(24, 24, 27, 0.95);
+            --bg-panel: rgba(63, 63, 70, 0.35);
+            --bg-subtle: rgba(255, 255, 255, 0.03);
             --border-glass: rgba(255, 255, 255, 0.08);
             --border-highlight: rgba(255, 255, 255, 0.12);
-            
-            /* Typography */
-            --text-primary: #fafafa; /* Zinc-50 */
-            --text-secondary: #a1a1aa; /* Zinc-400 */
-            --text-dim: #52525b; /* Zinc-600 */
-            
-            /* Functional Colors */
-            --color-accent: #e4e4e7; /* Zinc-200 */
-            --color-brand: #38bdf8; /* Sky Blue (Primary Brand) */
-            --color-success: #10b981; /* Emerald */
-            --color-warning: #f59e0b; /* Amber */
-            --color-danger: #ef4444; /* Red */
-            --color-purple: #c084fc; /* Purple */
-
-            /* Dimensions */
+            --text-primary: #fafafa;
+            --text-secondary: #a1a1aa;
+            --text-dim: #52525b;
+            --color-accent: #e4e4e7;
+            --color-brand: #38bdf8;
+            --color-success: #10b981;
+            --color-warning: #f59e0b;
+            --color-danger: #ef4444;
+            --color-purple: #c084fc;
             --radius-sm: 8px;
             --radius-md: 12px;
             --radius-lg: 16px;
-            
-            /* Fonts */
             --font-ui: 'Inter', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
             --font-data: 'JetBrains Mono', 'Consolas', monospace;
-
-            /* Legacy compatibility vars */
             --iw-bg-start: var(--bg-glass);
             --iw-bg-end: var(--bg-glass);
         }
 
-        /* --- [NEW] MODAL CONVERSION STYLES --- */
-        /* This overrides the sidebar layout and forces a centered modal */
+        /* --- [MODIFIED] MODAL STYLES --- */
         #sector-ops-floating-panel {
             /* Position Center */
             position: fixed !important;
@@ -587,12 +573,7 @@ function injectCustomStyles() {
             left: 50% !important;
             transform: translate(-50%, -50%) !important;
             
-            /* Reset Sidebar specific props */
-            right: auto !important;
-            bottom: auto !important;
-            margin: 0 !important;
-            
-            /* Modal Dimensions */
+            /* Dimensions */
             width: 900px !important;
             max-width: 95vw !important;
             height: 85vh !important;
@@ -604,22 +585,31 @@ function injectCustomStyles() {
             -webkit-backdrop-filter: blur(20px) !important;
             border: 1px solid var(--border-glass) !important;
             border-radius: var(--radius-lg) !important;
-            
-            /* Shadow & Backdrop Hack */
-            /* The first shadow creates a dark overlay over the whole screen */
             box-shadow: 0 0 0 100vmax rgba(0, 0, 0, 0.6), 0 25px 50px rgba(0, 0, 0, 0.5) !important;
             
-            /* Layout */
-            display: flex !important;
+            /* [FIXED] HIDDEN BY DEFAULT */
+            display: none; 
             flex-direction: column !important;
             z-index: 5000 !important;
             overflow: hidden !important;
             
-            /* Animation */
-            transition: opacity 0.3s ease, visibility 0.3s ease !important;
+            /* Reset Sidebar specific props */
+            right: auto !important;
+            bottom: auto !important;
+            margin: 0 !important;
         }
 
-        /* Ensure content scrolls within the fixed modal height */
+        /* [NEW] Class to show the modal */
+        #sector-ops-floating-panel.visible {
+            display: flex !important;
+            animation: modalFadeIn 0.3s ease-out forwards;
+        }
+
+        @keyframes modalFadeIn {
+            from { opacity: 0; transform: translate(-50%, -48%) scale(0.96); }
+            to { opacity: 1; transform: translate(-50%, -50%) scale(1); }
+        }
+
         #sector-ops-floating-panel .panel-content {
             flex: 1;
             overflow-y: auto !important;
@@ -627,25 +617,27 @@ function injectCustomStyles() {
             padding-bottom: 20px;
         }
 
-        /* Close Button Positioning adjustment for modal */
-        #sector-ops-floating-panel .panel-close-btn {
-            position: absolute;
-            top: 15px;
-            right: 15px;
-            z-index: 10;
-            background: rgba(255, 255, 255, 0.1);
-            border: none;
-            color: #fff;
-            width: 30px;
-            height: 30px;
-            border-radius: 50%;
-            cursor: pointer;
-            display: flex;
-            align-items: center;
-            justify-content: center;
+        /* Close Button Styling */
+        .panel-close-btn {
+            position: absolute !important;
+            top: 15px !important;
+            right: 15px !important;
+            z-index: 5010 !important;
+            background: rgba(255, 255, 255, 0.1) !important;
+            border: 1px solid rgba(255, 255, 255, 0.1) !important;
+            color: #fff !important;
+            width: 32px !important;
+            height: 32px !important;
+            border-radius: 50% !important;
+            cursor: pointer !important;
+            display: flex !important;
+            align-items: center !important;
+            justify-content: center !important;
+            transition: all 0.2s ease !important;
         }
-        #sector-ops-floating-panel .panel-close-btn:hover {
-            background: var(--color-danger);
+        .panel-close-btn:hover {
+            background: var(--color-danger) !important;
+            transform: rotate(90deg);
         }
 
         /* Mobile Adjustment */
@@ -3725,9 +3717,6 @@ function findSimbriefAircraftValue(aircraftName) {
 }
 
 
-    /**
- * render the flight list on load.
- */
 async function loadExternalPanelContent() {
     const panel = document.getElementById('sector-ops-floating-panel');
     if (!panel) {
@@ -3735,136 +3724,99 @@ async function loadExternalPanelContent() {
         return;
     }
 
-    // 1. Find and remove the old UI tabs
+    // 1. Clean up old tabs if present
     const oldTabs = panel.querySelector('.panel-tabs');
-    if (oldTabs) {
-        oldTabs.remove();
-    }
+    if (oldTabs) oldTabs.remove();
 
-    // 2. Find the main content container (which we will REUSE)
+    // 2. Find/Prepare content container
     const mainContentContainer = panel.querySelector('.panel-content');
     if (!mainContentContainer) {
         console.error('Could not find .panel-content to inject content into.');
         return;
     }
     
-    // 3. Clear this container and show a loading spinner
+    // 3. Show loading state
     mainContentContainer.innerHTML = '<div class="spinner-small" style="margin: 2rem auto;"></div>';
-
-    // 4. [CRITICAL FIX] Modify the container to be scrollable
-    // The original CSS in index.html has 'overflow: hidden', which we must override.
     mainContentContainer.style.overflow = 'auto'; 
-    
-    // 5. Fetch and inject the new content
+
+    // --- [NEW] INJECT CLOSE BUTTON ---
+    // Remove existing button if it exists to avoid duplicates
+    const existingBtn = panel.querySelector('.panel-close-btn');
+    if (existingBtn) existingBtn.remove();
+
+    const closeBtn = document.createElement('button');
+    closeBtn.className = 'panel-close-btn';
+    closeBtn.innerHTML = '<i class="fa-solid fa-times"></i>';
+    closeBtn.title = "Close Window";
+    panel.appendChild(closeBtn); // Add it directly to the panel frame
+
+    // Add Close Logic
+    closeBtn.addEventListener('click', () => {
+        panel.classList.remove('visible'); // Hides the modal
+    });
+
+    // 4. Fetch content
     try {
         const response = await fetch('panel-content.html');
-        if (!response.ok) {
-            throw new Error(`Failed to fetch panel-content.html (Status: ${response.status})`);
-        }
-        const htmlContent = await response.text();
+        if (!response.ok) throw new Error(`Failed to fetch panel-content.html (Status: ${response.status})`);
         
-        // Inject the new content directly into the existing .panel-content div
+        const htmlContent = await response.text();
         mainContentContainer.innerHTML = htmlContent;
 
-        // ===================================================================
-        // START: Logic from panel-tabs.js
-        // We run this logic *after* mainContentContainer.innerHTML is set.
-        // ===================================================================
-        
-        // Note: We query *inside* the mainContentContainer to be specific
+        // 5. Initialize Tabs
         const tabButtons = mainContentContainer.querySelectorAll('.panel-tab-btn');
         const tabContents = mainContentContainer.querySelectorAll('.tab-content');
 
-        // Function to switch to a specific tab
         function activateTab(tabId) {
             tabButtons.forEach(btn => {
-                if (btn.dataset.tab === tabId) {
-                    btn.classList.add('active');
-                } else {
-                    btn.classList.remove('active');
-                }
+                if (btn.dataset.tab === tabId) btn.classList.add('active');
+                else btn.classList.remove('active');
             });
-
             tabContents.forEach(content => {
-                if (content.id === tabId) {
-                    content.classList.add('active');
-                } else {
-                    content.classList.remove('active');
-                }
+                if (content.id === tabId) content.classList.add('active');
+                else content.classList.remove('active');
             });
         }
 
-        // Add click event listener to each tab button
         tabButtons.forEach(button => {
             button.addEventListener('click', () => {
-                const tabId = button.dataset.tab;
-                activateTab(tabId);
+                activateTab(button.dataset.tab);
             });
         });
 
-        // --- SimBrief Integration Logic ---
+        // 6. Handle Auto-Open based on URL
         const urlParams = new URLSearchParams(window.location.search);
         if (urlParams.get('view') === 'view-flight-plan' || urlParams.has('ofp_id')) {
             activateTab('tab-flightplan');
+            panel.classList.add('visible'); // ONLY open if URL requests it
         } else {
-            // Show the default active tab (Welcome)
-            // The 'active' class is already on the HTML, but this confirms it.
             activateTab('tab-welcome');
+            // Do NOT add .visible here, so it stays closed on load
         }
 
+        // 7. Populate Aircraft Select
         const aircraftSelect = mainContentContainer.querySelector('#fp-aircraft');
-        
         if (aircraftSelect && AIRCRAFT_SELECTION_LIST.length > 0) {
-            // Loop through the constant and create <option> elements
             AIRCRAFT_SELECTION_LIST.forEach(aircraft => {
                 const option = document.createElement('option');
-                option.value = aircraft.value; // e.g., "A320"
-                option.textContent = aircraft.name; // e.g., "Airbus A320-200"
+                option.value = aircraft.value;
+                option.textContent = aircraft.name;
                 aircraftSelect.appendChild(option);
             });
-        } else {
-            console.warn("Could not find #fp-aircraft select or AIRCRAFT_SELECTION_LIST is empty.");
         }
 
-        // Check if SimbriefIntegration object (from sb.js) exists
+        // 8. Initialize SimBrief
         if (typeof SimbriefIntegration !== 'undefined') {
-            
-            // Initialize the module, passing in the helpers it needs
             SimbriefIntegration.init({
-                // netlifySimbriefUrl is already set in sb.js
-
-                // Pass the main showNotification function from flight.js
                 showNotification: showNotification,
-
-                // Pass the populateDispatchPass function we just added
                 populateDispatchPass: populateDispatchPass,
-
-                // Pass the onFlightSaved callback we just added
                 onFlightSaved: refreshSavedFlightList,
-
-                // (Optional) Max number of flights to save.
                 maxFlights: 2
             });
-            
-            console.log("SimbriefIntegration module initialized successfully.");
-
-            // --- [NEW CODE TO ADD START] ---
-            
-            // 1. Add the master click listener for the saved flights list
-            // We attach it to mainContentContainer for event delegation
             mainContentContainer.addEventListener('click', handleSavedFlightListClick);
-
-            // 2. Render the saved flights list on initial load
             renderSavedFlightList();
-
-            // --- [NEW CODE TO ADD END] ---
-            
-        } else {
-            console.error("SimbriefIntegration (sb.js) is not loaded. SimBrief features will not work.");
-            // We can use the main notification function to tell the user
-            showNotification("SimBrief integration script (sb.js) failed to load.", "error");
         }
-        
+
     } catch (error) {
         console.error('Error loading external panel content:', error);
         mainContentContainer.innerHTML = `
