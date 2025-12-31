@@ -1,6 +1,7 @@
 /**
  * airportLayout.js
  * Enhanced Airport Layout: Features high-realism runways and smart-masking taxiways.
+ * Fixed Layout Ordering: Taxiways < Runways < Planes
  */
 
 export const AirportLayoutManager = {
@@ -11,6 +12,7 @@ export const AirportLayoutManager = {
         if (!map) return;
 
         const sourceId = `airport-${icao}-source`;
+        const planeLayerId = 'sector-ops-live-flights-layer'; // The Anchor: Everything goes UNDER this
         
         // Layer IDs
         const pavementLayerId = `pavement-${icao}`;
@@ -62,8 +64,13 @@ export const AirportLayoutManager = {
             data: geojsonData
         });
 
-        // 1. TAXIWAY OUTLINES (The "Casing")
-        // Placed at the bottom so Runway polygons can cover it.
+        // --- LAYER STACKING LOGIC ---
+        // We add layers in order from Bottom to Top.
+        // Critically, we pass 'planeLayerId' as the second argument to map.addLayer.
+        // This ensures that even the "top" of our airport stack is still UNDER the planes.
+
+        // 1. TAXIWAY OUTLINES (Bottom-most visual layer)
+        // Provides the black "casing" for taxiways.
         map.addLayer({
             id: taxiOutlineLayerId,
             type: 'line',
@@ -85,10 +92,10 @@ export const AirportLayoutManager = {
                 ],
                 'line-opacity': ['interpolate', ['linear'], ['zoom'], 13, 0, 14, 0.8]
             }
-        }, 'sector-ops-live-flights-layer');
+        }, planeLayerId);
 
-        // 2. BASE PAVEMENT & RUNWAYS
-        // This acts as the "mask" that hides the black taxiway outlines.
+        // 2. BASE PAVEMENT & RUNWAYS (On top of Outlines)
+        // This covers the inner part of the taxiway outlines.
         map.addLayer({
             id: pavementLayerId,
             type: 'fill',
@@ -98,14 +105,14 @@ export const AirportLayoutManager = {
                 'fill-color': [
                     'match',
                     ['get', 'aeroway'],
-                    'runway', '#0f0f0f', // Deep asphalt black
+                    'runway', '#0f0f0f', // Deep asphalt black for Runways
                     '#1a1a1a'            // Lighter concrete gray for aprons/taxiways
                 ],
                 'fill-opacity': 0.9
             }
-        });
+        }, planeLayerId);
 
-        // 3. RUNWAY CENTERLINE MARKINGS (Realistic White Dashes)
+        // 3. RUNWAY CENTERLINE MARKINGS (On top of Pavement)
         map.addLayer({
             id: runwayMarkingId,
             type: 'line',
@@ -117,7 +124,7 @@ export const AirportLayoutManager = {
                 'line-dasharray': [4, 6],
                 'line-opacity': ['interpolate', ['linear'], ['zoom'], 13, 0, 14, 1]
             }
-        });
+        }, planeLayerId);
 
         // 4. RUNWAY EDGE LINES
         map.addLayer({
@@ -130,10 +137,9 @@ export const AirportLayoutManager = {
                 'line-width': ['interpolate', ['linear'], ['zoom'], 14, 0.5, 17, 2],
                 'line-opacity': 0.4
             }
-        });
+        }, planeLayerId);
 
-        // 5. TAXIWAY CENTERLINES (Yellow)
-        // Placed ABOVE the pavement so it remains visible while the outline is hidden.
+        // 5. TAXIWAY CENTERLINES
         map.addLayer({
             id: taxiLineLayerId,
             type: 'line',
@@ -145,7 +151,7 @@ export const AirportLayoutManager = {
             ],
             layout: { 'line-join': 'round', 'line-cap': 'round' },
             paint: {
-                'line-color': '#fde047', // Standard Aviation Yellow
+                'line-color': '#fde047', 
                 'line-width': [
                     'interpolate', ['exponential', 1.5], ['zoom'], 
                     12, 0.4, 
@@ -155,7 +161,7 @@ export const AirportLayoutManager = {
                 ],
                 'line-opacity': ['interpolate', ['linear'], ['zoom'], 12, 0, 13, 1]
             }
-        });
+        }, planeLayerId);
 
         // 6. GATE / PARKING LINES
         map.addLayer({
@@ -169,7 +175,7 @@ export const AirportLayoutManager = {
                 'line-width': ['interpolate', ['linear'], ['zoom'], 14, 0.3, 16, 1.2, 18, 2.5],
                 'line-opacity': ['interpolate', ['linear'], ['zoom'], 15, 0, 16, 0.7]
             }
-        });
+        }, planeLayerId);
 
         // 7. LABELS & POINTS
         map.addLayer({
@@ -190,7 +196,7 @@ export const AirportLayoutManager = {
                 'text-halo-color': '#000',
                 'text-halo-width': 1.5
             }
-        });
+        }, planeLayerId);
 
         map.addLayer({
             id: gateCircleLayerId,
@@ -202,7 +208,7 @@ export const AirportLayoutManager = {
                 'circle-color': '#fde047',
                 'circle-opacity': ['interpolate', ['linear'], ['zoom'], 15, 0, 16, 1]
             }
-        });
+        }, planeLayerId);
 
         map.addLayer({
             id: gateLabelLayerId,
@@ -222,7 +228,7 @@ export const AirportLayoutManager = {
                 'text-halo-width': 2,
                 'text-opacity': ['interpolate', ['linear'], ['zoom'], 16, 0, 16.5, 1]
             }
-        });
+        }, planeLayerId);
 
         this.activeLayers.add({ 
             sourceId, 
