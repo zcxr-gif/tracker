@@ -538,6 +538,101 @@ function injectCustomStyles() {
     if (document.getElementById(styleId)) return;
 
     const css = `
+        /* --- [NEW] REDESIGNED AIRPORT TAG STYLES --- */
+        .apt-live-tag {
+            display: flex;
+            align-items: center;
+            background: rgba(15, 23, 42, 0.85);
+            backdrop-filter: blur(8px);
+            border: 1px solid rgba(255, 255, 255, 0.15);
+            border-radius: 6px;
+            padding: 2px;
+            cursor: pointer;
+            transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.5);
+            pointer-events: auto;
+            white-space: nowrap;
+        }
+
+        .apt-live-tag:hover {
+            transform: scale(1.05) translateY(-2px);
+            background: rgba(30, 41, 59, 0.95);
+            border-color: #38bdf8;
+            z-index: 1000 !important;
+        }
+
+        /* ICAO Section */
+        .apt-tag-ident {
+            font-family: 'JetBrains Mono', monospace;
+            font-weight: 800;
+            font-size: 11px;
+            color: #fff;
+            padding: 2px 6px;
+            background: #1e293b;
+            border-radius: 4px;
+            margin-right: 4px;
+        }
+
+        .apt-live-tag:hover .apt-tag-ident {
+            background: #38bdf8;
+            color: #0f172a;
+        }
+
+        /* Frequencies Container */
+        .apt-tag-freqs {
+            display: flex;
+            gap: 2px;
+            padding-right: 4px;
+        }
+
+        /* Individual Frequency Badge */
+        .freq-mini-badge {
+            width: 14px;
+            height: 14px;
+            border-radius: 3px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-family: 'Inter', sans-serif;
+            font-size: 8px;
+            font-weight: 900;
+            color: #fff;
+            text-transform: uppercase;
+        }
+
+        /* Role Colors */
+        .f-gnd { background: #64748b; } /* Ground - Slate */
+        .f-twr { background: #2563eb; } /* Tower - Blue */
+        .f-app { background: #7c3aed; } /* App/Dep - Purple */
+        .f-atis { background: #fbbf24; color: #000; } /* ATIS - Amber */
+
+        /* Pulsing Glow for Approach/Departure */
+        .tag-pulse-aura {
+            position: absolute;
+            inset: -2px;
+            border-radius: 8px;
+            background: rgba(124, 58, 237, 0.3);
+            z-index: -1;
+            animation: tagPulse 2s infinite;
+        }
+
+        @keyframes tagPulse {
+            0% { transform: scale(1); opacity: 0.6; }
+            50% { transform: scale(1.1); opacity: 0.2; }
+            100% { transform: scale(1); opacity: 0.6; }
+        }
+
+        /* Standard Destination Marker (Old Style) */
+        .destination-marker {
+            width: 8px;
+            height: 8px;
+            background: #38bdf8;
+            border: 2px solid #fff;
+            border-radius: 50%;
+            cursor: pointer;
+            box-shadow: 0 0 10px rgba(56, 189, 248, 0.5);
+        }
+             
         /* --- IMPORT FONTS --- */
         @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;700&display=swap');
 
@@ -11512,80 +11607,96 @@ function stopSectorOpsLiveLoop() {
 
 
 function renderAirportMarkers() {
-        if (!sectorOpsMap || !sectorOpsMap.isStyleLoaded()) return;
+    if (!sectorOpsMap || !sectorOpsMap.isStyleLoaded()) return;
 
-        // --- [FIXED] Read filter state from the global object ---
-        const hideNoAtc = mapFilters.hideNoAtcMarkers;
-        const hideAtc = mapFilters.hideAtcMarkers;
-        // --- [END FIXED] ---
+    // Filter state
+    const hideNoAtc = mapFilters.hideNoAtcMarkers;
+    const hideAtc = mapFilters.hideAtcMarkers;
 
-        // Clear all previously rendered airport markers to ensure a fresh state
-        Object.values(airportAndAtcMarkers).forEach(({ marker }) => marker.remove());
-        airportAndAtcMarkers = {};
+    // Clear old markers
+    Object.values(airportAndAtcMarkers).forEach(({ marker }) => marker.remove());
+    airportAndAtcMarkers = {};
 
-        const atcAirportIcaos = new Set(activeAtcFacilities.map(f => f.airportName).filter(Boolean));
-        
-        const allRouteAirports = new Set();
+    // Determine which airports to show
+    const atcAirportIcaos = new Set(activeAtcFacilities.map(f => f.airportName).filter(Boolean));
+    const allRouteAirports = new Set();
+    if (typeof ALL_AVAILABLE_ROUTES !== 'undefined') {
         ALL_AVAILABLE_ROUTES.forEach(route => {
             allRouteAirports.add(route.departure);
             allRouteAirports.add(route.arrival);
         });
-
-        const allAirportsToRender = new Set([...allRouteAirports, ...atcAirportIcaos]);
-
-        allAirportsToRender.forEach(icao => {
-            const airport = airportsData[icao];
-            if (!airport || airport.lat == null || airport.lon == null) return;
-
-            const hasAtc = atcAirportIcaos.has(icao);
-
-            // --- [FIXED] Apply filter logic from state ---
-            if (hideNoAtc && !hasAtc) {
-                return; // Skip rendering this marker
-            }
-            if (hideAtc && hasAtc) {
-                return; // Skip rendering this marker
-            }
-            // --- [END FIXED] ---
-
-            let markerClass; // Use 'let' to allow modification
-            let title = `${icao}: ${airport.name || 'Unknown Airport'}`;
-
-            if (hasAtc) {
-                const airportAtc = activeAtcFacilities.filter(f => f.airportName === icao);
-                // Check for Approach (type 4) or Departure (type 5)
-                const hasApproachOrDeparture = airportAtc.some(f => f.type === 4 || f.type === 5);
-
-                // Start with the base class for any staffed airport
-                markerClass = 'atc-active-marker';
-                title += ' (Active ATC)';
-
-                // Add the aura class if Approach/Departure is active
-                if (hasApproachOrDeparture) {
-                    markerClass += ' atc-approach-active';
-                    title += ' - Approach/Departure';
-                }
-
-            } else {
-                markerClass = 'destination-marker'; // For non-ATC airports
-            }
-            
-            const el = document.createElement('div');
-            el.className = markerClass;
-            el.title = title;
-
-            const marker = new mapboxgl.Marker({ element: el })
-                .setLngLat([airport.lon, airport.lat])
-                .addTo(sectorOpsMap);
-
-            el.addEventListener('click', (e) => {
-                e.stopPropagation();
-                handleAirportClick(icao);
-            });
-
-            airportAndAtcMarkers[icao] = { marker: marker, className: markerClass };
-        });
     }
+
+    const allAirportsToRender = new Set([...allRouteAirports, ...atcAirportIcaos]);
+
+    allAirportsToRender.forEach(icao => {
+        const airport = airportsData[icao];
+        if (!airport || airport.lat == null || airport.lon == null) return;
+
+        const hasAtc = atcAirportIcaos.has(icao);
+
+        // Apply filters
+        if (hideNoAtc && !hasAtc) return;
+        if (hideAtc && hasAtc) return;
+
+        const el = document.createElement('div');
+
+        if (hasAtc) {
+            // REDESIGN: Build the live "Airport Tag"
+            el.className = 'apt-live-tag';
+            
+            // Get all facilities for this airport to build badges
+            const airportAtc = activeAtcFacilities.filter(f => f.airportName === icao);
+            
+            // Determine active types
+            const hasGnd = airportAtc.some(f => f.type === 0);
+            const hasTwr = airportAtc.some(f => f.type === 1);
+            const hasApp = airportAtc.some(f => f.type === 4 || f.type === 5);
+            const hasAtis = airportAtc.some(f => f.type === 7);
+
+            // Add Pulsing Aura if Approach is active
+            if (hasApp) {
+                const aura = document.createElement('div');
+                aura.className = 'tag-pulse-aura';
+                el.appendChild(aura);
+            }
+
+            // Ident Section
+            const ident = document.createElement('div');
+            ident.className = 'apt-tag-ident';
+            ident.textContent = icao;
+            el.appendChild(ident);
+
+            // Frequencies Section
+            const freqs = document.createElement('div');
+            freqs.className = 'apt-tag-freqs';
+            
+            if (hasAtis) freqs.innerHTML += `<div class="freq-mini-badge f-atis" title="ATIS Active">A</div>`;
+            if (hasGnd) freqs.innerHTML += `<div class="freq-mini-badge f-gnd" title="Ground Active">G</div>`;
+            if (hasTwr) freqs.innerHTML += `<div class="freq-mini-badge f-twr" title="Tower Active">T</div>`;
+            if (hasApp) freqs.innerHTML += `<div class="freq-mini-badge f-app" title="Approach/Departure Active">R</div>`; // 'R' for Radar/Approach
+            
+            el.appendChild(freqs);
+            el.title = `${icao}: ${airport.name || 'Airport'} - ${airportAtc.length} Frequencies Active`;
+
+        } else {
+            // Keep simple dot for non-ATC airports
+            el.className = 'destination-marker';
+            el.title = `${icao}: ${airport.name || 'Unknown Airport'}`;
+        }
+
+        const marker = new mapboxgl.Marker({ element: el })
+            .setLngLat([airport.lon, airport.lat])
+            .addTo(sectorOpsMap);
+
+        el.addEventListener('click', (e) => {
+            e.stopPropagation();
+            handleAirportClick(icao);
+        });
+
+        airportAndAtcMarkers[icao] = { marker: marker, className: el.className };
+    });
+}
 
 
 // --- [UPDATED] Fetches ATC & NOTAMs for the CURRENTLY SELECTED SERVER ---
