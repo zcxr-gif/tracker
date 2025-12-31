@@ -1,6 +1,6 @@
 /**
  * airportLayout.js
- * Optimized fetching of taxiway lines AND polygons with local session caching.
+ * Optimized fetching of taxiway lines, polygons, and DESIGNATORS (Labels) with local session caching.
  */
 
 export const AirportLayoutManager = {
@@ -17,6 +17,7 @@ export const AirportLayoutManager = {
         const sourceId = `taxiways-${icao}-source`;
         const lineLayerId = `taxiways-${icao}-line-layer`;
         const fillLayerId = `taxiways-${icao}-fill-layer`;
+        const labelLayerId = `taxiways-${icao}-label-layer`;
 
         // 1. Cleanup current view
         this.clearAll(map);
@@ -29,7 +30,10 @@ export const AirportLayoutManager = {
             geojsonData = this.layoutCache.get(icao);
         } else {
             // 3. Fetch from Overpass API if not cached
-            const bbox = `${lat - 0.015},${lon - 0.03},${lat + 0.015},${lon + 0.03}`;
+            // Increased bbox slightly to ensure we catch labels on longer taxiways
+            const bbox = `${lat - 0.02},${lon - 0.04},${lat + 0.02},${lon + 0.04}`;
+            
+            // We query for aeroway=taxiway. The 'ref' tag contains the name (e.g., "A1")
             const query = `[out:json][timeout:30];(way["aeroway"="taxiway"](${bbox});relation["aeroway"="taxiway"](${bbox}););out geom;`;
             const url = `https://overpass-api.de/api/interpreter?data=${encodeURIComponent(query)}`;
 
@@ -93,15 +97,37 @@ export const AirportLayoutManager = {
             }
         }, 'sector-ops-live-flights-layer');
 
-        this.activeLayers.add({ sourceId, layers: [fillLayerId, lineLayerId] });
+        // NEW: Label Layer (Taxiway Names)
+        map.addLayer({
+            id: labelLayerId,
+            type: 'symbol',
+            source: sourceId,
+            // Only show labels for features that have a 'ref' tag
+            filter: ['has', 'ref'],
+            layout: {
+                'text-field': ['get', 'ref'],
+                'symbol-placement': 'point', // 'point' centers it, 'line' follows the taxiway path
+                'text-size': ['interpolate', ['linear'], ['zoom'], 13, 10, 16, 14],
+                'text-font': ['Open Sans Bold', 'Arial Unicode MS Bold'],
+                'text-allow-overlap': false,
+                'text-ignore-placement': false
+            },
+            paint: {
+                'text-color': '#fde047',
+                'text-halo-color': '#000000',
+                'text-halo-width': 1
+            }
+        });
+
+        this.activeLayers.add({ sourceId, layers: [fillLayerId, lineLayerId, labelLayerId] });
     },
 
     /**
      * Internal helper to convert OSM elements to GeoJSON
+     * Now ensures tags (like 'ref') are passed into feature properties.
      */
     processOsmData(elements) {
-        const lineFeatures = [];
-        const polygonFeatures = [];
+        const features = [];
 
         elements.forEach(element => {
             if (element.geometry) {
@@ -110,17 +136,23 @@ export const AirportLayoutManager = {
                                  coords[0][0] === coords[coords.length-1][0] && 
                                  coords[0][1] === coords[coords.length-1][1];
 
+                // Standardize properties to include the OSM tags (where 'ref' lives)
+                const properties = {
+                    ...element.tags,
+                    osm_id: element.id
+                };
+
                 if (isClosed || element.type === 'relation') {
-                    polygonFeatures.push({
+                    features.push({
                         type: 'Feature',
                         geometry: { type: 'Polygon', coordinates: [coords] },
-                        properties: element.tags
+                        properties: properties
                     });
                 } else {
-                    lineFeatures.push({
+                    features.push({
                         type: 'Feature',
                         geometry: { type: 'LineString', coordinates: coords },
-                        properties: element.tags
+                        properties: properties
                     });
                 }
             }
@@ -128,7 +160,7 @@ export const AirportLayoutManager = {
 
         return {
             type: 'FeatureCollection',
-            features: [...lineFeatures, ...polygonFeatures]
+            features: features
         };
     },
 
