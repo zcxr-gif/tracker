@@ -1,13 +1,15 @@
 /**
  * airportLayout.js
- * Optimized fetching of taxiway lines AND polygons with robust error handling.
+ * Optimized fetching of taxiway lines AND polygons with local session caching.
  */
 
 export const AirportLayoutManager = {
     activeLayers: new Set(),
+    // Cache to store GeoJSON data by ICAO code to prevent redundant API calls
+    layoutCache: new Map(),
 
     /**
-     * Fetches taxiway data from OSM with retry logic and error handling.
+     * Fetches taxiway data from OSM with caching and error handling.
      */
     async plotTaxiways(map, icao, lat, lon) {
         if (!map) return;
@@ -16,118 +18,120 @@ export const AirportLayoutManager = {
         const lineLayerId = `taxiways-${icao}-line-layer`;
         const fillLayerId = `taxiways-${icao}-fill-layer`;
 
+        // 1. Cleanup current view
         this.clearAll(map);
 
-        // Define bounding box (~2km radius)
-        const bbox = `${lat - 0.015},${lon - 0.03},${lat + 0.015},${lon + 0.03}`;
-        
-        // Cleaned query: minimized whitespace to reduce URL length issues
-        const query = `[out:json][timeout:30];(way["aeroway"="taxiway"](${bbox});relation["aeroway"="taxiway"](${bbox}););out geom;`;
-        const url = `https://overpass-api.de/api/interpreter?data=${encodeURIComponent(query)}`;
+        let geojsonData;
 
-        try {
-            const response = await fetch(url);
+        // 2. Check if we already have this airport's data in the cache
+        if (this.layoutCache.has(icao)) {
+            console.log(`AirportLayout: Loading ${icao} from cache.`);
+            geojsonData = this.layoutCache.get(icao);
+        } else {
+            // 3. Fetch from Overpass API if not cached
+            const bbox = `${lat - 0.015},${lon - 0.03},${lat + 0.015},${lon + 0.03}`;
+            const query = `[out:json][timeout:30];(way["aeroway"="taxiway"](${bbox});relation["aeroway"="taxiway"](${bbox}););out geom;`;
+            const url = `https://overpass-api.de/api/interpreter?data=${encodeURIComponent(query)}`;
 
-            // Check if the response is actually OK (status 200)
-            if (!response.ok) {
-                if (response.status === 504 || response.status === 429) {
-                    console.warn(`AirportLayout: Overpass API is busy (Status ${response.status}). Try again in a moment.`);
+            try {
+                const response = await fetch(url);
+
+                if (!response.ok) {
+                    console.warn(`AirportLayout: API busy or error (Status ${response.status})`);
+                    return;
                 }
+
+                const contentType = response.headers.get("content-type");
+                if (!contentType || !contentType.includes("application/json")) {
+                    return;
+                }
+
+                const data = await response.json();
+                if (!data.elements || data.elements.length === 0) return;
+
+                // Process OSM data into GeoJSON
+                geojsonData = this.processOsmData(data.elements);
+                
+                // Store in cache for future use
+                this.layoutCache.set(icao, geojsonData);
+
+            } catch (error) {
+                console.error(`AirportLayout: Network error for ${icao}:`, error);
                 return;
             }
-
-            // Verify content type to avoid "Unexpected token <" errors
-            const contentType = response.headers.get("content-type");
-            if (!contentType || !contentType.includes("application/json")) {
-                const text = await response.text();
-                console.error(`AirportLayout: Expected JSON but received: ${text.substring(0, 100)}...`);
-                return;
-            }
-
-            const data = await response.json();
-
-            if (!data.elements || data.elements.length === 0) {
-                console.log(`AirportLayout: No layout data found for ${icao}`);
-                return;
-            }
-
-            const lineFeatures = [];
-            const polygonFeatures = [];
-
-            data.elements.forEach(element => {
-                if (element.geometry) {
-                    const coords = element.geometry.map(p => [p.lon, p.lat]);
-                    
-                    // Logic to separate physical pavement (polygons) from markings (lines)
-                    const isClosed = coords.length > 3 && 
-                                     coords[0][0] === coords[coords.length-1][0] && 
-                                     coords[0][1] === coords[coords.length-1][1];
-
-                    if (isClosed || element.type === 'relation') {
-                        polygonFeatures.push({
-                            type: 'Feature',
-                            geometry: { type: 'Polygon', coordinates: [coords] },
-                            properties: element.tags
-                        });
-                    } else {
-                        lineFeatures.push({
-                            type: 'Feature',
-                            geometry: { type: 'LineString', coordinates: coords },
-                            properties: element.tags
-                        });
-                    }
-                }
-            });
-
-            map.addSource(sourceId, {
-                type: 'geojson',
-                data: {
-                    type: 'FeatureCollection',
-                    features: [...lineFeatures, ...polygonFeatures]
-                }
-            });
-
-            // 1. Fill Layer (Pavement/Asphalt)
-            map.addLayer({
-                id: fillLayerId,
-                type: 'fill',
-                source: sourceId,
-                filter: ['==', '$type', 'Polygon'],
-                paint: {
-                    'fill-color': '#3f3f46', // Zinc-700
-                    'fill-opacity': 0.4
-                }
-            }, 'sector-ops-live-flights-layer');
-
-            // 2. Line Layer (Yellow Centerlines)
-            map.addLayer({
-                id: lineLayerId,
-                type: 'line',
-                source: sourceId,
-                filter: ['==', '$type', 'LineString'],
-                layout: { 'line-join': 'round', 'line-cap': 'round' },
-                paint: {
-                    'line-color': '#eab308', // Amber-500 yellow
-                    'line-width': [
-                        'interpolate', ['exponential', 1.5], ['zoom'],
-                        12, 0.5,
-                        16, 2,
-                        18, 5
-                    ],
-                    'line-opacity': 0.8
-                }
-            }, 'sector-ops-live-flights-layer');
-
-            this.activeLayers.add({ sourceId, layers: [fillLayerId, lineLayerId] });
-
-        } catch (error) {
-            console.error(`AirportLayout: Network or Parsing Error for ${icao}:`, error);
         }
+
+        // 4. Add the data to the map
+        map.addSource(sourceId, {
+            type: 'geojson',
+            data: geojsonData
+        });
+
+        // Fill Layer (Asphalt)
+        map.addLayer({
+            id: fillLayerId,
+            type: 'fill',
+            source: sourceId,
+            filter: ['==', '$type', 'Polygon'],
+            paint: {
+                'fill-color': '#27272a',
+                'fill-opacity': 0.5
+            }
+        }, 'sector-ops-live-flights-layer');
+
+        // Line Layer (Markings)
+        map.addLayer({
+            id: lineLayerId,
+            type: 'line',
+            source: sourceId,
+            filter: ['==', '$type', 'LineString'],
+            layout: { 'line-join': 'round', 'line-cap': 'round' },
+            paint: {
+                'line-color': '#fde047',
+                'line-width': ['interpolate', ['exponential', 1.5], ['zoom'], 12, 0.5, 16, 2, 18, 5],
+                'line-opacity': 0.8
+            }
+        }, 'sector-ops-live-flights-layer');
+
+        this.activeLayers.add({ sourceId, layers: [fillLayerId, lineLayerId] });
     },
 
     /**
-     * Removes all plotted taxiway layers from the map.
+     * Internal helper to convert OSM elements to GeoJSON
      */
+    processOsmData(elements) {
+        const lineFeatures = [];
+        const polygonFeatures = [];
+
+        elements.forEach(element => {
+            if (element.geometry) {
+                const coords = element.geometry.map(p => [p.lon, p.lat]);
+                const isClosed = coords.length > 3 && 
+                                 coords[0][0] === coords[coords.length-1][0] && 
+                                 coords[0][1] === coords[coords.length-1][1];
+
+                if (isClosed || element.type === 'relation') {
+                    polygonFeatures.push({
+                        type: 'Feature',
+                        geometry: { type: 'Polygon', coordinates: [coords] },
+                        properties: element.tags
+                    });
+                } else {
+                    lineFeatures.push({
+                        type: 'Feature',
+                        geometry: { type: 'LineString', coordinates: coords },
+                        properties: element.tags
+                    });
+                }
+            }
+        });
+
+        return {
+            type: 'FeatureCollection',
+            features: [...lineFeatures, ...polygonFeatures]
+        };
+    },
+
     clearAll(map) {
         if (!map) return;
         this.activeLayers.forEach(({ sourceId, layers }) => {
