@@ -1,94 +1,124 @@
 /**
  * airportLayout.js
- * Externally handles dynamic fetching and plotting of taxiway layouts.
+ * Optimized fetching of taxiway lines AND polygons for a detailed ground layout.
  */
 
 export const AirportLayoutManager = {
     activeLayers: new Set(),
 
     /**
-     * Fetches taxiway data from OSM and plots it on the Mapbox instance.
-     * @param {object} map - The sectorOpsMap instance.
-     * @param {string} icao - Airport ICAO code.
-     * @param {number} lat - Airport Latitude.
-     * @param {number} lon - Airport Longitude.
+     * Fetches taxiway data (ways and areas) from OSM.
      */
     async plotTaxiways(map, icao, lat, lon) {
         if (!map) return;
 
         const sourceId = `taxiways-${icao}-source`;
-        const layerId = `taxiways-${icao}-layer`;
+        const lineLayerId = `taxiways-${icao}-line-layer`;
+        const fillLayerId = `taxiways-${icao}-fill-layer`;
 
-        // 1. Cleanup previous layout to keep the map performance high
         this.clearAll(map);
 
-        // 2. Define a bounding box (~2km radius)
-        const bbox = `${lat - 0.02},${lon - 0.04},${lat + 0.02},${lon + 0.04}`;
+        // Define a small bounding box (~2km) to avoid huge data payloads
+        const bbox = `${lat - 0.015},${lon - 0.03},${lat + 0.015},${lon + 0.03}`;
         
-        // 3. Construct Overpass Query for aeroway=taxiway
-        const query = `[out:json];way["aeroway"="taxiway"](${bbox});out geom;`;
+        // Fetch both the centerline (ways) and the physical pavement (areas/polygons)
+        const query = `
+            [out:json][timeout:25];
+            (
+              way["aeroway"="taxiway"](${bbox});
+              relation["aeroway"="taxiway"](${bbox});
+            );
+            out geom;
+        `;
         const url = `https://overpass-api.de/api/interpreter?data=${encodeURIComponent(query)}`;
 
         try {
             const response = await fetch(url);
             const data = await response.json();
 
-            if (!data.elements || data.elements.length === 0) {
-                console.log(`AirportLayout: No taxiway data found for ${icao}`);
-                return;
-            }
+            if (!data.elements || data.elements.length === 0) return;
 
-            // 4. Convert OSM elements to GeoJSON LineStrings
-            const features = data.elements.map(element => ({
-                type: 'Feature',
-                geometry: {
-                    type: 'LineString',
-                    coordinates: element.geometry.map(p => [p.lon, p.lat])
-                },
-                properties: element.tags
-            }));
+            // Process data into two separate feature collections for Lines and Polygons
+            const lineFeatures = [];
+            const polygonFeatures = [];
 
-            // 5. Add to the map
-            map.addSource(sourceId, {
-                type: 'geojson',
-                data: { type: 'FeatureCollection', features }
+            data.elements.forEach(element => {
+                if (element.type === 'way' && element.geometry) {
+                    const coords = element.geometry.map(p => [p.lon, p.lat]);
+                    
+                    // Simple heuristic: if it's closed, it's likely a polygon (pavement)
+                    const isClosed = coords[0][0] === coords[coords.length-1][0] && 
+                                     coords[0][1] === coords[coords.length-1][1];
+
+                    if (isClosed && coords.length > 3) {
+                        polygonFeatures.push({
+                            type: 'Feature',
+                            geometry: { type: 'Polygon', coordinates: [coords] },
+                            properties: element.tags
+                        });
+                    } else {
+                        lineFeatures.push({
+                            type: 'Feature',
+                            geometry: { type: 'LineString', coordinates: coords },
+                            properties: element.tags
+                        });
+                    }
+                }
             });
 
+            // Add Sources
+            map.addSource(sourceId, {
+                type: 'geojson',
+                data: {
+                    type: 'FeatureCollection',
+                    features: [...lineFeatures, ...polygonFeatures]
+                }
+            });
+
+            // 1. Fill Layer (Asphalt Pavement)
             map.addLayer({
-                'id': layerId,
-                'type': 'line',
-                'source': sourceId,
-                'layout': {
-                    'line-join': 'round',
-                    'line-cap': 'round'
-                },
-                'paint': {
-                    'line-color': '#52525b', // Zinc-600 asphalt color
+                id: fillLayerId,
+                type: 'fill',
+                source: sourceId,
+                filter: ['==', '$type', 'Polygon'],
+                paint: {
+                    'fill-color': '#27272a', // Zinc-800 Dark Asphalt
+                    'fill-opacity': 0.5
+                }
+            }, 'sector-ops-live-flights-layer');
+
+            // 2. Line Layer (Taxiway Centerlines)
+            map.addLayer({
+                id: lineLayerId,
+                type: 'line',
+                source: sourceId,
+                filter: ['==', '$type', 'LineString'],
+                layout: { 'line-join': 'round', 'line-cap': 'round' },
+                paint: {
+                    'line-color': '#fde047', // Yellow Taxiway Markings
                     'line-width': [
                         'interpolate', ['exponential', 1.5], ['zoom'],
-                        12, 1,
-                        14, 3,
-                        16, 12,
-                        18, 30
+                        12, 0.5,
+                        15, 2,
+                        18, 4
                     ],
-                    'line-opacity': 0.6
+                    'line-opacity': 0.8
                 }
-            }, 'sector-ops-live-flights-layer'); // Place UNDER aircraft icons
+            }, 'sector-ops-live-flights-layer');
 
-            this.activeLayers.add({ sourceId, layerId });
+            this.activeLayers.add({ sourceId, layers: [fillLayerId, lineLayerId] });
 
         } catch (error) {
-            console.error(`AirportLayout: Failed to load layout for ${icao}:`, error);
+            console.error(`AirportLayout: Error loading ${icao}:`, error);
         }
     },
 
-    /**
-     * Removes all plotted taxiway layers from the map.
-     */
     clearAll(map) {
         if (!map) return;
-        this.activeLayers.forEach(({ sourceId, layerId }) => {
-            if (map.getLayer(layerId)) map.removeLayer(layerId);
+        this.activeLayers.forEach(({ sourceId, layers }) => {
+            layers.forEach(layerId => {
+                if (map.getLayer(layerId)) map.removeLayer(layerId);
+            });
             if (map.getSource(sourceId)) map.removeSource(sourceId);
         });
         this.activeLayers.clear();
