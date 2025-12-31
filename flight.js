@@ -538,7 +538,11 @@ function injectCustomStyles() {
     if (document.getElementById(styleId)) return;
 
     const css = `
-        /* --- LOCKED AIRPORT TAG STYLES --- */
+        /* --- DYNAMIC & LOCKED AIRPORT TAG STYLES --- */
+        :root {
+            --apt-tag-scale: 1; /* Managed by JS zoom listener */
+        }
+
         .apt-live-tag {
             display: flex;
             align-items: center;
@@ -551,10 +555,12 @@ function injectCustomStyles() {
             pointer-events: auto;
             white-space: nowrap;
             
-            /* CRITICAL: No transition on transform to prevent 'elastic' lag */
-            transition: background 0.2s ease, border-color 0.2s ease;
+            /* The 'Locked' transform: No transitions on transform! */
+            /* We use the CSS variable to control the scale based on zoom */
+            transform: scale(var(--apt-tag-scale));
+            transform-origin: center;
             
-            /* Ensure it stays same size regardless of zoom */
+            transition: background 0.2s ease, border-color 0.2s ease, opacity 0.3s ease;
             height: 22px; 
             box-sizing: border-box;
             user-select: none;
@@ -564,20 +570,33 @@ function injectCustomStyles() {
             background: #1e293b;
             border-color: #38bdf8;
             z-index: 9999 !important;
+            transform: scale(calc(var(--apt-tag-scale) * 1.1)); /* Slight pop on hover */
+        }
+
+        /* Compact Mode: Hide frequencies when zoomed out far */
+        .apt-live-tag.compact .apt-tag-freqs {
+            display: none;
+        }
+        
+        .apt-live-tag.compact {
+            padding: 2px 6px;
+            height: 18px;
         }
 
         .apt-tag-ident {
             font-family: 'JetBrains Mono', monospace;
             font-weight: 800;
-            font-size: 11px; /* Fixed size */
+            font-size: 11px;
             color: #fff;
             padding: 0 4px;
-            margin-right: 4px;
         }
 
         .apt-tag-freqs {
             display: flex;
             gap: 2px;
+            margin-left: 4px;
+            border-left: 1px solid rgba(255, 255, 255, 0.1);
+            padding-left: 4px;
         }
 
         .freq-mini-badge {
@@ -588,7 +607,7 @@ function injectCustomStyles() {
             align-items: center;
             justify-content: center;
             font-family: 'Inter', sans-serif;
-            font-size: 9px;
+            font-size: 8px;
             font-weight: 900;
             color: #fff;
         }
@@ -598,22 +617,22 @@ function injectCustomStyles() {
         .f-app { background: #7c3aed; }
         .f-atis { background: #fbbf24; color: #000; }
 
-        /* The Aura - simplified to be less 'floaty' */
         .tag-pulse-aura {
             position: absolute;
             inset: -1px;
             border-radius: 4px;
-            border: 1px solid rgba(124, 58, 237, 0.5);
+            border: 1px solid rgba(124, 58, 237, 0.6);
             pointer-events: none;
         }
 
-        /* Fixed dot for non-ATC airports */
         .destination-marker {
             width: 6px;
             height: 6px;
             background: #64748b;
             border: 1.5px solid #fff;
             border-radius: 50%;
+            transition: transform 0.2s ease;
+            transform: scale(var(--apt-tag-scale));
         }
 
         /* --- IMPORT FONTS --- */
