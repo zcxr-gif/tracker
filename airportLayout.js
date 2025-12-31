@@ -1,7 +1,6 @@
 /**
  * airportLayout.js
- * High-fidelity Airport Layout: Widened coverage and enhanced cartography.
- * Updated: Added gate lines (parking guidelines) and "tag" style gate labels.
+ * Enhanced Airport Layout: Features thick-outlined taxiways and zoom-aware styling.
  */
 
 export const AirportLayoutManager = {
@@ -13,6 +12,7 @@ export const AirportLayoutManager = {
 
         const sourceId = `airport-${icao}-source`;
         const pavementLayerId = `pavement-${icao}`;
+        const taxiOutlineLayerId = `taxi-outline-${icao}`; // New Outline Layer
         const taxiLineLayerId = `taxi-line-${icao}`;
         const gateLineLayerId = `gate-line-${icao}`;
         const gateCircleLayerId = `gate-point-${icao}`;
@@ -26,10 +26,6 @@ export const AirportLayoutManager = {
         if (this.layoutCache.has(icao)) {
             geojsonData = this.layoutCache.get(icao);
         } else {
-            /**
-             * WIDENED AREA & IMPROVED QUERY
-             * Added 'parking_guideline' to capture the lead-in lines to gates.
-             */
             const buffer = 0.05; 
             const bbox = `${lat - (buffer/2)},${lon - buffer},${lat + (buffer/2)},${lon + buffer}`;
             
@@ -62,7 +58,7 @@ export const AirportLayoutManager = {
             data: geojsonData
         });
 
-        // 1. PAVEMENT (Darker, cleaner polygons)
+        // 1. BASE PAVEMENT (The concrete/asphalt areas)
         map.addLayer({
             id: pavementLayerId,
             type: 'fill',
@@ -79,7 +75,36 @@ export const AirportLayoutManager = {
             }
         }, 'sector-ops-live-flights-layer');
 
-        // 2. TAXIWAY CENTERLINES
+        // 2. TAXIWAY OUTLINES (Thick black borders for LineString taxiways)
+        // This creates the "casing" look for a proper taxiway.
+        map.addLayer({
+            id: taxiOutlineLayerId,
+            type: 'line',
+            source: sourceId,
+            filter: ['all', 
+                ['==', '$type', 'LineString'],
+                ['!=', 'aeroway', 'runway'],
+                ['!=', 'aeroway', 'parking_guideline']
+            ],
+            layout: { 'line-join': 'round', 'line-cap': 'round' },
+            paint: {
+                'line-color': '#000000',
+                'line-width': [
+                    'interpolate', ['exponential', 1.5], ['zoom'], 
+                    12, 2, 
+                    14, 6, 
+                    16, 12, 
+                    18, 24
+                ],
+                'line-opacity': [
+                    'interpolate', ['linear'], ['zoom'],
+                    13, 0,
+                    14, 1
+                ]
+            }
+        });
+
+        // 3. TAXIWAY CENTERLINES (The yellow path inside the outline)
         map.addLayer({
             id: taxiLineLayerId,
             type: 'line',
@@ -89,18 +114,15 @@ export const AirportLayoutManager = {
                 ['!=', 'aeroway', 'runway'],
                 ['!=', 'aeroway', 'parking_guideline']
             ],
-            layout: { 
-                'line-join': 'round', 
-                'line-cap': 'round' 
-            },
+            layout: { 'line-join': 'round', 'line-cap': 'round' },
             paint: {
                 'line-color': '#fde047',
                 'line-width': [
                     'interpolate', ['exponential', 1.5], ['zoom'], 
-                    12, 0.2, 
-                    14, 1.2, 
-                    16, 2.5, 
-                    18, 5
+                    12, 0.5, 
+                    14, 2, 
+                    16, 4, 
+                    18, 8
                 ],
                 'line-opacity': [
                     'interpolate', ['linear'], ['zoom'],
@@ -110,17 +132,13 @@ export const AirportLayoutManager = {
             }
         });
 
-        // 3. GATE LINES (Lead-in / Parking Guidelines)
-        // These are thinner and only appear when zoomed in closer.
+        // 4. GATE LINES (Lead-in / Parking Guidelines)
         map.addLayer({
             id: gateLineLayerId,
             type: 'line',
             source: sourceId,
             filter: ['==', 'aeroway', 'parking_guideline'],
-            layout: { 
-                'line-join': 'round', 
-                'line-cap': 'round' 
-            },
+            layout: { 'line-join': 'round', 'line-cap': 'round' },
             paint: {
                 'line-color': '#fde047',
                 'line-width': [
@@ -131,13 +149,13 @@ export const AirportLayoutManager = {
                 ],
                 'line-opacity': [
                     'interpolate', ['linear'], ['zoom'],
-                    14, 0,
-                    15, 0.8
+                    15, 0,
+                    16, 0.8
                 ]
             }
         });
 
-        // 4. TAXIWAY LABELS (Subtle guidance)
+        // 5. TAXIWAY LABELS
         map.addLayer({
             id: taxiLabelLayerId,
             type: 'symbol',
@@ -158,11 +176,11 @@ export const AirportLayoutManager = {
             paint: {
                 'text-color': '#fde047',
                 'text-halo-color': '#000',
-                'text-halo-width': 1.5
+                'text-halo-width': 2
             }
         });
 
-        // 5. GATE/PARKING STAND POINTS
+        // 6. GATE/PARKING STAND POINTS
         map.addLayer({
             id: gateCircleLayerId,
             type: 'circle',
@@ -172,16 +190,15 @@ export const AirportLayoutManager = {
                 ['match', ['get', 'aeroway'], ['gate', 'parking_position'], true, false]
             ],
             paint: {
-                'circle-radius': ['interpolate', ['linear'], ['zoom'], 14, 1.5, 17, 3],
+                'circle-radius': ['interpolate', ['linear'], ['zoom'], 15, 1, 17, 4],
                 'circle-color': '#fde047',
                 'circle-stroke-width': 1,
                 'circle-stroke-color': '#000',
-                'circle-opacity': ['interpolate', ['linear'], ['zoom'], 14, 0, 15, 1]
+                'circle-opacity': ['interpolate', ['linear'], ['zoom'], 15, 0, 16, 1]
             }
         });
 
-        // 6. GATE LABELS (Styled as "Tags" - Zoom restricted)
-        // Only visible from zoom 16+ to prevent clutter.
+        // 7. GATE LABELS (The "Tags")
         map.addLayer({
             id: gateLabelLayerId,
             type: 'symbol',
@@ -189,23 +206,20 @@ export const AirportLayoutManager = {
             filter: ['all', ['==', '$type', 'Point'], ['has', 'ref']],
             layout: {
                 'text-field': ['get', 'ref'],
-                'text-size': ['interpolate', ['linear'], ['zoom'], 16, 9, 18, 11],
+                'text-size': ['interpolate', ['linear'], ['zoom'], 16, 10, 18, 12],
                 'text-font': ['Open Sans Bold', 'Arial Unicode MS Bold'],
-                'text-offset': [0, 1.2],
+                'text-offset': [0, 1.5],
                 'text-anchor': 'top',
-                'text-allow-overlap': false,
-                'text-letter-spacing': 0.05
+                'text-allow-overlap': false
             },
             paint: {
                 'text-color': '#ffffff',
-                // Thick halo creates the "tag" / pill background look
-                'text-halo-color': '#111111',
-                'text-halo-width': 2.5,
-                'text-halo-blur': 0.5,
+                'text-halo-color': '#000000',
+                'text-halo-width': 3,
                 'text-opacity': [
                     'interpolate', ['linear'], ['zoom'],
-                    15.5, 0,
-                    16, 1
+                    16, 0,
+                    16.5, 1
                 ]
             }
         });
@@ -214,6 +228,7 @@ export const AirportLayoutManager = {
             sourceId, 
             layers: [
                 pavementLayerId, 
+                taxiOutlineLayerId, 
                 taxiLineLayerId, 
                 gateLineLayerId, 
                 taxiLabelLayerId, 
@@ -235,7 +250,6 @@ export const AirportLayoutManager = {
                                  coords[0][0] === coords[coords.length-1][0] && 
                                  coords[0][1] === coords[coords.length-1][1];
 
-                // Check if it's an apron or hangar area (Polygon) vs a line (Taxiway/Guideline)
                 const isArea = element.tags && (element.tags.aeroway === 'apron' || element.tags.aeroway === 'hangar');
 
                 if ((isClosed && isArea) || element.type === 'relation') {
