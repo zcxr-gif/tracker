@@ -1,4 +1,5 @@
 import { MapAnimator } from './mapAnimator.js';
+import { AirportLayoutManager } from './airportLayout.js';
 
 document.addEventListener('DOMContentLoaded', async () => {
     // --- Global Configuration ---
@@ -6722,52 +6723,58 @@ async function updateLiveFlights() {
 
 
     function setupAirportWindowEvents() {
-        if (!airportInfoWindow || airportInfoWindow.dataset.eventsAttached === 'true') return;
+    if (!airportInfoWindow || airportInfoWindow.dataset.eventsAttached === 'true') return;
 
-        // Use Event Delegation on the main container
-        airportInfoWindow.addEventListener('click', (e) => {
-            const closeBtn = e.target.closest('#airport-window-close-btn');
-            const hideBtn = e.target.closest('#airport-window-hide-btn');
+    // Use Event Delegation on the main container
+    airportInfoWindow.addEventListener('click', (e) => {
+        const closeBtn = e.target.closest('#airport-window-close-btn');
+        const hideBtn = e.target.closest('#airport-window-hide-btn');
+        
+        // --- [NEW] Accordion Toggle Logic ---
+        const toggleBtn = e.target.closest('#runway-accordion-toggle');
+        if (toggleBtn) {
+            const content = document.getElementById('runway-accordion-content');
+            if (content) {
+                toggleBtn.classList.toggle('open');
+                content.classList.toggle('open');
+            }
+        }
+
+        if (closeBtn) {
+            airportInfoWindow.classList.remove('visible');
+            if (window.MobileUIHandler) MobileUIHandler.closeActiveWindow();
+            airportInfoWindowRecallBtn.classList.remove('visible');
             
-            // --- [NEW] Accordion Toggle Logic ---
-            const toggleBtn = e.target.closest('#runway-accordion-toggle');
-            if (toggleBtn) {
-                const content = document.getElementById('runway-accordion-content');
-                if (content) {
-                    toggleBtn.classList.toggle('open');
-                    content.classList.toggle('open');
-                }
+            // Cleanup map layers
+            clearRouteLayers(); 
+            if (typeof AirportLayoutManager !== 'undefined' && sectorOpsMap) {
+                AirportLayoutManager.clearAll(sectorOpsMap);
             }
+            
+            currentAirportInWindow = null;
+        }
 
-            if (closeBtn) {
-                airportInfoWindow.classList.remove('visible');
-                if (window.MobileUIHandler) MobileUIHandler.closeActiveWindow();
-                airportInfoWindowRecallBtn.classList.remove('visible');
-                clearRouteLayers(); 
-                currentAirportInWindow = null;
-            }
-
-            if (hideBtn) {
-                airportInfoWindow.classList.remove('visible');
-                if (currentAirportInWindow) {
-                    airportInfoWindowRecallBtn.classList.add('visible');
-                    airportInfoWindowRecallBtn.classList.add('palpitate');
-                    setTimeout(() => {
-                        airportInfoWindowRecallBtn.classList.remove('palpitate');
-                    }, 1000);
-                }
-            }
-        });
-
-        airportInfoWindowRecallBtn.addEventListener('click', () => {
+        if (hideBtn) {
+            airportInfoWindow.classList.remove('visible');
             if (currentAirportInWindow) {
-                airportInfoWindow.classList.add('visible');
-                airportInfoWindowRecallBtn.classList.remove('visible');
+                airportInfoWindowRecallBtn.classList.add('visible');
+                airportInfoWindowRecallBtn.classList.add('palpitate');
+                setTimeout(() => {
+                    airportInfoWindowRecallBtn.classList.remove('palpitate');
+                }, 1000);
             }
-        });
+        }
+    });
 
-        airportInfoWindow.dataset.eventsAttached = 'true';
-    }
+    airportInfoWindowRecallBtn.addEventListener('click', () => {
+        if (currentAirportInWindow) {
+            airportInfoWindow.classList.add('visible');
+            airportInfoWindowRecallBtn.classList.remove('visible');
+        }
+    });
+
+    airportInfoWindow.dataset.eventsAttached = 'true';
+}
     
 
 function setupAircraftWindowEvents() {
@@ -8179,67 +8186,79 @@ function updateFlightPlanLayer(flightId, plan, currentPosition) {
 
 
     async function handleAirportClick(icao) {
-        if (currentAirportInWindow && currentAirportInWindow !== icao) {
-            airportInfoWindow.classList.remove('visible');
-            airportInfoWindowRecallBtn.classList.remove('visible');
-            clearRouteLayers();
-        }
-
-        plotRoutesFromAirport(icao);
-
-        const airport = airportsData[icao];
-        if (!airport) return;
-
-        const contentEl = document.getElementById('airport-window-content');
-        contentEl.innerHTML = `<div class="spinner-small" style="margin: 2rem auto;"></div>`; // Loading state
-        
-        // --- MOVED UP: Trigger Mobile UI immediately to show the sheet ---
-        if (window.MobileUIHandler && window.MobileUIHandler.isMobile()) {
-            window.MobileUIHandler.openWindow(airportInfoWindow);
-        } else {
-            airportInfoWindow.classList.add('visible');
-        }
-
+    // 1. Cleanup existing state if switching airports
+    if (currentAirportInWindow && currentAirportInWindow !== icao) {
+        airportInfoWindow.classList.remove('visible');
         airportInfoWindowRecallBtn.classList.remove('visible');
-        currentAirportInWindow = icao;
-
-        const windowContentHTML = await createAirportInfoWindowHTML(icao);
-
-        if (windowContentHTML) {
-            contentEl.innerHTML = windowContentHTML;
-            contentEl.scrollTop = 0;
-
-            // --- REDESIGNED TAB SWITCHING LOGIC ---
-            const tabContainer = contentEl.querySelector('.apt-tabs-header');
-            if (tabContainer) {
-                tabContainer.addEventListener('click', (e) => {
-                    const btn = e.target.closest('.apt-tab-btn');
-                    if (!btn) return;
-
-                    const allBtns = tabContainer.querySelectorAll('.apt-tab-btn');
-                    allBtns.forEach(b => b.classList.remove('active'));
-
-                    btn.classList.add('active');
-
-                    const allContent = contentEl.querySelectorAll('.apt-tab-content');
-                    allContent.forEach(content => content.classList.remove('active'));
-
-                    const targetId = btn.dataset.target;
-                    const targetContent = contentEl.querySelector(`#${targetId}`);
-                    if (targetContent) {
-                        targetContent.classList.add('active');
-                    }
-                });
-            }
-        } else {
-             airportInfoWindow.classList.remove('visible');
-             // Also close mobile window if fetch failed
-             if (window.MobileUIHandler && window.MobileUIHandler.isMobile()) {
-                 window.MobileUIHandler.closeActiveWindow();
-             }
-             currentAirportInWindow = null;
+        clearRouteLayers();
+        
+        // NEW: Clear taxiway layouts from the map
+        if (typeof AirportLayoutManager !== 'undefined') {
+            AirportLayoutManager.clearAll(sectorOpsMap);
         }
     }
+
+    // 2. Plot Routes (Existing logic)
+    plotRoutesFromAirport(icao);
+
+    const airport = airportsData[icao];
+    if (!airport) return;
+
+    // 3. NEW: Plot Taxiway Layouts
+    // We use the lat/lon from the airport data to trigger the Overpass API fetch
+    if (typeof AirportLayoutManager !== 'undefined' && sectorOpsMap) {
+        AirportLayoutManager.plotTaxiways(sectorOpsMap, icao, airport.lat, airport.lon);
+    }
+
+    const contentEl = document.getElementById('airport-window-content');
+    contentEl.innerHTML = `<div class="spinner-small" style="margin: 2rem auto;"></div>`;
+    
+    // --- MOVED UP: Trigger Mobile UI immediately to show the sheet ---
+    if (window.MobileUIHandler && window.MobileUIHandler.isMobile()) {
+        window.MobileUIHandler.openWindow(airportInfoWindow);
+    } else {
+        airportInfoWindow.classList.add('visible');
+    }
+
+    airportInfoWindowRecallBtn.classList.remove('visible');
+    currentAirportInWindow = icao;
+
+    const windowContentHTML = await createAirportInfoWindowHTML(icao);
+    if (windowContentHTML) {
+        contentEl.innerHTML = windowContentHTML;
+        contentEl.scrollTop = 0;
+
+        // --- REDESIGNED TAB SWITCHING LOGIC ---
+        const tabContainer = contentEl.querySelector('.apt-tabs-header');
+        if (tabContainer) {
+            tabContainer.addEventListener('click', (e) => {
+                const btn = e.target.closest('.apt-tab-btn');
+                if (!btn) return;
+
+                const allBtns = tabContainer.querySelectorAll('.apt-tab-btn');
+                allBtns.forEach(b => b.classList.remove('active'));
+
+                btn.classList.add('active');
+
+                const allContent = contentEl.querySelectorAll('.apt-tab-content');
+                allContent.forEach(content => content.classList.remove('active'));
+
+                const targetId = btn.dataset.target;
+                const targetContent = contentEl.querySelector(`#${targetId}`);
+                if (targetContent) {
+                    targetContent.classList.add('active');
+                }
+            });
+        }
+    } else {
+         airportInfoWindow.classList.remove('visible');
+         // Also close mobile window if fetch failed
+         if (window.MobileUIHandler && window.MobileUIHandler.isMobile()) {
+             window.MobileUIHandler.closeActiveWindow();
+         }
+         currentAirportInWindow = null;
+    }
+}
 
     /**
  * --- [NEW HELPER FUNCTION FOR WAYPOINT FIX] ---
