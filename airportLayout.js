@@ -1,6 +1,6 @@
 /**
  * airportLayout.js
- * Professional Airport Styling: Taxiway Markings, Pavement, and Signage.
+ * High-fidelity Airport Layout: Widened coverage and enhanced cartography.
  */
 
 export const AirportLayoutManager = {
@@ -24,9 +24,23 @@ export const AirportLayoutManager = {
         if (this.layoutCache.has(icao)) {
             geojsonData = this.layoutCache.get(icao);
         } else {
-            // Fetching taxiways, parking positions, and gates
-            const bbox = `${lat - 0.02},${lon - 0.04},${lat + 0.02},${lon + 0.04}`;
-            const query = `[out:json][timeout:30];(way["aeroway"~"taxiway|parking_position|apron"](${bbox});relation["aeroway"~"taxiway|parking_position|apron"](${bbox});node["aeroway"~"gate|parking_position"](${bbox}););out geom;`;
+            /**
+             * 1. WIDENED AREA & IMPROVED QUERY
+             * Increased bbox to ~0.06 degrees (approx 6-7km coverage) to handle large hubs like JFK/DFW.
+             * Added 'taxilane' and 'apron_way' to capture internal terminal paths.
+             */
+            const buffer = 0.05; 
+            const bbox = `${lat - (buffer/2)},${lon - buffer},${lat + (buffer/2)},${lon + buffer}`;
+            
+            // Comprehensive query for all airport infrastructure
+            const query = `[out:json][timeout:45];
+                (
+                  way["aeroway"~"taxiway|taxilane|apron|apron_way|runway"](${bbox});
+                  relation["aeroway"~"taxiway|taxilane|apron|apron_way|runway"](${bbox});
+                  node["aeroway"~"gate|parking_position"](${bbox});
+                );
+                out geom;`;
+            
             const url = `https://overpass-api.de/api/interpreter?data=${encodeURIComponent(query)}`;
 
             try {
@@ -48,33 +62,54 @@ export const AirportLayoutManager = {
             data: geojsonData
         });
 
-        // 1. PAVEMENT (The Asphalt)
+        // 2. ENHANCED PAVEMENT (Darker, cleaner polygons)
         map.addLayer({
             id: pavementLayerId,
             type: 'fill',
             source: sourceId,
             filter: ['==', '$type', 'Polygon'],
             paint: {
-                'fill-color': '#1a1a1a', // Deep charcoal black
-                'fill-opacity': 0.8
+                'fill-color': [
+                    'match',
+                    ['get', 'aeroway'],
+                    'runway', '#0a0a0a', // Runways are darkest
+                    '#1e1e1e'            // Aprons and taxiways
+                ],
+                'fill-opacity': 0.85
             }
         }, 'sector-ops-live-flights-layer');
 
-        // 2. TAXIWAY CENTERLINES (The Yellow Lines)
+        // 3. TAXIWAY CENTERLINES (Professional styling)
         map.addLayer({
             id: taxiLineLayerId,
             type: 'line',
             source: sourceId,
-            filter: ['==', '$type', 'LineString'],
-            layout: { 'line-join': 'round', 'line-cap': 'round' },
+            filter: ['all', 
+                ['==', '$type', 'LineString'],
+                ['!=', 'aeroway', 'runway'] // Don't put yellow lines on runways
+            ],
+            layout: { 
+                'line-join': 'round', 
+                'line-cap': 'round' 
+            },
             paint: {
-                'line-color': '#fde047', // Standard Aviation Yellow
-                'line-width': ['interpolate', ['exponential', 1.5], ['zoom'], 13, 0.8, 16, 2.5, 18, 6],
-                'line-opacity': 0.9
+                'line-color': '#fde047',
+                'line-width': [
+                    'interpolate', ['exponential', 1.5], ['zoom'], 
+                    12, 0.2, 
+                    14, 1.2, 
+                    16, 2.5, 
+                    18, 5
+                ],
+                'line-opacity': [
+                    'interpolate', ['linear'], ['zoom'],
+                    12, 0.2,
+                    14, 1.0
+                ]
             }
         });
 
-        // 3. TAXIWAY SIGNAGE (Yellow text on black backgrounds)
+        // 4. TAXIWAY LABELS (Small, subtle guidance)
         map.addLayer({
             id: taxiLabelLayerId,
             type: 'symbol',
@@ -83,21 +118,20 @@ export const AirportLayoutManager = {
             layout: {
                 'text-field': ['get', 'ref'],
                 'symbol-placement': 'line',
-                'text-size': ['interpolate', ['linear'], ['zoom'], 14, 10, 17, 14],
+                'symbol-spacing': 300,
+                'text-size': ['interpolate', ['linear'], ['zoom'], 14, 9, 17, 12],
                 'text-font': ['Open Sans Bold', 'Arial Unicode MS Bold'],
-                'text-letter-spacing': 0.1,
-                'text-max-angle': 30,
-                'text-rotation-alignment': 'map'
+                'text-rotation-alignment': 'map',
+                'text-pitch-alignment': 'viewport'
             },
             paint: {
                 'text-color': '#fde047',
                 'text-halo-color': '#000',
-                'text-halo-width': 2,
-                'text-halo-blur': 0
+                'text-halo-width': 1.5
             }
         });
 
-        // 4. GATE POINTS (The actual parking spot)
+        // 5. GATE/PARKING STANDS (Professional circle markers)
         map.addLayer({
             id: gateCircleLayerId,
             type: 'circle',
@@ -107,14 +141,14 @@ export const AirportLayoutManager = {
                 ['match', ['get', 'aeroway'], ['gate', 'parking_position'], true, false]
             ],
             paint: {
-                'circle-radius': ['interpolate', ['linear'], ['zoom'], 15, 2, 18, 5],
-                'circle-color': '#1a1a1a',
-                'circle-stroke-width': 2,
-                'circle-stroke-color': '#fde047'
+                'circle-radius': ['interpolate', ['linear'], ['zoom'], 14, 1.5, 17, 4],
+                'circle-color': '#fde047',
+                'circle-stroke-width': 1,
+                'circle-stroke-color': '#000'
             }
         });
 
-        // 5. GATE LABELS (White/Bold text for Terminal Gates)
+        // 6. GATE LABELS (High contrast for readability)
         map.addLayer({
             id: gateLabelLayerId,
             type: 'symbol',
@@ -122,15 +156,16 @@ export const AirportLayoutManager = {
             filter: ['all', ['==', '$type', 'Point'], ['has', 'ref']],
             layout: {
                 'text-field': ['get', 'ref'],
-                'text-size': ['interpolate', ['linear'], ['zoom'], 15, 8, 18, 12],
+                'text-size': ['interpolate', ['linear'], ['zoom'], 15, 8, 18, 11],
                 'text-font': ['Open Sans Bold', 'Arial Unicode MS Bold'],
-                'text-offset': [0, 1.2],
-                'text-anchor': 'top'
+                'text-offset': [0, 1.5],
+                'text-anchor': 'top',
+                'text-allow-overlap': false
             },
             paint: {
                 'text-color': '#ffffff',
-                'text-halo-color': '#000',
-                'text-halo-width': 1
+                'text-halo-color': '#111',
+                'text-halo-width': 2
             }
         });
 
