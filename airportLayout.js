@@ -1,7 +1,7 @@
 /**
  * airportLayout.js
- * Enhanced Airport Layout: Features high-realism runways and smart-masking taxiways.
- * Fixed Layout Ordering: Taxiways < Lines < Runways (Mask) < Planes
+ * Enhanced Airport Layout
+ * FIX: Adds "Line-based" runway pavement to ensure runways appear even if OSM data lacks polygons.
  */
 
 export const AirportLayoutManager = {
@@ -12,12 +12,13 @@ export const AirportLayoutManager = {
         if (!map) return;
 
         const sourceId = `airport-${icao}-source`;
-        const planeLayerId = 'sector-ops-live-flights-layer'; // The Anchor: Everything goes UNDER this
+        const planeLayerId = 'sector-ops-live-flights-layer'; // The Anchor
         
         // Layer IDs
         const taxiOutlineLayerId = `taxi-outline-${icao}`;
-        const taxiwayPavementId = `pavement-taxi-${icao}`; // NEW: Split pavement
-        const runwayPavementId = `pavement-runway-${icao}`; // NEW: Split pavement
+        const taxiwayPavementId = `pavement-taxi-${icao}`;
+        const runwayPavementPolyId = `pavement-runway-poly-${icao}`;
+        const runwayPavementLineId = `pavement-runway-line-${icao}`; // NEW: Thick line pavement
         const taxiLineLayerId = `taxi-line-${icao}`;
         const runwayMarkingId = `runway-marks-${icao}`;
         const runwayEdgeId = `runway-edges-${icao}`;
@@ -30,12 +31,14 @@ export const AirportLayoutManager = {
 
         let geojsonData;
 
+        // ... (Caching and Fetching logic remains the same) ...
         if (this.layoutCache.has(icao)) {
             geojsonData = this.layoutCache.get(icao);
         } else {
             const buffer = 0.05; 
             const bbox = `${lat - (buffer/2)},${lon - buffer},${lat + (buffer/2)},${lon + buffer}`;
             
+            // Standard Overpass Query
             const query = `[out:json][timeout:45];
                 (
                   way["aeroway"~"taxiway|taxilane|apron|apron_way|runway|parking_guideline"](${bbox});
@@ -65,7 +68,7 @@ export const AirportLayoutManager = {
             data: geojsonData
         });
 
-        // --- NEW LAYER STACKING ORDER ---
+        // --- LAYER STACKING ORDER ---
 
         // 1. TAXIWAY OUTLINES (Bottom)
         map.addLayer({
@@ -80,16 +83,12 @@ export const AirportLayoutManager = {
             layout: { 'line-join': 'round', 'line-cap': 'round' },
             paint: {
                 'line-color': '#000000',
-                'line-width': [
-                    'interpolate', ['exponential', 1.5], ['zoom'], 
-                    12, 1.5, 14, 4, 16, 10, 18, 20
-                ],
+                'line-width': ['interpolate', ['exponential', 1.5], ['zoom'], 12, 1.5, 14, 4, 16, 10, 18, 20],
                 'line-opacity': ['interpolate', ['linear'], ['zoom'], 13, 0, 14, 0.8]
             }
         }, planeLayerId);
 
-        // 2. TAXIWAY/APRON PAVEMENT (Concrete Gray)
-        // We render this BEFORE the yellow lines, so yellow lines sit ON TOP of taxiways.
+        // 2. TAXIWAY PAVEMENT (Concrete Gray)
         map.addLayer({
             id: taxiwayPavementId,
             type: 'fill',
@@ -101,8 +100,7 @@ export const AirportLayoutManager = {
             }
         }, planeLayerId);
 
-        // 3. TAXIWAY LINES (Yellow)
-        // These now sit on top of taxiways, BUT...
+        // 3. TAXIWAY LINES (Yellow) - Sits on top of taxiways
         map.addLayer({
             id: taxiLineLayerId,
             type: 'line',
@@ -115,30 +113,47 @@ export const AirportLayoutManager = {
             layout: { 'line-join': 'round', 'line-cap': 'round' },
             paint: {
                 'line-color': '#fde047',
-                'line-width': [
-                    'interpolate', ['exponential', 1.5], ['zoom'], 
-                    12, 0.4, 14, 1.2, 16, 3, 18, 6
-                ],
+                'line-width': ['interpolate', ['exponential', 1.5], ['zoom'], 12, 0.4, 14, 1.2, 16, 3, 18, 6],
                 'line-opacity': ['interpolate', ['linear'], ['zoom'], 12, 0, 13, 1]
             }
         }, planeLayerId);
 
-        // 4. RUNWAY PAVEMENT (Asphalt Black) - THE MASK
-        // Critically, this is drawn AFTER the yellow lines. 
-        // Any yellow line crossing the runway will be covered by this layer.
+        // 4. RUNWAY PAVEMENT - LINE VERSION (The Fix!)
+        // If the runway is just a line in OSM, this draws a ~45m wide black line to act as pavement.
+        // It sits ON TOP of taxi lines, hiding them.
         map.addLayer({
-            id: runwayPavementId,
+            id: runwayPavementLineId,
+            type: 'line',
+            source: sourceId,
+            filter: ['all', ['==', 'aeroway', 'runway'], ['==', '$type', 'LineString']],
+            layout: { 'line-cap': 'square', 'line-join': 'miter' },
+            paint: {
+                'line-color': '#0f0f0f',
+                // Width roughly approximates a 45m-60m runway in pixels across zoom levels
+                'line-width': ['interpolate', ['exponential', 1.5], ['zoom'], 
+                    10, 2, 
+                    12, 6, 
+                    14, 25, 
+                    16, 80, 
+                    18, 200
+                ]
+            }
+        }, planeLayerId);
+
+        // 5. RUNWAY PAVEMENT - POLYGON VERSION
+        // Handles high-detail airports where runways are actual defined areas.
+        map.addLayer({
+            id: runwayPavementPolyId,
             type: 'fill',
             source: sourceId,
             filter: ['all', ['==', '$type', 'Polygon'], ['==', 'aeroway', 'runway']],
             paint: {
                 'fill-color': '#0f0f0f',
-                'fill-opacity': 1.0 // Must be 1.0 to fully hide the lines underneath
+                'fill-opacity': 1.0
             }
         }, planeLayerId);
 
-        // 5. RUNWAY MARKINGS (White Dashes)
-        // Drawn on top of the black runway pavement.
+        // 6. RUNWAY MARKINGS (White Dashes)
         map.addLayer({
             id: runwayMarkingId,
             type: 'line',
@@ -152,7 +167,7 @@ export const AirportLayoutManager = {
             }
         }, planeLayerId);
 
-        // 6. RUNWAY EDGES
+        // 7. REMAINING DETAILS (Edges, Gates, Labels)
         map.addLayer({
             id: runwayEdgeId,
             type: 'line',
@@ -165,7 +180,6 @@ export const AirportLayoutManager = {
             }
         }, planeLayerId);
 
-        // 7. GATES & LABELS (Top details)
         map.addLayer({
             id: gateLineLayerId,
             type: 'line',
@@ -236,7 +250,8 @@ export const AirportLayoutManager = {
             layers: [
                 taxiOutlineLayerId,
                 taxiwayPavementId,
-                runwayPavementId,
+                runwayPavementPolyId,
+                runwayPavementLineId, // Track the new layer
                 runwayMarkingId,
                 runwayEdgeId,
                 taxiLineLayerId, 
@@ -247,7 +262,8 @@ export const AirportLayoutManager = {
             ] 
         });
     },
-
+    
+    // ... (processOsmData and clearAll remain unchanged) ...
     processOsmData(elements) {
         const features = [];
         elements.forEach(element => {
