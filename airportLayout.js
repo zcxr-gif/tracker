@@ -1,95 +1,105 @@
 /**
  * airportLayout.js
- * Optimized fetching of taxiway lines, polygons, and GATES/PARKING with local session caching.
+ * Professional Airport Styling: Taxiway Markings, Pavement, and Signage.
  */
 
 export const AirportLayoutManager = {
     activeLayers: new Set(),
-    // Cache to store GeoJSON data by ICAO code to prevent redundant API calls
     layoutCache: new Map(),
 
-    /**
-     * Fetches taxiway and gate data from OSM with caching and error handling.
-     */
     async plotTaxiways(map, icao, lat, lon) {
         if (!map) return;
 
-        const sourceId = `taxiways-${icao}-source`;
-        const lineLayerId = `taxiways-${icao}-line-layer`;
-        const fillLayerId = `taxiways-${icao}-fill-layer`;
-        const labelLayerId = `taxiways-${icao}-label-layer`;
-        const gateLayerId = `taxiways-${icao}-gate-layer`;
+        const sourceId = `airport-${icao}-source`;
+        const pavementLayerId = `pavement-${icao}`;
+        const taxiLineLayerId = `taxi-line-${icao}`;
+        const gateCircleLayerId = `gate-point-${icao}`;
+        const taxiLabelLayerId = `taxi-label-${icao}`;
+        const gateLabelLayerId = `gate-label-${icao}`;
 
-        // 1. Cleanup current view
         this.clearAll(map);
 
         let geojsonData;
 
-        // 2. Check if we already have this airport's data in the cache
         if (this.layoutCache.has(icao)) {
             geojsonData = this.layoutCache.get(icao);
         } else {
-            // 3. Fetch from Overpass API
-            // Expanded bbox slightly to ensure we catch all terminal gates
+            // Fetching taxiways, parking positions, and gates
             const bbox = `${lat - 0.02},${lon - 0.04},${lat + 0.02},${lon + 0.04}`;
-            
-            // Query for taxiways, gates, and parking positions
-            const query = `[out:json][timeout:30];(way["aeroway"~"taxiway|parking_position"](${bbox});relation["aeroway"~"taxiway|parking_position"](${bbox});node["aeroway"~"gate|parking_position"](${bbox}););out geom;`;
+            const query = `[out:json][timeout:30];(way["aeroway"~"taxiway|parking_position|apron"](${bbox});relation["aeroway"~"taxiway|parking_position|apron"](${bbox});node["aeroway"~"gate|parking_position"](${bbox}););out geom;`;
             const url = `https://overpass-api.de/api/interpreter?data=${encodeURIComponent(query)}`;
 
             try {
                 const response = await fetch(url);
                 if (!response.ok) return;
-
                 const data = await response.json();
                 if (!data.elements || data.elements.length === 0) return;
 
-                // Process OSM data into GeoJSON
                 geojsonData = this.processOsmData(data.elements);
                 this.layoutCache.set(icao, geojsonData);
-
             } catch (error) {
-                console.error(`AirportLayout error for ${icao}:`, error);
+                console.error(`AirportLayout error:`, error);
                 return;
             }
         }
 
-        // 4. Add the data to the map
         map.addSource(sourceId, {
             type: 'geojson',
             data: geojsonData
         });
 
-        // Fill Layer (Asphalt/Aprons)
+        // 1. PAVEMENT (The Asphalt)
         map.addLayer({
-            id: fillLayerId,
+            id: pavementLayerId,
             type: 'fill',
             source: sourceId,
             filter: ['==', '$type', 'Polygon'],
             paint: {
-                'fill-color': '#27272a',
-                'fill-opacity': 0.5
+                'fill-color': '#1a1a1a', // Deep charcoal black
+                'fill-opacity': 0.8
             }
         }, 'sector-ops-live-flights-layer');
 
-        // Line Layer (Taxiway Markings)
+        // 2. TAXIWAY CENTERLINES (The Yellow Lines)
         map.addLayer({
-            id: lineLayerId,
+            id: taxiLineLayerId,
             type: 'line',
             source: sourceId,
             filter: ['==', '$type', 'LineString'],
             layout: { 'line-join': 'round', 'line-cap': 'round' },
             paint: {
-                'line-color': '#fde047',
-                'line-width': ['interpolate', ['exponential', 1.5], ['zoom'], 12, 0.5, 16, 2, 18, 5],
-                'line-opacity': 0.8
+                'line-color': '#fde047', // Standard Aviation Yellow
+                'line-width': ['interpolate', ['exponential', 1.5], ['zoom'], 13, 0.8, 16, 2.5, 18, 6],
+                'line-opacity': 0.9
             }
-        }, 'sector-ops-live-flights-layer');
+        });
 
-        // NEW: Gate/Parking Marker Layer
-        // This adds a small circle at the gate location
+        // 3. TAXIWAY SIGNAGE (Yellow text on black backgrounds)
         map.addLayer({
-            id: gateLayerId,
+            id: taxiLabelLayerId,
+            type: 'symbol',
+            source: sourceId,
+            filter: ['all', ['==', '$type', 'LineString'], ['has', 'ref']],
+            layout: {
+                'text-field': ['get', 'ref'],
+                'symbol-placement': 'line',
+                'text-size': ['interpolate', ['linear'], ['zoom'], 14, 10, 17, 14],
+                'text-font': ['Open Sans Bold', 'Arial Unicode MS Bold'],
+                'text-letter-spacing': 0.1,
+                'text-max-angle': 30,
+                'text-rotation-alignment': 'map'
+            },
+            paint: {
+                'text-color': '#fde047',
+                'text-halo-color': '#000',
+                'text-halo-width': 2,
+                'text-halo-blur': 0
+            }
+        });
+
+        // 4. GATE POINTS (The actual parking spot)
+        map.addLayer({
+            id: gateCircleLayerId,
             type: 'circle',
             source: sourceId,
             filter: ['all', 
@@ -97,47 +107,43 @@ export const AirportLayoutManager = {
                 ['match', ['get', 'aeroway'], ['gate', 'parking_position'], true, false]
             ],
             paint: {
-                'circle-radius': ['interpolate', ['linear'], ['zoom'], 14, 2, 17, 6],
-                'circle-color': '#fde047',
-                'circle-stroke-width': 1,
-                'circle-stroke-color': '#000'
+                'circle-radius': ['interpolate', ['linear'], ['zoom'], 15, 2, 18, 5],
+                'circle-color': '#1a1a1a',
+                'circle-stroke-width': 2,
+                'circle-stroke-color': '#fde047'
             }
         });
 
-        // NEW: Labels (Names for Taxiways AND Gates)
+        // 5. GATE LABELS (White/Bold text for Terminal Gates)
         map.addLayer({
-            id: labelLayerId,
+            id: gateLabelLayerId,
             type: 'symbol',
             source: sourceId,
-            filter: ['has', 'ref'],
+            filter: ['all', ['==', '$type', 'Point'], ['has', 'ref']],
             layout: {
                 'text-field': ['get', 'ref'],
-                'text-size': ['interpolate', ['linear'], ['zoom'], 13, 9, 16, 12],
+                'text-size': ['interpolate', ['linear'], ['zoom'], 15, 8, 18, 12],
                 'text-font': ['Open Sans Bold', 'Arial Unicode MS Bold'],
-                'text-allow-overlap': false,
-                'text-padding': 10
+                'text-offset': [0, 1.2],
+                'text-anchor': 'top'
             },
             paint: {
-                'text-color': '#fde047',
+                'text-color': '#ffffff',
                 'text-halo-color': '#000',
-                'text-halo-width': 1.5
+                'text-halo-width': 1
             }
         });
 
-        this.activeLayers.add({ sourceId, layers: [fillLayerId, lineLayerId, labelLayerId, gateLayerId] });
+        this.activeLayers.add({ 
+            sourceId, 
+            layers: [pavementLayerId, taxiLineLayerId, taxiLabelLayerId, gateCircleLayerId, gateLabelLayerId] 
+        });
     },
 
-    /**
-     * Internal helper to convert OSM elements to GeoJSON.
-     * Updated to handle Nodes (Gates/Stands).
-     */
     processOsmData(elements) {
         const features = [];
-
         elements.forEach(element => {
             let geometry = null;
-            let type = "Feature";
-
             if (element.type === 'node') {
                 geometry = { type: 'Point', coordinates: [element.lon, element.lat] };
             } else if (element.geometry) {
@@ -155,13 +161,12 @@ export const AirportLayoutManager = {
 
             if (geometry) {
                 features.push({
-                    type: type,
+                    type: "Feature",
                     geometry: geometry,
                     properties: { ...element.tags, osm_id: element.id }
                 });
             }
         });
-
         return { type: 'FeatureCollection', features: features };
     },
 
