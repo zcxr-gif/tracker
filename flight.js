@@ -6632,23 +6632,34 @@ async function createAirportInfoWindowHTML(icao) {
 
  
     /**
-     * Initializes the live operations map.
-     */
-    function initializeLiveMap() {
-        if (!MAPBOX_ACCESS_TOKEN) return;
-        if (document.getElementById('live-flights-map-container') && !liveFlightsMap) {
-            liveFlightsMap = new mapboxgl.Map({
-                container: 'live-flights-map-container',
-                style: 'mapbox://styles/mapbox/dark-v11',
-                center: [78.9629, 22.5937],
-                zoom: 4,
-                minZoom: 2
-            });
-            liveFlightsMap.on('load', startLiveLoop);
-        } else {
-            startLiveLoop();
-        }
+ * [UPDATED] Initializes the live flights map with synchronized performance and caching settings.
+ * Now matches the optimized configuration of the Sector Ops map.
+ */
+function initializeLiveMap() {
+    if (!MAPBOX_ACCESS_TOKEN) return;
+
+    // Check if the container exists and the map hasn't been initialized yet
+    if (document.getElementById('live-flights-map-container') && !liveFlightsMap) {
+        liveFlightsMap = new mapboxgl.Map({
+            container: 'live-flights-map-container',
+            style: currentMapStyle, // [SYNCED] Uses global style state
+            center: [78.9629, 22.5937],
+            zoom: 4,
+            minZoom: 2,
+            projection: 'globe',
+            // --- PERFORMANCE & CACHING CONFIG ---
+            fadeDuration: 0,           // [OPTIMIZED] Instant tile appearance from cache
+            maxTileCacheSize: 500,     // [OPTIMIZED] Larger RAM cache for tiles
+            crossSourceCollisions: false,
+            localIdeographFontFamily: "'Inter', 'sans-serif'",
+            preserveDrawingBuffer: true // Required for high-res captures
+        });
+
+        liveFlightsMap.on('load', startLiveLoop);
+    } else {
+        startLiveLoop();
     }
+}
 
     /**
      * Starts or restarts the live flight update interval.
@@ -7962,6 +7973,9 @@ async function setupMapLayersAndFog() {
     }
 }
 
+/**
+ * [UPDATED] Initializes the Sector Ops map with high-performance configurations.
+ */
 function initializeSectorOpsMap(centerICAO) {
     if (!MAPBOX_ACCESS_TOKEN) {
         document.getElementById('sector-ops-map-fullscreen').innerHTML = '<p class="map-error-msg">Map service not available.</p>';
@@ -7981,19 +7995,15 @@ function initializeSectorOpsMap(centerICAO) {
         style: currentMapStyle,
         center: centerCoords,
         zoom: 4.5,
+        minZoom: 2,
         interactive: true,
         projection: 'globe',
-        
-        // 1. DISABLING TILE FADING: Makes tiles appear instantly instead of the "loading" fade effect.
-        fadeDuration: 0, 
-        
-        // 2. RAM CACHING: Increases the number of tiles kept in memory to prevent re-loading when zooming back out.
-        maxTileCacheSize: 500, 
-        
-        // 3. PERFORMANCE FLAGS: Reduces overhead for a smoother "app-like" feel.
+        // --- PERFORMANCE & CACHING CONFIG ---
+        fadeDuration: 0,           // Instant rendering
+        maxTileCacheSize: 500,     // Broad tile caching
         crossSourceCollisions: false,
-        localIdeographFontFamily: "'Inter', 'sans-serif'", // Renders text locally
-        preserveDrawingBuffer: true // Required for your generateTripCard function to work correctly
+        localIdeographFontFamily: "'Inter', 'sans-serif'",
+        preserveDrawingBuffer: true 
     });
 
     sectorOpsMap.on('style.load', async () => {
