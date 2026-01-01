@@ -553,131 +553,130 @@ function injectCustomStyles() {
 
         .apt-live-tag {
             display: flex;
-            /* Changed to column-reverse so extra info appears ABOVE the ident */
             flex-direction: column-reverse;
             align-items: center;
             background: rgba(10, 15, 25, 0.9);
-            backdrop-filter: blur(8px);
-            border: 1px solid rgba(255, 255, 255, 0.2);
-            border-radius: 6px;
-            padding: 2px;
-            cursor: pointer;
+            backdrop-filter: blur(10px);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            border-radius: 8px;
+            padding: 4px 8px;
+            cursor: default;
             pointer-events: auto;
-            white-space: nowrap;
-            
-            transform: scale(var(--apt-tag-scale));
-            transform-origin: bottom center; /* Anchor growth to the bottom */
-            
-            transition: all 0.3s cubic-bezier(0.16, 1, 0.3, 1);
-            min-height: 22px; 
-            box-sizing: border-box;
-            user-select: none;
-            box-shadow: 0 4px 12px rgba(0,0,0,0.5);
+            transform-origin: bottom center;
+            transition: all 0.4s cubic-bezier(0.16, 1, 0.3, 1);
+            box-shadow: 0 4px 15px rgba(0,0,0,0.4);
         }
 
-        /* Hover Expansion Logic */
-        .apt-live-tag .apt-tag-extra {
+        /* --- THE EXPANSION LOGIC --- */
+        .atc-list-container {
             max-height: 0;
             opacity: 0;
             overflow: hidden;
-            transition: all 0.3s ease;
-            width: 100%;
             display: flex;
             flex-direction: column;
-            align-items: center;
-            border-bottom: 0px solid rgba(255,255,255,0.1);
+            gap: 6px;
+            width: 100%;
+            transition: all 0.4s cubic-bezier(0.16, 1, 0.3, 1);
         }
 
-        /* Only trigger on mouse hover (no tapping) for desktop feel */
         @media (hover: hover) {
             .apt-live-tag:hover {
-                background: #0f172a;
-                border-color: #38bdf8;
-                z-index: 9999 !important;
-                padding-bottom: 4px;
+                background: rgba(7, 10, 15, 0.98);
+                border-color: rgba(56, 189, 248, 0.4);
+                padding: 8px;
             }
 
-            .apt-live-tag:hover .apt-tag-extra {
-                max-height: 50px; /* Expand upwards */
+            .apt-live-tag:hover .atc-list-container {
+                max-height: 300px;
                 opacity: 1;
-                padding-bottom: 4px;
-                margin-bottom: 4px;
-                border-bottom-width: 1px;
+                margin-bottom: 8px;
+                padding-bottom: 8px;
+                border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+            }
+
+            .apt-live-tag:hover .mini-pill-row {
+                opacity: 0;
+                transform: translateY(10px);
+                height: 0;
+                margin: 0;
             }
         }
 
-        .apt-tag-base {
+        /* --- CONTROLLER ROWS --- */
+        .atc-row-item {
             display: flex;
             align-items: center;
-            width: 100%;
-            height: 18px;
+            justify-content: space-between;
+            gap: 15px;
+            background: rgba(255, 255, 255, 0.03);
+            padding: 4px 8px;
+            border-radius: 5px;
+            border-left: 3px solid transparent;
         }
 
-        .apt-tag-extra-item {
-            font-size: 8px;
+        /* Logic for "Arranging" colors per row */
+        .atc-row-item.type-gnd { border-left-color: #94a3b8; }
+        .atc-row-item.type-twr { border-left-color: #3b82f6; }
+        .atc-row-item.type-rad { border-left-color: #8b5cf6; }
+        .atc-row-item.type-atis { border-left-color: #fbbf24; }
+
+        .atc-row-label {
+            display: flex;
+            flex-direction: column;
+        }
+
+        .atc-row-freq {
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 10px;
             font-weight: 800;
-            color: #38bdf8;
+            color: #fff;
+        }
+
+        .atc-row-type {
+            font-size: 8px;
             text-transform: uppercase;
+            color: rgba(255,255,255,0.5);
             letter-spacing: 0.5px;
-            font-family: 'JetBrains Mono', monospace;
         }
 
-        .apt-tag-extra-val {
+        .atc-row-time {
+            font-family: 'Inter', sans-serif;
             font-size: 9px;
-            color: #fff;
-            font-weight: 600;
+            font-weight: 700;
+            color: #38bdf8;
         }
 
-        /* Compact Mode */
-        .apt-live-tag.compact .apt-tag-freqs {
-            display: none;
-        }
-        
-        .apt-live-tag.compact {
-            padding: 2px 4px;
-        }
-
-        .apt-tag-ident {
-            font-family: 'JetBrains Mono', monospace;
-            font-weight: 800;
-            font-size: 11px;
-            color: #fff;
-            padding: 0 4px;
-        }
-
-        .apt-tag-freqs {
-            display: flex;
-            gap: 2px;
-            margin-left: 2px;
-            border-left: 1px solid rgba(255, 255, 255, 0.1);
-            padding-left: 4px;
-        }
-
-        .freq-mini-badge {
-            width: 14px;
-            height: 14px;
-            border-radius: 2px;
+        /* --- STATIC BASE (ICAO + MINI PILLS) --- */
+        .apt-tag-base-label {
             display: flex;
             align-items: center;
-            justify-content: center;
-            font-family: 'Inter', sans-serif;
-            font-size: 8px;
+            gap: 8px;
+            height: 20px;
+        }
+
+        .apt-tag-ident-text {
+            font-family: 'JetBrains Mono', monospace;
             font-weight: 900;
+            font-size: 13px;
             color: #fff;
         }
 
-        .f-gnd { background: #475569; }
-        .f-twr { background: #2563eb; }
-        .f-app { background: #7c3aed; }
-        .f-atis { background: #fbbf24; color: #000; }
-
-        .tag-pulse-aura {
-            position: absolute;
-            inset: -1px;
-            border-radius: 4px;
-            border: 1px solid rgba(124, 58, 237, 0.6);
-            pointer-events: none;
+        .mini-pill-row {
+            display: flex;
+            gap: 3px;
+            transition: all 0.3s ease;
         }
+
+        .mini-dot {
+            width: 5px;
+            height: 5px;
+            border-radius: 50%;
+        }
+
+        .dot-gnd { background: #94a3b8; }
+        .dot-twr { background: #3b82f6; }
+        .dot-rad { background: #8b5cf6; }
+        .dot-atis { background: #fbbf24; }
 
         /* --- IMPORT FONTS --- */
         @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;700&display=swap');
@@ -11724,7 +11723,7 @@ function renderAirportMarkers() {
     const hideNoAtc = mapFilters.hideNoAtcMarkers;
     const hideAtc = mapFilters.hideAtcMarkers;
 
-    // Clear old markers
+    // Remove existing markers
     Object.values(airportAndAtcMarkers).forEach(({ marker }) => marker.remove());
     airportAndAtcMarkers = {};
 
@@ -11753,60 +11752,59 @@ function renderAirportMarkers() {
             el.className = 'apt-live-tag';
             const airportAtc = activeAtcFacilities.filter(f => f.airportName === icao);
             
-            // --- NEW: Calculate Session Duration ---
-            // Find the facility that has been online the longest
-            const earliestStart = airportAtc.reduce((min, f) => {
+            // 1. THE EXPANDED CONTROLLER LIST
+            const listContainer = document.createElement('div');
+            listContainer.className = 'atc-list-container';
+
+            airportAtc.forEach(f => {
+                const row = document.createElement('div');
+                
+                let typeKey = 'gnd';
+                let typeName = 'Ground';
+                if (f.type === 1) { typeKey = 'twr'; typeName = 'Tower'; }
+                else if (f.type === 4 || f.type === 5) { typeKey = 'rad'; typeName = 'Radar'; }
+                else if (f.type === 7) { typeKey = 'atis'; typeName = 'ATIS'; }
+
+                row.className = `atc-row-item type-${typeKey}`;
+
+                // Calc Time Online
                 const start = new Date(f.startTime).getTime();
-                return start < min ? start : min;
-            }, Date.now());
-            
-            const diffMs = Date.now() - earliestStart;
-            const diffMins = Math.floor(diffMs / 60000);
-            const durationText = diffMins > 60 
-                ? `${Math.floor(diffMins/60)}h ${diffMins%60}m` 
-                : `${diffMins}m online`;
+                const diffMins = Math.floor((Date.now() - start) / 60000);
+                const duration = diffMins > 60 ? `${Math.floor(diffMins/60)}h ${diffMins%60}m` : `${diffMins}m`;
 
-            const hasGnd = airportAtc.some(f => f.type === 0);
-            const hasTwr = airportAtc.some(f => f.type === 1);
-            const hasApp = airportAtc.some(f => f.type === 4 || f.type === 5);
-            const hasAtis = airportAtc.some(f => f.type === 7);
+                row.innerHTML = `
+                    <div class="atc-row-label">
+                        <span class="atc-row-freq">${f.frequency.toFixed(3)}</span>
+                        <span class="atc-row-type">${typeName}</span>
+                    </div>
+                    <div class="atc-row-time">${duration}</div>
+                `;
+                listContainer.appendChild(row);
+            });
+            el.appendChild(listContainer);
 
-            if (hasApp) {
-                const aura = document.createElement('div');
-                aura.className = 'tag-pulse-aura';
-                el.appendChild(aura);
-            }
-
-            // 1. The Expandable Top Info (At reach)
-            const extra = document.createElement('div');
-            extra.className = 'apt-tag-extra';
-            extra.innerHTML = `
-                <div class="apt-tag-extra-item">Session</div>
-                <div class="apt-tag-extra-val">${durationText}</div>
-            `;
-            el.appendChild(extra);
-
-            // 2. The Base Tag (Static)
+            // 2. THE BASE (ICAO + Animated Mini Dots)
             const base = document.createElement('div');
-            base.className = 'apt-tag-base';
-            
-            const ident = document.createElement('div');
-            ident.className = 'apt-tag-ident';
+            base.className = 'apt-tag-base-label';
+
+            const ident = document.createElement('span');
+            ident.className = 'apt-tag-ident-text';
             ident.textContent = icao;
             base.appendChild(ident);
 
-            const freqs = document.createElement('div');
-            freqs.className = 'apt-tag-freqs';
-            if (hasAtis) freqs.innerHTML += `<div class="freq-mini-badge f-atis">A</div>`;
-            if (hasGnd) freqs.innerHTML += `<div class="freq-mini-badge f-gnd">G</div>`;
-            if (hasTwr) freqs.innerHTML += `<div class="freq-mini-badge f-twr">T</div>`;
-            if (hasApp) freqs.innerHTML += `<div class="freq-mini-badge f-app">R</div>`;
-            base.appendChild(freqs);
+            const dotRow = document.createElement('div');
+            dotRow.className = 'mini-pill-row';
             
+            // Add mini dots for each active type
+            if (airportAtc.some(f => f.type === 7)) dotRow.innerHTML += `<div class="mini-dot dot-atis"></div>`;
+            if (airportAtc.some(f => f.type === 0)) dotRow.innerHTML += `<div class="mini-dot dot-gnd"></div>`;
+            if (airportAtc.some(f => f.type === 1)) dotRow.innerHTML += `<div class="mini-dot dot-twr"></div>`;
+            if (airportAtc.some(f => f.type === 4 || f.type === 5)) dotRow.innerHTML += `<div class="mini-dot dot-rad"></div>`;
+            
+            base.appendChild(dotRow);
             el.appendChild(base);
 
         } else {
-            // Standard non-ATC dot
             el.className = 'destination-marker';
         }
 
