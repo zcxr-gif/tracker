@@ -8327,78 +8327,87 @@ function updateFlightPlanLayer(flightId, plan, currentPosition) {
 }
 
 
-    async function handleAirportClick(icao) {
-    // 1. Cleanup existing state if switching airports
+    /**
+ * Handles clicks on airport markers/tags. 
+ * High priority: This will always close the aircraft window if it is open.
+ */
+async function handleAirportClick(icao, event = null) {
+    if (!icao) return;
+
+    // --- MUTUAL EXCLUSION ---
+    // If the aircraft window is open, close it immediately
+    if (currentFlightInWindow) {
+        closeAircraftWindow();
+    }
+
+    // 1. Cleanup existing airport state if switching to a different airport
     if (currentAirportInWindow && currentAirportInWindow !== icao) {
         airportInfoWindow.classList.remove('visible');
-        airportInfoWindowRecallBtn.classList.remove('visible');
-        clearRouteLayers();
-        
-        // NEW: Clear taxiway layouts from the map
-        if (typeof AirportLayoutManager !== 'undefined') {
+        if (typeof airportInfoWindowRecallBtn !== 'undefined' && airportInfoWindowRecallBtn) {
+            airportInfoWindowRecallBtn.classList.remove('visible');
+        }
+        if (typeof clearRouteLayers === 'function') clearRouteLayers();
+        if (typeof AirportLayoutManager !== 'undefined' && sectorOpsMap) {
             AirportLayoutManager.clearAll(sectorOpsMap);
         }
     }
 
-    // 2. Plot Routes (Existing logic)
-    plotRoutesFromAirport(icao);
-
-    const airport = airportsData[icao];
-    if (!airport) return;
-
-    // 3. NEW: Plot Taxiway Layouts
-    // We use the lat/lon from the airport data to trigger the Overpass API fetch
-    if (typeof AirportLayoutManager !== 'undefined' && sectorOpsMap) {
+    // 2. Initialize Map Visuals for the Airport
+    if (typeof plotRoutesFromAirport === 'function') plotRoutesFromAirport(icao);
+    
+    const airport = airportsData ? airportsData[icao] : null;
+    if (airport && typeof AirportLayoutManager !== 'undefined' && sectorOpsMap) {
         AirportLayoutManager.plotTaxiways(sectorOpsMap, icao, airport.lat, airport.lon);
     }
 
+    // 3. Prepare UI Container
     const contentEl = document.getElementById('airport-window-content');
-    contentEl.innerHTML = `<div class="spinner-small" style="margin: 2rem auto;"></div>`;
-    
-    // --- MOVED UP: Trigger Mobile UI immediately to show the sheet ---
+    if (contentEl) {
+        contentEl.innerHTML = `<div class="spinner-small" style="margin: 2rem auto;"></div>`;
+    }
+
+    // 4. Show Window
     if (window.MobileUIHandler && window.MobileUIHandler.isMobile()) {
         window.MobileUIHandler.openWindow(airportInfoWindow);
     } else {
         airportInfoWindow.classList.add('visible');
     }
 
-    airportInfoWindowRecallBtn.classList.remove('visible');
+    if (typeof airportInfoWindowRecallBtn !== 'undefined' && airportInfoWindowRecallBtn) {
+        airportInfoWindowRecallBtn.classList.remove('visible');
+    }
+    
     currentAirportInWindow = icao;
 
-    const windowContentHTML = await createAirportInfoWindowHTML(icao);
-    if (windowContentHTML) {
-        contentEl.innerHTML = windowContentHTML;
-        contentEl.scrollTop = 0;
+    // 5. Fetch and Render Data
+    try {
+        const windowContentHTML = await createAirportInfoWindowHTML(icao);
+        if (windowContentHTML && contentEl) {
+            contentEl.innerHTML = windowContentHTML;
+            contentEl.scrollTop = 0;
 
-        // --- REDESIGNED TAB SWITCHING LOGIC ---
-        const tabContainer = contentEl.querySelector('.apt-tabs-header');
-        if (tabContainer) {
-            tabContainer.addEventListener('click', (e) => {
-                const btn = e.target.closest('.apt-tab-btn');
-                if (!btn) return;
-
-                const allBtns = tabContainer.querySelectorAll('.apt-tab-btn');
-                allBtns.forEach(b => b.classList.remove('active'));
-
-                btn.classList.add('active');
-
-                const allContent = contentEl.querySelectorAll('.apt-tab-content');
-                allContent.forEach(content => content.classList.remove('active'));
-
-                const targetId = btn.dataset.target;
-                const targetContent = contentEl.querySelector(`#${targetId}`);
-                if (targetContent) {
-                    targetContent.classList.add('active');
-                }
-            });
+            // Re-attach tab listeners for the new content
+            const tabContainer = contentEl.querySelector('.apt-tabs-header');
+            if (tabContainer) {
+                tabContainer.addEventListener('click', (e) => {
+                    const btn = e.target.closest('.apt-tab-btn');
+                    if (!btn) return;
+                    const allBtns = tabContainer.querySelectorAll('.apt-tab-btn');
+                    allBtns.forEach(b => b.classList.remove('active'));
+                    btn.classList.add('active');
+                    const allContent = contentEl.querySelectorAll('.apt-tab-content');
+                    allContent.forEach(content => content.classList.remove('active'));
+                    const targetId = btn.dataset.target;
+                    const targetContent = contentEl.querySelector(`#${targetId}`);
+                    if (targetContent) targetContent.classList.add('active');
+                });
+            }
+        } else if (!windowContentHTML) {
+            closeAirportWindow();
         }
-    } else {
-         airportInfoWindow.classList.remove('visible');
-         // Also close mobile window if fetch failed
-         if (window.MobileUIHandler && window.MobileUIHandler.isMobile()) {
-             window.MobileUIHandler.closeActiveWindow();
-         }
-         currentAirportInWindow = null;
+    } catch (err) {
+        console.error("Failed to load airport info:", err);
+        closeAirportWindow();
     }
 }
 
@@ -8835,191 +8844,175 @@ function closeAircraftWindow() {
     resetPfdState();
 }
 
-async function handleAircraftClick(flightProps, sessionId) {
+/**
+ * Handles clicks on aircraft markers.
+ * Includes a hit-test to prioritize airports if they overlap.
+ */
+async function handleAircraftClick(flightProps, sessionId, event = null) {
     if (!flightProps || !flightProps.flightId) return;
 
-    // --- [NEW] TRACK LEADERBOARD VIEW ---
-    // This is the missing line that fixes the leaderboard
-    trackPilotView(flightProps);
+    // --- BALANCE LOGIC: Prioritize Airport ---
+    // If there is an event, check if an airport marker is also at this location
+    if (event && sectorOpsMap) {
+        const airportFeatures = sectorOpsMap.queryRenderedFeatures(event.point, {
+            // Adjust 'airport-symbols-layer' to match your specific airport layer ID
+            layers: ['airport-symbols-layer', 'airport-label-layer'] 
+        });
 
-    // [RESILIENCE] Prevent new clicks if one is already loading
-    if (isAircraftWindowLoading) {
-        console.warn("Aircraft click ignored: window is already loading.");
-        return;
+        if (airportFeatures.length > 0) {
+            // An airport is here! Yield to the airport click handler and stop aircraft logic.
+            console.log("Airport detected at click point, prioritizing airport over aircraft.");
+            return; 
+        }
     }
 
-    // [ORIGINAL] Prevent re-opening an already open window for the same flight
+    // --- MUTUAL EXCLUSION ---
+    // If the airport window is open, close it before proceeding
+    if (currentAirportInWindow) {
+        closeAirportWindow();
+    }
+
+    // Standard Aircraft Window Logic Starts Here
+    if (typeof trackPilotView === 'function') trackPilotView(flightProps);
+
+    if (isAircraftWindowLoading) return;
     if (currentFlightInWindow === flightProps.flightId && aircraftInfoWindow.classList.contains('visible')) {
         return;
     }
 
-    // [RESILIENCE] Set loading flag
     isAircraftWindowLoading = true;
 
-    // --- [CRITICAL] Clear ALL existing intervals first ---
-    if (activePfdUpdateInterval) {
-        clearInterval(activePfdUpdateInterval);
-        activePfdUpdateInterval = null;
-    }
-    if (activeGeocodeUpdateInterval) {
-        clearInterval(activeGeocodeUpdateInterval);
-        activeGeocodeUpdateInterval = null;
-    }
+    // Reset Intervals and State
+    if (activePfdUpdateInterval) { clearInterval(activePfdUpdateInterval); activePfdUpdateInterval = null; }
+    if (activeGeocodeUpdateInterval) { clearInterval(activeGeocodeUpdateInterval); activeGeocodeUpdateInterval = null; }
+    if (typeof resetPfdState === 'function') resetPfdState();
 
-    resetPfdState();
-
-    // [ORIGINAL] Clear previous flight's path/cache
     if (currentFlightInWindow && currentFlightInWindow !== flightProps.flightId) {
-        clearLiveFlightPath(currentFlightInWindow);
-        liveTrailCache.delete(currentFlightInWindow);
+        if (typeof clearLiveFlightPath === 'function') clearLiveFlightPath(currentFlightInWindow);
+        if (typeof liveTrailCache !== 'undefined') liveTrailCache.delete(currentFlightInWindow);
     }
 
-    // --- Set State ---
-    currentFlightInWindow = flightProps.flightId; 
-    currentAircraftPositionForGeocode = flightProps.position; 
-    lastGeocodeCoords = { lat: 0, lon: 0 }; 
-    cachedFlightDataForStatsView = { flightProps: null, plan: null };
+    currentFlightInWindow = flightProps.flightId;
+    currentAircraftPositionForGeocode = flightProps.position;
 
-    // [UI] Show Window
+    // UI: Show Aircraft Window
     if (window.MobileUIHandler && window.MobileUIHandler.isMobile()) {
         window.MobileUIHandler.openWindow(aircraftInfoWindow);
     } else {
         aircraftInfoWindow.classList.add('visible');
     }
-    aircraftInfoWindowRecallBtn.classList.remove('visible');
-    
-    // [UI] Loading State
+    if (typeof aircraftInfoWindowRecallBtn !== 'undefined' && aircraftInfoWindowRecallBtn) {
+        aircraftInfoWindowRecallBtn.classList.remove('visible');
+    }
+
     const windowEl = document.getElementById('aircraft-info-window');
-    windowEl.innerHTML = `
-        <div style="display: flex; flex-direction: column; align-items: center; justify-content: center; height: 300px; color: #fff;">
-            <div class="spinner-small" style="margin-bottom: 1rem;"></div>
-            <p style="font-family: 'Inter', sans-serif; font-size: 0.9rem; color: #94a3b8;">Acquiring Flight & Aircraft Data...</p>
-        </div>
-    `;
+    if (windowEl) {
+        windowEl.innerHTML = `
+            <div style="display: flex; flex-direction: column; align-items: center; justify-content: center; height: 300px; color: #fff;">
+                <div class="spinner-small" style="margin-bottom: 1rem;"></div>
+                <p style="font-family: 'Inter', sans-serif; font-size: 0.9rem; color: #94a3b8;">Acquiring Flight Data...</p>
+            </div>
+        `;
+    }
 
     try {
-        const flownLayerId = `flown-path-${flightProps.flightId}`;
         const acName = flightProps.aircraft?.aircraftName || '';
         const livName = flightProps.aircraft?.liveryName || '';
-
+        
         const [planRes, routeRes, aircraftLookupRes] = await Promise.all([
             fetch(`${LIVE_FLIGHTS_API_URL}/${sessionId}/${flightProps.flightId}/plan`),
             fetch(`${LIVE_FLIGHTS_API_URL}/${sessionId}/${flightProps.flightId}/route`),
             fetch(`${API_BASE_URL}/api/aircraft/lookup?type=${encodeURIComponent(acName)}&livery=${encodeURIComponent(livName)}`)
         ]);
-        
+
         const planData = planRes.ok ? await planRes.json() : null;
         const plan = (planData && planData.ok) ? planData.plan : null;
         const routeData = routeRes.ok ? await routeRes.json() : null;
+        let communityAircraftData = aircraftLookupRes.ok ? await aircraftLookupRes.json() : null;
 
-        let communityAircraftData = null;
-        if (aircraftLookupRes.ok) {
-            communityAircraftData = await aircraftLookupRes.json();
-        }
-        
         let sortedRoutePoints = [];
-        if (routeData && routeData.ok && Array.isArray(routeData.route) && routeData.route.length > 0) {
-            sortedRoutePoints = routeData.route.sort((a, b) => {
-                const timeA = a.date ? new Date(a.date).getTime() : 0;
-                const timeB = b.date ? new Date(b.date).getTime() : 0;
-                return timeA - timeB;
-            });
+        if (routeData && routeData.ok && Array.isArray(routeData.route)) {
+            sortedRoutePoints = routeData.route.sort((a, b) => new Date(a.date) - new Date(b.date));
         }
-        
-        liveTrailCache.set(flightProps.flightId, sortedRoutePoints);
-        cachedFlightDataForStatsView = { flightProps, plan };
-        
-        if (mapFilters.useSimpleFlightWindow) {
-            windowEl.style.width = '420px'; 
-            windowEl.style.height = 'calc(100vh - 40px)';
 
-            windowEl.innerHTML = `
-                <div style="width: 100%; height: 100%; overflow: hidden; background: transparent; display: flex; flex-direction: column;">
-                    <iframe id="simple-flight-window-frame" src="flightinfo.html" 
-                            style="width:100%; flex-grow: 1; border:none; display: block;" 
-                            scrolling="no"></iframe>
-                </div>
-            `;
-            
+        if (typeof liveTrailCache !== 'undefined') liveTrailCache.set(flightProps.flightId, sortedRoutePoints);
+        cachedFlightDataForStatsView = { flightProps, plan };
+
+        // Render UI
+        if (typeof mapFilters !== 'undefined' && mapFilters.useSimpleFlightWindow) {
+            windowEl.style.width = '420px';
+            windowEl.innerHTML = `<iframe id="simple-flight-window-frame" src="flightinfo.html" style="width:100%; flex-grow: 1; border:none;" scrolling="no"></iframe>`;
             const simpleData = formatDataForSimpleWindow(flightProps, plan, sortedRoutePoints, communityAircraftData);
             const iframe = document.getElementById('simple-flight-window-frame');
-            iframe.onload = () => {
-                iframe.contentWindow.postMessage({ type: 'FLIGHT_DATA_UPDATE', payload: simpleData }, '*');
-            };
-            setTimeout(() => {
-                if(iframe && iframe.contentWindow) {
-                    iframe.contentWindow.postMessage({ type: 'FLIGHT_DATA_UPDATE', payload: simpleData }, '*');
-                }
-            }, 500);
-
-        } else {
-            windowEl.style.width = ''; 
-            windowEl.style.height = ''; 
+            iframe.onload = () => iframe.contentWindow.postMessage({ type: 'FLIGHT_DATA_UPDATE', payload: simpleData }, '*');
+        } else if (typeof populateAircraftInfoWindow === 'function') {
             populateAircraftInfoWindow(flightProps, plan, sortedRoutePoints, communityAircraftData);
         }
+
+        // Additional data updates
+        if (typeof fetchAndDisplayGeocode === 'function') {
+            fetchAndDisplayGeocode(flightProps.position.lat, flightProps.position.lon);
+        }
         
-        fetchAndDisplayGeocode(flightProps.position.lat, flightProps.position.lon);
-
-        updateNavPanelData(
-            flightProps.position.lat,
-            flightProps.position.lon,
-            flightProps.position.heading_deg,
-            flightProps.position.oat_c || 15,
-            flightProps.position.wind_dir || 0,
-            flightProps.position.wind_spd_kts || 0
-        );
-
-        const routeFeatureCollection = generateAltitudeColoredRoute(sortedRoutePoints, flightProps.position, plan);
-
-        if (!sectorOpsMap.getSource(flownLayerId)) {
+        // Map path plotting
+        const flownLayerId = `flown-path-${flightProps.flightId}`;
+        if (typeof generateAltitudeColoredRoute === 'function' && !sectorOpsMap.getSource(flownLayerId)) {
+            const routeFeatureCollection = generateAltitudeColoredRoute(sortedRoutePoints, flightProps.position, plan);
             sectorOpsMap.addSource(flownLayerId, { type: 'geojson', data: routeFeatureCollection });
             sectorOpsMap.addLayer({
                 id: flownLayerId,
                 type: 'line',
                 source: flownLayerId,
                 paint: {
-                    'line-color': [
-                        'interpolate', ['linear'], ['get', 'avgAltitude'],
-                        0, '#e6e600', 10000, '#ff9900', 20000, '#ff3300', 29000, '#00BFFF', 38000, '#9400D3'
-                    ],
+                    'line-color': ['interpolate', ['linear'], ['get', 'avgAltitude'], 0, '#e6e600', 10000, '#ff9900', 20000, '#ff3300', 29000, '#00BFFF', 38000, '#9400D3'],
                     'line-width': 4,
-                    'line-opacity': 0.9, 
-                    'line-dasharray': [1, 0],
-                    'line-translate': [0, -2], 
-                    'line-translate-anchor': 'viewport'
+                    'line-opacity': 0.9
                 }
             }, 'sector-ops-live-flights-layer');
-        } else {
-             sectorOpsMap.getSource(flownLayerId).setData(routeFeatureCollection);
+            if (typeof sectorOpsLiveFlightPathLayers !== 'undefined') {
+                sectorOpsLiveFlightPathLayers[flightProps.flightId] = { flown: flownLayerId };
+            }
         }
-
-        sectorOpsLiveFlightPathLayers[flightProps.flightId] = { flown: flownLayerId };
         
-        if (plan) {
+        if (plan && typeof updateFlightPlanLayer === 'function') {
             updateFlightPlanLayer(flightProps.flightId, plan, flightProps.position);
         }
-        
-        const FIVE_MINUTES_MS = 300000; 
-        activeGeocodeUpdateInterval = setInterval(() => {
-            if (currentAircraftPositionForGeocode) {
-                fetchAndDisplayGeocode(currentAircraftPositionForGeocode.lat, currentAircraftPositionForGeocode.lon);
-            }
-        }, FIVE_MINUTES_MS);
-        
-        fetchAndDisplayWeather();
-        if (activeWeatherUpdateInterval) clearInterval(activeWeatherUpdateInterval);
-        activeWeatherUpdateInterval = setInterval(() => { fetchAndDisplayWeather(); }, FIVE_MINUTES_MS);
 
         isAircraftWindowLoading = false;
-
     } catch (error) {
-        console.error("Error fetching or plotting aircraft details:", error);
-        windowEl.innerHTML = `<p class="error-text" style="padding: 2rem; color: #ef4444;">Could not retrieve complete flight details.</p>`;
-        isAircraftWindowLoading = false; 
-        currentFlightInWindow = null; 
-        cachedFlightDataForStatsView = { flightProps: null, plan: null };
-        liveTrailCache.delete(flightProps.flightId);
+        console.error("Error fetching aircraft details:", error);
+        closeAircraftWindow();
     }
+}
+
+/**
+ * Closes the airport information window and cleans up associated map layers/states.
+ * This is called whenever an aircraft is selected or the airport window is closed manually.
+ */
+function closeAirportWindow() {
+    if (!airportInfoWindow) return;
+
+    // 1. Hide UI elements
+    airportInfoWindow.classList.remove('visible');
+    if (window.MobileUIHandler) window.MobileUIHandler.closeActiveWindow();
+    
+    // Hide the "recall" button (the small tab that appears when minimized)
+    if (typeof airportInfoWindowRecallBtn !== 'undefined' && airportInfoWindowRecallBtn) {
+        airportInfoWindowRecallBtn.classList.remove('visible');
+    }
+
+    // 2. Cleanup Map Overlays
+    isTrafficHighlightActive = false;
+    if (typeof applyTrafficHighlighting === 'function') applyTrafficHighlighting();
+    if (typeof clearRouteLayers === 'function') clearRouteLayers();
+    
+    // 3. Remove Taxiway/Layout layers
+    if (typeof AirportLayoutManager !== 'undefined' && sectorOpsMap) {
+        AirportLayoutManager.clearAll(sectorOpsMap);
+    }
+
+    // 4. Reset Global State
+    currentAirportInWindow = null;
 }
 
 /**
