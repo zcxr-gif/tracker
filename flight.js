@@ -10884,78 +10884,134 @@ function setupSectorOpsEventListeners() {
     if (!panel || panel.dataset.listenersAttached === 'true') return;
     panel.dataset.listenersAttached = 'true';
 
-    // --- START: REFACTORED for Toolbar and Panel Toggle ---
+    // Initialize Flight Hover Popups
+    setupFlightHoverPopups();
+
+    // --- Toolbar and Panel Toggle ---
     const internalToggleBtn = document.getElementById('sector-ops-toggle-btn');
     const toolbarToggleBtn = document.getElementById('toolbar-toggle-panel-btn');
-
+    
     const togglePanel = () => {
-        // [FIX] Toggle 'visible' class instead of 'panel-collapsed'
-        // Your CSS uses .visible to switch from display:none to display:flex
-        const isNowVisible = panel.classList.toggle('visible'); 
-
-        // Update UI state for both buttons
-        if (internalToggleBtn) {
-            internalToggleBtn.setAttribute('aria-expanded', isNowVisible);
-        }
-        if (toolbarToggleBtn) {
-            toolbarToggleBtn.classList.toggle('active', isNowVisible);
-        }
-
-        // Resize the map
+        const isNowVisible = panel.classList.toggle('visible');
+        if (internalToggleBtn) internalToggleBtn.setAttribute('aria-expanded', isNowVisible);
+        if (toolbarToggleBtn) toolbarToggleBtn.classList.toggle('active', isNowVisible);
         if (sectorOpsMap) {
-            setTimeout(() => {
-                sectorOpsMap.resize();
-            }, 400); // Match CSS transition duration
+            setTimeout(() => { sectorOpsMap.resize(); }, 400);
         }
     };
 
-    if (internalToggleBtn) {
-        internalToggleBtn.addEventListener('click', togglePanel);
-    }
-    if (toolbarToggleBtn) {
-        toolbarToggleBtn.addEventListener('click', togglePanel);
-    }
-    // --- END: REFACTORED for Toolbar and Panel Toggle ---
+    if (internalToggleBtn) internalToggleBtn.addEventListener('click', togglePanel);
+    if (toolbarToggleBtn) toolbarToggleBtn.addEventListener('click', togglePanel);
 
-    // --- [MODIFIED] Add listener for the NEW single weather button ---
+    // --- Weather Settings ---
     const openWeatherBtn = document.getElementById('open-weather-settings-btn');
     if (openWeatherBtn) {
         openWeatherBtn.addEventListener('click', () => {
-             // Toggle visibility of the new window
-             if (weatherSettingsWindow) {
-                 const isVisible = weatherSettingsWindow.classList.toggle('visible');
-                 if (isVisible) {
-                     if (typeof MobileUIHandler !== 'undefined') MobileUIHandler.openWindow(weatherSettingsWindow);
-                 } else {
-                     if (typeof MobileUIHandler !== 'undefined') MobileUIHandler.closeActiveWindow();
-                 }
-             }
+            if (weatherSettingsWindow) {
+                const isVisible = weatherSettingsWindow.classList.toggle('visible');
+                if (isVisible && typeof MobileUIHandler !== 'undefined') MobileUIHandler.openWindow(weatherSettingsWindow);
+            }
         });
     }
 
-    // --- [START NEW FILTER BUTTON LISTENER] ---
+    // --- Filter Settings ---
     const openFilterBtn = document.getElementById('open-filter-settings-btn');
     if (openFilterBtn) {
         openFilterBtn.addEventListener('click', () => {
-             // Toggle visibility of the new window
-             if (filterSettingsWindow) {
-                 const isVisible = filterSettingsWindow.classList.toggle('visible');
-                 if (isVisible) {
-                     if (typeof MobileUIHandler !== 'undefined') MobileUIHandler.openWindow(filterSettingsWindow);
-                 } else {
-                     if (typeof MobileUIHandler !== 'undefined') MobileUIHandler.closeActiveWindow();
-                 }
-             }
+            if (filterSettingsWindow) {
+                const isVisible = filterSettingsWindow.classList.toggle('visible');
+                if (isVisible && typeof MobileUIHandler !== 'undefined') MobileUIHandler.openWindow(filterSettingsWindow);
+            }
         });
     }
 
-    // --- [NEW] Server Selector Listeners ---
+    // --- Server Selector ---
     const serverBtns = document.querySelectorAll('.server-btn');
     serverBtns.forEach(btn => {
         btn.addEventListener('click', () => {
-            const serverName = btn.dataset.server;
-            switchServer(serverName);
+            switchServer(btn.dataset.server);
         });
+    });
+}
+
+/**
+ * --- [NEW] Logic for Flight Hover Popups (FR24 Style) ---
+ * Attaches mouse listeners to the aircraft layer to show info cards.
+ */
+function setupFlightHoverPopups() {
+    if (!sectorOpsMap) return;
+
+    // Create a single shared popup instance for hovering
+    const hoverPopup = new mapboxgl.Popup({
+        closeButton: false,
+        closeOnClick: false,
+        offset: 15,
+        maxWidth: 'none',
+        className: 'flight-hover-popup'
+    });
+
+    sectorOpsMap.on('mouseenter', 'sector-ops-live-flights-layer', (e) => {
+        // Change cursor to indicate interactability
+        sectorOpsMap.getCanvas().style.cursor = 'pointer';
+        
+        const feature = e.features[0];
+        const props = feature.properties;
+
+        // Parse JSON strings from properties (set in handleSocketFlightUpdate)
+        const acData = props.aircraft ? JSON.parse(props.aircraft) : {};
+        
+        // Prepare display data
+        const callsign = props.callsign || '---';
+        const acType = (acData.aircraftName || 'AC').split(' ')[0].substring(0, 4).toUpperCase();
+        const imgUrl = props.communityImageUrl || '/CommunityPlanes/default.png';
+        const credit = props.contributorName || 'IF Community';
+        const alt = Math.round(props.altitude || 0).toLocaleString();
+        const gs = Math.round(props.speed || 0);
+        
+        // Generate Airline Logo Path
+        const livName = acData.liveryName || '';
+        const words = livName.trim().split(/\s+/);
+        let logoName = words.length > 1 && /[^a-zA-Z0-9]/.test(words[1]) ? words[0] : (words[0] + (words[1] ? ' ' + words[1] : ''));
+        const sanitizedLogoName = logoName.toLowerCase().replace(/[^a-z0-9\s]/g, '').replace(/\s+/g, '_');
+        const logoPath = `Images/airline_logos/${sanitizedLogoName}.png`;
+
+        // Build the HTML structure matching your CSS
+        const html = `
+            <div class="fr24-card-container">
+                <div class="fr24-image-box" style="background-image: url('${imgUrl}')">
+                    <div class="fr24-image-overlay"></div>
+                    <div class="fr24-copyright">© ${credit}</div>
+                </div>
+                <div class="fr24-info-box">
+                    <div class="fr24-header-row">
+                        <img src="${logoPath}" class="fr24-airline-logo" onerror="this.style.display='none'">
+                        <div class="fr24-ident-group">
+                            <span class="fr24-callsign">${callsign}</span>
+                            <span class="fr24-ac-badge">${acType}</span>
+                        </div>
+                    </div>
+                    <div class="fr24-stats-row">
+                        ${alt} FT · ${gs} KTS
+                    </div>
+                </div>
+            </div>
+        `;
+
+        // Show the popup at the aircraft's current location
+        hoverPopup.setLngLat(feature.geometry.coordinates).setHTML(html).addTo(sectorOpsMap);
+    });
+
+    // Remove popup and reset cursor when mouse leaves
+    sectorOpsMap.on('mouseleave', 'sector-ops-live-flights-layer', () => {
+        sectorOpsMap.getCanvas().style.cursor = '';
+        hoverPopup.remove();
+    });
+
+    // Optional: Follow mouse movement for smoother tracking
+    sectorOpsMap.on('mousemove', 'sector-ops-live-flights-layer', (e) => {
+        if (hoverPopup.isOpen()) {
+            hoverPopup.setLngLat(e.lngLat);
+        }
     });
 }
 
