@@ -6838,7 +6838,7 @@ function updateTrafficLegendUI() {
 }
 
 
-    function setupAirportWindowEvents() {
+function setupAirportWindowEvents() {
     if (!airportInfoWindow || airportInfoWindow.dataset.eventsAttached === 'true') return;
 
     airportInfoWindow.addEventListener('click', (e) => {
