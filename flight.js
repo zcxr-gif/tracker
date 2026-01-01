@@ -7421,35 +7421,6 @@ function formatDataForSimpleWindow(flightProps, plan, routePoints, communityData
         }
     }
 
-    function addFlightLayers(map) {
-    // --- The Highlight / Outline Layer ---
-    // This layer is hidden by default ([ "==", "flightId", "" ])
-    map.addLayer({
-        id: 'flight-highlight-layer',
-        type: 'symbol',
-        source: 'sector-ops-flights',
-        layout: {
-            'icon-image': ['get', 'icon-image'], // Uses the same icon
-            'icon-rotate': ['get', 'rotation'],
-            'icon-rotation-alignment': 'map',
-            'icon-allow-overlap': true,
-            'icon-ignore-placement': true,
-            'icon-size': ['+', ['get', 'icon-size'], 0.15], // Slightly larger to create the outline effect
-        },
-        paint: {
-            // This creates a glowing halo effect using the plane's own color logic
-            'icon-halo-color': ['get', 'icon-color'], 
-            'icon-halo-width': 4,
-            'icon-halo-blur': 1,
-            'icon-opacity': 0.8
-        },
-        filter: ["==", "flightId", ""] // Start with no flight highlighted
-    });
-
-    // --- The Existing Aircraft Layer ---
-    // (Ensure your existing code for sector-ops-live-flights-layer follows here)
-}
-
     async function initializeSectorOpsView() {
     // [FIX] 1. Load saved preferences FIRST
     // This updates the global 'currentMapStyle' before the map creates itself.
@@ -7793,11 +7764,9 @@ function formatDataForSimpleWindow(flightProps, plan, routePoints, communityData
     }
 }
 
-
-
 /**
- * --- [FIXED] Sets up base layers, icons, and fog.
- * Now includes the Flight Highlight (Outline) layer initialization.
+ * --- [RESTORED] Sets up base layers, icons, and fog.
+ * Called on initial load AND on every style change.
  */
 async function setupMapLayersAndFog() {
     if (!sectorOpsMap) return;
@@ -7842,21 +7811,25 @@ async function setupMapLayersAndFog() {
         { id: 'icon-cessna-blue', path: '/Images/map_icons/blue/cessna.png' }
     ];
 
-    const imagePromises = iconsToLoad.map(icon => new Promise((res, rej) => {
-        if (sectorOpsMap.hasImage(icon.id)) {
-            res();
-            return;
-        }
-        sectorOpsMap.loadImage(icon.path, (error, image) => {
-            if (error) {
-                console.warn(`Could not load icon: ${icon.path}`);
+    const imagePromises = iconsToLoad.map(icon =>
+        new Promise((res, rej) => {
+            if (sectorOpsMap.hasImage(icon.id)) {
                 res();
-            } else {
-                sectorOpsMap.addImage(icon.id, image);
-                res();
+                return;
             }
-        });
-    }));
+            sectorOpsMap.loadImage(icon.path, (error, image) => {
+                if (error) {
+                    console.warn(`Could not load icon: ${icon.path}`);
+                    // Don't reject, just resolve so others can proceed
+                    res();
+                } else {
+                    sectorOpsMap.addImage(icon.id, image);
+                    res();
+                }
+            });
+        })
+    );
+    
     await Promise.all(imagePromises).catch(err => console.error("Error loading map icons", err));
 
     // 3. Add base flight data source
@@ -7867,30 +7840,7 @@ async function setupMapLayersAndFog() {
         });
     }
 
-    // --- [NEW FIX] HIGHLIGHT LAYER (OUTLINE EFFECT) ---
-    // We add this BEFORE the icon layer so it sits underneath.
-    if (!sectorOpsMap.getLayer('flight-highlight-layer')) {
-        sectorOpsMap.addLayer({
-            id: 'flight-highlight-layer',
-            type: 'circle',
-            source: 'sector-ops-live-flights-source',
-            paint: {
-                'circle-radius': [
-                    'interpolate', ['linear'], ['zoom'],
-                    2, 12,
-                    10, 24
-                ],
-                'circle-color': 'rgba(255, 255, 255, 0.2)', // Soft glow
-                'circle-stroke-width': 2,
-                'circle-stroke-color': '#ffffff', // Solid white outline
-                'circle-stroke-opacity': 0.8,
-                'circle-blur': 0.1
-            },
-            filter: ["==", "flightId", ""] // Hidden by default
-        });
-    }
-
-    // Initialize Animator
+    // Initialize Animator if class exists
     if (typeof MapAnimator !== 'undefined') {
         mapAnimator = new MapAnimator(sectorOpsMap, 'sector-ops-live-flights-source', currentMapFeatures);
     }
@@ -7922,24 +7872,53 @@ async function setupMapLayersAndFog() {
                 }
             });
         });
-    }
 
+        // Hover Listener
+        if (typeof window.MobileUIHandler === 'undefined' || !window.MobileUIHandler.isMobile()) {
+            const hoverPopup = new mapboxgl.Popup({
+                closeButton: false,
+                closeOnClick: false,
+                offset: 20
+            });
+
+            sectorOpsMap.on('mouseenter', 'sector-ops-live-flights-layer', (e) => {
+                sectorOpsMap.getCanvas().style.cursor = 'pointer';
+                const coordinates = e.features[0].geometry.coordinates.slice();
+                const props = e.features[0].properties;
+                while (Math.abs(e.lngLat.lng - coordinates[0]) > 180) {
+                    coordinates[0] += e.lngLat.lng > coordinates[0] ? 360 : -360;
+                }
+                if (typeof generateHoverCardHTML !== 'undefined') {
+                    const cardHTML = generateHoverCardHTML(props);
+                    hoverPopup.setLngLat(coordinates).setHTML(cardHTML).addTo(sectorOpsMap);
+                }
+            });
+
+            sectorOpsMap.on('mouseleave', 'sector-ops-live-flights-layer', () => {
+                sectorOpsMap.getCanvas().style.cursor = '';
+                hoverPopup.remove();
+            });
+        }
+    }
+    
     // 5. Add the LABEL layer
     if (!sectorOpsMap.getLayer('sector-ops-live-flights-labels')) {
         sectorOpsMap.addLayer({
             id: 'sector-ops-live-flights-labels',
             type: 'symbol',
-            source: 'sector-ops-live-flights-source',
+            source: 'sector-ops-live-flights-source', 
             minzoom: 6.5,
             layout: {
                 'visibility': (mapFilters && mapFilters.showAircraftLabels) ? 'visible' : 'none',
                 'text-field': [
                     'format',
-                    ['get', 'callsign'], { 'text-color': '#FFFFFF' },
-                    '\n', {},
-                    ['get', 'phase'], {
-                        'text-color': [
-                            'match', ['get', 'phase'],
+                    ['get', 'callsign'], { 'text-color': '#FFFFFF' }, 
+                    '\n', {},                  
+                    ['get', 'phase'],    
+                    { 
+                        'text-color': [ 
+                            'match',
+                            ['get', 'phase'],
                             'Climb', '#28a745',
                             'Cruise', '#007bff',
                             'Descent', '#ff9900',
@@ -10956,12 +10935,13 @@ function setupSectorOpsEventListeners() {
 }
 
 /**
- * --- [FIXED] Handles hover effects and popups for aircraft.
- * Includes the fix for the aircraft highlight (outline) on hover.
+ * --- [NEW] Logic for Flight Hover Popups (FR24 Style) ---
+ * Attaches mouse listeners to the aircraft layer to show info cards.
  */
 function setupFlightHoverPopups() {
     if (!sectorOpsMap) return;
 
+    // Create a single shared popup instance for hovering
     const hoverPopup = new mapboxgl.Popup({
         closeButton: false,
         closeOnClick: false,
@@ -10970,41 +10950,32 @@ function setupFlightHoverPopups() {
         className: 'flight-hover-popup'
     });
 
-    // MOUSE ENTER: Trigger highlight and show popup
     sectorOpsMap.on('mouseenter', 'sector-ops-live-flights-layer', (e) => {
+        // Change cursor to indicate interactability
         sectorOpsMap.getCanvas().style.cursor = 'pointer';
         
         const feature = e.features[0];
         const props = feature.properties;
-        const flightId = props.flightId;
-        const coordinates = feature.geometry.coordinates.slice();
 
-        // Ensure popup wraps correctly over the Date Line
-        while (Math.abs(e.lngLat.lng - coordinates[0]) > 180) {
-            coordinates[0] += e.lngLat.lng > coordinates[0] ? 360 : -360;
-        }
-
-        // --- HIGHLIGHT LOGIC ---
-        // Activate the outline for this specific flightId
-        if (sectorOpsMap.getLayer('flight-highlight-layer')) {
-            sectorOpsMap.setFilter('flight-highlight-layer', ["==", "flightId", flightId]);
-        }
-
-        // --- POPUP CONTENT LOGIC ---
+        // Parse JSON strings from properties (set in handleSocketFlightUpdate)
         const acData = props.aircraft ? JSON.parse(props.aircraft) : {};
+        
+        // Prepare display data
         const callsign = props.callsign || '---';
         const acType = (acData.aircraftName || 'AC').split(' ')[0].substring(0, 4).toUpperCase();
         const imgUrl = props.communityImageUrl || '/CommunityPlanes/default.png';
         const credit = props.contributorName || 'IF Community';
         const alt = Math.round(props.altitude || 0).toLocaleString();
         const gs = Math.round(props.speed || 0);
-
+        
+        // Generate Airline Logo Path
         const livName = acData.liveryName || '';
         const words = livName.trim().split(/\s+/);
         let logoName = words.length > 1 && /[^a-zA-Z0-9]/.test(words[1]) ? words[0] : (words[0] + (words[1] ? ' ' + words[1] : ''));
         const sanitizedLogoName = logoName.toLowerCase().replace(/[^a-z0-9\s]/g, '').replace(/\s+/g, '_');
         const logoPath = `Images/airline_logos/${sanitizedLogoName}.png`;
 
+        // Build the HTML structure matching your CSS
         const html = `
             <div class="fr24-card-container">
                 <div class="fr24-image-box" style="background-image: url('${imgUrl}')">
@@ -11026,18 +10997,20 @@ function setupFlightHoverPopups() {
             </div>
         `;
 
-        hoverPopup.setLngLat(coordinates).setHTML(html).addTo(sectorOpsMap);
+        // Show the popup at the aircraft's current location
+        hoverPopup.setLngLat(feature.geometry.coordinates).setHTML(html).addTo(sectorOpsMap);
     });
 
-    // MOUSE LEAVE: Clear highlight and hide popup
+    // Remove popup and reset cursor when mouse leaves
     sectorOpsMap.on('mouseleave', 'sector-ops-live-flights-layer', () => {
         sectorOpsMap.getCanvas().style.cursor = '';
         hoverPopup.remove();
+    });
 
-        // --- HIGHLIGHT RESET ---
-        // Hide all highlights by resetting the filter to a non-matching ID
-        if (sectorOpsMap.getLayer('flight-highlight-layer')) {
-            sectorOpsMap.setFilter('flight-highlight-layer', ["==", "flightId", ""]);
+    // Optional: Follow mouse movement for smoother tracking
+    sectorOpsMap.on('mousemove', 'sector-ops-live-flights-layer', (e) => {
+        if (hoverPopup.isOpen()) {
+            hoverPopup.setLngLat(e.lngLat);
         }
     });
 }
