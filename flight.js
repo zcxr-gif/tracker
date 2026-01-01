@@ -6350,7 +6350,7 @@ async function createAirportInfoWindowHTML(icao) {
     // 1. Get Static Data
     const staticData = airportsData[icao] || {};
     
-    // 2. Fetch Live Airport Details (Jetbridges, etc.)
+    // 2. Fetch Live Airport Details (Jetbridges, city, state, etc.)
     let liveData = null;
     try {
         const response = await fetch(`${ACARS_SOCKET_URL}/api/airport/${icao}`);
@@ -6363,23 +6363,20 @@ async function createAirportInfoWindowHTML(icao) {
     // 3. Fetch Live Traffic & ATIS
     let inbounds = [];
     let outbounds = [];
-    let rawAtisText = null; // Store real ATIS here
+    let rawAtisText = null; 
     let trafficFetchSuccess = false;
 
     try {
-        // A. Get Session ID
         const sessionsRes = await fetch(`${ACARS_SOCKET_URL}/if-sessions`);
         const sessionsData = await sessionsRes.json();
         const sessionId = getCurrentSessionId(sessionsData);
 
         if (sessionId) {
-            // B. Parallel Fetch: Status (Traffic) AND ATIS
             const [statusRes, atisRes] = await Promise.all([
                 fetch(`${ACARS_SOCKET_URL}/api/live/airport/${sessionId}/${icao}/status`),
                 fetch(`${ACARS_SOCKET_URL}/api/live/airport/${sessionId}/${icao}/atis`)
             ]);
 
-            // Process Traffic
             if (statusRes.ok) {
                 const statusJson = await statusRes.json();
                 if (statusJson.ok && statusJson.status) {
@@ -6388,18 +6385,18 @@ async function createAirportInfoWindowHTML(icao) {
                     trafficFetchSuccess = true;
                 }
             }
-
-            // Process ATIS
             if (atisRes.ok) {
                 const atisJson = await atisRes.json();
-                if (atisJson.ok && atisJson.atis) {
-                    rawAtisText = atisJson.atis; // This is the raw string from IF API
-                }
+                if (atisJson.ok && atisJson.atis) rawAtisText = atisJson.atis;
             }
         }
-    } catch (e) { console.error("Error fetching live stats/atis:", e); }
+    } catch (e) { console.error("Error fetching live stats:", e); }
 
-    // 4. Merge Basic Data
+    // Update Global Traffic State for Highlighting
+    window.currentAirportTraffic = { in: inbounds, out: outbounds };
+    if (isTrafficHighlightActive) applyTrafficHighlighting();
+
+    // 4. Merge Data
     const airportName = liveData?.name || staticData.name || 'Unknown Airport';
     const city = liveData?.city || staticData.city;
     const state = liveData?.state || staticData.state;
@@ -6409,115 +6406,67 @@ async function createAirportInfoWindowHTML(icao) {
     const elevation = liveData?.elevation ?? staticData.elevation_ft ?? 0;
     const coords = { lat: liveData?.latitude ?? staticData.lat, lon: liveData?.longitude ?? staticData.lon };
     const badge3DHtml = liveData?.has3dBuildings ? `<span style="background: linear-gradient(135deg, #e2e8f0 0%, #94a3b8 100%); color: #0f172a; font-size: 0.65rem; font-weight: 800; padding: 2px 6px; border-radius: 4px; margin-left: 10px;">3D</span>` : '';
-
-    // Filter Derived Data
-    const atcForAirport = activeAtcFacilities.filter(f => f.airportName === icao);
-    const notamsForAirport = activeNotams.filter(n => n.airportIcao === icao);
     const airportRunways = runwaysData[icao] || [];
 
-    // --- LOGIC: ATIS / WEATHER MODULE ---
+    // --- Weather & ATIS Logic ---
     let weatherModuleHtml = '';
-    let atisModuleHtml = ''; 
+    let atisModuleHtml = '';
     let metarString = '';
     
     try {
-        // Fetch Weather
         if (window.WeatherService) {
             const w = await window.WeatherService.fetchAndParseMetar(icao);
-            let flightCategory = 'VFR'; 
-            let catColor = '#4ade80';
+            let flightCategory = 'VFR', catColor = '#4ade80';
             if (w.raw.includes('LIFR')) { flightCategory = 'LIFR'; catColor = '#c084fc'; }
             else if (w.raw.includes('IFR') || w.raw.includes('VV')) { flightCategory = 'IFR'; catColor = '#f87171'; }
             else if (w.raw.includes('MVFR')) { flightCategory = 'MVFR'; catColor = '#60a5fa'; }
             metarString = w.raw;
 
-            // --- BUILD ATIS DISPLAY ---
             if (rawAtisText) {
-                // 1. REAL ATIS IS ONLINE
-                
-                // Extract Info Letter (e.g., "Airport Info A" or "Information A")
-                const infoMatch = rawAtisText.match(/Info(?:rmation)?\s+([A-Z])/i);
-                const infoLetter = infoMatch ? `INFO ${infoMatch[1].toUpperCase()}` : 'D-ATIS';
-                
-                // Extract Time (e.g., "2000Z")
-                const timeMatch = rawAtisText.match(/(\d{4}Z)/);
-                const atisTime = timeMatch ? timeMatch[1] : 'LIVE';
-
-                atisModuleHtml = `
-                <div class="apt-mini-module" style="border-color: rgba(251, 191, 36, 0.3);">
-                    <div class="apt-mini-header" style="background: rgba(251, 191, 36, 0.1);">
-                        <span style="color: #fbbf24;"><i class="fa-solid fa-tower-broadcast"></i> ACTIVE ATIS</span>
-                        <span style="color: #fbbf24; font-weight:700;">ONLINE</span>
-                    </div>
-                    <div class="apt-mini-body">
-                        <div class="atis-status-row">
-                            <span class="atis-code-large">${infoLetter}</span>
-                            <span class="atis-timestamp"><i class="fa-regular fa-clock"></i> ${atisTime}</span>
-                        </div>
-                        <div class="terminal-text-box">${rawAtisText}</div>
-                    </div>
-                </div>`;
-
-            } else {
-                // 2. ATIS IS OFFLINE -> Use Calculation Fallback
-                // We assume active runways based on wind recommendations
-                const recs = getRunwayRecommendations(airportRunways, w.wind);
-                
-                // Take top 2 runways
-                const activeRunways = recs.slice(0, 2).map(r => r.ident); 
-                const activeArrHtml = activeRunways.length ? activeRunways.map(r => `<span class="atis-pill pill-arr">${r}</span>`).join('') : '<span style="color:#666;">---</span>';
-                const activeDepHtml = activeRunways.length ? activeRunways.map(r => `<span class="atis-pill pill-dep">${r}</span>`).join('') : '<span style="color:#666;">---</span>';
-
+                const atis = parseAtis(rawAtisText);
+                const infoPill = `<span style="color: #fbbf24; border: 1px solid #fbbf24; padding: 0 4px; border-radius: 3px; font-size: 0.6rem;">INFO ${atis.info}</span>`;
+                const remarksHtml = atis.remarks ? `<div class="apt-mini-footer" title="${atis.remarks}"><i class="fa-solid fa-circle-info"></i> ${atis.remarks}</div>` : '';
                 atisModuleHtml = `
                 <div class="apt-mini-module">
-                    <div class="apt-mini-header">
-                        <span><i class="fa-solid fa-calculator"></i> EST. RUNWAYS</span>
-                        <span style="color: #94a3b8; border: 1px solid #475569; padding: 0 4px; border-radius: 3px; font-size: 0.6rem;">NO ATIS</span>
+                    <div class="apt-mini-header"><span><i class="fa-solid fa-tower-broadcast"></i> ATIS</span>${infoPill}</div>
+                    <div class="apt-mini-body" style="padding-bottom: ${atis.remarks ? '0' : '10px'};">
+                        <div class="stat-grid-compact">
+                            <div class="compact-stat-box"><span class="compact-label">ARR RWY</span><span class="compact-value" style="color: #4ade80;">${atis.landing}</span></div>
+                            <div class="compact-stat-box"><span class="compact-label">DEP RWY</span><span class="compact-value" style="color: #38bdf8;">${atis.departing}</span></div>
+                            <div class="compact-stat-box"><span class="compact-label">APPR</span><span class="compact-value">${atis.approach}</span></div>
+                            <div class="compact-stat-box"><span class="compact-label">TIME</span><span class="compact-value">${atis.time}</span></div>
+                        </div>
                     </div>
+                    ${remarksHtml}
+                </div>`;
+            } else {
+                const recs = getRunwayRecommendations(airportRunways, w.wind);
+                const activeRunways = recs.slice(0, 2).map(r => r.ident).join('/');
+                atisModuleHtml = `
+                <div class="apt-mini-module">
+                    <div class="apt-mini-header"><span><i class="fa-solid fa-calculator"></i> EST. OPS</span><span style="color: #94a3b8; border: 1px solid #475569; padding: 0 4px; border-radius: 3px; font-size: 0.6rem;">NO ATIS</span></div>
                     <div class="apt-mini-body">
-                        <div style="display: flex; flex-direction: column; gap: 6px;">
-                            <div class="atis-runway-row">
-                                <span class="atis-label">ARR</span>
-                                <div style="display:flex;">${activeArrHtml}</div>
-                            </div>
-                            <div class="atis-runway-row">
-                                <span class="atis-label">DEP</span>
-                                <div style="display:flex;">${activeDepHtml}</div>
-                            </div>
-                            <div style="font-size: 0.65rem; color: #64748b; text-align: center; margin-top: 4px;">
-                                <i class="fa-solid fa-wind"></i> Calculated based on wind
-                            </div>
+                        <div class="stat-grid-compact">
+                            <div class="compact-stat-box"><span class="compact-label">EST ARR</span><span class="compact-value" style="color: #4ade80;">${activeRunways || '---'}</span></div>
+                            <div class="compact-stat-box"><span class="compact-label">EST DEP</span><span class="compact-value" style="color: #38bdf8;">${activeRunways || '---'}</span></div>
+                            <div class="compact-stat-box"><span class="compact-label">WIND</span><span class="compact-value">${w.wind}</span></div>
+                            <div class="compact-stat-box"><span class="compact-label">STATUS</span><span class="compact-value">CALC</span></div>
                         </div>
                     </div>
                 </div>`;
             }
-
-            // Weather Module (Standard)
             weatherModuleHtml = `
             <div class="apt-mini-module">
-                <div class="apt-mini-header">
-                    <span><i class="fa-solid fa-cloud-sun"></i> METAR</span>
-                    <span style="color: ${catColor}; border: 1px solid ${catColor}; padding: 0 4px; border-radius: 3px; font-size: 0.6rem;">${flightCategory}</span>
-                </div>
-                <div class="apt-mini-body">
-                    <div class="stat-grid-compact">
-                        <div class="compact-stat-box"><span class="compact-label">WIND</span><span class="compact-value" style="color: #38bdf8;">${w.wind}</span></div>
-                        <div class="compact-stat-box"><span class="compact-label">VIS</span><span class="compact-value">${w.visibility || '10KM'}</span></div>
-                        <div class="compact-stat-box"><span class="compact-label">TEMP</span><span class="compact-value" style="color: #fbbf24;">${w.temp}</span></div>
-                        <div class="compact-stat-box"><span class="compact-label">QNH</span><span class="compact-value">${w.qnh || '1013'}</span></div>
-                    </div>
-                </div>
+                <div class="apt-mini-header"><span><i class="fa-solid fa-cloud-sun"></i> METAR</span><span style="color: ${catColor}; border: 1px solid ${catColor}; padding: 0 4px; border-radius: 3px; font-size: 0.6rem;">${flightCategory}</span></div>
+                <div class="apt-mini-body"><div class="stat-grid-compact">
+                    <div class="compact-stat-box"><span class="compact-label">WIND</span><span class="compact-value" style="color: #38bdf8;">${w.wind}</span></div>
+                    <div class="compact-stat-box"><span class="compact-label">VIS</span><span class="compact-value">${w.visibility || '10KM'}</span></div>
+                    <div class="compact-stat-box"><span class="compact-label">TEMP</span><span class="compact-value" style="color: #fbbf24;">${w.temp}</span></div>
+                    <div class="compact-stat-box"><span class="compact-label">QNH</span><span class="compact-value">${w.qnh || '1013'}</span></div>
+                </div></div>
             </div>`;
-
-        } else {
-            // Fallback if WeatherService is down
-            weatherModuleHtml = `<div class="apt-mini-module"><div class="apt-mini-body"><p class="muted-text">Weather Unavailable</p></div></div>`;
-            atisModuleHtml = `<div class="apt-mini-module"><div class="apt-mini-body"><p class="muted-text">Data Unavailable</p></div></div>`;
         }
-    } catch (err) { 
-        weatherModuleHtml = `<div class="apt-mini-module"><div class="apt-mini-body"><p class="muted-text">Offline</p></div></div>`;
-        atisModuleHtml = `<div class="apt-mini-module"><div class="apt-mini-body"><p class="muted-text">Offline</p></div></div>`;
-    }
+    } catch (err) { weatherModuleHtml = `<div class="apt-mini-module"><div class="apt-mini-body"><p class="muted-text">Offline</p></div></div>`; }
 
     // --- Feature Strip ---
     let featureStripHtml = '';
@@ -6530,15 +6479,30 @@ async function createAirportInfoWindowHTML(icao) {
         const aptClass = liveData.class ? `Class ${liveData.class}` : 'N/A';
         const timezone = liveData.timezone ? liveData.timezone.split(' ')[0] : 'UTC';
         featureStripHtml = `
-            <div class="apt-quick-info-strip">
-                <div class="apt-feature-pill"><i class="fa-solid fa-earth-americas"></i> ${timezone}</div>
-                <div class="apt-feature-pill"><i class="fa-solid fa-ranking-star"></i> ${aptClass}</div>
-                ${features.map(f => liveData[f.key] ? `<div class="apt-feature-pill" style="color: #cbd5e1; border-color: rgba(74, 222, 128, 0.3); background: rgba(74, 222, 128, 0.05);"><i class="fa-solid ${f.icon}" style="color: #4ade80;"></i> ${f.label}</div>` : '').join('')}
-            </div>`;
+        <div class="apt-quick-info-strip">
+            <div class="apt-feature-pill"><i class="fa-solid fa-earth-americas"></i> ${timezone}</div>
+            <div class="apt-feature-pill"><i class="fa-solid fa-ranking-star"></i> ${aptClass}</div>
+            ${features.map(f => liveData[f.key] ? `<div class="apt-feature-pill" style="color: #cbd5e1; border-color: rgba(74, 222, 128, 0.3); background: rgba(74, 222, 128, 0.05);"><i class="fa-solid ${f.icon}" style="color: #4ade80;"></i> ${f.label}</div>` : '').join('')}
+        </div>`;
     }
 
-    // --- Tab Contents (Traffic, ATC, NOTAMs) ---
-    // (Kept compact for brevity, logic matches original)
+    // --- Traffic Visualizer Header & Legend ---
+    const visualizerControlsHtml = `
+        <div style="display: flex; align-items: center; justify-content: space-between; padding: 10px 16px; background: rgba(0,0,0,0.2); border-bottom: 1px solid var(--border-glass);">
+            <div style="display: flex; flex-direction: column; gap: 2px;">
+                <span style="font-size: 0.75rem; font-weight: 700; color: #fff;">TRAFFIC VISUALIZER</span>
+                <span style="font-size: 0.6rem; color: #94a3b8; text-transform: uppercase;">Colorize Radar Map</span>
+            </div>
+            <label class="toggle-switch">
+                <input type="checkbox" id="traffic-highlight-toggle" ${isTrafficHighlightActive ? 'checked' : ''}>
+                <span class="toggle-slider"></span>
+            </label>
+        </div>
+        <div id="traffic-visualizer-legend" style="display: flex; gap: 12px; padding: 8px 16px; background: rgba(255,255,255,0.02); font-size: 0.65rem; font-weight: 700; border-bottom: 1px solid var(--border-glass);">
+            </div>
+    `;
+
+    // --- Tab Contents ---
     const renderFlightCard = (fid, type) => {
         const f = currentMapFeatures[fid];
         let cs = 'Unknown', usr = 'Pilot', ac = '---', al = 'UNKNOWN';
@@ -6546,7 +6510,6 @@ async function createAirportInfoWindowHTML(icao) {
             const p = f.properties; cs = p.callsign||cs; usr = p.username||usr;
             const acn = (typeof p.aircraft==='string'?JSON.parse(p.aircraft):p.aircraft)?.aircraftName||'';
             ac = acn.split(' ')[0].substring(0,4).toUpperCase();
-            if(acn.includes('777')) ac='B777'; else if(acn.includes('320')) ac='A320';
             al = extractAirlineCode(cs);
         }
         const color = type === 'in' ? '#4ade80' : '#38bdf8';
@@ -6557,44 +6520,38 @@ async function createAirportInfoWindowHTML(icao) {
         (inbounds.length===0 && outbounds.length===0) ? '<div style="padding: 20px; text-align: center; color: #64748b;">No live traffic.</div>' :
         `<div style="padding: 12px; display: flex; flex-direction: column; gap: 4px;">${inbounds.length>0 ? `<div style="margin-bottom:8px;"><div style="font-size:0.7rem;color:#94a3b8;font-weight:700;margin-bottom:4px;padding-left:4px;">INBOUND (${inbounds.length})</div>${inbounds.map(id=>renderFlightCard(id,'in')).join('')}</div>` : ''}${outbounds.length>0 ? `<div><div style="font-size:0.7rem;color:#94a3b8;font-weight:700;margin-bottom:4px;padding-left:4px;">OUTBOUND (${outbounds.length})</div>${outbounds.map(id=>renderFlightCard(id,'out')).join('')}</div>` : ''}</div>`;
 
-    let atcHtml = atcForAirport.length === 0 ? '<div style="padding: 20px; text-align: center; color: #64748b;">No active frequencies.</div>' :
-        `<div style="padding: 12px;">${atcForAirport.map(f => `<div class="atc-grid-card" style="padding: 8px;"><div style="display: flex; align-items: center; gap: 12px;"><span class="atc-type-badge ${f.type===1?'atc-type-twr':f.type===0?'atc-type-gnd':(f.type===4||f.type===5)?'atc-type-app':'atc-type-obs'}" style="width: 60px; font-size: 0.65rem;">${atcTypeToString(f.type)}</span><span class="atc-controller" style="font-size: 0.85rem;">${f.username||'Unknown'}</span></div><span class="atc-duration" style="font-size: 0.75rem;"><i class="fa-regular fa-clock"></i> ${formatAtcDuration(f.startTime)}</span></div>`).join('')}</div>`;
+    let atcHtml = activeAtcFacilities.filter(f => f.airportName === icao).length === 0 ? '<div style="padding: 20px; text-align: center; color: #64748b;">No active frequencies.</div>' : `<div style="padding: 12px;">${activeAtcFacilities.filter(f => f.airportName === icao).map(f => `<div class="atc-grid-card" style="padding: 8px;"><div style="display: flex; align-items: center; gap: 12px;"><span class="atc-type-badge ${f.type===1?'atc-type-twr':f.type===0?'atc-type-gnd':(f.type===4||f.type===5)?'atc-type-app':'atc-type-obs'}" style="width: 60px; font-size: 0.65rem;">${atcTypeToString(f.type)}</span><span class="atc-controller" style="font-size: 0.85rem;">${f.username||'Unknown'}</span></div><span class="atc-duration" style="font-size: 0.75rem;"><i class="fa-regular fa-clock"></i> ${formatAtcDuration(f.startTime)}</span></div>`).join('')}</div>`;
+    let notamsHtml = activeNotams.filter(n => n.airportIcao === icao).length === 0 ? '<div style="padding: 20px; text-align: center; color: #64748b;">No active NOTAMs.</div>' : `<div style="padding: 12px; display: flex; flex-direction: column; gap: 8px;">${activeNotams.filter(n => n.airportIcao === icao).map(n => `<div style="background: rgba(234, 179, 8, 0.1); border-left: 3px solid #eab308; padding: 8px; border-radius: 4px; color: #fef08a; font-family: monospace; font-size: 0.75rem;"><i class="fa-solid fa-triangle-exclamation"></i> ${n.message}</div>`).join('')}</div>`;
 
-    let notamsHtml = notamsForAirport.length === 0 ? '<div style="padding: 20px; text-align: center; color: #64748b;">No active NOTAMs.</div>' :
-        `<div style="padding: 12px; display: flex; flex-direction: column; gap: 8px;">${notamsForAirport.map(n => `<div style="background: rgba(234, 179, 8, 0.1); border-left: 3px solid #eab308; padding: 8px; border-radius: 4px; color: #fef08a; font-family: monospace; font-size: 0.75rem;"><i class="fa-solid fa-triangle-exclamation"></i> ${n.message}</div>`).join('')}</div>`;
+    // Trigger Legend Update immediately after render
+    setTimeout(updateTrafficLegendUI, 0);
 
-    // --- Final Render ---
     return `
         <div class="airport-hero">
-            <div class="hero-actions">
-                <button id="airport-window-hide-btn" class="hero-btn" title="Hide Window"><i class="fa-solid fa-compress"></i></button>
-                <button id="airport-window-close-btn" class="hero-btn" title="Close Window"><i class="fa-solid fa-xmark"></i></button>
-            </div>
+            <div class="hero-actions"><button id="airport-window-hide-btn" class="hero-btn" title="Hide Window"><i class="fa-solid fa-compress"></i></button><button id="airport-window-close-btn" class="hero-btn" title="Close Window"><i class="fa-solid fa-xmark"></i></button></div>
             <div class="apt-ident-group">
                 <div class="apt-icao">${icao}${flagSrc ? `<img src="${flagSrc}" style="height: 24px; border-radius: 2px; margin-left: 10px;">` : ''}${badge3DHtml}</div>
                 <div class="apt-name">${airportName}</div>
                 <div style="font-size: 0.8rem; color: #64748b; margin-top: 2px;">${cityState}</div>
                 <div style="margin-top: 8px; display: flex; gap: 8px;">
-                     <span class="apt-meta-badge"><i class="fa-solid fa-location-crosshairs"></i> ${coords.lat?.toFixed(3)}, ${coords.lon?.toFixed(3)}</span>
-                     <span class="apt-meta-badge"><i class="fa-solid fa-arrows-up-down"></i> ${elevation} ft</span>
+                    <span class="apt-meta-badge"><i class="fa-solid fa-location-crosshairs"></i> ${coords.lat?.toFixed(3)}, ${coords.lon?.toFixed(3)}</span>
+                    <span class="apt-meta-badge"><i class="fa-solid fa-arrows-up-down"></i> ${elevation} ft</span>
                 </div>
             </div>
-            <i class="fa-solid fa-plane-departure" style="font-size: 6rem; color: rgba(255,255,255,0.03); position: absolute; right: -10px; bottom: -20px; transform: rotate(-15deg);"></i>
         </div>
         ${featureStripHtml}
-        <div style="flex-grow: 1; overflow-y: auto; padding-top: 12px;">
-            <div class="apt-dashboard-grid">
-                ${weatherModuleHtml}
-                ${atisModuleHtml}
-            </div>
-            ${metarString ? `<div class="metar-strip">${metarString}</div>` : ''}
-            <div class="tech-module" style="min-height: 300px; display: flex; flex-direction: column; margin: 16px 16px 16px 16px; border: 1px solid rgba(255,255,255,0.05);">
+        <div style="flex-grow: 1; overflow-y: auto;">
+            <div class="apt-dashboard-grid">${weatherModuleHtml}${atisModuleHtml}</div>
+            <div class="tech-module" style="margin: 16px; border: 1px solid rgba(255,255,255,0.05);">
                 <div class="apt-tabs-header">
                     <button class="apt-tab-btn active" data-target="apt-traffic"><i class="fa-solid fa-plane-circle-check"></i> TRAFFIC</button>
                     <button class="apt-tab-btn" data-target="apt-atc"><i class="fa-solid fa-headset"></i> ATC</button>
                     <button class="apt-tab-btn" data-target="apt-notams"><i class="fa-solid fa-triangle-exclamation"></i> NOTAMs</button>
                 </div>
-                <div id="apt-traffic" class="apt-tab-content active" style="padding: 0;">${trafficHtml}</div>
+                <div id="apt-traffic" class="apt-tab-content active" style="padding: 0;">
+                    ${visualizerControlsHtml}
+                    ${trafficHtml}
+                </div>
                 <div id="apt-atc" class="apt-tab-content" style="padding: 0;">${atcHtml}</div>
                 <div id="apt-notams" class="apt-tab-content" style="padding: 0;">${notamsHtml}</div>
             </div>
@@ -6849,9 +6806,6 @@ function applyTrafficHighlighting() {
     }
 }
 
-/**
- * --- [NEW] Updates the Legend inside the Airport Window dynamically ---
- */
 function updateTrafficLegendUI() {
     const legendEl = document.getElementById('traffic-visualizer-legend');
     if (!legendEl) return;
@@ -6860,6 +6814,7 @@ function updateTrafficLegendUI() {
     let inColor = '#fff', outColor = '#fff', inLabel = 'AIRCRAFT', outLabel = 'AIRCRAFT';
 
     if (isTrafficHighlightActive) {
+        // Logic: Use the "opposite" color relative to the user's current selection
         if (currentMode === 'default') { inColor = '#38bdf8'; outColor = '#f59e0b'; }
         else if (currentMode === 'blue') { inColor = '#fff'; outColor = '#f59e0b'; }
         else if (currentMode === 'orange') { inColor = '#38bdf8'; outColor = '#fff'; }
@@ -6891,7 +6846,7 @@ function updateTrafficLegendUI() {
         const hideBtn = e.target.closest('#airport-window-hide-btn');
         const trafficToggle = e.target.closest('#traffic-highlight-toggle');
 
-        // [NEW] Traffic Visualizer Toggle
+        // [NEW] Traffic Visualizer Toggle Handler
         if (trafficToggle) {
             isTrafficHighlightActive = trafficToggle.checked;
             applyTrafficHighlighting();
@@ -6899,10 +6854,9 @@ function updateTrafficLegendUI() {
         }
 
         if (closeBtn) {
-            // [NEW] Cleanup Highlight on Close
+            // Cleanup: Turn visualizer OFF when closing the window
             isTrafficHighlightActive = false;
             applyTrafficHighlighting();
-            
             airportInfoWindow.classList.remove('visible');
             if (window.MobileUIHandler) MobileUIHandler.closeActiveWindow();
             airportInfoWindowRecallBtn.classList.remove('visible');
@@ -6925,166 +6879,6 @@ function updateTrafficLegendUI() {
     });
 
     airportInfoWindow.dataset.eventsAttached = 'true';
-}
-    
-
-function setupAircraftWindowEvents() {
-    if (!aircraftInfoWindow || aircraftInfoWindow.dataset.eventsAttached === 'true') return;
-
-    aircraftInfoWindow.addEventListener('click', async (e) => {
-        const closeBtn = e.target.closest('.aircraft-window-close-btn');
-        const hideBtn = e.target.closest('.aircraft-window-hide-btn');
-        const shareBtn = e.target.closest('.aircraft-window-share-btn'); // <--- NEW
-        const tabBtn = e.target.closest('.ac-info-tab-btn');
-        const planBtn = e.target.closest('#plan-this-flight-btn');
-        const profileToggleBtn = e.target.closest('.profile-toggle-btn');
-
-        // 0. Handle Screenshot (Share)
-        if (shareBtn) {
-            e.preventDefault();
-            generateTripCard();
-            return;
-        }
-
-        // 1. Handle VSD/SSD Toggle
-        if (profileToggleBtn) {
-            e.preventDefault();
-            if (profileToggleBtn.classList.contains('active')) return;
-
-            const targetPanelId = profileToggleBtn.dataset.target;
-            const profileCard = profileToggleBtn.closest('.ac-profile-card-new');
-            
-            if (!targetPanelId || !profileCard) return;
-
-            profileCard.querySelector('.profile-toggle-btn.active')?.classList.remove('active');
-            profileCard.querySelector('#vsd-panel.active')?.classList.remove('active');
-            profileCard.querySelector('#ssd-panel.active')?.classList.remove('active');
-
-            profileToggleBtn.classList.add('active');
-            profileCard.querySelector(`#${targetPanelId}`)?.classList.add('active');
-            return;
-        }
-
-        // 2. Handle "Plan This Flight" Button
-        if (planBtn) {
-            e.preventDefault();
-            const departure = planBtn.dataset.departure;
-            const arrival = planBtn.dataset.arrival;
-            const aircraft = planBtn.dataset.aircraft;
-
-            if (!departure || !arrival || !aircraft) {
-                showNotification("Could not get flight data to plan.", "error");
-                return;
-            }
-
-            const depInput = document.getElementById('fp-departure');
-            const arrInput = document.getElementById('fp-arrival');
-            const acSelect = document.getElementById('fp-aircraft');
-            
-            if (!depInput || !arrInput || !acSelect) {
-                showNotification("Flight plan form is not loaded.", "error");
-                return;
-            }
-
-            depInput.value = departure;
-            arrInput.value = arrival;
-            acSelect.value = aircraft;
-
-            const flightPlanTabBtn = document.querySelector('.panel-tab-btn[data-tab="tab-flightplan"]');
-            if (flightPlanTabBtn) flightPlanTabBtn.click();
-            
-            const hideButton = aircraftInfoWindow.querySelector('.aircraft-window-hide-btn');
-            if (hideButton) hideButton.click();
-            
-            const panel = document.getElementById('sector-ops-floating-panel');
-            if (panel && panel.classList.contains('panel-collapsed')) {
-                const toolbarToggleBtn = document.getElementById('toolbar-toggle-panel-btn');
-                if (toolbarToggleBtn) toolbarToggleBtn.click();
-            }
-            
-            const flightPlanTabContent = document.getElementById('tab-flightplan');
-            if (flightPlanTabContent) flightPlanTabContent.scrollTop = 0;
-
-            showNotification("Flight plan form populated.", "success");
-            return;
-        }
-
-        // 3. Handle Tab Switching
-        if (tabBtn) {
-            e.preventDefault();
-            const tabId = tabBtn.dataset.tab;
-            if (!tabId || tabBtn.classList.contains('active')) return;
-            
-            const windowContent = tabBtn.closest('.info-window-content');
-            if (!windowContent) return;
-            
-            tabBtn.closest('.ac-info-window-tabs').querySelector('.ac-info-tab-btn.active')?.classList.remove('active');
-            windowContent.querySelector('.ac-tab-pane.active')?.classList.remove('active');
-            
-            tabBtn.classList.add('active');
-            const newPane = windowContent.querySelector(`#${tabId}`);
-            if (newPane) newPane.classList.add('active');
-            
-            if (tabId === 'ac-tab-pilot-report') {
-                const statsDisplay = newPane.querySelector('#pilot-stats-display');
-                if (statsDisplay && statsDisplay.innerHTML.trim() === '') { 
-                    const userId = tabBtn.dataset.userId;
-                    const username = tabBtn.dataset.username;
-                    if (userId) await displayPilotStats(userId, username); 
-                }
-            }
-        }
-
-        // 4. Handle Close Logic (USING HELPER)
-        if (closeBtn) {
-            closeAircraftWindow(); 
-        }
-
-        // 5. Handle Hide Logic
-        if (hideBtn) {
-            aircraftInfoWindow.classList.remove('visible');
-            clearLiveFlightPath(currentFlightInWindow);
-
-            // Clear intervals (pause updates while hidden)
-            if (activePfdUpdateInterval) clearInterval(activePfdUpdateInterval);
-            if (activeGeocodeUpdateInterval) clearInterval(activeGeocodeUpdateInterval);
-            if (activeWeatherUpdateInterval) clearInterval(activeWeatherUpdateInterval); 
-            
-            activePfdUpdateInterval = null;
-            activeGeocodeUpdateInterval = null;
-            activeWeatherUpdateInterval = null;
-            
-            if (currentFlightInWindow) {
-                aircraftInfoWindowRecallBtn.classList.add('visible', 'palpitate');
-                setTimeout(() => aircraftInfoWindowRecallBtn.classList.remove('palpitate'), 1000);
-            }
-        }
-    });
-
-    // Recall Button Logic
-    aircraftInfoWindowRecallBtn.addEventListener('click', () => {
-        if (currentFlightInWindow) {
-            const layer = sectorOpsMap.getLayer('sector-ops-live-flights-layer');
-            if (layer) {
-                const source = sectorOpsMap.getSource('sector-ops-live-flights-source');
-                const features = source._data.features;
-                const feature = features.find(f => f.properties.flightId === currentFlightInWindow);
-                if (feature) {
-                    const props = feature.properties;
-                    const flightProps = { ...props, position: JSON.parse(props.position), aircraft: JSON.parse(props.aircraft) };
-                    
-                    fetch('https://site--acars-backend--6dmjph8ltlhv.code.run/if-sessions').then(res => res.json()).then(data => {
-                        const sessionId = getCurrentSessionId(data);
-                        if(sessionId) {
-                            handleAircraftClick(flightProps, sessionId);
-                        }
-                    });
-                }
-            }
-        }
-    });
-    
-    aircraftInfoWindow.dataset.eventsAttached = 'true';
 }
 
 /**
