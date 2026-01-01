@@ -2,6 +2,14 @@ import { MapAnimator } from './mapAnimator.js';
 import { AirportLayoutManager } from './airportLayout.js';
 
 document.addEventListener('DOMContentLoaded', async () => {
+
+    // Register Service Worker for Instant Map Loading
+if ('serviceWorker' in navigator) {
+    navigator.serviceWorker.register('/sw.js')
+        .then(() => console.log("Map Tile Cache Service Worker Active"))
+        .catch(err => console.warn("Service Worker registration failed", err));
+}
+
     // --- Global Configuration ---
     const API_BASE_URL = 'https://site--indgo-backend--6dmjph8ltlhv.code.run';
     const LIVE_FLIGHTS_API_URL = 'https://site--acars-backend--6dmjph8ltlhv.code.run/flights';
@@ -7942,7 +7950,7 @@ function initializeSectorOpsMap(centerICAO) {
         document.getElementById('sector-ops-map-fullscreen').innerHTML = '<p class="map-error-msg">Map service not available.</p>';
         return;
     }
-    
+
     if (sectorOpsMap) {
         sectorOpsMap.remove();
         sectorOpsMap = null;
@@ -7950,15 +7958,25 @@ function initializeSectorOpsMap(centerICAO) {
 
     const centerCoords = airportsData[centerICAO] ? [airportsData[centerICAO].lon, airportsData[centerICAO].lat] : [77.2, 28.6];
 
-    // --- KEY CHANGE: preserveDrawingBuffer: true ---
+    // --- ENHANCED PERFORMANCE CONFIGURATION ---
     sectorOpsMap = new mapboxgl.Map({
         container: 'sector-ops-map-fullscreen',
-        style: currentMapStyle, 
+        style: currentMapStyle,
         center: centerCoords,
         zoom: 4.5,
         interactive: true,
         projection: 'globe',
-        preserveDrawingBuffer: false // <--- Fixes the Black Screen Screenshot
+        
+        // 1. DISABLING TILE FADING: Makes tiles appear instantly instead of the "loading" fade effect.
+        fadeDuration: 0, 
+        
+        // 2. RAM CACHING: Increases the number of tiles kept in memory to prevent re-loading when zooming back out.
+        maxTileCacheSize: 500, 
+        
+        // 3. PERFORMANCE FLAGS: Reduces overhead for a smoother "app-like" feel.
+        crossSourceCollisions: false,
+        localIdeographFontFamily: "'Inter', 'sans-serif'", // Renders text locally
+        preserveDrawingBuffer: true // Required for your generateTripCard function to work correctly
     });
 
     sectorOpsMap.on('style.load', async () => {
