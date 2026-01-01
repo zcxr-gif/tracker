@@ -6838,7 +6838,7 @@ function updateTrafficLegendUI() {
 }
 
 
-function setupAirportWindowEvents() {
+    function setupAirportWindowEvents() {
     if (!airportInfoWindow || airportInfoWindow.dataset.eventsAttached === 'true') return;
 
     airportInfoWindow.addEventListener('click', (e) => {
@@ -6879,6 +6879,166 @@ function setupAirportWindowEvents() {
     });
 
     airportInfoWindow.dataset.eventsAttached = 'true';
+}
+    
+
+function setupAircraftWindowEvents() {
+    if (!aircraftInfoWindow || aircraftInfoWindow.dataset.eventsAttached === 'true') return;
+
+    aircraftInfoWindow.addEventListener('click', async (e) => {
+        const closeBtn = e.target.closest('.aircraft-window-close-btn');
+        const hideBtn = e.target.closest('.aircraft-window-hide-btn');
+        const shareBtn = e.target.closest('.aircraft-window-share-btn'); // <--- NEW
+        const tabBtn = e.target.closest('.ac-info-tab-btn');
+        const planBtn = e.target.closest('#plan-this-flight-btn');
+        const profileToggleBtn = e.target.closest('.profile-toggle-btn');
+
+        // 0. Handle Screenshot (Share)
+        if (shareBtn) {
+            e.preventDefault();
+            generateTripCard();
+            return;
+        }
+
+        // 1. Handle VSD/SSD Toggle
+        if (profileToggleBtn) {
+            e.preventDefault();
+            if (profileToggleBtn.classList.contains('active')) return;
+
+            const targetPanelId = profileToggleBtn.dataset.target;
+            const profileCard = profileToggleBtn.closest('.ac-profile-card-new');
+            
+            if (!targetPanelId || !profileCard) return;
+
+            profileCard.querySelector('.profile-toggle-btn.active')?.classList.remove('active');
+            profileCard.querySelector('#vsd-panel.active')?.classList.remove('active');
+            profileCard.querySelector('#ssd-panel.active')?.classList.remove('active');
+
+            profileToggleBtn.classList.add('active');
+            profileCard.querySelector(`#${targetPanelId}`)?.classList.add('active');
+            return;
+        }
+
+        // 2. Handle "Plan This Flight" Button
+        if (planBtn) {
+            e.preventDefault();
+            const departure = planBtn.dataset.departure;
+            const arrival = planBtn.dataset.arrival;
+            const aircraft = planBtn.dataset.aircraft;
+
+            if (!departure || !arrival || !aircraft) {
+                showNotification("Could not get flight data to plan.", "error");
+                return;
+            }
+
+            const depInput = document.getElementById('fp-departure');
+            const arrInput = document.getElementById('fp-arrival');
+            const acSelect = document.getElementById('fp-aircraft');
+            
+            if (!depInput || !arrInput || !acSelect) {
+                showNotification("Flight plan form is not loaded.", "error");
+                return;
+            }
+
+            depInput.value = departure;
+            arrInput.value = arrival;
+            acSelect.value = aircraft;
+
+            const flightPlanTabBtn = document.querySelector('.panel-tab-btn[data-tab="tab-flightplan"]');
+            if (flightPlanTabBtn) flightPlanTabBtn.click();
+            
+            const hideButton = aircraftInfoWindow.querySelector('.aircraft-window-hide-btn');
+            if (hideButton) hideButton.click();
+            
+            const panel = document.getElementById('sector-ops-floating-panel');
+            if (panel && panel.classList.contains('panel-collapsed')) {
+                const toolbarToggleBtn = document.getElementById('toolbar-toggle-panel-btn');
+                if (toolbarToggleBtn) toolbarToggleBtn.click();
+            }
+            
+            const flightPlanTabContent = document.getElementById('tab-flightplan');
+            if (flightPlanTabContent) flightPlanTabContent.scrollTop = 0;
+
+            showNotification("Flight plan form populated.", "success");
+            return;
+        }
+
+        // 3. Handle Tab Switching
+        if (tabBtn) {
+            e.preventDefault();
+            const tabId = tabBtn.dataset.tab;
+            if (!tabId || tabBtn.classList.contains('active')) return;
+            
+            const windowContent = tabBtn.closest('.info-window-content');
+            if (!windowContent) return;
+            
+            tabBtn.closest('.ac-info-window-tabs').querySelector('.ac-info-tab-btn.active')?.classList.remove('active');
+            windowContent.querySelector('.ac-tab-pane.active')?.classList.remove('active');
+            
+            tabBtn.classList.add('active');
+            const newPane = windowContent.querySelector(`#${tabId}`);
+            if (newPane) newPane.classList.add('active');
+            
+            if (tabId === 'ac-tab-pilot-report') {
+                const statsDisplay = newPane.querySelector('#pilot-stats-display');
+                if (statsDisplay && statsDisplay.innerHTML.trim() === '') { 
+                    const userId = tabBtn.dataset.userId;
+                    const username = tabBtn.dataset.username;
+                    if (userId) await displayPilotStats(userId, username); 
+                }
+            }
+        }
+
+        // 4. Handle Close Logic (USING HELPER)
+        if (closeBtn) {
+            closeAircraftWindow(); 
+        }
+
+        // 5. Handle Hide Logic
+        if (hideBtn) {
+            aircraftInfoWindow.classList.remove('visible');
+            clearLiveFlightPath(currentFlightInWindow);
+
+            // Clear intervals (pause updates while hidden)
+            if (activePfdUpdateInterval) clearInterval(activePfdUpdateInterval);
+            if (activeGeocodeUpdateInterval) clearInterval(activeGeocodeUpdateInterval);
+            if (activeWeatherUpdateInterval) clearInterval(activeWeatherUpdateInterval); 
+            
+            activePfdUpdateInterval = null;
+            activeGeocodeUpdateInterval = null;
+            activeWeatherUpdateInterval = null;
+            
+            if (currentFlightInWindow) {
+                aircraftInfoWindowRecallBtn.classList.add('visible', 'palpitate');
+                setTimeout(() => aircraftInfoWindowRecallBtn.classList.remove('palpitate'), 1000);
+            }
+        }
+    });
+
+    // Recall Button Logic
+    aircraftInfoWindowRecallBtn.addEventListener('click', () => {
+        if (currentFlightInWindow) {
+            const layer = sectorOpsMap.getLayer('sector-ops-live-flights-layer');
+            if (layer) {
+                const source = sectorOpsMap.getSource('sector-ops-live-flights-source');
+                const features = source._data.features;
+                const feature = features.find(f => f.properties.flightId === currentFlightInWindow);
+                if (feature) {
+                    const props = feature.properties;
+                    const flightProps = { ...props, position: JSON.parse(props.position), aircraft: JSON.parse(props.aircraft) };
+                    
+                    fetch('https://site--acars-backend--6dmjph8ltlhv.code.run/if-sessions').then(res => res.json()).then(data => {
+                        const sessionId = getCurrentSessionId(data);
+                        if(sessionId) {
+                            handleAircraftClick(flightProps, sessionId);
+                        }
+                    });
+                }
+            }
+        }
+    });
+    
+    aircraftInfoWindow.dataset.eventsAttached = 'true';
 }
 
 /**
