@@ -548,47 +548,93 @@ function injectCustomStyles() {
     const css = `
         /* --- DYNAMIC & LOCKED AIRPORT TAG STYLES --- */
         :root {
-            --apt-tag-scale: 1; /* Managed by JS zoom listener */
+            --apt-tag-scale: 1; 
         }
 
         .apt-live-tag {
             display: flex;
+            /* Changed to column-reverse so extra info appears ABOVE the ident */
+            flex-direction: column-reverse;
             align-items: center;
             background: rgba(10, 15, 25, 0.9);
-            backdrop-filter: blur(4px);
+            backdrop-filter: blur(8px);
             border: 1px solid rgba(255, 255, 255, 0.2);
-            border-radius: 4px;
-            padding: 2px 4px;
+            border-radius: 6px;
+            padding: 2px;
             cursor: pointer;
             pointer-events: auto;
             white-space: nowrap;
             
-            /* The 'Locked' transform: No transitions on transform! */
-            /* We use the CSS variable to control the scale based on zoom */
             transform: scale(var(--apt-tag-scale));
-            transform-origin: center;
+            transform-origin: bottom center; /* Anchor growth to the bottom */
             
-            transition: background 0.2s ease, border-color 0.2s ease, opacity 0.3s ease;
-            height: 22px; 
+            transition: all 0.3s cubic-bezier(0.16, 1, 0.3, 1);
+            min-height: 22px; 
             box-sizing: border-box;
             user-select: none;
+            box-shadow: 0 4px 12px rgba(0,0,0,0.5);
         }
 
-        .apt-live-tag:hover {
-            background: #1e293b;
-            border-color: #38bdf8;
-            z-index: 9999 !important;
-            transform: scale(calc(var(--apt-tag-scale) * 1.1)); /* Slight pop on hover */
+        /* Hover Expansion Logic */
+        .apt-live-tag .apt-tag-extra {
+            max-height: 0;
+            opacity: 0;
+            overflow: hidden;
+            transition: all 0.3s ease;
+            width: 100%;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            border-bottom: 0px solid rgba(255,255,255,0.1);
         }
 
-        /* Compact Mode: Hide frequencies when zoomed out far */
+        /* Only trigger on mouse hover (no tapping) for desktop feel */
+        @media (hover: hover) {
+            .apt-live-tag:hover {
+                background: #0f172a;
+                border-color: #38bdf8;
+                z-index: 9999 !important;
+                padding-bottom: 4px;
+            }
+
+            .apt-live-tag:hover .apt-tag-extra {
+                max-height: 50px; /* Expand upwards */
+                opacity: 1;
+                padding-bottom: 4px;
+                margin-bottom: 4px;
+                border-bottom-width: 1px;
+            }
+        }
+
+        .apt-tag-base {
+            display: flex;
+            align-items: center;
+            width: 100%;
+            height: 18px;
+        }
+
+        .apt-tag-extra-item {
+            font-size: 8px;
+            font-weight: 800;
+            color: #38bdf8;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            font-family: 'JetBrains Mono', monospace;
+        }
+
+        .apt-tag-extra-val {
+            font-size: 9px;
+            color: #fff;
+            font-weight: 600;
+        }
+
+        /* Compact Mode */
         .apt-live-tag.compact .apt-tag-freqs {
             display: none;
         }
         
         .apt-live-tag.compact {
-            padding: 2px 6px;
-            height: 18px;
+            padding: 2px 4px;
         }
 
         .apt-tag-ident {
@@ -602,7 +648,7 @@ function injectCustomStyles() {
         .apt-tag-freqs {
             display: flex;
             gap: 2px;
-            margin-left: 4px;
+            margin-left: 2px;
             border-left: 1px solid rgba(255, 255, 255, 0.1);
             padding-left: 4px;
         }
@@ -631,16 +677,6 @@ function injectCustomStyles() {
             border-radius: 4px;
             border: 1px solid rgba(124, 58, 237, 0.6);
             pointer-events: none;
-        }
-
-        .destination-marker {
-            width: 6px;
-            height: 6px;
-            background: #64748b;
-            border: 1.5px solid #fff;
-            border-radius: 50%;
-            transition: transform 0.2s ease;
-            transform: scale(var(--apt-tag-scale));
         }
 
         /* --- IMPORT FONTS --- */
@@ -11717,6 +11753,19 @@ function renderAirportMarkers() {
             el.className = 'apt-live-tag';
             const airportAtc = activeAtcFacilities.filter(f => f.airportName === icao);
             
+            // --- NEW: Calculate Session Duration ---
+            // Find the facility that has been online the longest
+            const earliestStart = airportAtc.reduce((min, f) => {
+                const start = new Date(f.startTime).getTime();
+                return start < min ? start : min;
+            }, Date.now());
+            
+            const diffMs = Date.now() - earliestStart;
+            const diffMins = Math.floor(diffMs / 60000);
+            const durationText = diffMins > 60 
+                ? `${Math.floor(diffMins/60)}h ${diffMins%60}m` 
+                : `${diffMins}m online`;
+
             const hasGnd = airportAtc.some(f => f.type === 0);
             const hasTwr = airportAtc.some(f => f.type === 1);
             const hasApp = airportAtc.some(f => f.type === 4 || f.type === 5);
@@ -11728,43 +11777,47 @@ function renderAirportMarkers() {
                 el.appendChild(aura);
             }
 
+            // 1. The Expandable Top Info (At reach)
+            const extra = document.createElement('div');
+            extra.className = 'apt-tag-extra';
+            extra.innerHTML = `
+                <div class="apt-tag-extra-item">Session</div>
+                <div class="apt-tag-extra-val">${durationText}</div>
+            `;
+            el.appendChild(extra);
+
+            // 2. The Base Tag (Static)
+            const base = document.createElement('div');
+            base.className = 'apt-tag-base';
+            
             const ident = document.createElement('div');
             ident.className = 'apt-tag-ident';
             ident.textContent = icao;
-            el.appendChild(ident);
+            base.appendChild(ident);
 
             const freqs = document.createElement('div');
             freqs.className = 'apt-tag-freqs';
-            
             if (hasAtis) freqs.innerHTML += `<div class="freq-mini-badge f-atis">A</div>`;
             if (hasGnd) freqs.innerHTML += `<div class="freq-mini-badge f-gnd">G</div>`;
             if (hasTwr) freqs.innerHTML += `<div class="freq-mini-badge f-twr">T</div>`;
             if (hasApp) freqs.innerHTML += `<div class="freq-mini-badge f-app">R</div>`;
+            base.appendChild(freqs);
             
-            el.appendChild(freqs);
+            el.appendChild(base);
+
         } else {
+            // Standard non-ATC dot
             el.className = 'destination-marker';
         }
 
-        // NEW: Advanced Marker Alignment for 'Locked' Feel
-        const marker = new mapboxgl.Marker({ 
-            element: el,
-            anchor: 'center',        // Anchor from the dead center
-            pitchAlignment: 'viewport', // Keeps it flat against the screen when map tilts
-            rotationAlignment: 'viewport' // Keeps it upright when map rotates
-        })
+        const marker = new mapboxgl.Marker({ element: el })
             .setLngLat([airport.lon, airport.lat])
             .addTo(sectorOpsMap);
 
-        el.addEventListener('click', (e) => {
-            e.stopPropagation();
-            handleAirportClick(icao);
-        });
-
-        airportAndAtcMarkers[icao] = { marker: marker, className: el.className };
+        el.addEventListener('click', () => handleAirportClick(icao));
+        airportAndAtcMarkers[icao] = { marker, hasAtc };
     });
 }
-
 
 // --- [UPDATED] Fetches ATC & NOTAMs for the CURRENTLY SELECTED SERVER ---
 async function updateSectorOpsSecondaryData() {
