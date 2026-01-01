@@ -2980,14 +2980,6 @@ function injectCustomStyles() {
         .search-result-item:last-child {
             border-bottom: none;
         }
-            /* Add this inside the 'css' variable string in injectCustomStyles() */
-.plane-hover-highlight {
-    pointer-events: none;
-    z-index: 10;
-    /* This creates a crisp white outline wrapping the PNG shape */
-    filter: drop-shadow(0 0 2px #fff) drop-shadow(0 0 1px #fff) drop-shadow(0 0 1px #fff);
-    transition: opacity 0.1s ease;
-}
     `;
 
     const style = document.createElement('style');
@@ -10943,15 +10935,13 @@ function setupSectorOpsEventListeners() {
 }
 
 /**
- * Replacement logic for Flight Hover Popups.
- * Adds a wrap-around CSS outline to the aircraft icon on hover.
+ * --- [NEW] Logic for Flight Hover Popups (FR24 Style) ---
+ * Attaches mouse listeners to the aircraft layer to show info cards.
  */
-let hoverHighlightMarker = null;
-
 function setupFlightHoverPopups() {
     if (!sectorOpsMap) return;
 
-    // Shared popup for the info card
+    // Create a single shared popup instance for hovering
     const hoverPopup = new mapboxgl.Popup({
         closeButton: false,
         closeOnClick: false,
@@ -10961,57 +10951,31 @@ function setupFlightHoverPopups() {
     });
 
     sectorOpsMap.on('mouseenter', 'sector-ops-live-flights-layer', (e) => {
-        // Change cursor
+        // Change cursor to indicate interactability
         sectorOpsMap.getCanvas().style.cursor = 'pointer';
         
         const feature = e.features[0];
         const props = feature.properties;
-        const coordinates = feature.geometry.coordinates.slice();
-        
-        // --- 1. REMOVE OLD HIGHLIGHTS ---
-        // If your code has a circle highlight layer (often named 'highlight' or 'hover'), hide it
-        if (sectorOpsMap.getLayer('sector-ops-live-flights-highlight')) {
-            sectorOpsMap.setLayoutProperty('sector-ops-live-flights-highlight', 'visibility', 'none');
-        }
 
-        // --- 2. CREATE WRAP-AROUND OUTLINE ---
-        if (hoverHighlightMarker) hoverHighlightMarker.remove();
-
+        // Parse JSON strings from properties (set in handleSocketFlightUpdate)
         const acData = props.aircraft ? JSON.parse(props.aircraft) : {};
-        const category = props.category || 'default';
-        const heading = props.heading || 0;
-
-        // Determine icon path based on category (matching your setupMapLayersAndFog logic)
-        // Adjust paths if your folder structure differs
-        const iconPath = `/Images/map_icons/${category}.png`;
-
-        const el = document.createElement('div');
-        el.className = 'plane-hover-highlight';
-        el.style.backgroundImage = `url('${iconPath}')`;
-        el.style.backgroundSize = 'contain';
-        el.style.backgroundRepeat = 'no-repeat';
-        el.style.width = '35px';  // Slightly larger than original icon (30px)
-        el.style.height = '35px';
-
-        hoverHighlightMarker = new mapboxgl.Marker({ element: el })
-            .setLngLat(coordinates)
-            .setRotation(heading)
-            .addTo(sectorOpsMap);
-
-        // --- 3. SHOW INFO CARD (Existing Logic) ---
+        
+        // Prepare display data
         const callsign = props.callsign || '---';
         const acType = (acData.aircraftName || 'AC').split(' ')[0].substring(0, 4).toUpperCase();
         const imgUrl = props.communityImageUrl || '/CommunityPlanes/default.png';
         const credit = props.contributorName || 'IF Community';
         const alt = Math.round(props.altitude || 0).toLocaleString();
         const gs = Math.round(props.speed || 0);
-
+        
+        // Generate Airline Logo Path
         const livName = acData.liveryName || '';
         const words = livName.trim().split(/\s+/);
         let logoName = words.length > 1 && /[^a-zA-Z0-9]/.test(words[1]) ? words[0] : (words[0] + (words[1] ? ' ' + words[1] : ''));
         const sanitizedLogoName = logoName.toLowerCase().replace(/[^a-z0-9\s]/g, '').replace(/\s+/g, '_');
         const logoPath = `Images/airline_logos/${sanitizedLogoName}.png`;
 
+        // Build the HTML structure matching your CSS
         const html = `
             <div class="fr24-card-container">
                 <div class="fr24-image-box" style="background-image: url('${imgUrl}')">
@@ -11030,22 +10994,24 @@ function setupFlightHoverPopups() {
                         ${alt} FT · ${gs} KTS
                     </div>
                 </div>
-            </div>`;
+            </div>
+        `;
 
-        hoverPopup.setLngLat(coordinates).setHTML(html).addTo(sectorOpsMap);
+        // Show the popup at the aircraft's current location
+        hoverPopup.setLngLat(feature.geometry.coordinates).setHTML(html).addTo(sectorOpsMap);
     });
 
+    // Remove popup and reset cursor when mouse leaves
     sectorOpsMap.on('mouseleave', 'sector-ops-live-flights-layer', () => {
         sectorOpsMap.getCanvas().style.cursor = '';
-        
-        // Remove the outline marker
-        if (hoverHighlightMarker) {
-            hoverHighlightMarker.remove();
-            hoverHighlightMarker = null;
-        }
-
-        // Remove the info card
         hoverPopup.remove();
+    });
+
+    // Optional: Follow mouse movement for smoother tracking
+    sectorOpsMap.on('mousemove', 'sector-ops-live-flights-layer', (e) => {
+        if (hoverPopup.isOpen()) {
+            hoverPopup.setLngLat(e.lngLat);
+        }
     });
 }
 
