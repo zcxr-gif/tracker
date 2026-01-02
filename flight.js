@@ -4126,29 +4126,77 @@ async function generateTripCard() {
     }, 100);
 }
     
+    /**
+     * --- [ENHANCED] Handles the search input event.
+     * Searches Callsign, Username, Aircraft Type, Livery, and Altitude.
+     */
     function handleSearchInput(searchText) {
-    if (!searchText || searchText.length < 2) {
         const dropdown = document.getElementById('search-results-dropdown');
-        if (dropdown) dropdown.style.display = 'none';
-        return;
-    }
+        if (!dropdown) return;
 
-    const upperSearchText = searchText.toUpperCase();
-    const matches = [];
-
-    for (const flightId in currentMapFeatures) {
-        const props = currentMapFeatures[flightId].properties;
-        const callsign = (props.callsign || '').toUpperCase();
-        const username = (props.username || '').toUpperCase();
-        
-        if (callsign.includes(upperSearchText) || username.includes(upperSearchText)) {
-            matches.push(currentMapFeatures[flightId]);
+        // Require at least 2 characters to start searching
+        if (!searchText || searchText.length < 2) {
+            dropdown.innerHTML = '';
+            dropdown.style.display = 'none';
+            return;
         }
-    }
 
-    // Call the LandingUI to handle the visual rendering
-    LandingUI.renderSearchResultsDropdown(matches);
-}
+        const upperSearchText = searchText.toUpperCase();
+        const matches = [];
+
+        // Search through the live flight data cache
+        for (const flightId in currentMapFeatures) {
+            try {
+                const feature = currentMapFeatures[flightId];
+                if (!feature || !feature.properties) continue;
+
+                const props = feature.properties;
+                
+                // 1. Get Basic Strings
+                const callsign = (props.callsign || '').toUpperCase();
+                const username = (props.username || '').toUpperCase();
+                
+                // 2. Get Aircraft/Livery Data safely
+                let acName = '';
+                let livName = '';
+                if (props.aircraft) {
+                    const acObj = (typeof props.aircraft === 'string') ? JSON.parse(props.aircraft) : props.aircraft;
+                    acName = (acObj.aircraftName || '').toUpperCase();
+                    livName = (acObj.liveryName || '').toUpperCase();
+                }
+
+                // 3. Get Altitude as String
+                const altStr = props.altitude ? Math.round(props.altitude).toString() : '';
+
+                // 4. Perform Matching
+                const isMatch = 
+                    callsign.includes(upperSearchText) ||
+                    username.includes(upperSearchText) ||
+                    acName.includes(upperSearchText) ||
+                    livName.includes(upperSearchText) ||
+                    altStr.startsWith(upperSearchText); // Altitude usually searched by start (e.g. "350" for 35000)
+
+                if (isMatch) {
+                    matches.push(feature);
+                }
+            } catch (error) {
+                console.error('Error searching feature:', error);
+            }
+        }
+        
+        // Sort results: Exact callsign matches first, then others
+        matches.sort((a, b) => {
+            const aCall = (a.properties.callsign || '').toUpperCase();
+            const bCall = (b.properties.callsign || '').toUpperCase();
+            const aExact = aCall === upperSearchText;
+            const bExact = bCall === upperSearchText;
+            if (aExact && !bExact) return -1;
+            if (!aExact && bExact) return 1;
+            return 0;
+        });
+
+        renderSearchResultsDropdown(matches);
+    }
 
 
  /**
@@ -7412,13 +7460,6 @@ function formatDataForSimpleWindow(flightProps, plan, routePoints, communityData
         // Now that filters are loaded, this will use the correct currentMapStyle
         const selectedHub = "KJFK"; 
         await initializeSectorOpsMap(selectedHub);
-
-        LandingUI.init({
-            currentServer: currentServerName,
-            onSearch: (text) => handleSearchInput(text),
-            onResultClick: (el) => onSearchResultClick(el),
-            onServerSwitch: (name) => switchServer(name)
-        });
 
         // --- 3. Inject Server Selector Pill ---
         if (!document.getElementById('server-selector-container')) {
