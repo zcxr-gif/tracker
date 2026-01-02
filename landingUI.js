@@ -1,11 +1,11 @@
 /**
- * LandingUI.js
- * FINAL REDESIGN: Modular Floating UI (Match image_986d0c.png)
- * Removes sidebars and splash screens. Keeps the map as the primary focus.
+ * Inflight UI
+ * Modular Floating Dashboard for Flight Tracking
  */
 
 export const LandingUI = {
     _isVisible: false,
+    _expandedModule: null,
 
     init() {
         this.injectStyles();
@@ -14,43 +14,89 @@ export const LandingUI = {
     },
 
     render() {
-        // Force cleanup of any old Sector Ops elements to prevent "stacking"
-        const existing = document.getElementById('sector-ops-landing-ui');
+        // Force cleanup of any old elements
+        const existing = document.getElementById('inflight-landing-ui');
         if (existing) existing.remove();
 
         const html = `
-            <div id="sector-ops-landing-ui" class="landing-ui-wrapper">
+            <div id="inflight-landing-ui" class="landing-ui-wrapper">
                 <div class="landing-top-left-stack">
                     <div class="brand-module">
-                        <span class="brand-text">Sector<span>Ops</span></span>
+                        <span class="brand-text">In<span>flight</span></span>
                         <span id="landing-clock" class="brand-clock">00:00:00Z</span>
                     </div>
 
-                    <div class="landing-module" id="tile-search">
+                    <div class="landing-module" id="tile-search" data-module="search">
                         <div class="module-header">
-                            <span>Search Radar</span>
-                            <i class="fa-solid fa-chevron-down"></i>
+                            <div class="header-main">
+                                <i class="fa-solid fa-magnifying-glass"></i>
+                                <span>Search Radar</span>
+                            </div>
+                            <i class="fa-solid fa-chevron-down caret"></i>
+                        </div>
+                        <div class="module-content">
+                            <input type="text" id="inflight-search-input" placeholder="Search flight, callsign, or airport..." />
                         </div>
                     </div>
 
-                    <div class="landing-module" id="tile-weather">
+                    <div class="landing-module" id="tile-weather" data-module="weather">
                         <div class="module-header">
-                            <span>Weather Ops</span>
-                            <i class="fa-solid fa-chevron-down"></i>
+                            <div class="header-main">
+                                <i class="fa-solid fa-cloud-sun"></i>
+                                <span>Weather Ops</span>
+                            </div>
+                            <i class="fa-solid fa-chevron-down caret"></i>
+                        </div>
+                        <div class="module-content">
+                            <div class="control-row">
+                                <label>Show METARs</label>
+                                <input type="checkbox" class="inflight-switch" id="toggle-metar" checked>
+                            </div>
+                            <div class="control-row">
+                                <label>Wind Vectors</label>
+                                <input type="checkbox" class="inflight-switch" id="toggle-wind">
+                            </div>
+                            <div class="control-row">
+                                <label>Precipitation</label>
+                                <input type="checkbox" class="inflight-switch" id="toggle-precip">
+                            </div>
                         </div>
                     </div>
 
-                    <div class="landing-module" id="tile-server">
+                    <div class="landing-module" id="tile-server" data-module="server">
                         <div class="module-header">
-                            <span id="landing-server-name">Expert Server</span>
-                            <i class="fa-solid fa-chevron-down"></i>
+                            <div class="header-main">
+                                <i class="fa-solid fa-server"></i>
+                                <span id="landing-server-name">Expert Server</span>
+                            </div>
+                            <i class="fa-solid fa-chevron-down caret"></i>
+                        </div>
+                        <div class="module-content">
+                            <div class="server-list">
+                                <div class="server-opt active" data-val="Expert Server">Expert Server</div>
+                                <div class="server-opt" data-val="Training Server">Training Server</div>
+                                <div class="server-opt" data-val="Casual Server">Casual Server</div>
+                            </div>
                         </div>
                     </div>
 
-                    <div class="landing-module" id="tile-settings">
+                    <div class="landing-module" id="tile-settings" data-module="map">
                         <div class="module-header">
-                            <span>Map Settings</span>
-                            <i class="fa-solid fa-chevron-down"></i>
+                            <div class="header-main">
+                                <i class="fa-solid fa-layer-group"></i>
+                                <span>Map Settings</span>
+                            </div>
+                            <i class="fa-solid fa-chevron-down caret"></i>
+                        </div>
+                        <div class="module-content">
+                            <div class="control-row">
+                                <label>Night Mode</label>
+                                <input type="checkbox" class="inflight-switch" id="toggle-night">
+                            </div>
+                            <div class="control-row">
+                                <label>High Detail</label>
+                                <input type="checkbox" class="inflight-switch" id="toggle-detail" checked>
+                            </div>
                         </div>
                     </div>
                 </div>
@@ -76,7 +122,7 @@ export const LandingUI = {
     },
 
     update(isActive, stats = {}) {
-        const el = document.getElementById('sector-ops-landing-ui');
+        const el = document.getElementById('inflight-landing-ui');
         if (!el) return;
 
         if (isActive) {
@@ -90,22 +136,47 @@ export const LandingUI = {
     },
 
     attachListeners() {
-        document.getElementById('tile-search')?.addEventListener('click', () => {
-            document.querySelector('.search-bar-container input')?.focus();
+        // Toggle Module Expansion
+        const modules = document.querySelectorAll('.landing-module');
+        modules.forEach(mod => {
+            const header = mod.querySelector('.module-header');
+            header.addEventListener('click', (e) => {
+                e.stopPropagation();
+                const modId = mod.getAttribute('data-module');
+                
+                if (this._expandedModule === modId) {
+                    mod.classList.remove('expanded');
+                    this._expandedModule = null;
+                } else {
+                    modules.forEach(m => m.classList.remove('expanded'));
+                    mod.classList.add('expanded');
+                    this._expandedModule = modId;
+                    
+                    // Auto-focus search if opened
+                    if (modId === 'search') {
+                        setTimeout(() => document.getElementById('inflight-search-input')?.focus(), 100);
+                    }
+                }
+            });
         });
 
-        document.getElementById('tile-weather')?.addEventListener('click', () => {
-            document.getElementById('open-weather-settings-btn')?.click();
+        // Server Selection logic
+        const serverOpts = document.querySelectorAll('.server-opt');
+        serverOpts.forEach(opt => {
+            opt.addEventListener('click', (e) => {
+                const val = opt.getAttribute('data-val');
+                document.getElementById('landing-server-name').textContent = val;
+                serverOpts.forEach(o => o.classList.remove('active'));
+                opt.classList.add('active');
+                // Potential callback for server change
+                console.log(`Server changed to: ${val}`);
+            });
         });
 
-        document.getElementById('tile-settings')?.addEventListener('click', () => {
-            document.getElementById('open-filter-settings-btn')?.click();
-        });
-
-        document.getElementById('tile-server')?.addEventListener('click', () => {
-            const expertBtn = document.querySelector('.server-btn[data-server="Expert Server"]');
-            expertBtn?.classList.add('pulse-highlight');
-            setTimeout(() => expertBtn?.classList.remove('pulse-highlight'), 2000);
+        // Prevent click-through on content interaction
+        const contentAreas = document.querySelectorAll('.module-content');
+        contentAreas.forEach(area => {
+            area.addEventListener('click', (e) => e.stopPropagation());
         });
     },
 
@@ -121,8 +192,7 @@ export const LandingUI = {
     },
 
     injectStyles() {
-        // Remove existing styles if they exist
-        const oldStyle = document.getElementById('landing-ui-styles');
+        const oldStyle = document.getElementById('inflight-ui-styles');
         if (oldStyle) oldStyle.remove();
 
         const css = `
@@ -130,104 +200,174 @@ export const LandingUI = {
                 position: absolute;
                 inset: 0;
                 z-index: 1500;
-                pointer-events: none; /* Crucial: Allows map interaction through the wrapper */
+                pointer-events: none;
                 opacity: 0;
                 transition: opacity 0.3s ease;
+                font-family: 'Inter', sans-serif;
             }
 
-            .landing-ui-wrapper.visible {
-                opacity: 1;
-            }
+            .landing-ui-wrapper.visible { opacity: 1; }
 
-            /* Stacked modules (Top Left) */
             .landing-top-left-stack {
                 position: absolute;
-                top: 15px;
-                left: 15px;
+                top: 20px;
+                left: 20px;
                 display: flex;
                 flex-direction: column;
-                gap: 8px;
+                gap: 10px;
                 pointer-events: auto;
             }
 
-            /* Small Branding Box */
+            /* Brand Style */
             .brand-module {
-                padding: 10px 16px;
-                background: rgba(30, 30, 35, 0.9);
-                border: 1px solid rgba(255, 255, 255, 0.1);
-                border-radius: 8px;
+                padding: 12px 18px;
+                background: rgba(15, 15, 20, 0.95);
+                border: 1px solid rgba(255, 255, 255, 0.15);
+                border-radius: 12px;
                 display: flex;
                 justify-content: space-between;
                 align-items: center;
-                min-width: 240px;
-                margin-bottom: 4px;
+                width: 280px;
+                margin-bottom: 5px;
+                box-shadow: 0 4px 15px rgba(0,0,0,0.3);
             }
 
-            .brand-text { font-weight: 800; font-size: 1.1rem; color: #fff; letter-spacing: -0.5px; }
+            .brand-text { font-weight: 900; font-size: 1.2rem; color: #fff; letter-spacing: -0.8px; }
             .brand-text span { color: #38bdf8; }
-            .brand-clock { font-family: monospace; font-size: 0.85rem; color: #94a3b8; }
+            .brand-clock { font-family: 'JetBrains Mono', monospace; font-size: 0.85rem; color: #94a3b8; }
 
-            /* Module Design (Matches Explore/Weather style) */
+            /* Module Design */
             .landing-module {
-                background: rgba(45, 45, 50, 0.85);
-                backdrop-filter: blur(10px);
+                background: rgba(25, 25, 30, 0.8);
+                backdrop-filter: blur(12px);
                 border: 1px solid rgba(255, 255, 255, 0.08);
-                border-radius: 6px;
-                width: 240px;
-                cursor: pointer;
-                transition: background 0.2s;
+                border-radius: 10px;
+                width: 280px;
+                overflow: hidden;
+                transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1);
             }
 
             .landing-module:hover {
-                background: rgba(60, 60, 65, 0.95);
-                border-color: rgba(255, 255, 255, 0.2);
+                background: rgba(35, 35, 40, 0.9);
+                border-color: rgba(56, 189, 248, 0.3);
             }
 
             .module-header {
-                padding: 12px 16px;
+                padding: 14px 18px;
                 display: flex;
                 justify-content: space-between;
                 align-items: center;
-                color: #e2e8f0;
-                font-size: 0.9rem;
-                font-weight: 500;
+                cursor: pointer;
+                color: #f1f5f9;
             }
 
-            .module-header i { font-size: 0.7rem; opacity: 0.5; }
+            .header-main { display: flex; align-items: center; gap: 12px; font-size: 0.9rem; font-weight: 600; }
+            .header-main i { color: #38bdf8; width: 16px; text-align: center; }
 
-            /* Bottom-Left Stats */
+            .caret { font-size: 0.75rem; transition: transform 0.3s ease; opacity: 0.4; }
+            .landing-module.expanded .caret { transform: rotate(180deg); opacity: 1; }
+
+            /* Content Sections */
+            .module-content {
+                max-height: 0;
+                padding: 0 18px;
+                opacity: 0;
+                transition: all 0.3s ease;
+                border-top: 1px solid transparent;
+            }
+
+            .landing-module.expanded .module-content {
+                max-height: 300px;
+                padding: 15px 18px;
+                opacity: 1;
+                border-top: 1px solid rgba(255, 255, 255, 0.05);
+            }
+
+            /* Inputs & Toggles */
+            #inflight-search-input {
+                width: 100%;
+                background: rgba(0,0,0,0.3);
+                border: 1px solid rgba(255,255,255,0.1);
+                border-radius: 6px;
+                padding: 8px 12px;
+                color: white;
+                font-size: 0.85rem;
+                outline: none;
+            }
+
+            .control-row {
+                display: flex;
+                justify-content: space-between;
+                align-items: center;
+                margin-bottom: 10px;
+                font-size: 0.85rem;
+                color: #94a3b8;
+            }
+
+            .inflight-switch {
+                appearance: none;
+                width: 32px;
+                height: 18px;
+                background: #334155;
+                border-radius: 20px;
+                position: relative;
+                cursor: pointer;
+                transition: 0.3s;
+            }
+
+            .inflight-switch:checked { background: #38bdf8; }
+            .inflight-switch::before {
+                content: '';
+                position: absolute;
+                width: 14px;
+                height: 14px;
+                background: white;
+                border-radius: 50%;
+                top: 2px;
+                left: 2px;
+                transition: 0.3s;
+            }
+            .inflight-switch:checked::before { left: 16px; }
+
+            /* Server Options */
+            .server-list { display: flex; flex-direction: column; gap: 4px; }
+            .server-opt {
+                padding: 8px 12px;
+                border-radius: 6px;
+                font-size: 0.8rem;
+                cursor: pointer;
+                color: #94a3b8;
+                transition: 0.2s;
+            }
+            .server-opt:hover { background: rgba(255,255,255,0.05); color: white; }
+            .server-opt.active { background: rgba(56, 189, 248, 0.15); color: #38bdf8; font-weight: 600; }
+
+            /* Stats */
             .landing-bottom-stats {
                 position: absolute;
-                bottom: 15px;
-                left: 15px;
+                bottom: 25px;
+                left: 25px;
                 display: flex;
-                gap: 8px;
+                gap: 12px;
                 pointer-events: auto;
             }
 
             .stat-pill {
-                background: rgba(15, 15, 20, 0.8);
+                background: rgba(15, 15, 20, 0.9);
                 border: 1px solid rgba(255,255,255,0.1);
-                padding: 6px 14px;
-                border-radius: 4px;
+                padding: 8px 16px;
+                border-radius: 8px;
                 display: flex;
-                gap: 10px;
-                align-items: center;
+                flex-direction: column;
+                min-width: 80px;
             }
 
-            .stat-pill .label { font-size: 0.65rem; text-transform: uppercase; color: #64748b; font-weight: 700; }
-            .stat-pill .value { font-family: monospace; font-size: 0.9rem; color: #38bdf8; font-weight: 700; }
-
-            @keyframes pulse-blue {
-                0% { box-shadow: 0 0 0 0 rgba(59, 130, 246, 0.7); }
-                70% { box-shadow: 0 0 0 10px rgba(59, 130, 246, 0); }
-                100% { box-shadow: 0 0 0 0 rgba(59, 130, 246, 0); }
-            }
-            .pulse-highlight { animation: pulse-blue 1s infinite; }
+            .stat-pill .label { font-size: 0.6rem; text-transform: uppercase; color: #64748b; font-weight: 800; letter-spacing: 0.5px; }
+            .stat-pill .value { font-family: 'JetBrains Mono', monospace; font-size: 1rem; color: #38bdf8; font-weight: 700; margin-top: 2px; }
         `;
 
         const style = document.createElement('style');
-        style.id = 'landing-ui-styles';
+        style.id = 'inflight-ui-styles';
         style.textContent = css;
         document.head.appendChild(style);
     }
