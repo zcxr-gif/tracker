@@ -11711,18 +11711,22 @@ function stopSectorOpsLiveLoop() {
 }
 
 
-/**
- * --- [FIXED] Optimized Airport Rendering ---
- * 1. Renders Staffed airports as DOM markers (high detail).
- * 2. Renders Unstaffed airports as a single GeoJSON layer (high performance).
- * 3. Prevents site crash by avoiding thousands of DOM elements.
- */
 function renderAirportMarkers() {
     if (!sectorOpsMap || !sectorOpsMap.isStyleLoaded()) return;
 
     const showUnstaffed = mapFilters.showUnstaffedAirports;
     const hideNoAtc = mapFilters.hideNoAtcMarkers;
     const hideAtc = mapFilters.hideAtcMarkers;
+
+    // Helper: Identify "Major" airports (Class A/B/C) without explicit class data
+    const isMajorAirport = (icao, airport) => {
+        if (!icao || icao.length !== 4) return false;
+        if (/\d/.test(icao)) return false; // Exclude IDs with numbers (usually minor strips/helipads)
+        const name = (airport.name || "").toLowerCase();
+        const junk = ['water', 'seaplane', 'heliport', 'helipad', 'strip', 'field', 'glider'];
+        if (junk.some(k => name.includes(k))) return false;
+        return true;
+    };
 
     // 1. Identify Staffed Airports (ATC + Routes)
     const atcAirportIcaos = new Set(activeAtcFacilities.map(f => f.airportName).filter(Boolean));
@@ -11734,11 +11738,9 @@ function renderAirportMarkers() {
         });
     }
 
-    // This is the "High Priority" set that gets DOM markers
     const staffedIcaos = new Set([...allRouteAirports, ...atcAirportIcaos]);
 
     // 2. Manage DOM Markers (Staffed Only)
-    // Remove markers that are no longer staffed or are filtered out
     Object.keys(airportAndAtcMarkers).forEach(icao => {
         const hasAtc = atcAirportIcaos.has(icao);
         const shouldBeDom = staffedIcaos.has(icao);
@@ -11750,7 +11752,6 @@ function renderAirportMarkers() {
         }
     });
 
-    // Add/Update DOM Markers for staffed airports
     staffedIcaos.forEach(icao => {
         const airport = airportsData[icao];
         if (!airport || airport.lat == null || airport.lon == null) return;
@@ -11758,17 +11759,16 @@ function renderAirportMarkers() {
         const hasAtc = atcAirportIcaos.has(icao);
         if ((hideNoAtc && !hasAtc) || (hideAtc && hasAtc)) return;
 
-        // If marker already exists, check if staffing state changed
+        // NEW: If unstaffed (only on a route) and NOT a major airport, filter it out
+        // Note: If it has ATC, we ALWAYS show it regardless of size.
+        if (!hasAtc && !isMajorAirport(icao, airport)) return;
+
         if (airportAndAtcMarkers[icao]) {
             if (airportAndAtcMarkers[icao].hasAtc === hasAtc) return;
             airportAndAtcMarkers[icao].marker.remove();
         }
 
-        // Create the element (Staffed tags)
         const el = document.createElement('div');
-        if (airport.class === 2) el.classList.add('apt-class-2');
-        else if (airport.class === 3) el.classList.add('apt-class-3');
-
         if (hasAtc) {
             el.className += ' apt-live-tag';
             const airportAtc = activeAtcFacilities.filter(f => f.airportName === icao);
@@ -11822,14 +11822,10 @@ function renderAirportMarkers() {
         airportAndAtcMarkers[icao] = { marker, hasAtc };
     });
 
-    // 3. Manage Unstaffed Airports Layer (The GPU-Accelerated Fix)
+    // 3. Update the high-performance background layer
     updateUnstaffedLayer(showUnstaffed, staffedIcaos);
 }
 
-/**
- * --- [NEW] Unstaffed Layer Management ---
- * Handles thousands of airports efficiently using a Mapbox layer.
- */
 function updateUnstaffedLayer(show, excludeIcaos) {
     const SOURCE_ID = 'unstaffed-airports-source';
     const LAYER_ID = 'unstaffed-airports-layer';
@@ -11839,9 +11835,22 @@ function updateUnstaffedLayer(show, excludeIcaos) {
         return;
     }
 
-    // Build GeoJSON features for all airports NOT currently staffed
+    // Heuristic: Filter out non-major airports from the thousands of unstaffed dots
+    const isMajorAirport = (icao, airport) => {
+        if (!icao || icao.length !== 4) return false;
+        if (/\d/.test(icao)) return false;
+        const name = (airport.name || "").toLowerCase();
+        const junk = ['water', 'seaplane', 'heliport', 'helipad', 'strip', 'field', 'glider'];
+        return !junk.some(k => name.includes(k));
+    };
+
     const features = Object.keys(airportsData)
-        .filter(icao => !excludeIcaos.has(icao))
+        .filter(icao => {
+            // Must NOT be already shown as a DOM marker (staffed)
+            if (excludeIcaos.has(icao)) return false;
+            // NEW: Must meet the "Major Airport" criteria
+            return isMajorAirport(icao, airportsData[icao]);
+        })
         .map(icao => {
             const apt = airportsData[icao];
             return {
@@ -11871,17 +11880,16 @@ function updateUnstaffedLayer(show, excludeIcaos) {
             }
         });
 
-        // Add Click Interaction for the layer
         sectorOpsMap.on('click', LAYER_ID, (e) => {
             const icao = e.features[0].properties.icao;
             handleAirportClick(icao);
         });
 
-        // Change cursor on hover
         sectorOpsMap.on('mouseenter', LAYER_ID, () => { sectorOpsMap.getCanvas().style.cursor = 'pointer'; });
         sectorOpsMap.on('mouseleave', LAYER_ID, () => { sectorOpsMap.getCanvas().style.cursor = ''; });
     }
 }
+
 
 // --- [UPDATED] Fetches ATC & NOTAMs for the CURRENTLY SELECTED SERVER ---
 async function updateSectorOpsSecondaryData() {
