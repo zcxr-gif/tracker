@@ -80,6 +80,7 @@ window.currentAirportTraffic = { in: [], out: [] }; // Stores IDs for the curren
     let cachedFlightDataForStatsView = { flightProps: null, plan: null };
     let mapFilters = {
         showVaOnly: false,
+        showUnstaffedAirports: false,
         showStaffOnly: false,
         hideAllAircraft: false,
         showAtcAirportsOnly: false,
@@ -553,11 +554,11 @@ function injectCustomStyles() {
             --apt-tag-scale: 1; 
         }
 
-        .apt-live-tag {
+        .apt-live-tag, .destination-marker {
             display: flex;
             flex-direction: column-reverse;
             align-items: center;
-            background: rgba(10, 15, 25, 0.9);
+            background: rgba(10, 15, 25, 0.9); /* Class 1 / Default */
             backdrop-filter: blur(8px);
             border: 1px solid rgba(255, 255, 255, 0.2);
             border-radius: 6px;
@@ -565,23 +566,38 @@ function injectCustomStyles() {
             cursor: pointer;
             pointer-events: auto;
             white-space: nowrap;
-            
             transform: scale(var(--apt-tag-scale));
             transform-origin: bottom center;
-            
-            /* REMOVED TRANSITIONS TO STOP ELASTIC FEEL */
             min-height: 22px; 
             box-sizing: border-box;
             user-select: none;
             box-shadow: 0 4px 12px rgba(0,0,0,0.5);
         }
 
-        /* Hover Expansion Logic */
+        /* Class 2: Dark Green */
+        .apt-class-2 {
+            background: rgba(6, 78, 59, 0.9) !important;
+            border-color: #10b981 !important;
+        }
+
+        /* Class 3: Dark Orange */
+        .apt-class-3 {
+            background: rgba(120, 53, 15, 0.9) !important;
+            border-color: #f59e0b !important;
+        }
+
+        .destination-marker {
+            padding: 2px 6px;
+            font-family: 'JetBrains Mono', monospace;
+            font-weight: 800;
+            font-size: 11px;
+            color: #fff;
+        }
+
         .apt-live-tag .apt-tag-extra {
             max-height: 0;
             opacity: 0;
             overflow: hidden;
-            /* REMOVED TRANSITION */
             width: 100%;
             display: flex;
             flex-direction: column;
@@ -611,29 +627,6 @@ function injectCustomStyles() {
             align-items: center;
             width: 100%;
             height: 18px;
-        }
-
-        .apt-tag-extra-item {
-            font-size: 8px;
-            font-weight: 800;
-            color: #38bdf8;
-            text-transform: uppercase;
-            letter-spacing: 0.5px;
-            font-family: 'JetBrains Mono', monospace;
-        }
-
-        .apt-tag-extra-val {
-            font-size: 9px;
-            color: #fff;
-            font-weight: 600;
-        }
-
-        .apt-live-tag.compact .apt-tag-freqs {
-            display: none;
-        }
-        
-        .apt-live-tag.compact {
-            padding: 2px 4px;
         }
 
         .apt-tag-ident {
@@ -7595,6 +7588,13 @@ function formatDataForSimpleWindow(flightProps, plan, routePoints, communityData
                                     <span class="toggle-slider"></span>
                                 </label>
                             </li>
+                            <li class="filter-toggle-item">
+                                <span class="filter-toggle-label"><i class="fa-solid fa-map-marked-alt"></i> Show Unstaffed Airports</span>
+                                <label class="toggle-switch">
+                                    <input type="checkbox" id="filter-toggle-unstaffed" ${mapFilters.showUnstaffedAirports ? 'checked' : ''}>
+                                    <span class="toggle-slider"></span>
+                                </label>
+                            </li>
                             
                             <li class="filter-toggle-item">
                                 <span class="filter-toggle-label"><i class="fa-solid fa-tags"></i> Show Aircraft Labels</span>
@@ -10945,6 +10945,15 @@ function setupSectorOpsEventListeners() {
         });
     }
 
+    const unstaffedToggle = document.getElementById('filter-toggle-unstaffed');
+    if (unstaffedToggle) {
+        unstaffedToggle.addEventListener('change', (e) => {
+            mapFilters.showUnstaffedAirports = e.target.checked;
+            saveFiltersToLocalStorage();
+            renderAirportMarkers(); // Refresh the map immediately
+        });
+    }
+
     // --- Server Selector ---
     const serverBtns = document.querySelectorAll('.server-btn');
     serverBtns.forEach(btn => {
@@ -11707,8 +11716,9 @@ function renderAirportMarkers() {
 
     const hideNoAtc = mapFilters.hideNoAtcMarkers;
     const hideAtc = mapFilters.hideAtcMarkers;
+    const showUnstaffed = mapFilters.showUnstaffedAirports;
 
-    // 1. Identify which airports should have ATC and what their status is
+    // 1. Identify which airports should be displayed
     const atcAirportIcaos = new Set(activeAtcFacilities.map(f => f.airportName).filter(Boolean));
     const allRouteAirports = new Set();
     if (typeof ALL_AVAILABLE_ROUTES !== 'undefined') {
@@ -11718,10 +11728,15 @@ function renderAirportMarkers() {
         });
     }
 
-    // 2. Determine the full set of ICAOs we want to display
-    const currentTargetIcaos = new Set([...allRouteAirports, ...atcAirportIcaos]);
+    // Determine target set: either all airports or just those staffed/on routes
+    let currentTargetIcaos;
+    if (showUnstaffed) {
+        currentTargetIcaos = new Set(Object.keys(airportsData));
+    } else {
+        currentTargetIcaos = new Set([...allRouteAirports, ...atcAirportIcaos]);
+    }
 
-    // 3. Remove markers for airports that are no longer in our target set
+    // 2. Remove markers that are no longer in our target set
     Object.keys(airportAndAtcMarkers).forEach(icao => {
         if (!currentTargetIcaos.has(icao)) {
             airportAndAtcMarkers[icao].marker.remove();
@@ -11729,14 +11744,14 @@ function renderAirportMarkers() {
         }
     });
 
-    // 4. Update or Add Markers
+    // 3. Update or Add Markers
     currentTargetIcaos.forEach(icao => {
         const airport = airportsData[icao];
         if (!airport || airport.lat == null || airport.lon == null) return;
 
         const hasAtc = atcAirportIcaos.has(icao);
 
-        // Respect filters
+        // Respect Staffing Filters
         if ((hideNoAtc && !hasAtc) || (hideAtc && hasAtc)) {
             if (airportAndAtcMarkers[icao]) {
                 airportAndAtcMarkers[icao].marker.remove();
@@ -11745,36 +11760,31 @@ function renderAirportMarkers() {
             return;
         }
 
-        // If marker exists, check if we actually need to redraw it
-        // We redraw if the 'hasAtc' state changed (e.g., Unicom to Tower)
+        // If marker exists, check if fundamental state (Staffed vs Unstaffed) changed
         if (airportAndAtcMarkers[icao]) {
             const existing = airportAndAtcMarkers[icao];
-            if (existing.hasAtc === hasAtc) {
-                // No fundamental state change, keep the existing marker to prevent flicker/jump
-                return; 
-            } else {
-                // State changed, remove old and prepare for new
-                existing.marker.remove();
-            }
+            if (existing.hasAtc === hasAtc) return;
+            existing.marker.remove();
         }
 
         // Create the element
         const el = document.createElement('div');
-        if (hasAtc) {
-            el.className = 'apt-live-tag';
-            const airportAtc = activeAtcFacilities.filter(f => f.airportName === icao);
+        
+        // --- APPLY CLASS COLORS ---
+        // Class 1 (Default), Class 2 (Green), Class 3 (Orange)
+        if (airport.class === 2) el.classList.add('apt-class-2');
+        else if (airport.class === 3) el.classList.add('apt-class-3');
 
-            // Calculate Session Duration (Oldest Session)
+        if (hasAtc) {
+            el.className += ' apt-live-tag';
+            const airportAtc = activeAtcFacilities.filter(f => f.airportName === icao);
+            
             const earliestStart = airportAtc.reduce((min, f) => {
                 const start = new Date(f.startTime).getTime();
                 return start < min ? start : min;
             }, Date.now());
-
-            const diffMs = Date.now() - earliestStart;
-            const diffMins = Math.floor(diffMs / 60000);
-            const durationText = diffMins > 60 
-                ? `${Math.floor(diffMins/60)}h ${diffMins%60}m` 
-                : `${diffMins}m online`;
+            const diffMins = Math.floor((Date.now() - earliestStart) / 60000);
+            const durationText = diffMins > 60 ? `${Math.floor(diffMins/60)}h ${diffMins%60}m` : `${diffMins}m online`;
 
             const hasGnd = airportAtc.some(f => f.type === 0);
             const hasTwr = airportAtc.some(f => f.type === 1);
@@ -11789,29 +11799,25 @@ function renderAirportMarkers() {
 
             const extra = document.createElement('div');
             extra.className = 'apt-tag-extra';
-            extra.innerHTML = `
-                <div class="apt-tag-extra-item">Oldest Session</div>
-                <div class="apt-tag-extra-val">${durationText}</div>
-            `;
+            extra.innerHTML = `<div class="apt-tag-extra-item">Oldest Session</div><div class="apt-tag-extra-val">${durationText}</div>`;
             el.appendChild(extra);
 
             const base = document.createElement('div');
             base.className = 'apt-tag-base';
-            const ident = document.createElement('div');
-            ident.className = 'apt-tag-ident';
-            ident.textContent = icao;
-            base.appendChild(ident);
-
+            base.innerHTML = `<div class="apt-tag-ident">${icao}</div>`;
+            
             const freqs = document.createElement('div');
             freqs.className = 'apt-tag-freqs';
             if (hasAtis) freqs.innerHTML += `<div class="freq-mini-badge f-atis">A</div>`;
             if (hasGnd) freqs.innerHTML += `<div class="freq-mini-badge f-gnd">G</div>`;
             if (hasTwr) freqs.innerHTML += `<div class="freq-mini-badge f-twr">T</div>`;
             if (hasApp) freqs.innerHTML += `<div class="freq-mini-badge f-app">R</div>`;
+            
             base.appendChild(freqs);
             el.appendChild(base);
         } else {
-            el.className = 'destination-marker';
+            el.className += ' destination-marker';
+            el.textContent = icao;
         }
 
         // Create and add the marker
@@ -11820,8 +11826,8 @@ function renderAirportMarkers() {
             .addTo(sectorOpsMap);
 
         el.addEventListener('click', () => handleAirportClick(icao));
-        
-        // Track the marker for future diffing
+
+        // Track the marker
         airportAndAtcMarkers[icao] = { marker, hasAtc };
     });
 }
