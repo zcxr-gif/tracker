@@ -1,7 +1,7 @@
 /**
  * LandingUI.js
- * REDESIGN: Tactical Overlay UI
- * Features: Integrated utility cluster, telemetry stats, and high-density typography.
+ * REDESIGN: INFLIGHT Tactical Overlay
+ * Features: Minimalist glassmorphism, .ico integration, and streamlined utility.
  */
 
 export const LandingUI = {
@@ -16,63 +16,44 @@ export const LandingUI = {
 
     render() {
         // Cleanup existing instances
-        const existing = document.getElementById('sector-ops-tactical-ui');
+        const existing = document.getElementById('inflight-tactical-ui');
         if (existing) existing.remove();
 
         const html = `
-            <div id="sector-ops-tactical-ui" class="tactical-ui-root">
-                <div class="hud-corner top-left">
+            <div id="inflight-tactical-ui" class="tactical-ui-root">
+                <div class="hud-header">
                     <div class="brand-container">
                         <div class="brand-logo">
-                            <svg viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="#38bdf8" stroke-width="2">
-                                <path d="M12 2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5"></path>
-                            </svg>
+                            <img src="Images/inflightIcon.ico" alt="Inflight Logo" class="brand-icon-img">
                         </div>
                         <div class="brand-meta">
-                            <div class="brand-name">SECTOR<span class="highlight">OPS</span></div>
+                            <div class="brand-name">IN<span class="highlight">FLIGHT</span></div>
                             <div id="landing-clock" class="brand-timer">00:00:00Z</div>
                         </div>
                     </div>
-                </div>
 
-                <div class="hud-corner top-right">
-                    <div class="utility-grid">
-                        <button class="util-btn" id="tile-search" title="Search Radar">
-                            <i class="fa-solid fa-magnifying-glass"></i>
-                        </button>
-                        <button class="util-btn" id="tile-weather" title="Weather Layers">
-                            <i class="fa-solid fa-cloud-sun"></i>
-                        </button>
-                        <button class="util-btn" id="tile-settings" title="Map Config">
-                            <i class="fa-solid fa-sliders"></i>
-                        </button>
-                        <button class="util-btn" id="tile-history" title="Flight History">
-                            <i class="fa-solid fa-clock-rotate-left"></i>
-                        </button>
-                        <button class="util-btn highlight-btn" id="tile-server" title="Server Status">
-                            <i class="fa-solid fa-server"></i>
-                        </button>
-                    </div>
-                    <div class="server-badge">
-                        <span class="status-dot"></span>
-                        <span id="landing-server-name">EXPERT SERVER</span>
-                    </div>
-                </div>
-
-                <div class="hud-telemetry">
-                    <div class="telemetry-item">
-                        <span class="tel-label">ACTIVE_AIRBORNE</span>
-                        <span id="landing-stat-flights" class="tel-value">0,000</span>
-                    </div>
-                    <div class="telemetry-divider"></div>
-                    <div class="telemetry-item">
-                        <span class="tel-label">ATC_STATIONS</span>
-                        <span id="landing-stat-atc" class="tel-value">00</span>
-                    </div>
-                    <div class="telemetry-divider"></div>
-                    <div class="telemetry-item">
-                        <span class="tel-label">MAP_STATUS</span>
-                        <span class="tel-value status-ok">NOMINAL</span>
+                    <div class="header-right-cluster">
+                        <div class="utility-grid">
+                            <button class="util-btn" id="tile-search" title="Search Radar">
+                                <i class="fa-solid fa-magnifying-glass"></i>
+                            </button>
+                            <button class="util-btn" id="tile-weather" title="Weather Layers">
+                                <i class="fa-solid fa-cloud-sun"></i>
+                            </button>
+                            <button class="util-btn" id="tile-settings" title="Map Config">
+                                <i class="fa-solid fa-sliders"></i>
+                            </button>
+                            <button class="util-btn" id="tile-history" title="Flight History">
+                                <i class="fa-solid fa-clock-rotate-left"></i>
+                            </button>
+                            <button class="util-btn highlight-btn" id="tile-server" title="Server Status">
+                                <i class="fa-solid fa-server"></i>
+                            </button>
+                        </div>
+                        <div class="server-badge">
+                            <span class="status-dot"></span>
+                            <span id="landing-server-name">EXPERT SERVER</span>
+                        </div>
                     </div>
                 </div>
             </div>
@@ -86,14 +67,16 @@ export const LandingUI = {
     },
 
     update(isActive, stats = {}) {
-        const el = document.getElementById('sector-ops-tactical-ui');
+        const el = document.getElementById('inflight-tactical-ui');
         if (!el) return;
 
         if (isActive) {
             el.classList.add('active');
-            if (stats.flights) document.getElementById('landing-stat-flights').textContent = stats.flights.toLocaleString();
-            if (stats.atc) document.getElementById('landing-stat-atc').textContent = stats.atc.padStart(2, '0');
-            if (stats.server) document.getElementById('landing-server-name').textContent = stats.server.toUpperCase();
+            // Update server name if provided in stats
+            if (stats.server) {
+                const serverEl = document.getElementById('landing-server-name');
+                if (serverEl) serverEl.textContent = stats.server.toUpperCase();
+            }
         } else {
             el.classList.remove('active');
         }
@@ -122,6 +105,7 @@ export const LandingUI = {
             const el = document.getElementById('landing-clock');
             if (!el) return;
             const now = new Date();
+            // Standard UTC/ZULU time format for aviation
             el.textContent = now.toISOString().split('T')[1].split('.')[0] + 'Z';
         };
         this._clockInterval = setInterval(update, 1000);
@@ -129,7 +113,7 @@ export const LandingUI = {
     },
 
     injectStyles() {
-        const existing = document.getElementById('tactical-ui-styles');
+        const existing = document.getElementById('inflight-ui-styles');
         if (existing) existing.remove();
 
         const css = `
@@ -140,7 +124,7 @@ export const LandingUI = {
                 pointer-events: none;
                 opacity: 0;
                 visibility: hidden;
-                transition: all 0.5s cubic-bezier(0.16, 1, 0.3, 1);
+                transition: all 0.6s cubic-bezier(0.22, 1, 0.36, 1);
                 font-family: 'Inter', system-ui, -apple-system, sans-serif;
                 color: #fff;
             }
@@ -150,99 +134,115 @@ export const LandingUI = {
                 visibility: visible;
             }
 
-            .hud-corner {
+            .hud-header {
                 position: absolute;
+                top: 24px;
+                left: 24px;
+                right: 24px;
+                display: flex;
+                justify-content: space-between;
+                align-items: flex-start;
+                pointer-events: none;
+            }
+
+            /* Branding Section */
+            .brand-container {
                 pointer-events: auto;
                 display: flex;
-                flex-direction: column;
-                gap: 12px;
-            }
-
-            .top-left { top: 24px; left: 24px; }
-            .top-right { top: 24px; right: 24px; align-items: flex-end; }
-
-            /* Branding */
-            .brand-container {
-                display: flex;
                 align-items: center;
-                gap: 12px;
-                background: rgba(15, 17, 23, 0.7);
-                padding: 12px 20px;
-                border-radius: 12px;
-                backdrop-filter: blur(12px);
-                border: 1px solid rgba(255, 255, 255, 0.1);
+                gap: 14px;
+                background: rgba(10, 12, 18, 0.6);
+                padding: 10px 18px;
+                border-radius: 14px;
+                backdrop-filter: blur(20px);
+                border: 1px solid rgba(255, 255, 255, 0.08);
+                box-shadow: 0 8px 32px rgba(0, 0, 0, 0.3);
             }
 
-            .brand-name { font-weight: 900; font-size: 1.2rem; letter-spacing: 1px; }
-            .brand-name .highlight { color: #38bdf8; margin-left: 2px; }
-            .brand-timer { font-family: 'JetBrains Mono', monospace; font-size: 0.8rem; color: #64748b; margin-top: 2px; }
+            .brand-icon-img {
+                width: 28px;
+                height: 28px;
+                filter: drop-shadow(0 0 8px rgba(56, 189, 248, 0.4));
+            }
 
-            /* Utility Grid (Top Right) */
+            .brand-name { 
+                font-weight: 900; 
+                font-size: 1.3rem; 
+                letter-spacing: 2px;
+                line-height: 1;
+            }
+            .brand-name .highlight { color: #38bdf8; }
+            
+            .brand-timer { 
+                font-family: 'JetBrains Mono', monospace; 
+                font-size: 0.75rem; 
+                color: #94a3b8; 
+                margin-top: 4px;
+                letter-spacing: 1px;
+            }
+
+            /* Utility & Server Cluster */
+            .header-right-cluster {
+                display: flex;
+                flex-direction: column;
+                align-items: flex-end;
+                gap: 10px;
+                pointer-events: auto;
+            }
+
             .utility-grid {
                 display: flex;
-                gap: 8px;
-                background: rgba(15, 17, 23, 0.7);
+                gap: 6px;
+                background: rgba(10, 12, 18, 0.6);
                 padding: 6px;
-                border-radius: 10px;
-                backdrop-filter: blur(12px);
-                border: 1px solid rgba(255, 255, 255, 0.1);
+                border-radius: 12px;
+                backdrop-filter: blur(20px);
+                border: 1px solid rgba(255, 255, 255, 0.08);
             }
 
             .util-btn {
-                width: 40px;
-                height: 40px;
+                width: 38px;
+                height: 38px;
                 border-radius: 8px;
                 border: none;
                 background: transparent;
-                color: #94a3b8;
+                color: #64748b;
                 cursor: pointer;
                 display: flex;
                 align-items: center;
                 justify-content: center;
-                transition: all 0.2s;
+                transition: all 0.2s ease;
             }
 
-            .util-btn:hover { background: rgba(255,255,255,0.05); color: #fff; }
+            .util-btn:hover { 
+                background: rgba(255, 255, 255, 0.05); 
+                color: #38bdf8; 
+                transform: translateY(-1px);
+            }
+            
             .highlight-btn { color: #38bdf8; }
 
             .server-badge {
-                margin-top: 8px;
-                background: rgba(15, 17, 23, 0.7);
-                padding: 4px 12px;
-                border-radius: 20px;
+                background: rgba(56, 189, 248, 0.1);
+                padding: 5px 14px;
+                border-radius: 100px;
                 font-size: 0.65rem;
                 font-weight: 800;
                 display: flex;
                 align-items: center;
-                gap: 6px;
-                border: 1px solid rgba(56, 189, 248, 0.2);
+                gap: 8px;
+                border: 1px solid rgba(56, 189, 248, 0.3);
+                color: #38bdf8;
+                letter-spacing: 0.5px;
             }
 
-            .status-dot { width: 6px; height: 6px; background: #38bdf8; border-radius: 50%; box-shadow: 0 0 8px #38bdf8; }
-
-            /* Telemetry (Bottom) */
-            .hud-telemetry {
-                position: absolute;
-                bottom: 30px;
-                left: 50%;
-                transform: translateX(-50%);
-                pointer-events: auto;
-                background: rgba(15, 17, 23, 0.85);
-                backdrop-filter: blur(16px);
-                border: 1px solid rgba(255, 255, 255, 0.08);
-                display: flex;
-                padding: 10px 30px;
-                border-radius: 100px;
-                gap: 24px;
-                box-shadow: 0 10px 25px -5px rgba(0,0,0,0.5);
+            .status-dot { 
+                width: 6px; 
+                height: 6px; 
+                background: #38bdf8; 
+                border-radius: 50%; 
+                box-shadow: 0 0 10px #38bdf8; 
             }
-
-            .telemetry-item { display: flex; flex-direction: column; align-items: center; }
-            .tel-label { font-size: 0.6rem; font-weight: 800; color: #64748b; letter-spacing: 1px; }
-            .tel-value { font-family: 'JetBrains Mono', monospace; font-size: 1rem; font-weight: 700; color: #fff; }
-            .status-ok { color: #10b981; }
-
-            .telemetry-divider { width: 1px; height: 24px; background: rgba(255,255,255,0.1); align-self: center; }
 
             @keyframes pulse-ring {
                 0% { box-shadow: 0 0 0 0 rgba(56, 189, 248, 0.4); }
@@ -253,7 +253,7 @@ export const LandingUI = {
         `;
 
         const style = document.createElement('style');
-        style.id = 'tactical-ui-styles';
+        style.id = 'inflight-ui-styles';
         style.textContent = css;
         document.head.appendChild(style);
     }
