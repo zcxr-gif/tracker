@@ -7457,7 +7457,7 @@ function formatDataForSimpleWindow(flightProps, plan, routePoints, communityData
     try {
         // --- 2. Initialize Map ---
         // Now that filters are loaded, this will use the correct currentMapStyle
-        const selectedHub = "VIDP"; 
+        const selectedHub = "KJFK"; 
         await initializeSectorOpsMap(selectedHub);
 
         // --- 3. Inject Server Selector Pill ---
@@ -7756,6 +7756,15 @@ function formatDataForSimpleWindow(flightProps, plan, routePoints, communityData
         aircraftInfoWindowRecallBtn = document.getElementById('aircraft-recall-btn');
         weatherSettingsWindow = document.getElementById('weather-settings-window');
         filterSettingsWindow = document.getElementById('filter-settings-window');
+
+        LandingUI.init();
+        
+        // 3. Set Initial Visibility
+        LandingUI.update(true, {
+            server: currentServerName,
+            flights: Object.keys(currentMapFeatures).length,
+            atc: activeAtcFacilities.length
+        });
 
         // --- 11. Load Content and Setup Listeners ---
         await loadExternalPanelContent();
@@ -8334,6 +8343,8 @@ function updateFlightPlanLayer(flightId, plan, currentPosition) {
 async function handleAirportClick(icao, event = null) {
     if (!icao) return;
 
+    LandingUI.update(false);
+
     // --- MUTUAL EXCLUSION ---
     // If the aircraft window is open, close it immediately
     if (currentFlightInWindow) {
@@ -8839,6 +8850,13 @@ function closeAircraftWindow() {
     liveTrailCache.delete(currentFlightInWindow);
     currentFlightInWindow = null;
     cachedFlightDataForStatsView = { flightProps: null, plan: null };
+    if (!currentAirportInWindow) {
+        LandingUI.update(true, {
+            server: currentServerName,
+            flights: Object.keys(currentMapFeatures).length,
+            atc: activeAtcFacilities.length
+        });
+    }
     
     // 5. Reset PFD visual state
     resetPfdState();
@@ -8850,6 +8868,8 @@ function closeAircraftWindow() {
  */
 async function handleAircraftClick(flightProps, sessionId, event = null) {
     if (!flightProps || !flightProps.flightId) return;
+
+    LandingUI.update(false);
 
     // --- BALANCE LOGIC: Prioritize Airport ---
     // If there is an event, check if an airport marker is also at this location
@@ -9013,6 +9033,13 @@ function closeAirportWindow() {
 
     // 4. Reset Global State
     currentAirportInWindow = null;
+    if (!currentFlightInWindow) {
+        LandingUI.update(true, {
+            server: currentServerName,
+            flights: Object.keys(currentMapFeatures).length,
+            atc: activeAtcFacilities.length
+        });
+    }
 }
 
 /**
