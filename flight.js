@@ -91,22 +91,9 @@ window.currentAirportTraffic = { in: [], out: [] }; // Stores IDs for the curren
         iconColorMode: 'default',
         showAircraftLabels: false,
         useSimpleFlightWindow: false,
-        themeStartColor: '#18181b',
-        themeEndColor: '#18181b',
-        themeOpacity: 90,
-        // --- NEW UNIVERSAL FILTER STATE ---
-        universal: {
-            enabled: false,
-            aircraftQuery: '',  // Search aircraft name/type
-            airlineQuery: '',   // Search airline name/callsign prefix
-            airportQuery: '',   // ICAO filter for markers
-            onlyInbounds: false,
-            onlyOutbounds: false,
-            minAlt: 0,
-            maxAlt: 60000,
-            minSpeed: 0,
-            maxSpeed: 1200
-        }
+        themeStartColor: '#18181b', // [UPDATED] Carbon/Zinc-900
+        themeEndColor: '#18181b',   // [UPDATED] Carbon/Zinc-900
+        themeOpacity: 90            // [UPDATED] Slightly more transparent (90%)
     };
 
     const departureHubs = []; // Empty array
@@ -562,39 +549,6 @@ function injectCustomStyles() {
     if (document.getElementById(styleId)) return;
 
     const css = `
-
-        .terminal-input {
-        width: 100%;
-        background: rgba(0, 0, 0, 0.4);
-        border: 1px solid var(--border-glass);
-        color: #fff;
-        padding: 8px 12px;
-        font-family: var(--font-data);
-        font-size: 0.9rem;
-        border-radius: 4px;
-        outline: none;
-    }
-    .terminal-input:focus { border-color: var(--color-brand); }
-    .terminal-input.mini { width: 80px; text-align: center; }
-    
-    .filter-chip {
-        flex: 1;
-        padding: 8px;
-        background: rgba(255,255,255,0.05);
-        border: 1px solid var(--border-glass);
-        color: var(--text-secondary);
-        border-radius: 4px;
-        font-size: 0.75rem;
-        font-weight: 700;
-        cursor: pointer;
-        transition: all 0.2s;
-    }
-    .filter-chip.active {
-        background: rgba(56, 189, 248, 0.2);
-        border-color: var(--color-brand);
-        color: #fff;
-    }
-
         /* --- DYNAMIC & LOCKED AIRPORT TAG STYLES --- */
         :root {
             --apt-tag-scale: 1; 
@@ -4619,75 +4573,38 @@ async function toggleSigmetLayer(show) {
     }
 
     /**
-     * --- [REPLACED] THE UNIVERSAL AIRCRAFT FILTER ---
-     * Builds and applies a complex Mapbox expression based on ALL filter criteria.
+     * --- [MODIFIED] Builds and applies a Mapbox filter expression to the live aircraft layer.
+     * This function now ONLY applies the filter toggles (mapFilters state).
+     * The search bar logic has been removed and moved to its own handler.
      */
-    async function updateAircraftLayerFilter() {
+    function updateAircraftLayerFilter() {
         if (!sectorOpsMap || !sectorOpsMap.getLayer('sector-ops-live-flights-layer')) return;
 
-        let filter = ['all'];
+        let filter = ['all']; // Start with a base 'all' filter
 
-        // 1. Hard Toggles
+        // --- 1. Apply Toggle Filters (from mapFilters state) ---
         if (mapFilters.hideAllAircraft) {
-            sectorOpsMap.setFilter('sector-ops-live-flights-layer', ['==', 'flightId', '']);
-            return;
+            // Use a filter that matches nothing
+            filter = ['==', 'flightId', '']; 
+            
+            // Apply the filter and exit early
+            sectorOpsMap.setFilter('sector-ops-live-flights-layer', filter);
+            return; 
+
+        } else if (mapFilters.showStaffOnly) {
+            // Show only features where isStaff is true
+            filter.push(['==', 'isStaff', true]);
+        } else if (mapFilters.showVaOnly) {
+            // Show only features where isVAMember is true
+            filter.push(['==', 'isVAMember', true]);
         }
+        
+        // --- 2. [REMOVED] ---
+        // The entire "Apply Search Filter" block has been deleted.
+        // This function no longer reads from the search input.
 
-        if (mapFilters.showStaffOnly) filter.push(['==', 'isStaff', true]);
-        if (mapFilters.showVaOnly) filter.push(['==', 'isVAMember', true]);
-
-        // 2. Universal Filters
-        const u = mapFilters.universal;
-        if (u.enabled) {
-            // Altitude Range
-            filter.push(['>=', ['get', 'altitude'], u.minAlt]);
-            filter.push(['<=', ['get', 'altitude'], u.maxAlt]);
-
-            // Speed Range
-            filter.push(['>=', ['get', 'speed'], u.minSpeed]);
-            filter.push(['<=', ['get', 'speed'], u.maxSpeed]);
-
-            // Aircraft Type / Name Search
-            if (u.aircraftQuery) {
-                filter.push(['text-field-search', u.aircraftQuery.toUpperCase(), ['upcase', ['get', 'aircraft']]]);
-            }
-
-            // Airline / Callsign Search
-            if (u.airlineQuery) {
-                filter.push(['text-field-search', u.airlineQuery.toUpperCase(), ['upcase', ['get', 'callsign']]]);
-            }
-
-            // Inbound/Outbound Logic
-            // If an airport is specified in the filter AND traffic toggles are on
-            if (u.airportQuery && (u.onlyInbounds || u.onlyOutbounds)) {
-                try {
-                    const sessionsRes = await fetch(`${ACARS_SOCKET_URL}/if-sessions`);
-                    const sessionData = await sessionsRes.json();
-                    const sessionId = getCurrentSessionId(sessionData);
-                    
-                    if (sessionId) {
-                        const statusRes = await fetch(`${ACARS_SOCKET_URL}/api/live/airport/${sessionId}/${u.airportQuery.toUpperCase()}/status`);
-                        const statusJson = await statusRes.json();
-                        
-                        if (statusJson.ok && statusJson.status) {
-                            const targetIds = [];
-                            if (u.onlyInbounds) targetIds.push(...(statusJson.status.inboundFlights || []));
-                            if (u.onlyOutbounds) targetIds.push(...(statusJson.status.outboundFlights || []));
-                            
-                            // Only show planes belonging to this traffic list
-                            filter.push(['in', ['get', 'flightId'], ['literal', targetIds]]);
-                        }
-                    }
-                } catch (e) {
-                    console.warn("Universal Traffic Fetch Failed:", e);
-                }
-            }
-        }
-
+        // --- 3. Apply the combined filter to the map ---
         sectorOpsMap.setFilter('sector-ops-live-flights-layer', filter);
-        if (sectorOpsMap.getLayer('sector-ops-live-flights-labels')) {
-            sectorOpsMap.setFilter('sector-ops-live-flights-labels', filter);
-        }
     }
 
     /**
@@ -11793,154 +11710,121 @@ function stopSectorOpsLiveLoop() {
     }
 }
 
-/**
-     * Generates the inner HTML for the Universal Filter Modal.
-     */
-    function getUniversalFilterHTML() {
-        const u = mapFilters.universal;
-        return `
-            <div class="tech-module" style="height: 100%; border: none; box-shadow: none;">
-                <div class="tech-module-header">
-                    <span class="tech-module-title"><i class="fa-solid fa-filter-list"></i> UNIVERSAL TRACKING ENGINE</span>
-                    <label class="toggle-switch">
-                        <input type="checkbox" id="universal-enabled-toggle" ${u.enabled ? 'checked' : ''}>
-                        <span class="toggle-slider"></span>
-                    </label>
-                </div>
-                
-                <div class="tech-module-body" style="display: grid; grid-template-columns: 1fr 1fr; gap: 20px; padding: 20px;">
-                    
-                    <div style="display: flex; flex-direction: column; gap: 15px;">
-                        <div class="nav-cell nav-span-4">
-                            <span class="nav-label"><i class="fa-solid fa-plane"></i> Aircraft Type / Name</span>
-                            <input type="text" id="uni-aircraft-query" class="terminal-input" placeholder="e.g. A380, Boeing, N123..." value="${u.aircraftQuery}">
-                        </div>
-                        
-                        <div class="nav-cell nav-span-4">
-                            <span class="nav-label"><i class="fa-solid fa-building"></i> Airline / Callsign</span>
-                            <input type="text" id="uni-airline-query" class="terminal-input" placeholder="e.g. Emirates, UAE, Speedbird..." value="${u.airlineQuery}">
-                        </div>
 
-                        <div class="nav-cell nav-span-4">
-                            <span class="nav-label"><i class="fa-solid fa-earth-americas"></i> Target Airport (ICAO)</span>
-                            <input type="text" id="uni-airport-query" class="terminal-input" placeholder="e.g. OMDB, KJFK..." maxlength="4" value="${u.airportQuery}">
-                        </div>
-                    </div>
+function renderAirportMarkers() {
+    if (!sectorOpsMap || !sectorOpsMap.isStyleLoaded()) return;
 
-                    <div style="display: flex; flex-direction: column; gap: 15px;">
-                         <div class="nav-cell nav-span-4" style="height: auto; padding-bottom: 12px;">
-                            <span class="nav-label"><i class="fa-solid fa-arrows-up-down"></i> Altitude Range (FT)</span>
-                            <div style="display: flex; align-items: center; gap: 10px; margin-top: 5px;">
-                                <input type="number" id="uni-alt-min" class="terminal-input mini" value="${u.minAlt}">
-                                <span style="color: #52525b;">to</span>
-                                <input type="number" id="uni-alt-max" class="terminal-input mini" value="${u.maxAlt}">
-                            </div>
-                        </div>
+    const showUnstaffed = mapFilters.showUnstaffedAirports;
+    const hideNoAtc = mapFilters.hideNoAtcMarkers;
+    const hideAtc = mapFilters.hideAtcMarkers;
 
-                        <div class="nav-cell nav-span-4">
-                            <span class="nav-label"><i class="fa-solid fa-gauge-high"></i> Ground Speed (KTS)</span>
-                             <div style="display: flex; align-items: center; gap: 10px; margin-top: 5px;">
-                                <input type="number" id="uni-spd-min" class="terminal-input mini" value="${u.minSpeed}">
-                                <span style="color: #52525b;">to</span>
-                                <input type="number" id="uni-spd-max" class="terminal-input mini" value="${u.maxSpeed}">
-                            </div>
-                        </div>
+    // Helper: Identify "Major" airports (Class A/B/C) without explicit class data
+    const isMajorAirport = (icao, airport) => {
+        if (!icao || icao.length !== 4) return false;
+        if (/\d/.test(icao)) return false; // Exclude IDs with numbers (usually minor strips/helipads)
+        const name = (airport.name || "").toLowerCase();
+        const junk = ['water', 'seaplane', 'heliport', 'helipad', 'strip', 'field', 'glider'];
+        if (junk.some(k => name.includes(k))) return false;
+        return true;
+    };
 
-                        <div class="tech-module" style="background: rgba(0,0,0,0.2);">
-                            <div class="tech-module-header" style="background: transparent; border: none; padding: 10px;">
-                                <span class="nav-label" style="margin:0;"><i class="fa-solid fa-route"></i> Traffic Flow</span>
-                            </div>
-                            <div style="padding: 0 10px 10px 10px; display: flex; gap: 10px;">
-                                <button class="filter-chip ${u.onlyInbounds ? 'active' : ''}" id="uni-toggle-inbounds">Inbounds</button>
-                                <button class="filter-chip ${u.onlyOutbounds ? 'active' : ''}" id="uni-toggle-outbounds">Outbounds</button>
-                            </div>
-                        </div>
-                    </div>
-                </div>
-
-                <div class="fms-footer" style="padding: 15px 20px;">
-                    <button id="uni-apply-btn" class="sb-generate-btn" style="width: 100%; border-radius: 6px;">
-                        <i class="fa-solid fa-satellite-dish"></i> ACTIVATE UNIVERSAL FILTER
-                    </button>
-                </div>
-            </div>
-        `;
-    }
-
-function setupUniversalFilterEvents(modalContent) {
-        const u = mapFilters.universal;
-
-        // Apply Button (Triggers the Engine)
-        modalContent.querySelector('#uni-apply-btn').addEventListener('click', () => {
-            u.enabled = modalContent.querySelector('#universal-enabled-toggle').checked;
-            u.aircraftQuery = modalContent.querySelector('#uni-aircraft-query').value;
-            u.airlineQuery = modalContent.querySelector('#uni-airline-query').value;
-            u.airportQuery = modalContent.querySelector('#uni-airport-query').value.toUpperCase();
-            u.minAlt = parseInt(modalContent.querySelector('#uni-alt-min').value);
-            u.maxAlt = parseInt(modalContent.querySelector('#uni-alt-max').value);
-            u.minSpeed = parseInt(modalContent.querySelector('#uni-spd-min').value);
-            u.maxSpeed = parseInt(modalContent.querySelector('#uni-spd-max').value);
-
-            showNotification("Universal Filter Engine Updated", "success");
-            saveFiltersToLocalStorage();
-            updateMapFilters(); // This triggers the new Aircraft & Airport logic
-        });
-
-        // Chips
-        modalContent.querySelector('#uni-toggle-inbounds').addEventListener('click', (e) => {
-            u.onlyInbounds = !u.onlyInbounds;
-            e.target.classList.toggle('active', u.onlyInbounds);
-        });
-
-        modalContent.querySelector('#uni-toggle-outbounds').addEventListener('click', (e) => {
-            u.onlyOutbounds = !u.onlyOutbounds;
-            e.target.classList.toggle('active', u.onlyOutbounds);
+    // 1. Identify Staffed Airports (ATC + Routes)
+    const atcAirportIcaos = new Set(activeAtcFacilities.map(f => f.airportName).filter(Boolean));
+    const allRouteAirports = new Set();
+    if (typeof ALL_AVAILABLE_ROUTES !== 'undefined') {
+        ALL_AVAILABLE_ROUTES.forEach(route => {
+            allRouteAirports.add(route.departure);
+            allRouteAirports.add(route.arrival);
         });
     }
 
+    const staffedIcaos = new Set([...allRouteAirports, ...atcAirportIcaos]);
 
-/**
-     * --- [REPLACED] THE UNIVERSAL AIRPORT RENDERER ---
-     * Renders airport markers while respecting Staffing, ATC, and Universal ICAO filters.
-     */
-    function renderAirportMarkers() {
-        if (!sectorOpsMap) return;
+    // 2. Manage DOM Markers (Staffed Only)
+    Object.keys(airportAndAtcMarkers).forEach(icao => {
+        const hasAtc = atcAirportIcaos.has(icao);
+        const shouldBeDom = staffedIcaos.has(icao);
+        const isFiltered = (hideNoAtc && !hasAtc) || (hideAtc && hasAtc);
 
-        const u = mapFilters.universal;
+        if (!shouldBeDom || isFiltered) {
+            airportAndAtcMarkers[icao].marker.remove();
+            delete airportAndAtcMarkers[icao];
+        }
+    });
 
-        Object.keys(airportAndAtcMarkers).forEach(icao => {
-            const entry = airportAndAtcMarkers[icao];
-            const airport = airportsData[icao];
-            if (!entry || !airport) return;
+    staffedIcaos.forEach(icao => {
+        const airport = airportsData[icao];
+        if (!airport || airport.lat == null || airport.lon == null) return;
+        
+        const hasAtc = atcAirportIcaos.has(icao);
+        if ((hideNoAtc && !hasAtc) || (hideAtc && hasAtc)) return;
 
-            let shouldShow = true;
+        // NEW: If unstaffed (only on a route) and NOT a major airport, filter it out
+        // Note: If it has ATC, we ALWAYS show it regardless of size.
+        if (!hasAtc && !isMajorAirport(icao, airport)) return;
 
-            // 1. Hide All Toggle
-            if (mapFilters.hideAllAirports) shouldShow = false;
+        if (airportAndAtcMarkers[icao]) {
+            if (airportAndAtcMarkers[icao].hasAtc === hasAtc) return;
+            airportAndAtcMarkers[icao].marker.remove();
+        }
 
-            // 2. Universal ICAO Filter (The "High-Priority" Filter)
-            if (u.enabled && u.airportQuery) {
-                if (icao.toUpperCase() !== u.airportQuery.toUpperCase()) {
-                    shouldShow = false;
-                }
-            } else {
-                // 3. Standard Toggles (Only if Universal ICAO isn't overriding)
-                const hasAtc = activeAtcFacilities.some(f => f.airportName === icao);
-                
-                if (mapFilters.showAtcAirportsOnly && !hasAtc) shouldShow = false;
-                if (mapFilters.hideAtcMarkers && hasAtc) shouldShow = false;
-                if (mapFilters.hideNoAtcMarkers && !hasAtc) shouldShow = false;
-                
-                // Unstaffed Logic
-                if (!mapFilters.showUnstaffedAirports && !hasAtc) shouldShow = false;
+        const el = document.createElement('div');
+        if (hasAtc) {
+            el.className += ' apt-live-tag';
+            const airportAtc = activeAtcFacilities.filter(f => f.airportName === icao);
+            const earliestStart = airportAtc.reduce((min, f) => {
+                const start = new Date(f.startTime).getTime();
+                return start < min ? start : min;
+            }, Date.now());
+            
+            const diffMins = Math.floor((Date.now() - earliestStart) / 60000);
+            const durationText = diffMins > 60 ? `${Math.floor(diffMins/60)}h ${diffMins%60}m` : `${diffMins}m online`;
+            
+            const hasGnd = airportAtc.some(f => f.type === 0);
+            const hasTwr = airportAtc.some(f => f.type === 1);
+            const hasApp = airportAtc.some(f => f.type === 4 || f.type === 5);
+            const hasAtis = airportAtc.some(f => f.type === 7);
+
+            if (hasApp) {
+                const aura = document.createElement('div');
+                aura.className = 'tag-pulse-aura';
+                el.appendChild(aura);
             }
 
-            // Apply Visibility
-            if (entry.marker) {
-                entry.marker.getElement().style.display = shouldShow ? 'flex' : 'none';
-            }
-        });
-    }
+            const extra = document.createElement('div');
+            extra.className = 'apt-tag-extra';
+            extra.innerHTML = `<div class="apt-tag-extra-item">Oldest Session</div><div class="apt-tag-extra-val">${durationText}</div>`;
+            el.appendChild(extra);
+
+            const base = document.createElement('div');
+            base.className = 'apt-tag-base';
+            base.innerHTML = `<div class="apt-tag-ident">${icao}</div>`;
+
+            const freqs = document.createElement('div');
+            freqs.className = 'apt-tag-freqs';
+            if (hasAtis) freqs.innerHTML += `<div class="freq-mini-badge f-atis">A</div>`;
+            if (hasGnd) freqs.innerHTML += `<div class="freq-mini-badge f-gnd">G</div>`;
+            if (hasTwr) freqs.innerHTML += `<div class="freq-mini-badge f-twr">T</div>`;
+            if (hasApp) freqs.innerHTML += `<div class="freq-mini-badge f-app">R</div>`;
+            
+            base.appendChild(freqs);
+            el.appendChild(base);
+        } else {
+            el.className += ' destination-marker';
+            el.textContent = icao;
+        }
+
+        const marker = new mapboxgl.Marker({ element: el })
+            .setLngLat([airport.lon, airport.lat])
+            .addTo(sectorOpsMap);
+
+        el.addEventListener('click', () => handleAirportClick(icao));
+        airportAndAtcMarkers[icao] = { marker, hasAtc };
+    });
+
+    // 3. Update the high-performance background layer
+    updateUnstaffedLayer(showUnstaffed, staffedIcaos);
+}
 
 function updateUnstaffedLayer(show, excludeIcaos) {
     const SOURCE_ID = 'unstaffed-airports-source';
