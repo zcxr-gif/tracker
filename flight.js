@@ -83,7 +83,6 @@ window.currentAirportTraffic = { in: [], out: [] }; // Stores IDs for the curren
         showStaffOnly: false,
         hideAllAircraft: false,
         showAtcAirportsOnly: false,
-        showUnstaffedAirports: false,
         hideAtcMarkers: false,
         hideAllAirports: false,
         hideNoAtcMarkers: false,
@@ -549,29 +548,6 @@ function injectCustomStyles() {
     if (document.getElementById(styleId)) return;
 
     const css = `
-        /* --- Add to your CSS string --- */
-.unstaffed-airport-dot {
-    width: 6px;
-    height: 6px;
-    background: rgba(255, 255, 255, 0.4);
-    border: 1px solid rgba(255, 255, 255, 0.2);
-    border-radius: 50%;
-    cursor: pointer;
-    transition: transform 0.2s, background 0.2s;
-    display: none; /* Hidden by default, shown via zoom listener */
-}
-
-.unstaffed-airport-dot:hover {
-    background: #38bdf8;
-    transform: scale(1.5);
-    box-shadow: 0 0 8px #38bdf8;
-}
-
-/* Logic for zoom visibility via class */
-.unstaffed-airport-dot.zoom-visible {
-    display: block;
-}
-
         /* --- DYNAMIC & LOCKED AIRPORT TAG STYLES --- */
         :root {
             --apt-tag-scale: 1; 
@@ -7613,19 +7589,12 @@ function formatDataForSimpleWindow(flightProps, plan, routePoints, communityData
                     <div id="filter-window-content" class="info-window-content">
                         <ul class="filter-toggle-list">
                             <li class="filter-toggle-item">
-    <span class="filter-toggle-label"><i class="fa-solid fa-tower-broadcast"></i> Hide Staffed Airports</span>
-    <label class="toggle-switch">
-        <input type="checkbox" id="filter-toggle-atc">
-        <span class="toggle-slider"></span>
-    </label>
-</li>
-<li class="filter-toggle-item">
-    <span class="filter-toggle-label"><i class="fa-solid fa-circle-dot"></i> Show Unstaffed Airports</span>
-    <label class="toggle-switch">
-        <input type="checkbox" id="filter-toggle-unstaffed">
-        <span class="toggle-slider"></span>
-    </label>
-</li>
+                                <span class="filter-toggle-label"><i class="fa-solid fa-tower-broadcast"></i> Hide Staffed Airports</span>
+                                <label class="toggle-switch">
+                                    <input type="checkbox" id="filter-toggle-atc">
+                                    <span class="toggle-slider"></span>
+                                </label>
+                            </li>
                             
                             <li class="filter-toggle-item">
                                 <span class="filter-toggle-label"><i class="fa-solid fa-tags"></i> Show Aircraft Labels</span>
@@ -8030,24 +7999,11 @@ function initializeSectorOpsMap(centerICAO) {
         interactive: true,
         projection: 'globe',
         // --- PERFORMANCE & CACHING CONFIG ---
-        fadeDuration: 0, // Instant rendering
-        maxTileCacheSize: 500, // Broad tile caching
+        fadeDuration: 0,           // Instant rendering
+        maxTileCacheSize: 500,     // Broad tile caching
         crossSourceCollisions: false,
         localIdeographFontFamily: "'Inter', 'sans-serif'",
-        preserveDrawingBuffer: true
-    });
-
-    // --- ADDED ZOOM LISTENER FOR UNSTAFFED DOTS ---
-    sectorOpsMap.on('zoom', () => {
-        const zoom = sectorOpsMap.getZoom();
-        const dots = document.querySelectorAll('.unstaffed-airport-dot');
-        dots.forEach(dot => {
-            if (zoom >= 10) {
-                dot.classList.add('zoom-visible');
-            } else {
-                dot.classList.remove('zoom-visible');
-            }
-        });
+        preserveDrawingBuffer: true 
     });
 
     sectorOpsMap.on('style.load', async () => {
@@ -10989,17 +10945,6 @@ function setupSectorOpsEventListeners() {
         });
     }
 
-    // Add this inside setupSectorOpsEventListeners()
-const unstaffedToggle = document.getElementById('filter-toggle-unstaffed');
-if (unstaffedToggle) {
-    unstaffedToggle.checked = mapFilters.showUnstaffedAirports;
-    unstaffedToggle.addEventListener('change', (e) => {
-        mapFilters.showUnstaffedAirports = e.target.checked;
-        saveFiltersToLocalStorage();
-        renderAirportMarkers();
-    });
-}
-
     // --- Server Selector ---
     const serverBtns = document.querySelectorAll('.server-btn');
     serverBtns.forEach(btn => {
@@ -11756,42 +11701,27 @@ function stopSectorOpsLiveLoop() {
     }
 }
 
+
 function renderAirportMarkers() {
     if (!sectorOpsMap || !sectorOpsMap.isStyleLoaded()) return;
 
     const hideNoAtc = mapFilters.hideNoAtcMarkers;
     const hideAtc = mapFilters.hideAtcMarkers;
-    const showUnstaffed = mapFilters.showUnstaffedAirports;
 
+    // 1. Identify which airports should have ATC and what their status is
     const atcAirportIcaos = new Set(activeAtcFacilities.map(f => f.airportName).filter(Boolean));
-    
-    // Determine which airports to show based on routes and types
-    const currentTargetIcaos = new Set();
-    
-    // Add airports from routes
+    const allRouteAirports = new Set();
     if (typeof ALL_AVAILABLE_ROUTES !== 'undefined') {
         ALL_AVAILABLE_ROUTES.forEach(route => {
-            currentTargetIcaos.add(route.departure);
-            currentTargetIcaos.add(route.arrival);
-        });
-    }
-    
-    // Add all airports if "Show Unstaffed" is on
-    if (showUnstaffed && airportsData) {
-        Object.keys(airportsData).forEach(icao => {
-            const apt = airportsData[icao];
-            // Filter: Planes only (exclude heliport, seaplane_base, closed)
-            const isPlaneAirport = ['large_airport', 'medium_airport', 'small_airport'].includes(apt.type);
-            if (isPlaneAirport) {
-                currentTargetIcaos.add(icao);
-            }
+            allRouteAirports.add(route.departure);
+            allRouteAirports.add(route.arrival);
         });
     }
 
-    // Add Staffed airports
-    atcAirportIcaos.forEach(icao => currentTargetIcaos.add(icao));
+    // 2. Determine the full set of ICAOs we want to display
+    const currentTargetIcaos = new Set([...allRouteAirports, ...atcAirportIcaos]);
 
-    // Remove old markers
+    // 3. Remove markers for airports that are no longer in our target set
     Object.keys(airportAndAtcMarkers).forEach(icao => {
         if (!currentTargetIcaos.has(icao)) {
             airportAndAtcMarkers[icao].marker.remove();
@@ -11799,17 +11729,15 @@ function renderAirportMarkers() {
         }
     });
 
-    // Add/Update Markers
-    const currentZoom = sectorOpsMap.getZoom();
+    // 4. Update or Add Markers
     currentTargetIcaos.forEach(icao => {
         const airport = airportsData[icao];
         if (!airport || airport.lat == null || airport.lon == null) return;
 
         const hasAtc = atcAirportIcaos.has(icao);
-        const isUnstaffedOnly = !hasAtc && showUnstaffed;
 
-        // Apply filters
-        if ((hideNoAtc && !hasAtc && !showUnstaffed) || (hideAtc && hasAtc)) {
+        // Respect filters
+        if ((hideNoAtc && !hasAtc) || (hideAtc && hasAtc)) {
             if (airportAndAtcMarkers[icao]) {
                 airportAndAtcMarkers[icao].marker.remove();
                 delete airportAndAtcMarkers[icao];
@@ -11817,36 +11745,84 @@ function renderAirportMarkers() {
             return;
         }
 
-        // Skip re-drawing if already exists and state hasn't changed
-        if (airportAndAtcMarkers[icao] && airportAndAtcMarkers[icao].hasAtc === hasAtc) return;
-        if (airportAndAtcMarkers[icao]) airportAndAtcMarkers[icao].marker.remove();
+        // If marker exists, check if we actually need to redraw it
+        // We redraw if the 'hasAtc' state changed (e.g., Unicom to Tower)
+        if (airportAndAtcMarkers[icao]) {
+            const existing = airportAndAtcMarkers[icao];
+            if (existing.hasAtc === hasAtc) {
+                // No fundamental state change, keep the existing marker to prevent flicker/jump
+                return; 
+            } else {
+                // State changed, remove old and prepare for new
+                existing.marker.remove();
+            }
+        }
 
+        // Create the element
         const el = document.createElement('div');
-        
         if (hasAtc) {
             el.className = 'apt-live-tag';
-            // ... (keep your existing ATC tag building logic here) ...
+            const airportAtc = activeAtcFacilities.filter(f => f.airportName === icao);
+
+            // Calculate Session Duration (Oldest Session)
+            const earliestStart = airportAtc.reduce((min, f) => {
+                const start = new Date(f.startTime).getTime();
+                return start < min ? start : min;
+            }, Date.now());
+
+            const diffMs = Date.now() - earliestStart;
+            const diffMins = Math.floor(diffMs / 60000);
+            const durationText = diffMins > 60 
+                ? `${Math.floor(diffMins/60)}h ${diffMins%60}m` 
+                : `${diffMins}m online`;
+
+            const hasGnd = airportAtc.some(f => f.type === 0);
+            const hasTwr = airportAtc.some(f => f.type === 1);
+            const hasApp = airportAtc.some(f => f.type === 4 || f.type === 5);
+            const hasAtis = airportAtc.some(f => f.type === 7);
+
+            if (hasApp) {
+                const aura = document.createElement('div');
+                aura.className = 'tag-pulse-aura';
+                el.appendChild(aura);
+            }
+
+            const extra = document.createElement('div');
+            extra.className = 'apt-tag-extra';
+            extra.innerHTML = `
+                <div class="apt-tag-extra-item">Oldest Session</div>
+                <div class="apt-tag-extra-val">${durationText}</div>
+            `;
+            el.appendChild(extra);
+
             const base = document.createElement('div');
             base.className = 'apt-tag-base';
             const ident = document.createElement('div');
             ident.className = 'apt-tag-ident';
             ident.textContent = icao;
             base.appendChild(ident);
+
+            const freqs = document.createElement('div');
+            freqs.className = 'apt-tag-freqs';
+            if (hasAtis) freqs.innerHTML += `<div class="freq-mini-badge f-atis">A</div>`;
+            if (hasGnd) freqs.innerHTML += `<div class="freq-mini-badge f-gnd">G</div>`;
+            if (hasTwr) freqs.innerHTML += `<div class="freq-mini-badge f-twr">T</div>`;
+            if (hasApp) freqs.innerHTML += `<div class="freq-mini-badge f-app">R</div>`;
+            base.appendChild(freqs);
             el.appendChild(base);
-        } else if (isUnstaffedOnly) {
-            el.className = 'unstaffed-airport-dot';
-            if (currentZoom >= 10) el.classList.add('zoom-visible');
-            el.title = `${icao} - ${airport.name || 'Airport'}`;
         } else {
             el.className = 'destination-marker';
         }
 
+        // Create and add the marker
         const marker = new mapboxgl.Marker({ element: el })
             .setLngLat([airport.lon, airport.lat])
             .addTo(sectorOpsMap);
 
         el.addEventListener('click', () => handleAirportClick(icao));
-        airportAndAtcMarkers[icao] = { marker, hasAtc, isUnstaffed: isUnstaffedOnly };
+        
+        // Track the marker for future diffing
+        airportAndAtcMarkers[icao] = { marker, hasAtc };
     });
 }
 
