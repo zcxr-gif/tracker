@@ -1,5 +1,6 @@
 import { MapAnimator } from './mapAnimator.js';
 import { AirportLayoutManager } from './airportLayout.js';
+import { LandingUI } from './landingUI.js';
 
 document.addEventListener('DOMContentLoaded', async () => {
 
