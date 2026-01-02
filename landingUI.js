@@ -1,12 +1,11 @@
 /**
  * LandingUI.js
- * REDESIGN: INFLIGHT Tactical Overlay
- * Features: Minimalist glassmorphism, .ico integration, and streamlined utility.
+ * REDESIGN: INFLIGHT Utility Overlay
+ * Features: Right-aligned utility cluster, auto-hide on mobile.
  */
 
 export const LandingUI = {
     _isVisible: false,
-    _clockInterval: null,
 
     init() {
         this.injectStyles();
@@ -22,16 +21,6 @@ export const LandingUI = {
         const html = `
             <div id="inflight-tactical-ui" class="tactical-ui-root">
                 <div class="hud-header">
-                    <div class="brand-container">
-                        <div class="brand-logo">
-                            <img src="Images/inflightIcon.ico" alt="Inflight Logo" class="brand-icon-img">
-                        </div>
-                        <div class="brand-meta">
-                            <div class="brand-name">IN<span class="highlight">FLIGHT</span></div>
-                            <div id="landing-clock" class="brand-timer">00:00:00Z</div>
-                        </div>
-                    </div>
-
                     <div class="header-right-cluster">
                         <div class="utility-grid">
                             <button class="util-btn" id="tile-search" title="Search Radar">
@@ -63,7 +52,6 @@ export const LandingUI = {
         if (container) {
             container.insertAdjacentHTML('beforeend', html);
         }
-        this.startClock();
     },
 
     update(isActive, stats = {}) {
@@ -72,7 +60,6 @@ export const LandingUI = {
 
         if (isActive) {
             el.classList.add('active');
-            // Update server name if provided in stats
             if (stats.server) {
                 const serverEl = document.getElementById('landing-server-name');
                 if (serverEl) serverEl.textContent = stats.server.toUpperCase();
@@ -99,24 +86,18 @@ export const LandingUI = {
         });
     },
 
-    startClock() {
-        if (this._clockInterval) clearInterval(this._clockInterval);
-        const update = () => {
-            const el = document.getElementById('landing-clock');
-            if (!el) return;
-            const now = new Date();
-            // Standard UTC/ZULU time format for aviation
-            el.textContent = now.toISOString().split('T')[1].split('.')[0] + 'Z';
-        };
-        this._clockInterval = setInterval(update, 1000);
-        update();
-    },
-
     injectStyles() {
         const existing = document.getElementById('inflight-ui-styles');
         if (existing) existing.remove();
 
         const css = `
+            /* Hide UI on smaller screens/devices */
+            @media (max-width: 768px) {
+                .tactical-ui-root {
+                    display: none !important;
+                }
+            }
+
             .tactical-ui-root {
                 position: absolute;
                 inset: 0;
@@ -137,48 +118,11 @@ export const LandingUI = {
             .hud-header {
                 position: absolute;
                 top: 24px;
-                left: 24px;
                 right: 24px;
                 display: flex;
-                justify-content: space-between;
+                justify-content: flex-end;
                 align-items: flex-start;
                 pointer-events: none;
-            }
-
-            /* Branding Section */
-            .brand-container {
-                pointer-events: auto;
-                display: flex;
-                align-items: center;
-                gap: 14px;
-                background: rgba(10, 12, 18, 0.6);
-                padding: 10px 18px;
-                border-radius: 14px;
-                backdrop-filter: blur(20px);
-                border: 1px solid rgba(255, 255, 255, 0.08);
-                box-shadow: 0 8px 32px rgba(0, 0, 0, 0.3);
-            }
-
-            .brand-icon-img {
-                width: 28px;
-                height: 28px;
-                filter: drop-shadow(0 0 8px rgba(56, 189, 248, 0.4));
-            }
-
-            .brand-name { 
-                font-weight: 900; 
-                font-size: 1.3rem; 
-                letter-spacing: 2px;
-                line-height: 1;
-            }
-            .brand-name .highlight { color: #38bdf8; }
-            
-            .brand-timer { 
-                font-family: 'JetBrains Mono', monospace; 
-                font-size: 0.75rem; 
-                color: #94a3b8; 
-                margin-top: 4px;
-                letter-spacing: 1px;
             }
 
             /* Utility & Server Cluster */
@@ -198,6 +142,7 @@ export const LandingUI = {
                 border-radius: 12px;
                 backdrop-filter: blur(20px);
                 border: 1px solid rgba(255, 255, 255, 0.08);
+                box-shadow: 0 8px 32px rgba(0, 0, 0, 0.3);
             }
 
             .util-btn {
