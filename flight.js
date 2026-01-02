@@ -79,22 +79,42 @@ window.currentAirportTraffic = { in: [], out: [] }; // Stores IDs for the curren
     // --- NEW: To cache flight data when switching to stats view ---
     let cachedFlightDataForStatsView = { flightProps: null, plan: null };
     let mapFilters = {
-        showVaOnly: false,
-        showUnstaffedAirports: false,
-        showStaffOnly: false,
-        hideAllAircraft: false,
-        showAtcAirportsOnly: false,
-        hideAtcMarkers: false,
-        hideAllAirports: false,
-        hideNoAtcMarkers: false,
-        planDisplayMode: 'none',
-        iconColorMode: 'default',
-        showAircraftLabels: false,
-        useSimpleFlightWindow: false,
-        themeStartColor: '#18181b', // [UPDATED] Carbon/Zinc-900
-        themeEndColor: '#18181b',   // [UPDATED] Carbon/Zinc-900
-        themeOpacity: 90            // [UPDATED] Slightly more transparent (90%)
-    };
+    // Toggles
+    showVaOnly: false,
+    showStaffOnly: false,
+    showAircraftLabels: false,
+    hideAllAircraft: false,
+    hideAtcMarkers: false,
+    hideNoAtcMarkers: false,
+    showUnstaffedAirports: false,
+    
+    // UI Settings
+    planDisplayMode: 'none',
+    iconColorMode: 'default',
+    useSimpleFlightWindow: false,
+    mapStyle: 'dark',
+    themeStartColor: '#18181b',
+    themeEndColor: '#18181b',
+    themeOpacity: 90,
+
+    // --- NEW UNIVERSAL FILTER PARAMS ---
+    universal: {
+        active: false,
+        callsign: '',
+        airlinePrefix: '',
+        aircraftModel: [], // Array of types like ['A320', 'B738']
+        aircraftCategory: [], // ['jumbo', 'narrowbody']
+        minAlt: 0,
+        maxAlt: 50000,
+        minGS: 0,
+        maxGS: 1000,
+        origin: '',
+        destination: '',
+        inboundTo: '', // Shows flights landing at this ICAO
+        outboundFrom: '', // Shows flights taking off from this ICAO
+        pilotName: ''
+    }
+};
 
     const departureHubs = []; // Empty array
     let ALL_AVAILABLE_ROUTES = []; // Empty array
@@ -543,12 +563,193 @@ function handleSavedFlightListClick(e) {
         }
     }
 
+    function injectUniversalFilterStyles() {
+    const css = `
+        /* Universal Filter Modal Styles */
+        .universal-filter-modal {
+            position: fixed;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%) scale(0.95);
+            width: 850px;
+            max-width: 95vw;
+            max-height: 85vh;
+            background: rgba(15, 15, 18, 0.98);
+            backdrop-filter: blur(25px);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            border-radius: 16px;
+            z-index: 6000;
+            display: none;
+            flex-direction: column;
+            box-shadow: 0 0 0 100vmax rgba(0,0,0,0.7), 0 30px 60px rgba(0,0,0,0.8);
+            overflow: hidden;
+            transition: all 0.3s cubic-bezier(0.16, 1, 0.3, 1);
+            opacity: 0;
+        }
+
+        .universal-filter-modal.active {
+            display: flex;
+            opacity: 1;
+            transform: translate(-50%, -50%) scale(1);
+        }
+
+        .uf-header {
+            padding: 20px 24px;
+            border-bottom: 1px solid rgba(255,255,255,0.08);
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            background: rgba(255,255,255,0.02);
+        }
+
+        .uf-header h2 {
+            margin: 0;
+            font-size: 1.25rem;
+            letter-spacing: -0.02em;
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            color: #fff;
+        }
+
+        .uf-content {
+            flex: 1;
+            overflow-y: auto;
+            padding: 24px;
+            display: grid;
+            grid-template-columns: repeat(2, 1fr);
+            gap: 24px;
+        }
+
+        .uf-section {
+            background: rgba(255,255,255,0.03);
+            border: 1px solid rgba(255,255,255,0.05);
+            border-radius: 12px;
+            padding: 16px;
+        }
+
+        .uf-section-title {
+            font-size: 0.75rem;
+            font-weight: 800;
+            color: #38bdf8;
+            text-transform: uppercase;
+            letter-spacing: 0.1em;
+            margin-bottom: 16px;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .uf-grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 12px;
+        }
+
+        .uf-input-group {
+            display: flex;
+            flex-direction: column;
+            gap: 6px;
+        }
+
+        .uf-label {
+            font-size: 0.7rem;
+            color: #94a3b8;
+            font-weight: 600;
+        }
+
+        .uf-input {
+            background: #000;
+            border: 1px solid rgba(255,255,255,0.1);
+            border-radius: 6px;
+            padding: 8px 12px;
+            color: #fff;
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 0.85rem;
+            width: 100%;
+            box-sizing: border-box;
+        }
+
+        .uf-input:focus {
+            border-color: #38bdf8;
+            outline: none;
+            background: rgba(56, 189, 248, 0.05);
+        }
+
+        .uf-range-container {
+            grid-column: span 2;
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+        }
+
+        .uf-range-labels {
+            display: flex;
+            justify-content: space-between;
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 0.75rem;
+            color: #38bdf8;
+        }
+
+        .uf-footer {
+            padding: 16px 24px;
+            background: rgba(0,0,0,0.3);
+            border-top: 1px solid rgba(255,255,255,0.08);
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .uf-btn {
+            padding: 10px 20px;
+            border-radius: 8px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.2s;
+            font-size: 0.85rem;
+            border: 1px solid transparent;
+        }
+
+        .uf-btn-primary { background: #38bdf8; color: #000; }
+        .uf-btn-primary:hover { background: #7dd3fc; transform: translateY(-1px); }
+
+        .uf-btn-secondary { background: rgba(255,255,255,0.05); color: #fff; border-color: rgba(255,255,255,0.1); }
+        .uf-btn-secondary:hover { background: rgba(255,255,255,0.1); }
+
+        .uf-tag-select {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 6px;
+            margin-top: 4px;
+        }
+
+        .uf-tag {
+            background: #1e293b;
+            border: 1px solid #334155;
+            color: #cbd5e1;
+            padding: 4px 8px;
+            border-radius: 4px;
+            font-size: 0.7rem;
+            cursor: pointer;
+        }
+
+        .uf-tag.active {
+            background: rgba(56, 189, 248, 0.2);
+            border-color: #38bdf8;
+            color: #fff;
+        }
+    `;
+    const style = document.createElement('style');
+    style.textContent = css;
+    document.head.appendChild(style);
+}
 
 function injectCustomStyles() {
     const styleId = 'sector-ops-custom-styles';
     if (document.getElementById(styleId)) return;
 
     const css = `
+
         /* --- DYNAMIC & LOCKED AIRPORT TAG STYLES --- */
         :root {
             --apt-tag-scale: 1; 
@@ -4573,39 +4774,83 @@ async function toggleSigmetLayer(show) {
     }
 
     /**
-     * --- [MODIFIED] Builds and applies a Mapbox filter expression to the live aircraft layer.
-     * This function now ONLY applies the filter toggles (mapFilters state).
-     * The search bar logic has been removed and moved to its own handler.
-     */
-    function updateAircraftLayerFilter() {
-        if (!sectorOpsMap || !sectorOpsMap.getLayer('sector-ops-live-flights-layer')) return;
+ * --- UNIVERSAL FILTER ENGINE ---
+ * Evaluates every aircraft against the complex filter state.
+ * This replaces simple Mapbox filtering with a heavy-duty logic processor.
+ */
+function updateAircraftLayerFilter() {
+    if (!sectorOpsMap || !sectorOpsMap.getSource('sector-ops-live-flights-source')) return;
 
-        let filter = ['all']; // Start with a base 'all' filter
-
-        // --- 1. Apply Toggle Filters (from mapFilters state) ---
-        if (mapFilters.hideAllAircraft) {
-            // Use a filter that matches nothing
-            filter = ['==', 'flightId', '']; 
-            
-            // Apply the filter and exit early
-            sectorOpsMap.setFilter('sector-ops-live-flights-layer', filter);
-            return; 
-
-        } else if (mapFilters.showStaffOnly) {
-            // Show only features where isStaff is true
-            filter.push(['==', 'isStaff', true]);
-        } else if (mapFilters.showVaOnly) {
-            // Show only features where isVAMember is true
-            filter.push(['==', 'isVAMember', true]);
-        }
+    // 1. Get the current source data
+    const features = Object.values(currentMapFeatures);
+    
+    // 2. Filter the features based on UNIVERSAL logic
+    const filteredFeatures = features.filter(feature => {
+        const p = feature.properties;
+        const u = mapFilters.universal;
         
-        // --- 2. [REMOVED] ---
-        // The entire "Apply Search Filter" block has been deleted.
-        // This function no longer reads from the search input.
+        // --- Core Toggles (Staff/VA) ---
+        if (mapFilters.hideAllAircraft) return false;
+        if (mapFilters.showStaffOnly && !p.isStaff) return false;
+        if (mapFilters.showVaOnly && !p.isVAMember) return false;
 
-        // --- 3. Apply the combined filter to the map ---
-        sectorOpsMap.setFilter('sector-ops-live-flights-layer', filter);
+        // --- If Universal Filters are active, check every predicate ---
+        if (u.active) {
+            // Callsign Filter
+            if (u.callsign && !p.callsign.toUpperCase().includes(u.callsign.toUpperCase())) return false;
+            
+            // Airline Prefix (e.g., "AAL")
+            if (u.airlinePrefix && !p.callsign.toUpperCase().startsWith(u.airlinePrefix.toUpperCase())) return false;
+
+            // Pilot Name
+            if (u.pilotName && !p.username.toUpperCase().includes(u.pilotName.toUpperCase())) return false;
+
+            // Altitude Range
+            if (p.altitude < u.minAlt || p.altitude > u.maxAlt) return false;
+
+            // Speed Range
+            if (p.speed < u.minGS || p.speed > u.maxGS) return false;
+
+            // Aircraft Type (Multi-select)
+            if (u.aircraftModel.length > 0) {
+                const acData = typeof p.aircraft === 'string' ? JSON.parse(p.aircraft) : p.aircraft;
+                const acName = (acData?.aircraftName || '').toUpperCase();
+                const matchesModel = u.aircraftModel.some(m => acName.includes(m.toUpperCase()));
+                if (!matchesModel) return false;
+            }
+
+            // Aircraft Category (Multi-select)
+            if (u.aircraftCategory.length > 0 && !u.aircraftCategory.includes(p.category)) return false;
+
+            // Route Logic (Requires basic data in property)
+            // Note: These assume 'origin' and 'destination' strings exist in p. 
+            // If they don't, we can't filter by them until clicked, unless the socket provides them.
+            if (u.origin && p.origin !== u.origin.toUpperCase()) return false;
+            if (u.destination && p.destination !== u.destination.toUpperCase()) return false;
+
+            // Inbound/Outbound Logic
+            if (u.inboundTo && p.destination !== u.inboundTo.toUpperCase()) return false;
+            if (u.outboundFrom && p.origin !== u.outboundFrom.toUpperCase()) return false;
+        }
+
+        return true;
+    });
+
+    // 3. Update the source with the filtered result
+    sectorOpsMap.getSource('sector-ops-live-flights-source').setData({
+        type: 'FeatureCollection',
+        features: filteredFeatures
+    });
+
+    // 4. Update Labels separately if they exist
+    if (sectorOpsMap.getLayer('sector-ops-live-flights-labels')) {
+        sectorOpsMap.setLayoutProperty(
+            'sector-ops-live-flights-labels',
+            'visibility',
+            mapFilters.showAircraftLabels ? 'visible' : 'none'
+        );
     }
+}
 
     /**
      * --- [RENAMED & MODIFIED] Updates the main toolbar buttons to show if any layers are active.
@@ -4709,6 +4954,159 @@ async function fetchRunwaysData() {
         console.error('Failed to fetch runway data:', error);
         showNotification('Runway data not available; takeoff/landing detection may be limited.', 'error');
     }
+}
+
+function createUniversalFilterModal() {
+    if (document.getElementById('universal-filter-modal')) return;
+
+    const modalHtml = `
+    <div id="universal-filter-modal" class="universal-filter-modal">
+        <div class="uf-header">
+            <h2><i class="fa-solid fa-filter-list"></i> Universal Flight Filter</h2>
+            <div style="display:flex; gap: 10px;">
+                <button id="uf-reset-btn" class="uf-btn uf-btn-secondary">Reset All</button>
+                <button id="uf-close-btn" class="uf-btn uf-btn-secondary"><i class="fa-solid fa-times"></i></button>
+            </div>
+        </div>
+        <div class="uf-content">
+            <div class="uf-section">
+                <div class="uf-section-title"><i class="fa-solid fa-id-card"></i> Identification</div>
+                <div class="uf-grid">
+                    <div class="uf-input-group">
+                        <label class="uf-label">Callsign / Flight #</label>
+                        <input type="text" id="uf-input-callsign" class="uf-input" placeholder="e.g. AAL123">
+                    </div>
+                    <div class="uf-input-group">
+                        <label class="uf-label">Airline Code</label>
+                        <input type="text" id="uf-input-airline" class="uf-input" placeholder="e.g. BAW">
+                    </div>
+                    <div class="uf-input-group" style="grid-column: span 2;">
+                        <label class="uf-label">Pilot Username</label>
+                        <input type="text" id="uf-input-pilot" class="uf-input" placeholder="Search by pilot name...">
+                    </div>
+                </div>
+            </div>
+
+            <div class="uf-section">
+                <div class="uf-section-title"><i class="fa-solid fa-route"></i> Route & Traffic</div>
+                <div class="uf-grid">
+                    <div class="uf-input-group">
+                        <label class="uf-label">Departure ICAO</label>
+                        <input type="text" id="uf-input-origin" class="uf-input" placeholder="e.g. EGLL">
+                    </div>
+                    <div class="uf-input-group">
+                        <label class="uf-label">Arrival ICAO</label>
+                        <input type="text" id="uf-input-dest" class="uf-input" placeholder="e.g. KJFK">
+                    </div>
+                    <div class="uf-input-group">
+                        <label class="uf-label">Inbound To</label>
+                        <input type="text" id="uf-input-inbound" class="uf-input" placeholder="ICAO">
+                    </div>
+                    <div class="uf-input-group">
+                        <label class="uf-label">Outbound From</label>
+                        <input type="text" id="uf-input-outbound" class="uf-input" placeholder="ICAO">
+                    </div>
+                </div>
+            </div>
+
+            <div class="uf-section" style="grid-column: span 2;">
+                <div class="uf-section-title"><i class="fa-solid fa-plane-engines"></i> Aircraft & Performance</div>
+                <div class="uf-grid" style="grid-template-columns: 1fr 1fr 1fr;">
+                    <div class="uf-input-group">
+                        <label class="uf-label">Aircraft Category</label>
+                        <div class="uf-tag-select" id="uf-category-tags">
+                            <div class="uf-tag" data-val="jumbo">Jumbo</div>
+                            <div class="uf-tag" data-val="widebody">Widebody</div>
+                            <div class="uf-tag" data-val="narrowbody">Narrowbody</div>
+                            <div class="uf-tag" data-val="regional">Regional</div>
+                            <div class="uf-tag" data-val="fighter">Fighter</div>
+                        </div>
+                    </div>
+
+                    <div class="uf-range-container" style="grid-column: span 2;">
+                        <label class="uf-label">Altitude Range (ft)</label>
+                        <div class="uf-range-labels">
+                            <span id="uf-alt-min-label">0</span>
+                            <span id="uf-alt-max-label">50,000</span>
+                        </div>
+                        <input type="range" id="uf-range-alt-min" min="0" max="50000" step="1000" value="0" style="width:100%">
+                        <input type="range" id="uf-range-alt-max" min="0" max="50000" step="1000" value="50000" style="width:100%">
+                    </div>
+                </div>
+            </div>
+        </div>
+        <div class="uf-footer">
+            <div style="display:flex; align-items:center; gap: 12px;">
+                <label class="toggle-switch">
+                    <input type="checkbox" id="uf-master-toggle">
+                    <span class="toggle-slider"></span>
+                </label>
+                <span style="font-size: 0.8rem; font-weight: 700; color: #fff;">ACTIVATE FILTERS</span>
+            </div>
+            <button id="uf-apply-btn" class="uf-btn uf-btn-primary">Apply Best Filters Ever</button>
+        </div>
+    </div>
+    `;
+
+    document.body.insertAdjacentHTML('beforeend', modalHtml);
+
+    // --- EVENT LISTENERS ---
+    const modal = document.getElementById('universal-filter-modal');
+    
+    // Tag Selection Logic
+    modal.querySelectorAll('.uf-tag').forEach(tag => {
+        tag.addEventListener('click', () => {
+            tag.classList.toggle('active');
+        });
+    });
+
+    // Reset Logic
+    document.getElementById('uf-reset-btn').addEventListener('click', () => {
+        mapFilters.universal = {
+            active: false, callsign: '', airlinePrefix: '', aircraftModel: [], aircraftCategory: [],
+            minAlt: 0, maxAlt: 50000, minGS: 0, maxGS: 1000, origin: '', destination: '',
+            inboundTo: '', outboundFrom: '', pilotName: ''
+        };
+        modal.querySelectorAll('.uf-input').forEach(i => i.value = '');
+        modal.querySelectorAll('.uf-tag').forEach(t => t.classList.remove('active'));
+        document.getElementById('uf-master-toggle').checked = false;
+        updateAircraftLayerFilter();
+    });
+
+    // Apply Logic
+    document.getElementById('uf-apply-btn').addEventListener('click', () => {
+        const u = mapFilters.universal;
+        u.active = document.getElementById('uf-master-toggle').checked;
+        u.callsign = document.getElementById('uf-input-callsign').value;
+        u.airlinePrefix = document.getElementById('uf-input-airline').value;
+        u.pilotName = document.getElementById('uf-input-pilot').value;
+        u.origin = document.getElementById('uf-input-origin').value;
+        u.destination = document.getElementById('uf-input-dest').value;
+        u.inboundTo = document.getElementById('uf-input-inbound').value;
+        u.outboundFrom = document.getElementById('uf-input-outbound').value;
+        
+        // Ranges
+        u.minAlt = parseInt(document.getElementById('uf-range-alt-min').value);
+        u.maxAlt = parseInt(document.getElementById('uf-range-alt-max').value);
+        
+        // Categories
+        u.aircraftCategory = Array.from(modal.querySelectorAll('.uf-tag.active')).map(t => t.dataset.val);
+
+        updateAircraftLayerFilter();
+        modal.classList.remove('active');
+        showNotification("Universal Filters Applied", "success");
+    });
+
+    document.getElementById('uf-close-btn').addEventListener('click', () => modal.classList.remove('active'));
+}
+
+/**
+ * Helper to show the modal
+ */
+function showUniversalFilterModal() {
+    createUniversalFilterModal();
+    const modal = document.getElementById('universal-filter-modal');
+    modal.classList.add('active');
 }
 
 /**
@@ -11946,8 +12344,19 @@ async function initializeApp() {
 
         loadFiltersFromLocalStorage();
 
-        // Inject all custom CSS
-        injectCustomStyles();
+        // Inside initializeApp()
+injectUniversalFilterStyles();
+injectCustomStyles(); // Your existing styles
+
+// Add a button listener to open it (e.g., from your toolbar)
+const filterBtn = document.getElementById('open-filter-settings-btn');
+if (filterBtn) {
+    // You can replace the old filter window or add a specific button for Universal
+    filterBtn.addEventListener('contextmenu', (e) => {
+        e.preventDefault();
+        showUniversalFilterModal();
+    });
+}
 
         // Fetch essential data in parallel
         await Promise.all([
