@@ -1,6 +1,7 @@
 import { MapAnimator } from './mapAnimator.js';
 import { AirportLayoutManager } from './airportLayout.js';
 import { LandingUI } from './landingUI.js';
+import { initPlaneSizeSlider } from './planeSizeController.js';
 
 document.addEventListener('DOMContentLoaded', async () => {
 
@@ -7773,7 +7774,8 @@ function formatDataForSimpleWindow(flightProps, plan, routePoints, communityData
         setupAirportWindowEvents();
         setupAircraftWindowEvents();
         setupWeatherSettingsWindowEvents();
-        setupFilterSettingsWindowEvents(); 
+        setupFilterSettingsWindowEvents();
+        initPlaneSizeSlider(sectorOpsMap, mapFilters);
         
         // --- 12. Setup Search Listeners (Now that elements exist) ---
         setupSearchEventListeners();
