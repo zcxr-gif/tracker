@@ -1,7 +1,7 @@
 /**
  * LandingUI.js
- * REDESIGN: INFLIGHT Utility Overlay
- * Features: Right-aligned utility cluster, Top-mounted full-length search.
+ * REDESIGN: UNIFIED INFLIGHT Utility Module
+ * Features: Integrated Search & Utility grid, Enhanced scaling.
  */
 
 export const LandingUI = {
@@ -22,24 +22,29 @@ export const LandingUI = {
             <div id="inflight-tactical-ui" class="tactical-ui-root">
                 <div class="hud-header">
                     <div class="header-right-cluster">
-                        <div class="search-wrapper">
-                            <i class="fa-solid fa-magnifying-glass search-icon"></i>
-                            <input type="text" id="tile-search-input" placeholder="Search Radar..." autocomplete="off">
-                        </div>
+                        
+                        <div class="main-module">
+                            <div class="search-section">
+                                <i class="fa-solid fa-magnifying-glass search-icon"></i>
+                                <input type="text" id="tile-search-input" placeholder="Search Radar..." autocomplete="off">
+                            </div>
 
-                        <div class="utility-grid">
-                            <button class="util-btn" id="tile-weather" title="Weather Layers">
-                                <i class="fa-solid fa-cloud-sun"></i>
-                            </button>
-                            <button class="util-btn" id="tile-settings" title="Map Config">
-                                <i class="fa-solid fa-sliders"></i>
-                            </button>
-                            <button class="util-btn" id="tile-history" title="Flight History">
-                                <i class="fa-solid fa-clock-rotate-left"></i>
-                            </button>
-                            <button class="util-btn highlight-btn" id="tile-server" title="Server Status">
-                                <i class="fa-solid fa-server"></i>
-                            </button>
+                            <div class="module-divider"></div>
+
+                            <div class="utility-grid">
+                                <button class="util-btn" id="tile-weather" title="Weather Layers">
+                                    <i class="fa-solid fa-cloud-sun"></i>
+                                </button>
+                                <button class="util-btn" id="tile-settings" title="Map Config">
+                                    <i class="fa-solid fa-sliders"></i>
+                                </button>
+                                <button class="util-btn" id="tile-history" title="Flight History">
+                                    <i class="fa-solid fa-clock-rotate-left"></i>
+                                </button>
+                                <button class="util-btn highlight-btn" id="tile-server" title="Server Status">
+                                    <i class="fa-solid fa-server"></i>
+                                </button>
+                            </div>
                         </div>
 
                         <div class="server-badge">
@@ -76,11 +81,10 @@ export const LandingUI = {
         const searchInput = document.getElementById('tile-search-input');
         const internalSearch = document.querySelector('.search-bar-container input');
 
-        // Sync custom search with the internal app search
+        // Sync input with the system's internal search bar
         searchInput?.addEventListener('input', (e) => {
             if (internalSearch) {
                 internalSearch.value = e.target.value;
-                // Trigger internal search logic if it listens for input events
                 internalSearch.dispatchEvent(new Event('input', { bubbles: true }));
             }
         });
@@ -128,47 +132,52 @@ export const LandingUI = {
 
             .hud-header {
                 position: absolute;
-                top: 24px;
-                right: 24px;
+                top: 30px;
+                right: 30px;
                 display: flex;
                 justify-content: flex-end;
-                align-items: flex-start;
                 pointer-events: none;
             }
 
             .header-right-cluster {
                 display: flex;
                 flex-direction: column;
-                align-items: stretch; /* Ensures search and grid match width */
-                gap: 8px;
+                align-items: stretch;
+                gap: 12px;
                 pointer-events: auto;
-                width: 200px; /* Fixed width to keep search bar consistent */
+                width: 260px; /* Increased base width */
             }
 
-            /* Search Bar Styling */
-            .search-wrapper {
+            /* Unified Container Module */
+            .main-module {
+                background: rgba(10, 12, 18, 0.8);
+                backdrop-filter: blur(25px);
+                border: 1px solid rgba(255, 255, 255, 0.12);
+                border-radius: 16px;
+                box-shadow: 0 12px 40px rgba(0, 0, 0, 0.4);
+                overflow: hidden;
+            }
+
+            /* Search Section - Bigger Scale */
+            .search-section {
                 display: flex;
                 align-items: center;
-                background: rgba(10, 12, 18, 0.7);
-                backdrop-filter: blur(20px);
-                border: 1px solid rgba(255, 255, 255, 0.08);
-                border-radius: 10px;
-                padding: 0 12px;
-                height: 38px;
-                box-shadow: 0 4px 12px rgba(0, 0, 0, 0.2);
+                padding: 14px 18px;
+                height: 52px; /* Increased height */
             }
 
             .search-icon {
-                font-size: 0.8rem;
-                color: #64748b;
-                margin-right: 10px;
+                font-size: 1rem;
+                color: #94a3b8;
+                margin-right: 12px;
             }
 
             #tile-search-input {
                 background: transparent;
                 border: none;
                 color: #fff;
-                font-size: 0.8rem;
+                font-size: 1rem; /* Bigger text */
+                font-weight: 500;
                 outline: none;
                 width: 100%;
             }
@@ -177,64 +186,74 @@ export const LandingUI = {
                 color: #475569;
             }
 
-            /* Utility & Server Cluster */
+            /* Visual Separator inside the module */
+            .module-divider {
+                height: 1px;
+                background: linear-gradient(90deg, transparent, rgba(255,255,255,0.1), transparent);
+                margin: 0 10px;
+            }
+
+            /* Utility Buttons - Bigger Scale */
             .utility-grid {
                 display: flex;
-                justify-content: space-between; /* Spreads buttons to match search bar width */
-                background: rgba(10, 12, 18, 0.6);
-                padding: 4px;
-                border-radius: 10px;
-                backdrop-filter: blur(20px);
-                border: 1px solid rgba(255, 255, 255, 0.08);
+                padding: 8px;
+                gap: 4px;
             }
 
             .util-btn {
-                flex: 1; /* Makes buttons grow equally */
-                height: 34px;
-                border-radius: 6px;
+                flex: 1;
+                height: 48px; /* Significantly bigger buttons */
+                border-radius: 10px;
                 border: none;
                 background: transparent;
-                color: #64748b;
+                color: #94a3b8;
+                font-size: 1.1rem;
                 cursor: pointer;
                 display: flex;
                 align-items: center;
                 justify-content: center;
-                transition: all 0.2s ease;
+                transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
             }
 
             .util-btn:hover { 
-                background: rgba(255, 255, 255, 0.05); 
-                color: #38bdf8; 
+                background: rgba(255, 255, 255, 0.08); 
+                color: #38bdf8;
+                transform: scale(1.05);
             }
             
-            .highlight-btn { color: #38bdf8; }
+            .highlight-btn { 
+                color: #38bdf8;
+                background: rgba(56, 189, 248, 0.05);
+            }
 
+            /* Server Badge Styling */
             .server-badge {
                 align-self: flex-end;
-                background: rgba(56, 189, 248, 0.1);
-                padding: 4px 12px;
+                background: rgba(10, 12, 18, 0.6);
+                padding: 6px 16px;
                 border-radius: 100px;
-                font-size: 0.6rem;
-                font-weight: 800;
+                font-size: 0.7rem;
+                font-weight: 900;
                 display: flex;
                 align-items: center;
-                gap: 6px;
-                border: 1px solid rgba(56, 189, 248, 0.3);
+                gap: 8px;
+                border: 1px solid rgba(255, 255, 255, 0.08);
                 color: #38bdf8;
-                letter-spacing: 0.5px;
+                letter-spacing: 1px;
+                backdrop-filter: blur(10px);
             }
 
             .status-dot { 
-                width: 5px; 
-                height: 5px; 
+                width: 7px; 
+                height: 7px; 
                 background: #38bdf8; 
                 border-radius: 50%; 
-                box-shadow: 0 0 8px #38bdf8; 
+                box-shadow: 0 0 10px #38bdf8; 
             }
 
             @keyframes pulse-ring {
                 0% { box-shadow: 0 0 0 0 rgba(56, 189, 248, 0.4); }
-                70% { box-shadow: 0 0 0 10px rgba(56, 189, 248, 0); }
+                70% { box-shadow: 0 0 0 15px rgba(56, 189, 248, 0); }
                 100% { box-shadow: 0 0 0 0 rgba(56, 189, 248, 0); }
             }
             .pulse-ring { animation: pulse-ring 1s ease-out; }
