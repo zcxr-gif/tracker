@@ -1,7 +1,7 @@
 /**
  * LandingUI.js
- * REDESIGN: UNIFIED INFLIGHT Utility Module
- * Features: Integrated Search & Utility grid, Enhanced scaling.
+ * REDESIGN: INFLIGHT Utility Overlay
+ * Features: Unified transparent modal, horizontal expansion, integrated search/utils.
  */
 
 export const LandingUI = {
@@ -21,16 +21,13 @@ export const LandingUI = {
         const html = `
             <div id="inflight-tactical-ui" class="tactical-ui-root">
                 <div class="hud-header">
-                    <div class="header-right-cluster">
-                        
-                        <div class="main-module">
-                            <div class="search-section">
-                                <i class="fa-solid fa-magnifying-glass search-icon"></i>
-                                <input type="text" id="tile-search-input" placeholder="Search Radar..." autocomplete="off">
-                            </div>
+                    <div class="tactical-modal">
+                        <div class="search-wrapper">
+                            <i class="fa-solid fa-magnifying-glass search-icon"></i>
+                            <input type="text" id="tile-search-input" placeholder="SEARCH RADAR..." autocomplete="off">
+                        </div>
 
-                            <div class="module-divider"></div>
-
+                        <div class="modal-footer">
                             <div class="utility-grid">
                                 <button class="util-btn" id="tile-weather" title="Weather Layers">
                                     <i class="fa-solid fa-cloud-sun"></i>
@@ -45,11 +42,11 @@ export const LandingUI = {
                                     <i class="fa-solid fa-server"></i>
                                 </button>
                             </div>
-                        </div>
 
-                        <div class="server-badge">
-                            <span class="status-dot"></span>
-                            <span id="landing-server-name">EXPERT SERVER</span>
+                            <div class="server-badge">
+                                <span class="status-dot"></span>
+                                <span id="landing-server-name">EXPERT SERVER</span>
+                            </div>
                         </div>
                     </div>
                 </div>
@@ -81,10 +78,11 @@ export const LandingUI = {
         const searchInput = document.getElementById('tile-search-input');
         const internalSearch = document.querySelector('.search-bar-container input');
 
-        // Sync input with the system's internal search bar
+        // Sync custom search with the internal app search
         searchInput?.addEventListener('input', (e) => {
             if (internalSearch) {
                 internalSearch.value = e.target.value;
+                // Trigger internal search logic if it listens for input events
                 internalSearch.dispatchEvent(new Event('input', { bubbles: true }));
             }
         });
@@ -120,7 +118,7 @@ export const LandingUI = {
                 pointer-events: none;
                 opacity: 0;
                 visibility: hidden;
-                transition: all 0.6s cubic-bezier(0.22, 1, 0.36, 1);
+                transition: all 0.5s cubic-bezier(0.16, 1, 0.3, 1);
                 font-family: 'Inter', system-ui, -apple-system, sans-serif;
                 color: #fff;
             }
@@ -134,41 +132,44 @@ export const LandingUI = {
                 position: absolute;
                 top: 30px;
                 right: 30px;
-                display: flex;
-                justify-content: flex-end;
                 pointer-events: none;
             }
 
-            .header-right-cluster {
+            /* Unified Transparent Modal */
+            .tactical-modal {
+                pointer-events: auto;
+                background: rgba(10, 12, 18, 0.15); /* Very transparent */
+                backdrop-filter: blur(12px) saturate(180%);
+                -webkit-backdrop-filter: blur(12px) saturate(180%);
+                border: 1px solid rgba(255, 255, 255, 0.08);
+                border-radius: 14px;
+                padding: 10px;
+                width: 320px; /* Expanded sideways */
                 display: flex;
                 flex-direction: column;
-                align-items: stretch;
-                gap: 12px;
-                pointer-events: auto;
-                width: 260px; /* Increased base width */
+                gap: 10px;
+                box-shadow: 0 10px 30px rgba(0, 0, 0, 0.3);
             }
 
-            /* Unified Container Module */
-            .main-module {
-                background: rgba(10, 12, 18, 0.8);
-                backdrop-filter: blur(25px);
-                border: 1px solid rgba(255, 255, 255, 0.12);
-                border-radius: 16px;
-                box-shadow: 0 12px 40px rgba(0, 0, 0, 0.4);
-                overflow: hidden;
-            }
-
-            /* Search Section - Bigger Scale */
-            .search-section {
+            /* Search Bar Styling (Horizontal expansion focus) */
+            .search-wrapper {
                 display: flex;
                 align-items: center;
-                padding: 14px 18px;
-                height: 52px; /* Increased height */
+                background: rgba(255, 255, 255, 0.04);
+                border: 1px solid rgba(255, 255, 255, 0.05);
+                border-radius: 8px;
+                padding: 0 14px;
+                height: 40px; /* Substantial feel without being tall */
+                transition: border 0.3s ease;
+            }
+
+            .search-wrapper:focus-within {
+                border-color: rgba(56, 189, 248, 0.4);
             }
 
             .search-icon {
-                font-size: 1rem;
-                color: #94a3b8;
+                font-size: 0.85rem;
+                color: #64748b;
                 margin-right: 12px;
             }
 
@@ -176,8 +177,9 @@ export const LandingUI = {
                 background: transparent;
                 border: none;
                 color: #fff;
-                font-size: 1rem; /* Bigger text */
-                font-weight: 500;
+                font-size: 0.75rem;
+                font-weight: 600;
+                letter-spacing: 0.05em;
                 outline: none;
                 width: 100%;
             }
@@ -186,74 +188,64 @@ export const LandingUI = {
                 color: #475569;
             }
 
-            /* Visual Separator inside the module */
-            .module-divider {
-                height: 1px;
-                background: linear-gradient(90deg, transparent, rgba(255,255,255,0.1), transparent);
-                margin: 0 10px;
+            /* Bottom layout of the modal */
+            .modal-footer {
+                display: flex;
+                justify-content: space-between;
+                align-items: center;
             }
 
-            /* Utility Buttons - Bigger Scale */
             .utility-grid {
                 display: flex;
-                padding: 8px;
                 gap: 4px;
             }
 
             .util-btn {
-                flex: 1;
-                height: 48px; /* Significantly bigger buttons */
-                border-radius: 10px;
+                width: 36px;
+                height: 36px;
+                border-radius: 6px;
                 border: none;
                 background: transparent;
                 color: #94a3b8;
-                font-size: 1.1rem;
                 cursor: pointer;
                 display: flex;
                 align-items: center;
                 justify-content: center;
-                transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+                transition: all 0.2s ease;
             }
 
             .util-btn:hover { 
-                background: rgba(255, 255, 255, 0.08); 
-                color: #38bdf8;
-                transform: scale(1.05);
+                background: rgba(56, 189, 248, 0.1); 
+                color: #38bdf8; 
             }
             
-            .highlight-btn { 
-                color: #38bdf8;
-                background: rgba(56, 189, 248, 0.05);
-            }
+            .highlight-btn { color: #38bdf8; }
 
-            /* Server Badge Styling */
             .server-badge {
-                align-self: flex-end;
-                background: rgba(10, 12, 18, 0.6);
-                padding: 6px 16px;
-                border-radius: 100px;
-                font-size: 0.7rem;
-                font-weight: 900;
+                background: rgba(56, 189, 248, 0.1);
+                padding: 6px 12px;
+                border-radius: 8px;
+                font-size: 0.6rem;
+                font-weight: 800;
                 display: flex;
                 align-items: center;
-                gap: 8px;
-                border: 1px solid rgba(255, 255, 255, 0.08);
+                gap: 6px;
+                border: 1px solid rgba(56, 189, 248, 0.2);
                 color: #38bdf8;
-                letter-spacing: 1px;
-                backdrop-filter: blur(10px);
+                letter-spacing: 0.5px;
             }
 
             .status-dot { 
-                width: 7px; 
-                height: 7px; 
+                width: 4px; 
+                height: 4px; 
                 background: #38bdf8; 
                 border-radius: 50%; 
-                box-shadow: 0 0 10px #38bdf8; 
+                box-shadow: 0 0 8px #38bdf8; 
             }
 
             @keyframes pulse-ring {
                 0% { box-shadow: 0 0 0 0 rgba(56, 189, 248, 0.4); }
-                70% { box-shadow: 0 0 0 15px rgba(56, 189, 248, 0); }
+                70% { box-shadow: 0 0 0 10px rgba(56, 189, 248, 0); }
                 100% { box-shadow: 0 0 0 0 rgba(56, 189, 248, 0); }
             }
             .pulse-ring { animation: pulse-ring 1s ease-out; }
