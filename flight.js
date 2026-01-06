@@ -8347,6 +8347,7 @@ async function handleAirportClick(icao, event = null) {
     if (!icao) return;
 
     LandingUI.update(false);
+    localStorage.setItem('landingUI_visible', 'false');
 
     // --- MUTUAL EXCLUSION ---
     // If the aircraft window is open, close it immediately
@@ -8854,11 +8855,14 @@ function closeAircraftWindow() {
     currentFlightInWindow = null;
     cachedFlightDataForStatsView = { flightProps: null, plan: null };
     if (!currentAirportInWindow) {
-        LandingUI.update(true, {
-            server: currentServerName,
-            flights: Object.keys(currentMapFeatures).length,
-            atc: activeAtcFacilities.length
-        });
+        const landingData = { 
+            server: currentServerName, 
+            flights: Object.keys(currentMapFeatures).length, 
+            atc: activeAtcFacilities.length 
+        };
+        LandingUI.update(true, landingData);
+        localStorage.setItem('landingUI_visible', 'true');
+        localStorage.setItem('landingUI_data', JSON.stringify(landingData));
     }
     
     // 5. Reset PFD visual state
@@ -8873,6 +8877,7 @@ async function handleAircraftClick(flightProps, sessionId, event = null) {
     if (!flightProps || !flightProps.flightId) return;
 
     LandingUI.update(false);
+    localStorage.setItem('landingUI_visible', 'false');
 
     // --- BALANCE LOGIC: Prioritize Airport ---
     // If there is an event, check if an airport marker is also at this location
@@ -9035,13 +9040,15 @@ function closeAirportWindow() {
     }
 
     // 4. Reset Global State
-    currentAirportInWindow = null;
     if (!currentFlightInWindow) {
-        LandingUI.update(true, {
-            server: currentServerName,
-            flights: Object.keys(currentMapFeatures).length,
-            atc: activeAtcFacilities.length
-        });
+        const landingData = { 
+            server: currentServerName, 
+            flights: Object.keys(currentMapFeatures).length, 
+            atc: activeAtcFacilities.length 
+        };
+        LandingUI.update(true, landingData);
+        localStorage.setItem('landingUI_visible', 'true');
+        localStorage.setItem('landingUI_data', JSON.stringify(landingData));
     }
 }
 
@@ -11987,7 +11994,18 @@ async function initializeApp() {
         ]);
         
         // Initialize the Sector Ops view
-        await initializeSectorOpsView(); 
+        await initializeSectorOpsView();
+        
+        const isVisible = localStorage.getItem('landingUI_visible') === 'true';
+    if (isVisible) {
+        const savedData = JSON.parse(localStorage.getItem('landingUI_data') || '{}');
+        // Refresh with latest live counts if available, otherwise use saved
+        LandingUI.update(true, {
+            server: currentServerName,
+            flights: Object.keys(currentMapFeatures).length || savedData.flights || 0,
+            atc: activeAtcFacilities.length || savedData.atc || 0
+        });
+    }
         
         mainContentLoader.classList.remove('active');
     }
