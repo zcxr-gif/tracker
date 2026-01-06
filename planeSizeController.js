@@ -1,15 +1,15 @@
 /**
  * planeSizeController.js
- * Specialized logic to control the scale of Mapbox aircraft icons.
+ * Specialized logic for small-scale aircraft icons (5% to 20%).
  */
 
 export function initPlaneSizeSlider(map, filters) {
-    // 1. Set a much smaller default if not already set (e.g., 0.2 is 20% size)
+    // 1. Set the new default to 8% (0.08) if no setting exists
     if (filters.planeIconSize === undefined) {
-        filters.planeIconSize = 0.2; 
+        filters.planeIconSize = 0.08; 
     }
 
-    // 2. Slider UI with a much lower range (0.05 to 1.0)
+    // 2. Updated Slider UI (Range: 0.05 to 0.20)
     const sliderHTML = `
         <div class="filter-section-divider">
             <span class="filter-section-title">Visual Scaling</span>
@@ -20,7 +20,7 @@ export function initPlaneSizeSlider(map, filters) {
                     <span class="filter-toggle-label"><i class="fa-solid fa-plane-up"></i> Aircraft Scale</span>
                     <span id="plane-size-display" style="font-family: 'JetBrains Mono', monospace; color: var(--color-brand); font-weight: 800; font-size: 0.9rem;">${Math.round(filters.planeIconSize * 100)}%</span>
                 </div>
-                <input type="range" id="plane-size-slider" min="0.05" max="1.0" step="0.01" value="${filters.planeIconSize}" 
+                <input type="range" id="plane-size-slider" min="0.05" max="0.20" step="0.01" value="${filters.planeIconSize}" 
                        style="width: 100%; height: 6px; border-radius: 3px; background: rgba(255,255,255,0.1); outline: none; -webkit-appearance: none; cursor: pointer;">
                 <style>
                     #plane-size-slider::-webkit-slider-thumb {
@@ -46,7 +46,7 @@ export function initPlaneSizeSlider(map, filters) {
         filters.planeIconSize = val;
         localStorage.setItem('mapFilters', JSON.stringify(filters));
 
-        // Apply to the specific aircraft layer
+        // Apply scaling to the Mapbox Aircraft Layer
         if (map && map.getLayer('sector-ops-live-flights-layer')) {
             map.setLayoutProperty('sector-ops-live-flights-layer', 'icon-size', val);
         }
@@ -54,6 +54,7 @@ export function initPlaneSizeSlider(map, filters) {
 
     const injectSlider = () => {
         const settingsContainer = document.getElementById('filter-window-content');
+        // Ensure we inject only if the container exists and slider isn't already there
         if (settingsContainer && !document.getElementById('plane-size-slider')) {
             settingsContainer.insertAdjacentHTML('beforeend', sliderHTML);
             
@@ -62,7 +63,6 @@ export function initPlaneSizeSlider(map, filters) {
         }
     };
 
-    // Ensure the size is applied when the map finishes loading or changing styles
     const applySize = () => {
         if (map.getLayer('sector-ops-live-flights-layer')) {
             map.setLayoutProperty('sector-ops-live-flights-layer', 'icon-size', filters.planeIconSize);
@@ -71,11 +71,10 @@ export function initPlaneSizeSlider(map, filters) {
 
     if (map) {
         map.on('style.load', applySize);
-        map.on('load', applySize);
-        // Initial check if style is already there
         if (map.isStyleLoaded()) applySize();
     }
 
+    // Observer to detect when the settings menu is opened
     const observer = new MutationObserver(() => {
         if (document.getElementById('filter-window-content')) {
             injectSlider();
