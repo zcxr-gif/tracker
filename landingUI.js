@@ -7,30 +7,30 @@
 export const LandingUI = {
     _isVisible: false,
     _filterShelfOpen: false,
-    _activeFilters: new Set(), // Track mixed filters
+    _activeFilters: {}, // Stores filter states: { id: value } (e.g., { type: 'A320' })
 
-    // The 14 universal filter definitions
+    // The 14 universal filter definitions with placeholders for the inputs
     filterOptions: [
-        { id: 'type', label: 'Aircraft Type', icon: 'fa-plane' },
-        { id: 'airline', label: 'Operator', icon: 'fa-building' },
-        { id: 'callsign', label: 'Callsign Prefix', icon: 'fa-id-badge' },
-        { id: 'rank', label: 'Pilot Rank', icon: 'fa-star' },
-        { id: 'altitude', label: 'Altitude Range', icon: 'fa-arrows-up-down' },
-        { id: 'speed', label: 'Ground Speed', icon: 'fa-gauge-high' },
-        { id: 'heading', label: 'Heading', icon: 'fa-compass' },
-        { id: 'ground', label: 'Ground Status', icon: 'fa-trowel-bricks' },
-        { id: 'inflight', label: 'In-Flight', icon: 'fa-cloud-sun' },
-        { id: 'origin', label: 'Origin', icon: 'fa-plane-departure' },
-        { id: 'destination', label: 'Destination', icon: 'fa-plane-arrival' },
-        { id: 'duration', label: 'Duration', icon: 'fa-hourglass-half' },
-        { id: 'proximity', label: 'Proximity', icon: 'fa-bullseye' },
-        { id: 'atc', label: 'ATC Coverage', icon: 'fa-headset' }
+        { id: 'type', label: 'Aircraft Type', icon: 'fa-plane', placeholder: 'e.g. A320' },
+        { id: 'airline', label: 'Operator', icon: 'fa-building', placeholder: 'e.g. BAW' },
+        { id: 'callsign', label: 'Callsign Prefix', icon: 'fa-id-badge', placeholder: 'e.g. G-' },
+        { id: 'rank', label: 'Pilot Rank', icon: 'fa-star', placeholder: 'e.g. Captain' },
+        { id: 'altitude', label: 'Altitude Range', icon: 'fa-arrows-up-down', placeholder: 'e.g. 35000' },
+        { id: 'speed', label: 'Ground Speed', icon: 'fa-gauge-high', placeholder: 'e.g. 450' },
+        { id: 'heading', label: 'Heading', icon: 'fa-compass', placeholder: 'e.g. 090' },
+        { id: 'ground', label: 'Ground Status', icon: 'fa-trowel-bricks', placeholder: 'e.g. Taxiing' },
+        { id: 'inflight', label: 'In-Flight', icon: 'fa-cloud-sun', placeholder: 'e.g. Cruise' },
+        { id: 'origin', label: 'Origin', icon: 'fa-plane-departure', placeholder: 'e.g. KJFK' },
+        { id: 'destination', label: 'Destination', icon: 'fa-plane-arrival', placeholder: 'e.g. EGLL' },
+        { id: 'duration', label: 'Duration', icon: 'fa-hourglass-half', placeholder: 'e.g. 2:00' },
+        { id: 'proximity', label: 'Proximity', icon: 'fa-bullseye', placeholder: 'e.g. 50nm' },
+        { id: 'atc', label: 'ATC Coverage', icon: 'fa-headset', placeholder: 'e.g. Approach' }
     ],
 
     presets: [
-        { id: 'heavy', label: 'Heavies', filters: ['type', 'duration'] },
-        { id: 'arrivals', label: 'Arrivals', filters: ['destination', 'inflight'] },
-        { id: 'atc-active', label: 'Live ATC', filters: ['atc'] }
+        { id: 'heavy', label: 'Heavies', filters: { type: 'B77', duration: '5:00' } },
+        { id: 'arrivals', label: 'Arrivals', filters: { destination: '', inflight: '' } },
+        { id: 'atc-active', label: 'Live ATC', filters: { atc: '' } }
     ],
 
     init() {
@@ -124,7 +124,6 @@ export const LandingUI = {
         const searchInput = document.getElementById('tile-search-input');
         const filterToggle = document.getElementById('toggle-filters');
         const filterShelf = document.getElementById('filter-shelf');
-        const internalSearch = document.querySelector('.search-bar-container input');
 
         // Toggle Shelf
         filterToggle?.addEventListener('click', () => {
@@ -133,12 +132,9 @@ export const LandingUI = {
             filterToggle.classList.toggle('active', this._filterShelfOpen);
         });
 
-        // Search Mirroring
-        searchInput?.addEventListener('input', (e) => {
-            if (internalSearch) {
-                internalSearch.value = e.target.value;
-                internalSearch.dispatchEvent(new Event('input', { bubbles: true }));
-            }
+        // Map Filtering: Instead of mirroring the search bar, we trigger a map filter update
+        searchInput?.addEventListener('input', () => {
+            this.dispatchFilterUpdate();
         });
 
         // Filter Selection Logic
@@ -155,17 +151,14 @@ export const LandingUI = {
                 const presetId = btn.dataset.preset;
                 const preset = this.presets.find(p => p.id === presetId);
                 if (preset) {
-                    preset.filters.forEach(f => this._activeFilters.add(f));
+                    // Merge preset filters into active state
+                    this._activeFilters = { ...this._activeFilters, ...preset.filters };
                     this.refreshUI();
                 }
             });
         });
 
-        // Hover animation for the vertical status
-        const sideBrand = document.querySelector('.side-branding');
-        sideBrand?.addEventListener('mouseenter', () => sideBrand.classList.add('expand'));
-        sideBrand?.addEventListener('mouseleave', () => sideBrand.classList.remove('expand'));
-
+        // UI Utility buttons
         const actions = {
             'tile-weather': () => document.getElementById('open-weather-settings-btn')?.click(),
             'tile-settings': () => document.getElementById('open-filter-settings-btn')?.click(),
@@ -182,39 +175,63 @@ export const LandingUI = {
     },
 
     toggleFilter(id) {
-        if (this._activeFilters.has(id)) {
-            this._activeFilters.delete(id);
+        if (this._activeFilters[id] !== undefined) {
+            delete this._activeFilters[id];
         } else {
-            this._activeFilters.add(id);
+            // Initialize the filter with an empty value so the user can type
+            this._activeFilters[id] = '';
         }
         this.refreshUI();
+    },
+
+    updateFilterValue(id, value) {
+        this._activeFilters[id] = value;
+        this.dispatchFilterUpdate();
     },
 
     refreshUI() {
         const container = document.getElementById('active-tags-container');
         const shelfItems = document.querySelectorAll('.filter-item');
-        
-        // Update tags in search bar
-        container.innerHTML = Array.from(this._activeFilters).map(id => {
+
+        // Update tags in search bar with input fields
+        container.innerHTML = Object.entries(this._activeFilters).map(([id, value]) => {
             const opt = this.filterOptions.find(f => f.id === id);
-            return `<div class="filter-tag">${opt.label} <i class="fa-solid fa-xmark" onclick="event.stopPropagation(); LandingUI.toggleFilter('${id}')"></i></div>`;
+            return `
+                <div class="filter-tag">
+                    <i class="fa-solid ${opt.icon}"></i>
+                    <input type="text" 
+                           class="filter-tag-input" 
+                           placeholder="${opt.placeholder || opt.label}" 
+                           value="${value}" 
+                           oninput="LandingUI.updateFilterValue('${id}', this.value)"
+                           onkeydown="if(event.key==='Enter') this.blur()">
+                    <i class="fa-solid fa-xmark tag-close" onclick="event.stopPropagation(); LandingUI.toggleFilter('${id}')"></i>
+                </div>
+            `;
         }).join('');
 
         // Update shelf visual state
         shelfItems.forEach(item => {
-            item.classList.toggle('selected', this._activeFilters.has(item.dataset.filterId));
+            item.classList.toggle('selected', this._activeFilters[item.dataset.filterId] !== undefined);
         });
 
         this.dispatchFilterUpdate();
+
+        // Focus the last added filter input if it's empty
+        const inputs = container.querySelectorAll('input');
+        if (inputs.length > 0) {
+            const lastInput = inputs[inputs.length - 1];
+            if (lastInput.value === '') lastInput.focus();
+        }
     },
 
     dispatchFilterUpdate() {
-        // Ready for connection: This event will broadcast the mixed filter state
-        const event = new CustomEvent('filterUpdate', {
-            detail: {
-                activeFilters: Array.from(this._activeFilters),
-                searchTerm: document.getElementById('tile-search-input')?.value || ''
-            }
+        // Broadcast the specific filter key/values for the map script to consume
+        const event = new CustomEvent('filterUpdate', { 
+            detail: { 
+                filters: { ...this._activeFilters }, 
+                searchTerm: document.getElementById('tile-search-input')?.value || '' 
+            } 
         });
         window.dispatchEvent(event);
     },
@@ -224,6 +241,43 @@ export const LandingUI = {
         if (existing) existing.remove();
 
         const css = `
+            /* Interactive Filter Tag Styles */
+            .filter-tag {
+                display: flex;
+                align-items: center;
+                gap: 6px;
+                background: rgba(255, 255, 255, 0.08);
+                border: 1px solid rgba(255, 255, 255, 0.1);
+                padding: 4px 10px;
+                border-radius: 6px;
+                color: #fff;
+                font-size: 0.8rem;
+                transition: all 0.2s ease;
+            }
+            .filter-tag:focus-within {
+                background: rgba(255, 255, 255, 0.15);
+                border-color: rgba(255, 255, 255, 0.3);
+            }
+            .filter-tag-input {
+                background: transparent;
+                border: none;
+                outline: none;
+                color: #fff;
+                font-family: inherit;
+                font-size: 0.8rem;
+                width: 80px;
+                padding: 0;
+            }
+            .filter-tag-input::placeholder {
+                color: rgba(255, 255, 255, 0.3);
+            }
+            .tag-close {
+                cursor: pointer;
+                opacity: 0.5;
+                font-size: 0.7rem;
+            }
+            .tag-close:hover { opacity: 1; color: #ff4d4d; }
+
             .tactical-ui-root {
                 position: absolute;
                 inset: 0;
@@ -234,12 +288,8 @@ export const LandingUI = {
                 transition: opacity 0.8s cubic-bezier(0.2, 0, 0, 1);
                 font-family: 'Inter', system-ui, sans-serif;
             }
-
-            .tactical-ui-root.active {
-                opacity: 1;
-                visibility: visible;
-            }
-
+            .tactical-ui-root.active { opacity: 1; visibility: visible; }
+            
             /* Side Branding */
             .side-branding {
                 position: absolute;
@@ -252,187 +302,84 @@ export const LandingUI = {
                 gap: 20px;
                 pointer-events: auto;
             }
+            .status-indicator-dot { width: 2px; height: 40px; background: linear-gradient(to bottom, transparent, #fff, transparent); }
+            .vertical-text { writing-mode: vertical-rl; text-orientation: mixed; color: rgba(255, 255, 255, 0.4); font-size: 0.7rem; letter-spacing: 4px; font-weight: 800; }
 
-            .status-indicator-dot {
-                width: 2px;
-                height: 40px;
-                background: linear-gradient(to bottom, transparent, #fff, transparent);
-            }
-
-            .vertical-text {
-                writing-mode: vertical-rl;
-                text-orientation: mixed;
-                transform: rotate(180deg);
-                font-size: 0.6rem;
-                font-weight: 900;
-                letter-spacing: 0.4em;
-                color: rgba(255, 255, 255, 0.4);
-                text-transform: uppercase;
-                transition: color 0.3s ease;
-            }
-
-            /* Search Island & Shelf */
+            /* Search Island */
             .search-island-wrapper {
                 position: absolute;
-                bottom: 40px;
+                top: 40px;
                 left: 50%;
                 transform: translateX(-50%);
-                pointer-events: auto;
+                width: 100%;
+                max-width: 800px;
                 display: flex;
                 flex-direction: column;
                 align-items: center;
-                gap: 15px;
-            }
-
-            .filter-shelf {
-                width: 500px;
-                background: rgba(10, 10, 10, 0.8);
-                backdrop-filter: blur(40px);
-                border: 1px solid rgba(255, 255, 255, 0.1);
-                border-radius: 24px;
-                padding: 20px;
-                opacity: 0;
-                transform: translateY(20px) scale(0.95);
+                gap: 20px;
                 pointer-events: none;
-                transition: all 0.5s cubic-bezier(0.2, 0, 0, 1);
-                box-shadow: 0 30px 60px rgba(0,0,0,0.5);
             }
-
-            .filter-shelf.open {
-                opacity: 1;
-                transform: translateY(0) scale(1);
-                pointer-events: auto;
-            }
-
-            .shelf-header {
-                display: flex;
-                justify-content: space-between;
-                align-items: center;
-                margin-bottom: 20px;
-                padding: 0 5px;
-            }
-
-            .shelf-title {
-                font-size: 0.7rem;
-                font-weight: 900;
-                text-transform: uppercase;
-                letter-spacing: 0.2em;
-                color: rgba(255,255,255,0.5);
-            }
-
-            .preset-row {
-                display: flex;
-                gap: 8px;
-            }
-
-            .preset-btn {
-                background: rgba(255,255,255,0.05);
-                border: 1px solid rgba(255,255,255,0.1);
-                color: #fff;
-                font-size: 0.65rem;
-                padding: 4px 12px;
-                border-radius: 100px;
-                cursor: pointer;
-                transition: all 0.2s;
-            }
-
-            .preset-btn:hover { background: rgba(255,255,255,0.15); }
-
-            .filter-grid {
-                display: grid;
-                grid-template-columns: repeat(2, 1fr);
-                gap: 10px;
-            }
-
-            .filter-item {
-                display: flex;
-                align-items: center;
-                gap: 12px;
-                padding: 12px 16px;
-                background: rgba(255,255,255,0.03);
-                border-radius: 12px;
-                cursor: pointer;
-                border: 1px solid transparent;
-                transition: all 0.2s;
-            }
-
-            .filter-item i { font-size: 0.8rem; color: rgba(255,255,255,0.3); }
-            .filter-item span { font-size: 0.8rem; color: rgba(255,255,255,0.7); font-weight: 500; }
-
-            .filter-item:hover { background: rgba(255,255,255,0.08); }
-            .filter-item.selected {
-                background: rgba(255,255,255,0.1);
-                border-color: rgba(255,255,255,0.3);
-            }
-            .filter-item.selected i { color: #fff; }
-
             .search-island {
                 position: relative;
-                background: rgba(10, 10, 10, 0.4);
-                backdrop-filter: blur(30px) saturate(150%);
-                border: 1px solid rgba(255, 255, 255, 0.08);
-                padding: 8px 16px;
-                border-radius: 100px;
-                display: flex;
-                align-items: center;
-                min-width: 320px;
-                max-width: 600px;
-                transition: all 0.4s cubic-bezier(0.175, 0.885, 0.32, 1.275);
-                box-shadow: 0 20px 40px rgba(0,0,0,0.3);
-            }
-
-            .filter-trigger {
-                background: none;
-                border: none;
-                color: rgba(255,255,255,0.4);
-                cursor: pointer;
-                padding: 8px;
-                margin-right: 8px;
-                transition: all 0.3s;
-            }
-
-            .filter-trigger.active { color: #fff; transform: rotate(90deg); }
-
-            .tags-inline {
-                display: flex;
-                gap: 6px;
-                margin-right: 8px;
-            }
-
-            .filter-tag {
-                background: rgba(255,255,255,0.1);
-                color: #fff;
-                font-size: 0.7rem;
-                padding: 4px 10px;
-                border-radius: 100px;
-                white-space: nowrap;
-                display: flex;
-                align-items: center;
-                gap: 6px;
-            }
-
-            .filter-tag i {
-                cursor: pointer;
-                font-size: 0.6rem;
-                opacity: 0.5;
-            }
-
-            .filter-tag i:hover { opacity: 1; }
-
-            #tile-search-input {
-                background: transparent;
-                border: none;
-                color: #fff;
-                font-size: 0.9rem;
-                font-weight: 500;
-                outline: none;
                 width: 100%;
+                height: 64px;
+                background: rgba(255, 255, 255, 0.03);
+                backdrop-filter: blur(20px);
+                border-radius: 32px;
+                border: 1px solid rgba(255, 255, 255, 0.05);
+                display: flex;
+                align-items: center;
+                padding: 0 24px;
+                gap: 16px;
+                pointer-events: auto;
+                transition: transform 0.4s cubic-bezier(0.16, 1, 0.3, 1);
             }
+            .search-island:focus-within { transform: scale(1.02); background: rgba(255, 255, 255, 0.05); }
+            .search-glow { position: absolute; inset: -1px; border-radius: 32px; background: linear-gradient(45deg, transparent, rgba(255,255,255,0.1), transparent); pointer-events: none; }
+            
+            .filter-trigger { background: none; border: none; color: rgba(255, 255, 255, 0.4); cursor: pointer; font-size: 1.2rem; transition: all 0.3s; }
+            .filter-trigger.active { color: #fff; transform: rotate(90deg); }
+            
+            .tags-inline { display: flex; gap: 8px; overflow-x: auto; scrollbar-width: none; }
+            .tags-inline::-webkit-scrollbar { display: none; }
+            
+            #tile-search-input { flex: 1; background: none; border: none; color: #fff; font-size: 1rem; outline: none; }
+            #tile-search-input::placeholder { color: rgba(255, 255, 255, 0.2); }
+            
+            .search-divider { width: 1px; height: 24px; background: rgba(255, 255, 255, 0.1); }
+            .search-hint { font-size: 0.6rem; color: rgba(255, 255, 255, 0.2); font-weight: 700; background: rgba(255, 255, 255, 0.05); padding: 4px 8px; border-radius: 4px; }
 
-            .search-divider { width: 1px; height: 16px; background: rgba(255, 255, 255, 0.1); margin: 0 15px; }
-            .search-hint { font-size: 0.6rem; font-weight: 800; color: rgba(255, 255, 255, 0.2); }
+            /* Filter Shelf */
+            .filter-shelf {
+                width: 100%;
+                background: rgba(255, 255, 255, 0.02);
+                backdrop-filter: blur(20px);
+                border-radius: 20px;
+                border: 1px solid rgba(255, 255, 255, 0.05);
+                padding: 24px;
+                max-height: 0;
+                opacity: 0;
+                overflow: hidden;
+                transition: all 0.5s cubic-bezier(0.16, 1, 0.3, 1);
+                pointer-events: auto;
+            }
+            .filter-shelf.open { max-height: 400px; opacity: 1; transform: translateY(0); }
+            
+            .shelf-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px; }
+            .shelf-title { font-size: 0.7rem; text-transform: uppercase; letter-spacing: 2px; color: rgba(255, 255, 255, 0.4); font-weight: 700; }
+            
+            .preset-row { display: flex; gap: 12px; }
+            .preset-btn { background: rgba(255, 255, 255, 0.03); border: 1px solid rgba(255, 255, 255, 0.05); color: rgba(255, 255, 255, 0.6); padding: 6px 16px; border-radius: 20px; font-size: 0.7rem; cursor: pointer; transition: all 0.3s; }
+            .preset-btn:hover { background: rgba(255, 255, 255, 0.08); color: #fff; }
 
-            /* Utility Cluster (Orbs) */
+            .filter-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(140px, 1fr)); gap: 12px; }
+            .filter-item { background: rgba(255, 255, 255, 0.03); border: 1px solid rgba(255, 255, 255, 0.05); border-radius: 12px; padding: 16px; display: flex; flex-direction: column; align-items: center; gap: 12px; cursor: pointer; transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1); color: rgba(255, 255, 255, 0.4); }
+            .filter-item:hover { background: rgba(255, 255, 255, 0.08); transform: translateY(-4px); color: #fff; }
+            .filter-item.selected { background: rgba(255, 255, 255, 0.12); border-color: rgba(255, 255, 255, 0.3); color: #fff; }
+            .filter-item i { font-size: 1.2rem; }
+            .filter-item span { font-size: 0.75rem; font-weight: 500; }
+
+            /* Utility Cluster */
             .utility-cluster { position: absolute; bottom: 40px; right: 40px; pointer-events: auto; }
             .orb-stack { display: flex; gap: 12px; }
             .orb-btn {
@@ -447,20 +394,15 @@ export const LandingUI = {
             }
             .orb-btn:hover { background: rgba(255, 255, 255, 0.1); color: #fff; transform: scale(1.1) translateY(-5px); }
             .highlight-orb { background: rgba(255, 255, 255, 0.08); color: #fff; }
-
-            @keyframes orb-pulse {
-                0% { transform: scale(1); box-shadow: 0 0 0 0 rgba(255, 255, 255, 0.4); }
-                70% { transform: scale(1.1); box-shadow: 0 0 0 15px rgba(255, 255, 255, 0); }
-                100% { transform: scale(1); box-shadow: 0 0 0 0 rgba(255, 255, 255, 0); }
-            }
-            .orb-pulse { animation: orb-pulse 0.6s ease-out; }
-
-            @media (max-width: 768px) { .tactical-ui-root { display: none !important; } }
         `;
 
         const style = document.createElement('style');
         style.id = 'inflight-ui-styles';
-        style.textContent = css;
+        style.type = 'text/css';
+        style.appendChild(document.createTextNode(css));
         document.head.appendChild(style);
     }
 };
+
+// Expose updateFilterValue to global scope for the oninput attribute
+window.LandingUI = LandingUI;
