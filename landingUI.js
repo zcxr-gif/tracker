@@ -1,7 +1,7 @@
 /**
  * LandingUI.js
  * REDESIGN: INFLIGHT Utility Overlay
- * Features: Centered Search Bar, Right-aligned utility cluster, auto-hide on mobile.
+ * Features: Right-aligned utility cluster, Top-mounted full-length search.
  */
 
 export const LandingUI = {
@@ -21,17 +21,12 @@ export const LandingUI = {
         const html = `
             <div id="inflight-tactical-ui" class="tactical-ui-root">
                 <div class="hud-header">
-                    <div class="header-left-spacer"></div>
-
-                    <div class="search-center-container">
-                        <div class="search-bar-wrapper">
-                            <i class="fa-solid fa-magnifying-glass search-icon"></i>
-                            <input type="text" id="radar-search-input" placeholder="Search callsigns, airports, or coordinates..." autocomplete="off">
-                            <div class="search-shortcut">/</div>
-                        </div>
-                    </div>
-
                     <div class="header-right-cluster">
+                        <div class="search-wrapper">
+                            <i class="fa-solid fa-magnifying-glass search-icon"></i>
+                            <input type="text" id="tile-search-input" placeholder="Search Radar..." autocomplete="off">
+                        </div>
+
                         <div class="utility-grid">
                             <button class="util-btn" id="tile-weather" title="Weather Layers">
                                 <i class="fa-solid fa-cloud-sun"></i>
@@ -46,6 +41,7 @@ export const LandingUI = {
                                 <i class="fa-solid fa-server"></i>
                             </button>
                         </div>
+
                         <div class="server-badge">
                             <span class="status-dot"></span>
                             <span id="landing-server-name">EXPERT SERVER</span>
@@ -77,24 +73,17 @@ export const LandingUI = {
     },
 
     attachListeners() {
-        const searchInput = document.getElementById('radar-search-input');
-        
-        // Handle Search Input
-        if (searchInput) {
-            searchInput.addEventListener('input', (e) => {
-                const query = e.target.value;
-                // You can trigger your global search function here
-                console.log(`Searching for: ${query}`);
-            });
+        const searchInput = document.getElementById('tile-search-input');
+        const internalSearch = document.querySelector('.search-bar-container input');
 
-            // Focus search on "/" key press (standard UX)
-            document.addEventListener('keydown', (e) => {
-                if (e.key === '/' && document.activeElement !== searchInput) {
-                    e.preventDefault();
-                    searchInput.focus();
-                }
-            });
-        }
+        // Sync custom search with the internal app search
+        searchInput?.addEventListener('input', (e) => {
+            if (internalSearch) {
+                internalSearch.value = e.target.value;
+                // Trigger internal search logic if it listens for input events
+                internalSearch.dispatchEvent(new Event('input', { bubbles: true }));
+            }
+        });
 
         const actions = {
             'tile-weather': () => document.getElementById('open-weather-settings-btn')?.click(),
@@ -116,11 +105,8 @@ export const LandingUI = {
         if (existing) existing.remove();
 
         const css = `
-            /* Hide UI on smaller screens/devices */
             @media (max-width: 768px) {
-                .tactical-ui-root {
-                    display: none !important;
-                }
+                .tactical-ui-root { display: none !important; }
             }
 
             .tactical-ui-root {
@@ -143,98 +129,69 @@ export const LandingUI = {
             .hud-header {
                 position: absolute;
                 top: 24px;
-                left: 24px;
                 right: 24px;
                 display: flex;
-                justify-content: space-between;
+                justify-content: flex-end;
                 align-items: flex-start;
                 pointer-events: none;
             }
 
-            /* Search Center Bar */
-            .search-center-container {
-                flex: 0 1 500px;
+            .header-right-cluster {
+                display: flex;
+                flex-direction: column;
+                align-items: stretch; /* Ensures search and grid match width */
+                gap: 8px;
                 pointer-events: auto;
+                width: 200px; /* Fixed width to keep search bar consistent */
             }
 
-            .search-bar-wrapper {
-                position: relative;
+            /* Search Bar Styling */
+            .search-wrapper {
                 display: flex;
                 align-items: center;
                 background: rgba(10, 12, 18, 0.7);
                 backdrop-filter: blur(20px);
-                border: 1px solid rgba(255, 255, 255, 0.1);
-                border-radius: 14px;
-                padding: 0 16px;
-                height: 50px;
-                box-shadow: 0 10px 40px rgba(0, 0, 0, 0.4);
-                transition: all 0.3s ease;
-            }
-
-            .search-bar-wrapper:focus-within {
-                border-color: #38bdf8;
-                box-shadow: 0 0 20px rgba(56, 189, 248, 0.2), 0 10px 40px rgba(0, 0, 0, 0.4);
-                background: rgba(15, 18, 26, 0.9);
-                transform: translateY(-1px);
+                border: 1px solid rgba(255, 255, 255, 0.08);
+                border-radius: 10px;
+                padding: 0 12px;
+                height: 38px;
+                box-shadow: 0 4px 12px rgba(0, 0, 0, 0.2);
             }
 
             .search-icon {
+                font-size: 0.8rem;
                 color: #64748b;
-                font-size: 1rem;
-                margin-right: 12px;
+                margin-right: 10px;
             }
 
-            #radar-search-input {
+            #tile-search-input {
                 background: transparent;
                 border: none;
-                outline: none;
                 color: #fff;
-                font-size: 0.95rem;
+                font-size: 0.8rem;
+                outline: none;
                 width: 100%;
-                font-weight: 500;
             }
 
-            #radar-search-input::placeholder {
+            #tile-search-input::placeholder {
                 color: #475569;
             }
 
-            .search-shortcut {
-                background: rgba(255, 255, 255, 0.05);
-                border: 1px solid rgba(255, 255, 255, 0.1);
-                border-radius: 4px;
-                padding: 2px 8px;
-                font-size: 0.7rem;
-                color: #64748b;
-                margin-left: 10px;
-            }
-
             /* Utility & Server Cluster */
-            .header-left-spacer { flex: 1; } /* Keeps search centered */
-            
-            .header-right-cluster {
-                flex: 1;
-                display: flex;
-                flex-direction: column;
-                align-items: flex-end;
-                gap: 10px;
-                pointer-events: auto;
-            }
-
             .utility-grid {
                 display: flex;
-                gap: 6px;
+                justify-content: space-between; /* Spreads buttons to match search bar width */
                 background: rgba(10, 12, 18, 0.6);
-                padding: 6px;
-                border-radius: 12px;
+                padding: 4px;
+                border-radius: 10px;
                 backdrop-filter: blur(20px);
                 border: 1px solid rgba(255, 255, 255, 0.08);
-                box-shadow: 0 8px 32px rgba(0, 0, 0, 0.3);
             }
 
             .util-btn {
-                width: 38px;
-                height: 38px;
-                border-radius: 8px;
+                flex: 1; /* Makes buttons grow equally */
+                height: 34px;
+                border-radius: 6px;
                 border: none;
                 background: transparent;
                 color: #64748b;
@@ -248,31 +205,31 @@ export const LandingUI = {
             .util-btn:hover { 
                 background: rgba(255, 255, 255, 0.05); 
                 color: #38bdf8; 
-                transform: translateY(-1px);
             }
             
             .highlight-btn { color: #38bdf8; }
 
             .server-badge {
+                align-self: flex-end;
                 background: rgba(56, 189, 248, 0.1);
-                padding: 5px 14px;
+                padding: 4px 12px;
                 border-radius: 100px;
-                font-size: 0.65rem;
+                font-size: 0.6rem;
                 font-weight: 800;
                 display: flex;
                 align-items: center;
-                gap: 8px;
+                gap: 6px;
                 border: 1px solid rgba(56, 189, 248, 0.3);
                 color: #38bdf8;
                 letter-spacing: 0.5px;
             }
 
             .status-dot { 
-                width: 6px; 
-                height: 6px; 
+                width: 5px; 
+                height: 5px; 
                 background: #38bdf8; 
                 border-radius: 50%; 
-                box-shadow: 0 0 10px #38bdf8; 
+                box-shadow: 0 0 8px #38bdf8; 
             }
 
             @keyframes pulse-ring {
