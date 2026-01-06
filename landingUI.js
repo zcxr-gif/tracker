@@ -1,7 +1,7 @@
 /**
  * LandingUI.js
- * REDESIGN: Minimalist Edge-Anchor UI
- * Features: Deconstructed layout, centered command search, floating utility dock.
+ * REDESIGN: Spatial Minimalist Overlay
+ * Focus: High-end typography, ergonomic placement, and zero-box architecture.
  */
 
 export const LandingUI = {
@@ -14,46 +14,39 @@ export const LandingUI = {
     },
 
     render() {
-        // Cleanup existing instances
         const existing = document.getElementById('inflight-tactical-ui');
         if (existing) existing.remove();
 
         const html = `
             <div id="inflight-tactical-ui" class="tactical-ui-root">
-                <div class="search-anchor">
-                    <div class="search-container-modern">
-                        <i class="fa-solid fa-magnifying-glass search-icon-soft"></i>
-                        <input type="text" id="tile-search-input" placeholder="Search flights, airports, or callsigns..." autocomplete="off">
-                        <div class="search-shortcut">/</div>
+                <div class="side-branding">
+                    <div class="status-indicator-dot"></div>
+                    <span id="landing-server-name" class="vertical-text">EXPERT SERVER</span>
+                </div>
+
+                <div class="search-island-wrapper">
+                    <div class="search-island">
+                        <div class="search-glow"></div>
+                        <i class="fa-solid fa-magnifying-glass search-icon-subtle"></i>
+                        <input type="text" id="tile-search-input" placeholder="Find a flight..." autocomplete="off">
+                        <div class="search-divider"></div>
+                        <div class="search-hint">CMD+K</div>
                     </div>
                 </div>
 
-                <div class="status-anchor">
-                    <div class="server-status-card">
-                        <div class="status-pulse-container">
-                            <div class="pulse-core"></div>
-                            <div class="pulse-ring-outer"></div>
-                        </div>
-                        <div class="server-info">
-                            <span class="label-tiny">NETWORK</span>
-                            <span id="landing-server-name" class="server-val">EXPERT SERVER</span>
-                        </div>
-                    </div>
-                </div>
-
-                <div class="utility-anchor">
-                    <div class="utility-dock">
-                        <button class="dock-btn" id="tile-weather" data-tooltip="Weather">
-                            <i class="fa-solid fa-cloud-sun"></i>
+                <div class="utility-cluster">
+                    <div class="orb-stack">
+                        <button class="orb-btn" id="tile-weather" aria-label="Weather">
+                            <i class="fa-solid fa-cloud"></i>
                         </button>
-                        <button class="dock-btn" id="tile-settings" data-tooltip="Map Config">
+                        <button class="orb-btn" id="tile-settings" aria-label="Settings">
                             <i class="fa-solid fa-sliders"></i>
                         </button>
-                        <button class="dock-btn" id="tile-history" data-tooltip="History">
-                            <i class="fa-solid fa-clock-rotate-left"></i>
+                        <button class="orb-btn" id="tile-history" aria-label="History">
+                            <i class="fa-solid fa-clock"></i>
                         </button>
-                        <button class="dock-btn active-btn" id="tile-server" data-tooltip="Server">
-                            <i class="fa-solid fa-server"></i>
+                        <button class="orb-btn highlight-orb" id="tile-server" aria-label="Network">
+                            <i class="fa-solid fa-wifi"></i>
                         </button>
                     </div>
                 </div>
@@ -85,14 +78,6 @@ export const LandingUI = {
         const searchInput = document.getElementById('tile-search-input');
         const internalSearch = document.querySelector('.search-bar-container input');
 
-        // Global shortcut listener for '/' to focus search
-        document.addEventListener('keydown', (e) => {
-            if (e.key === '/' && document.activeElement !== searchInput) {
-                e.preventDefault();
-                searchInput?.focus();
-            }
-        });
-
         searchInput?.addEventListener('input', (e) => {
             if (internalSearch) {
                 internalSearch.value = e.target.value;
@@ -100,13 +85,18 @@ export const LandingUI = {
             }
         });
 
+        // Hover animation for the vertical status
+        const sideBrand = document.querySelector('.side-branding');
+        sideBrand?.addEventListener('mouseenter', () => sideBrand.classList.add('expand'));
+        sideBrand?.addEventListener('mouseleave', () => sideBrand.classList.remove('expand'));
+
         const actions = {
             'tile-weather': () => document.getElementById('open-weather-settings-btn')?.click(),
             'tile-settings': () => document.getElementById('open-filter-settings-btn')?.click(),
             'tile-server': () => {
-                const btn = document.getElementById('tile-server');
-                btn.style.transform = 'scale(0.9)';
-                setTimeout(() => btn.style.transform = 'scale(1)', 150);
+                const orb = document.getElementById('tile-server');
+                orb.classList.add('orb-pulse');
+                setTimeout(() => orb.classList.remove('orb-pulse'), 1000);
             }
         };
 
@@ -127,8 +117,8 @@ export const LandingUI = {
                 pointer-events: none;
                 opacity: 0;
                 visibility: hidden;
-                transition: opacity 0.5s ease;
-                font-family: 'Inter', -apple-system, sans-serif;
+                transition: opacity 0.8s cubic-bezier(0.2, 0, 0, 1);
+                font-family: 'Inter', system-ui, sans-serif;
             }
 
             .tactical-ui-root.active {
@@ -136,39 +126,76 @@ export const LandingUI = {
                 visibility: visible;
             }
 
-            /* Search Anchor - Top Center */
-            .search-anchor {
+            /* Side Branding (Vertical Text) */
+            .side-branding {
                 position: absolute;
-                top: 24px;
-                left: 50%;
-                transform: translateX(-50%);
-                width: 100%;
-                max-width: 500px;
+                left: 40px;
+                top: 50%;
+                transform: translateY(-50%);
+                display: flex;
+                flex-direction: column;
+                align-items: center;
+                gap: 20px;
                 pointer-events: auto;
             }
 
-            .search-container-modern {
-                background: rgba(15, 17, 23, 0.85);
-                backdrop-filter: blur(12px);
-                border: 1px solid rgba(255, 255, 255, 0.1);
-                border-radius: 12px;
-                padding: 10px 16px;
+            .status-indicator-dot {
+                width: 2px;
+                height: 40px;
+                background: linear-gradient(to bottom, transparent, #fff, transparent);
+            }
+
+            .vertical-text {
+                writing-mode: vertical-rl;
+                text-orientation: mixed;
+                transform: rotate(180deg);
+                font-size: 0.6rem;
+                font-weight: 900;
+                letter-spacing: 0.4em;
+                color: rgba(255, 255, 255, 0.4);
+                text-transform: uppercase;
+                transition: color 0.3s ease;
+            }
+
+            .side-branding:hover .vertical-text {
+                color: #fff;
+            }
+
+            /* Floating Island Search */
+            .search-island-wrapper {
+                position: absolute;
+                bottom: 40px;
+                left: 50%;
+                transform: translateX(-50%);
+                pointer-events: auto;
+            }
+
+            .search-island {
+                position: relative;
+                background: rgba(10, 10, 10, 0.4);
+                backdrop-filter: blur(30px) saturate(150%);
+                -webkit-backdrop-filter: blur(30px) saturate(150%);
+                border: 1px solid rgba(255, 255, 255, 0.08);
+                padding: 12px 24px;
+                border-radius: 100px;
                 display: flex;
                 align-items: center;
-                box-shadow: 0 10px 40px rgba(0,0,0,0.4);
-                transition: all 0.3s ease;
+                width: 320px;
+                transition: all 0.4s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+                box-shadow: 0 20px 40px rgba(0,0,0,0.3);
             }
 
-            .search-container-modern:focus-within {
-                border-color: #6366f1;
-                background: rgba(15, 17, 23, 0.95);
-                width: 540px;
+            .search-island:focus-within {
+                width: 400px;
+                background: rgba(10, 10, 10, 0.6);
+                border-color: rgba(255, 255, 255, 0.2);
+                transform: translateX(-50%) translateY(-5px);
             }
 
-            .search-icon-soft {
-                color: #64748b;
-                margin-right: 12px;
+            .search-icon-subtle {
+                color: rgba(255, 255, 255, 0.3);
                 font-size: 0.9rem;
+                margin-right: 15px;
             }
 
             #tile-search-input {
@@ -176,128 +203,76 @@ export const LandingUI = {
                 border: none;
                 color: #fff;
                 font-size: 0.9rem;
+                font-weight: 500;
                 outline: none;
                 width: 100%;
             }
 
-            .search-shortcut {
-                background: rgba(255,255,255,0.05);
-                border: 1px solid rgba(255,255,255,0.1);
-                border-radius: 4px;
-                padding: 2px 6px;
-                font-size: 0.7rem;
-                color: #94a3b8;
-                margin-left: 8px;
+            #tile-search-input::placeholder {
+                color: rgba(255, 255, 255, 0.2);
             }
 
-            /* Status Anchor - Top Right */
-            .status-anchor {
+            .search-divider {
+                width: 1px;
+                height: 16px;
+                background: rgba(255, 255, 255, 0.1);
+                margin: 0 15px;
+            }
+
+            .search-hint {
+                font-size: 0.6rem;
+                font-weight: 800;
+                color: rgba(255, 255, 255, 0.2);
+            }
+
+            /* Utility Cluster (Orbs) */
+            .utility-cluster {
                 position: absolute;
-                top: 24px;
-                right: 24px;
+                bottom: 40px;
+                right: 40px;
                 pointer-events: auto;
             }
 
-            .server-status-card {
-                background: rgba(15, 17, 23, 0.85);
-                backdrop-filter: blur(12px);
-                border: 1px solid rgba(255, 255, 255, 0.1);
-                border-radius: 12px;
-                padding: 8px 16px;
+            .orb-stack {
                 display: flex;
-                align-items: center;
                 gap: 12px;
             }
 
-            .status-pulse-container {
-                position: relative;
-                width: 8px;
-                height: 8px;
-            }
-
-            .pulse-core {
-                width: 8px;
-                height: 8px;
-                background: #6366f1;
+            .orb-btn {
+                width: 48px;
+                height: 48px;
                 border-radius: 50%;
-            }
-
-            .pulse-ring-outer {
-                position: absolute;
-                inset: -4px;
-                border: 2px solid #6366f1;
-                border-radius: 50%;
-                animation: pulse-out 2s infinite;
-            }
-
-            .server-info {
-                display: flex;
-                flex-direction: column;
-            }
-
-            .label-tiny {
-                font-size: 0.55rem;
-                font-weight: 800;
-                color: #64748b;
-                letter-spacing: 0.1em;
-            }
-
-            .server-val {
-                font-size: 0.75rem;
-                font-weight: 600;
-                color: #fff;
-            }
-
-            /* Utility Anchor - Bottom Right */
-            .utility-anchor {
-                position: absolute;
-                bottom: 30px;
-                right: 30px;
-                pointer-events: auto;
-            }
-
-            .utility-dock {
-                background: rgba(15, 17, 23, 0.85);
-                backdrop-filter: blur(12px);
-                padding: 6px;
-                border-radius: 16px;
-                display: flex;
-                flex-direction: column;
-                gap: 6px;
-                border: 1px solid rgba(255, 255, 255, 0.1);
-                box-shadow: 0 10px 30px rgba(0,0,0,0.5);
-            }
-
-            .dock-btn {
-                width: 44px;
-                height: 44px;
-                border-radius: 12px;
-                border: none;
-                background: transparent;
-                color: #94a3b8;
+                border: 1px solid rgba(255, 255, 255, 0.05);
+                background: rgba(255, 255, 255, 0.03);
+                backdrop-filter: blur(10px);
+                color: rgba(255, 255, 255, 0.4);
                 cursor: pointer;
                 display: flex;
                 align-items: center;
                 justify-content: center;
                 font-size: 1.1rem;
-                transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+                transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
             }
 
-            .dock-btn:hover {
-                background: rgba(255, 255, 255, 0.05);
+            .orb-btn:hover {
+                background: rgba(255, 255, 255, 0.1);
                 color: #fff;
-                transform: translateX(-4px);
+                transform: scale(1.1) translateY(-5px);
+                border-color: rgba(255, 255, 255, 0.2);
+                box-shadow: 0 10px 20px rgba(0,0,0,0.2);
             }
 
-            .active-btn {
-                color: #6366f1;
-                background: rgba(99, 102, 241, 0.1);
+            .highlight-orb {
+                background: rgba(255, 255, 255, 0.08);
+                color: #fff;
             }
 
-            @keyframes pulse-out {
-                0% { transform: scale(0.5); opacity: 1; }
-                100% { transform: scale(2.5); opacity: 0; }
+            @keyframes orb-pulse {
+                0% { transform: scale(1); box-shadow: 0 0 0 0 rgba(255, 255, 255, 0.4); }
+                70% { transform: scale(1.1); box-shadow: 0 0 0 15px rgba(255, 255, 255, 0); }
+                100% { transform: scale(1); box-shadow: 0 0 0 0 rgba(255, 255, 255, 0); }
             }
+            .orb-pulse { animation: orb-pulse 0.6s ease-out; }
 
             @media (max-width: 768px) {
                 .tactical-ui-root { display: none !important; }
