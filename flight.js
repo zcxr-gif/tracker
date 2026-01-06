@@ -80,6 +80,7 @@ window.currentAirportTraffic = { in: [], out: [] }; // Stores IDs for the curren
     // --- NEW: To cache flight data when switching to stats view ---
     let cachedFlightDataForStatsView = { flightProps: null, plan: null };
     let mapFilters = {
+        aircraftSize: 1,
         showVaOnly: false,
         showUnstaffedAirports: false,
         showStaffOnly: false,
@@ -4638,6 +4639,16 @@ async function toggleSigmetLayer(show) {
         }
     }
 
+    function updateAircraftSize() {
+    if (!sectorOpsMap || !sectorOpsMap.getLayer('sector-ops-live-flights-layer')) return;
+    
+    sectorOpsMap.setLayoutProperty(
+        'sector-ops-live-flights-layer', 
+        'icon-size', 
+        parseFloat(mapFilters.aircraftSize)
+    );
+}
+
 /**
  * [FIXED & MODIFIED BY USER] Fetches reverse geocoded location and updates the UI.
  * The 20km distance-based check has been removed per user request
@@ -7606,6 +7617,14 @@ function formatDataForSimpleWindow(flightProps, plan, routePoints, communityData
                             </li>
                         </ul>
 
+                        <div class="filter-section-divider"><span class="filter-section-title">Aircraft Display</span></div>
+                        <ul class="filter-toggle-list" style="padding-top: 8px;">
+                            <li class="filter-toggle-item" style="flex-direction: column; align-items: flex-start; gap: 8px; padding-bottom: 12px;">
+                                <span class="filter-toggle-label"><i class="fa-solid fa-up-right-and-down-left-from-center"></i> Icon Size: <span id="aircraft-size-value">${mapFilters.aircraftSize}</span></span>
+                                <input type="range" id="filter-aircraft-size" min="0.02" max="0.30" step="0.01" value="${mapFilters.aircraftSize}" style="width: 100%; accent-color: var(--color-brand);">
+                            </li>
+                        </ul>
+
                         <div class="filter-section-divider">
                             <span class="filter-section-title">Map Style</span>
                         </div>
@@ -7882,6 +7901,21 @@ async function setupMapLayersAndFog() {
     if (typeof MapAnimator !== 'undefined') {
         mapAnimator = new MapAnimator(sectorOpsMap, 'sector-ops-live-flights-source', currentMapFeatures);
     }
+
+    if (!sectorOpsMap.getLayer('sector-ops-live-flights-layer')) {
+        sectorOpsMap.addLayer({
+            id: 'sector-ops-live-flights-layer',
+            type: 'symbol',
+            source: 'sector-ops-live-flights-source',
+            layout: {
+                'icon-image': (typeof getIconImageExpression !== 'undefined') ? getIconImageExpression(mapFilters.iconColorMode) : 'icon-default',
+                'icon-size': parseFloat(mapFilters.aircraftSize || 0.08), // NEW: Use dynamic size
+                'icon-rotate': ['get', 'heading'],
+                'icon-rotation-alignment': 'map',
+                'icon-allow-overlap': true,
+                'icon-ignore-placement': true,
+            }
+        });
 
     // 4. Add the ICON layer
     if (!sectorOpsMap.getLayer('sector-ops-live-flights-layer')) {
@@ -11397,6 +11431,23 @@ function setupFilterSettingsWindowEvents() {
         root.style.setProperty('--iw-bg-start', hexToRgba(startHex, opacity));
         root.style.setProperty('--iw-bg-end', hexToRgba(endHex, opacity));
     };
+
+    const sizeSlider = document.getElementById('settings-aircraft-size');
+if (sizeSlider) {
+    // Set initial value from state
+    sizeSlider.value = mapFilters.aircraftSize;
+
+    sizeSlider.addEventListener('input', (e) => {
+        const newSize = e.target.value;
+        mapFilters.aircraftSize = newSize;
+        
+        // Update Map Immediately
+        updateAircraftSize();
+        
+        // Save to LocalStorage
+        saveFiltersToLocalStorage();
+    });
+}
 
     // --- Helper: Set UI from State ---
     const setUIFromState = () => {
