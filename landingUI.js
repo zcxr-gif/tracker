@@ -1,15 +1,14 @@
 /**
  * LandingUI.js
  * REDESIGN: Spatial Minimalist Overlay with Universal Filter Logic
- * Focus: High-end typography, ergonomic placement, and zero-box architecture.
+ * Position: Top-Right Anchored
  */
 
 export const LandingUI = {
     _isVisible: false,
     _filterShelfOpen: false,
-    _activeFilters: {}, // Stores filter states: { id: value } (e.g., { type: 'A320' })
+    _activeFilters: {}, 
 
-    // The 14 universal filter definitions with placeholders for the inputs
     filterOptions: [
         { id: 'type', label: 'Aircraft Type', icon: 'fa-plane', placeholder: 'e.g. A320' },
         { id: 'airline', label: 'Operator', icon: 'fa-building', placeholder: 'e.g. BAW' },
@@ -125,19 +124,16 @@ export const LandingUI = {
         const filterToggle = document.getElementById('toggle-filters');
         const filterShelf = document.getElementById('filter-shelf');
 
-        // Toggle Shelf
         filterToggle?.addEventListener('click', () => {
             this._filterShelfOpen = !this._filterShelfOpen;
             filterShelf.classList.toggle('open', this._filterShelfOpen);
             filterToggle.classList.toggle('active', this._filterShelfOpen);
         });
 
-        // Map Filtering: Instead of mirroring the search bar, we trigger a map filter update
         searchInput?.addEventListener('input', () => {
             this.dispatchFilterUpdate();
         });
 
-        // Filter Selection Logic
         document.querySelectorAll('.filter-item').forEach(item => {
             item.addEventListener('click', () => {
                 const id = item.dataset.filterId;
@@ -145,20 +141,17 @@ export const LandingUI = {
             });
         });
 
-        // Preset Logic
         document.querySelectorAll('.preset-btn').forEach(btn => {
             btn.addEventListener('click', () => {
                 const presetId = btn.dataset.preset;
                 const preset = this.presets.find(p => p.id === presetId);
                 if (preset) {
-                    // Merge preset filters into active state
                     this._activeFilters = { ...this._activeFilters, ...preset.filters };
                     this.refreshUI();
                 }
             });
         });
 
-        // UI Utility buttons
         const actions = {
             'tile-weather': () => document.getElementById('open-weather-settings-btn')?.click(),
             'tile-settings': () => document.getElementById('open-filter-settings-btn')?.click(),
@@ -178,7 +171,6 @@ export const LandingUI = {
         if (this._activeFilters[id] !== undefined) {
             delete this._activeFilters[id];
         } else {
-            // Initialize the filter with an empty value so the user can type
             this._activeFilters[id] = '';
         }
         this.refreshUI();
@@ -193,7 +185,6 @@ export const LandingUI = {
         const container = document.getElementById('active-tags-container');
         const shelfItems = document.querySelectorAll('.filter-item');
 
-        // Update tags in search bar with input fields
         container.innerHTML = Object.entries(this._activeFilters).map(([id, value]) => {
             const opt = this.filterOptions.find(f => f.id === id);
             return `
@@ -210,14 +201,12 @@ export const LandingUI = {
             `;
         }).join('');
 
-        // Update shelf visual state
         shelfItems.forEach(item => {
             item.classList.toggle('selected', this._activeFilters[item.dataset.filterId] !== undefined);
         });
 
         this.dispatchFilterUpdate();
 
-        // Focus the last added filter input if it's empty
         const inputs = container.querySelectorAll('input');
         if (inputs.length > 0) {
             const lastInput = inputs[inputs.length - 1];
@@ -226,7 +215,6 @@ export const LandingUI = {
     },
 
     dispatchFilterUpdate() {
-        // Broadcast the specific filter key/values for the map script to consume
         const event = new CustomEvent('filterUpdate', { 
             detail: { 
                 filters: { ...this._activeFilters }, 
@@ -253,6 +241,7 @@ export const LandingUI = {
                 color: #fff;
                 font-size: 0.8rem;
                 transition: all 0.2s ease;
+                flex-shrink: 0;
             }
             .filter-tag:focus-within {
                 background: rgba(255, 255, 255, 0.15);
@@ -265,7 +254,7 @@ export const LandingUI = {
                 color: #fff;
                 font-family: inherit;
                 font-size: 0.8rem;
-                width: 80px;
+                width: 70px;
                 padding: 0;
             }
             .filter-tag-input::placeholder {
@@ -290,7 +279,7 @@ export const LandingUI = {
             }
             .tactical-ui-root.active { opacity: 1; visibility: visible; }
             
-            /* Side Branding */
+            /* Side Branding (Left) */
             .side-branding {
                 position: absolute;
                 left: 40px;
@@ -305,95 +294,121 @@ export const LandingUI = {
             .status-indicator-dot { width: 2px; height: 40px; background: linear-gradient(to bottom, transparent, #fff, transparent); }
             .vertical-text { writing-mode: vertical-rl; text-orientation: mixed; color: rgba(255, 255, 255, 0.4); font-size: 0.7rem; letter-spacing: 4px; font-weight: 800; }
 
-            /* Search Island */
+            /* Search Island Wrapper - POSITIONED TOP RIGHT */
             .search-island-wrapper {
                 position: absolute;
                 top: 40px;
-                left: 50%;
-                transform: translateX(-50%);
-                width: 100%;
-                max-width: 800px;
+                right: 40px;
+                width: auto;
+                max-width: 700px;
                 display: flex;
                 flex-direction: column;
-                align-items: center;
-                gap: 20px;
+                align-items: flex-end; /* Anchors content to the right edge */
+                gap: 16px;
                 pointer-events: none;
             }
+
             .search-island {
                 position: relative;
-                width: 100%;
-                height: 64px;
-                background: rgba(255, 255, 255, 0.03);
-                backdrop-filter: blur(20px);
-                border-radius: 32px;
-                border: 1px solid rgba(255, 255, 255, 0.05);
+                width: auto;
+                min-width: 320px;
+                height: 60px;
+                background: rgba(25, 25, 25, 0.4);
+                backdrop-filter: blur(25px);
+                border-radius: 30px;
+                border: 1px solid rgba(255, 255, 255, 0.08);
                 display: flex;
                 align-items: center;
-                padding: 0 24px;
-                gap: 16px;
+                padding: 0 20px;
+                gap: 12px;
                 pointer-events: auto;
-                transition: transform 0.4s cubic-bezier(0.16, 1, 0.3, 1);
+                transition: all 0.4s cubic-bezier(0.16, 1, 0.3, 1);
+                box-shadow: 0 10px 30px rgba(0,0,0,0.2);
             }
-            .search-island:focus-within { transform: scale(1.02); background: rgba(255, 255, 255, 0.05); }
-            .search-glow { position: absolute; inset: -1px; border-radius: 32px; background: linear-gradient(45deg, transparent, rgba(255,255,255,0.1), transparent); pointer-events: none; }
+            .search-island:focus-within { transform: translateY(2px); background: rgba(35, 35, 35, 0.6); border-color: rgba(255, 255, 255, 0.15); }
+            .search-glow { position: absolute; inset: -1px; border-radius: 30px; background: linear-gradient(135deg, rgba(255,255,255,0.05), transparent, rgba(255,255,255,0.05)); pointer-events: none; }
             
-            .filter-trigger { background: none; border: none; color: rgba(255, 255, 255, 0.4); cursor: pointer; font-size: 1.2rem; transition: all 0.3s; }
+            .filter-trigger { background: none; border: none; color: rgba(255, 255, 255, 0.4); cursor: pointer; font-size: 1.1rem; transition: all 0.3s; padding: 5px; }
             .filter-trigger.active { color: #fff; transform: rotate(90deg); }
             
-            .tags-inline { display: flex; gap: 8px; overflow-x: auto; scrollbar-width: none; }
+            /* Prevent tags from over-expanding the bar */
+            .tags-inline { 
+                display: flex; 
+                gap: 6px; 
+                overflow-x: auto; 
+                scrollbar-width: none; 
+                max-width: 350px; 
+                mask-image: linear-gradient(to right, black 85%, transparent 100%);
+            }
             .tags-inline::-webkit-scrollbar { display: none; }
             
-            #tile-search-input { flex: 1; background: none; border: none; color: #fff; font-size: 1rem; outline: none; }
+            #tile-search-input { 
+                flex: 1; 
+                min-width: 120px; 
+                background: none; 
+                border: none; 
+                color: #fff; 
+                font-size: 0.95rem; 
+                outline: none; 
+            }
             #tile-search-input::placeholder { color: rgba(255, 255, 255, 0.2); }
             
-            .search-divider { width: 1px; height: 24px; background: rgba(255, 255, 255, 0.1); }
-            .search-hint { font-size: 0.6rem; color: rgba(255, 255, 255, 0.2); font-weight: 700; background: rgba(255, 255, 255, 0.05); padding: 4px 8px; border-radius: 4px; }
+            .search-divider { width: 1px; height: 20px; background: rgba(255, 255, 255, 0.1); }
+            .search-hint { font-size: 0.6rem; color: rgba(255, 255, 255, 0.2); font-weight: 700; background: rgba(255, 255, 255, 0.05); padding: 4px 6px; border-radius: 4px; }
 
-            /* Filter Shelf */
+            /* Filter Shelf - Aligned Right */
             .filter-shelf {
-                width: 100%;
-                background: rgba(255, 255, 255, 0.02);
-                backdrop-filter: blur(20px);
-                border-radius: 20px;
-                border: 1px solid rgba(255, 255, 255, 0.05);
+                width: 580px;
+                background: rgba(20, 20, 20, 0.7);
+                backdrop-filter: blur(30px);
+                border-radius: 24px;
+                border: 1px solid rgba(255, 255, 255, 0.1);
                 padding: 24px;
                 max-height: 0;
                 opacity: 0;
                 overflow: hidden;
                 transition: all 0.5s cubic-bezier(0.16, 1, 0.3, 1);
                 pointer-events: auto;
+                box-shadow: 0 20px 50px rgba(0,0,0,0.4);
             }
-            .filter-shelf.open { max-height: 400px; opacity: 1; transform: translateY(0); }
+            .filter-shelf.open { max-height: 500px; opacity: 1; transform: translateY(0); }
             
             .shelf-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px; }
-            .shelf-title { font-size: 0.7rem; text-transform: uppercase; letter-spacing: 2px; color: rgba(255, 255, 255, 0.4); font-weight: 700; }
+            .shelf-title { font-size: 0.65rem; text-transform: uppercase; letter-spacing: 2px; color: rgba(255, 255, 255, 0.4); font-weight: 700; }
             
-            .preset-row { display: flex; gap: 12px; }
-            .preset-btn { background: rgba(255, 255, 255, 0.03); border: 1px solid rgba(255, 255, 255, 0.05); color: rgba(255, 255, 255, 0.6); padding: 6px 16px; border-radius: 20px; font-size: 0.7rem; cursor: pointer; transition: all 0.3s; }
-            .preset-btn:hover { background: rgba(255, 255, 255, 0.08); color: #fff; }
+            .preset-row { display: flex; gap: 8px; }
+            .preset-btn { background: rgba(255, 255, 255, 0.03); border: 1px solid rgba(255, 255, 255, 0.08); color: rgba(255, 255, 255, 0.5); padding: 5px 12px; border-radius: 15px; font-size: 0.65rem; cursor: pointer; transition: all 0.3s; }
+            .preset-btn:hover { background: rgba(255, 255, 255, 0.1); color: #fff; }
 
-            .filter-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(140px, 1fr)); gap: 12px; }
-            .filter-item { background: rgba(255, 255, 255, 0.03); border: 1px solid rgba(255, 255, 255, 0.05); border-radius: 12px; padding: 16px; display: flex; flex-direction: column; align-items: center; gap: 12px; cursor: pointer; transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1); color: rgba(255, 255, 255, 0.4); }
-            .filter-item:hover { background: rgba(255, 255, 255, 0.08); transform: translateY(-4px); color: #fff; }
-            .filter-item.selected { background: rgba(255, 255, 255, 0.12); border-color: rgba(255, 255, 255, 0.3); color: #fff; }
-            .filter-item i { font-size: 1.2rem; }
+            .filter-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; }
+            .filter-item { background: rgba(255, 255, 255, 0.02); border: 1px solid rgba(255, 255, 255, 0.05); border-radius: 12px; padding: 12px; display: flex; flex-direction: row; align-items: center; gap: 12px; cursor: pointer; transition: all 0.2s ease; color: rgba(255, 255, 255, 0.4); }
+            .filter-item:hover { background: rgba(255, 255, 255, 0.06); transform: scale(1.02); color: #fff; }
+            .filter-item.selected { background: rgba(255, 255, 255, 0.1); border-color: rgba(255, 255, 255, 0.3); color: #fff; }
+            .filter-item i { font-size: 1rem; width: 20px; text-align: center; }
             .filter-item span { font-size: 0.75rem; font-weight: 500; }
 
-            /* Utility Cluster */
+            /* Utility Cluster (Bottom Right) */
             .utility-cluster { position: absolute; bottom: 40px; right: 40px; pointer-events: auto; }
             .orb-stack { display: flex; gap: 12px; }
             .orb-btn {
-                width: 48px; height: 48px; border-radius: 50%;
-                border: 1px solid rgba(255, 255, 255, 0.05);
-                background: rgba(255, 255, 255, 0.03);
+                width: 44px; height: 44px; border-radius: 50%;
+                border: 1px solid rgba(255, 255, 255, 0.08);
+                background: rgba(25, 25, 25, 0.4);
                 backdrop-filter: blur(10px);
                 color: rgba(255, 255, 255, 0.4);
                 cursor: pointer;
                 display: flex; align-items: center; justify-content: center;
                 transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
             }
-            .orb-btn:hover { background: rgba(255, 255, 255, 0.1); color: #fff; transform: scale(1.1) translateY(-5px); }
+            .orb-btn:hover { background: rgba(255, 255, 255, 0.1); color: #fff; transform: translateY(-5px); }
             .highlight-orb { background: rgba(255, 255, 255, 0.08); color: #fff; }
+            
+            @keyframes orb-pulse {
+                0% { box-shadow: 0 0 0 0 rgba(255, 255, 255, 0.4); }
+                70% { box-shadow: 0 0 0 15px rgba(255, 255, 255, 0); }
+                100% { box-shadow: 0 0 0 0 rgba(255, 255, 255, 0); }
+            }
+            .orb-pulse { animation: orb-pulse 1s ease-out; }
         `;
 
         const style = document.createElement('style');
@@ -404,5 +419,4 @@ export const LandingUI = {
     }
 };
 
-// Expose updateFilterValue to global scope for the oninput attribute
 window.LandingUI = LandingUI;
