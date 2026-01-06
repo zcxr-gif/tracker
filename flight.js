@@ -2825,6 +2825,190 @@ function injectCustomStyles() {
         } /* Sky Blue */
         .stat-gs { color: #fbbf24; font-size: 0.75rem; font-weight: 600;
         } /* Amber */
+
+        /* --- [FIXED] RE-DESIGNED SEARCH BAR --- */
+
+        /* 1. Container Positioning */
+        #sector-ops-search-container {
+            position: absolute;
+            top: 20px;
+            right: 20px;
+            z-index: 2000;
+            display: flex;
+            flex-direction: column;
+            align-items: flex-end;
+            pointer-events: none;
+            /* Let background clicks pass */
+        }
+
+        /* 2. The Main Capsule */
+        .search-bar-container {
+            pointer-events: auto;
+            /* Re-enable clicks */
+            position: relative;
+            display: flex;
+            align-items: center;
+            
+            height: 44px;
+            width: 44px; /* Collapsed Width */
+            
+            /* Dark Glass Background */
+            background: rgba(24, 24, 27, 0.85) !important;
+            border: 1px solid var(--border-glass) !important;
+            border-radius: 22px; 
+            
+            backdrop-filter: blur(20px) !important;
+            -webkit-backdrop-filter: blur(20px) !important;
+            box-shadow: 0 4px 20px rgba(0,0,0,0.4) !important;
+            transition: width 0.4s cubic-bezier(0.16, 1, 0.3, 1), border-radius 0.2s ease;
+            overflow: hidden;
+            /* Important for hiding the input text when collapsed */
+        }
+
+        /* Hover or Focus: Expand Width */
+        .search-bar-container:hover,
+        .search-bar-container:focus-within,
+        .search-bar-container.has-results {
+            width: 260px;
+            /* Expanded Width */
+        }
+
+        /* Flatten bottom when dropdown is open */
+        .search-bar-container.has-results {
+            border-bottom-left-radius: 0;
+            border-bottom-right-radius: 0;
+            border-bottom-color: transparent !important;
+        }
+
+        /* 3. The Search Icon (Right Side) */
+        .search-icon-label {
+            position: absolute;
+            right: 0;
+            top: 0;
+            width: 44px;
+            height: 100%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            color: var(--text-secondary);
+            font-size: 1.1rem;
+            z-index: 10;
+            cursor: pointer;
+        }
+
+        .search-bar-container:hover .search-icon-label {
+            color: #fff;
+        }
+
+        /* 4. The Input Field [FIXED] */
+        .search-bar-container input {
+            /* Position absolutely to fill the container */
+            position: absolute !important;
+            top: 0;
+            left: 0;
+            
+            /* FORCE FULL WIDTH: Prevents text from being crushed when collapsed */
+            width: 260px !important;
+            height: 100% !important;
+            
+            z-index: 20 !important; /* Above icon */
+            
+            /* Include padding in calculations */
+            box-sizing: border-box !important;
+            /* Padding to avoid text hitting the icon */
+            padding-left: 20px !important;
+            padding-right: 44px !important; 
+            
+            /* Reset browser default styles */
+            background: transparent !important;
+            border: none !important;
+            outline: none !important;
+            -webkit-appearance: none; /* Fix for iOS/Safari */
+            appearance: none;
+            /* Force Text Color & Alignment */
+            color: #ffffff !important;
+            font-family: var(--font-ui);
+            font-size: 0.9rem;
+            font-weight: 500;
+            text-align: left !important;
+            line-height: 44px !important;
+            /* Vertically center text */
+            
+            /* Ensure visibility */
+            opacity: 1 !important;
+            cursor: text;
+        }
+
+        /* Fix Placeholder Color */
+        .search-bar-container input::placeholder {
+            color: #a1a1aa !important;
+            opacity: 1; 
+        }
+
+        /* 5. Clear 'X' Button */
+        .search-clear-btn {
+            position: absolute;
+            right: 40px; 
+            top: 50%;
+            transform: translateY(-50%);
+            width: 20px;
+            height: 20px;
+            background: rgba(255,255,255,0.1);
+            border-radius: 50%;
+            border: none;
+            color: #fff;
+            display: none;
+            /* JS toggles flex */
+            align-items: center;
+            justify-content: center;
+            font-size: 0.6rem;
+            cursor: pointer;
+            z-index: 30; /* Topmost */
+        }
+        
+        .search-clear-btn:hover {
+            background: rgba(255,255,255,0.3);
+        }
+
+        /* 6. The Dropdown Results */
+        .search-results-dropdown {
+            display: none;
+            width: 260px; /* Matches expanded bar width */
+            margin-top: 0;
+            background: var(--bg-glass);
+            backdrop-filter: blur(20px);
+            -webkit-backdrop-filter: blur(20px);
+            border: 1px solid var(--border-glass);
+            border-top: none;
+            
+            border-bottom-left-radius: 12px;
+            border-bottom-right-radius: 12px;
+            
+            max-height: 450px;
+            overflow-y: auto;
+            pointer-events: auto;
+            
+            scrollbar-width: thin;
+            scrollbar-color: var(--border-glass) transparent;
+        }
+        
+        /* Result Item Styling */
+        .search-result-item {
+            display: grid;
+            grid-template-columns: 40px 1fr auto;
+            gap: 12px;
+            padding: 10px 14px;
+            border-bottom: 1px solid var(--border-glass);
+            cursor: pointer;
+            transition: background 0.15s ease;
+            align-items: center;
+        }
+        .search-result-item:hover {
+            background: var(--bg-panel);
+        }
+        .search-result-item:last-child {
+            border-bottom: none;
+        }
     `;
 
     const style = document.createElement('style');
@@ -7566,7 +7750,7 @@ function formatDataForSimpleWindow(flightProps, plan, routePoints, communityData
              }
         }
         
-        // --- 10. Assign Global Variables 67 ---
+        // --- 10. Assign Global Variables ---
         airportInfoWindow = document.getElementById('airport-info-window');
         airportInfoWindowRecallBtn = document.getElementById('airport-recall-btn');
         aircraftInfoWindow = document.getElementById('aircraft-info-window');
@@ -7575,22 +7759,6 @@ function formatDataForSimpleWindow(flightProps, plan, routePoints, communityData
         filterSettingsWindow = document.getElementById('filter-settings-window');
 
         LandingUI.init();
-
-        // --- NEW: LandingUI Takeover Initialization ---
-    const selectFlightWithSession = (flightProps) => {
-        fetch(`${ACARS_SOCKET_URL}/if-sessions`)
-            .then(res => res.json())
-            .then(data => {
-                const sessionId = getCurrentSessionId(data);
-                if (sessionId) handleAircraftClick(flightProps, sessionId);
-            });
-    };
-
-    LandingUI.init({
-        map: sectorOpsMap,
-        getFeatures: () => currentMapFeatures,
-        onFlightSelect: selectFlightWithSession
-    });
         
         // 3. Set Initial Visibility
         LandingUI.update(true, {
