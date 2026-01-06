@@ -7566,7 +7566,7 @@ function formatDataForSimpleWindow(flightProps, plan, routePoints, communityData
              }
         }
         
-        // --- 10. Assign Global Variables ---
+        // --- 10. Assign Global Variables 67 ---
         airportInfoWindow = document.getElementById('airport-info-window');
         airportInfoWindowRecallBtn = document.getElementById('airport-recall-btn');
         aircraftInfoWindow = document.getElementById('aircraft-info-window');
