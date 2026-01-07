@@ -18,7 +18,8 @@ export const LandingUI = {
         { id: 'speed', label: 'Speed', icon: 'fa-gauge-high' },
         { id: 'origin', label: 'Origin', icon: 'fa-plane-departure' },
         { id: 'destination', label: 'Destination', icon: 'fa-plane-arrival' },
-        { id: 'atc', label: 'ATC', icon: 'fa-headset' }
+        { id: 'atc', label: 'ATC', icon: 'fa-headset' },
+        { id: 'groups', label: 'Groups', icon: 'fa-users-rays' } // Added Group Flight option
     ],
 
     init() {
@@ -89,8 +90,8 @@ export const LandingUI = {
         // Toggle Filter Nexus
         nexusTrigger?.addEventListener('click', () => {
             this._filterNexusOpen = !this._filterNexusOpen;
-            nexusGrid.classList.toggle('open', this._filterNexusOpen);
-            nexusTrigger.classList.toggle('active', this._filterNexusOpen);
+            if (nexusGrid) nexusGrid.classList.toggle('open', this._filterNexusOpen);
+            if (nexusTrigger) nexusTrigger.classList.toggle('active', this._filterNexusOpen);
         });
 
         // Search Input Logic
@@ -111,8 +112,10 @@ export const LandingUI = {
             'tile-settings': () => document.getElementById('open-filter-settings-btn')?.click(),
             'tile-server': () => {
                 const orb = document.getElementById('tile-server');
-                orb.classList.add('orb-pulse');
-                setTimeout(() => orb.classList.remove('orb-pulse'), 1000);
+                if (orb) {
+                    orb.classList.add('orb-pulse');
+                    setTimeout(() => orb.classList.remove('orb-pulse'), 1000);
+                }
             }
         };
 
@@ -138,21 +141,23 @@ export const LandingUI = {
     refreshUI() {
         // Update Chips under search bar
         const container = document.getElementById('active-filter-chips');
-        container.innerHTML = Object.entries(this._activeFilters).map(([id, value]) => {
-            const opt = this.filterOptions.find(f => f.id === id);
-            return `
-                <div class="filter-chip">
-                    <i class="fa-solid ${opt.icon}"></i>
-                    <input type="text" 
-                           class="chip-input" 
-                           placeholder="${opt.label}..." 
-                           value="${value}" 
-                           oninput="LandingUI.updateFilterValue('${id}', this.value)"
-                           onkeydown="if(event.key==='Enter') this.blur()">
-                    <i class="fa-solid fa-xmark chip-close" onclick="LandingUI.toggleFilter('${id}')"></i>
-                </div>
-            `;
-        }).join('');
+        if (container) {
+            container.innerHTML = Object.entries(this._activeFilters).map(([id, value]) => {
+                const opt = this.filterOptions.find(f => f.id === id);
+                return `
+                    <div class="filter-chip">
+                        <i class="fa-solid ${opt.icon}"></i>
+                        <input type="text" 
+                               class="chip-input" 
+                               placeholder="${opt.label}..." 
+                               value="${value}" 
+                               oninput="LandingUI.updateFilterValue('${id}', this.value)"
+                               onkeydown="if(event.key==='Enter') this.blur()">
+                        <i class="fa-solid fa-xmark chip-close" onclick="LandingUI.toggleFilter('${id}')"></i>
+                    </div>
+                `;
+            }).join('');
+        }
 
         // Update selected state in Nexus
         document.querySelectorAll('.nexus-item').forEach(item => {
@@ -314,7 +319,7 @@ export const LandingUI = {
             .filter-nexus-grid {
                 pointer-events: auto;
                 display: grid;
-                grid-template-columns: repeat(3, 1fr);
+                grid-template-columns: repeat(4, 1fr); /* Changed to 4 columns to accommodate the new filter */
                 gap: 10px;
                 background: rgba(10, 10, 10, 0.8);
                 backdrop-filter: blur(30px);
