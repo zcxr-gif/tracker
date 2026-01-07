@@ -1,14 +1,14 @@
 /**
  * groupFlightManager.js
- * Logic for detecting and visualizing group flights (pilots flying together).
+ * Logic for visualizing group flights (pilots flying together).
+ * Optimized to use groupId provided by the backend socket.
  */
 
 export const GroupFlightManager = {
     _map: null,
     _isVisible: false,
-    _groups: [],
-    _layerIds: ['group-links-layer', 'group-glow-layer'],
     _sourceId: 'group-flights-source',
+    _layerIds: ['group-links-layer', 'group-glow-layer'],
 
     init(map) {
         this._map = map;
@@ -16,14 +16,14 @@ export const GroupFlightManager = {
     },
 
     setupLayers() {
-        if (!this._map) return;
+        if (!this._map || this._map.getSource(this._sourceId)) return;
 
         this._map.addSource(this._sourceId, {
             type: 'geojson',
             data: { type: 'FeatureCollection', features: [] }
         });
 
-        // 1. The "Web" Links (Lines connecting pilots)
+        // 1. The "Web" Links (Lines connecting pilots in a group)
         this._map.addLayer({
             id: 'group-links-layer',
             type: 'line',
@@ -31,96 +31,103 @@ export const GroupFlightManager = {
             layout: { 'line-cap': 'round', 'line-join': 'round' },
             paint: {
                 'line-color': '#00e6ff',
-                'line-width': 2,
-                'line-opacity': 0.4,
-                'line-dasharray': [2, 2]
+                'line-width': 1.5,
+                'line-opacity': 0.6,
+                'line-dasharray': [2, 1]
             },
             filter: ['==', ['geometry-type'], 'LineString']
-        }, 'sector-ops-live-flights-layer');
+        });
 
-        // 2. Group Area Glow (Polygons/Circles around groups)
+        // 2. Group Area Glow (Visual emphasis around group members)
         this._map.addLayer({
             id: 'group-glow-layer',
             type: 'circle',
             source: this._sourceId,
             paint: {
-                'circle-radius': 40,
+                'circle-radius': 35,
                 'circle-color': '#00e6ff',
-                'circle-opacity': 0.1,
+                'circle-opacity': 0.15,
                 'circle-blur': 1
             },
             filter: ['==', ['geometry-type'], 'Point']
-        }, 'sector-ops-live-flights-layer');
+        });
 
         this.updateVisibility();
     },
 
-    update(features) {
-        if (!this._isVisible || !features) return;
+    /**
+     * Updates the group visualization using data from the socket.
+     * @param {Array} flights - The array of simplified flight objects from the socket.
+     */
+    update(flights) {
+        if (!this._isVisible || !flights || !Array.isArray(flights)) {
+            this.clear();
+            return;
+        }
 
-        const flights = Object.values(features);
-        const groups = this.detectGroups(flights);
-        
-        const geojson = {
-            type: 'FeatureCollection',
-            features: this.generateGeoJSON(groups)
-        };
-
-        const source = this._map.getSource(this._sourceId);
-        if (source) source.setData(geojson);
-    },
-
-    detectGroups(flights) {
-        const potentialGroups = {};
-
+        // 1. Organize flights by their groupId provided by the backend
+        const groups = {};
         flights.forEach(f => {
-            const props = f.properties;
-            const plan = props.plan ? (typeof props.plan === 'string' ? JSON.parse(props.plan) : props.plan) : null;
-            
-            if (!plan || !plan.departure || !plan.arrival) return;
-
-            // Grouping Key: Departure + Arrival (Standardized)
-            const routeKey = `${plan.departure.toUpperCase()}-${plan.arrival.toUpperCase()}`;
-            
-            if (!potentialGroups[routeKey]) potentialGroups[routeKey] = [];
-            potentialGroups[routeKey].push(f);
-        });
-
-        // Filter out "groups" of 1 and ensure they are physically close (within 50nm)
-        return Object.values(potentialGroups).filter(group => group.length > 1);
-    },
-
-    generateGeoJSON(groups) {
-        const features = [];
-
-        groups.forEach(group => {
-            const coords = group.map(f => f.geometry.coordinates);
-            
-            // Add Point features for the "Glow"
-            group.forEach(f => {
-                features.push({
-                    type: 'Feature',
-                    geometry: f.geometry,
-                    properties: { type: 'member' }
-                });
-            });
-
-            // Add LineString features to connect the group in a "star" or "web"
-            // We connect every pilot to the first pilot in the list (the "Lead")
-            const lead = coords[0];
-            for (let i = 1; i < coords.length; i++) {
-                features.push({
-                    type: 'Feature',
-                    geometry: {
-                        type: 'LineString',
-                        coordinates: [lead, coords[i]]
-                    },
-                    properties: { type: 'link' }
-                });
+            if (f.groupId) {
+                if (!groups[f.groupId]) groups[f.groupId] = [];
+                groups[f.groupId].push(f);
             }
         });
 
-        return features;
+        const features = [];
+
+        // 2. Generate GeoJSON for each detected group
+        Object.values(groups).forEach(members => {
+            // Only visualize groups with 2 or more members
+            if (members.length < 2) return;
+
+            // Add Points for the Glow effect
+            members.forEach(m => {
+                if (m.position && m.position.lon !== null) {
+                    features.push({
+                        type: 'Feature',
+                        geometry: {
+                            type: 'Point',
+                            coordinates: [m.position.lon, m.position.lat]
+                        },
+                        properties: { type: 'glow', groupId: m.groupId }
+                    });
+                }
+            });
+
+            // Create a "Star" network: Connect every member to the first member (the "Lead")
+            const lead = members[0];
+            for (let i = 1; i < members.length; i++) {
+                if (lead.position && members[i].position) {
+                    features.push({
+                        type: 'Feature',
+                        geometry: {
+                            type: 'LineString',
+                            coordinates: [
+                                [lead.position.lon, lead.position.lat],
+                                [members[i].position.lon, members[i].position.lat]
+                            ]
+                        },
+                        properties: { type: 'link', groupId: lead.groupId }
+                    });
+                }
+            }
+        });
+
+        const source = this._map.getSource(this._sourceId);
+        if (source) {
+            source.setData({
+                type: 'FeatureCollection',
+                features: features
+            });
+        }
+    },
+
+    clear() {
+        const source = this._map?.getSource(this._sourceId);
+        if (source) {
+            source.setData({ type: 'FeatureCollection', features: [] });
+        }
     },
 
     toggle(visible) {

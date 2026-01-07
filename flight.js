@@ -5251,6 +5251,10 @@ function handleSocketFlightUpdate(data) {
     const flights = data.flights;
     const updatedFlightIds = new Set();
 
+    if (GroupFlightManager && data.flights) {
+        GroupFlightManager.update(data.flights);
+    }
+
     flights.forEach(flight => {
         if (!flight.position || !isFinite(flight.position.lat) || !isFinite(flight.position.lon)) {
             return; // Skip this flight
