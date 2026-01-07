@@ -2,6 +2,7 @@ import { MapAnimator } from './mapAnimator.js';
 import { AirportLayoutManager } from './airportLayout.js';
 import { LandingUI } from './landingUI.js';
 import { initPlaneSizeSlider } from './planeSizeController.js';
+import { GroupFlightManager } from './groupFlightManager.js';
 
 document.addEventListener('DOMContentLoaded', async () => {
 
@@ -82,6 +83,7 @@ window.currentAirportTraffic = { in: [], out: [] }; // Stores IDs for the curren
     let cachedFlightDataForStatsView = { flightProps: null, plan: null };
     let mapFilters = {
         showVaOnly: false,
+        showGroupFlights: false,
         showUnstaffedAirports: false,
         showStaffOnly: false,
         hideAllAircraft: false,
@@ -4561,6 +4563,9 @@ async function toggleSigmetLayer(show) {
     function updateMapFilters() {
         if (!sectorOpsMap) return;
 
+        GroupFlightManager.toggle(mapFilters.showGroupFlights);
+        GroupFlightManager.update(currentMapFeatures);
+
         // 1. Update Aircraft Filter (using Mapbox setFilter)
         updateAircraftLayerFilter();
 
@@ -4711,210 +4716,6 @@ async function fetchRunwaysData() {
         console.error('Failed to fetch runway data:', error);
         showNotification('Runway data not available; takeoff/landing detection may be limited.', 'error');
     }
-}
-
-/**
- * FORMATION MANAGER: The "Brain" of the group system.
- * Handles persistence so group IDs don't change every frame.
- */
-const FormationManager = {
-    activeFormations: new Map(), // Map of GroupID -> Formation Data
-    formationTimeout: 10000,      // 10 seconds to keep a group alive if signal lost
-    minFormationTime: 5000,       // 5 seconds of proximity required to "verify" a group
-
-    update(detectedGroups) {
-        const now = Date.now();
-        const verifiedGroups = [];
-
-        detectedGroups.forEach(group => {
-            // Create a unique key based on the member IDs to identify this specific pack
-            const groupFingerprint = group.members.sort().join('|');
-            
-            if (this.activeFormations.has(groupFingerprint)) {
-                const data = this.activeFormations.get(groupFingerprint);
-                data.lastSeen = now;
-                data.duration = now - data.firstSeen;
-                
-                if (data.duration >= this.minFormationTime) {
-                    verifiedGroups.push({ ...group, id: data.id, isVerified: true });
-                }
-            } else {
-                this.activeFormations.set(groupFingerprint, {
-                    id: `FLT-${Math.random().toString(36).substr(2, 5).toUpperCase()}`,
-                    firstSeen: now,
-                    lastSeen: now,
-                    duration: 0
-                });
-            }
-        });
-
-        // Cleanup old formations
-        for (const [key, data] of this.activeFormations.entries()) {
-            if (now - data.lastSeen > this.formationTimeout) {
-                this.activeFormations.delete(key);
-            }
-        }
-
-        return verifiedGroups;
-    }
-};
-
-/**
- * CORE LOGIC: Vector-Based Clustering
- * Analyzes location, heading, and speed to identify intentional formations.
- */
-function analyzeFormations() {
-    const flights = Object.values(currentMapFeatures);
-    const groups = [];
-    const visited = new Set();
-
-    // Thresholds
-    const MAX_DIST_KM = 7.5;    // ~4 Nautical Miles
-    const MAX_HEADING_DIFF = 25; // Degrees (Must be flying roughly same way)
-    const MAX_SPD_DIFF = 50;    // Knots (Must be at similar speed)
-    const MAX_ALT_DIFF = 2500;  // Feet
-
-    for (let i = 0; i < flights.length; i++) {
-        const p1 = flights[i];
-        const id1 = p1.properties.flightId;
-
-        if (visited.has(id1)) continue;
-
-        let currentCluster = [p1];
-        
-        for (let j = 0; j < flights.length; j++) {
-            if (i === j) continue;
-            const p2 = flights[j];
-            const id2 = p2.properties.flightId;
-            if (visited.has(id2)) continue;
-
-            // 1. Distance Check
-            const dist = getDistanceKm(
-                p1.geometry.coordinates[1], p1.geometry.coordinates[0],
-                p2.geometry.coordinates[1], p2.geometry.coordinates[0]
-            );
-
-            if (dist < MAX_DIST_KM) {
-                // 2. Heading Alignment Check (The "Vector" check)
-                const h1 = p1.properties.heading;
-                const h2 = p2.properties.heading;
-                let hDiff = Math.abs(h1 - h2);
-                if (hDiff > 180) hDiff = 360 - hDiff;
-
-                // 3. Speed & Altitude Similarity
-                const s1 = p1.properties.gs || 0;
-                const s2 = p2.properties.gs || 0;
-                const sDiff = Math.abs(s1 - s2);
-
-                const a1 = p1.properties.altitude || 0;
-                const a2 = p2.properties.altitude || 0;
-                const aDiff = Math.abs(a1 - a2);
-
-                // Validation: Only group if they are moving together intentionally
-                if (hDiff < MAX_HEADING_DIFF && sDiff < MAX_SPD_DIFF && aDiff < MAX_ALT_DIFF) {
-                    currentCluster.push(p2);
-                }
-            }
-        }
-
-        if (currentCluster.length >= 2) {
-            currentCluster.forEach(p => visited.add(p.properties.flightId));
-            groups.push({
-                members: currentCluster.map(p => p.properties.flightId),
-                data: currentCluster,
-                center: currentCluster[0].geometry.coordinates
-            });
-        }
-    }
-
-    // Pass the raw physical clusters to the FormationManager to handle persistence
-    return FormationManager.update(groups);
-}
-
-/**
- * Renders the "Group Hub" UI list.
- */
-function updateGroupHubUI() {
-    const container = document.getElementById('group-flight-list'); // Add this ID to your HTML
-    if (!container) return;
-
-    const groups = detectGroupFlights();
-    container.innerHTML = '';
-
-    if (groups.length === 0) {
-        container.innerHTML = '<div class="fms-empty-state">No active groups detected.</div>';
-        return;
-    }
-
-    groups.forEach(group => {
-        const lead = group.members[0].properties;
-        const html = `
-            <div class="route-card group-card" style="border-left: 3px solid var(--color-brand); margin-bottom: 10px; cursor: pointer;" 
-                 onclick="focusOnGroup('${group.groupId}')">
-                <div class="route-info">
-                    <div class="route-callsign">
-                        <i class="fa-solid fa-users-viewfinder"></i> 
-                        ${lead.callsign} Fleet (${group.size} Pilots)
-                    </div>
-                    <div class="route-details">
-                        <span>Lead: ${lead.username}</span>
-                        <span class="route-ac-badge">${Math.round(lead.altitude).toLocaleString()} FT</span>
-                    </div>
-                </div>
-                <div class="plan-btn-mini">View</div>
-            </div>
-        `;
-        container.insertAdjacentHTML('beforeend', html);
-    });
-}
-
-/**
- * Focuses the map on a specific group.
- */
-window.focusOnGroup = (groupId) => {
-    const groups = detectGroupFlights();
-    const group = groups.find(g => g.groupId === groupId);
-    if (group && sectorOpsMap) {
-        sectorOpsMap.flyTo({
-            center: group.center,
-            zoom: 8,
-            essential: true
-        });
-        showNotification(`Viewing group of ${group.size} pilots`, 'info');
-    }
-};
-
-/**
- * Updated to support group highlighting.
- */
-function getIconImageExpression(colorMode = 'default') {
-    const getSuffix = (mode) => {
-        if (mode === 'orange') return '-orange';
-        if (mode === 'blue') return '-blue';
-        return ''; 
-    };
-
-    const buildCategoryMatch = (roleSuffix) => [
-        'match', ['get', 'category'],
-        'jumbo', `icon-jumbo${roleSuffix}`,
-        'widebody', `icon-widebody${roleSuffix}`,
-        'narrowbody', `icon-narrowbody${roleSuffix}`,
-        'regional', `icon-regional${roleSuffix}`,
-        'private', `icon-private${roleSuffix}`,
-        'fighter', `icon-fighter${roleSuffix}`,
-        'military', `icon-military${roleSuffix}`,
-        'cessna', `icon-cessna${roleSuffix}`,
-        `icon-default${roleSuffix}`
-    ];
-
-    return [
-        'match', ['get', 'trafficType'],
-        'inbound', buildCategoryMatch('-blue'),
-        'outbound', buildCategoryMatch('-orange'),
-        // NEW: Group highlighting (using orange as a group indicator)
-        'group_member', buildCategoryMatch('-orange'), 
-        buildCategoryMatch(getSuffix(colorMode))
-    ];
 }
 
 /**
@@ -5674,23 +5475,6 @@ function handleSocketFlightUpdate(data) {
             delete currentMapFeatures[flightId]; 
         }
     }
-
-    // Inside handleSocketFlightUpdate, after the "groups" are detected:
-const activeGroups = detectGroupFlights();
-const groupMemberIds = new Set(activeGroups.flatMap(g => g.members.map(m => m.properties.flightId)));
-
-// Inside the flight loop where newProperties are built:
-newProperties.trafficType = (() => {
-    if (groupMemberIds.has(flightId)) return 'group_member'; // PRIORITIZE GROUP VIEW
-    if (isTrafficHighlightActive && window.currentAirportTraffic) {
-        if (window.currentAirportTraffic.in.includes(flightId)) return 'inbound';
-        if (window.currentAirportTraffic.out.includes(flightId)) return 'outbound';
-    }
-    return 'none';
-})();
-
-// At the end of the update loop:
-updateGroupHubUI();
 }
 
 function initializeSectorOpsSocket() {
@@ -8247,6 +8031,7 @@ function initializeSectorOpsMap(centerICAO) {
 
     return new Promise(resolve => {
         sectorOpsMap.on('load', async () => {
+            GroupFlightManager.init(sectorOpsMap);
             await setupMapLayersAndFog();
             resolve();
         });
@@ -12227,6 +12012,16 @@ async function initializeApp() {
             atc: activeAtcFacilities.length || savedData.atc || 0
         });
     }
+
+    window.addEventListener('filterUpdate', (e) => {
+        const { filters } = e.detail;
+        
+        // Check if 'groups' is in the active filters object
+        mapFilters.showGroupFlights = !!filters.groups;
+        
+        // Trigger the map to redraw with the new group settings
+        updateMapFilters();
+    });
         
         mainContentLoader.classList.remove('active');
     }
