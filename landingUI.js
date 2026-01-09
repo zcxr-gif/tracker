@@ -1,31 +1,37 @@
 /**
  * LandingUI.js
- * REDESIGN: Spatial Minimalist - Flightradar24-style Filter Flow
- * * Flow:
- * 1. User opens Nexus (Filter Menu).
- * 2. User clicks a category (e.g., Altitude).
- * 3. A "Configurator Blade" appears with specific inputs (e.g., Min/Max).
- * 4. User clicks "Apply" -> Adds a chip to the top Search Blade.
+ * REDESIGN: Spatial Minimalist - FR24 Style Modal Flow
+ * * BEHAVIOR:
+ * 1. No chips near the top search bar.
+ * 2. Clicking a Filter Orb opens a detached "Panel".
+ * 3. Panel has navigation (Main Menu -> Specific Category).
+ * 4. Inside a category (e.g. Aircraft), user sees a search bar AND a scrollable list.
+ * 5. Selections accumulate in the Panel Footer.
  */
 
 export const LandingUI = {
-    _isVisible: false,
-    _filterNexusOpen: false,
-    _configuringFilterId: null, // Tracks which filter is currently being edited
-    _activeFilters: {}, // Structure: { id: { value: '...', type: '...' } }
+    _filterPanelOpen: false,
+    _currentView: 'home', // 'home' or 'category_view'
+    _activeCategory: null,
+    _tempSelections: {}, // Stores selections before hitting "Continue"
 
-    // Defined with input types to mimic FR24 logic (Range vs Text)
+    // Mock Data to simulate the list in the screenshot (The "Loose Ends")
+    mockData: {
+        type: ['Airbus A318', 'Airbus A319', 'Airbus A320', 'Airbus A320neo', 'Airbus A321', 'Boeing 737-800', 'Boeing 777-300ER', 'Cessna 172'],
+        airline: ['Delta', 'United', 'American', 'Lufthansa', 'British Airways', 'Emirates', 'Qatar'],
+        origin: ['KJFK', 'EGLL', 'KLAX', 'OMDB', 'WSSS', 'RJTT'],
+    },
+
     filterOptions: [
-        { id: 'type', label: 'Aircraft', icon: 'fa-plane', inputType: 'text', placeholder: 'e.g. B737, A320' },
-        { id: 'airline', label: 'Operator', icon: 'fa-building', inputType: 'text', placeholder: 'e.g. DAL, UAL' },
-        { id: 'callsign', label: 'Callsign', icon: 'fa-id-badge', inputType: 'text', placeholder: 'Search callsign...' },
-        { id: 'rank', label: 'Rank', icon: 'fa-star', inputType: 'text', placeholder: 'Grade level...' },
-        { id: 'altitude', label: 'Altitude', icon: 'fa-arrows-up-down', inputType: 'range', unit: 'ft' },
-        { id: 'speed', label: 'Speed', icon: 'fa-gauge-high', inputType: 'range', unit: 'kts' },
-        { id: 'origin', label: 'Origin', icon: 'fa-plane-departure', inputType: 'text', placeholder: 'ICAO Code' },
-        { id: 'destination', label: 'Destination', icon: 'fa-plane-arrival', inputType: 'text', placeholder: 'ICAO Code' },
-        { id: 'atc', label: 'ATC', icon: 'fa-headset', inputType: 'text', placeholder: 'Frequency/Name' },
-        { id: 'groups', label: 'Groups', icon: 'fa-users-rays', inputType: 'text', placeholder: 'Group Name' }
+        { id: 'type', label: 'Aircraft', icon: 'fa-plane' },
+        { id: 'airline', label: 'Operator', icon: 'fa-building' },
+        { id: 'callsign', label: 'Callsign', icon: 'fa-id-badge' },
+        { id: 'rank', label: 'Rank', icon: 'fa-star' },
+        { id: 'altitude', label: 'Altitude', icon: 'fa-arrows-up-down', isRange: true },
+        { id: 'speed', label: 'Speed', icon: 'fa-gauge-high', isRange: true },
+        { id: 'origin', label: 'Origin', icon: 'fa-plane-departure' },
+        { id: 'destination', label: 'Destination', icon: 'fa-plane-arrival' },
+        { id: 'groups', label: 'Groups', icon: 'fa-users-rays' }
     ],
 
     init() {
@@ -48,374 +54,367 @@ export const LandingUI = {
                 <div class="search-blade-container">
                     <div class="search-blade">
                         <i class="fa-solid fa-magnifying-glass search-icon"></i>
-                        <input type="text" id="blade-search-input" placeholder="Search airspace..." autocomplete="off">
+                        <input type="text" id="blade-search-input" placeholder="Search global airspace..." autocomplete="off">
                         <div class="search-shortcut">⌘K</div>
                     </div>
-                    <div id="active-filter-chips" class="filter-chips-row"></div>
                 </div>
 
+                <div id="fr24-filter-panel" class="fr24-panel">
+                    </div>
+
                 <div class="utility-nexus">
-                    
-                    <div id="filter-configurator" class="filter-configurator">
-                        <div class="config-header">
-                            <i id="config-icon" class="fa-solid fa-filter"></i>
-                            <span id="config-title">CONFIGURE</span>
-                            <button class="config-close-btn" id="close-config"><i class="fa-solid fa-xmark"></i></button>
-                        </div>
-                        <div id="config-body" class="config-body">
-                            </div>
-                        <div class="config-footer">
-                            <button id="apply-filter-btn" class="action-btn apply">ADD FILTER</button>
-                        </div>
-                    </div>
-
-                    <div id="filter-nexus-grid" class="filter-nexus-grid">
-                        ${this.filterOptions.map(f => `
-                            <div class="nexus-item" data-filter-id="${f.id}" title="${f.label}">
-                                <i class="fa-solid ${f.icon}"></i>
-                                <span class="nexus-label">${f.label}</span>
-                            </div>
-                        `).join('')}
-                    </div>
-
                     <div class="orb-row">
-                        <button class="orb-btn" id="tile-weather" aria-label="Weather">
-                            <i class="fa-solid fa-cloud"></i>
-                        </button>
-                        <button class="orb-btn" id="tile-settings" aria-label="Settings">
-                            <i class="fa-solid fa-sliders"></i>
-                        </button>
-                        <button class="orb-btn nexus-trigger" id="toggle-nexus" aria-label="Filters">
+                        <button class="orb-btn" id="tile-weather"><i class="fa-solid fa-cloud"></i></button>
+                        <button class="orb-btn" id="tile-settings"><i class="fa-solid fa-sliders"></i></button>
+                        
+                        <button class="orb-btn nexus-trigger" id="toggle-filter-panel">
                             <i class="fa-solid fa-filter"></i>
+                            <div id="filter-badge" class="filter-badge hidden">0</div>
                         </button>
-                        <button class="orb-btn highlight-orb" id="tile-server" aria-label="Network">
-                            <i class="fa-solid fa-wifi"></i>
-                        </button>
+                        
+                        <button class="orb-btn highlight-orb" id="tile-server"><i class="fa-solid fa-wifi"></i></button>
                     </div>
                 </div>
             </div>
         `;
 
-        const container = document.getElementById('sector-ops-map-fullscreen');
-        if (container) {
-            container.insertAdjacentHTML('beforeend', html);
-        }
+        document.getElementById('sector-ops-map-fullscreen')?.insertAdjacentHTML('beforeend', html);
     },
 
     attachListeners() {
-        const searchInput = document.getElementById('blade-search-input');
-        const nexusTrigger = document.getElementById('toggle-nexus');
-        const nexusGrid = document.getElementById('filter-nexus-grid');
-        const closeConfigBtn = document.getElementById('close-config');
-        const applyFilterBtn = document.getElementById('apply-filter-btn');
+        const toggleBtn = document.getElementById('toggle-filter-panel');
+        const panel = document.getElementById('fr24-filter-panel');
 
-        // Toggle Nexus Grid
-        nexusTrigger?.addEventListener('click', () => {
-            this._filterNexusOpen = !this._filterNexusOpen;
-            // Close configurator if closing nexus
-            if (!this._filterNexusOpen) this.closeConfigurator();
+        toggleBtn?.addEventListener('click', () => {
+            this._filterPanelOpen = !this._filterPanelOpen;
+            panel.classList.toggle('active', this._filterPanelOpen);
+            toggleBtn.classList.toggle('active', this._filterPanelOpen);
             
-            if (nexusGrid) nexusGrid.classList.toggle('open', this._filterNexusOpen);
-            if (nexusTrigger) nexusTrigger.classList.toggle('active', this._filterNexusOpen);
+            if (this._filterPanelOpen) {
+                this.renderMainMenu();
+            }
         });
 
-        // Close Configurator
-        closeConfigBtn?.addEventListener('click', () => this.closeConfigurator());
-
-        // Apply Filter Logic
-        applyFilterBtn?.addEventListener('click', () => this.applyCurrentFilter());
-
-        // Nexus Item Click (Opens Configurator)
-        document.querySelectorAll('.nexus-item').forEach(item => {
-            item.addEventListener('click', () => {
-                const id = item.dataset.filterId;
-                this.openConfigurator(id);
-            });
+        // Close panel when clicking outside (optional, good UX)
+        document.addEventListener('click', (e) => {
+            if (this._filterPanelOpen && !panel.contains(e.target) && !toggleBtn.contains(e.target)) {
+                this._filterPanelOpen = false;
+                panel.classList.remove('active');
+                toggleBtn.classList.remove('active');
+            }
         });
-
-        // Global Search Input
-        searchInput?.addEventListener('input', () => this.dispatchFilterUpdate());
-
-        // Standard Orbs
-        document.getElementById('tile-weather')?.addEventListener('click', () => document.getElementById('open-weather-settings-btn')?.click());
-        document.getElementById('tile-settings')?.addEventListener('click', () => document.getElementById('open-filter-settings-btn')?.click());
     },
 
-    openConfigurator(filterId) {
-        this._configuringFilterId = filterId;
-        const option = this.filterOptions.find(f => f.id === filterId);
-        if (!option) return;
+    // ---------------------------------------------------------
+    // RENDER STATES
+    // ---------------------------------------------------------
 
-        const configEl = document.getElementById('filter-configurator');
-        const bodyEl = document.getElementById('config-body');
-        const titleEl = document.getElementById('config-title');
-        const iconEl = document.getElementById('config-icon');
-        const gridEl = document.getElementById('filter-nexus-grid');
-
-        // Update Header
-        titleEl.textContent = option.label;
-        iconEl.className = `fa-solid ${option.icon}`;
-
-        // Build Inputs based on Type (FR24 Style)
-        if (option.inputType === 'range') {
-            bodyEl.innerHTML = `
-                <div class="range-inputs-wrapper">
-                    <div class="input-group">
-                        <label>MIN (${option.unit || ''})</label>
-                        <input type="number" id="filter-min" placeholder="0">
+    // State 1: The Grid of Categories (Initial View)
+    renderMainMenu() {
+        const panel = document.getElementById('fr24-filter-panel');
+        this._currentView = 'home';
+        
+        panel.innerHTML = `
+            <div class="panel-header">
+                <span class="panel-title">FILTERS</span>
+                <button class="panel-close-btn" onclick="LandingUI.closePanel()"><i class="fa-solid fa-xmark"></i></button>
+            </div>
+            <div class="panel-content grid-view">
+                ${this.filterOptions.map(opt => `
+                    <div class="category-card" onclick="LandingUI.openCategory('${opt.id}')">
+                        <i class="fa-solid ${opt.icon}"></i>
+                        <span>${opt.label}</span>
+                        ${this._tempSelections[opt.id] ? '<div class="active-dot"></div>' : ''}
                     </div>
-                    <div class="separator">-</div>
-                    <div class="input-group">
-                        <label>MAX (${option.unit || ''})</label>
-                        <input type="number" id="filter-max" placeholder="Unlimited">
-                    </div>
+                `).join('')}
+            </div>
+            <div class="panel-footer-placeholder">
+                <span class="hint-text">Select a category to filter</span>
+            </div>
+        `;
+    },
+
+    // State 2: The Specific Filter View (The Screenshot Look)
+    openCategory(id) {
+        this._activeCategory = id;
+        this._currentView = 'category';
+        const option = this.filterOptions.find(o => o.id === id);
+        const panel = document.getElementById('fr24-filter-panel');
+
+        // Check if we have mock data for this list, or use generic inputs
+        const hasList = this.mockData[id] !== undefined;
+
+        let contentHtml = '';
+
+        if (hasList) {
+            // Render Search Bar + List (Screenshot Style)
+            contentHtml = `
+                <div class="local-search-container">
+                    <i class="fa-solid fa-magnifying-glass"></i>
+                    <input type="text" id="cat-search" placeholder="Find ${option.label}..." oninput="LandingUI.filterList(this.value)">
+                </div>
+                <div class="scrollable-list" id="selection-list">
+                    ${this.renderListItems(id)}
+                </div>
+            `;
+        } else if (option.isRange) {
+            // Render Range Sliders (Altitude/Speed)
+            contentHtml = `
+                <div class="range-container">
+                    <label>Min</label>
+                    <input type="number" class="range-input" id="range-min" placeholder="0">
+                    <div class="range-divider"></div>
+                    <label>Max</label>
+                    <input type="number" class="range-input" id="range-max" placeholder="Unlimited">
                 </div>
             `;
         } else {
-            bodyEl.innerHTML = `
-                <div class="text-input-wrapper">
-                    <input type="text" id="filter-value" placeholder="${option.placeholder || 'Enter value...'}" autocomplete="off">
+            // Generic Text Input fallback
+            contentHtml = `
+                 <div class="local-search-container">
+                    <input type="text" id="generic-input" placeholder="Enter ${option.label}...">
                 </div>
             `;
-            // Auto focus for text
-            setTimeout(() => document.getElementById('filter-value')?.focus(), 100);
         }
 
-        // Handle ENTER key to apply
-        bodyEl.querySelectorAll('input').forEach(input => {
-            input.addEventListener('keydown', (e) => {
-                if (e.key === 'Enter') this.applyCurrentFilter();
-            });
-        });
-
-        // Show Configurator, Hide/Dim Grid slightly
-        configEl.classList.add('active');
-        if (gridEl) gridEl.classList.add('dimmed');
-    },
-
-    closeConfigurator() {
-        this._configuringFilterId = null;
-        document.getElementById('filter-configurator')?.classList.remove('active');
-        document.getElementById('filter-nexus-grid')?.classList.remove('dimmed');
-    },
-
-    applyCurrentFilter() {
-        if (!this._configuringFilterId) return;
-
-        const option = this.filterOptions.find(f => f.id === this._configuringFilterId);
-        let value = null;
-
-        if (option.inputType === 'range') {
-            const min = document.getElementById('filter-min').value;
-            const max = document.getElementById('filter-max').value;
-            if (min || max) {
-                value = { min: min || '0', max: max || '∞' };
-            }
-        } else {
-            const val = document.getElementById('filter-value').value;
-            if (val) value = val;
-        }
-
-        if (value) {
-            this._activeFilters[this._configuringFilterId] = {
-                value: value,
-                type: option.inputType,
-                unit: option.unit
-            };
-            this.refreshActiveChips();
-            this.closeConfigurator();
-        }
-    },
-
-    removeFilter(id) {
-        delete this._activeFilters[id];
-        this.refreshActiveChips();
-    },
-
-    refreshActiveChips() {
-        const container = document.getElementById('active-filter-chips');
-        if (!container) return;
-
-        container.innerHTML = Object.entries(this._activeFilters).map(([id, data]) => {
-            const opt = this.filterOptions.find(f => f.id === id);
+        panel.innerHTML = `
+            <div class="panel-header">
+                <button class="back-btn" onclick="LandingUI.renderMainMenu()"><i class="fa-solid fa-chevron-left"></i></button>
+                <span class="panel-title">FILTER BY ${option.label.toUpperCase()}</span>
+                <button class="panel-close-btn" onclick="LandingUI.closePanel()"><i class="fa-solid fa-xmark"></i></button>
+            </div>
             
-            // Format display string
-            let displayStr = '';
-            if (data.type === 'range') {
-                displayStr = `${data.value.min} - ${data.value.max} ${data.unit || ''}`;
-            } else {
-                displayStr = data.value;
-            }
+            <div class="panel-content list-view">
+                ${contentHtml}
+            </div>
 
+            <div class="panel-footer" id="panel-footer">
+                ${this.renderFooterChips(id)}
+            </div>
+        `;
+    },
+
+    renderListItems(categoryId, searchTerm = '') {
+        const items = this.mockData[categoryId] || [];
+        const currentSelections = this._tempSelections[categoryId] || [];
+
+        // Filter mock data
+        const filtered = items.filter(item => item.toLowerCase().includes(searchTerm.toLowerCase()));
+
+        return filtered.map(item => {
+            const isSelected = currentSelections.includes(item);
             return `
-                <div class="filter-chip">
-                    <i class="fa-solid ${opt.icon}"></i>
-                    <span class="chip-label">${opt.label}:</span>
-                    <span class="chip-value">${displayStr}</span>
-                    <i class="fa-solid fa-xmark chip-close" onclick="LandingUI.removeFilter('${id}')"></i>
+                <div class="list-row ${isSelected ? 'selected' : ''}" onclick="LandingUI.toggleSelection('${item}')">
+                    <div class="checkbox-circle">
+                        ${isSelected ? '<i class="fa-solid fa-check"></i>' : ''}
+                    </div>
+                    <span class="row-label">${item}</span>
+                    <span class="row-code">CODE</span>
                 </div>
             `;
         }).join('');
-
-        this.dispatchFilterUpdate();
     },
 
-    dispatchFilterUpdate() {
-        // Loose ends: Sending the complex objects (ranges/text) so backend can parse later
-        const event = new CustomEvent('filterUpdate', { 
-            detail: { 
-                filters: { ...this._activeFilters }, 
-                searchTerm: document.getElementById('blade-search-input')?.value || '' 
-            } 
-        });
-        window.dispatchEvent(event);
-    },
+    // ---------------------------------------------------------
+    // LOGIC
+    // ---------------------------------------------------------
 
-    update(isActive, stats = {}) {
-        const el = document.getElementById('inflight-tactical-ui');
-        if (!el) return;
-        isActive ? el.classList.add('active') : el.classList.remove('active');
-        if (stats.server) {
-            document.getElementById('landing-server-name').textContent = stats.server.toUpperCase();
+    toggleSelection(value) {
+        const cat = this._activeCategory;
+        if (!this._tempSelections[cat]) this._tempSelections[cat] = [];
+
+        const index = this._tempSelections[cat].indexOf(value);
+        if (index > -1) {
+            this._tempSelections[cat].splice(index, 1); // Remove
+        } else {
+            this._tempSelections[cat].push(value); // Add
         }
+
+        // Re-render only list and footer to maintain state
+        document.getElementById('selection-list').innerHTML = this.renderListItems(cat, document.getElementById('cat-search')?.value || '');
+        document.getElementById('panel-footer').innerHTML = this.renderFooterChips(cat);
+    },
+
+    filterList(term) {
+        document.getElementById('selection-list').innerHTML = this.renderListItems(this._activeCategory, term);
+    },
+
+    renderFooterChips(catId) {
+        const selections = this._tempSelections[catId] || [];
+        
+        if (selections.length === 0) {
+            return `<button class="continue-btn disabled">Continue</button>`;
+        }
+
+        return `
+            <div class="footer-chips-scroll">
+                ${selections.map(val => `
+                    <div class="mini-chip">
+                        ${val} <i class="fa-solid fa-xmark" onclick="event.stopPropagation(); LandingUI.toggleSelection('${val}')"></i>
+                    </div>
+                `).join('')}
+            </div>
+            <button class="continue-btn" onclick="LandingUI.applyFilters()">Continue (${selections.length})</button>
+        `;
+    },
+
+    applyFilters() {
+        // This is where you connect the "Loose Ends" to your backend/map
+        console.log("Filters Applied:", this._tempSelections);
+        
+        // Update badge on the main orb
+        const totalFilters = Object.values(this._tempSelections).flat().length;
+        const badge = document.getElementById('filter-badge');
+        if(badge) {
+            badge.textContent = totalFilters;
+            badge.classList.toggle('hidden', totalFilters === 0);
+        }
+
+        this.closePanel();
+        
+        // Dispatch event for other systems
+        window.dispatchEvent(new CustomEvent('filterUpdate', { detail: this._tempSelections }));
+    },
+
+    closePanel() {
+        this._filterPanelOpen = false;
+        document.getElementById('fr24-filter-panel')?.classList.remove('active');
+        document.getElementById('toggle-filter-panel')?.classList.remove('active');
     },
 
     injectStyles() {
         const css = `
+            :root {
+                --panel-bg: rgba(18, 18, 18, 0.95);
+                --panel-border: rgba(255, 255, 255, 0.1);
+                --accent-gold: #ffc107; /* The FR24 active color */
+                --text-muted: rgba(255, 255, 255, 0.5);
+            }
+
             .tactical-ui-root {
-                position: absolute; inset: 0; z-index: 2000;
-                pointer-events: none; opacity: 0; visibility: hidden;
-                transition: opacity 0.5s ease;
-                font-family: 'Inter', -apple-system, sans-serif;
+                position: absolute; inset: 0; z-index: 2000; pointer-events: none;
+                font-family: 'Inter', sans-serif;
             }
-            .tactical-ui-root.active { opacity: 1; visibility: visible; }
 
-            /* Top Branding */
-            .top-branding {
-                position: absolute; top: 30px; left: 40px;
-                display: flex; align-items: center; gap: 12px; pointer-events: auto;
-            }
+            /* Branding & Search (Top) */
+            .top-branding { position: absolute; top: 30px; left: 40px; display: flex; align-items: center; gap: 12px; pointer-events: auto; }
             .status-dot { width: 6px; height: 6px; background: #00ff88; border-radius: 50%; box-shadow: 0 0 10px #00ff88; }
-            #landing-server-name { color: rgba(255,255,255,0.4); font-size: 10px; font-weight: 800; letter-spacing: 0.2em; }
+            #landing-server-name { color: var(--text-muted); font-size: 10px; font-weight: 800; letter-spacing: 0.2em; }
 
-            /* Search Blade */
-            .search-blade-container {
-                position: absolute; top: 30px; right: 40px;
-                display: flex; flex-direction: column; align-items: flex-end; gap: 12px;
-                pointer-events: none;
-            }
+            .search-blade-container { position: absolute; top: 30px; right: 40px; pointer-events: none; }
             .search-blade {
-                pointer-events: auto;
-                background: rgba(20, 20, 20, 0.6); backdrop-filter: blur(20px);
-                border: 1px solid rgba(255, 255, 255, 0.08); border-radius: 12px;
-                height: 44px; width: 240px; display: flex; align-items: center; padding: 0 14px;
-                transition: all 0.4s cubic-bezier(0.16, 1, 0.3, 1);
+                pointer-events: auto; background: rgba(20, 20, 20, 0.6); backdrop-filter: blur(20px);
+                border: 1px solid var(--panel-border); border-radius: 12px; height: 44px; width: 240px;
+                display: flex; align-items: center; padding: 0 14px; transition: all 0.3s;
             }
-            .search-blade:focus-within { width: 380px; background: rgba(30, 30, 30, 0.8); border-color: rgba(255,255,255,0.2); }
-            .search-icon { color: rgba(255,255,255,0.3); font-size: 14px; }
-            #blade-search-input { flex: 1; background: none; border: none; color: #fff; margin-left: 12px; font-size: 14px; outline: none; }
-            .search-shortcut { font-size: 10px; color: rgba(255,255,255,0.2); background: rgba(255,255,255,0.05); padding: 2px 6px; border-radius: 4px; }
+            #blade-search-input { flex: 1; background: none; border: none; color: #fff; margin-left: 12px; outline: none; }
+            .search-icon { color: var(--text-muted); }
 
-            /* Active Chips (Read Only) */
-            .filter-chips-row { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 8px; max-width: 500px; }
-            .filter-chip {
+            /* --- THE MAIN PANEL (The FR24 Lookalike) --- */
+            .fr24-panel {
                 pointer-events: auto;
-                background: rgba(0, 122, 255, 0.15); border: 1px solid rgba(0, 122, 255, 0.3);
-                backdrop-filter: blur(10px); border-radius: 8px;
-                padding: 6px 10px; display: flex; align-items: center; gap: 8px;
-                color: #fff; font-size: 12px; animation: chipIn 0.3s ease-out;
-            }
-            @keyframes chipIn { from { opacity: 0; transform: translateY(-5px); } to { opacity: 1; transform: translateY(0); } }
-            .chip-label { color: rgba(255,255,255,0.6); font-weight: 500; text-transform: uppercase; font-size: 10px; }
-            .chip-value { font-weight: 700; }
-            .chip-close { margin-left: 4px; color: rgba(255,255,255,0.4); cursor: pointer; }
-            .chip-close:hover { color: #fff; }
-
-            /* Utility Nexus Container */
-            .utility-nexus {
-                position: absolute; bottom: 40px; right: 40px;
-                display: flex; flex-direction: column; align-items: flex-end; gap: 15px; pointer-events: none;
-            }
-
-            /* Filter Configurator (The "Popup" Blade) */
-            .filter-configurator {
-                pointer-events: auto;
-                width: 320px;
-                background: rgba(15, 15, 15, 0.95);
+                position: absolute;
+                bottom: 100px; /* Floating above the nexus */
+                right: 40px;
+                width: 360px;
+                height: 500px;
+                background: var(--panel-bg);
                 backdrop-filter: blur(40px);
-                border: 1px solid rgba(255, 255, 255, 0.1);
+                border: 1px solid var(--panel-border);
                 border-radius: 16px;
-                padding: 16px;
-                margin-bottom: 10px;
+                display: flex; flex-direction: column;
+                box-shadow: 0 30px 80px rgba(0,0,0,0.6);
+                
                 opacity: 0; transform: translateY(20px) scale(0.95); visibility: hidden;
                 transition: all 0.3s cubic-bezier(0.16, 1, 0.3, 1);
-                box-shadow: 0 20px 60px rgba(0,0,0,0.6);
+                overflow: hidden;
             }
-            .filter-configurator.active { opacity: 1; transform: translateY(0) scale(1); visibility: visible; }
+            .fr24-panel.active { opacity: 1; transform: translateY(0) scale(1); visibility: visible; }
 
-            .config-header { display: flex; align-items: center; gap: 10px; margin-bottom: 16px; padding-bottom: 12px; border-bottom: 1px solid rgba(255,255,255,0.1); }
-            #config-title { font-size: 12px; font-weight: 700; letter-spacing: 1px; color: #fff; flex: 1; }
-            .config-close-btn { background: none; border: none; color: rgba(255,255,255,0.3); cursor: pointer; transition: 0.2s; }
-            .config-close-btn:hover { color: #fff; }
-
-            .config-body { margin-bottom: 16px; }
-            .text-input-wrapper input {
-                width: 100%; background: rgba(255,255,255,0.05); border: 1px solid rgba(255,255,255,0.1);
-                border-radius: 8px; padding: 10px; color: #fff; outline: none; font-size: 14px;
+            /* Header */
+            .panel-header {
+                height: 50px; border-bottom: 1px solid var(--panel-border);
+                display: flex; align-items: center; justify-content: space-between; padding: 0 16px;
+                background: rgba(255,255,255,0.02);
             }
-            .text-input-wrapper input:focus { border-color: #007aff; background: rgba(0, 122, 255, 0.1); }
+            .panel-title { font-size: 12px; font-weight: 700; letter-spacing: 1px; color: #fff; text-transform: uppercase; }
+            .back-btn, .panel-close-btn { background: none; border: none; color: var(--text-muted); cursor: pointer; font-size: 14px; }
+            .back-btn:hover, .panel-close-btn:hover { color: #fff; }
 
-            .range-inputs-wrapper { display: flex; align-items: center; gap: 10px; }
-            .input-group { flex: 1; display: flex; flex-direction: column; gap: 4px; }
-            .input-group label { font-size: 9px; color: rgba(255,255,255,0.4); font-weight: 600; }
-            .input-group input { 
-                width: 100%; background: rgba(255,255,255,0.05); border: 1px solid rgba(255,255,255,0.1);
-                border-radius: 6px; padding: 8px; color: #fff; outline: none; font-size: 13px;
+            /* Content Area */
+            .panel-content { flex: 1; overflow-y: auto; position: relative; }
+            
+            /* Grid View (Main Menu) */
+            .grid-view { padding: 16px; display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; }
+            .category-card {
+                aspect-ratio: 1; background: rgba(255,255,255,0.04); border-radius: 12px;
+                display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 8px;
+                cursor: pointer; transition: 0.2s; border: 1px solid transparent; position: relative;
             }
-            .input-group input:focus { border-color: #007aff; }
-            .separator { color: rgba(255,255,255,0.2); font-weight: bold; margin-top: 14px; }
+            .category-card:hover { background: rgba(255,255,255,0.08); border-color: rgba(255,255,255,0.1); }
+            .category-card i { font-size: 18px; color: var(--text-muted); }
+            .category-card span { font-size: 10px; font-weight: 600; color: #ccc; }
+            .active-dot { position: absolute; top: 8px; right: 8px; width: 6px; height: 6px; background: var(--accent-gold); border-radius: 50%; }
 
-            .config-footer { display: flex; justify-content: flex-end; }
-            .action-btn { 
-                background: #fff; color: #000; border: none; border-radius: 6px; padding: 8px 16px; 
-                font-size: 11px; font-weight: 700; cursor: pointer; transition: 0.2s; 
+            /* List View (Inside Category) */
+            .local-search-container {
+                margin: 16px; padding: 0 12px; height: 40px;
+                background: rgba(255,255,255,0.05); border-radius: 8px; border: 1px solid var(--panel-border);
+                display: flex; align-items: center; gap: 10px;
             }
-            .action-btn:hover { background: #e0e0e0; transform: translateY(-1px); }
-
-            /* Nexus Grid */
-            .filter-nexus-grid {
-                pointer-events: auto;
-                display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px;
-                background: rgba(10, 10, 10, 0.8); backdrop-filter: blur(30px);
-                padding: 15px; border-radius: 20px;
-                border: 1px solid rgba(255, 255, 255, 0.1);
-                opacity: 0; transform: translateY(20px) scale(0.95); visibility: hidden;
-                transition: all 0.4s cubic-bezier(0.16, 1, 0.3, 1);
+            #cat-search { background: none; border: none; width: 100%; color: #fff; outline: none; }
+            
+            .list-row {
+                padding: 12px 20px; border-bottom: 1px solid rgba(255,255,255,0.03);
+                display: flex; align-items: center; gap: 12px; cursor: pointer; transition: 0.2s;
             }
-            .filter-nexus-grid.open { opacity: 1; transform: translateY(0) scale(1); visibility: visible; }
-            .filter-nexus-grid.dimmed { opacity: 0.3; pointer-events: none; transform: scale(0.98); }
-
-            .nexus-item {
-                width: 70px; height: 70px; display: flex; flex-direction: column;
-                align-items: center; justify-content: center; gap: 6px;
-                border-radius: 12px; background: rgba(255, 255, 255, 0.03); border: 1px solid rgba(255, 255, 255, 0.05);
-                color: rgba(255, 255, 255, 0.4); cursor: pointer; transition: all 0.2s;
+            .list-row:hover { background: rgba(255,255,255,0.05); }
+            
+            /* The Selection State (Gold) */
+            .list-row.selected { background: rgba(255, 193, 7, 0.15); }
+            .list-row.selected .checkbox-circle { background: var(--accent-gold); border-color: var(--accent-gold); color: #000; }
+            .checkbox-circle {
+                width: 18px; height: 18px; border-radius: 4px; border: 2px solid var(--text-muted);
+                display: flex; align-items: center; justify-content: center; font-size: 10px; transition: 0.2s;
             }
-            .nexus-item:hover { background: rgba(255, 255, 255, 0.08); color: #fff; }
-            .nexus-label { font-size: 9px; text-transform: uppercase; letter-spacing: 0.5px; font-weight: 600; }
+            .row-label { font-size: 13px; color: #fff; font-weight: 500; flex: 1; }
+            .row-code { font-size: 10px; color: var(--text-muted); background: rgba(255,255,255,0.1); padding: 2px 4px; border-radius: 4px; }
 
-            /* Orbs */
+            /* Footer (Sticky) */
+            .panel-footer {
+                background: rgba(30,30,30,0.9); border-top: 1px solid var(--panel-border);
+                padding: 12px; display: flex; flex-direction: column; gap: 8px;
+            }
+            .footer-chips-scroll { display: flex; gap: 6px; overflow-x: auto; padding-bottom: 4px; }
+            .mini-chip {
+                background: var(--accent-gold); color: #000; font-size: 11px; font-weight: 600;
+                padding: 4px 8px; border-radius: 4px; display: flex; align-items: center; gap: 6px; white-space: nowrap;
+            }
+            .mini-chip i { cursor: pointer; opacity: 0.6; } .mini-chip i:hover { opacity: 1; }
+            
+            .continue-btn {
+                width: 100%; height: 36px; background: #007aff; border: none; border-radius: 6px;
+                color: #fff; font-weight: 600; font-size: 13px; cursor: pointer; transition: 0.2s;
+            }
+            .continue-btn:hover { background: #006add; }
+            .continue-btn.disabled { background: rgba(255,255,255,0.1); color: rgba(255,255,255,0.3); pointer-events: none; }
+
+            /* Bottom Right Nexus */
+            .utility-nexus { position: absolute; bottom: 40px; right: 40px; pointer-events: none; }
             .orb-row { display: flex; gap: 12px; pointer-events: auto; }
             .orb-btn {
-                width: 48px; height: 48px; border-radius: 50%;
+                width: 48px; height: 48px; border-radius: 50%; position: relative;
                 background: rgba(15, 15, 15, 0.6); backdrop-filter: blur(15px);
-                border: 1px solid rgba(255, 255, 255, 0.1); color: rgba(255, 255, 255, 0.5);
-                cursor: pointer; display: flex; align-items: center; justify-content: center;
-                transition: all 0.3s;
+                border: 1px solid var(--panel-border); color: var(--text-muted);
+                cursor: pointer; display: flex; align-items: center; justify-content: center; transition: all 0.3s;
             }
-            .orb-btn:hover { background: rgba(255, 255, 255, 0.1); color: #fff; transform: scale(1.05); }
-            .orb-btn.active { background: #fff; color: #000; }
-            .highlight-orb { border-color: rgba(0, 255, 136, 0.3); }
+            .orb-btn:hover, .orb-btn.active { background: #fff; color: #000; }
+            .filter-badge {
+                position: absolute; top: -2px; right: -2px; background: var(--accent-gold); color: #000;
+                width: 16px; height: 16px; border-radius: 50%; font-size: 10px; font-weight: 800;
+                display: flex; align-items: center; justify-content: center;
+            }
+            .filter-badge.hidden { display: none; }
         `;
 
         const style = document.createElement('style');
