@@ -27,13 +27,13 @@ export const LandingUI = {
                 { id: 'type', label: 'Aircraft Type', icon: 'fa-plane', type: 'text', placeholder: 'e.g. B737, A320' },
                 { id: 'livery', label: 'Livery', icon: 'fa-paint-roller', type: 'text', placeholder: 'e.g. United, FedEx' },
                 // Example: In landingUI.js, update the 'country' filter options
-{ 
-    id: 'country', 
-    label: 'Country Registry', 
-    icon: 'fa-globe', 
-    type: 'select', 
-    options: prefixData.map(p => `${p.country} (${p.prefix[0]})`) 
-},
+                { 
+                    id: 'country', 
+                    label: 'Country Registry', 
+                    icon: 'fa-globe', 
+                    type: 'select', 
+                    options: [] // Start empty, will be filled by fetch
+                },
                 { id: 'airline', label: 'Airline Code', icon: 'fa-building', type: 'text', placeholder: 'e.g. UAL, BAW' }
             ]
         },
@@ -50,10 +50,30 @@ route: {
 }
     },
 
-    init() {
+    async init() {
+        await this.loadPrefixData(); // Fetch your prefix.json first
         this.injectStyles();
         this.render();
         this.attachListeners();
+    },
+
+    async loadPrefixData() {
+        try {
+            const response = await fetch('prefix.json');
+            const data = await response.json();
+            
+            // Find the country filter in your structure
+            const countryFilter = this.filterGroups.aircraft.filters.find(f => f.id === 'country');
+            if (countryFilter) {
+                // Format strings to "United States (N)" for your regex in flight.js
+                countryFilter.options = [
+                    'All Countries', 
+                    ...data.map(p => `${p.country} (${p.prefix[0]})`)
+                ];
+            }
+        } catch (e) {
+            console.error("Error loading prefix.json:", e);
+        }
     },
 
     render() {

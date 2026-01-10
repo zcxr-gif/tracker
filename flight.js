@@ -12064,6 +12064,8 @@ async function initializeApp() {
         
         // Initialize the Sector Ops view
         await initializeSectorOpsView();
+
+        await LandingUI.init();
         
         const isVisible = localStorage.getItem('landingUI_visible') === 'true';
     if (isVisible) {
