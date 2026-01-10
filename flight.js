@@ -4652,23 +4652,28 @@ function updateAircraftLayerFilter() {
         filter.push(['in', mapFilters.quickSearch.toUpperCase(), ['upcase', ['get', 'callsign']]]);
     }
 
-    // [NEW] Registration / Tail Number Search
-    if (tactical.registration && tactical.registration.trim() !== '') {
-        filter.push([
-            'in', 
-            tactical.registration.toUpperCase(), 
-            ['upcase', ['get', 'registration']]
-        ]);
-    }
-
     // Inside updateAircraftLayerFilter in flight.js
     if (tactical.country && tactical.country !== 'All Countries') {
     // Extract prefix from UI string "United States (N)" -> "N"
     const prefix = tactical.country.match(/\((.*?)\)/)[1]; 
     
-    // Filter: Registration must start with the selected prefix
-    filter.push(['==', ['slice', ['get', 'registration'], 0, prefix.length], prefix]);
+    // Inside updateAircraftLayerFilter
+if (tactical.country && tactical.country !== 'All Countries') {
+    // Extract prefix from UI string like "United States (N)" -> "N"
+    const prefixMatch = tactical.country.match(/\((.*?)\)/);
+    
+    if (prefixMatch) {
+        const prefix = prefixMatch[1];
+        
+        // Filter: Check if the 'registration' property starts with the prefix
+        // We use ['slice', ..., 0, length] to match prefixes of any length (N, G, VH, etc.)
+        filter.push([
+            '==', 
+            ['slice', ['get', 'registration'], 0, prefix.length], 
+            prefix
+        ]);
     }
+}
 
     // Existing Filters (Departure/Arrival/Phase/etc.)
     if (tactical.departureIcao) filter.push(['==', ['upcase', ['get', 'departureIcao']], tactical.departureIcao.toUpperCase()]);
@@ -5369,7 +5374,6 @@ function handleSocketFlightUpdate(data) {
             aircraft: JSON.stringify(aircraftData),
             aircraftName: acName, // ADD THIS: For direct filtering
             liveryName: livName,   // ADD THIS: For direct filtering
-            registration: communityData?.tailNumber || aircraftData?.registration || '',
             arrivalIcao: flight.arrivalIcao || null,   // Map new backend field
             departureIcao: flight.departureIcao || null, // Map new backend field
             userId: flight.userId,
@@ -5390,6 +5394,7 @@ function handleSocketFlightUpdate(data) {
     })(),
             communityImageUrl: existingProps.communityImageUrl || null, 
             contributorName: existingProps.contributorName || null,
+            registration: existingProps.registration || null, // Add this line
             tailNumber: existingProps.tailNumber || null 
         };
 
@@ -5410,13 +5415,17 @@ function handleSocketFlightUpdate(data) {
                             currentMapFeatures[flightId].properties.contributorName = result.contributorName;
                             currentMapFeatures[flightId].properties.tailNumber = result.tailNumber;
                             
-                            if (isMapReady && sectorOpsMap.getSource('sector-ops-live-flights-source')) {
-                                sectorOpsMap.getSource('sector-ops-live-flights-source').setData({
-                                    type: 'FeatureCollection', 
-                                    features: Object.values(currentMapFeatures)
-                                });
-                            }
-                        }
+                        // MAP TAIL NUMBER TO REGISTRATION FOR FILTERING
+            currentMapFeatures[flightId].properties.registration = result.tailNumber || '---';
+
+            // Refresh the map source to apply the new registration data
+            if (isMapReady && sectorOpsMap.getSource('sector-ops-live-flights-source')) {
+                sectorOpsMap.getSource('sector-ops-live-flights-source').setData({
+                    type: 'FeatureCollection',
+                    features: Object.values(currentMapFeatures)
+                });
+            }
+        }
                     })
                     .catch(() => { /* Ignore errors */ });
             }
