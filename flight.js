@@ -4595,6 +4595,15 @@ function updateAircraftLayerFilter() {
     // 2. Tactical Filters (from landingUI.js)
     const tactical = mapFilters.tactical || {};
 
+    if (tactical.departureIcao) {
+        filter.push(['==', ['upcase', ['get', 'departureIcao']], tactical.departureIcao.toUpperCase()]);
+    }
+
+    // Arrival ICAO Filter
+    if (tactical.arrivalIcao) {
+        filter.push(['==', ['upcase', ['get', 'arrivalIcao']], tactical.arrivalIcao.toUpperCase()]);
+    }
+
     // Flight Phase (Exact Match)
     if (tactical.phase) {
         filter.push(['==', ['get', 'phase'], tactical.phase]);
@@ -5318,6 +5327,8 @@ function handleSocketFlightUpdate(data) {
             verticalSpeed: flight.position.vs_fpm || 0,
             position: JSON.stringify(flight.position),
             aircraft: JSON.stringify(aircraftData),
+            arrivalIcao: flight.arrivalIcao || null,   // Map new backend field
+            departureIcao: flight.departureIcao || null, // Map new backend field
             userId: flight.userId,
             category: getAircraftCategory(acName),
             heading: flight.position.heading_deg, 

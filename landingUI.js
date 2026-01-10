@@ -29,15 +29,17 @@ export const LandingUI = {
                 { id: 'airline', label: 'Airline Code', icon: 'fa-building', type: 'text', placeholder: 'e.g. UAL, BAW' }
             ]
         },
-        route: {
-            label: "Route & Network",
-            filters: [
-                { id: 'origin', label: 'Origin', icon: 'fa-plane-departure', type: 'text', placeholder: 'ICAO' },
-                { id: 'destination', label: 'Destination', icon: 'fa-plane-arrival', type: 'text', placeholder: 'ICAO' },
-                { id: 'callsign', label: 'Callsign', icon: 'fa-id-badge', type: 'text', placeholder: 'Search...' },
-                { id: 'group', label: 'Group Flight', icon: 'fa-users', type: 'boolean' } 
-            ]
-        }
+        
+route: {
+    label: "Route & Network",
+    filters: [
+        // Changed IDs from 'origin'/'destination' to 'departureIcao'/'arrivalIcao'
+        { id: 'departureIcao', label: 'Departure', icon: 'fa-plane-departure', type: 'text', placeholder: 'ICAO' },
+        { id: 'arrivalIcao', label: 'Arrival', icon: 'fa-plane-arrival', type: 'text', placeholder: 'ICAO' },
+        { id: 'callsign', label: 'Callsign', icon: 'fa-id-badge', type: 'text', placeholder: 'Search...' },
+        { id: 'group', label: 'Group Flight', icon: 'fa-users', type: 'boolean' } 
+    ]
+}
     },
 
     init() {
