@@ -1,99 +1,76 @@
 /**
- * LandingUI.js - Neon Glass Edition
- * Integrates acdetails.html aesthetic with landingUI.js logic
+ * LandingUI.js
+ * REDESIGN: Spatial Minimalist - Detached Search & Filter Nexus
+ * Replaced Search Island with "Glass Blade" and moved Filters to "Utility Nexus"
  */
 
 export const LandingUI = {
     _isVisible: false,
-    _isSheetExpanded: false,
-    _activeFilters: {},
+    _filterNexusOpen: false,
+    _activeFilters: {}, 
 
-    // Map your custom UI chips to data keys
-    chipMapping: {
-        'On Ground': 'grounded',
-        'Military': 'mil',
-        '7700': 'emergency',
-        'Blocked (LADD)': 'ladd',
-        'UAT Only': 'uat'
-    },
+    filterOptions: [
+        { id: 'type', label: 'Aircraft', icon: 'fa-plane' },
+        { id: 'airline', label: 'Operator', icon: 'fa-building' },
+        { id: 'callsign', label: 'Callsign', icon: 'fa-id-badge' },
+        { id: 'rank', label: 'Rank', icon: 'fa-star' },
+        { id: 'altitude', label: 'Altitude', icon: 'fa-arrows-up-down' },
+        { id: 'speed', label: 'Speed', icon: 'fa-gauge-high' },
+        { id: 'origin', label: 'Origin', icon: 'fa-plane-departure' },
+        { id: 'destination', label: 'Destination', icon: 'fa-plane-arrival' },
+        { id: 'atc', label: 'ATC', icon: 'fa-headset' },
+        { id: 'groups', label: 'Groups', icon: 'fa-users-rays' } // Added Group Flight option
+    ],
 
     init() {
         this.injectStyles();
         this.render();
         this.attachListeners();
-        // Load Phosphor Icons dynamically if not present
-        if (!document.querySelector('script[src*="phosphor-icons"]')) {
-            const script = document.createElement('script');
-            script.src = "https://unpkg.com/@phosphor-icons/web";
-            document.head.appendChild(script);
-        }
     },
 
     render() {
-        const existing = document.getElementById('inflight-neon-ui');
+        const existing = document.getElementById('inflight-tactical-ui');
         if (existing) existing.remove();
 
         const html = `
-            <div id="inflight-neon-ui" class="neon-ui-root">
+            <div id="inflight-tactical-ui" class="tactical-ui-root">
                 <div class="top-branding">
                     <div class="status-dot"></div>
                     <span id="landing-server-name">EXPERT SERVER</span>
                 </div>
 
-                <div class="header-zone">
-                    <div class="dynamic-island" id="dynamicIsland">
-                        <button class="di-icon-btn" id="menuBtn"><i class="ph ph-list"></i></button>
-                        <input type="text" id="blade-search-input" class="di-search" placeholder="Search flight, airport...">
-                        <button class="di-icon-btn" id="settings-trigger"><i class="ph ph-gear"></i></button>
+                <div class="search-blade-container">
+                    <div class="search-blade">
+                        <i class="fa-solid fa-magnifying-glass search-icon"></i>
+                        <input type="text" id="blade-search-input" placeholder="Search airspace..." autocomplete="off">
+                        <div class="search-shortcut">⌘K</div>
                     </div>
+                    <div id="active-filter-chips" class="filter-chips-row"></div>
                 </div>
 
-                <div class="fab-stack">
-                    <div class="fab" id="fab-weather" title="Weather Radar"><i class="ph ph-cloud-rain"></i></div>
-                    <div class="fab" id="fab-3d" title="3D View"><i class="ph ph-cube"></i></div>
-                    <div class="fab" id="fab-locate" title="Locate Me"><i class="ph ph-navigation-arrow"></i></div>
-                </div>
-
-                <div class="bottom-sheet" id="filterSheet">
-                    <div class="sheet-handle-area" id="sheetDragHandle">
-                        <div class="sheet-pill"></div>
-                        <div class="quick-chips">
-                            <div class="chip" data-filter="grounded">On Ground</div>
-                            <div class="chip" data-filter="mil">Military</div>
-                            <div class="chip emergency" data-filter="emergency"><i class="ph ph-warning-circle"></i> 7700</div>
-                            <div class="chip" data-filter="ladd">Blocked (LADD)</div>
-                            <div class="chip" data-filter="uat">UAT Only</div>
-                        </div>
+                <div class="utility-nexus">
+                    <div id="filter-nexus-grid" class="filter-nexus-grid">
+                        ${this.filterOptions.map(f => `
+                            <div class="nexus-item" data-filter-id="${f.id}" title="${f.label}">
+                                <i class="fa-solid ${f.icon}"></i>
+                                <span class="nexus-label">${f.label}</span>
+                            </div>
+                        `).join('')}
                     </div>
 
-                    <div class="sheet-content">
-                        <div class="section-title">PHYSICS FILTERS <span id="active-filter-count" style="color:var(--neon-cyan)">Active: 0</span></div>
-                        
-                        <div class="slider-group">
-                            <div class="slider-label"><span>Altitude</span> <span class="slider-val" id="altVal">Any</span></div>
-                            <input type="range" id="range-alt" min="0" max="60000" step="1000">
-                        </div>
-
-                        <div class="slider-group">
-                            <div class="slider-label"><span>Speed (Ground)</span> <span class="slider-val" id="spdVal">Any</span></div>
-                            <input type="range" id="range-spd" min="0" max="800" step="10">
-                        </div>
-
-                        <div class="section-title">DATA SOURCE INTEGRITY</div>
-                        <div class="grid-3">
-                            <div class="toggle-box active" data-source="adsb"><div><i class="ph ph-broadcast"></i></div><div>ADS-B</div></div>
-                            <div class="toggle-box active" data-source="mlat"><div><i class="ph ph-airplane-tilt"></i></div><div>MLAT</div></div>
-                            <div class="toggle-box" data-source="sat"><div><i class="ph ph-planet"></i></div><div>SAT</div></div>
-                        </div>
-                    </div>
-                </div>
-
-                <div class="modal-overlay" id="settingsModal">
-                    <div class="settings-card">
-                        <h2 style="margin: 0 0 20px 0; font-size: 18px;">Display Options</h2>
-                        <div class="switch-row"><span>Dark Mode</span><div class="toggle-switch on"></div></div>
-                        <div class="switch-row"><span>Aircraft Labels</span><div class="toggle-switch on"></div></div>
-                        <div class="switch-row"><span>Show Trails</span><div class="toggle-switch"></div></div>
+                    <div class="orb-row">
+                        <button class="orb-btn" id="tile-weather" aria-label="Weather">
+                            <i class="fa-solid fa-cloud"></i>
+                        </button>
+                        <button class="orb-btn" id="tile-settings" aria-label="Settings">
+                            <i class="fa-solid fa-sliders"></i>
+                        </button>
+                        <button class="orb-btn nexus-trigger" id="toggle-nexus" aria-label="Filters">
+                            <i class="fa-solid fa-filter"></i>
+                        </button>
+                        <button class="orb-btn highlight-orb" id="tile-server" aria-label="Network">
+                            <i class="fa-solid fa-wifi"></i>
+                        </button>
                     </div>
                 </div>
             </div>
@@ -106,75 +83,92 @@ export const LandingUI = {
     },
 
     attachListeners() {
-        const sheet = document.getElementById('filterSheet');
-        const handle = document.getElementById('sheetDragHandle');
         const searchInput = document.getElementById('blade-search-input');
+        const nexusTrigger = document.getElementById('toggle-nexus');
+        const nexusGrid = document.getElementById('filter-nexus-grid');
 
-        // 1. Bottom Sheet Toggle
-        handle?.addEventListener('click', () => {
-            this._isSheetExpanded = !this._isSheetExpanded;
-            sheet.classList.toggle('expanded', this._isSheetExpanded);
-            if(navigator.vibrate) navigator.vibrate(10);
+        // Toggle Filter Nexus
+        nexusTrigger?.addEventListener('click', () => {
+            this._filterNexusOpen = !this._filterNexusOpen;
+            if (nexusGrid) nexusGrid.classList.toggle('open', this._filterNexusOpen);
+            if (nexusTrigger) nexusTrigger.classList.toggle('active', this._filterNexusOpen);
         });
 
-        // 2. Search Logic
-        searchInput?.addEventListener('input', () => this.dispatchFilterUpdate());
-
-        // 3. Chip & Toggle Box Logic
-        document.querySelectorAll('.chip, .toggle-box').forEach(el => {
-            el.addEventListener('click', () => {
-                el.classList.toggle('active');
-                const filterId = el.dataset.filter || el.dataset.source;
-                this.toggleFilter(filterId, el.classList.contains('active'));
-            });
-        });
-
-        // 4. Slider Logic
-        this.setupSlider('range-alt', 'altVal', ' ft');
-        this.setupSlider('range-spd', 'spdVal', ' kts');
-
-        // 5. Modal Logic
-        const settingsTrigger = document.getElementById('settings-trigger');
-        const modal = document.getElementById('settingsModal');
-        settingsTrigger?.addEventListener('click', () => modal.classList.toggle('open'));
-        modal?.addEventListener('click', (e) => { if(e.target === modal) modal.classList.remove('open'); });
-
-        // 6. FAB Toggle Logic
-        document.querySelectorAll('.fab').forEach(fab => {
-            fab.addEventListener('click', () => {
-                fab.classList.toggle('toggle-active');
-                if (fab.id === 'fab-locate') this.dispatchFilterUpdate('locate-me');
-            });
-        });
-    },
-
-    setupSlider(inputId, valId, unit) {
-        const input = document.getElementById(inputId);
-        const display = document.getElementById(valId);
-        input?.addEventListener('input', (e) => {
-            const val = e.target.value;
-            display.innerText = val === "0" ? "Any" : val + unit;
-            this._activeFilters[inputId] = val;
+        // Search Input Logic
+        searchInput?.addEventListener('input', () => {
             this.dispatchFilterUpdate();
         });
+
+        // Filter Item Logic
+        document.querySelectorAll('.nexus-item').forEach(item => {
+            item.addEventListener('click', () => {
+                const id = item.dataset.filterId;
+                this.toggleFilter(id);
+            });
+        });
+
+        const actions = {
+            'tile-weather': () => document.getElementById('open-weather-settings-btn')?.click(),
+            'tile-settings': () => document.getElementById('open-filter-settings-btn')?.click(),
+            'tile-server': () => {
+                const orb = document.getElementById('tile-server');
+                if (orb) {
+                    orb.classList.add('orb-pulse');
+                    setTimeout(() => orb.classList.remove('orb-pulse'), 1000);
+                }
+            }
+        };
+
+        Object.entries(actions).forEach(([id, fn]) => {
+            document.getElementById(id)?.addEventListener('click', fn);
+        });
     },
 
-    toggleFilter(id, isActive) {
-        if (isActive) {
-            this._activeFilters[id] = true;
-        } else {
+    toggleFilter(id) {
+        if (this._activeFilters[id] !== undefined) {
             delete this._activeFilters[id];
+        } else {
+            this._activeFilters[id] = '';
         }
-        
-        const count = Object.keys(this._activeFilters).filter(k => !k.startsWith('range')).length;
-        const countEl = document.getElementById('active-filter-count');
-        if (countEl) countEl.innerText = `Active: ${count}`;
-        
+        this.refreshUI();
+    },
+
+    updateFilterValue(id, value) {
+        this._activeFilters[id] = value;
         this.dispatchFilterUpdate();
     },
 
-    dispatchFilterUpdate(type = 'filterUpdate') {
-        const event = new CustomEvent(type, { 
+    refreshUI() {
+        // Update Chips under search bar
+        const container = document.getElementById('active-filter-chips');
+        if (container) {
+            container.innerHTML = Object.entries(this._activeFilters).map(([id, value]) => {
+                const opt = this.filterOptions.find(f => f.id === id);
+                return `
+                    <div class="filter-chip">
+                        <i class="fa-solid ${opt.icon}"></i>
+                        <input type="text" 
+                               class="chip-input" 
+                               placeholder="${opt.label}..." 
+                               value="${value}" 
+                               oninput="LandingUI.updateFilterValue('${id}', this.value)"
+                               onkeydown="if(event.key==='Enter') this.blur()">
+                        <i class="fa-solid fa-xmark chip-close" onclick="LandingUI.toggleFilter('${id}')"></i>
+                    </div>
+                `;
+            }).join('');
+        }
+
+        // Update selected state in Nexus
+        document.querySelectorAll('.nexus-item').forEach(item => {
+            item.classList.toggle('active', this._activeFilters[item.dataset.filterId] !== undefined);
+        });
+
+        this.dispatchFilterUpdate();
+    },
+
+    dispatchFilterUpdate() {
+        const event = new CustomEvent('filterUpdate', { 
             detail: { 
                 filters: { ...this._activeFilters }, 
                 searchTerm: document.getElementById('blade-search-input')?.value || '' 
@@ -184,7 +178,7 @@ export const LandingUI = {
     },
 
     update(isActive, stats = {}) {
-        const el = document.getElementById('inflight-neon-ui');
+        const el = document.getElementById('inflight-tactical-ui');
         if (!el) return;
         isActive ? el.classList.add('active') : el.classList.remove('active');
         if (stats.server) {
@@ -195,83 +189,170 @@ export const LandingUI = {
 
     injectStyles() {
         const css = `
-            :root {
-                --glass-surface: rgba(20, 20, 20, 0.75);
-                --glass-border: rgba(255, 255, 255, 0.08);
-                --glass-blur: 24px;
-                --text-primary: #F0F0F0;
-                --text-secondary: #909090;
-                --text-tertiary: #505050;
-                --neon-cyan: #00F0FF;
-                --neon-red: #FF2E55;
-                --ease-elastic: cubic-bezier(0.34, 1.56, 0.64, 1);
-            }
-
-            .neon-ui-root {
-                position: absolute; inset: 0; z-index: 9999;
-                pointer-events: none; opacity: 0; visibility: hidden;
+            .tactical-ui-root {
+                position: absolute;
+                inset: 0;
+                z-index: 2000;
+                pointer-events: none;
+                opacity: 0;
+                visibility: hidden;
                 transition: opacity 0.5s ease;
-                font-family: 'Inter', sans-serif;
+                font-family: 'Inter', -apple-system, sans-serif;
             }
-            .neon-ui-root.active { opacity: 1; visibility: visible; }
+            .tactical-ui-root.active { opacity: 1; visibility: visible; }
 
+            /* Top Branding */
             .top-branding {
-                position: absolute; top: 20px; left: 24px;
-                display: flex; align-items: center; gap: 8px; pointer-events: auto;
+                position: absolute;
+                top: 30px;
+                left: 40px;
+                display: flex;
+                align-items: center;
+                gap: 12px;
+                pointer-events: auto;
             }
-            .status-dot { width: 6px; height: 6px; background: var(--neon-cyan); border-radius: 50%; box-shadow: 0 0 10px var(--neon-cyan); }
-            #landing-server-name { color: var(--text-secondary); font-size: 10px; font-weight: 800; letter-spacing: 0.1em; }
+            .status-dot { width: 6px; height: 6px; background: #00ff88; border-radius: 50%; box-shadow: 0 0 10px #00ff88; }
+            #landing-server-name { color: rgba(255,255,255,0.4); font-size: 10px; font-weight: 800; letter-spacing: 0.2em; }
 
-            .header-zone { width: 100%; display: flex; justify-content: center; padding-top: 16px; }
-            .dynamic-island {
-                pointer-events: auto; background: var(--glass-surface); backdrop-filter: blur(var(--glass-blur));
-                border: 1px solid var(--glass-border); height: 50px; border-radius: 25px;
-                display: flex; align-items: center; padding: 4px 6px; gap: 12px; min-width: 280px;
+            /* Search Blade */
+            .search-blade-container {
+                position: absolute;
+                top: 30px;
+                right: 40px;
+                display: flex;
+                flex-direction: column;
+                align-items: flex-end;
+                gap: 12px;
+                pointer-events: none;
             }
-            .di-icon-btn { width: 38px; height: 38px; border-radius: 50%; border: none; background: transparent; color: var(--text-secondary); cursor: pointer; display: flex; align-items: center; justify-content: center; font-size: 18px; }
-            .di-search { flex: 1; background: transparent; border: none; outline: none; color: white; font-size: 14px; }
-
-            .fab-stack { position: absolute; right: 20px; bottom: 140px; display: flex; flex-direction: column; gap: 12px; pointer-events: auto; }
-            .fab { width: 48px; height: 48px; border-radius: 14px; background: var(--glass-surface); backdrop-filter: blur(10px); border: 1px solid var(--glass-border); display: flex; align-items: center; justify-content: center; color: white; cursor: pointer; transition: 0.2s var(--ease-elastic); }
-            .fab.toggle-active { color: var(--neon-cyan); border-color: var(--neon-cyan); background: rgba(0, 240, 255, 0.1); }
-
-            .bottom-sheet {
-                position: absolute; bottom: 0; left: 0; right: 0; background: #0A0A0A;
-                border-top: 1px solid var(--glass-border); border-radius: 24px 24px 0 0;
-                transform: translateY(calc(100% - 100px)); transition: transform 0.5s var(--ease-elastic);
-                pointer-events: auto; max-height: 80vh; display: flex; flex-direction: column;
+            .search-blade {
+                pointer-events: auto;
+                background: rgba(20, 20, 20, 0.4);
+                backdrop-filter: blur(20px);
+                border: 1px solid rgba(255, 255, 255, 0.08);
+                border-radius: 12px;
+                height: 44px;
+                width: 240px;
+                display: flex;
+                align-items: center;
+                padding: 0 14px;
+                transition: all 0.4s cubic-bezier(0.16, 1, 0.3, 1);
             }
-            .bottom-sheet.expanded { transform: translateY(0); }
-            .sheet-handle-area { width: 100%; padding: 12px 0; display: flex; flex-direction: column; align-items: center; cursor: pointer; }
-            .sheet-pill { width: 40px; height: 4px; background: var(--text-tertiary); border-radius: 2px; margin-bottom: 12px; }
+            .search-blade:focus-within {
+                width: 380px;
+                background: rgba(30, 30, 30, 0.7);
+                border-color: rgba(255, 255, 255, 0.2);
+                box-shadow: 0 10px 30px rgba(0,0,0,0.4);
+            }
+            .search-icon { color: rgba(255,255,255,0.3); font-size: 14px; }
+            #blade-search-input {
+                flex: 1;
+                background: none;
+                border: none;
+                color: #fff;
+                margin-left: 12px;
+                font-size: 14px;
+                outline: none;
+            }
+            .search-shortcut {
+                font-size: 10px;
+                color: rgba(255,255,255,0.2);
+                background: rgba(255,255,255,0.05);
+                padding: 2px 6px;
+                border-radius: 4px;
+            }
+
+            /* Filter Chips (Below Search) */
+            .filter-chips-row {
+                display: flex;
+                flex-wrap: wrap;
+                justify-content: flex-end;
+                gap: 8px;
+                max-width: 450px;
+            }
+            .filter-chip {
+                pointer-events: auto;
+                background: rgba(255, 255, 255, 0.08);
+                backdrop-filter: blur(10px);
+                border: 1px solid rgba(255, 255, 255, 0.1);
+                border-radius: 8px;
+                padding: 6px 10px;
+                display: flex;
+                align-items: center;
+                gap: 8px;
+                color: #fff;
+                animation: chipIn 0.3s ease-out;
+            }
+            @keyframes chipIn { from { opacity: 0; transform: translateY(-5px); } to { opacity: 1; transform: translateY(0); } }
+            .chip-input { background: none; border: none; color: #fff; font-size: 12px; width: 80px; outline: none; }
+            .chip-close { font-size: 12px; color: rgba(255,255,255,0.3); cursor: pointer; transition: color 0.2s; }
+            .chip-close:hover { color: #ff4444; }
+
+            /* Utility Nexus */
+            .utility-nexus {
+                position: absolute;
+                bottom: 40px;
+                right: 40px;
+                display: flex;
+                flex-direction: column;
+                align-items: flex-end;
+                gap: 20px;
+                pointer-events: none;
+            }
+            .orb-row { display: flex; gap: 12px; pointer-events: auto; }
+            .orb-btn {
+                width: 48px; height: 48px;
+                border-radius: 50%;
+                background: rgba(15, 15, 15, 0.6);
+                backdrop-filter: blur(15px);
+                border: 1px solid rgba(255, 255, 255, 0.1);
+                color: rgba(255, 255, 255, 0.5);
+                cursor: pointer;
+                display: flex; align-items: center; justify-content: center;
+                transition: all 0.3s cubic-bezier(0.16, 1, 0.3, 1);
+            }
+            .orb-btn:hover { background: rgba(255, 255, 255, 0.1); color: #fff; transform: scale(1.05); }
+            .orb-btn.active { background: #fff; color: #000; }
+            .highlight-orb { border-color: rgba(0, 255, 136, 0.3); }
+
+            /* Filter Nexus Grid */
+            .filter-nexus-grid {
+                pointer-events: auto;
+                display: grid;
+                grid-template-columns: repeat(4, 1fr); /* Changed to 4 columns to accommodate the new filter */
+                gap: 10px;
+                background: rgba(10, 10, 10, 0.8);
+                backdrop-filter: blur(30px);
+                padding: 15px;
+                border-radius: 20px;
+                border: 1px solid rgba(255, 255, 255, 0.1);
+                opacity: 0;
+                transform: translateY(20px) scale(0.95);
+                visibility: hidden;
+                transition: all 0.4s cubic-bezier(0.16, 1, 0.3, 1);
+                box-shadow: 0 20px 50px rgba(0,0,0,0.5);
+            }
+            .filter-nexus-grid.open { opacity: 1; transform: translateY(0) scale(1); visibility: visible; }
             
-            .quick-chips { display: flex; gap: 8px; padding: 0 20px; overflow-x: auto; width: 100%; box-sizing: border-box; }
-            .chip { padding: 6px 12px; border-radius: 100px; background: rgba(255,255,255,0.05); color: var(--text-secondary); font-size: 12px; white-space: nowrap; border: 1px solid transparent; }
-            .chip.active { background: rgba(0, 240, 255, 0.1); border-color: var(--neon-cyan); color: var(--neon-cyan); }
-            .chip.emergency.active { color: var(--neon-red); border-color: var(--neon-red); }
-
-            .sheet-content { padding: 20px 24px 40px; overflow-y: auto; }
-            .section-title { font-size: 10px; color: var(--text-tertiary); letter-spacing: 1px; margin: 20px 0 10px; }
-            
-            input[type=range] { width: 100%; -webkit-appearance: none; background: transparent; }
-            input[type=range]::-webkit-slider-runnable-track { height: 4px; background: rgba(255,255,255,0.1); border-radius: 2px; }
-            input[type=range]::-webkit-slider-thumb { -webkit-appearance: none; height: 16px; width: 16px; border-radius: 50%; background: var(--text-primary); margin-top: -6px; }
-
-            .grid-3 { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 10px; }
-            .toggle-box { background: rgba(255,255,255,0.03); border-radius: 12px; padding: 10px; text-align: center; cursor: pointer; border: 1px solid transparent; }
-            .toggle-box.active { border-color: var(--neon-cyan); color: var(--neon-cyan); }
-
-            .modal-overlay { position: fixed; inset: 0; background: rgba(0,0,0,0.7); backdrop-filter: blur(8px); display: none; align-items: center; justify-content: center; z-index: 10001; pointer-events: auto; }
-            .modal-overlay.open { display: flex; }
-            .settings-card { width: 90%; max-width: 340px; background: #151515; border: 1px solid var(--glass-border); border-radius: 24px; padding: 24px; }
-            .switch-row { display: flex; justify-content: space-between; align-items: center; padding: 12px 0; border-bottom: 1px solid rgba(255,255,255,0.05); }
-            .toggle-switch { width: 40px; height: 20px; background: #333; border-radius: 10px; position: relative; }
-            .toggle-switch.on { background: var(--neon-cyan); }
-            .toggle-switch::after { content: ''; position: absolute; top: 2px; left: 2px; width: 16px; height: 16px; background: white; border-radius: 50%; transition: 0.2s; }
-            .toggle-switch.on::after { transform: translateX(20px); }
+            .nexus-item {
+                width: 70px; height: 70px;
+                display: flex; flex-direction: column;
+                align-items: center; justify-content: center;
+                gap: 6px;
+                border-radius: 12px;
+                background: rgba(255, 255, 255, 0.03);
+                border: 1px solid rgba(255, 255, 255, 0.05);
+                color: rgba(255, 255, 255, 0.4);
+                cursor: pointer;
+                transition: all 0.2s;
+            }
+            .nexus-item:hover { background: rgba(255, 255, 255, 0.08); color: #fff; }
+            .nexus-item.active { background: rgba(0, 122, 255, 0.2); border-color: #007aff; color: #fff; }
+            .nexus-label { font-size: 9px; text-transform: uppercase; letter-spacing: 0.5px; font-weight: 600; }
         `;
 
         const style = document.createElement('style');
+        style.id = 'landing-ui-spatial-styles';
         style.textContent = css;
         document.head.appendChild(style);
     }
