@@ -25,13 +25,12 @@ if ('serviceWorker' in navigator) {
     let OWM_API_KEY = null;
     let isWeatherLayerAdded = false;
     let isTrafficHighlightActive = false; // Tracks if the airport traffic colorizer is ON
-    window.currentAirportTraffic = { in: [], out: [] }; // Stores IDs for the currently inspected airport
+window.currentAirportTraffic = { in: [], out: [] }; // Stores IDs for the currently inspected airport
     let isCloudLayerAdded = false;   // NEW: For Clouds
     let isWindLayerAdded = false;    // NEW: For Wind
     let MAPBOX_ACCESS_TOKEN = null;
     let CURRENT_PILOT = null;
     let CURRENT_OFP_DATA = null;
-    let activeTacticalFilters = {};
     let airportsData = {};
     let runwaysData = {}; // NEW: To store runway data indexed by airport ICAO
     let currentMapFeatures = {}; // Key: flightId, Value: GeoJSON Feature
@@ -3132,51 +3131,6 @@ async function updateLeaderboard() {
     }
 }
 
-/**
- * --- [MODIFIED] Applies traffic highlighting AND Tactical Filters ---
- */
-function applyTrafficHighlighting() {
-    const { in: inbounds, out: outbounds } = window.currentAirportTraffic || { in: [], out: [] };
-    const inSet = new Set(inbounds);
-    const outSet = new Set(outbounds);
-
-    // 1. Prepare Data & Traffic Type Properties
-    const allFeatures = Object.values(currentMapFeatures);
-    
-    allFeatures.forEach(f => {
-        const fid = f.properties.flightId;
-        
-        // Update Traffic Type (Inbound/Outbound colors)
-        if (isTrafficHighlightActive) {
-            if (inSet.has(fid)) f.properties.trafficType = 'inbound';
-            else if (outSet.has(fid)) f.properties.trafficType = 'outbound';
-            else f.properties.trafficType = 'none';
-        } else {
-            f.properties.trafficType = 'none';
-        }
-    });
-
-    // 2. FILTER THE FEATURES based on LandingUI
-    const filteredFeatures = allFeatures.filter(f => checkTacticalFilters(f));
-
-    // 3. Update Icon Layout (for colors)
-    if (sectorOpsMap && sectorOpsMap.getLayer('sector-ops-live-flights-layer')) {
-        sectorOpsMap.setLayoutProperty(
-            'sector-ops-live-flights-layer',
-            'icon-image',
-            getIconImageExpression(mapFilters.iconColorMode)
-        );
-    }
-
-    // 4. Push FILTERED data to Mapbox
-    if (sectorOpsMap && sectorOpsMap.getSource('sector-ops-live-flights-source')) {
-        sectorOpsMap.getSource('sector-ops-live-flights-source').setData({
-            type: 'FeatureCollection',
-            features: filteredFeatures // <--- We send only the filtered list
-        });
-    }
-}
-
 // Optional: Auto-refresh leaderboard every 60 seconds
 setInterval(updateLeaderboard, 60000);
 // Run immediately on load
@@ -4625,40 +4579,58 @@ async function toggleSigmetLayer(show) {
         updateToolbarButtonStates();
     }
 
-    /**
-     * --- [MODIFIED] Builds and applies a Mapbox filter expression to the live aircraft layer.
-     * This function now ONLY applies the filter toggles (mapFilters state).
-     * The search bar logic has been removed and moved to its own handler.
-     */
-    function updateAircraftLayerFilter() {
-        if (!sectorOpsMap || !sectorOpsMap.getLayer('sector-ops-live-flights-layer')) return;
+function updateAircraftLayerFilter() {
+    if (!sectorOpsMap || !sectorOpsMap.getLayer('sector-ops-live-flights-layer')) return;
 
-        let filter = ['all']; // Start with a base 'all' filter
+    let filter = ['all']; // Base: All conditions must be true
 
-        // --- 1. Apply Toggle Filters (from mapFilters state) ---
-        if (mapFilters.hideAllAircraft) {
-            // Use a filter that matches nothing
-            filter = ['==', 'flightId', '']; 
-            
-            // Apply the filter and exit early
-            sectorOpsMap.setFilter('sector-ops-live-flights-layer', filter);
-            return; 
-
-        } else if (mapFilters.showStaffOnly) {
-            // Show only features where isStaff is true
-            filter.push(['==', 'isStaff', true]);
-        } else if (mapFilters.showVaOnly) {
-            // Show only features where isVAMember is true
-            filter.push(['==', 'isVAMember', true]);
-        }
-        
-        // --- 2. [REMOVED] ---
-        // The entire "Apply Search Filter" block has been deleted.
-        // This function no longer reads from the search input.
-
-        // --- 3. Apply the combined filter to the map ---
-        sectorOpsMap.setFilter('sector-ops-live-flights-layer', filter);
+    // 1. Global Toggles
+    if (mapFilters.hideAllAircraft) {
+        sectorOpsMap.setFilter('sector-ops-live-flights-layer', ['==', 'flightId', '']);
+        return;
     }
+    if (mapFilters.showStaffOnly) filter.push(['==', 'isStaff', true]);
+    if (mapFilters.showVaOnly) filter.push(['==', 'isVAMember', true]);
+
+    // 2. Tactical Filters (from landingUI.js)
+    const tactical = mapFilters.tactical || {};
+
+    // Flight Phase (Exact Match)
+    if (tactical.phase) {
+        filter.push(['==', ['get', 'phase'], tactical.phase]);
+    }
+
+    // Altitude Range (Min/Max)
+    if (tactical.altitude) {
+        if (tactical.altitude.min !== '') filter.push(['>=', ['get', 'altitude'], parseFloat(tactical.altitude.min)]);
+        if (tactical.altitude.max !== '') filter.push(['<=', ['get', 'altitude'], parseFloat(tactical.altitude.max)]);
+    }
+
+    // Speed Range (Min/Max)
+    if (tactical.speed) {
+        if (tactical.speed.min !== '') filter.push(['>=', ['get', 'speed'], parseFloat(tactical.speed.min)]);
+        if (tactical.speed.max !== '') filter.push(['<=', ['get', 'speed'], parseFloat(tactical.speed.max)]);
+    }
+
+    // Category (Map UI labels to internal keys)
+    if (tactical.category) {
+        const catMap = { 'Heavy': 'jumbo', 'Widebody': 'widebody', 'Narrowbody': 'narrowbody' };
+        const internalCat = catMap[tactical.category] || tactical.category.toLowerCase();
+        filter.push(['==', ['get', 'category'], internalCat]);
+    }
+
+    // Callsign (Partial Text Search - Case Insensitive)
+    if (tactical.callsign) {
+        filter.push(['in', tactical.callsign.toUpperCase(), ['upcase', ['get', 'callsign']]]);
+    }
+
+    // 3. Quick Search Blade
+    if (mapFilters.quickSearch) {
+        filter.push(['in', mapFilters.quickSearch.toUpperCase(), ['upcase', ['get', 'callsign']]]);
+    }
+
+    sectorOpsMap.setFilter('sector-ops-live-flights-layer', filter);
+}
 
     /**
      * --- [RENAMED & MODIFIED] Updates the main toolbar buttons to show if any layers are active.
@@ -5521,91 +5493,6 @@ function handleSocketFlightUpdate(data) {
             delete currentMapFeatures[flightId]; 
         }
     }
-}
-
-/**
- * --- [NEW] Helper to check if a flight matches the LandingUI filters ---
- * Returns true if the flight should be visible.
- */
-function checkTacticalFilters(feature) {
-    // If no filters are active, show everything
-    if (Object.keys(activeTacticalFilters).length === 0) return true;
-
-    const props = feature.properties;
-    // Parse nested JSON strings if they exist
-    const pos = typeof props.position === 'string' ? JSON.parse(props.position) : (props.position || {});
-    const ac = typeof props.aircraft === 'string' ? JSON.parse(props.aircraft) : (props.aircraft || {});
-
-    for (const [key, value] of Object.entries(activeTacticalFilters)) {
-        if (!value) continue; // Skip empty filters
-
-        switch (key) {
-            // --- FLIGHT DATA ---
-            case 'phase':
-                // Compare calculated phase (e.g., 'Climb') with filter value
-                const currentPhase = getLiteFlightPhase(pos); 
-                if (currentPhase !== value) return false;
-                break;
-
-            case 'altitude':
-                // value is { min: x, max: y }
-                if (pos.alt_ft < (value.min || 0)) return false;
-                if (value.max && pos.alt_ft > value.max) return false;
-                break;
-
-            case 'speed':
-                if (pos.gs_kt < (value.min || 0)) return false;
-                if (value.max && pos.gs_kt > value.max) return false;
-                break;
-
-            case 'vspeed':
-                if (pos.vs_fpm < (value.min || -6000)) return false;
-                if (value.max && pos.vs_fpm > value.max) return false;
-                break;
-
-            // --- AIRCRAFT INFO ---
-            case 'category':
-                const cat = getAircraftCategory(ac.aircraftName);
-                if (cat.toLowerCase() !== value.toLowerCase()) return false;
-                break;
-
-            case 'type':
-                // Partial match (e.g., filter "737" matches "Boeing 737-800")
-                if (!ac.aircraftName || !ac.aircraftName.toUpperCase().includes(value.toUpperCase())) return false;
-                break;
-
-            case 'livery':
-                if (!ac.liveryName || !ac.liveryName.toUpperCase().includes(value.toUpperCase())) return false;
-                break;
-
-            case 'airline':
-                // Check if callsign starts with the code (e.g., "UAL")
-                if (!props.callsign || !props.callsign.toUpperCase().startsWith(value.toUpperCase())) return false;
-                break;
-
-            // --- ROUTE & NETWORK ---
-            case 'callsign':
-                 if (!props.callsign || !props.callsign.toUpperCase().includes(value.toUpperCase())) return false;
-                 break;
-
-            case 'origin':
-                // Note: Origin/Dest might not be on the main flight object depending on your API. 
-                // This checks if the data exists before filtering.
-                if (props.originIcao && props.originIcao.toUpperCase() !== value.toUpperCase()) return false;
-                break;
-                
-            case 'destination':
-                if (props.destinationIcao && props.destinationIcao.toUpperCase() !== value.toUpperCase()) return false;
-                break;
-
-            case 'group':
-                // This handles the "Group Flight" boolean toggle
-                if (value === true && !mapFilters.showGroupFlights) return false;
-                break;
-        }
-    }
-
-    return true; // Passed all checks
 }
 
 function initializeSectorOpsSocket() {
@@ -12144,28 +12031,18 @@ async function initializeApp() {
         });
     }
 
-    // [REPLACE in initializeApp()]
-window.addEventListener('filterUpdate', (e) => {
+    window.addEventListener('filterUpdate', (e) => {
     const { filters, quickSearch } = e.detail;
+    
+    // Store incoming tactical filters into global state
+    mapFilters.tactical = filters;
+    mapFilters.quickSearch = quickSearch;
 
-    // 1. Store the complex filters
-    activeTacticalFilters = filters || {};
-
-    // 2. Handle special "Group" toggle logic mapping
-    // LandingUI sends { group: true }, Flight.js expects mapFilters.showGroupFlights
-    if (activeTacticalFilters.group !== undefined) {
-        mapFilters.showGroupFlights = activeTacticalFilters.group;
-    }
-
-    // 3. Handle Quick Search (Sidebar Input)
-    // If quickSearch text exists, treat it as a 'callsign' filter override or addition
-    if (quickSearch) {
-        activeTacticalFilters['callsign'] = quickSearch;
-    }
-
-    // 4. Trigger Map Update
-    console.log("Applying Tactical Filters:", activeTacticalFilters);
-    applyTrafficHighlighting(); // This function now pushes data to the map
+    // Handle boolean group toggle
+    mapFilters.showGroupFlights = !!filters.group;
+    
+    // Run the filter update logic
+    updateMapFilters();
 });
         
         mainContentLoader.classList.remove('active');
