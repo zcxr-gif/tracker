@@ -26,6 +26,14 @@ export const LandingUI = {
                 { id: 'category', label: 'Category', icon: 'fa-shapes', type: 'select', options: ['Heavy', 'Widebody', 'Narrowbody', 'Regional', 'GA', 'Military', 'Fighter'] },
                 { id: 'type', label: 'Aircraft Type', icon: 'fa-plane', type: 'text', placeholder: 'e.g. B737, A320' },
                 { id: 'livery', label: 'Livery', icon: 'fa-paint-roller', type: 'text', placeholder: 'e.g. United, FedEx' },
+                // Example: In landingUI.js, update the 'country' filter options
+{ 
+    id: 'country', 
+    label: 'Country Registry', 
+    icon: 'fa-globe', 
+    type: 'select', 
+    options: prefixData.map(p => `${p.country} (${p.prefix[0]})`) 
+}
                 { id: 'airline', label: 'Airline Code', icon: 'fa-building', type: 'text', placeholder: 'e.g. UAL, BAW' }
             ]
         },

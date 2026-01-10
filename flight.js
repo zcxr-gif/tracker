@@ -4626,6 +4626,41 @@ function updateAircraftLayerFilter() {
         filter.push(['==', ['get', 'category'], internalCat]);
     }
 
+    if (tactical.phase) {
+        filter.push(['==', ['get', 'phase'], tactical.phase]);
+    }
+
+    // Altitude Range (Min/Max)
+    if (tactical.altitude) {
+        if (tactical.altitude.min !== '') filter.push(['>=', ['get', 'altitude'], parseFloat(tactical.altitude.min)]);
+        if (tactical.altitude.max !== '') filter.push(['<=', ['get', 'altitude'], parseFloat(tactical.altitude.max)]);
+    }
+
+    // Speed Range (Min/Max)
+    if (tactical.speed) {
+        if (tactical.speed.min !== '') filter.push(['>=', ['get', 'speed'], parseFloat(tactical.speed.min)]);
+        if (tactical.speed.max !== '') filter.push(['<=', ['get', 'speed'], parseFloat(tactical.speed.max)]);
+    }
+
+    // Callsign (Partial Text Search - Case Insensitive)
+    if (tactical.callsign) {
+        filter.push(['in', tactical.callsign.toUpperCase(), ['upcase', ['get', 'callsign']]]);
+    }
+
+    // 3. Quick Search Blade
+    if (mapFilters.quickSearch) {
+        filter.push(['in', mapFilters.quickSearch.toUpperCase(), ['upcase', ['get', 'callsign']]]);
+    }
+
+    // Inside updateAircraftLayerFilter in flight.js
+    if (tactical.country && tactical.country !== 'All Countries') {
+    // Extract prefix from UI string "United States (N)" -> "N"
+    const prefix = tactical.country.match(/\((.*?)\)/)[1]; 
+    
+    // Filter: Registration must start with the selected prefix
+    filter.push(['==', ['slice', ['get', 'registration'], 0, prefix.length], prefix]);
+    }
+
     // Existing Filters (Departure/Arrival/Phase/etc.)
     if (tactical.departureIcao) filter.push(['==', ['upcase', ['get', 'departureIcao']], tactical.departureIcao.toUpperCase()]);
     if (tactical.arrivalIcao) filter.push(['==', ['upcase', ['get', 'arrivalIcao']], tactical.arrivalIcao.toUpperCase()]);
@@ -5325,6 +5360,7 @@ function handleSocketFlightUpdate(data) {
             aircraft: JSON.stringify(aircraftData),
             aircraftName: acName, // ADD THIS: For direct filtering
             liveryName: livName,   // ADD THIS: For direct filtering
+            registration: aircraftData?.registration || '',
             arrivalIcao: flight.arrivalIcao || null,   // Map new backend field
             departureIcao: flight.departureIcao || null, // Map new backend field
             userId: flight.userId,
