@@ -33,7 +33,7 @@ export const LandingUI = {
     icon: 'fa-globe', 
     type: 'select', 
     options: prefixData.map(p => `${p.country} (${p.prefix[0]})`) 
-}
+},
                 { id: 'airline', label: 'Airline Code', icon: 'fa-building', type: 'text', placeholder: 'e.g. UAL, BAW' }
             ]
         },
