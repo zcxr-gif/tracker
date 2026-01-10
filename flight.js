@@ -4579,42 +4579,40 @@ async function toggleSigmetLayer(show) {
         updateToolbarButtonStates();
     }
 
+    /**
+     * --- [MODIFIED] Builds and applies a Mapbox filter expression to the live aircraft layer.
+     * This function now ONLY applies the filter toggles (mapFilters state).
+     * The search bar logic has been removed and moved to its own handler.
+     */
     function updateAircraftLayerFilter() {
-    if (!sectorOpsMap || !sectorOpsMap.getLayer('sector-ops-live-flights-layer')) return;
+        if (!sectorOpsMap || !sectorOpsMap.getLayer('sector-ops-live-flights-layer')) return;
 
-    // Start with a generic 'all' filter
-    let filter = ['all'];
+        let filter = ['all']; // Start with a base 'all' filter
 
-    // --- Part A: Standard Toggles ---
-    if (mapFilters.showStaffOnly) filter.push(['==', ['get', 'isStaff'], true]);
-    if (mapFilters.showVaOnly) filter.push(['==', ['get', 'isVAMember'], true]);
+        // --- 1. Apply Toggle Filters (from mapFilters state) ---
+        if (mapFilters.hideAllAircraft) {
+            // Use a filter that matches nothing
+            filter = ['==', 'flightId', '']; 
+            
+            // Apply the filter and exit early
+            sectorOpsMap.setFilter('sector-ops-live-flights-layer', filter);
+            return; 
 
-    // --- Part B: Custom Telemetry Logic ---
-    const c = mapFilters.custom || {};
-    
-    // Aircraft Type Filter (e.g. "A320")
-    if (c.livery) {
-        // Matches livery name (e.g. "British Airways")
-        filter.push(['includes', ['upcase', ['get', 'livery']], c.livery.toUpperCase()]);
+        } else if (mapFilters.showStaffOnly) {
+            // Show only features where isStaff is true
+            filter.push(['==', 'isStaff', true]);
+        } else if (mapFilters.showVaOnly) {
+            // Show only features where isVAMember is true
+            filter.push(['==', 'isVAMember', true]);
+        }
+        
+        // --- 2. [REMOVED] ---
+        // The entire "Apply Search Filter" block has been deleted.
+        // This function no longer reads from the search input.
+
+        // --- 3. Apply the combined filter to the map ---
+        sectorOpsMap.setFilter('sector-ops-live-flights-layer', filter);
     }
-
-    // Altitude Range (e.g. 30,000 ft)
-    if (c.altMin) {
-        filter.push(['>=', ['get', 'altitude'], parseInt(c.altMin)]);
-    }
-    if (c.altMax) {
-        filter.push(['<=', ['get', 'altitude'], parseInt(c.altMax)]);
-    }
-
-    // Destination ICAO Filter
-    if (c.destination) {
-        filter.push(['==', ['upcase', ['get', 'destination']], c.destination.toUpperCase()]);
-    }
-
-    // Apply the final filter array to the Mapbox layers
-    sectorOpsMap.setFilter('sector-ops-live-flights-layer', filter);
-    sectorOpsMap.setFilter('sector-ops-live-flights-labels', filter);
-}
 
     /**
      * --- [RENAMED & MODIFIED] Updates the main toolbar buttons to show if any layers are active.
@@ -5302,9 +5300,6 @@ function handleSocketFlightUpdate(data) {
             callsign: flight.callsign,
             username: flight.username,
             altitude: flight.position.alt_ft,
-            aircraftType: aircraftData?.aircraftName || '',
-            livery: aircraftData?.liveryName || '',
-            destination: plan?.destination?.icao || '',
             speed: flight.position.gs_kt || 0,
             verticalSpeed: flight.position.vs_fpm || 0,
             position: JSON.stringify(flight.position),
@@ -12023,17 +12018,14 @@ async function initializeApp() {
     }
 
     window.addEventListener('filterUpdate', (e) => {
-    const { filters, custom } = e.detail;
-    
-    // Merge standard toggles
-    mapFilters.showGroupFlights = !!filters.groups;
-    mapFilters.showVaOnly = !!filters.rank;
-    
-    // Store advanced custom filters into state
-    mapFilters.custom = custom || {};
-    
-    updateMapFilters(); // Re-trigger the Mapbox filter
-});
+        const { filters } = e.detail;
+        
+        // Check if 'groups' is in the active filters object
+        mapFilters.showGroupFlights = !!filters.groups;
+        
+        // Trigger the map to redraw with the new group settings
+        updateMapFilters();
+    });
         
         mainContentLoader.classList.remove('active');
     }
