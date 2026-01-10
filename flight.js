@@ -4652,6 +4652,15 @@ function updateAircraftLayerFilter() {
         filter.push(['in', mapFilters.quickSearch.toUpperCase(), ['upcase', ['get', 'callsign']]]);
     }
 
+    // [NEW] Registration / Tail Number Search
+    if (tactical.registration && tactical.registration.trim() !== '') {
+        filter.push([
+            'in', 
+            tactical.registration.toUpperCase(), 
+            ['upcase', ['get', 'registration']]
+        ]);
+    }
+
     // Inside updateAircraftLayerFilter in flight.js
     if (tactical.country && tactical.country !== 'All Countries') {
     // Extract prefix from UI string "United States (N)" -> "N"
@@ -5360,7 +5369,7 @@ function handleSocketFlightUpdate(data) {
             aircraft: JSON.stringify(aircraftData),
             aircraftName: acName, // ADD THIS: For direct filtering
             liveryName: livName,   // ADD THIS: For direct filtering
-            registration: aircraftData?.registration || '',
+            registration: communityData?.tailNumber || aircraftData?.registration || '',
             arrivalIcao: flight.arrivalIcao || null,   // Map new backend field
             departureIcao: flight.departureIcao || null, // Map new backend field
             userId: flight.userId,
