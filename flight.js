@@ -11384,6 +11384,7 @@ function setupFlightHoverPopups() {
     });
 
     sectorOpsMap.on('mouseenter', 'sector-ops-live-flights-layer', (e) => {
+        if (window.isMouseOverAirportTag) return;
         // Change cursor to indicate interactability
         sectorOpsMap.getCanvas().style.cursor = 'pointer';
         
@@ -12114,7 +12115,6 @@ function stopSectorOpsLiveLoop() {
     }
 }
 
-
 function renderAirportMarkers() {
     if (!sectorOpsMap || !sectorOpsMap.isStyleLoaded()) return;
 
@@ -12125,7 +12125,7 @@ function renderAirportMarkers() {
     // Helper: Identify "Major" airports (Class A/B/C) without explicit class data
     const isMajorAirport = (icao, airport) => {
         if (!icao || icao.length !== 4) return false;
-        if (/\d/.test(icao)) return false; // Exclude IDs with numbers (usually minor strips/helipads)
+        if (/\d/.test(icao)) return false; // Exclude IDs with numbers
         const name = (airport.name || "").toLowerCase();
         const junk = ['water', 'seaplane', 'heliport', 'helipad', 'strip', 'field', 'glider'];
         if (junk.some(k => name.includes(k))) return false;
@@ -12141,7 +12141,6 @@ function renderAirportMarkers() {
             allRouteAirports.add(route.arrival);
         });
     }
-
     const staffedIcaos = new Set([...allRouteAirports, ...atcAirportIcaos]);
 
     // 2. Manage DOM Markers (Staffed Only)
@@ -12149,7 +12148,6 @@ function renderAirportMarkers() {
         const hasAtc = atcAirportIcaos.has(icao);
         const shouldBeDom = staffedIcaos.has(icao);
         const isFiltered = (hideNoAtc && !hasAtc) || (hideAtc && hasAtc);
-
         if (!shouldBeDom || isFiltered) {
             airportAndAtcMarkers[icao].marker.remove();
             delete airportAndAtcMarkers[icao];
@@ -12159,12 +12157,11 @@ function renderAirportMarkers() {
     staffedIcaos.forEach(icao => {
         const airport = airportsData[icao];
         if (!airport || airport.lat == null || airport.lon == null) return;
-        
+
         const hasAtc = atcAirportIcaos.has(icao);
         if ((hideNoAtc && !hasAtc) || (hideAtc && hasAtc)) return;
 
-        // NEW: If unstaffed (only on a route) and NOT a major airport, filter it out
-        // Note: If it has ATC, we ALWAYS show it regardless of size.
+        // Filter unstaffed/minor airports
         if (!hasAtc && !isMajorAirport(icao, airport)) return;
 
         if (airportAndAtcMarkers[icao]) {
@@ -12173,6 +12170,19 @@ function renderAirportMarkers() {
         }
 
         const el = document.createElement('div');
+        
+        // --- ADDED: Hover Suppression Logic ---
+        el.addEventListener('mouseenter', () => {
+            window.isMouseOverAirportTag = true;
+            // Forcefully remove any aircraft hover card if it appears
+            const activePopups = document.querySelectorAll('.mapboxgl-popup');
+            activePopups.forEach(popup => popup.remove());
+        });
+
+        el.addEventListener('mouseleave', () => {
+            window.isMouseOverAirportTag = false;
+        });
+
         if (hasAtc) {
             el.className += ' apt-live-tag';
             const airportAtc = activeAtcFacilities.filter(f => f.airportName === icao);
@@ -12180,10 +12190,9 @@ function renderAirportMarkers() {
                 const start = new Date(f.startTime).getTime();
                 return start < min ? start : min;
             }, Date.now());
-            
             const diffMins = Math.floor((Date.now() - earliestStart) / 60000);
             const durationText = diffMins > 60 ? `${Math.floor(diffMins/60)}h ${diffMins%60}m` : `${diffMins}m online`;
-            
+
             const hasGnd = airportAtc.some(f => f.type === 0);
             const hasTwr = airportAtc.some(f => f.type === 1);
             const hasApp = airportAtc.some(f => f.type === 4 || f.type === 5);
@@ -12222,7 +12231,13 @@ function renderAirportMarkers() {
             .setLngLat([airport.lon, airport.lat])
             .addTo(sectorOpsMap);
 
-        el.addEventListener('click', () => handleAirportClick(icao));
+        // --- ADDED: Click Priority Logic ---
+        el.addEventListener('click', (e) => {
+            // Stop the click from reaching the Mapbox canvas layers (aircraft icons)
+            e.stopPropagation(); 
+            handleAirportClick(icao);
+        });
+
         airportAndAtcMarkers[icao] = { marker, hasAtc };
     });
 
