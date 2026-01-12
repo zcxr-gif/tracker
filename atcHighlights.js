@@ -1,12 +1,19 @@
 /**
  * atcHighlights.js
- * Mapbox GL JS version - "Pop Out" Border Style
+ * Mapbox GL JS version with Coordinate-to-FIR lookup
  */
 
+/**
+ * Standard Point-in-Polygon algorithm to check if a lat/lon is inside a GeoJSON feature.
+ * This allows us to find the FIR region even if we only have coordinates.
+ */
 function isPointInPolygon(point, polygon) {
     const x = point[0], y = point[1];
     let inside = false;
+    
+    // Handle both Polygon and MultiPolygon geometries
     const rings = polygon.type === 'Polygon' ? [polygon.coordinates] : polygon.coordinates;
+    
     rings.forEach(ringSet => {
         ringSet.forEach(ring => {
             for (let i = 0, j = ring.length - 1; i < ring.length; j = i++) {
@@ -20,23 +27,44 @@ function isPointInPolygon(point, polygon) {
     return inside;
 }
 
+/**
+ * Updates the Mapbox layer style based on active ATC.
+ * @param {object} map - Your Mapbox map instance
+ * @param {string} layerId - The ID of the fill layer (e.g., 'fir-fills')
+ * @param {Array} atcData - The array of online Center controllers
+ */
 export function updateActiveSectors(map, layerId, atcData) {
-    // layerId should ideally be your 'line' layer (e.g., 'fir-outlines')
     if (!map || !map.getLayer(layerId)) return;
 
+    // 1. Get all FIR features currently loaded in the GeoJSON source
+    // Ensure the source name 'fir-boundaries' matches the one in flight.js
     const firFeatures = map.querySourceFeatures('fir-boundaries');
     const activeIds = [];
 
+    // 2. Map coordinates to FIR IDs
     atcData.forEach(controller => {
+        // Use coordinates to perform Point-in-Polygon lookup
         if (controller.latitude && controller.longitude) {
             const controllerPoint = [controller.longitude, controller.latitude];
-            const match = firFeatures.find(feature => isPointInPolygon(controllerPoint, feature.geometry));
+            
+            // Find which FIR boundary contains this point
+            const match = firFeatures.find(feature => 
+                isPointInPolygon(controllerPoint, feature.geometry)
+            );
+
             if (match && match.properties.id) {
                 activeIds.push(match.properties.id);
             }
+        } else if (controller.fir_id) {
+            // Fallback if an ID is already provided
+            activeIds.push(controller.fir_id);
         }
     });
 
+    /**
+     * Mapbox Expression Logic:
+     * We match the base ID (e.g., 'KZLA') even if the GeoJSON feature ID is 'KZLA-E'
+     */
     const matchExpression = [
         "match",
         ["slice", ["get", "id"], 0, ["index-of", "-", ["concat", ["get", "id"], "-"]]],
@@ -45,37 +73,19 @@ export function updateActiveSectors(map, layerId, atcData) {
         false 
     ];
 
-    // --- VISUAL IMPROVEMENTS ---
-
-    // 1. Color: Bright Emerald Green for active, transparent/subtle for inactive
-    map.setPaintProperty(layerId, 'line-color', [
+    // Apply Highlight Green if matched, otherwise keep it transparent
+    map.setPaintProperty(layerId, 'fill-color', [
         "case",
         matchExpression,
-        '#00ff88', // Bright Neon Green
-        'rgba(255, 255, 255, 0.1)' // Very faint white for inactive borders
+        '#22c55e', // Emerald-500
+        'transparent'
     ]);
 
-    // 2. Thickness: Make active regions much thicker to "Pop"
-    map.setPaintProperty(layerId, 'line-width', [
+    // Set the opacity for the active region
+    map.setPaintProperty(layerId, 'fill-opacity', [
         "case",
         matchExpression,
-        4, // Thick active border
-        0.5 // Thin inactive border
-    ]);
-
-    // 3. Optional: Add a slight blur to active borders to make them "glow"
-    map.setPaintProperty(layerId, 'line-blur', [
-        "case",
-        matchExpression,
-        1, // Slight glow
-        0  // Sharp line
-    ]);
-
-    // 4. Opacity
-    map.setPaintProperty(layerId, 'line-opacity', [
-        "case",
-        matchExpression,
-        1,   // Fully visible
-        0.2  // Faded
+        0.3, // Highlighted opacity
+        0    // Hidden
     ]);
 }
