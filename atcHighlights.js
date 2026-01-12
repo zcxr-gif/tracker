@@ -73,19 +73,42 @@ export function updateActiveSectors(map, layerId, atcData) {
         false 
     ];
 
-    // Apply Highlight Green if matched, otherwise keep it transparent
+    // 1. Subtle Fill (Instead of heavy shading)
     map.setPaintProperty(layerId, 'fill-color', [
         "case",
         matchExpression,
         '#22c55e', // Emerald-500
         'transparent'
     ]);
-
-    // Set the opacity for the active region
     map.setPaintProperty(layerId, 'fill-opacity', [
         "case",
         matchExpression,
-        0.3, // Highlighted opacity
-        0    // Hidden
+        0.08, // Very light tint (8%)
+        0
     ]);
+
+    // 2. Thick, Glowing Border (The "Pop Out" effect)
+    if (map.getLayer('fir-borders')) {
+        map.setPaintProperty('fir-borders', 'line-color', [
+            "case",
+            matchExpression,
+            '#4ade80', // Brighter green for active
+            'rgba(255, 255, 255, 0.15)' // Faint white for inactive
+        ]);
+
+        map.setPaintProperty('fir-borders', 'line-width', [
+            "case",
+            matchExpression,
+            3.5, // Thicker border for active region
+            0.5  // Thin border for others
+        ]);
+
+        // Add a "blur" for a neon glow effect
+        map.setPaintProperty('fir-borders', 'line-blur', [
+            "case",
+            matchExpression,
+            1.5, // Soft glow for active
+            0
+        ]);
+    }
 }
