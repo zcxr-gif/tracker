@@ -1,17 +1,18 @@
 /**
  * atcHighlights.js
- * Mapbox GL JS version with Coordinate-to-FIR lookup
+ * Optimized for VATSpy.json data structure
  */
 
 /**
- * Standard Point-in-Polygon algorithm to check if a lat/lon is inside a GeoJSON feature.
- * This allows us to find the FIR region even if we only have coordinates.
+ * Standard Point-in-Polygon algorithm.
+ * Necessary because Center (CTR) controllers often only provide coordinates, 
+ * not the specific FIR boundary ID.
  */
 function isPointInPolygon(point, polygon) {
     const x = point[0], y = point[1];
     let inside = false;
     
-    // Handle both Polygon and MultiPolygon geometries
+    // Support both Polygon and MultiPolygon geometries from VATSpy.json
     const rings = polygon.type === 'Polygon' ? [polygon.coordinates] : polygon.coordinates;
     
     rings.forEach(ringSet => {
@@ -28,26 +29,24 @@ function isPointInPolygon(point, polygon) {
 }
 
 /**
- * Updates the Mapbox layer style based on active ATC.
- * @param {object} map - Your Mapbox map instance
+ * Updates the Mapbox layer style based on active ATC controllers.
+ * @param {object} map - Mapbox GL JS instance
  * @param {string} layerId - The ID of the fill layer (e.g., 'fir-fills')
- * @param {Array} atcData - The array of online Center controllers
+ * @param {Array} atcData - Array of online Center controllers
  */
 export function updateActiveSectors(map, layerId, atcData) {
     if (!map || !map.getLayer(layerId)) return;
 
-    // 1. Get all FIR features currently loaded in the GeoJSON source
-    // Ensure the source name 'fir-boundaries' matches the one in flight.js
+    // 1. Get all FIR features currently loaded in the 'fir-boundaries' source
     const firFeatures = map.querySourceFeatures('fir-boundaries');
     const activeIds = [];
 
-    // 2. Map coordinates to FIR IDs
+    // 2. Map coordinates to FIR IDs (ICAOs)
     atcData.forEach(controller => {
-        // Use coordinates to perform Point-in-Polygon lookup
         if (controller.latitude && controller.longitude) {
             const controllerPoint = [controller.longitude, controller.latitude];
             
-            // Find which FIR boundary contains this point
+            // Find which FIR boundary contains this controller
             const match = firFeatures.find(feature => 
                 isPointInPolygon(controllerPoint, feature.geometry)
             );
@@ -55,15 +54,13 @@ export function updateActiveSectors(map, layerId, atcData) {
             if (match && match.properties.id) {
                 activeIds.push(match.properties.id);
             }
-        } else if (controller.fir_id) {
-            // Fallback if an ID is already provided
-            activeIds.push(controller.fir_id);
         }
     });
 
     /**
-     * Mapbox Expression Logic:
-     * We match the base ID (e.g., 'KZLA') even if the GeoJSON feature ID is 'KZLA-E'
+     * 3. Match Logic:
+     * Strips suffixes (e.g., 'KZLA-E' -> 'KZLA') to ensure sub-sectors 
+     * light up when the parent FIR is active.
      */
     const matchExpression = [
         "match",
@@ -73,21 +70,22 @@ export function updateActiveSectors(map, layerId, atcData) {
         false 
     ];
 
-    // 1. Subtle Fill (Instead of heavy shading)
+    // 4. Apply Subtle Fill (Emerald-500)
     map.setPaintProperty(layerId, 'fill-color', [
         "case",
         matchExpression,
-        '#22c55e', // Emerald-500
+        '#22c55e', 
         'transparent'
     ]);
+    
     map.setPaintProperty(layerId, 'fill-opacity', [
         "case",
         matchExpression,
-        0.08, // Very light tint (8%)
+        0.08, // Very light 8% tint
         0
     ]);
 
-    // 2. Thick, Glowing Border (The "Pop Out" effect)
+    // 5. Apply Thick, Glowing Border
     if (map.getLayer('fir-borders')) {
         map.setPaintProperty('fir-borders', 'line-color', [
             "case",
@@ -99,16 +97,8 @@ export function updateActiveSectors(map, layerId, atcData) {
         map.setPaintProperty('fir-borders', 'line-width', [
             "case",
             matchExpression,
-            3.5, // Thicker border for active region
-            0.5  // Thin border for others
-        ]);
-
-        // Add a "blur" for a neon glow effect
-        map.setPaintProperty('fir-borders', 'line-blur', [
-            "case",
-            matchExpression,
-            1.5, // Soft glow for active
-            0
+            2.5, // Thicker for active
+            0.5  // Hairline for inactive
         ]);
     }
 }

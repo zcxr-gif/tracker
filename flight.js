@@ -3251,44 +3251,75 @@ function parseVatspyData(rawData) {
 // --- Global State for Boundaries ---
 let firNameLookup = {};
 
+/**
+ * REPLACEMENT: Initializes map boundaries using VATSpy.json
+ * Converts JSON coordinate strings to GeoJSON [lon, lat] numbers.
+ */
 async function initializeMapBoundaries(map) {
     try {
-        // 1. Fetch both files in parallel
-        const [boundaryRes, vatspyRes] = await Promise.all([
-            fetch('./Boundaries.geojson'),
-            fetch('./VATSpy.dat')
-        ]);
+        // 1. Fetch the unified JSON file
+        const response = await fetch('./VATSpy.json');
+        const vatspyData = await response.json();
 
-        const boundaryData = await boundaryRes.json();
-        const vatspyRaw = await vatspyRes.text();
+        // 2. Transform FIRs into GeoJSON Features
+        const features = vatspyData.Firs.map(fir => {
+            // Store name mapping for lookups
+            firNameLookup[fir.ICAO] = { name: fir.Name, icao: fir.ICAO };
 
-        // 2. Build the name dictionary
-        firNameLookup = parseVatspyData(vatspyRaw);
+            return {
+                type: "Feature",
+                id: fir.ICAO, // Important for feature-state
+                properties: {
+                    id: fir.ICAO,
+                    name: fir.Name
+                },
+                geometry: {
+                    type: "Polygon",
+                    // Transform: ["lat", "lon"] strings -> [lon, lat] numbers
+                    coordinates: [
+                        fir.Boundary.map(coord => [
+                            parseFloat(coord[1]), 
+                            parseFloat(coord[0])
+                        ])
+                    ]
+                }
+            };
+        });
+
+        const boundaryGeoJSON = {
+            type: "FeatureCollection",
+            features: features
+        };
 
         // 3. Add Source to Mapbox
         map.addSource('fir-boundaries', {
             type: 'geojson',
-            data: boundaryData
+            data: boundaryGeoJSON,
+            generateId: true // Required for setFeatureState to work correctly
         });
 
-        // 4. Add Fill Layer (for highlighting active sectors)
+        // 4. Add Performance-Optimized Fill Layer
         map.addLayer({
             id: 'fir-fills',
             type: 'fill',
             source: 'fir-boundaries',
-            layout: {},
             paint: {
-                'fill-color': '#22c55e', // Emerald-500
-                'fill-opacity': 0         // Start hidden, updated by atcHighlights.js
+                'fill-color': '#22c55e',
+                // Uses feature-state for instant updates without re-renders
+                'fill-opacity': [
+                    'case',
+                    ['boolean', ['feature-state', 'active'], false],
+                    0.15, // Opacity when controller is online
+                    0     // Hidden when offline
+                ]
             }
         });
 
-        // 5. Add Border Layer (the visible lines)
+        // 5. Add Border Layer
         map.addLayer({
             id: 'fir-borders',
             type: 'line',
             source: 'fir-boundaries',
-            layout: {},
             paint: {
                 'line-color': '#ffffff',
                 'line-width': 0.5,
@@ -3296,19 +3327,8 @@ async function initializeMapBoundaries(map) {
             }
         });
 
-        // 6. Interaction: Show FIR Name on click
-        map.on('click', 'fir-fills', (e) => {
-            const firId = e.features[0].properties.id;
-            const info = firNameLookup[firId] || { name: "Unknown FIR" };
-            
-            new mapboxgl.Popup()
-                .setLngLat(e.lngLat)
-                .setHTML(`<strong>${info.name}</strong><br/>Code: ${firId}`)
-                .addTo(map);
-        });
-
     } catch (err) {
-        console.error("Error loading map boundaries:", err);
+        console.error("Error loading boundaries from VATSpy.json:", err);
     }
 }
 
