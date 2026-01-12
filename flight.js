@@ -3251,75 +3251,44 @@ function parseVatspyData(rawData) {
 // --- Global State for Boundaries ---
 let firNameLookup = {};
 
-/**
- * REPLACEMENT: Initializes map boundaries using VATSpy.json
- * Converts JSON coordinate strings to GeoJSON [lon, lat] numbers.
- */
 async function initializeMapBoundaries(map) {
     try {
-        // 1. Fetch the unified JSON file
-        const response = await fetch('./VATSpy.json');
-        const vatspyData = await response.json();
+        // 1. Fetch both files in parallel
+        const [boundaryRes, vatspyRes] = await Promise.all([
+            fetch('./Boundaries.geojson'),
+            fetch('./VATSpy.dat')
+        ]);
 
-        // 2. Transform FIRs into GeoJSON Features
-        const features = vatspyData.Firs.map(fir => {
-            // Store name mapping for lookups
-            firNameLookup[fir.ICAO] = { name: fir.Name, icao: fir.ICAO };
+        const boundaryData = await boundaryRes.json();
+        const vatspyRaw = await vatspyRes.text();
 
-            return {
-                type: "Feature",
-                id: fir.ICAO, // Important for feature-state
-                properties: {
-                    id: fir.ICAO,
-                    name: fir.Name
-                },
-                geometry: {
-                    type: "Polygon",
-                    // Transform: ["lat", "lon"] strings -> [lon, lat] numbers
-                    coordinates: [
-                        fir.Boundary.map(coord => [
-                            parseFloat(coord[1]), 
-                            parseFloat(coord[0])
-                        ])
-                    ]
-                }
-            };
-        });
-
-        const boundaryGeoJSON = {
-            type: "FeatureCollection",
-            features: features
-        };
+        // 2. Build the name dictionary
+        firNameLookup = parseVatspyData(vatspyRaw);
 
         // 3. Add Source to Mapbox
         map.addSource('fir-boundaries', {
             type: 'geojson',
-            data: boundaryGeoJSON,
-            generateId: true // Required for setFeatureState to work correctly
+            data: boundaryData
         });
 
-        // 4. Add Performance-Optimized Fill Layer
+        // 4. Add Fill Layer (for highlighting active sectors)
         map.addLayer({
             id: 'fir-fills',
             type: 'fill',
             source: 'fir-boundaries',
+            layout: {},
             paint: {
-                'fill-color': '#22c55e',
-                // Uses feature-state for instant updates without re-renders
-                'fill-opacity': [
-                    'case',
-                    ['boolean', ['feature-state', 'active'], false],
-                    0.15, // Opacity when controller is online
-                    0     // Hidden when offline
-                ]
+                'fill-color': '#22c55e', // Emerald-500
+                'fill-opacity': 0         // Start hidden, updated by atcHighlights.js
             }
         });
 
-        // 5. Add Border Layer
+        // 5. Add Border Layer (the visible lines)
         map.addLayer({
             id: 'fir-borders',
             type: 'line',
             source: 'fir-boundaries',
+            layout: {},
             paint: {
                 'line-color': '#ffffff',
                 'line-width': 0.5,
@@ -3327,8 +3296,19 @@ async function initializeMapBoundaries(map) {
             }
         });
 
+        // 6. Interaction: Show FIR Name on click
+        map.on('click', 'fir-fills', (e) => {
+            const firId = e.features[0].properties.id;
+            const info = firNameLookup[firId] || { name: "Unknown FIR" };
+            
+            new mapboxgl.Popup()
+                .setLngLat(e.lngLat)
+                .setHTML(`<strong>${info.name}</strong><br/>Code: ${firId}`)
+                .addTo(map);
+        });
+
     } catch (err) {
-        console.error("Error loading boundaries from VATSpy.json:", err);
+        console.error("Error loading map boundaries:", err);
     }
 }
 
@@ -11404,7 +11384,6 @@ function setupFlightHoverPopups() {
     });
 
     sectorOpsMap.on('mouseenter', 'sector-ops-live-flights-layer', (e) => {
-        if (window.isMouseOverAirportTag) return;
         // Change cursor to indicate interactability
         sectorOpsMap.getCanvas().style.cursor = 'pointer';
         
@@ -12135,6 +12114,7 @@ function stopSectorOpsLiveLoop() {
     }
 }
 
+
 function renderAirportMarkers() {
     if (!sectorOpsMap || !sectorOpsMap.isStyleLoaded()) return;
 
@@ -12145,7 +12125,7 @@ function renderAirportMarkers() {
     // Helper: Identify "Major" airports (Class A/B/C) without explicit class data
     const isMajorAirport = (icao, airport) => {
         if (!icao || icao.length !== 4) return false;
-        if (/\d/.test(icao)) return false; // Exclude IDs with numbers
+        if (/\d/.test(icao)) return false; // Exclude IDs with numbers (usually minor strips/helipads)
         const name = (airport.name || "").toLowerCase();
         const junk = ['water', 'seaplane', 'heliport', 'helipad', 'strip', 'field', 'glider'];
         if (junk.some(k => name.includes(k))) return false;
@@ -12161,6 +12141,7 @@ function renderAirportMarkers() {
             allRouteAirports.add(route.arrival);
         });
     }
+
     const staffedIcaos = new Set([...allRouteAirports, ...atcAirportIcaos]);
 
     // 2. Manage DOM Markers (Staffed Only)
@@ -12168,6 +12149,7 @@ function renderAirportMarkers() {
         const hasAtc = atcAirportIcaos.has(icao);
         const shouldBeDom = staffedIcaos.has(icao);
         const isFiltered = (hideNoAtc && !hasAtc) || (hideAtc && hasAtc);
+
         if (!shouldBeDom || isFiltered) {
             airportAndAtcMarkers[icao].marker.remove();
             delete airportAndAtcMarkers[icao];
@@ -12177,11 +12159,12 @@ function renderAirportMarkers() {
     staffedIcaos.forEach(icao => {
         const airport = airportsData[icao];
         if (!airport || airport.lat == null || airport.lon == null) return;
-
+        
         const hasAtc = atcAirportIcaos.has(icao);
         if ((hideNoAtc && !hasAtc) || (hideAtc && hasAtc)) return;
 
-        // Filter unstaffed/minor airports
+        // NEW: If unstaffed (only on a route) and NOT a major airport, filter it out
+        // Note: If it has ATC, we ALWAYS show it regardless of size.
         if (!hasAtc && !isMajorAirport(icao, airport)) return;
 
         if (airportAndAtcMarkers[icao]) {
@@ -12190,19 +12173,6 @@ function renderAirportMarkers() {
         }
 
         const el = document.createElement('div');
-        
-        // --- ADDED: Hover Suppression Logic ---
-        el.addEventListener('mouseenter', () => {
-            window.isMouseOverAirportTag = true;
-            // Forcefully remove any aircraft hover card if it appears
-            const activePopups = document.querySelectorAll('.mapboxgl-popup');
-            activePopups.forEach(popup => popup.remove());
-        });
-
-        el.addEventListener('mouseleave', () => {
-            window.isMouseOverAirportTag = false;
-        });
-
         if (hasAtc) {
             el.className += ' apt-live-tag';
             const airportAtc = activeAtcFacilities.filter(f => f.airportName === icao);
@@ -12210,9 +12180,10 @@ function renderAirportMarkers() {
                 const start = new Date(f.startTime).getTime();
                 return start < min ? start : min;
             }, Date.now());
+            
             const diffMins = Math.floor((Date.now() - earliestStart) / 60000);
             const durationText = diffMins > 60 ? `${Math.floor(diffMins/60)}h ${diffMins%60}m` : `${diffMins}m online`;
-
+            
             const hasGnd = airportAtc.some(f => f.type === 0);
             const hasTwr = airportAtc.some(f => f.type === 1);
             const hasApp = airportAtc.some(f => f.type === 4 || f.type === 5);
@@ -12251,13 +12222,7 @@ function renderAirportMarkers() {
             .setLngLat([airport.lon, airport.lat])
             .addTo(sectorOpsMap);
 
-        // --- ADDED: Click Priority Logic ---
-        el.addEventListener('click', (e) => {
-            // Stop the click from reaching the Mapbox canvas layers (aircraft icons)
-            e.stopPropagation(); 
-            handleAirportClick(icao);
-        });
-
+        el.addEventListener('click', () => handleAirportClick(icao));
         airportAndAtcMarkers[icao] = { marker, hasAtc };
     });
 
