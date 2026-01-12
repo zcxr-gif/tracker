@@ -555,79 +555,133 @@ function injectCustomStyles() {
 
     const css = `
 
-        /* Modern Flight Card Styling */
-.route-card {
-    display: grid;
-    grid-template-columns: 50px 1fr 60px; /* Logo | Info | Registration/Type */
-    grid-template-rows: auto auto;
-    gap: 4px 10px;
-    background: rgba(30, 30, 35, 0.8);
-    backdrop-filter: blur(10px);
-    border-radius: 6px;
-    padding: 10px;
-    margin-bottom: 8px;
-    border-left: 4px solid transparent;
-    transition: transform 0.2s ease, background 0.2s;
-    cursor: pointer;
-}
+        /* --- REDESIGNED TACTICAL FLIGHT CARDS --- */
+        .route-card-reborn {
+            position: relative;
+            height: 115px;
+            border-radius: 12px;
+            overflow: hidden;
+            background-size: cover;
+            background-position: center;
+            margin-bottom: 12px;
+            border: 1px solid rgba(255, 255, 255, 0.08);
+            transition: all 0.3s cubic-bezier(0.16, 1, 0.3, 1);
+            box-shadow: 0 8px 32px rgba(0,0,0,0.4);
+            cursor: pointer;
+        }
 
-.route-card:hover {
-    background: rgba(45, 45, 50, 0.95);
-    transform: translateX(4px);
-}
+        .route-card-reborn:hover {
+            transform: translateY(-2px) scale(1.01);
+            border-color: rgba(255, 255, 255, 0.2);
+            box-shadow: 0 12px 40px rgba(0,0,0,0.6);
+        }
 
-.route-logo-container {
-    grid-row: span 2;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-}
+        .card-overlay {
+            position: absolute;
+            inset: 0;
+            background: linear-gradient(180deg, 
+                rgba(10, 12, 26, 0.5) 0%, 
+                rgba(10, 12, 26, 0.85) 60%, 
+                rgba(10, 12, 26, 0.98) 100%
+            );
+            z-index: 1;
+        }
 
-.route-logo-container img {
-    max-width: 100%;
-    max-height: 35px;
-    filter: drop-shadow(0 2px 4px rgba(0,0,0,0.5));
-}
+        .card-content {
+            position: relative;
+            z-index: 2;
+            height: 100%;
+            display: flex;
+            flex-direction: column;
+            justify-content: space-between;
+            padding: 14px 18px;
+            box-sizing: border-box;
+        }
 
-.route-main-info {
-    display: flex;
-    flex-direction: column;
-}
+        /* Header Zone: Metadata */
+        .card-header-zone {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
 
-.route-callsign {
-    font-weight: 800;
-    font-size: 14px;
-    color: #fff;
-    letter-spacing: 0.5px;
-}
+        .card-header-zone .callsign-meta {
+            display: flex;
+            align-items: center;
+            font-family: 'JetBrains Mono', monospace;
+            font-weight: 800;
+            font-size: 0.9rem;
+            color: #fff;
+            letter-spacing: -0.5px;
+        }
 
-.route-pilot {
-    font-size: 11px;
-    color: #aaa;
-}
+        .card-header-zone .aircraft-meta {
+            font-size: 0.6rem;
+            font-weight: 900;
+            color: #71717a; /* Muted grey */
+            text-transform: uppercase;
+            letter-spacing: 1.5px;
+            font-family: 'Inter', sans-serif;
+        }
 
-.route-right-meta {
-    text-align: right;
-    display: flex;
-    flex-direction: column;
-    justify-content: space-between;
-}
+        /* Center Zone: High-Impact Route */
+        .card-center-zone {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            flex-grow: 1;
+            margin-top: -5px;
+        }
 
-.route-ac-type {
-    font-size: 11px;
-    font-weight: bold;
-    color: #3498db;
-    background: rgba(52, 152, 219, 0.1);
-    padding: 1px 4px;
-    border-radius: 3px;
-    align-self: flex-end;
-}
+        .route-display {
+            display: flex;
+            align-items: center;
+            gap: 15px;
+        }
 
-.route-reg {
-    font-size: 10px;
-    font-family: 'Monaco', monospace;
-    color: #888;
-}
+        .icao-code {
+            font-family: 'Inter', sans-serif;
+            font-weight: 900;
+            font-size: 2.6rem;
+            color: rgba(255, 255, 255, 0.2); /* Muted origin */
+            letter-spacing: -3px;
+            line-height: 1;
+        }
+
+        .icao-code.destination-focus {
+            color: #ffffff; /* Ultra-bold white focal point */
+            text-shadow: 0 0 30px rgba(255,255,255,0.15);
+        }
+
+        .route-path-arrow {
+            color: rgba(255, 255, 255, 0.1);
+            font-size: 1.2rem;
+        }
+
+        /* Footer Zone: Details */
+        .card-footer-zone {
+            display: flex;
+            justify-content: space-between;
+            align-items: flex-end;
+        }
+
+        .operated-by-meta {
+            font-size: 0.55rem;
+            font-weight: 800;
+            color: #52525b; /* Muted grey */
+            text-transform: uppercase;
+            letter-spacing: 1px;
+            font-family: 'Inter', sans-serif;
+        }
+
+        .time-status-meta {
+            font-size: 0.75rem;
+            font-weight: 900;
+            font-family: 'JetBrains Mono', monospace;
+            color: #00ff41; /* Vibrant Neon Green */
+            letter-spacing: 0.5px;
+            text-shadow: 0 0 12px rgba(0, 255, 65, 0.4);
+        }
 
         /* --- DYNAMIC & LOCKED AIRPORT TAG STYLES --- */
         :root {
@@ -3508,42 +3562,54 @@ async function createAirportInfoWindowHTML(icao) {
     `;
 
     const renderFlightCard = (fid, type) => {
-    const f = currentMapFeatures[fid];
-    if (!f) return '';
-    
-    const props = f.properties;
-    const color = type === 'inbound' ? '#2ecc71' : '#3498db';
-    
-    // 1. Extract Airline Code for Logo
-    const airlineCode = extractAirlineCode(props.callsign);
-    
-    // 2. Access Community Data (Already cached in your handleSocketFlightUpdate)
-    // We check the global cache using the flight ID or CallSign
-    const communityData = communityAircraftCache[fid] || {};
-    
-    const registration = communityData.tailNumber || props.registration || "N/A";
-    const acType = props.aircraftName ? props.aircraftName.substring(0, 4) : "???";
-    const pilotName = props.username || "Unknown Pilot";
+        const f = currentMapFeatures[fid];
+        if (!f || !f.properties) return '';
 
-    return `
-        <div class="route-card" style="border-left-color: ${color};" onclick="focusOnFlight('${fid}')">
-            <div class="route-logo-container">
-                <img src="Images/vas/${airlineCode}.png" 
-                     onerror="this.src='Images/default_airline.png'; this.style.opacity='0.5';">
-            </div>
+        const p = f.properties;
+        const callsign = p.callsign || 'Unknown';
+        const pilot = p.username || 'Pilot';
+        
+        // Parse aircraft data
+        const acData = (typeof p.aircraft === 'string') ? JSON.parse(p.aircraft) : (p.aircraft || {});
+        const acName = acData.aircraftName || '---';
+        const shortAc = acName.split(' ')[0].toUpperCase();
+        
+        // Route Logic
+        const dep = p.departureIcao || '???';
+        const arr = p.arrivalIcao || '???';
+        
+        // Background Image & Logo
+        const imgUrl = p.communityImageUrl || 'Images/default_ac.png'; 
+        const al = extractAirlineCode(callsign);
+        const logoHtml = `<img src="Images/vas/${al}.png" style="height: 12px; width: auto; max-width: 30px; margin-right: 8px; filter: drop-shadow(0 2px 4px rgba(0,0,0,0.5));" onerror="this.style.display='none'">`;
 
-            <div class="route-main-info">
-                <div class="route-callsign">${props.callsign}</div>
-                <div class="route-pilot">${pilotName}</div>
+        return `
+            <div class="route-card-reborn" style="background-image: url('${imgUrl}')">
+                <div class="card-overlay"></div>
+                <div class="card-content">
+                    <div class="card-header-zone">
+                        <div class="callsign-meta">${logoHtml} ${callsign}</div>
+                        <div class="aircraft-meta">${shortAc}</div>
+                    </div>
+                    
+                    <div class="card-center-zone">
+                        <div class="route-display">
+                            <span class="icao-code">${dep}</span>
+                            <div class="route-path-arrow">
+                                <i class="fa-solid fa-chevron-right" style="opacity: 0.3;"></i>
+                            </div>
+                            <span class="icao-code destination-focus">${arr}</span>
+                        </div>
+                    </div>
+                    
+                    <div class="card-footer-zone">
+                        <div class="operated-by-meta">OPERATED BY ${pilot.toUpperCase()}</div>
+                        <div class="time-status-meta">ON TIME</div>
+                    </div>
+                </div>
             </div>
-
-            <div class="route-right-meta">
-                <div class="route-ac-type">${acType}</div>
-                <div class="route-reg">${registration}</div>
-            </div>
-        </div>
-    `;
-};
+        `;
+    };
 
     let trafficHtml = (!trafficFetchSuccess) ? '<div style="padding: 20px; text-align: center; color: #64748b;">Data unavailable.</div>' :
         (inbounds.length===0 && outbounds.length===0) ? '<div style="padding: 20px; text-align: center; color: #64748b;">No live traffic.</div>' :
@@ -6754,18 +6820,54 @@ async function createAirportInfoWindowHTML(icao) {
             </div>
     `;
 
-    // --- Tab Contents ---
     const renderFlightCard = (fid, type) => {
         const f = currentMapFeatures[fid];
-        let cs = 'Unknown', usr = 'Pilot', ac = '---', al = 'UNKNOWN';
-        if (f && f.properties) {
-            const p = f.properties; cs = p.callsign||cs; usr = p.username||usr;
-            const acn = (typeof p.aircraft==='string'?JSON.parse(p.aircraft):p.aircraft)?.aircraftName||'';
-            ac = acn.split(' ')[0].substring(0,4).toUpperCase();
-            al = extractAirlineCode(cs);
-        }
-        const color = type === 'in' ? '#4ade80' : '#38bdf8';
-        return `<div class="route-card" style="border-left: 3px solid ${color}; padding: 8px 12px;"><div class="route-info"><div class="route-callsign" style="font-size: 0.95rem;"><img src="Images/vas/${al}.png" style="height: 14px; width: auto; max-width: 30px;" onerror="this.style.display='none'"> ${cs}</div><div class="route-details" style="font-size: 0.7rem;"><span class="route-ac-badge" style="font-size: 0.65rem;">${ac}</span><span>${usr}</span></div></div><div style="font-size: 0.7rem; font-weight: bold; color: ${color};"><i class="fa-solid ${type==='in'?'fa-plane-arrival':'fa-plane-departure'}"></i></div></div>`;
+        if (!f || !f.properties) return '';
+
+        const p = f.properties;
+        const callsign = p.callsign || 'Unknown';
+        const pilot = p.username || 'Pilot';
+        
+        // Parse aircraft data
+        const acData = (typeof p.aircraft === 'string') ? JSON.parse(p.aircraft) : (p.aircraft || {});
+        const acName = acData.aircraftName || '---';
+        const shortAc = acName.split(' ')[0].toUpperCase();
+        
+        // Route Logic
+        const dep = p.departureIcao || '???';
+        const arr = p.arrivalIcao || '???';
+        
+        // Background Image & Logo
+        const imgUrl = p.communityImageUrl || 'Images/default_ac.png'; 
+        const al = extractAirlineCode(callsign);
+        const logoHtml = `<img src="Images/vas/${al}.png" style="height: 12px; width: auto; max-width: 30px; margin-right: 8px; filter: drop-shadow(0 2px 4px rgba(0,0,0,0.5));" onerror="this.style.display='none'">`;
+
+        return `
+            <div class="route-card-reborn" style="background-image: url('${imgUrl}')">
+                <div class="card-overlay"></div>
+                <div class="card-content">
+                    <div class="card-header-zone">
+                        <div class="callsign-meta">${logoHtml} ${callsign}</div>
+                        <div class="aircraft-meta">${shortAc}</div>
+                    </div>
+                    
+                    <div class="card-center-zone">
+                        <div class="route-display">
+                            <span class="icao-code">${dep}</span>
+                            <div class="route-path-arrow">
+                                <i class="fa-solid fa-chevron-right" style="opacity: 0.3;"></i>
+                            </div>
+                            <span class="icao-code destination-focus">${arr}</span>
+                        </div>
+                    </div>
+                    
+                    <div class="card-footer-zone">
+                        <div class="operated-by-meta">OPERATED BY ${pilot.toUpperCase()}</div>
+                        <div class="time-status-meta">ON TIME</div>
+                    </div>
+                </div>
+            </div>
+        `;
     };
 
     let trafficHtml = (!trafficFetchSuccess) ? '<div style="padding: 20px; text-align: center; color: #64748b;">Data unavailable.</div>' :
