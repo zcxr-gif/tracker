@@ -3142,6 +3142,16 @@ async function initializeMapBoundaries(map) {
             data: boundaryData
         });
 
+        map.addLayer({
+    'id': 'fir-outlines',
+    'type': 'line',
+    'source': 'fir-boundaries',
+    'paint': {
+        'line-width': 0.5,
+        'line-color': 'rgba(255, 255, 255, 0.2)'
+    }
+});
+
         // 4. Add Fill Layer (for highlighting active sectors)
         map.addLayer({
             id: 'fir-fills',
