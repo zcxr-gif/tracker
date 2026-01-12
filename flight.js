@@ -3,6 +3,7 @@ import { AirportLayoutManager } from './airportLayout.js';
 import { LandingUI } from './landingUI.js';
 import { initPlaneSizeSlider } from './planeSizeController.js';
 import { GroupFlightManager } from './groupFlightManager.js';
+import { updateActiveSectors } from './atcHighlights.js';
 
 document.addEventListener('DOMContentLoaded', async () => {
 
@@ -3090,6 +3091,98 @@ async function trackPilotView(flight) {
     }
 }
 
+/**
+ * Parses VATSpy.dat to create a dictionary of FIR IDs to Names
+ */
+function parseVatspyData(rawData) {
+    const firDictionary = {};
+    const lines = rawData.split(/\r?\n/);
+    let inFirSection = false;
+
+    for (const line of lines) {
+        if (line.startsWith('[FIRs]')) {
+            inFirSection = true;
+            continue;
+        }
+        if (line.startsWith('[')) {
+            inFirSection = false;
+            continue;
+        }
+
+        if (inFirSection && line.trim()) {
+            const [id, name, icao] = line.split('|');
+            if (id) {
+                firDictionary[id] = { name, icao };
+            }
+        }
+    }
+    return firDictionary;
+}
+
+// --- Global State for Boundaries ---
+let firNameLookup = {};
+
+async function initializeMapBoundaries(map) {
+    try {
+        // 1. Fetch both files in parallel
+        const [boundaryRes, vatspyRes] = await Promise.all([
+            fetch('./Boundaries.geojson'),
+            fetch('./VATSpy.dat')
+        ]);
+
+        const boundaryData = await boundaryRes.json();
+        const vatspyRaw = await vatspyRes.text();
+
+        // 2. Build the name dictionary
+        firNameLookup = parseVatspyData(vatspyRaw);
+
+        // 3. Add Source to Mapbox
+        map.addSource('fir-boundaries', {
+            type: 'geojson',
+            data: boundaryData
+        });
+
+        // 4. Add Fill Layer (for highlighting active sectors)
+        map.addLayer({
+            id: 'fir-fills',
+            type: 'fill',
+            source: 'fir-boundaries',
+            layout: {},
+            paint: {
+                'fill-color': '#22c55e', // Emerald-500
+                'fill-opacity': 0         // Start hidden, updated by atcHighlights.js
+            }
+        });
+
+        // 5. Add Border Layer (the visible lines)
+        map.addLayer({
+            id: 'fir-borders',
+            type: 'line',
+            source: 'fir-boundaries',
+            layout: {},
+            paint: {
+                'line-color': '#ffffff',
+                'line-width': 0.5,
+                'line-opacity': 0.2
+            }
+        });
+
+        // 6. Interaction: Show FIR Name on click
+        map.on('click', 'fir-fills', (e) => {
+            const firId = e.features[0].properties.id;
+            const info = firNameLookup[firId] || { name: "Unknown FIR" };
+            
+            new mapboxgl.Popup()
+                .setLngLat(e.lngLat)
+                .setHTML(`<strong>${info.name}</strong><br/>Code: ${firId}`)
+                .addTo(map);
+        });
+
+    } catch (err) {
+        console.error("Error loading map boundaries:", err);
+    }
+}
+
 // 2. Fetch and display the Top 3 Pilots (Call this once on load, or on an interval)
 async function updateLeaderboard() {
     const container = document.getElementById('leaderboard-list'); // Ensure you have this ID in your HTML
@@ -5577,23 +5670,26 @@ function initializeSectorOpsSocket() {
     // Listen for the broadcasted flight data
     sectorOpsSocket.on('all_flights_update', handleSocketFlightUpdate);
 
-    // --- [NEW FIX] Listen for ATC/NOTAM updates (Secondary Data) ---
-    // This catches the immediate packet sent after joining the room
-    sectorOpsSocket.on('secondary_data_update', (data) => {
-        // Validation: Ensure packet belongs to current server
-        if (!data || !data.server || data.server.toLowerCase() !== currentServerName.toLowerCase()) {
-            return;
-        }
+    // Locate this section in flight.js
+sectorOpsSocket.on('secondary_data_update', (data) => {
+    if (!data || !data.server || data.server.toLowerCase() !== currentServerName.toLowerCase()) {
+        return;
+    }
 
-        console.log(`Socket: Received secondary update (ATC/NOTAMs) for ${data.server}`);
+    // 1. Update your global ATC array
+    activeAtcFacilities = (data.atc && Array.isArray(data.atc)) ? data.atc : [];
+    activeNotams = (data.notams && Array.isArray(data.notams)) ? data.notams : [];
 
-        // Update State
-        activeAtcFacilities = (data.atc && Array.isArray(data.atc)) ? data.atc : [];
-        activeNotams = (data.notams && Array.isArray(data.notams)) ? data.notams : [];
+    // 2. TRIGGER ATC HIGHLIGHTS
+    // We filter for type 6 (Center) so only FIR sectors light up
+    const centerControllers = activeAtcFacilities.filter(facility => facility.type === 6);
+    
+    // Pass your Mapbox instance, the FIR layer ID, and the filtered data
+    updateActiveSectors(sectorOpsMap, 'fir-fills', centerControllers);
 
-        // Redraw Map Markers Immediately
-        renderAirportMarkers();
-    });
+    // 3. Existing marker logic
+    renderAirportMarkers();
+});
 
     sectorOpsSocket.on('disconnect', (reason) => {
         console.warn(`Socket: Disconnected. Reason: ${reason}`);
@@ -8096,9 +8192,16 @@ function initializeSectorOpsMap(centerICAO) {
         sectorOpsMap.on('load', async () => {
             GroupFlightManager.init(sectorOpsMap);
             await setupMapLayersAndFog();
+            await setupFirBoundaries(sectorOpsMap);
             resolve();
         });
     });
+}
+
+// Call this function whenever you fetch new ATC data
+function onAtcDataReceived(newAtcData) {
+    // Import and use the function from atcHighlights.js
+    updateActiveSectors(sectorOpsMap, 'fir-fills', newAtcData);
 }
 
     /**
