@@ -1,60 +1,91 @@
 /**
  * atcHighlights.js
- * Mapbox GL JS version
+ * Mapbox GL JS version with Coordinate-to-FIR lookup
  */
 
-
-
-// 1. Mock Data (Matches your VATSpy.dat IDs)
-const MOCK_ATC_DATA = [
-    { callsign: "BOS_CTR", frequency: "128.200", fir_id: "KZBW" },
-    { callsign: "LON_CTR", frequency: "133.900", fir_id: "EGTT" }
-];
+/**
+ * Standard Point-in-Polygon algorithm to check if a lat/lon is inside a GeoJSON feature.
+ * This allows us to find the FIR region even if we only have coordinates.
+ */
+function isPointInPolygon(point, polygon) {
+    const x = point[0], y = point[1];
+    let inside = false;
+    
+    // Handle both Polygon and MultiPolygon geometries
+    const rings = polygon.type === 'Polygon' ? [polygon.coordinates] : polygon.coordinates;
+    
+    rings.forEach(ringSet => {
+        ringSet.forEach(ring => {
+            for (let i = 0, j = ring.length - 1; i < ring.length; j = i++) {
+                const xi = ring[i][0], yi = ring[i][1];
+                const xj = ring[j][0], yj = ring[j][1];
+                const intersect = ((yi > y) !== (yj > y)) && (x < (xj - xi) * (y - yi) / (yj - yi) + xi);
+                if (intersect) inside = !inside;
+            }
+        });
+    });
+    return inside;
+}
 
 /**
  * Updates the Mapbox layer style based on active ATC.
  * @param {object} map - Your Mapbox map instance
- * @param {string} layerId - The ID of the fill layer in your map (e.g., 'fir-fills')
- * @param {Array} atcData - The array of online controllers
+ * @param {string} layerId - The ID of the fill layer (e.g., 'fir-fills')
+ * @param {Array} atcData - The array of online Center controllers
  */
-export function updateActiveSectors(map, layerId, atcData = MOCK_ATC_DATA) {
+export function updateActiveSectors(map, layerId, atcData) {
     if (!map || !map.getLayer(layerId)) return;
 
-    // Create an array of active IDs (e.g., ["KZBW", "EGTT"])
-    const activeIds = atcData
-        .map(c => c.fir_id)
-        .filter(id => id != null);
+    // 1. Get all FIR features currently loaded in the GeoJSON source
+    // Ensure the source name 'fir-boundaries' matches the one in flight.js
+    const firFeatures = map.querySourceFeatures('fir-boundaries');
+    const activeIds = [];
+
+    // 2. Map coordinates to FIR IDs
+    atcData.forEach(controller => {
+        // Use coordinates to perform Point-in-Polygon lookup
+        if (controller.latitude && controller.longitude) {
+            const controllerPoint = [controller.longitude, controller.latitude];
+            
+            // Find which FIR boundary contains this point
+            const match = firFeatures.find(feature => 
+                isPointInPolygon(controllerPoint, feature.geometry)
+            );
+
+            if (match && match.properties.id) {
+                activeIds.push(match.properties.id);
+            }
+        } else if (controller.fir_id) {
+            // Fallback if an ID is already provided
+            activeIds.push(controller.fir_id);
+        }
+    });
 
     /**
      * Mapbox Expression Logic:
-     * 1. Get the 'id' property from the GeoJSON feature.
-     * 2. Use 'match' to see if the ID (or the base ID before a hyphen) is in our active list.
+     * We match the base ID (e.g., 'KZLA') even if the GeoJSON feature ID is 'KZLA-E'
      */
-    
-    // This expression checks if the feature ID is in the active list.
-    // To handle sub-sectors (ADR-E), we use a helper to match the prefix.
     const matchExpression = [
         "match",
-        // This nested expression gets the part of the ID before the "-"
         ["slice", ["get", "id"], 0, ["index-of", "-", ["concat", ["get", "id"], "-"]]],
-        activeIds,
-        true, // If it matches an active ID
-        false // If it doesn't
+        activeIds.length > 0 ? activeIds : ["none"],
+        true, 
+        false 
     ];
 
-    // Apply Highlight Green if matched, otherwise Dim Gray
+    // Apply Highlight Green if matched, otherwise keep it transparent
     map.setPaintProperty(layerId, 'fill-color', [
-        'case',
+        "case",
         matchExpression,
-        '#2ecc71', // Active Color
-        '#34495e'  // Inactive Color
+        '#22c55e', // Emerald-500
+        'transparent'
     ]);
 
-    // Adjust Opacity: 0.6 for active, 0.2 for inactive
+    // Set the opacity for the active region
     map.setPaintProperty(layerId, 'fill-opacity', [
-        'case',
+        "case",
         matchExpression,
-        0.6,
-        0.2
+        0.3, // Highlighted opacity
+        0    // Hidden
     ]);
 }

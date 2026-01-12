@@ -5670,24 +5670,18 @@ function initializeSectorOpsSocket() {
     // Listen for the broadcasted flight data
     sectorOpsSocket.on('all_flights_update', handleSocketFlightUpdate);
 
-    // Locate this section in flight.js
+// Inside initializeSectorOpsSocket() in flight.js
 sectorOpsSocket.on('secondary_data_update', (data) => {
-    if (!data || !data.server || data.server.toLowerCase() !== currentServerName.toLowerCase()) {
-        return;
-    }
+    if (!data || data.server.toLowerCase() !== currentServerName.toLowerCase()) return;
 
-    // 1. Update your global ATC array
-    activeAtcFacilities = (data.atc && Array.isArray(data.atc)) ? data.atc : [];
-    activeNotams = (data.notams && Array.isArray(data.notams)) ? data.notams : [];
-
-    // 2. TRIGGER ATC HIGHLIGHTS
-    // We filter for type 6 (Center) so only FIR sectors light up
-    const centerControllers = activeAtcFacilities.filter(facility => facility.type === 6);
+    activeAtcFacilities = data.atc || [];
     
-    // Pass your Mapbox instance, the FIR layer ID, and the filtered data
-    updateActiveSectors(sectorOpsMap, 'fir-fills', centerControllers);
+    // Filter for Center controllers (Type 6)
+    const centerControllers = activeAtcFacilities.filter(f => f.type === 6);
 
-    // 3. Existing marker logic
+    // This now uses coordinates to find the right FIR polygon on the map
+    updateActiveSectors(sectorOpsMap, 'fir-fills', centerControllers);
+    
     renderAirportMarkers();
 });
 
