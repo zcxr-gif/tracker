@@ -8192,7 +8192,7 @@ function initializeSectorOpsMap(centerICAO) {
         sectorOpsMap.on('load', async () => {
             GroupFlightManager.init(sectorOpsMap);
             await setupMapLayersAndFog();
-            await setupFirBoundaries(sectorOpsMap);
+            await initializeMapBoundaries(sectorOpsMap);
             resolve();
         });
     });
