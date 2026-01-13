@@ -6888,29 +6888,41 @@ async function createAirportInfoWindowHTML(icao) {
     setTimeout(updateTrafficLegendUI, 0);
 
     return `
-        <div class="airport-hero" style="background-image: url('klax.webp')">
+        <div class="airport-hero" style="background-image: url('${airportImg}')">
             <div class="airport-hero-overlay"></div>
             <div class="hero-actions">
                 <button id="airport-window-hide-btn" class="hero-btn" title="Hide Window"><i class="fa-solid fa-compress"></i></button>
                 <button id="airport-window-close-btn" class="hero-btn" title="Close Window"><i class="fa-solid fa-xmark"></i></button>
             </div>
             <div class="apt-ident-group">
-                <div class="apt-icao">
-                    ${icao}${flagSrc ? `<img src="${flagSrc}" style="height: 24px; border-radius: 2px; margin-left: 10px;">` : ''}${badge3DHtml}
-                </div>
+                <div class="apt-icao">${icao}${flagSrc ? `<img src="${flagSrc}" style="height: 24px; border-radius: 2px; margin-left: 10px;">` : ''}${badge3DHtml}</div>
                 <div class="apt-name">${airportName}</div>
-                <div style="font-size: 0.8rem; color: #cbd5e1; margin-top: 2px; text-shadow: 0 1px 3px rgba(0,0,0,0.8);">${cityState}</div>
+                <div style="font-size: 0.8rem; color: #fff; margin-top: 2px; text-shadow: 0 1px 3px rgba(0,0,0,0.8);">${cityState}</div>
                 <div style="margin-top: 8px; display: flex; gap: 8px;">
                     <span class="apt-meta-badge"><i class="fa-solid fa-location-crosshairs"></i> ${coords.lat?.toFixed(3)}, ${coords.lon?.toFixed(3)}</span>
                     <span class="apt-meta-badge"><i class="fa-solid fa-arrows-up-down"></i> ${elevation} ft</span>
                 </div>
             </div>
         </div>
+        ${featureStripHtml}
         <div style="flex-grow: 1; overflow-y: auto;">
+            <div class="apt-dashboard-grid">${weatherModuleHtml}${atisModuleHtml}</div>
+            <div class="tech-module" style="margin: 16px; border: 1px solid rgba(255,255,255,0.05);">
+                <div class="apt-tabs-header">
+                    <button class="apt-tab-btn active" data-target="apt-traffic"><i class="fa-solid fa-plane-circle-check"></i> TRAFFIC</button>
+                    <button class="apt-tab-btn" data-target="apt-atc"><i class="fa-solid fa-headset"></i> ATC</button>
+                    <button class="apt-tab-btn" data-target="apt-notams"><i class="fa-solid fa-triangle-exclamation"></i> NOTAMs</button>
+                </div>
+                <div id="apt-traffic" class="apt-tab-content active" style="padding: 0;">
+                    ${visualizerControlsHtml}
+                    ${trafficHtml}
+                </div>
+                <div id="apt-atc" class="apt-tab-content" style="padding: 0;">${atcHtml}</div>
+                <div id="apt-notams" class="apt-tab-content" style="padding: 0;">${notamsHtml}</div>
             </div>
+        </div>
     `;
 }
-
 
     // --- Rank & Fleet Models ---
     const PILOT_RANKS = [
