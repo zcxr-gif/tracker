@@ -556,7 +556,7 @@ function injectCustomStyles() {
 
     const css = `
 
-        /* --- REDESIGNED TACTICAL FLIGHT CARDS --- */
+        /* --- REDESFIGNED TACTICAL FLIGHT CARDS --- */
 .route-card-reborn {
     position: relative;
     height: 115px;
@@ -12279,54 +12279,72 @@ async function updateSectorOpsSecondaryData() {
 
 
 
-    // --- Initial Load ---
+    /**
+ * Redesigned Initialization for InFlight
+ * Coordinates data fetching and UI setup with status feedback.
+ */
 async function initializeApp() {
-        mainContentLoader.classList.add('active');
+    const statusEl = document.getElementById('loader-status');
+    const loader = document.getElementById('main-content-loader');
+    
+    // Internal helper to update the loading screen text
+    const updateStatus = (msg) => { 
+        if (statusEl) statusEl.textContent = msg; 
+        console.log(`[System Init] ${msg}`);
+    };
 
-        loadFiltersFromLocalStorage();
+    // 1. Initial Setup
+    updateStatus("Loading Preferences...");
+    loadFiltersFromLocalStorage(); //
+    injectCustomStyles();          //
 
-        // Inject all custom CSS
-        injectCustomStyles();
+    // 2. Essential Data Fetching
+    // We fetch these sequentially to provide step-by-step feedback to the user
+    updateStatus("Connecting to Satellites...");
+    await fetchApiKeys();          //
 
-        // Fetch essential data in parallel
-        await Promise.all([
-            fetchApiKeys(),
-            fetchAirportsData(),
-            fetchRunwaysData()
-        ]);
-        
-        // Initialize the Sector Ops view
-        await initializeSectorOpsView();
+    updateStatus("Fetching Global Airports...");
+    await fetchAirportsData();     //
 
-        await LandingUI.init();
-        
-        const isVisible = localStorage.getItem('landingUI_visible') === 'true';
+    updateStatus("Analyzing Runway Data...");
+    await fetchRunwaysData();      //
+
+    // 3. Initialize Visuals & Maps
+    updateStatus("Rendering Map...");
+    await initializeSectorOpsView(); //
+
+    updateStatus("Finalizing...");
+    await LandingUI.init();          //
+
+    // 4. Restore Landing UI State
+    const isVisible = localStorage.getItem('landingUI_visible') === 'true'; //
     if (isVisible) {
-        const savedData = JSON.parse(localStorage.getItem('landingUI_data') || '{}');
-        // Refresh with latest live counts if available, otherwise use saved
+        const savedData = JSON.parse(localStorage.getItem('landingUI_data') || '{}'); //
         LandingUI.update(true, {
-            server: currentServerName,
-            flights: Object.keys(currentMapFeatures).length || savedData.flights || 0,
-            atc: activeAtcFacilities.length || savedData.atc || 0
+            server: currentServerName, //
+            flights: Object.keys(currentMapFeatures).length || savedData.flights || 0, //
+            atc: activeAtcFacilities.length || savedData.atc || 0 //
         });
     }
 
-    window.addEventListener('filterUpdate', (e) => {
-    const { filters, quickSearch } = e.detail;
-    
-    // Store incoming tactical filters into global state
-    mapFilters.tactical = filters;
-    mapFilters.quickSearch = quickSearch;
-
-    // Handle boolean group toggle
-    mapFilters.showGroupFlights = !!filters.group;
-    
-    // Run the filter update logic
-    updateMapFilters();
-});
+    // 5. Setup Event Listeners
+    window.addEventListener('filterUpdate', (e) => { //
+        const { filters, quickSearch } = e.detail; //
         
-        mainContentLoader.classList.remove('active');
-    }
+        // Update global filter state
+        mapFilters.tactical = filters; //
+        mapFilters.quickSearch = quickSearch; //
+        mapFilters.showGroupFlights = !!filters.group; //
+        
+        updateMapFilters(); //
+    });
+
+    // 6. Smooth Transition to Dashboard
+    updateStatus("Launching");
+    setTimeout(() => {
+        if (loader) loader.classList.remove('active'); //
+    }, 800);
+}
 
     window.displayPilotStats = displayPilotStats;
 
