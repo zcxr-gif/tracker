@@ -1,6 +1,6 @@
 /**
  * atcHighlights.js
- * Mapbox GL JS version with Coordinate-to-FIR lookup
+ * Mapbox GL JS version with Coordinate-to-FIR lookup and Style Persistence
  */
 
 /**
@@ -26,32 +26,69 @@ function isPointInPolygon(point, polygon) {
 }
 
 /**
+ * Initializes or re-initializes the FIR sources and layers.
+ * Call this after map.setStyle() inside a 'style.load' event listener.
+ */
+export function initializeFIRLayers(map, geojsonData) {
+    if (!map.getSource('fir-boundaries')) {
+        map.addSource('fir-boundaries', {
+            type: 'geojson',
+            data: geojsonData // URL or GeoJSON object
+        });
+    }
+
+    if (!map.getLayer('fir-fills')) {
+        map.addLayer({
+            id: 'fir-fills',
+            type: 'fill',
+            source: 'fir-boundaries',
+            paint: {
+                'fill-color': 'rgba(0, 0, 0, 0)',
+                'fill-opacity': 0
+            }
+        });
+    }
+
+    if (!map.getLayer('fir-borders')) {
+        // Find the first label layer to insert the FIR boundaries beneath them
+        const layers = map.getStyle().layers;
+        let firstLabelId = layers.find(l => l.type === 'symbol')?.id;
+
+        map.addLayer({
+            id: 'fir-borders',
+            type: 'line',
+            source: 'fir-boundaries',
+            paint: {
+                'line-color': 'rgba(255, 255, 255, 0.1)',
+                'line-width': 0.5,
+                'line-opacity': 0.3
+            }
+        }, firstLabelId); // Insert below labels
+    }
+}
+
+/**
  * Updates the Mapbox layer style based on active ATC.
  * @param {object} map - Your Mapbox map instance
- * @param {string} layerId - The ID of the fill layer (e.g., 'fir-fills')
  * @param {Array} atcData - The array of online Center controllers
  */
-export function updateActiveSectors(map, layerId, atcData) {
-    if (!map || !map.getLayer(layerId)) return;
+export function updateActiveSectors(map, atcData) {
+    const layerId = 'fir-fills';
+    const borderLayerId = 'fir-borders';
 
-    // 1. Build the list of active IDs from data first to prevent flickering.
-    // By using atcData as the source of truth, the highlight stays even if 
-    // the region is currently off-screen.
+    if (!map || !map.getLayer(layerId) || !map.getLayer(borderLayerId)) return;
+
     const activeIdsSet = new Set();
     const lookupPoints = [];
 
     atcData.forEach(controller => {
         if (controller.fir_id) {
-            // Priority 1: Use the explicit ID from the API
             activeIdsSet.add(controller.fir_id);
         } else if (controller.latitude && controller.longitude) {
-            // Priority 2: Queue for spatial lookup if ID is missing
             lookupPoints.push([controller.longitude, controller.latitude]);
         }
     });
 
-    // 2. Supplemental lookup for coordinates if needed.
-    // Note: querySourceFeatures only sees tiles currently in view.
     if (lookupPoints.length > 0) {
         const firFeatures = map.querySourceFeatures('fir-boundaries');
         lookupPoints.forEach(point => {
@@ -64,7 +101,7 @@ export function updateActiveSectors(map, layerId, atcData) {
 
     const activeIds = Array.from(activeIdsSet);
     
-    // 3. Create a prefix-matching expression (e.g., 'KZLA' matches 'KZLA-CTR')
+    // Create prefix-matching expression
     const matchExpression = [
         "match",
         ["slice", ["get", "id"], 0, ["index-of", "-", ["concat", ["get", "id"], "-"]]],
@@ -73,49 +110,32 @@ export function updateActiveSectors(map, layerId, atcData) {
         false
     ];
 
-    // --- STYLING: BRIGHT WHITE OUTLINE ---
-
-    // Set fill to transparent (as we only want the outline highlighted)
-    map.setPaintProperty(layerId, 'fill-color', 'rgba(0, 0, 0, 0)');
-    map.setPaintProperty(layerId, 'fill-opacity', 0);
-
-    if (map.getLayer('fir-borders')) {
-    // 1. Position the layer: Move the borders below aircraft labels/icons
-    // 'airplane-layer-id' should be the ID of your aircraft symbols layer
-    if (map.getLayer('airplane-layer-id')) {
-        map.moveLayer('fir-borders', 'airplane-layer-id');
-    }
-
-    // 2. High-intensity color: Pure white at 100% opacity for the active sector
-    map.setPaintProperty('fir-borders', 'line-color', [
+    // Apply Highlight Styles
+    map.setPaintProperty(borderLayerId, 'line-color', [
         "case",
         matchExpression,
         '#ffffff', 
-        'rgba(255, 255, 255, 0.1)' // Dimmer inactive lines for contrast
+        'rgba(255, 255, 255, 0.1)' 
     ]);
 
-    // 3. Keep it thin: Reverted to a thin, sharp line to avoid "bloat"
-    map.setPaintProperty('fir-borders', 'line-width', [
+    map.setPaintProperty(borderLayerId, 'line-width', [
         "case",
         matchExpression,
-        1.5, // Thin but distinct
+        1.5,
         0.5 
     ]);
 
-    // 4. Tight Glow: Use a very small blur to create "luminance" without fuzziness
-    map.setPaintProperty('fir-borders', 'line-blur', [
+    map.setPaintProperty(borderLayerId, 'line-blur', [
         "case",
         matchExpression,
         0.5, 
         0
     ]);
     
-    // 5. Opacity: Ensure the active line is fully opaque
-    map.setPaintProperty('fir-borders', 'line-opacity', [
+    map.setPaintProperty(borderLayerId, 'line-opacity', [
         "case",
         matchExpression,
         1.0,
         0.3
     ]);
-}
 }
