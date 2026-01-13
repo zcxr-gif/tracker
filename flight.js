@@ -12279,72 +12279,54 @@ async function updateSectorOpsSecondaryData() {
 
 
 
-    /**
- * Redesigned Initialization for InFlight
- * Coordinates data fetching and UI setup with status feedback.
- */
+    // --- Initial Load ---
 async function initializeApp() {
-    const statusEl = document.getElementById('loader-status');
-    const loader = document.getElementById('main-content-loader');
-    
-    // Internal helper to update the loading screen text
-    const updateStatus = (msg) => { 
-        if (statusEl) statusEl.textContent = msg; 
-        console.log(`[System Init] ${msg}`);
-    };
+        mainContentLoader.classList.add('active');
 
-    // 1. Initial Setup
-    updateStatus("Loading Preferences...");
-    loadFiltersFromLocalStorage(); //
-    injectCustomStyles();          //
+        loadFiltersFromLocalStorage();
 
-    // 2. Essential Data Fetching
-    // We fetch these sequentially to provide step-by-step feedback to the user
-    updateStatus("Connecting to Satellites...");
-    await fetchApiKeys();          //
+        // Inject all custom CSS
+        injectCustomStyles();
 
-    updateStatus("Fetching Global Airports...");
-    await fetchAirportsData();     //
+        // Fetch essential data in parallel
+        await Promise.all([
+            fetchApiKeys(),
+            fetchAirportsData(),
+            fetchRunwaysData()
+        ]);
+        
+        // Initialize the Sector Ops view
+        await initializeSectorOpsView();
 
-    updateStatus("Analyzing Runway Data...");
-    await fetchRunwaysData();      //
-
-    // 3. Initialize Visuals & Maps
-    updateStatus("Rendering Map...");
-    await initializeSectorOpsView(); //
-
-    updateStatus("Finalizing...");
-    await LandingUI.init();          //
-
-    // 4. Restore Landing UI State
-    const isVisible = localStorage.getItem('landingUI_visible') === 'true'; //
+        await LandingUI.init();
+        
+        const isVisible = localStorage.getItem('landingUI_visible') === 'true';
     if (isVisible) {
-        const savedData = JSON.parse(localStorage.getItem('landingUI_data') || '{}'); //
+        const savedData = JSON.parse(localStorage.getItem('landingUI_data') || '{}');
+        // Refresh with latest live counts if available, otherwise use saved
         LandingUI.update(true, {
-            server: currentServerName, //
-            flights: Object.keys(currentMapFeatures).length || savedData.flights || 0, //
-            atc: activeAtcFacilities.length || savedData.atc || 0 //
+            server: currentServerName,
+            flights: Object.keys(currentMapFeatures).length || savedData.flights || 0,
+            atc: activeAtcFacilities.length || savedData.atc || 0
         });
     }
 
-    // 5. Setup Event Listeners
-    window.addEventListener('filterUpdate', (e) => { //
-        const { filters, quickSearch } = e.detail; //
-        
-        // Update global filter state
-        mapFilters.tactical = filters; //
-        mapFilters.quickSearch = quickSearch; //
-        mapFilters.showGroupFlights = !!filters.group; //
-        
-        updateMapFilters(); //
-    });
+    window.addEventListener('filterUpdate', (e) => {
+    const { filters, quickSearch } = e.detail;
+    
+    // Store incoming tactical filters into global state
+    mapFilters.tactical = filters;
+    mapFilters.quickSearch = quickSearch;
 
-    // 6. Smooth Transition to Dashboard
-    updateStatus("Launching");
-    setTimeout(() => {
-        if (loader) loader.classList.remove('active'); //
-    }, 800);
-}
+    // Handle boolean group toggle
+    mapFilters.showGroupFlights = !!filters.group;
+    
+    // Run the filter update logic
+    updateMapFilters();
+});
+        
+        mainContentLoader.classList.remove('active');
+    }
 
     window.displayPilotStats = displayPilotStats;
 

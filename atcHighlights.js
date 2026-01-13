@@ -60,8 +60,7 @@ export function updateActiveSectors(map, layerId, atcData) {
             activeIds.push(controller.fir_id);
         }
     });
-
-    activeIds = [...new Set(activeIds)];
+    
 
     /**
      * Mapbox Expression Logic:

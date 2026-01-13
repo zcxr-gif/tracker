@@ -34,104 +34,33 @@
             overflow: hidden; /* Important for fullscreen map */
         }
 
-        /* --- REDESIGNED INFLIGHT LOADER --- */
-.main-loader-overlay {
-    position: fixed;
-    inset: 0;
-    background: radial-gradient(circle at center, #1a1c2e 0%, #0d1117 100%);
-    display: none;
-    align-items: center;
-    justify-content: center;
-    z-index: 10000;
-    backdrop-filter: blur(10px);
-}
-
-.main-loader-overlay.active {
-    display: flex;
-}
-
-.loader-content {
-    text-align: center;
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    gap: 24px;
-}
-
-.loader-brand h1 {
-    font-size: 2.2rem;
-    font-weight: 800;
-    color: #fff;
-    margin: 0;
-    letter-spacing: -1px;
-    text-shadow: 0 0 20px rgba(0, 168, 255, 0.3);
-}
-
-.loader-brand .accent {
-    color: #00a8ff;
-}
-
-.loader-plane-wrapper {
-    position: relative;
-    font-size: 3.5rem;
-    color: #00a8ff;
-    margin-bottom: 10px;
-    animation: planeFly 2s ease-in-out infinite;
-}
-
-.pulse-ring {
-    position: absolute;
-    top: 50%;
-    left: 50%;
-    transform: translate(-50%, -50%);
-    width: 60px;
-    height: 60px;
-    border: 2px solid #00a8ff;
-    border-radius: 50%;
-    animation: ringPulse 2s ease-out infinite;
-}
-
-.loader-progress-bar {
-    width: 240px;
-    height: 4px;
-    background: rgba(255, 255, 255, 0.1);
-    border-radius: 10px;
-    overflow: hidden;
-    position: relative;
-}
-
-.progress-fill {
-    position: absolute;
-    height: 100%;
-    width: 30%;
-    background: linear-gradient(90deg, #00a8ff, #89f7fe);
-    border-radius: 10px;
-    animation: progressMove 1.5s infinite ease-in-out;
-}
-
-.loader-status {
-    font-family: 'JetBrains Mono', monospace;
-    font-size: 0.85rem;
-    color: #94a3b8;
-    text-transform: uppercase;
-    letter-spacing: 2px;
-}
-
-/* Animations */
-@keyframes planeFly {
-    0%, 100% { transform: translateY(0); }
-    50% { transform: translateY(-15px); }
-}
-
-@keyframes ringPulse {
-    0% { width: 40px; height: 40px; opacity: 1; }
-    100% { width: 120px; height: 120px; opacity: 0; }
-}
-
-@keyframes progressMove {
-    0% { left: -30%; }
-    100% { left: 100%; }
-}
+        /* Main Loader */
+        .main-loader-overlay {
+            position: fixed;
+            inset: 0;
+            background: rgba(13, 17, 23, 0.9);
+            display: none; /* Changed to none */
+            align-items: center;
+            justify-content: center;
+            z-index: 9999;
+        }
+        .main-loader-overlay.active {
+            display: flex; /* Show when active */
+        }
+        .spinner-large {
+            width: 56px;
+            height: 56px;
+            border: 6px solid #484f58;
+            border-bottom-color: #00a8ff;
+            border-radius: 50%;
+            display: inline-block;
+            box-sizing: border-box;
+            animation: rotation 1s linear infinite;
+        }
+        @keyframes rotation {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
 
         /* --- [FIX] Standalone Map View Layout --- */
         #standalone-map-view.active {
@@ -2006,20 +1935,8 @@
     </div>
 
     <div id="main-content-loader" class="main-loader-overlay active">
-    <div class="loader-content">
-        <div class="loader-brand">
-            <div class="loader-plane-wrapper">
-                <i class="fa-solid fa-plane-up"></i>
-                <div class="pulse-ring"></div>
-            </div>
-            <h1>InFlight<span class="accent">Tracker</span></h1>
-        </div>
-        <div class="loader-progress-bar">
-            <div class="progress-fill"></div>
-        </div>
-        <p id="loader-status" class="loader-status">loading...</p>
+        <div class="spinner-large"></div>
     </div>
-</div>
 
     <script src="https://unpkg.com/three@0.126.0/build/three.min.js"></script>
     <script src="https://unpkg.com/three@0.126.0/examples/js/loaders/FontLoader.js"></script>
