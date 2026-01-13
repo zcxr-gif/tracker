@@ -36,36 +36,30 @@ function isPointInPolygon(point, polygon) {
 export function updateActiveSectors(map, layerId, atcData) {
     if (!map || !map.getLayer(layerId)) return;
 
-    // 1. Get all FIR features currently loaded in the GeoJSON source
-    // Ensure the source name 'fir-boundaries' matches the one in flight.js
     const firFeatures = map.querySourceFeatures('fir-boundaries');
-    const activeIds = [];
+    
+    // CHANGE: Use a Set instead of an Array to ensure all IDs are unique
+    const activeIdsSet = new Set();
 
-    // 2. Map coordinates to FIR IDs
     atcData.forEach(controller => {
-        // Use coordinates to perform Point-in-Polygon lookup
         if (controller.latitude && controller.longitude) {
             const controllerPoint = [controller.longitude, controller.latitude];
             
-            // Find which FIR boundary contains this point
             const match = firFeatures.find(feature => 
                 isPointInPolygon(controllerPoint, feature.geometry)
             );
 
             if (match && match.properties.id) {
-                activeIds.push(match.properties.id);
+                activeIdsSet.add(match.properties.id); // Sets ignore duplicate entries
             }
         } else if (controller.fir_id) {
-            // Fallback if an ID is already provided
-            activeIds.push(controller.fir_id);
+            activeIdsSet.add(controller.fir_id);
         }
     });
     
+    // Convert the Set back to an Array for Mapbox
+    const activeIds = Array.from(activeIdsSet);
 
-    /**
-     * Mapbox Expression Logic:
-     * We match the base ID (e.g., 'KZLA') even if the GeoJSON feature ID is 'KZLA-E'
-     */
     const matchExpression = [
         "match",
         ["slice", ["get", "id"], 0, ["index-of", "-", ["concat", ["get", "id"], "-"]]],
