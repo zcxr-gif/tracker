@@ -7867,6 +7867,10 @@ function formatDataForSimpleWindow(flightProps, plan, routePoints, communityData
                             <span class="filter-section-title">Map Style</span>
                         </div>
                         <ul class="filter-toggle-list" style="padding-top: 8px;">
+                             <li class="filter-radio-item">
+                                <input type="radio" id="map-style-dark" name="map-style-mode" value="dark" checked>
+                                <label for="map-style-dark"><i class="fa-solid fa-moon"></i> Dark (Default)</label>
+                            </li>
                             <li class="filter-toggle-item">
     <span class="filter-toggle-label"><i class="fa-solid fa-map"></i> Flat Map Projection</span>
     <label class="toggle-switch">
@@ -7874,10 +7878,6 @@ function formatDataForSimpleWindow(flightProps, plan, routePoints, communityData
         <span class="toggle-slider"></span>
     </label>
 </li>
-                             <li class="filter-radio-item">
-                                <input type="radio" id="map-style-dark" name="map-style-mode" value="dark" checked>
-                                <label for="map-style-dark"><i class="fa-solid fa-moon"></i> Dark (Default)</label>
-                            </li>
                             <li class="filter-radio-item">
                                 <input type="radio" id="map-style-light" name="map-style-mode" value="light">
                                 <label for="map-style-light"><i class="fa-solid fa-sun"></i> Light</label>
