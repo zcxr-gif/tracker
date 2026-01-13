@@ -1206,127 +1206,18 @@ function injectCustomStyles() {
             overflow: hidden; 
         }
 
-        /* Update the grid to ensure the right column matches the PFD height */
-.pfd-and-location-grid {
-    display: grid;
-    grid-template-columns: 1fr 180px; /* Widened slightly for better readability */
-    gap: 8px;
-    align-items: stretch; /* Forces both columns to the same height */
-    margin-bottom: 12px;
-}
+        .pfd-and-location-grid { 
+            display: grid;
+            /* Left takes available space, Right is fixed to fit the seat sensor (140px + margin) */
+            grid-template-columns: 1fr 150px;
+            gap: 6px;
+        }
 
-.info-right-col {
-    display: flex;
-    flex-direction: column;
-    height: 100%;
-}
-
-/* Redesigned Side Status Display */
-#cockpit-seat-sensor {
-    height: 100%;
-    display: flex;
-    flex-direction: column;
-    background: rgba(10, 10, 12, 0.95);
-    border: 1px solid rgba(255, 255, 255, 0.1);
-    border-radius: 12px;
-    overflow: hidden;
-    box-shadow: 0 12px 40px rgba(0, 0, 0, 0.6);
-}
-
-.sensor-state-strip {
-    padding: 20px 14px;
-    display: flex;
-    flex-direction: column;
-    gap: 12px;
-    border-bottom: 1px solid rgba(255, 255, 255, 0.05);
-}
-
-.state-badge-container {
-    display: flex;
-    align-items: center;
-    gap: 10px;
-}
-
-.state-ping-circle {
-    width: 10px;
-    height: 10px;
-    border-radius: 50%;
-    position: relative;
-}
-
-/* Pulsing animation for active status */
-.state-ping-circle .ping {
-    position: absolute;
-    inset: 0;
-    border-radius: 50%;
-    animation: pulse-ping 2s infinite;
-}
-
-@keyframes pulse-ping {
-    0% { transform: scale(1); opacity: 1; }
-    100% { transform: scale(3); opacity: 0; }
-}
-
-.state-text-group {
-    display: flex;
-    flex-direction: column;
-}
-
-.state-title {
-    font-size: 0.9rem;
-    font-weight: 800;
-    letter-spacing: 0.08em;
-    text-transform: uppercase;
-}
-
-.state-desc {
-    font-size: 0.65rem;
-    color: #94a3b8;
-    font-family: 'JetBrains Mono', monospace;
-    opacity: 0.8;
-}
-
-.sensor-timers-body {
-    flex: 1;
-    padding: 16px;
-    display: flex;
-    flex-direction: column;
-    justify-content: space-around; /* Spreads timers to fill the PFD height */
-}
-
-.timer-card {
-    background: rgba(255, 255, 255, 0.02);
-    border: 1px solid rgba(255, 255, 255, 0.05);
-    border-radius: 8px;
-    padding: 14px 12px;
-    display: flex;
-    flex-direction: column;
-    gap: 6px;
-}
-
-.timer-label {
-    font-size: 0.6rem;
-    color: #64748b;
-    font-weight: 700;
-    text-transform: uppercase;
-    letter-spacing: 0.1em;
-    display: flex;
-    align-items: center;
-    gap: 6px;
-}
-
-.timer-value {
-    font-family: 'JetBrains Mono', monospace;
-    font-size: 1.5rem;
-    font-weight: 700;
-    color: #ffffff;
-    line-height: 1;
-}
-
-.timer-value.highlight {
-    color: #38bdf8;
-    text-shadow: 0 0 15px rgba(56, 189, 248, 0.3);
-}
+        .info-right-col {
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
+        }
         
         /* --- FMS & MODULE STYLES --- */
         .fms-module-container {
@@ -9887,33 +9778,48 @@ function populateAircraftInfoWindow(baseProps, plan, sortedRoutePoints, communit
                     
              <div class="info-right-col">
        <div class="tech-module" id="cockpit-seat-sensor">
-    <div class="sensor-state-strip" style="background: linear-gradient(to bottom, ${psBg}, rgba(10, 10, 12, 0)); border-top: 4px solid ${psColor};">
-        <div class="state-badge-container">
-            <div class="state-ping-circle" style="background-color: ${psColor};">
-                <div class="ping" style="background-color: ${psColor};"></div>
-            </div>
-            <div class="state-text-group">
-                <span class="state-title" style="color: ${psColor}">${psTitle}</span>
-                <span class="state-desc">${psDesc}</span>
-            </div>
-        </div>
-    </div>
+                            <div class="sensor-state-strip" style="background: ${psBg}; border-left: 3px solid ${psColor}; padding: 8px 12px; display: flex; align-items: center; justify-content: space-between; border-bottom: 1px solid #222; flex-shrink: 0;">
+                                <div style="display: flex; align-items: center; gap: 10px;">
+                                    <div style="width: 24px; height: 24px; border-radius: 4px; background: rgba(0,0,0,0.3); display: flex; align-items: center; justify-content: center; border: 1px solid ${psColor}; box-shadow: 0 0 5px ${psColor}40;">
+                                         <i class="fa-solid ${psIcon}" style="color: ${psColor}; font-size: 12px;"></i>
+                                    </div>
+                                    <div style="display: flex; flex-direction: column;">
+                                        <span style="font-weight: 700; font-size: 12px; color: ${psColor}; line-height: 1;">${psTitle}</span>
+                                        <span style="font-size: 9px; color: #64748b; font-family: monospace;">${psDesc}</span>
+                                    </div>
+                                </div>
+                                <div class="tech-ping">
+                                    <span class="animate" style="background-color: ${psColor}"></span>
+                                    <span style="background-color: ${psColor}"></span>
+                                </div>
+                            </div>
 
-    <div class="sensor-timers-body">
-        <div class="timer-card">
-            <span class="timer-label"><i class="fa-solid fa-stopwatch"></i> Elapsed Time</span>
-            <span id="ac-sensor-elapsed" class="timer-value">--:--</span>
-        </div>
-        <div class="timer-card">
-            <span class="timer-label"><i class="fa-solid fa-hourglass-half"></i> Est. Remaining</span>
-            <span id="ac-sensor-ete" class="timer-value highlight">--:--</span>
-        </div>
-        <div class="timer-card">
-            <span class="timer-label"><i class="fa-solid fa-calculator"></i> Total Trip</span>
-            <span id="ac-sensor-total" class="timer-value" style="color: #94a3b8; font-size: 1.2rem;">--:--</span>
-        </div>
-    </div>
-</div>
+                            <div class="sensor-timers-body" style="flex: 1; padding: 12px; display: flex; flex-direction: column; justify-content: space-between; background: #050505;">
+                                <div class="timer-group">
+                                    <span style="font-size: 9px; color: #64748b; text-transform: uppercase; letter-spacing: 1px; display: block; margin-bottom: 2px;">Elapsed Time</span>
+                                    <div style="background: #000; border: 1px solid #222; padding: 6px 10px; border-radius: 4px; display: flex; align-items: baseline; justify-content: space-between;">
+                                         <i class="fa-solid fa-stopwatch" style="color: #334155; font-size: 12px;"></i>
+                                         <span id="ac-sensor-elapsed" style="font-family: 'Consolas', monospace; font-size: 18px; color: #fff; font-weight: 700; text-shadow: 0 0 10px rgba(255,255,255,0.1);">--:--</span>
+                                    </div>
+                                </div>
+                                <div class="timer-group">
+                                     <span style="font-size: 9px; color: #64748b; text-transform: uppercase; letter-spacing: 1px; display: block; margin-bottom: 2px;">Estimated Remaining</span>
+                                     <div style="background: #000; border: 1px solid #222; padding: 6px 10px; border-radius: 4px; display: flex; align-items: baseline; justify-content: space-between;">
+                                         <i class="fa-solid fa-hourglass-half" style="color: #334155; font-size: 12px;"></i>
+                                         <span id="ac-sensor-ete" style="font-family: 'Consolas', monospace; font-size: 18px; color: #38bdf8; font-weight: 700;">--:--</span>
+                                    </div>
+                                </div>
+                                <div class="timer-group">
+                                     <span style="font-size: 9px; color: #64748b; text-transform: uppercase; letter-spacing: 1px; display: block; margin-bottom: 2px;">Total Flight Time</span>
+                                     <div style="background: rgba(255,255,255,0.03); border: 1px dashed #333; padding: 4px 10px; border-radius: 4px; display: flex; align-items: baseline; justify-content: space-between;">
+                                         <i class="fa-solid fa-calculator" style="color: #334155; font-size: 10px;"></i>
+                                         <span id="ac-sensor-total" style="font-family: 'Consolas', monospace; font-size: 14px; color: #94a3b8;">--:--</span>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div> 
+                </div> 
 
                 <div class="nd-full-width-section">
                     <div class="display-toggle-bar">
