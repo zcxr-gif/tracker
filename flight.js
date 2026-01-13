@@ -9632,7 +9632,7 @@ function populateAircraftInfoWindow(baseProps, plan, sortedRoutePoints, communit
         </div>
 
       <div class="unified-display-main-content">
-            <div id="ac-tab-flight-data" class="ac-tab-pane active" style="gap: 12px;">
+            <div id="ac-tab-flight-data" class="ac-tab-pane active" style="gap: 6px;">
                 <div class="pfd-and-location-grid">
                      <div class="pfd-main-panel">
                       <div class="display-bezel" style="background: rgba(15, 23, 42, 0.4); border: 1px solid rgba(255,255,255,0.05); border-radius: 12px; overflow: hidden; box-shadow: 0 4px 24px rgba(0,0,0,0.4);">
@@ -9765,112 +9765,47 @@ function populateAircraftInfoWindow(baseProps, plan, sortedRoutePoints, communit
                      </div>
                     </div> 
                     
-             <div class="info-right-col" style="gap: 16px; display: flex; flex-direction: column;">
-                    <!-- ULTIMATE REDESIGN: TECH MODULE (PILOT STATE & LIVE PROGRESS) -->
-                    <div class="tech-module" id="cockpit-seat-sensor" style="background: linear-gradient(145deg, rgba(30, 41, 59, 0.7), rgba(15, 23, 42, 0.8)); border: 1px solid rgba(255,255,255,0.08); border-radius: 20px; overflow: hidden; display: flex; flex-direction: column; backdrop-filter: blur(12px); box-shadow: 0 8px 32px rgba(0,0,0,0.4);">
-                        <div style="padding: 20px; display: flex; flex-direction: column; gap: 20px;">
-                            <div style="display: flex; align-items: center; justify-content: space-between;">
-                                <div style="display: flex; align-items: center; gap: 14px;">
-                                    <div style="width: 44px; height: 44px; border-radius: 12px; background: ${psBg}; display: flex; align-items: center; justify-content: center; color: ${psColor}; border: 1px solid ${psColor}30; box-shadow: 0 0 15px ${psColor}20;">
-                                         <i class="fa-solid ${psIcon}" style="font-size: 18px;"></i>
-                                    </div>
-                                    <div>
-                                        <div style="display: flex; align-items: center; gap: 8px;">
-                                            <span style="font-weight: 800; font-size: 14px; color: #fff; letter-spacing: 0.8px; text-transform: uppercase;">${psTitle}</span>
-                                            <div style="width: 6px; height: 6px; border-radius: 50%; background: ${psColor}; box-shadow: 0 0 8px ${psColor};"></div>
-                                        </div>
-                                        <span style="font-size: 11px; color: #64748b; font-weight: 500;">LIVE SESSION STATUS</span>
-                                    </div>
+             <div class="info-right-col" style="gap: 12px; display: flex; flex-direction: column;">
+                    <!-- RE-STYLED TECH MODULE (PILOT STATE & TIMERS) -->
+                    <div class="tech-module" id="cockpit-seat-sensor" style="background: rgba(15, 23, 42, 0.4); border: 1px solid rgba(255,255,255,0.05); border-radius: 12px; overflow: hidden; display: flex; flex-direction: column; backdrop-filter: blur(8px);">
+                        <div class="sensor-state-strip" style="background: ${psBg}; padding: 12px 16px; display: flex; align-items: center; justify-content: space-between; border-bottom: 1px solid rgba(255,255,255,0.03);">
+                            <div style="display: flex; align-items: center; gap: 12px;">
+                                <div style="width: 32px; height: 32px; border-radius: 8px; background: rgba(0,0,0,0.2); display: flex; align-items: center; justify-content: center; color: ${psColor}; border: 1px solid ${psColor}40;">
+                                     <i class="fa-solid ${psIcon}" style="font-size: 14px;"></i>
                                 </div>
-                                <div style="text-align: right;">
-                                    <span style="display: block; font-size: 10px; color: #475569; font-weight: 700; text-transform: uppercase;">Flight Deck</span>
-                                    <span style="font-size: 12px; color: #94a3b8; font-weight: 600;">SENSOR ACTIVE</span>
+                                <div style="display: flex; flex-direction: column;">
+                                    <span style="font-weight: 700; font-size: 13px; color: #fff; letter-spacing: 0.5px; text-transform: uppercase;">${psTitle}</span>
+                                    <span style="font-size: 10px; color: #94a3b8; font-family: 'Inter', sans-serif;">${psDesc}</span>
                                 </div>
                             </div>
-
-                            <div style="background: rgba(0,0,0,0.2); border-radius: 16px; padding: 16px; border: 1px solid rgba(255,255,255,0.03);">
-                                <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 16px;">
-                                    <div style="display: flex; flex-direction: column; gap: 4px;">
-                                        <span style="font-size: 9px; color: #475569; font-weight: 800; text-transform: uppercase; letter-spacing: 1px;">Elapsed Time</span>
-                                        <span id="ac-sensor-elapsed" style="font-family: 'Inter', sans-serif; font-size: 24px; color: #fff; font-weight: 800; line-height: 1;">--:--</span>
-                                    </div>
-                                    <div style="display: flex; flex-direction: column; gap: 4px; border-left: 1px solid rgba(255,255,255,0.05); padding-left: 16px;">
-                                        <span style="font-size: 9px; color: #38bdf8; font-weight: 800; text-transform: uppercase; letter-spacing: 1px;">Arrival ETE</span>
-                                        <span id="ac-sensor-ete" style="font-family: 'Inter', sans-serif; font-size: 24px; color: #38bdf8; font-weight: 800; line-height: 1;">--:--</span>
-                                    </div>
-                                </div>
-                                <div style="margin-top: 16px; padding-top: 12px; border-top: 1px solid rgba(255,255,255,0.05); display: flex; justify-content: space-between; align-items: center;">
-                                    <span style="font-size: 10px; color: #64748b; font-weight: 600;">Total Calculated Duration</span>
-                                    <span id="ac-sensor-total" style="font-family: monospace; font-size: 13px; color: #fff; background: rgba(255,255,255,0.05); padding: 2px 8px; border-radius: 4px;">--:--</span>
-                                </div>
+                            <div class="tech-ping" style="position: relative; width: 8px; height: 8px;">
+                                <span class="animate" style="background-color: ${psColor}; opacity: 0.5; position: absolute; width: 100%; height: 100%; border-radius: 50%;"></span>
+                                <span style="background-color: ${psColor}; position: absolute; width: 100%; height: 100%; border-radius: 50%;"></span>
                             </div>
                         </div>
-                    </div>
 
-                    <!-- ULTIMATE REDESIGN: NAV DATA (DYNAMIC STATUS BOARD) -->
-                    <div class="tech-module" id="location-data-panel" style="background: rgba(15, 23, 42, 0.4); border: 1px solid rgba(255,255,255,0.05); border-radius: 20px; overflow: hidden; backdrop-filter: blur(16px);">
-                        <div style="padding: 20px;">
-                            <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 24px;">
-                                <div style="display: flex; align-items: center; gap: 10px;">
-                                    <i class="fa-solid fa-satellite-dish" style="color: #38bdf8; font-size: 14px;"></i>
-                                    <span style="font-weight: 800; font-size: 12px; text-transform: uppercase; color: #fff; letter-spacing: 1.5px;">Navigation Stream</span>
+                        <div class="sensor-timers-body" style="padding: 16px; display: flex; flex-direction: column; gap: 12px;">
+                            <div class="timer-row" style="display: flex; justify-content: space-between; align-items: center;">
+                                <div style="display: flex; align-items: center; gap: 8px;">
+                                    <i class="fa-solid fa-stopwatch" style="color: #64748b; font-size: 11px;"></i>
+                                    <span style="font-size: 11px; color: #94a3b8; text-transform: uppercase; font-weight: 500;">Elapsed</span>
                                 </div>
-                                <div style="display: flex; align-items: center; gap: 6px; background: rgba(74, 222, 128, 0.1); padding: 4px 10px; border-radius: 20px;">
-                                    <div style="width: 5px; height: 5px; background: #4ade80; border-radius: 50%; box-shadow: 0 0 5px #4ade80;"></div>
-                                    <span style="font-size: 9px; color: #4ade80; font-weight: 800; text-transform: uppercase;">GPS Lock</span>
-                                </div>
+                                <span id="ac-sensor-elapsed" style="font-family: 'JetBrains Mono', monospace; font-size: 18px; color: #fff; font-weight: 600;">--:--</span>
                             </div>
-
-                            <div style="display: flex; flex-direction: column; gap: 14px;">
-                                <div style="display: flex; gap: 14px;">
-                                    <div style="flex: 1.2; background: rgba(255,255,255,0.03); padding: 14px; border-radius: 16px; border: 1px solid rgba(255,255,255,0.05);">
-                                        <span style="font-size: 9px; color: #64748b; text-transform: uppercase; font-weight: 800; display: block; margin-bottom: 8px;">Vertical Situation</span>
-                                        <div style="display: flex; align-items: baseline; gap: 6px;">
-                                            <span id="ac-vs" style="font-size: 22px; color: #fff; font-weight: 900; letter-spacing: -0.5px;">---</span>
-                                            <span style="font-size: 10px; color: #38bdf8; font-weight: 800;">FPM</span>
-                                        </div>
-                                    </div>
-                                    <div style="flex: 1; background: rgba(255,255,255,0.03); padding: 14px; border-radius: 16px; border: 1px solid rgba(255,255,255,0.05);">
-                                        <span style="font-size: 9px; color: #64748b; text-transform: uppercase; font-weight: 800; display: block; margin-bottom: 8px;">OAT</span>
-                                        <span id="ac-env-oat" style="font-size: 20px; color: #fff; font-weight: 700;">--°C</span>
-                                    </div>
+                            <div class="timer-row" style="display: flex; justify-content: space-between; align-items: center;">
+                                <div style="display: flex; align-items: center; gap: 8px;">
+                                    <i class="fa-solid fa-hourglass-half" style="color: #38bdf8; font-size: 11px;"></i>
+                                    <span style="font-size: 11px; color: #94a3b8; text-transform: uppercase; font-weight: 500;">Remaining</span>
                                 </div>
-
-                                <div style="display: flex; gap: 14px;">
-                                    <div style="flex: 1; display: flex; flex-direction: column; gap: 14px;">
-                                        <div style="background: rgba(0,0,0,0.2); padding: 12px; border-radius: 12px; border-left: 3px solid #facc15;">
-                                            <span style="font-size: 8px; color: #64748b; text-transform: uppercase; font-weight: 800; display: block; margin-bottom: 4px;">Next Waypoint</span>
-                                            <span id="ac-next-wp" style="font-size: 15px; color: #facc15; font-weight: 800; display: block;">---</span>
-                                            <span id="ac-next-wp-dist" style="font-size: 11px; color: #94a3b8; font-weight: 600;">--.- NM</span>
-                                        </div>
-                                        <div style="background: rgba(255,255,255,0.02); padding: 12px; border-radius: 12px;">
-                                            <span style="font-size: 8px; color: #64748b; text-transform: uppercase; font-weight: 800; display: block; margin-bottom: 4px;">Nearest Facility</span>
-                                            <span id="ac-nearest-apt" style="font-size: 14px; color: #fff; font-weight: 700;">---</span>
-                                            <span id="ac-nearest-apt-dist" style="font-size: 11px; color: #64748b;">--.- NM</span>
-                                        </div>
-                                    </div>
-                                    <div style="flex: 1; background: rgba(56, 189, 248, 0.03); border: 1px solid rgba(56, 189, 248, 0.1); border-radius: 16px; padding: 14px; display: flex; flex-direction: column; justify-content: center; align-items: center; text-align: center;">
-                                        <i class="fa-solid fa-wind" style="color: #38bdf8; font-size: 20px; margin-bottom: 10px; opacity: 0.5;"></i>
-                                        <span style="font-size: 10px; color: #38bdf8; font-weight: 800; text-transform: uppercase; margin-bottom: 4px;">Env. Wind</span>
-                                        <span id="ac-env-wind" style="font-size: 16px; color: #fff; font-weight: 800; font-family: monospace;">---/--</span>
-                                    </div>
+                                <span id="ac-sensor-ete" style="font-family: 'JetBrains Mono', monospace; font-size: 18px; color: #38bdf8; font-weight: 600;">--:--</span>
+                            </div>
+                            <div style="height: 1px; background: rgba(255,255,255,0.05); margin: 4px 0;"></div>
+                            <div class="timer-row" style="display: flex; justify-content: space-between; align-items: center;">
+                                <div style="display: flex; align-items: center; gap: 8px;">
+                                    <i class="fa-solid fa-clock" style="color: #64748b; font-size: 11px;"></i>
+                                    <span style="font-size: 11px; color: #64748b; text-transform: uppercase;">Total Duration</span>
                                 </div>
-
-                                <div style="background: rgba(255,255,255,0.02); border-radius: 16px; padding: 14px; display: flex; justify-content: space-between; align-items: center;">
-                                    <div style="display: flex; align-items: center; gap: 12px;">
-                                        <div style="padding: 8px; border-radius: 8px; background: rgba(255,255,255,0.05); color: #94a3b8;">
-                                            <i class="fa-solid fa-map-pin" style="font-size: 12px;"></i>
-                                        </div>
-                                        <div>
-                                            <span style="font-size: 8px; color: #64748b; text-transform: uppercase; font-weight: 800; display: block;">Active Region</span>
-                                            <span id="ac-location" style="font-size: 12px; color: #cbd5e1; font-weight: 600; max-width: 140px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; display: block;">Scanning...</span>
-                                        </div>
-                                    </div>
-                                    <div style="text-align: right; font-family: 'JetBrains Mono', monospace; font-size: 10px; color: #475569;">
-                                        <div id="ac-lat">--.----</div>
-                                        <div id="ac-lon">--.----</div>
-                                    </div>
-                                </div>
+                                <span id="ac-sensor-total" style="font-family: 'JetBrains Mono', monospace; font-size: 14px; color: #64748b; font-weight: 500;">--:--</span>
                             </div>
                         </div>
                     </div>
@@ -9925,68 +9860,129 @@ function populateAircraftInfoWindow(baseProps, plan, sortedRoutePoints, communit
                     </div>
                  </div>
 
-                <!-- ULTIMATE REDESIGN: FLIGHT DATA (PREMIUM TECH CARD) -->
-                <div class="tech-card" style="background: linear-gradient(160deg, rgba(30, 41, 59, 0.8), rgba(15, 23, 42, 0.95)); border: 1px solid rgba(255,255,255,0.12); border-radius: 24px; overflow: hidden; backdrop-filter: blur(20px); box-shadow: 0 20px 50px rgba(0,0,0,0.6);">
-                    <div style="padding: 24px; display: flex; justify-content: space-between; align-items: flex-start; position: relative; z-index: 2;">
-                        <div>
-                            <div style="display: flex; align-items: center; gap: 8px; margin-bottom: 12px;">
-                                <div style="background: #38bdf8; width: 12px; height: 2px; border-radius: 2px;"></div>
-                                <span style="font-size: 10px; font-weight: 900; color: #38bdf8; text-transform: uppercase; letter-spacing: 2px;">Aircraft Dossier</span>
+                <!-- RE-STYLED NAV DATA PANEL -->
+                <div class="tech-module" id="location-data-panel" style="background: rgba(15, 23, 42, 0.4); border: 1px solid rgba(255,255,255,0.05); border-radius: 12px; overflow: hidden; backdrop-filter: blur(8px);">
+                    <div class="tech-module-header" style="padding: 12px 16px; background: rgba(255,255,255,0.03); display: flex; align-items: center; justify-content: space-between; border-bottom: 1px solid rgba(255,255,255,0.05);">
+                         <span class="tech-module-title" style="font-weight: 700; font-size: 11px; text-transform: uppercase; color: #94a3b8; letter-spacing: 1px;"><i class="fa-solid fa-location-crosshairs" style="margin-right: 6px;"></i> Navigation Data</span>
+                         <span class="nav-status-indicator" style="font-size: 10px; color: #4ade80; display: flex; align-items: center; gap: 6px;"><div class="nav-blink" style="width: 6px; height: 6px; background: #4ade80; border-radius: 50%;"></div> LIVE</span>
+                    </div>
+                    <div class="tech-module-body" style="padding: 16px;">
+                        <div class="nav-grid-container" style="display: grid; grid-template-columns: repeat(2, 1fr); gap: 16px;">
+                             <div class="nav-cell">
+                                <span style="font-size: 9px; color: #64748b; text-transform: uppercase; letter-spacing: 0.5px; display: block; margin-bottom: 4px;">Region</span>
+                                <span id="ac-location" style="font-size: 13px; color: #fff; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; display: block;">Scanning...</span>
+                             </div>
+                             <div class="nav-cell">
+                                <span style="font-size: 9px; color: #64748b; text-transform: uppercase; letter-spacing: 0.5px; display: block; margin-bottom: 4px;">Nearest Port</span>
+                                <div style="display: flex; align-items: baseline; gap: 6px;">
+                                   <span id="ac-nearest-apt" style="font-size: 13px; color: #38bdf8; font-weight: 700;">---</span>
+                                   <span style="font-size: 11px; color: #94a3b8;"><span id="ac-nearest-apt-dist">--.-</span> <span style="font-size: 8px;">NM</span></span>
+                                </div>
                             </div>
-                            <h1 style="font-size: 28px; font-weight: 900; color: #fff; margin: 0; line-height: 1; letter-spacing: -1px;">${aircraftName}</h1>
-                            <p style="font-size: 13px; color: #94a3b8; margin: 8px 0 0 0; display: flex; align-items: center; gap: 8px; font-weight: 500;">
-                                <i class="fa-solid fa-signature" style="font-size: 11px; color: #38bdf8;"></i>
-                                <span style="opacity: 0.8;">${airlineName}</span>
-                            </p>
-                        </div>
-                        <div style="background: rgba(255,255,255,0.03); padding: 8px; border-radius: 12px; border: 1px solid rgba(255,255,255,0.05); cursor: pointer;">
-                            <i class="fa-solid fa-sliders" style="color: #64748b; font-size: 16px;"></i>
+                            <div class="nav-cell">
+                               <span style="font-size: 9px; color: #64748b; text-transform: uppercase; letter-spacing: 0.5px; display: block; margin-bottom: 4px;">Wind</span>
+                               <span id="ac-env-wind" style="font-size: 13px; color: #fff; font-weight: 600; font-family: monospace;">---/--</span>
+                            </div>
+                           <div class="nav-cell">
+                                <span style="font-size: 9px; color: #64748b; text-transform: uppercase; letter-spacing: 0.5px; display: block; margin-bottom: 4px;">Outside Air</span>
+                                <span id="ac-env-oat" style="font-size: 13px; color: #fff; font-weight: 600;">--°C</span>
+                           </div>
+                            <div class="nav-cell" style="grid-column: span 2; background: rgba(0,0,0,0.1); padding: 8px; border-radius: 8px;">
+                                <span style="font-size: 9px; color: #64748b; text-transform: uppercase; letter-spacing: 0.5px; display: block; margin-bottom: 6px;">Coordinate Position</span>
+                                <div style="display: flex; justify-content: space-between; font-family: 'JetBrains Mono', monospace; font-size: 11px;">
+                                    <div><span style="color: #475569;">LAT</span> <span id="ac-lat" style="color: #cbd5e1; margin-left: 4px;">---</span></div>
+                                    <div><span style="color: #475569;">LON</span> <span id="ac-lon" style="color: #cbd5e1; margin-left: 4px;">---</span></div>
+                               </div>
+                           </div>
+                            <div class="nav-cell" style="grid-column: span 2;">
+                                <span style="font-size: 9px; color: #64748b; text-transform: uppercase; letter-spacing: 0.5px; display: block; margin-bottom: 4px;">Vertical Speed</span>
+                                <div style="display: flex; align-items: center; justify-content: space-between; background: rgba(56, 189, 248, 0.05); padding: 10px; border-radius: 8px; border: 1px solid rgba(56, 189, 248, 0.1);">
+                                    <span id="ac-vs" style="font-size: 18px; color: #38bdf8; font-weight: 800;">---</span>
+                                    <span style="font-size: 9px; color: #38bdf8; font-weight: 700; text-transform: uppercase;">fpm</span>
+                                </div>
+                            </div>
+                             <div class="nav-cell" style="grid-column: span 2;">
+                                <span style="font-size: 9px; color: #64748b; text-transform: uppercase; letter-spacing: 0.5px; display: block; margin-bottom: 4px;">Next Waypoint</span>
+                                <div style="display: flex; justify-content: space-between; align-items: center;">
+                                   <span id="ac-next-wp" style="font-size: 14px; color: #fff; font-weight: 700; color: #facc15;">---</span>
+                                   <span style="font-size: 11px; color: #94a3b8;"><span id="ac-next-wp-dist">--.-</span> <span style="font-size: 8px;">NM</span></span>
+                                </div>
+                             </div>
+                             <div class="nav-cell" style="grid-column: span 2; border-top: 1px solid rgba(255,255,255,0.05); padding-top: 12px; margin-top: 4px;">
+                                <span style="font-size: 9px; color: #64748b; text-transform: uppercase; letter-spacing: 0.5px; display: block; margin-bottom: 4px;">Destination</span>
+                                <div style="display: flex; justify-content: space-between;">
+                                    <div style="display: flex; flex-direction: column;"><span style="font-size: 8px; color: #475569; margin-bottom: 2px;">DISTANCE</span> <span id="ac-dist" style="font-size: 14px; color: #fff; font-weight: 600;">---</span></div>
+                                    <div style="display: flex; flex-direction: column; align-items: flex-end;"><span style="font-size: 8px; color: #475569; margin-bottom: 2px;">REMAINING</span> <span id="ac-ete" style="font-size: 14px; color: #fff; font-weight: 600;">--:--</span></div>
+                                </div>
+                            </div>
                         </div>
                     </div>
+                </div>
 
-                    <div style="padding: 0 24px 24px 24px; display: flex; flex-direction: column; gap: 24px;">
-                        <div class="tech-image-container" style="position: relative; border-radius: 20px; overflow: hidden; height: 180px; box-shadow: inset 0 0 40px rgba(0,0,0,0.5);">
-                            <img src="${techCardImagePath}" onerror="this.src='/CommunityPlanes/default.png'" class="tech-image" style="width: 100%; height: 100%; object-fit: cover; transform: scale(1.05); filter: contrast(1.1) brightness(0.9);" alt="Aircraft">
-                            <div style="position: absolute; inset: 0; background: linear-gradient(to top, rgba(15,23,42,1) 0%, rgba(15,23,42,0) 40%, rgba(0,0,0,0.1) 100%);"></div>
-                            
-                            <div style="position: absolute; top: 12px; right: 12px;">
-                                <div style="background: rgba(15, 23, 42, 0.8); border: 1px solid rgba(255,255,255,0.1); border-radius: 8px; padding: 4px 10px; backdrop-filter: blur(4px);">
-                                    <span style="font-size: 9px; color: #fff; font-weight: 800; text-transform: uppercase;">PHOTO ID // 429</span>
-                                </div>
+              <!-- RE-STYLED FLIGHT DATA (TECH CARD) -->
+              <div class="tech-card" style="background: rgba(15, 23, 42, 0.6); border: 1px solid rgba(255,255,255,0.1); border-radius: 16px; overflow: hidden; backdrop-filter: blur(12px); box-shadow: 0 10px 30px rgba(0,0,0,0.5);">
+                    <div class="tech-card-header" style="padding: 20px 20px 10px 20px; display: flex; justify-content: space-between; align-items: flex-start;">
+                         <div>
+                            <div style="display: flex; align-items: center; gap: 8px; margin-bottom: 8px;">
+                                <span style="background: rgba(74, 222, 128, 0.15); color: #4ade80; font-size: 9px; font-weight: 700; padding: 2px 8px; border-radius: 4px; text-transform: uppercase; letter-spacing: 0.5px;">Live Feed</span>
+                                <span style="font-size: 10px; font-weight: 600; color: #64748b; text-transform: uppercase; letter-spacing: 1px;">Flight Specifications</span>
                             </div>
-
-                            <div style="position: absolute; bottom: 16px; left: 16px; right: 16px; display: flex; justify-content: space-between; align-items: flex-end;">
-                                <div>
-                                    <span style="font-size: 9px; color: #64748b; text-transform: uppercase; font-weight: 900; letter-spacing: 1px; display: block; margin-bottom: 2px;">Community Contributor</span>
-                                    <div style="display: flex; align-items: center; gap: 8px;">
-                                        <div style="width: 24px; height: 24px; border-radius: 50%; background: #38bdf8; display: flex; align-items: center; justify-content: center; color: #fff; font-size: 10px; font-weight: 900;">${photographerName.charAt(0)}</div>
-                                        <span style="font-size: 12px; color: #fff; font-weight: 700;">${photographerName}</span>
+                            <h1 style="font-size: 22px; font-weight: 800; color: #fff; margin: 0; line-height: 1.1;">${aircraftName}</h1>
+                            <p style="font-size: 12px; color: #94a3b8; margin: 4px 0 0 0; display: flex; align-items: center; gap: 6px;">
+                                <i class="fa-solid fa-plane" style="font-size: 10px; color: #38bdf8;"></i>
+                                <span>${airlineName}</span>
+                            </p>
+                        </div>
+                         <button style="width: 32px; height: 32px; border-radius: 8px; background: rgba(255,255,255,0.05); color: #94a3b8; border: none; cursor: pointer; display: flex; align-items: center; justify-content: center;">
+                            <i class="fa-solid fa-ellipsis-vertical"></i>
+                         </button>
+                    </div>
+                
+                    <div class="tech-content" style="padding: 15px 20px 20px 20px; display: flex; flex-direction: column; gap: 20px;">
+                        <div class="tech-image-container" style="position: relative; border-radius: 12px; overflow: hidden; height: 160px; background: #000;">
+                            <img src="${techCardImagePath}" onerror="this.src='/CommunityPlanes/default.png'" class="tech-image" style="width: 100%; height: 100%; object-fit: cover; opacity: 0.8;" alt="Aircraft">
+                            <div class="tech-image-overlay" style="position: absolute; inset: 0; background: linear-gradient(to top, rgba(15,23,42,1) 0%, rgba(15,23,42,0) 60%);"></div>
+                            <div class="tech-image-info" style="position: absolute; bottom: 12px; left: 12px; right: 12px; display: flex; justify-content: space-between; align-items: flex-end;">
+                                <div class="tech-photographer">
+                                    <span style="font-size: 8px; color: #64748b; text-transform: uppercase; display: block; margin-bottom: 2px;">Image Credit</span>
+                                    <div style="display: flex; align-items: center; gap: 6px;">
+                                        <i class="fa-solid fa-camera" style="color: #38bdf8; font-size: 10px;"></i>
+                                        <span style="font-size: 11px; color: #fff; font-weight: 500;">${photographerName}</span>
                                     </div>
                                 </div>
-                                <button style="padding: 8px 12px; background: rgba(56, 189, 248, 0.2); border: 1px solid rgba(56, 189, 248, 0.3); border-radius: 10px; color: #38bdf8; font-size: 10px; font-weight: 800; cursor: pointer;">
-                                    VIEW FULL RES
-                                </button>
+                                <a href="#" style="width: 28px; height: 28px; background: rgba(56, 189, 248, 0.2); border-radius: 6px; color: #38bdf8; display: flex; align-items: center; justify-content: center; border: 1px solid rgba(56, 189, 248, 0.2);">
+                                    <i class="fa-solid fa-expand" style="font-size: 12px;"></i>
+                                </a>
                             </div>
                         </div>
-
-                        <div style="display: grid; grid-template-columns: 1fr 1.2fr; gap: 16px;">
-                            <div style="background: rgba(255,255,255,0.02); padding: 16px; border-radius: 16px; border: 1px solid rgba(255,255,255,0.04); display: flex; flex-direction: column; gap: 4px;">
-                                <span style="font-size: 9px; color: #475569; font-weight: 900; text-transform: uppercase;">Tail Registration</span>
-                                <span style="font-size: 18px; font-weight: 800; color: #fff; font-family: 'Inter', sans-serif; letter-spacing: -0.5px;">${techCardTail}</span>
+                        <div class="tech-grid" style="display: grid; grid-template-columns: repeat(2, 1fr); gap: 12px;">
+                            <div style="background: rgba(255,255,255,0.03); padding: 12px; border-radius: 10px; border: 1px solid rgba(255,255,255,0.05);">
+                                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px;">
+                                    <span style="font-size: 9px; color: #64748b; text-transform: uppercase; letter-spacing: 0.5px;">Registration</span>
+                                    <i class="fa-solid fa-hashtag" style="font-size: 9px; color: #475569;"></i>
+                                </div>
+                                <span style="font-size: 15px; font-weight: 700; color: #fff; font-family: 'JetBrains Mono', monospace;">${techCardTail}</span>
                             </div>
-                            <div style="background: rgba(255,255,255,0.02); padding: 16px; border-radius: 16px; border: 1px solid rgba(255,255,255,0.04); display: flex; flex-direction: column; gap: 4px;">
-                                <span style="font-size: 9px; color: #475569; font-weight: 900; text-transform: uppercase;">Flight Callsign</span>
-                                <span style="font-size: 18px; font-weight: 800; color: #fff; font-family: 'Inter', sans-serif; letter-spacing: -0.5px;">${baseProps.callsign}</span>
+                            <div style="background: rgba(255,255,255,0.03); padding: 12px; border-radius: 10px; border: 1px solid rgba(255,255,255,0.05);">
+                                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px;">
+                                    <span style="font-size: 9px; color: #64748b; text-transform: uppercase; letter-spacing: 0.5px;">Callsign</span>
+                                    <i class="fa-solid fa-tower-broadcast" style="font-size: 9px; color: #475569;"></i>
+                                </div>
+                                <span style="font-size: 15px; font-weight: 700; color: #fff; font-family: 'JetBrains Mono', monospace;">${baseProps.callsign}</span>
                             </div>
-                            <div style="grid-column: span 2; background: rgba(56, 189, 248, 0.05); padding: 16px; border-radius: 16px; border: 1px solid rgba(56, 189, 248, 0.1); display: flex; justify-content: space-between; align-items: center;">
-                                <div style="display: flex; align-items: center; gap: 14px;">
-                                    <i class="fa-solid fa-microchip" style="color: #38bdf8; font-size: 18px;"></i>
-                                    <div>
-                                        <span style="font-size: 9px; color: #38bdf8; font-weight: 900; text-transform: uppercase;">Airframe Classification</span>
-                                        <span style="font-size: 15px; font-weight: 700; color: #fff; display: block;">${baseProps.category || 'Standard Transport'}</span>
+                            <div style="grid-column: span 2; background: linear-gradient(90deg, rgba(30, 41, 59, 0.4) 0%, rgba(15, 23, 42, 0.4) 100%); padding: 12px; border-radius: 10px; border: 1px solid rgba(255,255,255,0.05); display: flex; justify-content: space-between; align-items: center;">
+                                <div style="display: flex; align-items: center; gap: 10px;">
+                                    <div style="width: 28px; height: 28px; background: rgba(56, 189, 248, 0.1); border-radius: 6px; display: flex; align-items: center; justify-content: center; color: #38bdf8;">
+                                        <i class="fa-solid fa-plane-up" style="font-size: 12px;"></i>
+                                    </div>
+                                    <div style="display: flex; flex-direction: column;">
+                                        <span style="font-size: 8px; color: #64748b; text-transform: uppercase;">Aircraft Class</span>
+                                        <span style="font-size: 13px; font-weight: 600; color: #fff; text-transform: capitalize;">${baseProps.category || 'Commercial'}</span>
                                     </div>
                                 </div>
-                                <span style="background: rgba(255,255,255,0.05); padding: 4px 12px; border-radius: 6px; font-family: monospace; font-size: 10px; font-weight: 800; color: #94a3b8;">SEC // B-4</span>
+                                <div style="padding: 4px 10px; background: rgba(255,255,255,0.05); border-radius: 4px; border: 1px solid rgba(255, 255, 255, 0.05);">
+                                    <span style="font-family: monospace; font-size: 9px; color: #94a3b8; font-weight: 600;">CLASS-1</span>
+                                </div>
                             </div>
                         </div>
                     </div>
