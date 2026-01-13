@@ -3149,6 +3149,75 @@ function injectCustomStyles() {
         .search-result-item:last-child {
             border-bottom: none;
         }
+
+        /* --- NEW: TRAFFIC DROPDOWN STYLES --- */
+.traffic-dropdown {
+    background: rgba(15, 23, 42, 0.4);
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    border-radius: 8px;
+    overflow: hidden;
+    margin-bottom: 8px;
+    transition: all 0.3s ease;
+}
+
+.traffic-dropdown[open] {
+    background: rgba(15, 23, 42, 0.6);
+    border-color: rgba(56, 189, 248, 0.3);
+}
+
+.traffic-dropdown-header {
+    padding: 12px 16px;
+    cursor: pointer;
+    list-style: none; /* Hide default browser arrow */
+    display: flex;
+    align-items: center;
+    font-size: 0.75rem;
+    font-weight: 800;
+    color: #94a3b8;
+    text-transform: uppercase;
+    letter-spacing: 1px;
+    user-select: none;
+}
+
+.traffic-dropdown-header::-webkit-details-marker {
+    display: none; /* Hide Safari arrow */
+}
+
+.traffic-dropdown-header:hover {
+    color: #fff;
+    background: rgba(255, 255, 255, 0.05);
+}
+
+.traffic-dropdown-header i.chevron {
+    font-size: 0.8rem;
+    transition: transform 0.3s ease;
+    opacity: 0.6;
+    margin-left: 10px;
+}
+
+.traffic-dropdown[open] .traffic-dropdown-header i.chevron {
+    transform: rotate(180deg);
+}
+
+.traffic-count-badge {
+    background: rgba(56, 189, 248, 0.15);
+    color: #38bdf8;
+    padding: 2px 8px;
+    border-radius: 99px;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 0.7rem;
+    margin-left: auto;
+}
+
+.traffic-dropdown-content {
+    padding: 10px;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    max-height: 350px; /* Limits height to prevent excessive scrolling */
+    overflow-y: auto;
+    border-top: 1px solid rgba(255, 255, 255, 0.05);
+}
     `;
 
     const style = document.createElement('style');
@@ -6639,9 +6708,41 @@ async function createAirportInfoWindowHTML(icao) {
         `;
     };
 
-    let trafficHtml = (!trafficFetchSuccess) ? '<div style="padding: 20px; text-align: center; color: #64748b;">Data unavailable.</div>' :
-        (inbounds.length===0 && outbounds.length===0) ? '<div style="padding: 20px; text-align: center; color: #64748b;">No live traffic.</div>' :
-        `<div style="padding: 12px; display: flex; flex-direction: column; gap: 4px;">${inbounds.length>0 ? `<div style="margin-bottom:8px;"><div style="font-size:0.7rem;color:#94a3b8;font-weight:700;margin-bottom:4px;padding-left:4px;">INBOUND (${inbounds.length})</div>${inbounds.map(id=>renderFlightCard(id,'in')).join('')}</div>` : ''}${outbounds.length>0 ? `<div><div style="font-size:0.7rem;color:#94a3b8;font-weight:700;margin-bottom:4px;padding-left:4px;">OUTBOUND (${outbounds.length})</div>${outbounds.map(id=>renderFlightCard(id,'out')).join('')}</div>` : ''}</div>`;
+    // --- UPDATED TRAFFIC HTML WITH DROPDOWNS ---
+let trafficHtml = (!trafficFetchSuccess) 
+    ? '<div style="padding: 20px; text-align: center; color: #64748b;">Data unavailable.</div>' 
+    : (inbounds.length === 0 && outbounds.length === 0) 
+        ? '<div style="padding: 20px; text-align: center; color: #64748b;">No live traffic.</div>' 
+        : `
+<div style="padding: 12px; display: flex; flex-direction: column; gap: 4px;">
+    ${inbounds.length > 0 ? `
+        <details class="traffic-dropdown" open>
+            <summary class="traffic-dropdown-header">
+                <i class="fa-solid fa-plane-arrival" style="margin-right: 10px; color: #4ade80;"></i>
+                <span>Inbounds</span>
+                <span class="traffic-count-badge">${inbounds.length}</span>
+                <i class="fa-solid fa-chevron-down chevron"></i>
+            </summary>
+            <div class="traffic-dropdown-content">
+                ${inbounds.map(id => renderFlightCard(id, 'in')).join('')}
+            </div>
+        </details>
+    ` : ''}
+
+    ${outbounds.length > 0 ? `
+        <details class="traffic-dropdown" ${inbounds.length === 0 ? 'open' : ''}>
+            <summary class="traffic-dropdown-header">
+                <i class="fa-solid fa-plane-departure" style="margin-right: 10px; color: #38bdf8;"></i>
+                <span>Outbounds</span>
+                <span class="traffic-count-badge">${outbounds.length}</span>
+                <i class="fa-solid fa-chevron-down chevron"></i>
+            </summary>
+            <div class="traffic-dropdown-content">
+                ${outbounds.map(id => renderFlightCard(id, 'out')).join('')}
+            </div>
+        </details>
+    ` : ''}
+</div>`;
 
     let atcHtml = activeAtcFacilities.filter(f => f.airportName === icao).length === 0 ? '<div style="padding: 20px; text-align: center; color: #64748b;">No active frequencies.</div>' : `<div style="padding: 12px;">${activeAtcFacilities.filter(f => f.airportName === icao).map(f => `<div class="atc-grid-card" style="padding: 8px;"><div style="display: flex; align-items: center; gap: 12px;"><span class="atc-type-badge ${f.type===1?'atc-type-twr':f.type===0?'atc-type-gnd':(f.type===4||f.type===5)?'atc-type-app':'atc-type-obs'}" style="width: 60px; font-size: 0.65rem;">${atcTypeToString(f.type)}</span><span class="atc-controller" style="font-size: 0.85rem;">${f.username||'Unknown'}</span></div><span class="atc-duration" style="font-size: 0.75rem;"><i class="fa-regular fa-clock"></i> ${formatAtcDuration(f.startTime)}</span></div>`).join('')}</div>`;
     let notamsHtml = activeNotams.filter(n => n.airportIcao === icao).length === 0 ? '<div style="padding: 20px; text-align: center; color: #64748b;">No active NOTAMs.</div>' : `<div style="padding: 12px; display: flex; flex-direction: column; gap: 8px;">${activeNotams.filter(n => n.airportIcao === icao).map(n => `<div style="background: rgba(234, 179, 8, 0.1); border-left: 3px solid #eab308; padding: 8px; border-radius: 4px; color: #fef08a; font-family: monospace; font-size: 0.75rem;"><i class="fa-solid fa-triangle-exclamation"></i> ${n.message}</div>`).join('')}</div>`;
