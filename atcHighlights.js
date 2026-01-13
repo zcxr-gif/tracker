@@ -80,36 +80,44 @@ export function updateActiveSectors(map, layerId, atcData) {
     map.setPaintProperty(layerId, 'fill-opacity', 0);
 
     if (map.getLayer('fir-borders')) {
-        // Bright White for active, faint for inactive
-        map.setPaintProperty('fir-borders', 'line-color', [
-            "case",
-            matchExpression,
-            '#ffffff', 
-            'rgba(255, 255, 255, 0.15)'
-        ]);
+    // 1. Maintain Pure White for active sectors, faint for inactive
+    map.setPaintProperty('fir-borders', 'line-color', [
+        "case",
+        matchExpression,
+        '#ffffff', 
+        'rgba(255, 255, 255, 0.15)'
+    ]);
 
-        // Thicker border for the active center
-        map.setPaintProperty('fir-borders', 'line-width', [
-            "case",
-            matchExpression,
-            3.0, 
-            0.5 
-        ]);
+    // 2. INCREASED WIDTH: Bumped from 3.0 to 5.0 for a bolder look
+    map.setPaintProperty('fir-borders', 'line-width', [
+        "case",
+        matchExpression,
+        5.0, 
+        0.5 
+    ]);
 
-        // Adds a subtle "bloom" effect to the white outline
-        map.setPaintProperty('fir-borders', 'line-blur', [
-            "case",
-            matchExpression,
-            1.0, 
-            0
-        ]);
-        
-        // Ensure active borders are drawn on top of others
-        map.setPaintProperty('fir-borders', 'line-sort-key', [
-            "case",
-            matchExpression,
-            2, 
-            1
-        ]);
-    }
+    // 3. ADJUSTED GLOW: Increased blur slightly to match the thicker line
+    map.setPaintProperty('fir-borders', 'line-blur', [
+        "case",
+        matchExpression,
+        1.5, 
+        0
+    ]);
+
+    // 4. ADDED OPACITY: Explicitly ensure active sectors are 100% opaque
+    map.setPaintProperty('fir-borders', 'line-opacity', [
+        "case",
+        matchExpression,
+        1.0,
+        0.4
+    ]);
+    
+    // Ensure active borders are drawn on top
+    map.setPaintProperty('fir-borders', 'line-sort-key', [
+        "case",
+        matchExpression,
+        2, 
+        1
+    ]);
+}
 }
