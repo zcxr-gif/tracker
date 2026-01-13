@@ -3150,14 +3150,16 @@ function injectCustomStyles() {
             border-bottom: none;
         }
 
-        /* --- NEW: TRAFFIC DROPDOWN STYLES --- */
+        /* --- UPDATED: TRAFFIC DROPDOWN STYLES --- */
 .traffic-dropdown {
+    width: 100%;
     background: rgba(15, 23, 42, 0.4);
     border: 1px solid rgba(255, 255, 255, 0.08);
     border-radius: 8px;
     overflow: hidden;
     margin-bottom: 8px;
     transition: all 0.3s ease;
+    box-sizing: border-box; /* Ensures padding doesn't push width past 100% */
 }
 
 .traffic-dropdown[open] {
@@ -3166,9 +3168,10 @@ function injectCustomStyles() {
 }
 
 .traffic-dropdown-header {
+    width: 100%;
     padding: 12px 16px;
     cursor: pointer;
-    list-style: none; /* Hide default browser arrow */
+    list-style: none;
     display: flex;
     align-items: center;
     font-size: 0.75rem;
@@ -3177,10 +3180,11 @@ function injectCustomStyles() {
     text-transform: uppercase;
     letter-spacing: 1px;
     user-select: none;
+    box-sizing: border-box;
 }
 
 .traffic-dropdown-header::-webkit-details-marker {
-    display: none; /* Hide Safari arrow */
+    display: none;
 }
 
 .traffic-dropdown-header:hover {
@@ -3188,35 +3192,23 @@ function injectCustomStyles() {
     background: rgba(255, 255, 255, 0.05);
 }
 
-.traffic-dropdown-header i.chevron {
-    font-size: 0.8rem;
-    transition: transform 0.3s ease;
-    opacity: 0.6;
-    margin-left: 10px;
-}
-
-.traffic-dropdown[open] .traffic-dropdown-header i.chevron {
-    transform: rotate(180deg);
-}
-
-.traffic-count-badge {
-    background: rgba(56, 189, 248, 0.15);
-    color: #38bdf8;
-    padding: 2px 8px;
-    border-radius: 99px;
-    font-family: 'JetBrains Mono', monospace;
-    font-size: 0.7rem;
-    margin-left: auto;
-}
-
 .traffic-dropdown-content {
+    width: 100%;
     padding: 10px;
     display: flex;
     flex-direction: column;
-    gap: 8px;
-    max-height: 350px; /* Limits height to prevent excessive scrolling */
+    gap: 10px; /* Space between cards */
+    max-height: 400px;
     overflow-y: auto;
     border-top: 1px solid rgba(255, 255, 255, 0.05);
+    box-sizing: border-box;
+}
+
+/* Ensure the flight cards inside don't shrink */
+.traffic-dropdown-content > .flight-traffic-card {
+    width: 100% !important;
+    flex-shrink: 0;
+    box-sizing: border-box;
 }
     `;
 
@@ -6708,13 +6700,13 @@ async function createAirportInfoWindowHTML(icao) {
         `;
     };
 
-    // --- UPDATED TRAFFIC HTML WITH DROPDOWNS ---
+// --- UPDATED TRAFFIC HTML ---
 let trafficHtml = (!trafficFetchSuccess) 
     ? '<div style="padding: 20px; text-align: center; color: #64748b;">Data unavailable.</div>' 
     : (inbounds.length === 0 && outbounds.length === 0) 
         ? '<div style="padding: 20px; text-align: center; color: #64748b;">No live traffic.</div>' 
         : `
-<div style="padding: 12px; display: flex; flex-direction: column; gap: 4px;">
+<div style="padding: 12px; width: 100%; box-sizing: border-box; display: flex; flex-direction: column;">
     ${inbounds.length > 0 ? `
         <details class="traffic-dropdown" open>
             <summary class="traffic-dropdown-header">
