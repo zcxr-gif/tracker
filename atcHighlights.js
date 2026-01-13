@@ -80,44 +80,42 @@ export function updateActiveSectors(map, layerId, atcData) {
     map.setPaintProperty(layerId, 'fill-opacity', 0);
 
     if (map.getLayer('fir-borders')) {
-    // 1. Maintain Pure White for active sectors, faint for inactive
+    // 1. Position the layer: Move the borders below aircraft labels/icons
+    // 'airplane-layer-id' should be the ID of your aircraft symbols layer
+    if (map.getLayer('airplane-layer-id')) {
+        map.moveLayer('fir-borders', 'airplane-layer-id');
+    }
+
+    // 2. High-intensity color: Pure white at 100% opacity for the active sector
     map.setPaintProperty('fir-borders', 'line-color', [
         "case",
         matchExpression,
         '#ffffff', 
-        'rgba(255, 255, 255, 0.15)'
+        'rgba(255, 255, 255, 0.1)' // Dimmer inactive lines for contrast
     ]);
 
-    // 2. INCREASED WIDTH: Bumped from 3.0 to 5.0 for a bolder look
+    // 3. Keep it thin: Reverted to a thin, sharp line to avoid "bloat"
     map.setPaintProperty('fir-borders', 'line-width', [
         "case",
         matchExpression,
-        5.0, 
+        1.5, // Thin but distinct
         0.5 
     ]);
 
-    // 3. ADJUSTED GLOW: Increased blur slightly to match the thicker line
+    // 4. Tight Glow: Use a very small blur to create "luminance" without fuzziness
     map.setPaintProperty('fir-borders', 'line-blur', [
         "case",
         matchExpression,
-        1.5, 
+        0.5, 
         0
     ]);
-
-    // 4. ADDED OPACITY: Explicitly ensure active sectors are 100% opaque
+    
+    // 5. Opacity: Ensure the active line is fully opaque
     map.setPaintProperty('fir-borders', 'line-opacity', [
         "case",
         matchExpression,
         1.0,
-        0.4
-    ]);
-    
-    // Ensure active borders are drawn on top
-    map.setPaintProperty('fir-borders', 'line-sort-key', [
-        "case",
-        matchExpression,
-        2, 
-        1
+        0.3
     ]);
 }
 }
