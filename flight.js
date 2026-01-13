@@ -12011,25 +12011,27 @@ function stopSectorOpsLiveLoop() {
     }
 }
 
+/**
+ * OPTIMIZED: Renders ATC tags using GeoJSON and GPU-accelerated Symbol Layers.
+ * Replaces the slow O(N^2) DOM marker logic.
+ */
 function renderAirportMarkers() {
     if (!sectorOpsMap || !sectorOpsMap.isStyleLoaded()) return;
 
-    const showUnstaffed = mapFilters.showUnstaffedAirports;
-    const hideNoAtc = mapFilters.hideNoAtcMarkers;
-    const hideAtc = mapFilters.hideAtcMarkers;
+    // 1. Pre-index ATC data for O(1) lookup (Eliminates the slow .filter() inside loops)
+    const atcLookup = {};
+    activeAtcFacilities.forEach(f => {
+        if (!f.airportName) return;
+        if (!atcLookup[f.airportName]) atcLookup[f.airportName] = { 
+            freqs: [], 
+            startTime: Infinity 
+        };
+        atcLookup[f.airportName].freqs.push(f.type);
+        const start = new Date(f.startTime).getTime();
+        if (start < atcLookup[f.airportName].startTime) atcLookup[f.airportName].startTime = start;
+    });
 
-    // Helper: Identify "Major" airports (Class A/B/C) without explicit class data
-    const isMajorAirport = (icao, airport) => {
-        if (!icao || icao.length !== 4) return false;
-        if (/\d/.test(icao)) return false; // Exclude IDs with numbers
-        const name = (airport.name || "").toLowerCase();
-        const junk = ['water', 'seaplane', 'heliport', 'helipad', 'strip', 'field', 'glider'];
-        if (junk.some(k => name.includes(k))) return false;
-        return true;
-    };
-
-    // 1. Identify Staffed Airports (ATC + Routes)
-    const atcAirportIcaos = new Set(activeAtcFacilities.map(f => f.airportName).filter(Boolean));
+    const atcAirportIcaos = new Set(Object.keys(atcLookup));
     const allRouteAirports = new Set();
     if (typeof ALL_AVAILABLE_ROUTES !== 'undefined') {
         ALL_AVAILABLE_ROUTES.forEach(route => {
@@ -12037,108 +12039,83 @@ function renderAirportMarkers() {
             allRouteAirports.add(route.arrival);
         });
     }
+
     const staffedIcaos = new Set([...allRouteAirports, ...atcAirportIcaos]);
+    const features = [];
 
-    // 2. Manage DOM Markers (Staffed Only)
-    Object.keys(airportAndAtcMarkers).forEach(icao => {
-        const hasAtc = atcAirportIcaos.has(icao);
-        const shouldBeDom = staffedIcaos.has(icao);
-        const isFiltered = (hideNoAtc && !hasAtc) || (hideAtc && hasAtc);
-        if (!shouldBeDom || isFiltered) {
-            airportAndAtcMarkers[icao].marker.remove();
-            delete airportAndAtcMarkers[icao];
-        }
-    });
-
+    // 2. Build GeoJSON Features instead of DOM Elements
     staffedIcaos.forEach(icao => {
         const airport = airportsData[icao];
         if (!airport || airport.lat == null || airport.lon == null) return;
 
-        const hasAtc = atcAirportIcaos.has(icao);
-        if ((hideNoAtc && !hasAtc) || (hideAtc && hasAtc)) return;
-
-        // Filter unstaffed/minor airports
+        const atcData = atcLookup[icao];
+        const hasAtc = !!atcData;
+        
+        // Filter out minor unstaffed airports to keep the map clean
         if (!hasAtc && !isMajorAirport(icao, airport)) return;
 
-        if (airportAndAtcMarkers[icao]) {
-            if (airportAndAtcMarkers[icao].hasAtc === hasAtc) return;
-            airportAndAtcMarkers[icao].marker.remove();
-        }
-
-        const el = document.createElement('div');
-        
-        // --- ADDED: Hover Suppression Logic ---
-        el.addEventListener('mouseenter', () => {
-            window.isMouseOverAirportTag = true;
-            // Forcefully remove any aircraft hover card if it appears
-            const activePopups = document.querySelectorAll('.mapboxgl-popup');
-            activePopups.forEach(popup => popup.remove());
-        });
-
-        el.addEventListener('mouseleave', () => {
-            window.isMouseOverAirportTag = false;
-        });
-
-        if (hasAtc) {
-            el.className += ' apt-live-tag';
-            const airportAtc = activeAtcFacilities.filter(f => f.airportName === icao);
-            const earliestStart = airportAtc.reduce((min, f) => {
-                const start = new Date(f.startTime).getTime();
-                return start < min ? start : min;
-            }, Date.now());
-            const diffMins = Math.floor((Date.now() - earliestStart) / 60000);
-            const durationText = diffMins > 60 ? `${Math.floor(diffMins/60)}h ${diffMins%60}m` : `${diffMins}m online`;
-
-            const hasGnd = airportAtc.some(f => f.type === 0);
-            const hasTwr = airportAtc.some(f => f.type === 1);
-            const hasApp = airportAtc.some(f => f.type === 4 || f.type === 5);
-            const hasAtis = airportAtc.some(f => f.type === 7);
-
-            if (hasApp) {
-                const aura = document.createElement('div');
-                aura.className = 'tag-pulse-aura';
-                el.appendChild(aura);
+        features.push({
+            type: 'Feature',
+            geometry: { type: 'Point', coordinates: [airport.lon, airport.lat] },
+            properties: {
+                icao: icao,
+                hasAtc: hasAtc,
+                // Encode frequencies for the symbol layer text
+                atis: atcData?.freqs.includes(7) ? 'A' : '',
+                gnd: atcData?.freqs.includes(0) ? 'G' : '',
+                twr: atcData?.freqs.includes(1) ? 'T' : '',
+                app: (atcData?.freqs.includes(4) || atcData?.freqs.includes(5)) ? 'R' : ''
             }
-
-            const extra = document.createElement('div');
-            extra.className = 'apt-tag-extra';
-            extra.innerHTML = `<div class="apt-tag-extra-item">Oldest Session</div><div class="apt-tag-extra-val">${durationText}</div>`;
-            el.appendChild(extra);
-
-            const base = document.createElement('div');
-            base.className = 'apt-tag-base';
-            base.innerHTML = `<div class="apt-tag-ident">${icao}</div>`;
-
-            const freqs = document.createElement('div');
-            freqs.className = 'apt-tag-freqs';
-            if (hasAtis) freqs.innerHTML += `<div class="freq-mini-badge f-atis">A</div>`;
-            if (hasGnd) freqs.innerHTML += `<div class="freq-mini-badge f-gnd">G</div>`;
-            if (hasTwr) freqs.innerHTML += `<div class="freq-mini-badge f-twr">T</div>`;
-            if (hasApp) freqs.innerHTML += `<div class="freq-mini-badge f-app">R</div>`;
-            
-            base.appendChild(freqs);
-            el.appendChild(base);
-        } else {
-            el.className += ' destination-marker';
-            el.textContent = icao;
-        }
-
-        const marker = new mapboxgl.Marker({ element: el })
-            .setLngLat([airport.lon, airport.lat])
-            .addTo(sectorOpsMap);
-
-        // --- ADDED: Click Priority Logic ---
-        el.addEventListener('click', (e) => {
-            // Stop the click from reaching the Mapbox canvas layers (aircraft icons)
-            e.stopPropagation(); 
-            handleAirportClick(icao);
         });
-
-        airportAndAtcMarkers[icao] = { marker, hasAtc };
     });
 
-    // 3. Update the high-performance background layer
-    updateUnstaffedLayer(showUnstaffed, staffedIcaos);
+    // 3. Update the Map Source in a single operation
+    const source = sectorOpsMap.getSource('active-atc-tags-source');
+    if (source) {
+        source.setData({ type: 'FeatureCollection', features: features });
+    } else {
+        // Initialize source and layers if they don't exist
+        initAtcGlLayers(features);
+    }
+    
+    // 4. Cleanup old DOM markers (run once during migration)
+    Object.values(airportAndAtcMarkers).forEach(m => m.marker.remove());
+    airportAndAtcMarkers = {};
+}
+
+/**
+ * Creates the high-performance GL layers for ATC tags.
+ */
+function initAtcGlLayers(initialFeatures) {
+    sectorOpsMap.addSource('active-atc-tags-source', {
+        type: 'geojson',
+        data: { type: 'FeatureCollection', features: initialFeatures }
+    });
+
+    // Layer for the ATC Tag background/text
+    sectorOpsMap.addLayer({
+        id: 'active-atc-tags-layer',
+        type: 'symbol',
+        source: 'active-atc-tags-source',
+        layout: {
+            'text-field': ['get', 'icao'],
+            'text-font': ['JetBrains Mono Bold', 'Arial Unicode MS Bold'],
+            'text-size': 11,
+            'text-variable-anchor': ['bottom'],
+            'text-offset': [0, -0.5],
+            'text-allow-overlap': false
+        },
+        paint: {
+            'text-color': '#ffffff',
+            'text-halo-color': 'rgba(10, 15, 25, 0.9)',
+            'text-halo-width': 2
+        }
+    });
+
+    // Click handler for the new GL layer
+    sectorOpsMap.on('click', 'active-atc-tags-layer', (e) => {
+        handleAirportClick(e.features[0].properties.icao);
+    });
 }
 
 function updateUnstaffedLayer(show, excludeIcaos) {
