@@ -95,6 +95,7 @@ window.currentAirportTraffic = { in: [], out: [] }; // Stores IDs for the curren
         planDisplayMode: 'none',
         iconColorMode: 'default',
         showAircraftLabels: false,
+        useFlatMap: false,
         useSimpleFlightWindow: false,
         themeStartColor: '#18181b', // [UPDATED] Carbon/Zinc-900
         themeEndColor: '#18181b',   // [UPDATED] Carbon/Zinc-900
@@ -7870,6 +7871,13 @@ function formatDataForSimpleWindow(flightProps, plan, routePoints, communityData
                                 <input type="radio" id="map-style-dark" name="map-style-mode" value="dark" checked>
                                 <label for="map-style-dark"><i class="fa-solid fa-moon"></i> Dark (Default)</label>
                             </li>
+                            <li class="filter-toggle-item">
+    <span class="filter-toggle-label"><i class="fa-solid fa-map"></i> Flat Map Projection</span>
+    <label class="toggle-switch">
+        <input type="checkbox" id="filter-toggle-flat-map" ${mapFilters.useFlatMap ? 'checked' : ''}>
+        <span class="toggle-slider"></span>
+    </label>
+</li>
                             <li class="filter-radio-item">
                                 <input type="radio" id="map-style-light" name="map-style-mode" value="light">
                                 <label for="map-style-light"><i class="fa-solid fa-sun"></i> Light</label>
@@ -8264,7 +8272,7 @@ function initializeSectorOpsMap(centerICAO) {
         zoom: 4.5,
         minZoom: 2,
         interactive: true,
-        projection: 'globe',
+        projection: mapFilters.useFlatMap ? 'mercator' : 'globe',
         // --- PERFORMANCE & CACHING CONFIG ---
         fadeDuration: 0,           // Instant rendering
         maxTileCacheSize: 500,     // Broad tile caching
@@ -11654,6 +11662,22 @@ function setupFilterSettingsWindowEvents() {
     if (!filterSettingsWindow || filterSettingsWindow.dataset.eventsAttached === 'true') {
         return;
     }
+
+    const flatMapToggle = document.getElementById('filter-toggle-flat-map');
+if (flatMapToggle) {
+    flatMapToggle.addEventListener('change', (e) => {
+        const useFlat = e.target.checked;
+        mapFilters.useFlatMap = useFlat;
+        
+        // Save to local storage so it persists
+        saveFiltersToLocalStorage();
+
+        // Update the Mapbox projection
+        if (sectorOpsMap) {
+            sectorOpsMap.setProjection(useFlat ? 'mercator' : 'globe');
+        }
+    });
+}
 
     // --- Helper: Convert Hex to RGBA ---
     const hexToRgba = (hex, alpha) => {
