@@ -89,45 +89,36 @@ function populateAircraftInfoWindow(baseProps, plan, sortedRoutePoints, communit
     }
 
     // --- REAL-TIME COCKPIT STATE LOGIC ---
-    // Mapping: 0=Active, 1=AwayInFlight, 2=AwayParked, 3=InBackground(AP+)
     const pilotStateValue = (typeof baseProps.pilotState !== 'undefined') ?
         Number(baseProps.pilotState) : 0;
 
     let psTitle = "ACTIVE";
     let psIcon = "fa-user-check";
-    let psColor = "#4ade80"; // Green
+    let psColor = "#4ade80"; 
     let psDesc = "Pilot is active";
-    let psBg = "rgba(74, 222, 128, 0.15)"; // Glow color
+    let psBg = "rgba(74, 222, 128, 0.08)"; 
 
     switch (pilotStateValue) {
-        case 1: // AwayInFlight
+        case 1: 
             psTitle = "AWAY";
             psIcon = "fa-plane-slash";
-            psColor = "#facc15"; // Yellow/Orange
+            psColor = "#facc15"; 
             psDesc = "Online (No Input)";
-            psBg = "rgba(250, 204, 21, 0.15)";
+            psBg = "rgba(250, 204, 21, 0.08)";
             break;
-        case 2: // AwayParked
+        case 2: 
             psTitle = "PARKED";
             psIcon = "fa-square-parking";
-            psColor = "#94a3b8"; // Slate Grey
+            psColor = "#94a3b8"; 
             psDesc = "Away (On Ground)";
-            psBg = "rgba(148, 163, 184, 0.15)";
+            psBg = "rgba(148, 163, 184, 0.08)";
             break;
-        case 3: // InBackground (AP+)
+        case 3: 
             psTitle = "AUTO-PILOT+";
             psIcon = "fa-cloud-arrow-up";
-            psColor = "#60a5fa"; // Blue
+            psColor = "#60a5fa"; 
             psDesc = "Cloud Session";
-            psBg = "rgba(96, 165, 250, 0.15)";
-            break;
-        case 0: // Active
-        default:
-            psTitle = "ACTIVE";
-            psIcon = "fa-user-check";
-            psColor = "#4ade80"; // Green
-            psDesc = "Pilot is active";
-            psBg = "rgba(74, 222, 128, 0.15)";
+            psBg = "rgba(96, 165, 250, 0.08)";
             break;
     }
 
@@ -146,11 +137,10 @@ function populateAircraftInfoWindow(baseProps, plan, sortedRoutePoints, communit
                 }
             }
 
-            // Procedure Tag Logic
             let procTag = '';
             if (index <= 1 && hasPlan) procTag = `<span class="proc-tag sid">SID</span>`;
             else if (index >= originalFlatWaypointObjects.length - 2 && hasPlan) procTag = `<span class="proc-tag star">STAR</span>`;
-            // HTML for Row
+            
             fmsLegsHtml += `
             <div class="fms-row ${index === 0 ? 'active-leg' : ''}" style="display: flex; justify-content: space-between; padding: 4px 8px;">
                  <span style="display:flex; align-items:center; gap:6px; flex: 2; text-align: left; overflow: hidden; white-space: nowrap;">${ident} ${procTag}</span>
@@ -224,8 +214,7 @@ function populateAircraftInfoWindow(baseProps, plan, sortedRoutePoints, communit
             <div id="ac-tab-flight-data" class="ac-tab-pane active" style="gap: 6px;">
                 <div class="pfd-and-location-grid">
                      <div class="pfd-main-panel">
-                      <div class="display-bezel">
-                            <div class="screw tl"></div><div class="screw tr"></div><div class="screw bl"></div><div class="screw br"></div>
+                      <div class="display-bezel" style="background: rgba(15, 23, 42, 0.4); border: 1px solid rgba(255,255,255,0.05); border-radius: 12px; overflow: hidden; box-shadow: 0 4px 24px rgba(0,0,0,0.4);">
                             <div class="crt-container scanlines" id="pfd-container">
                                 <svg width="787" height="800" viewBox="0 0 787 800" fill="none" xmlns="http://www.w3.org/2000/svg">
                                     <defs>
@@ -355,50 +344,52 @@ function populateAircraftInfoWindow(baseProps, plan, sortedRoutePoints, communit
                      </div>
                     </div> 
                     
-             <div class="info-right-col">
-       <div class="tech-module" id="cockpit-seat-sensor">
-                            <div class="sensor-state-strip" style="background: ${psBg}; border-left: 3px solid ${psColor}; padding: 8px 12px; display: flex; align-items: center; justify-content: space-between; border-bottom: 1px solid #222; flex-shrink: 0;">
-                                <div style="display: flex; align-items: center; gap: 10px;">
-                                    <div style="width: 24px; height: 24px; border-radius: 4px; background: rgba(0,0,0,0.3); display: flex; align-items: center; justify-content: center; border: 1px solid ${psColor}; box-shadow: 0 0 5px ${psColor}40;">
-                                         <i class="fa-solid ${psIcon}" style="color: ${psColor}; font-size: 12px;"></i>
-                                    </div>
-                                    <div style="display: flex; flex-direction: column;">
-                                        <span style="font-weight: 700; font-size: 12px; color: ${psColor}; line-height: 1;">${psTitle}</span>
-                                        <span style="font-size: 9px; color: #64748b; font-family: monospace;">${psDesc}</span>
-                                    </div>
+             <div class="info-right-col" style="gap: 12px; display: flex; flex-direction: column;">
+                    <!-- RE-STYLED TECH MODULE (PILOT STATE & TIMERS) -->
+                    <div class="tech-module" id="cockpit-seat-sensor" style="background: rgba(15, 23, 42, 0.4); border: 1px solid rgba(255,255,255,0.05); border-radius: 12px; overflow: hidden; display: flex; flex-direction: column; backdrop-filter: blur(8px);">
+                        <div class="sensor-state-strip" style="background: ${psBg}; padding: 12px 16px; display: flex; align-items: center; justify-content: space-between; border-bottom: 1px solid rgba(255,255,255,0.03);">
+                            <div style="display: flex; align-items: center; gap: 12px;">
+                                <div style="width: 32px; height: 32px; border-radius: 8px; background: rgba(0,0,0,0.2); display: flex; align-items: center; justify-content: center; color: ${psColor}; border: 1px solid ${psColor}40;">
+                                     <i class="fa-solid ${psIcon}" style="font-size: 14px;"></i>
                                 </div>
-                                <div class="tech-ping">
-                                    <span class="animate" style="background-color: ${psColor}"></span>
-                                    <span style="background-color: ${psColor}"></span>
+                                <div style="display: flex; flex-direction: column;">
+                                    <span style="font-weight: 700; font-size: 13px; color: #fff; letter-spacing: 0.5px; text-transform: uppercase;">${psTitle}</span>
+                                    <span style="font-size: 10px; color: #94a3b8; font-family: 'Inter', sans-serif;">${psDesc}</span>
                                 </div>
                             </div>
-
-                            <div class="sensor-timers-body" style="flex: 1; padding: 12px; display: flex; flex-direction: column; justify-content: space-between; background: #050505;">
-                                <div class="timer-group">
-                                    <span style="font-size: 9px; color: #64748b; text-transform: uppercase; letter-spacing: 1px; display: block; margin-bottom: 2px;">Elapsed Time</span>
-                                    <div style="background: #000; border: 1px solid #222; padding: 6px 10px; border-radius: 4px; display: flex; align-items: baseline; justify-content: space-between;">
-                                         <i class="fa-solid fa-stopwatch" style="color: #334155; font-size: 12px;"></i>
-                                         <span id="ac-sensor-elapsed" style="font-family: 'Consolas', monospace; font-size: 18px; color: #fff; font-weight: 700; text-shadow: 0 0 10px rgba(255,255,255,0.1);">--:--</span>
-                                    </div>
-                                </div>
-                                <div class="timer-group">
-                                     <span style="font-size: 9px; color: #64748b; text-transform: uppercase; letter-spacing: 1px; display: block; margin-bottom: 2px;">Estimated Remaining</span>
-                                     <div style="background: #000; border: 1px solid #222; padding: 6px 10px; border-radius: 4px; display: flex; align-items: baseline; justify-content: space-between;">
-                                         <i class="fa-solid fa-hourglass-half" style="color: #334155; font-size: 12px;"></i>
-                                         <span id="ac-sensor-ete" style="font-family: 'Consolas', monospace; font-size: 18px; color: #38bdf8; font-weight: 700;">--:--</span>
-                                    </div>
-                                </div>
-                                <div class="timer-group">
-                                     <span style="font-size: 9px; color: #64748b; text-transform: uppercase; letter-spacing: 1px; display: block; margin-bottom: 2px;">Total Flight Time</span>
-                                     <div style="background: rgba(255,255,255,0.03); border: 1px dashed #333; padding: 4px 10px; border-radius: 4px; display: flex; align-items: baseline; justify-content: space-between;">
-                                         <i class="fa-solid fa-calculator" style="color: #334155; font-size: 10px;"></i>
-                                         <span id="ac-sensor-total" style="font-family: 'Consolas', monospace; font-size: 14px; color: #94a3b8;">--:--</span>
-                                    </div>
-                                </div>
+                            <div class="tech-ping" style="position: relative; width: 8px; height: 8px;">
+                                <span class="animate" style="background-color: ${psColor}; opacity: 0.5; position: absolute; width: 100%; height: 100%; border-radius: 50%;"></span>
+                                <span style="background-color: ${psColor}; position: absolute; width: 100%; height: 100%; border-radius: 50%;"></span>
                             </div>
                         </div>
-                    </div> 
+
+                        <div class="sensor-timers-body" style="padding: 16px; display: flex; flex-direction: column; gap: 12px;">
+                            <div class="timer-row" style="display: flex; justify-content: space-between; align-items: center;">
+                                <div style="display: flex; align-items: center; gap: 8px;">
+                                    <i class="fa-solid fa-stopwatch" style="color: #64748b; font-size: 11px;"></i>
+                                    <span style="font-size: 11px; color: #94a3b8; text-transform: uppercase; font-weight: 500;">Elapsed</span>
+                                </div>
+                                <span id="ac-sensor-elapsed" style="font-family: 'JetBrains Mono', monospace; font-size: 18px; color: #fff; font-weight: 600;">--:--</span>
+                            </div>
+                            <div class="timer-row" style="display: flex; justify-content: space-between; align-items: center;">
+                                <div style="display: flex; align-items: center; gap: 8px;">
+                                    <i class="fa-solid fa-hourglass-half" style="color: #38bdf8; font-size: 11px;"></i>
+                                    <span style="font-size: 11px; color: #94a3b8; text-transform: uppercase; font-weight: 500;">Remaining</span>
+                                </div>
+                                <span id="ac-sensor-ete" style="font-family: 'JetBrains Mono', monospace; font-size: 18px; color: #38bdf8; font-weight: 600;">--:--</span>
+                            </div>
+                            <div style="height: 1px; background: rgba(255,255,255,0.05); margin: 4px 0;"></div>
+                            <div class="timer-row" style="display: flex; justify-content: space-between; align-items: center;">
+                                <div style="display: flex; align-items: center; gap: 8px;">
+                                    <i class="fa-solid fa-clock" style="color: #64748b; font-size: 11px;"></i>
+                                    <span style="font-size: 11px; color: #64748b; text-transform: uppercase;">Total Duration</span>
+                                </div>
+                                <span id="ac-sensor-total" style="font-family: 'JetBrains Mono', monospace; font-size: 14px; color: #64748b; font-weight: 500;">--:--</span>
+                            </div>
+                        </div>
+                    </div>
                 </div> 
+            </div> 
 
                 <div class="nd-full-width-section">
                     <div class="display-toggle-bar">
@@ -410,8 +401,7 @@ function populateAircraftInfoWindow(baseProps, plan, sortedRoutePoints, communit
                          </button>
                     </div>
 
-                    <div class="display-bezel">
-                        <div class="screw tl"></div><div class="screw tr"></div><div class="screw bl"></div><div class="screw br"></div>
+                    <div class="display-bezel" style="background: rgba(15, 23, 42, 0.4); border: 1px solid rgba(255,255,255,0.05); border-radius: 12px; overflow: hidden; box-shadow: 0 4px 24px rgba(0,0,0,0.4);">
                         <div class="crt-container scanlines" style="aspect-ratio: 1/1; display: flex; flex-direction: column; overflow: hidden;">
                              <div id="nd-view-container" style="width: 100%; height: 100%; display: block;">
                                 <div id="nd-container">
@@ -449,134 +439,132 @@ function populateAircraftInfoWindow(baseProps, plan, sortedRoutePoints, communit
                     </div>
                  </div>
 
-                <div class="tech-module" id="location-data-panel">
-                    <div class="tech-module-header">
-                         <span class="tech-module-title"><i class="fa-solid fa-location-crosshairs"></i> NAV DATA</span>
-                         <span class="nav-status-indicator"><div class="nav-blink"></div> LIVE</span>
+                <!-- RE-STYLED NAV DATA PANEL -->
+                <div class="tech-module" id="location-data-panel" style="background: rgba(15, 23, 42, 0.4); border: 1px solid rgba(255,255,255,0.05); border-radius: 12px; overflow: hidden; backdrop-filter: blur(8px);">
+                    <div class="tech-module-header" style="padding: 12px 16px; background: rgba(255,255,255,0.03); display: flex; align-items: center; justify-content: space-between; border-bottom: 1px solid rgba(255,255,255,0.05);">
+                         <span class="tech-module-title" style="font-weight: 700; font-size: 11px; text-transform: uppercase; color: #94a3b8; letter-spacing: 1px;"><i class="fa-solid fa-location-crosshairs" style="margin-right: 6px;"></i> Navigation Data</span>
+                         <span class="nav-status-indicator" style="font-size: 10px; color: #4ade80; display: flex; align-items: center; gap: 6px;"><div class="nav-blink" style="width: 6px; height: 6px; background: #4ade80; border-radius: 50%;"></div> LIVE</span>
                     </div>
-                    <div class="tech-module-body" style="padding: 8px;">
-                        <div class="nav-grid-container">
+                    <div class="tech-module-body" style="padding: 16px;">
+                        <div class="nav-grid-container" style="display: grid; grid-template-columns: repeat(2, 1fr); gap: 16px;">
                              <div class="nav-cell">
-                                <span class="nav-label"><i class="fa-solid fa-map-location-dot"></i> Region</span>
-                                <span class="nav-value small" id="ac-location">Scanning...</span>
+                                <span style="font-size: 9px; color: #64748b; text-transform: uppercase; letter-spacing: 0.5px; display: block; margin-bottom: 4px;">Region</span>
+                                <span id="ac-location" style="font-size: 13px; color: #fff; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; display: block;">Scanning...</span>
                              </div>
                              <div class="nav-cell">
-                                <span class="nav-label"><i class="fa-solid fa-tower-control"></i> Nearest</span>
-                                <div class="nav-row">
-                                   <span class="nav-value highlight" id="ac-nearest-apt">---</span>
-                                    <span class="nav-value" id="ac-nearest-apt-dist">--.- <span class="nav-unit">NM</span></span>
+                                <span style="font-size: 9px; color: #64748b; text-transform: uppercase; letter-spacing: 0.5px; display: block; margin-bottom: 4px;">Nearest Port</span>
+                                <div style="display: flex; align-items: baseline; gap: 6px;">
+                                   <span id="ac-nearest-apt" style="font-size: 13px; color: #38bdf8; font-weight: 700;">---</span>
+                                   <span style="font-size: 11px; color: #94a3b8;"><span id="ac-nearest-apt-dist">--.-</span> <span style="font-size: 8px;">NM</span></span>
                                 </div>
                             </div>
                             <div class="nav-cell">
-                               <span class="nav-label"><i class="fa-solid fa-wind"></i> Wind</span>
-                               <span class="nav-value" id="ac-env-wind">---/--</span>
+                               <span style="font-size: 9px; color: #64748b; text-transform: uppercase; letter-spacing: 0.5px; display: block; margin-bottom: 4px;">Wind</span>
+                               <span id="ac-env-wind" style="font-size: 13px; color: #fff; font-weight: 600; font-family: monospace;">---/--</span>
                             </div>
                            <div class="nav-cell">
-                                <span class="nav-label"><i class="fa-solid fa-temperature-half"></i> OAT</span>
-                                <span class="nav-value" id="ac-env-oat">--°C</span>
+                                <span style="font-size: 9px; color: #64748b; text-transform: uppercase; letter-spacing: 0.5px; display: block; margin-bottom: 4px;">Outside Air</span>
+                                <span id="ac-env-oat" style="font-size: 13px; color: #fff; font-weight: 600;">--°C</span>
                            </div>
-                            <div class="nav-cell nav-span-2">
-                                <span class="nav-label"><i class="fa-solid fa-location-crosshairs"></i> Position</span>
-                                <div class="nav-row">
-                                    <div><span class="nav-unit">LAT</span> <span class="nav-value" id="ac-lat">---</span></div>
-                                    <div><span class="nav-unit">LON</span> <span class="nav-value" id="ac-lon">---</span></div>
+                            <div class="nav-cell" style="grid-column: span 2; background: rgba(0,0,0,0.1); padding: 8px; border-radius: 8px;">
+                                <span style="font-size: 9px; color: #64748b; text-transform: uppercase; letter-spacing: 0.5px; display: block; margin-bottom: 6px;">Coordinate Position</span>
+                                <div style="display: flex; justify-content: space-between; font-family: 'JetBrains Mono', monospace; font-size: 11px;">
+                                    <div><span style="color: #475569;">LAT</span> <span id="ac-lat" style="color: #cbd5e1; margin-left: 4px;">---</span></div>
+                                    <div><span style="color: #475569;">LON</span> <span id="ac-lon" style="color: #cbd5e1; margin-left: 4px;">---</span></div>
                                </div>
                            </div>
-                            <div class="nav-cell nav-span-2">
-                                <span class="nav-label"><i class="fa-solid fa-arrow-up-right-dots"></i> Vertical Speed</span>
-                                <span class="nav-value large highlight" id="ac-vs">--- <span class="nav-unit">fpm</span></span>
+                            <div class="nav-cell" style="grid-column: span 2;">
+                                <span style="font-size: 9px; color: #64748b; text-transform: uppercase; letter-spacing: 0.5px; display: block; margin-bottom: 4px;">Vertical Speed</span>
+                                <div style="display: flex; align-items: center; justify-content: space-between; background: rgba(56, 189, 248, 0.05); padding: 10px; border-radius: 8px; border: 1px solid rgba(56, 189, 248, 0.1);">
+                                    <span id="ac-vs" style="font-size: 18px; color: #38bdf8; font-weight: 800;">---</span>
+                                    <span style="font-size: 9px; color: #38bdf8; font-weight: 700; text-transform: uppercase;">fpm</span>
+                                </div>
                             </div>
-                             <div class="nav-cell nav-span-2">
-                                <span class="nav-label"><i class="fa-solid fa-location-arrow"></i> Next Waypoint</span>
-                                <div class="nav-row">
-                                   <span class="nav-value accent" id="ac-next-wp">---</span>
-                                   <span class="nav-value" id="ac-next-wp-dist">--.- <span class="nav-unit">NM</span></span>
+                             <div class="nav-cell" style="grid-column: span 2;">
+                                <span style="font-size: 9px; color: #64748b; text-transform: uppercase; letter-spacing: 0.5px; display: block; margin-bottom: 4px;">Next Waypoint</span>
+                                <div style="display: flex; justify-content: space-between; align-items: center;">
+                                   <span id="ac-next-wp" style="font-size: 14px; color: #fff; font-weight: 700; color: #facc15;">---</span>
+                                   <span style="font-size: 11px; color: #94a3b8;"><span id="ac-next-wp-dist">--.-</span> <span style="font-size: 8px;">NM</span></span>
                                 </div>
                              </div>
-                             <div class="nav-cell nav-span-2">
-                                <span class="nav-label"><i class="fa-solid fa-flag-checkered"></i> Destination</span>
-                                <div class="nav-row">
-                                    <div><span class="nav-unit">DIST</span> <span class="nav-value" id="ac-dist">---</span></div>
-                                    <div><span class="nav-unit">ETE</span> <span class="nav-value" id="ac-ete">--:--</span></div>
+                             <div class="nav-cell" style="grid-column: span 2; border-top: 1px solid rgba(255,255,255,0.05); padding-top: 12px; margin-top: 4px;">
+                                <span style="font-size: 9px; color: #64748b; text-transform: uppercase; letter-spacing: 0.5px; display: block; margin-bottom: 4px;">Destination</span>
+                                <div style="display: flex; justify-content: space-between;">
+                                    <div style="display: flex; flex-direction: column;"><span style="font-size: 8px; color: #475569; margin-bottom: 2px;">DISTANCE</span> <span id="ac-dist" style="font-size: 14px; color: #fff; font-weight: 600;">---</span></div>
+                                    <div style="display: flex; flex-direction: column; align-items: flex-end;"><span style="font-size: 8px; color: #475569; margin-bottom: 2px;">REMAINING</span> <span id="ac-ete" style="font-size: 14px; color: #fff; font-weight: 600;">--:--</span></div>
                                 </div>
                             </div>
                         </div>
                     </div>
                 </div>
 
-              <div class="tech-card">
-                    <div class="tech-card-header">
+              <!-- RE-STYLED FLIGHT DATA (TECH CARD) -->
+              <div class="tech-card" style="background: rgba(15, 23, 42, 0.6); border: 1px solid rgba(255,255,255,0.1); border-radius: 16px; overflow: hidden; backdrop-filter: blur(12px); box-shadow: 0 10px 30px rgba(0,0,0,0.5);">
+                    <div class="tech-card-header" style="padding: 20px 20px 10px 20px; display: flex; justify-content: space-between; align-items: flex-start;">
                          <div>
-                            <div style="display: flex; align-items: center; gap: 8px; margin-bottom: 4px;">
-                                <div class="tech-badge">
-                                    <span class="tech-ping">
-                                        <span class="animate"></span>
-                                        <span></span>
-                                    </span>
-                                   Active
-                                </div>
-                                <span style="font-size: 10px; font-weight: 600; color: #94a3b8; text-transform: uppercase; letter-spacing: 0.1em;">Flight Data</span>
+                            <div style="display: flex; align-items: center; gap: 8px; margin-bottom: 8px;">
+                                <span style="background: rgba(74, 222, 128, 0.15); color: #4ade80; font-size: 9px; font-weight: 700; padding: 2px 8px; border-radius: 4px; text-transform: uppercase; letter-spacing: 0.5px;">Live Feed</span>
+                                <span style="font-size: 10px; font-weight: 600; color: #64748b; text-transform: uppercase; letter-spacing: 1px;">Flight Specifications</span>
                             </div>
-                            <h1 class="tech-model">${aircraftName}</h1>
-                            <p class="tech-airline">
-                                <i class="fa-solid fa-plane" style="font-size: 12px;"></i>
+                            <h1 style="font-size: 22px; font-weight: 800; color: #fff; margin: 0; line-height: 1.1;">${aircraftName}</h1>
+                            <p style="font-size: 12px; color: #94a3b8; margin: 4px 0 0 0; display: flex; align-items: center; gap: 6px;">
+                                <i class="fa-solid fa-plane" style="font-size: 10px; color: #38bdf8;"></i>
                                 <span>${airlineName}</span>
                             </p>
                         </div>
-                         <button style="padding: 8px; color: #94a3b8; background: transparent; border: none; cursor: pointer;">
-                            <i class="fa-solid fa-ellipsis" style="font-size: 16px;"></i>
+                         <button style="width: 32px; height: 32px; border-radius: 8px; background: rgba(255,255,255,0.05); color: #94a3b8; border: none; cursor: pointer; display: flex; align-items: center; justify-content: center;">
+                            <i class="fa-solid fa-ellipsis-vertical"></i>
                          </button>
                     </div>
                 
-                    <div class="tech-content">
-                        <div class="tech-image-container">
-                            <img src="${techCardImagePath}" onerror="this.src='/CommunityPlanes/default.png'" class="tech-image" alt="Aircraft">
-                            <div class="tech-image-overlay"></div>
-                            <div class="tech-image-info">
+                    <div class="tech-content" style="padding: 15px 20px 20px 20px; display: flex; flex-direction: column; gap: 20px;">
+                        <div class="tech-image-container" style="position: relative; border-radius: 12px; overflow: hidden; height: 160px; background: #000;">
+                            <img src="${techCardImagePath}" onerror="this.src='/CommunityPlanes/default.png'" class="tech-image" style="width: 100%; height: 100%; object-fit: cover; opacity: 0.8;" alt="Aircraft">
+                            <div class="tech-image-overlay" style="position: absolute; inset: 0; background: linear-gradient(to top, rgba(15,23,42,1) 0%, rgba(15,23,42,0) 60%);"></div>
+                            <div class="tech-image-info" style="position: absolute; bottom: 12px; left: 12px; right: 12px; display: flex; justify-content: space-between; align-items: flex-end;">
                                 <div class="tech-photographer">
-                                    <span class="tech-photo-label">Contributor</span>
-                                    <div class="tech-photo-name">
-                                        <i class="fa-solid fa-camera" style="color: #38bdf8; font-size: 12px;"></i>
-                                        <span>${photographerName}</span>
+                                    <span style="font-size: 8px; color: #64748b; text-transform: uppercase; display: block; margin-bottom: 2px;">Image Credit</span>
+                                    <div style="display: flex; align-items: center; gap: 6px;">
+                                        <i class="fa-solid fa-camera" style="color: #38bdf8; font-size: 10px;"></i>
+                                        <span style="font-size: 11px; color: #fff; font-weight: 500;">${photographerName}</span>
                                     </div>
                                 </div>
-                                <a href="#" style="padding: 8px; background: rgba(255,255,255,0.1); border-radius: 8px; color: #fff; border: 1px solid rgba(255,255,255,0.1); display: flex;">
-                                    <i class="fa-solid fa-arrow-up-right-from-square" style="font-size: 14px;"></i>
+                                <a href="#" style="width: 28px; height: 28px; background: rgba(56, 189, 248, 0.2); border-radius: 6px; color: #38bdf8; display: flex; align-items: center; justify-content: center; border: 1px solid rgba(56, 189, 248, 0.2);">
+                                    <i class="fa-solid fa-expand" style="font-size: 12px;"></i>
                                 </a>
                             </div>
                         </div>
-                        <div class="tech-grid">
-                            <div class="tech-stat-card">
-                                <div class="tech-stat-header">
-                                    <span class="tech-stat-label">Registration</span>
-                                    <i class="fa-solid fa-hashtag" style="font-size: 12px; color: #475569;"></i>
+                        <div class="tech-grid" style="display: grid; grid-template-columns: repeat(2, 1fr); gap: 12px;">
+                            <div style="background: rgba(255,255,255,0.03); padding: 12px; border-radius: 10px; border: 1px solid rgba(255,255,255,0.05);">
+                                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px;">
+                                    <span style="font-size: 9px; color: #64748b; text-transform: uppercase; letter-spacing: 0.5px;">Registration</span>
+                                    <i class="fa-solid fa-hashtag" style="font-size: 9px; color: #475569;"></i>
                                 </div>
-                                <span class="tech-stat-value">${techCardTail}</span>
+                                <span style="font-size: 15px; font-weight: 700; color: #fff; font-family: 'JetBrains Mono', monospace;">${techCardTail}</span>
                             </div>
-                            <div class="tech-stat-card">
-                                <div class="tech-stat-header">
-                                    <span class="tech-stat-label">Callsign</span>
-                                    <i class="fa-solid fa-tag" style="font-size: 12px; color: #475569;"></i>
+                            <div style="background: rgba(255,255,255,0.03); padding: 12px; border-radius: 10px; border: 1px solid rgba(255,255,255,0.05);">
+                                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px;">
+                                    <span style="font-size: 9px; color: #64748b; text-transform: uppercase; letter-spacing: 0.5px;">Callsign</span>
+                                    <i class="fa-solid fa-tower-broadcast" style="font-size: 9px; color: #475569;"></i>
                                 </div>
-                                <span class="tech-stat-value">${baseProps.callsign}</span>
+                                <span style="font-size: 15px; font-weight: 700; color: #fff; font-family: 'JetBrains Mono', monospace;">${baseProps.callsign}</span>
                             </div>
-                            <div class="tech-country-card">
-                                <div class="tech-country-left">
-                                    <div class="tech-country-icon">
-                                        <i class="fa-solid fa-plane-up" style="font-size: 14px;"></i>
+                            <div style="grid-column: span 2; background: linear-gradient(90deg, rgba(30, 41, 59, 0.4) 0%, rgba(15, 23, 42, 0.4) 100%); padding: 12px; border-radius: 10px; border: 1px solid rgba(255,255,255,0.05); display: flex; justify-content: space-between; align-items: center;">
+                                <div style="display: flex; align-items: center; gap: 10px;">
+                                    <div style="width: 28px; height: 28px; background: rgba(56, 189, 248, 0.1); border-radius: 6px; display: flex; align-items: center; justify-content: center; color: #38bdf8;">
+                                        <i class="fa-solid fa-plane-up" style="font-size: 12px;"></i>
                                     </div>
                                     <div style="display: flex; flex-direction: column;">
-                                        <span class="tech-stat-label" style="font-size: 9px; margin-bottom: 2px;">Category</span>
-                                        <span style="font-size: 13px; font-weight: 600; color: #fff; text-transform: capitalize;">${baseProps.category || 'Standard'}</span>
+                                        <span style="font-size: 8px; color: #64748b; text-transform: uppercase;">Aircraft Class</span>
+                                        <span style="font-size: 13px; font-weight: 600; color: #fff; text-transform: capitalize;">${baseProps.category || 'Commercial'}</span>
                                     </div>
                                 </div>
-                                <div style="padding: 4px 8px; background: rgba(51, 65, 85, 0.5); border-radius: 4px; border: 1px solid rgba(255, 255, 255, 0.05);">
-                                    <span style="font-family: monospace; font-size: 10px; color: #cbd5e1;">CLASS</span>
+                                <div style="padding: 4px 10px; background: rgba(255,255,255,0.05); border-radius: 4px; border: 1px solid rgba(255, 255, 255, 0.05);">
+                                    <span style="font-family: monospace; font-size: 9px; color: #94a3b8; font-weight: 600;">CLASS-1</span>
                                 </div>
                             </div>
                         </div>
                     </div>
-                    <div class="tech-bottom-bar"></div>
                 </div>
 
                 <div class="tech-module vsd-module-container">
@@ -615,25 +603,22 @@ function populateAircraftInfoWindow(baseProps, plan, sortedRoutePoints, communit
     createPfdDisplay();
     updatePfdDisplay(baseProps.position);
     updateAircraftInfoWindow(baseProps, plan, sortedRoutePoints, communityAircraftData);
-    // --- FIX IMPLEMENTATION: SET THE DATA ATTRIBUTE ON THE HEADER HERE ---
+    
     const imagePath = techCardImagePath;
     const fallbackPath = '/CommunityPlanes/default.png';
     const newImageUrl = `url('${imagePath}'), url('${fallbackPath}')`;
 
     const overviewPanels = document.querySelectorAll('#ac-overview-panel');
     overviewPanels.forEach(overviewPanel => {
-        // Set the background image
         overviewPanel.style.backgroundImage = newImageUrl;
-        // --- CRITICAL FIX: Set the path to the high-quality image ---
         overviewPanel.dataset.currentPath = imagePath;
-        // --- END CRITICAL FIX ---
     });
+
     // --- SENSOR TIMER LOGIC (RESTORED) ---
     const updateSensorTimers = () => {
         const elElapsed = document.getElementById('ac-sensor-elapsed');
         const elEte = document.getElementById('ac-sensor-ete');
         const elTotal = document.getElementById('ac-sensor-total');
-        // Nav Data ETE Source
         const sourceEte = document.getElementById('ac-ete');
         if (elElapsed && atdTimestamp) {
             const now = Date.now();
@@ -646,12 +631,10 @@ function populateAircraftInfoWindow(baseProps, plan, sortedRoutePoints, communit
             }
         }
 
-        // Sync Remaining & Calc Total
         if (elEte && sourceEte && elTotal) {
             const currentEte = sourceEte.textContent;
             if (currentEte && currentEte.includes(':')) {
                 elEte.textContent = currentEte;
-                // Calculate Total
                 if (elElapsed.textContent !== '--:--') {
                     const [eH, eM] = elElapsed.textContent.split(':').map(Number);
                     const [rH, rM] = currentEte.split(':').map(Number);
@@ -663,38 +646,31 @@ function populateAircraftInfoWindow(baseProps, plan, sortedRoutePoints, communit
             }
         }
     };
-    // Clear any existing interval on the window to prevent duplicates if function called multiple times
+    
     if (window.sensorTimerInterval) clearInterval(window.sensorTimerInterval);
-    // Run immediately once
     updateSensorTimers();
-    // Set interval
     window.sensorTimerInterval = setInterval(updateSensorTimers, 1000);
+
     // --- DISPLAY TOGGLE LOGIC ---
     const toggleBtns = windowEl.querySelectorAll('.display-toggle-btn');
     const ndContainer = windowEl.querySelector('#nd-view-container');
     const fmcContainer = windowEl.querySelector('#fmc-view-container');
 
-    // Add event listeners
     toggleBtns.forEach(btn => {
         btn.addEventListener('click', (e) => {
-            // Remove active class from all
             toggleBtns.forEach(b => b.classList.remove('active'));
-            // Add active to clicked
             e.currentTarget.classList.add('active');
-
-            const target = e.currentTarget.dataset.target; // 
-            'nd-view' || 'fmc-view'
-
+            const target = e.currentTarget.dataset.target; 
             if (target === 'nd-view') {
                 ndContainer.style.display = 'block';
                 fmcContainer.style.display = 'none';
             } else {
                 ndContainer.style.display = 'none';
-                fmcContainer.style.display = 'flex'; // Use flex to maintain FMS layout
+                fmcContainer.style.display = 'flex';
             }
         });
     });
-    // Ensure initial state prevents "mixing"
+    
     ndContainer.style.display = 'block';
     fmcContainer.style.display = 'none';
 }

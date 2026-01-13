@@ -9563,14 +9563,16 @@ function populateAircraftInfoWindow(baseProps, plan, sortedRoutePoints, communit
             else if (index >= originalFlatWaypointObjects.length - 2 && hasPlan) procTag = `<span class="proc-tag star">STAR</span>`;
             
             fmsLegsHtml += `
-            <div class="fms-row ${index === 0 ? 'active-leg' : ''}" style="display: flex; justify-content: space-between; padding: 4px 8px;">
-                 <span style="display:flex; align-items:center; gap:6px; flex: 2; text-align: left; overflow: hidden; white-space: nowrap;">${ident} ${procTag}</span>
-                 <span class="text-center" style="color:#fff; flex: 1;">---°</span>
-                 <span class="text-right" style="flex: 1;">${distDisplay}</span>
+            <div class="fms-row ${index === 0 ? 'active-leg' : ''}" style="display: flex; justify-content: space-between; padding: 10px 14px; border-bottom: 1px solid rgba(255,255,255,0.03);">
+                 <span style="display:flex; align-items:center; gap:8px; flex: 2; text-align: left; font-weight: 500; font-family: 'JetBrains Mono', monospace;">
+                    <i class="fa-solid fa-diamond" style="font-size: 6px; color: ${index === 0 ? '#4ade80' : '#475569'};"></i> ${ident} ${procTag}
+                 </span>
+                 <span class="text-center" style="color:#94a3b8; flex: 1; font-size: 11px;">---°</span>
+                 <span class="text-right" style="flex: 1; color: #fff; font-weight: 600;">${distDisplay} <small style="font-size: 8px; color: #64748b;">NM</small></span>
             </div>`;
         });
     } else {
-        fmsLegsHtml = `<div class="fms-empty-state">NO ROUTE LOADED</div>`;
+        fmsLegsHtml = `<div class="fms-empty-state" style="padding: 40px; text-align: center; color: #475569; font-size: 12px; font-weight: 600; letter-spacing: 1px;">NO ROUTE DATA AVAILABLE</div>`;
     }
 
     // --- HTML Construction ---
@@ -9813,13 +9815,15 @@ function populateAircraftInfoWindow(baseProps, plan, sortedRoutePoints, communit
             </div> 
 
                 <div class="nd-full-width-section">
-                    <div class="display-toggle-bar">
-                         <button class="display-toggle-btn active" data-target="nd-view">
-                            NAV DISPLAY
+                    <!-- REDESIGNED VIEW SWITCHER -->
+                    <div class="modern-view-switcher" style="margin-bottom: 12px; background: rgba(15, 23, 42, 0.4); border-radius: 12px; padding: 4px; display: flex; position: relative; border: 1px solid rgba(255,255,255,0.05);">
+                         <button class="display-toggle-btn active" data-target="nd-view" style="flex: 1; border: none; background: transparent; color: #94a3b8; font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: 1.5px; padding: 10px; cursor: pointer; z-index: 1; transition: color 0.3s ease;">
+                            <i class="fa-solid fa-compass" style="margin-right: 6px;"></i> Navigation
                          </button>
-                         <button class="display-toggle-btn" data-target="fmc-view">
-                            FLIGHT PLAN
+                         <button class="display-toggle-btn" data-target="fmc-view" style="flex: 1; border: none; background: transparent; color: #94a3b8; font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: 1.5px; padding: 10px; cursor: pointer; z-index: 1; transition: color 0.3s ease;">
+                            <i class="fa-solid fa-list-ul" style="margin-right: 6px;"></i> Flight Plan
                          </button>
+                         <div class="switcher-highlight" style="position: absolute; top: 4px; left: 4px; width: calc(50% - 4px); height: calc(100% - 8px); background: rgba(255,255,255,0.08); border: 1px solid rgba(255,255,255,0.1); border-radius: 8px; transition: transform 0.3s cubic-bezier(0.4, 0, 0.2, 1);"></div>
                     </div>
 
                     <div class="display-bezel" style="background: rgba(15, 23, 42, 0.4); border: 1px solid rgba(255,255,255,0.05); border-radius: 12px; overflow: hidden; box-shadow: 0 4px 24px rgba(0,0,0,0.4);">
@@ -9832,26 +9836,26 @@ function populateAircraftInfoWindow(baseProps, plan, sortedRoutePoints, communit
 
                             <div id="fmc-view-container" style="display: none; width: 100%; height: 100%; background: #000; flex-direction: column;">
                                 <div class="fms-module-container" style="height: 100%; max-height: 100%; width: 100%; border: none; background: transparent; box-shadow: none; border-radius: 0; display: flex; flex-direction: column; overflow: hidden;">
-                                    <div class="fms-header" style="background: rgba(255,255,255,0.05); border-bottom: 1px solid #333; flex-shrink: 0;">
-                                        <span class="tech-module-title"><i class="fa-solid fa-route"></i> ACTIVE FLIGHT PLAN</span>
-                                        <span class="fms-page-count">1/1</span>
+                                    <div class="fms-header" style="background: rgba(255,255,255,0.05); padding: 14px 18px; border-bottom: 1px solid rgba(255,255,255,0.05); flex-shrink: 0; display: flex; justify-content: space-between; align-items: center;">
+                                        <span class="tech-module-title" style="font-weight: 700; font-size: 11px; letter-spacing: 1px;"><i class="fa-solid fa-route" style="color: #38bdf8;"></i> ROUTE PROFILE</span>
+                                        <span class="fms-page-count" style="font-family: monospace; font-size: 10px; color: #475569;">PAGE 01/01</span>
                                     </div>
-                                    <div class="fms-columns" style="border-bottom: 1px dashed #444; display: flex; justify-content: space-between; padding: 4px 8px; flex-shrink: 0;">
-                                        <span class="col-wpt" style="flex: 2; text-align: left;">LEGS</span>
-                                        <span class="col-data text-center" style="flex: 1;">CRS</span>
-                                        <span class="col-data text-right" style="flex: 1;">DIST</span>
+                                    <div class="fms-columns" style="border-bottom: 1px dashed rgba(255,255,255,0.1); display: flex; justify-content: space-between; padding: 8px 14px; flex-shrink: 0; background: rgba(0,0,0,0.2);">
+                                        <span class="col-wpt" style="flex: 2; text-align: left; font-size: 9px; color: #64748b; text-transform: uppercase;">Waypoint Ident</span>
+                                        <span class="col-data text-center" style="flex: 1; font-size: 9px; color: #64748b; text-transform: uppercase;">CRS</span>
+                                        <span class="col-data text-right" style="flex: 1; font-size: 9px; color: #64748b; text-transform: uppercase;">DIST</span>
                                     </div>
-                                    <div id="fms-legs-list" class="fms-list-scrollarea" style="flex: 1; overflow-y: auto; min-height: 0; scrollbar-color: #333 transparent;">
+                                    <div id="fms-legs-list" class="fms-list-scrollarea" style="flex: 1; overflow-y: auto; min-height: 0; scrollbar-width: none;">
                                         ${fmsLegsHtml}
                                     </div>
-                                    <div class="fms-footer" style="background: rgba(255,255,255,0.05); border-top: 1px solid #333; flex-shrink: 0;">
+                                    <div class="fms-footer" style="background: rgba(15, 23, 42, 0.8); border-top: 1px solid rgba(255,255,255,0.05); flex-shrink: 0; padding: 12px 18px; display: flex; gap: 24px;">
                                         <div class="fms-stat">
-                                            <span class="stat-label">DTG</span>
-                                            <span id="fms-total-dist" class="stat-value">---- NM</span>
+                                            <span class="stat-label" style="display: block; font-size: 8px; color: #64748b; text-transform: uppercase; margin-bottom: 2px;">Total Distance</span>
+                                            <span id="fms-total-dist" class="stat-value" style="font-size: 16px; color: #fff; font-weight: 700;">---- NM</span>
                                         </div>
                                         <div class="fms-stat">
-                                            <span class="stat-label">ETE</span>
-                                            <span id="fms-total-ete" class="stat-value">--:--</span>
+                                            <span class="stat-label" style="display: block; font-size: 8px; color: #64748b; text-transform: uppercase; margin-bottom: 2px;">Estimated Time</span>
+                                            <span id="fms-total-ete" class="stat-value" style="font-size: 16px; color: #38bdf8; font-weight: 700;">--:--</span>
                                         </div>
                                     </div>
                                 </div>
@@ -9860,60 +9864,82 @@ function populateAircraftInfoWindow(baseProps, plan, sortedRoutePoints, communit
                     </div>
                  </div>
 
-                <!-- RE-STYLED NAV DATA PANEL -->
+                <!-- RE-STYLED NAV DATA PANEL - FLUID DESIGN -->
                 <div class="tech-module" id="location-data-panel" style="background: rgba(15, 23, 42, 0.4); border: 1px solid rgba(255,255,255,0.05); border-radius: 12px; overflow: hidden; backdrop-filter: blur(8px);">
-                    <div class="tech-module-header" style="padding: 12px 16px; background: rgba(255,255,255,0.03); display: flex; align-items: center; justify-content: space-between; border-bottom: 1px solid rgba(255,255,255,0.05);">
-                         <span class="tech-module-title" style="font-weight: 700; font-size: 11px; text-transform: uppercase; color: #94a3b8; letter-spacing: 1px;"><i class="fa-solid fa-location-crosshairs" style="margin-right: 6px;"></i> Navigation Data</span>
-                         <span class="nav-status-indicator" style="font-size: 10px; color: #4ade80; display: flex; align-items: center; gap: 6px;"><div class="nav-blink" style="width: 6px; height: 6px; background: #4ade80; border-radius: 50%;"></div> LIVE</span>
+                    <div class="tech-module-header" style="padding: 14px 18px; background: rgba(255,255,255,0.03); display: flex; align-items: center; justify-content: space-between; border-bottom: 1px solid rgba(255,255,255,0.05);">
+                         <span class="tech-module-title" style="font-weight: 700; font-size: 11px; text-transform: uppercase; color: #fff; letter-spacing: 1px;"><i class="fa-solid fa-radar" style="margin-right: 8px; color: #38bdf8;"></i> Navigation Intelligence</span>
+                         <div style="display: flex; align-items: center; gap: 8px;">
+                             <span style="font-size: 9px; color: #4ade80; font-weight: 700; letter-spacing: 0.5px;">SYNC ACTIVE</span>
+                             <div class="nav-status-indicator" style="width: 6px; height: 6px; background: #4ade80; border-radius: 50%; box-shadow: 0 0 8px #4ade80;"></div>
+                         </div>
                     </div>
-                    <div class="tech-module-body" style="padding: 16px;">
-                        <div class="nav-grid-container" style="display: grid; grid-template-columns: repeat(2, 1fr); gap: 16px;">
-                             <div class="nav-cell">
-                                <span style="font-size: 9px; color: #64748b; text-transform: uppercase; letter-spacing: 0.5px; display: block; margin-bottom: 4px;">Region</span>
-                                <span id="ac-location" style="font-size: 13px; color: #fff; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; display: block;">Scanning...</span>
+                    <div class="tech-module-body" style="padding: 18px;">
+                        <!-- Primary Telemetry Row -->
+                        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 24px; margin-bottom: 24px;">
+                             <div class="nav-block">
+                                <span style="font-size: 8px; color: #64748b; text-transform: uppercase; letter-spacing: 1px; display: block; margin-bottom: 6px;">Current Location</span>
+                                <span id="ac-location" style="font-size: 15px; color: #fff; font-weight: 600; font-family: 'Inter', sans-serif;">Scanning...</span>
                              </div>
-                             <div class="nav-cell">
-                                <span style="font-size: 9px; color: #64748b; text-transform: uppercase; letter-spacing: 0.5px; display: block; margin-bottom: 4px;">Nearest Port</span>
-                                <div style="display: flex; align-items: baseline; gap: 6px;">
-                                   <span id="ac-nearest-apt" style="font-size: 13px; color: #38bdf8; font-weight: 700;">---</span>
-                                   <span style="font-size: 11px; color: #94a3b8;"><span id="ac-nearest-apt-dist">--.-</span> <span style="font-size: 8px;">NM</span></span>
-                                </div>
-                            </div>
-                            <div class="nav-cell">
-                               <span style="font-size: 9px; color: #64748b; text-transform: uppercase; letter-spacing: 0.5px; display: block; margin-bottom: 4px;">Wind</span>
-                               <span id="ac-env-wind" style="font-size: 13px; color: #fff; font-weight: 600; font-family: monospace;">---/--</span>
-                            </div>
-                           <div class="nav-cell">
-                                <span style="font-size: 9px; color: #64748b; text-transform: uppercase; letter-spacing: 0.5px; display: block; margin-bottom: 4px;">Outside Air</span>
-                                <span id="ac-env-oat" style="font-size: 13px; color: #fff; font-weight: 600;">--°C</span>
-                           </div>
-                            <div class="nav-cell" style="grid-column: span 2; background: rgba(0,0,0,0.1); padding: 8px; border-radius: 8px;">
-                                <span style="font-size: 9px; color: #64748b; text-transform: uppercase; letter-spacing: 0.5px; display: block; margin-bottom: 6px;">Coordinate Position</span>
-                                <div style="display: flex; justify-content: space-between; font-family: 'JetBrains Mono', monospace; font-size: 11px;">
-                                    <div><span style="color: #475569;">LAT</span> <span id="ac-lat" style="color: #cbd5e1; margin-left: 4px;">---</span></div>
-                                    <div><span style="color: #475569;">LON</span> <span id="ac-lon" style="color: #cbd5e1; margin-left: 4px;">---</span></div>
-                               </div>
-                           </div>
-                            <div class="nav-cell" style="grid-column: span 2;">
-                                <span style="font-size: 9px; color: #64748b; text-transform: uppercase; letter-spacing: 0.5px; display: block; margin-bottom: 4px;">Vertical Speed</span>
-                                <div style="display: flex; align-items: center; justify-content: space-between; background: rgba(56, 189, 248, 0.05); padding: 10px; border-radius: 8px; border: 1px solid rgba(56, 189, 248, 0.1);">
-                                    <span id="ac-vs" style="font-size: 18px; color: #38bdf8; font-weight: 800;">---</span>
-                                    <span style="font-size: 9px; color: #38bdf8; font-weight: 700; text-transform: uppercase;">fpm</span>
-                                </div>
-                            </div>
-                             <div class="nav-cell" style="grid-column: span 2;">
-                                <span style="font-size: 9px; color: #64748b; text-transform: uppercase; letter-spacing: 0.5px; display: block; margin-bottom: 4px;">Next Waypoint</span>
-                                <div style="display: flex; justify-content: space-between; align-items: center;">
-                                   <span id="ac-next-wp" style="font-size: 14px; color: #fff; font-weight: 700; color: #facc15;">---</span>
-                                   <span style="font-size: 11px; color: #94a3b8;"><span id="ac-next-wp-dist">--.-</span> <span style="font-size: 8px;">NM</span></span>
+                             <div class="nav-block">
+                                <span style="font-size: 8px; color: #64748b; text-transform: uppercase; letter-spacing: 1px; display: block; margin-bottom: 6px;">Next Sequence</span>
+                                <div style="display: flex; align-items: center; gap: 8px;">
+                                   <span id="ac-next-wp" style="font-size: 16px; color: #facc15; font-weight: 800; font-family: 'JetBrains Mono', monospace;">---</span>
+                                   <span style="font-size: 11px; color: #94a3b8; font-weight: 500;"><span id="ac-next-wp-dist">--.-</span> <small>NM</small></span>
                                 </div>
                              </div>
-                             <div class="nav-cell" style="grid-column: span 2; border-top: 1px solid rgba(255,255,255,0.05); padding-top: 12px; margin-top: 4px;">
-                                <span style="font-size: 9px; color: #64748b; text-transform: uppercase; letter-spacing: 0.5px; display: block; margin-bottom: 4px;">Destination</span>
-                                <div style="display: flex; justify-content: space-between;">
-                                    <div style="display: flex; flex-direction: column;"><span style="font-size: 8px; color: #475569; margin-bottom: 2px;">DISTANCE</span> <span id="ac-dist" style="font-size: 14px; color: #fff; font-weight: 600;">---</span></div>
-                                    <div style="display: flex; flex-direction: column; align-items: flex-end;"><span style="font-size: 8px; color: #475569; margin-bottom: 2px;">REMAINING</span> <span id="ac-ete" style="font-size: 14px; color: #fff; font-weight: 600;">--:--</span></div>
+                        </div>
+
+                        <!-- Secondary Metrics (No Borders, just spacing/flow) -->
+                        <div style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; margin-bottom: 24px;">
+                            <div class="sub-block">
+                                <span style="font-size: 8px; color: #475569; text-transform: uppercase; display: block; margin-bottom: 4px;">Vertical Spd</span>
+                                <span id="ac-vs" style="font-size: 14px; color: #fff; font-weight: 600;">---</span>
+                            </div>
+                            <div class="sub-block">
+                                <span style="font-size: 8px; color: #475569; text-transform: uppercase; display: block; margin-bottom: 4px;">Wind Velocity</span>
+                                <span id="ac-env-wind" style="font-size: 14px; color: #fff; font-weight: 600; font-family: monospace;">---/--</span>
+                            </div>
+                            <div class="sub-block">
+                                <span style="font-size: 8px; color: #475569; text-transform: uppercase; display: block; margin-bottom: 4px;">Static Temp</span>
+                                <span id="ac-env-oat" style="font-size: 14px; color: #fff; font-weight: 600;">--°C</span>
+                            </div>
+                        </div>
+
+                        <!-- Progress Section -->
+                        <div style="background: rgba(0,0,0,0.2); padding: 14px; border-radius: 12px; border: 1px solid rgba(255,255,255,0.03);">
+                             <div style="display: flex; justify-content: space-between; align-items: flex-end; margin-bottom: 12px;">
+                                 <div>
+                                    <span style="font-size: 8px; color: #64748b; text-transform: uppercase; display: block; margin-bottom: 2px;">Nearest Facility</span>
+                                    <span id="ac-nearest-apt" style="font-size: 14px; color: #38bdf8; font-weight: 700;">---</span>
+                                 </div>
+                                 <div style="text-align: right;">
+                                    <span style="font-size: 8px; color: #64748b; text-transform: uppercase; display: block; margin-bottom: 2px;">Separation</span>
+                                    <span style="font-size: 14px; color: #fff; font-weight: 600;"><span id="ac-nearest-apt-dist">--.-</span> NM</span>
+                                 </div>
+                             </div>
+                             <div style="height: 2px; background: rgba(255,255,255,0.05); width: 100%; border-radius: 2px; margin-bottom: 12px;">
+                                <div id="facility-proximity-bar" style="height: 100%; width: 0%; background: #38bdf8; border-radius: 2px; transition: width 0.5s ease;"></div>
+                             </div>
+                             <div style="display: flex; justify-content: space-between; font-family: 'JetBrains Mono', monospace; font-size: 10px; color: #475569;">
+                                 <span>LAT <span id="ac-lat" style="color: #94a3b8;">---</span></span>
+                                 <span>LON <span id="ac-lon" style="color: #94a3b8;">---</span></span>
+                             </div>
+                        </div>
+
+                        <!-- Destination Footer -->
+                        <div style="margin-top: 24px; padding-top: 18px; border-top: 1px solid rgba(255,255,255,0.05); display: flex; justify-content: space-between; align-items: center;">
+                            <div style="display: flex; gap: 12px; align-items: center;">
+                                <div style="width: 32px; height: 32px; border-radius: 50%; background: rgba(56, 189, 248, 0.1); display: flex; align-items: center; justify-content: center; color: #38bdf8;">
+                                    <i class="fa-solid fa-flag-checkered"></i>
                                 </div>
+                                <div>
+                                    <span style="font-size: 8px; color: #64748b; text-transform: uppercase; display: block;">Distance to Goal</span>
+                                    <span id="ac-dist" style="font-size: 16px; color: #fff; font-weight: 700;">---</span>
+                                </div>
+                            </div>
+                            <div style="text-align: right;">
+                                <span style="font-size: 8px; color: #64748b; text-transform: uppercase; display: block;">Arrival In</span>
+                                <span id="ac-ete" style="font-size: 16px; color: #38bdf8; font-weight: 700;">--:--</span>
                             </div>
                         </div>
                     </div>
@@ -10020,6 +10046,7 @@ function populateAircraftInfoWindow(baseProps, plan, sortedRoutePoints, communit
         </div>
     </div>
     `;
+
     // --- POST-RENDER LOGIC ---
     createPfdDisplay();
     updatePfdDisplay(baseProps.position);
@@ -10035,7 +10062,7 @@ function populateAircraftInfoWindow(baseProps, plan, sortedRoutePoints, communit
         overviewPanel.dataset.currentPath = imagePath;
     });
 
-    // --- SENSOR TIMER LOGIC (RESTORED) ---
+    // --- SENSOR TIMER LOGIC ---
     const updateSensorTimers = () => {
         const elElapsed = document.getElementById('ac-sensor-elapsed');
         const elEte = document.getElementById('ac-sensor-ete');
@@ -10072,15 +10099,26 @@ function populateAircraftInfoWindow(baseProps, plan, sortedRoutePoints, communit
     updateSensorTimers();
     window.sensorTimerInterval = setInterval(updateSensorTimers, 1000);
 
-    // --- DISPLAY TOGGLE LOGIC ---
+    // --- REDESIGNED DISPLAY TOGGLE LOGIC ---
     const toggleBtns = windowEl.querySelectorAll('.display-toggle-btn');
+    const highlight = windowEl.querySelector('.switcher-highlight');
     const ndContainer = windowEl.querySelector('#nd-view-container');
     const fmcContainer = windowEl.querySelector('#fmc-view-container');
 
-    toggleBtns.forEach(btn => {
+    toggleBtns.forEach((btn, index) => {
         btn.addEventListener('click', (e) => {
-            toggleBtns.forEach(b => b.classList.remove('active'));
+            toggleBtns.forEach(b => {
+                b.classList.remove('active');
+                b.style.color = '#94a3b8';
+            });
             e.currentTarget.classList.add('active');
+            e.currentTarget.style.color = '#fff';
+            
+            // Move highlight pill
+            if (highlight) {
+                highlight.style.transform = `translateX(${index * 100}%)`;
+            }
+
             const target = e.currentTarget.dataset.target; 
             if (target === 'nd-view') {
                 ndContainer.style.display = 'block';
@@ -10090,6 +10128,9 @@ function populateAircraftInfoWindow(baseProps, plan, sortedRoutePoints, communit
                 fmcContainer.style.display = 'flex';
             }
         });
+        
+        // Initial color for active btn
+        if (btn.classList.contains('active')) btn.style.color = '#fff';
     });
     
     ndContainer.style.display = 'block';
