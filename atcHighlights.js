@@ -5,13 +5,11 @@
 
 /**
  * Standard Point-in-Polygon algorithm to check if a lat/lon is inside a GeoJSON feature.
- * This allows us to find the FIR region even if we only have coordinates.
  */
 function isPointInPolygon(point, polygon) {
     const x = point[0], y = point[1];
     let inside = false;
     
-    // Handle both Polygon and MultiPolygon geometries
     const rings = polygon.type === 'Polygon' ? [polygon.coordinates] : polygon.coordinates;
     
     rings.forEach(ringSet => {
@@ -36,74 +34,82 @@ function isPointInPolygon(point, polygon) {
 export function updateActiveSectors(map, layerId, atcData) {
     if (!map || !map.getLayer(layerId)) return;
 
-    const firFeatures = map.querySourceFeatures('fir-boundaries');
-    
-    // CHANGE: Use a Set instead of an Array to ensure all IDs are unique
+    // 1. Build the list of active IDs from data first to prevent flickering.
+    // By using atcData as the source of truth, the highlight stays even if 
+    // the region is currently off-screen.
     const activeIdsSet = new Set();
+    const lookupPoints = [];
 
     atcData.forEach(controller => {
-        if (controller.latitude && controller.longitude) {
-            const controllerPoint = [controller.longitude, controller.latitude];
-            
-            const match = firFeatures.find(feature => 
-                isPointInPolygon(controllerPoint, feature.geometry)
-            );
-
-            if (match && match.properties.id) {
-                activeIdsSet.add(match.properties.id); // Sets ignore duplicate entries
-            }
-        } else if (controller.fir_id) {
+        if (controller.fir_id) {
+            // Priority 1: Use the explicit ID from the API
             activeIdsSet.add(controller.fir_id);
+        } else if (controller.latitude && controller.longitude) {
+            // Priority 2: Queue for spatial lookup if ID is missing
+            lookupPoints.push([controller.longitude, controller.latitude]);
         }
     });
-    
-    // Convert the Set back to an Array for Mapbox
-    const activeIds = Array.from(activeIdsSet);
 
+    // 2. Supplemental lookup for coordinates if needed.
+    // Note: querySourceFeatures only sees tiles currently in view.
+    if (lookupPoints.length > 0) {
+        const firFeatures = map.querySourceFeatures('fir-boundaries');
+        lookupPoints.forEach(point => {
+            const match = firFeatures.find(f => isPointInPolygon(point, f.geometry));
+            if (match && match.properties.id) {
+                activeIdsSet.add(match.properties.id);
+            }
+        });
+    }
+
+    const activeIds = Array.from(activeIdsSet);
+    
+    // 3. Create a prefix-matching expression (e.g., 'KZLA' matches 'KZLA-CTR')
     const matchExpression = [
         "match",
         ["slice", ["get", "id"], 0, ["index-of", "-", ["concat", ["get", "id"], "-"]]],
         activeIds.length > 0 ? activeIds : ["none"],
-        true, 
-        false 
+        true,
+        false
     ];
 
-    // 1. Subtle Fill (Instead of heavy shading)
-    map.setPaintProperty(layerId, 'fill-color', [
-        "case",
-        matchExpression,
-        '#22c55e', // Emerald-500
-        'transparent'
-    ]);
-    map.setPaintProperty(layerId, 'fill-opacity', [
-        "case",
-        matchExpression,
-        0.08, // Very light tint (8%)
-        0
-    ]);
+    // --- STYLING: BRIGHT WHITE OUTLINE ---
 
-    // 2. Thick, Glowing Border (The "Pop Out" effect)
+    // Set fill to transparent (as we only want the outline highlighted)
+    map.setPaintProperty(layerId, 'fill-color', 'rgba(0, 0, 0, 0)');
+    map.setPaintProperty(layerId, 'fill-opacity', 0);
+
     if (map.getLayer('fir-borders')) {
+        // Bright White for active, faint for inactive
         map.setPaintProperty('fir-borders', 'line-color', [
             "case",
             matchExpression,
-            '#4ade80', // Brighter green for active
-            'rgba(255, 255, 255, 0.15)' // Faint white for inactive
+            '#ffffff', 
+            'rgba(255, 255, 255, 0.15)'
         ]);
 
+        // Thicker border for the active center
         map.setPaintProperty('fir-borders', 'line-width', [
             "case",
             matchExpression,
-            3.5, // Thicker border for active region
-            0.5  // Thin border for others
+            3.0, 
+            0.5 
         ]);
 
-        // Add a "blur" for a neon glow effect
+        // Adds a subtle "bloom" effect to the white outline
         map.setPaintProperty('fir-borders', 'line-blur', [
             "case",
             matchExpression,
-            1.5, // Soft glow for active
+            1.0, 
             0
+        ]);
+        
+        // Ensure active borders are drawn on top of others
+        map.setPaintProperty('fir-borders', 'line-sort-key', [
+            "case",
+            matchExpression,
+            2, 
+            1
         ]);
     }
 }
