@@ -2100,31 +2100,38 @@ function injectCustomStyles() {
         /* --- AIRPORT WINDOW SPECIFIC STYLES --- */
 
         .airport-hero {
-            background: linear-gradient(135deg, rgba(30, 41, 59, 0.8) 0%, rgba(15, 23, 42, 0.9) 100%);
-            border-bottom: 1px solid var(--border-glass);
-            padding: 20px;
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-            position: relative;
-            overflow: hidden;
-        }
+    /* Set the background size and position */
+    background-size: cover;
+    background-position: center;
+    min-height: 160px; /* Increased height to better showcase the airport image */
+    border-bottom: 1px solid var(--border-glass);
+    padding: 20px;
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-end; /* Align data to the bottom of the image */
+    position: relative;
+    overflow: hidden;
+}
 
-        .airport-hero::before {
-            content: '';
-            position: absolute;
-            top: 0; right: 0; bottom: 0; left: 0;
-            background-image: radial-gradient(#ffffff 1px, transparent 1px);
-            background-size: 20px 20px;
-            opacity: 0.05;
-            pointer-events: none;
-        }
+/* Add this new overlay class */
+.airport-hero-overlay {
+    position: absolute;
+    inset: 0;
+    /* Dark gradient to make white text pop */
+    background: linear-gradient(180deg, 
+        rgba(10, 12, 26, 0.2) 0%, 
+        rgba(10, 12, 26, 0.5) 50%, 
+        rgba(10, 12, 26, 0.9) 100%
+    );
+    z-index: 1;
+}
 
-        .apt-ident-group {
-            display: flex;
-            flex-direction: column;
-            z-index: 2;
-        }
+/* Ensure the ident group stays above the overlay */
+.apt-ident-group {
+    display: flex;
+    flex-direction: column;
+    z-index: 2; /* Sits above the overlay */
+}
 
         .apt-icao {
             font-family: var(--font-data);
@@ -3619,26 +3626,26 @@ async function createAirportInfoWindowHTML(icao) {
     let notamsHtml = activeNotams.filter(n => n.airportIcao === icao).length === 0 ? '<div style="padding: 20px; text-align: center; color: #64748b;">No active NOTAMs.</div>' : `<div style="padding: 12px; display: flex; flex-direction: column; gap: 8px;">${activeNotams.filter(n => n.airportIcao === icao).map(n => `<div style="background: rgba(234, 179, 8, 0.1); border-left: 3px solid #eab308; padding: 8px; border-radius: 4px; color: #fef08a; font-family: monospace; font-size: 0.75rem;"><i class="fa-solid fa-triangle-exclamation"></i> ${n.message}</div>`).join('')}</div>`;
 
     return `
-        <div class="airport-hero">
-            <div class="hero-actions"><button id="airport-window-hide-btn" class="hero-btn" title="Hide Window"><i class="fa-solid fa-compress"></i></button><button id="airport-window-close-btn" class="hero-btn" title="Close Window"><i class="fa-solid fa-xmark"></i></button></div>
-            <div class="apt-ident-group"><div class="apt-icao">${icao}${flagSrc ? `<img src="${flagSrc}" style="height: 24px; border-radius: 2px; margin-left: 10px;">` : ''}${badge3DHtml}</div><div class="apt-name">${airportName}</div></div>
-        </div>
-        <div style="flex-grow: 1; overflow-y: auto;">
-            <div class="apt-dashboard-grid">${weatherModuleHtml}${atisModuleHtml}</div>
-            <div class="tech-module" style="margin: 16px; border: 1px solid rgba(255,255,255,0.05);">
-                <div class="apt-tabs-header">
-                    <button class="apt-tab-btn active" data-target="apt-traffic"><i class="fa-solid fa-plane-circle-check"></i> TRAFFIC</button>
-                    <button class="apt-tab-btn" data-target="apt-atc"><i class="fa-solid fa-headset"></i> ATC</button>
-                    <button class="apt-tab-btn" data-target="apt-notams"><i class="fa-solid fa-triangle-exclamation"></i> NOTAMs</button>
+        <div class="airport-hero" style="background-image: url('klax.webp')">
+            <div class="airport-hero-overlay"></div>
+            <div class="hero-actions">
+                <button id="airport-window-hide-btn" class="hero-btn" title="Hide Window"><i class="fa-solid fa-compress"></i></button>
+                <button id="airport-window-close-btn" class="hero-btn" title="Close Window"><i class="fa-solid fa-xmark"></i></button>
+            </div>
+            <div class="apt-ident-group">
+                <div class="apt-icao">
+                    ${icao}${flagSrc ? `<img src="${flagSrc}" style="height: 24px; border-radius: 2px; margin-left: 10px;">` : ''}${badge3DHtml}
                 </div>
-                <div id="apt-traffic" class="apt-tab-content active" style="padding: 0;">
-                    ${visualizerControlsHtml}
-                    ${trafficHtml}
+                <div class="apt-name">${airportName}</div>
+                <div style="font-size: 0.8rem; color: #cbd5e1; margin-top: 2px; text-shadow: 0 1px 3px rgba(0,0,0,0.8);">${cityState}</div>
+                <div style="margin-top: 8px; display: flex; gap: 8px;">
+                    <span class="apt-meta-badge"><i class="fa-solid fa-location-crosshairs"></i> ${coords.lat?.toFixed(3)}, ${coords.lon?.toFixed(3)}</span>
+                    <span class="apt-meta-badge"><i class="fa-solid fa-arrows-up-down"></i> ${elevation} ft</span>
                 </div>
-                <div id="apt-atc" class="apt-tab-content" style="padding: 0;">${atcHtml}</div>
-                <div id="apt-notams" class="apt-tab-content" style="padding: 0;">${notamsHtml}</div>
             </div>
         </div>
+        <div style="flex-grow: 1; overflow-y: auto;">
+            </div>
     `;
 }
 
