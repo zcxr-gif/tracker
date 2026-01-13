@@ -61,6 +61,8 @@ export function updateActiveSectors(map, layerId, atcData) {
         }
     });
 
+    activeIds = [...new Set(activeIds)];
+
     /**
      * Mapbox Expression Logic:
      * We match the base ID (e.g., 'KZLA') even if the GeoJSON feature ID is 'KZLA-E'
