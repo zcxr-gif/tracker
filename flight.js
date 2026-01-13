@@ -38,6 +38,7 @@ window.currentAirportTraffic = { in: [], out: [] }; // Stores IDs for the curren
     const DATA_REFRESH_INTERVAL_MS = 50000; // Your current refresh interval
     const ACARS_SOCKET_URL = 'https://site--acars-backend--6dmjph8ltlhv.code.run'; // <-- NEW: For WebSocket
     let isAircraftWindowLoading = false;
+    let activeFirIds = new Set(); // Globally track which FIRs are staffed
 
     // --- [NEW] Map Style Constants & State ---
     const MAP_STYLE_DARK = 'mapbox://styles/mapbox/dark-v11';
@@ -1205,18 +1206,76 @@ function injectCustomStyles() {
             overflow: hidden; 
         }
 
-        .pfd-and-location-grid { 
-            display: grid;
-            /* Left takes available space, Right is fixed to fit the seat sensor (140px + margin) */
-            grid-template-columns: 1fr 150px;
-            gap: 6px;
-        }
+        /* Ensure the grid container allows for height matching */
+.pfd-and-location-grid { 
+    display: grid;
+    grid-template-columns: 1fr 150px; /* Adjust 150px if you want a wider/narrower sidebar */
+    gap: 6px;
+    align-items: stretch; /* Critical: forces both columns to same height */
+}
 
-        .info-right-col {
-            display: flex;
-            flex-direction: column;
-            gap: 8px;
-        }
+/* Redesigned right column as a single cohesive unit */
+.info-right-col {
+    display: flex;
+    flex-direction: column;
+    height: 100%; /* Fill the grid cell height */
+}
+
+/* The unified Status/Timer module */
+.flight-status-strip {
+    background: var(--bg-glass);
+    border: 1px solid var(--border-glass);
+    border-radius: var(--radius-sm);
+    display: flex;
+    flex-direction: column;
+    height: 100%;
+    overflow: hidden;
+    box-shadow: inset 0 0 20px rgba(0,0,0,0.5);
+}
+
+/* Vertical stacking for timers and sensor */
+.status-strip-content {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    justify-content: space-between; /* Space items out vertically */
+    padding: 12px 8px;
+    background: #050505;
+}
+
+.status-indicator-box {
+    background: rgba(255, 255, 255, 0.03);
+    border-radius: 6px;
+    padding: 10px 6px;
+    text-align: center;
+    border-bottom: 2px solid transparent;
+    margin-bottom: 10px;
+}
+
+.timer-pill {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    margin-bottom: 12px;
+}
+
+.timer-pill label {
+    font-size: 0.65rem;
+    color: #64748b;
+    text-transform: uppercase;
+    font-weight: 700;
+}
+
+.timer-pill .time-val {
+    font-family: var(--font-data);
+    font-size: 1.1rem;
+    color: #fff;
+    font-weight: 700;
+}
+
+.timer-pill.highlight .time-val {
+    color: var(--color-brand);
+}
         
         /* --- FMS & MODULE STYLES --- */
         .fms-module-container {
@@ -9776,49 +9835,43 @@ function populateAircraftInfoWindow(baseProps, plan, sortedRoutePoints, communit
                     </div> 
                     
              <div class="info-right-col">
-       <div class="tech-module" id="cockpit-seat-sensor">
-                            <div class="sensor-state-strip" style="background: ${psBg}; border-left: 3px solid ${psColor}; padding: 8px 12px; display: flex; align-items: center; justify-content: space-between; border-bottom: 1px solid #222; flex-shrink: 0;">
-                                <div style="display: flex; align-items: center; gap: 10px;">
-                                    <div style="width: 24px; height: 24px; border-radius: 4px; background: rgba(0,0,0,0.3); display: flex; align-items: center; justify-content: center; border: 1px solid ${psColor}; box-shadow: 0 0 5px ${psColor}40;">
-                                         <i class="fa-solid ${psIcon}" style="color: ${psColor}; font-size: 12px;"></i>
-                                    </div>
-                                    <div style="display: flex; flex-direction: column;">
-                                        <span style="font-weight: 700; font-size: 12px; color: ${psColor}; line-height: 1;">${psTitle}</span>
-                                        <span style="font-size: 9px; color: #64748b; font-family: monospace;">${psDesc}</span>
-                                    </div>
-                                </div>
-                                <div class="tech-ping">
-                                    <span class="animate" style="background-color: ${psColor}"></span>
-                                    <span style="background-color: ${psColor}"></span>
-                                </div>
-                            </div>
+    <div class="flight-status-strip">
+        <div class="sensor-state-strip" style="background: ${psBg}; border-left: 3px solid ${psColor}; padding: 8px 10px; display: flex; align-items: center; gap: 8px;">
+            <i class="fa-solid ${psIcon}" style="color: ${psColor}; font-size: 14px;"></i>
+            <div style="display: flex; flex-direction: column;">
+                <span style="font-weight: 800; font-size: 11px; color: ${psColor};">${psTitle}</span>
+            </div>
+        </div>
 
-                            <div class="sensor-timers-body" style="flex: 1; padding: 12px; display: flex; flex-direction: column; justify-content: space-between; background: #050505;">
-                                <div class="timer-group">
-                                    <span style="font-size: 9px; color: #64748b; text-transform: uppercase; letter-spacing: 1px; display: block; margin-bottom: 2px;">Elapsed Time</span>
-                                    <div style="background: #000; border: 1px solid #222; padding: 6px 10px; border-radius: 4px; display: flex; align-items: baseline; justify-content: space-between;">
-                                         <i class="fa-solid fa-stopwatch" style="color: #334155; font-size: 12px;"></i>
-                                         <span id="ac-sensor-elapsed" style="font-family: 'Consolas', monospace; font-size: 18px; color: #fff; font-weight: 700; text-shadow: 0 0 10px rgba(255,255,255,0.1);">--:--</span>
-                                    </div>
-                                </div>
-                                <div class="timer-group">
-                                     <span style="font-size: 9px; color: #64748b; text-transform: uppercase; letter-spacing: 1px; display: block; margin-bottom: 2px;">Estimated Remaining</span>
-                                     <div style="background: #000; border: 1px solid #222; padding: 6px 10px; border-radius: 4px; display: flex; align-items: baseline; justify-content: space-between;">
-                                         <i class="fa-solid fa-hourglass-half" style="color: #334155; font-size: 12px;"></i>
-                                         <span id="ac-sensor-ete" style="font-family: 'Consolas', monospace; font-size: 18px; color: #38bdf8; font-weight: 700;">--:--</span>
-                                    </div>
-                                </div>
-                                <div class="timer-group">
-                                     <span style="font-size: 9px; color: #64748b; text-transform: uppercase; letter-spacing: 1px; display: block; margin-bottom: 2px;">Total Flight Time</span>
-                                     <div style="background: rgba(255,255,255,0.03); border: 1px dashed #333; padding: 4px 10px; border-radius: 4px; display: flex; align-items: baseline; justify-content: space-between;">
-                                         <i class="fa-solid fa-calculator" style="color: #334155; font-size: 10px;"></i>
-                                         <span id="ac-sensor-total" style="font-family: 'Consolas', monospace; font-size: 14px; color: #94a3b8;">--:--</span>
-                                    </div>
-                                </div>
-                            </div>
-                        </div>
-                    </div> 
-                </div> 
+        <div class="status-strip-content">
+            <div class="seat-visual-stack" style="display: flex; justify-content: space-around; margin-bottom: 15px;">
+                <div id="seat-cpt" class="seat" style="width: 30px; height: 35px;"></div>
+                <div id="seat-fo" class="seat" style="width: 30px; height: 35px;"></div>
+            </div>
+
+            <div class="timers-stack">
+                <div class="timer-pill">
+                    <label>Elapsed</label>
+                    <span id="ac-sensor-elapsed" class="time-val">--:--</span>
+                </div>
+
+                <div class="timer-pill highlight">
+                    <label>Remaining</label>
+                    <span id="ac-sensor-ete" class="time-val">--:--</span>
+                </div>
+
+                <div class="timer-pill">
+                    <label>Total Time</label>
+                    <span id="ac-sensor-total" class="time-val" style="font-size: 0.9rem; color: #94a3b8;">--:--</span>
+                </div>
+            </div>
+
+            <div style="border-top: 1px solid #222; padding-top: 8px; text-align: center;">
+                 <span id="status-cpt-text" class="status-pill" style="font-size: 9px; width: 100%; display: block;">SCANNING</span>
+            </div>
+        </div>
+    </div>
+</div>
 
                 <div class="nd-full-width-section">
                     <div class="display-toggle-bar">
