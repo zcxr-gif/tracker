@@ -3618,15 +3618,42 @@ async function createAirportInfoWindowHTML(icao) {
         `;
     };
 
-    let trafficHtml = (!trafficFetchSuccess) ? '<div style="padding: 20px; text-align: center; color: #64748b;">Data unavailable.</div>' :
-        (inbounds.length===0 && outbounds.length===0) ? '<div style="padding: 20px; text-align: center; color: #64748b;">No live traffic.</div>' :
-        `<div style="padding: 12px; display: flex; flex-direction: column; gap: 4px;">${inbounds.length>0 ? `<div style="margin-bottom:8px;"><div style="font-size:0.7rem;color:#94a3b8;font-weight:700;margin-bottom:4px;padding-left:4px;">INBOUND (${inbounds.length})</div>${inbounds.map(id=>renderFlightCard(id,'in')).join('')}</div>` : ''}${outbounds.length>0 ? `<div><div style="font-size:0.7rem;color:#94a3b8;font-weight:700;margin-bottom:4px;padding-left:4px;">OUTBOUND (${outbounds.length})</div>${outbounds.map(id=>renderFlightCard(id,'out')).join('')}</div>` : ''}</div>`;
-
     let atcHtml = activeAtcFacilities.filter(f => f.airportName === icao).length === 0 ? '<div style="padding: 20px; text-align: center; color: #64748b;">No active frequencies.</div>' : `<div style="padding: 12px;">${activeAtcFacilities.filter(f => f.airportName === icao).map(f => `<div class="atc-grid-card" style="padding: 8px;"><div style="display: flex; align-items: center; gap: 12px;"><span class="atc-type-badge ${f.type===1?'atc-type-twr':f.type===0?'atc-type-gnd':(f.type===4||f.type===5)?'atc-type-app':'atc-type-obs'}" style="width: 60px; font-size: 0.65rem;">${atcTypeToString(f.type)}</span><span class="atc-controller" style="font-size: 0.85rem;">${f.username||'Unknown'}</span></div><span class="atc-duration" style="font-size: 0.75rem;"><i class="fa-regular fa-clock"></i> ${formatAtcDuration(f.startTime)}</span></div>`).join('')}</div>`;
     let notamsHtml = activeNotams.filter(n => n.airportIcao === icao).length === 0 ? '<div style="padding: 20px; text-align: center; color: #64748b;">No active NOTAMs.</div>' : `<div style="padding: 12px; display: flex; flex-direction: column; gap: 8px;">${activeNotams.filter(n => n.airportIcao === icao).map(n => `<div style="background: rgba(234, 179, 8, 0.1); border-left: 3px solid #eab308; padding: 8px; border-radius: 4px; color: #fef08a; font-family: monospace; font-size: 0.75rem;"><i class="fa-solid fa-triangle-exclamation"></i> ${n.message}</div>`).join('')}</div>`;
 
+    const airportImg = 'klax.webp'; 
+
+    // --- Traffic Dropdown Logic ---
+    const trafficSelectorHtml = `
+        <div style="padding: 10px 16px; border-bottom: 1px solid var(--border-glass); background: rgba(0,0,0,0.15); display: flex; align-items: center; justify-content: space-between;">
+            <div style="display: flex; flex-direction: column; gap: 2px;">
+                <span style="font-size: 0.75rem; font-weight: 700; color: #fff;">TRAFFIC FILTER</span>
+                <span style="font-size: 0.6rem; color: #94a3b8; text-transform: uppercase;">Select List Type</span>
+            </div>
+            <select id="traffic-type-select" style="background: #1e293b; color: #fff; border: 1px solid var(--border-glass); border-radius: 4px; font-size: 0.75rem; padding: 4px 8px; outline: none; cursor: pointer; font-family: inherit;">
+                <option value="all">Show All</option>
+                <option value="inbound">Inbound (${inbounds.length})</option>
+                <option value="outbound">Outbound (${outbounds.length})</option>
+            </select>
+        </div>
+    `;
+
+    let trafficHtml = (!trafficFetchSuccess) ? '<div style="padding: 20px; text-align: center; color: #64748b;">Data unavailable.</div>' :
+        (inbounds.length === 0 && outbounds.length === 0) ? '<div style="padding: 20px; text-align: center; color: #64748b;">No live traffic.</div>' :
+        `
+        ${trafficSelectorHtml}
+        <div id="traffic-list-container" style="padding: 12px; display: flex; flex-direction: column; gap: 4px;">
+            <div id="inbound-list">
+                ${inbounds.length > 0 ? `<div style="font-size:0.7rem;color:#94a3b8;font-weight:700;margin-bottom:8px;padding-left:4px;text-transform:uppercase; letter-spacing: 0.05em;">Inbound Traffic</div>${inbounds.map(id => renderFlightCard(id, 'in')).join('')}` : ''}
+            </div>
+            <div id="outbound-list">
+                ${outbounds.length > 0 ? `<div style="font-size:0.7rem;color:#94a3b8;font-weight:700;margin-top: 12px; margin-bottom:8px;padding-left:4px;text-transform:uppercase; letter-spacing: 0.05em;">Outbound Traffic</div>${outbounds.map(id => renderFlightCard(id, 'out')).join('')}` : ''}
+            </div>
+        </div>
+        `;
+
     return `
-        <div class="airport-hero" style="background-image: url('klax.webp')">
+        <div class="airport-hero" style="background-image: url('${airportImg}')">
             <div class="airport-hero-overlay"></div>
             <div class="hero-actions">
                 <button id="airport-window-hide-btn" class="hero-btn" title="Hide Window"><i class="fa-solid fa-compress"></i></button>
@@ -6890,18 +6917,43 @@ async function createAirportInfoWindowHTML(icao) {
         `;
     };
 
-    let trafficHtml = (!trafficFetchSuccess) ? '<div style="padding: 20px; text-align: center; color: #64748b;">Data unavailable.</div>' :
-        (inbounds.length===0 && outbounds.length===0) ? '<div style="padding: 20px; text-align: center; color: #64748b;">No live traffic.</div>' :
-        `<div style="padding: 12px; display: flex; flex-direction: column; gap: 4px;">${inbounds.length>0 ? `<div style="margin-bottom:8px;"><div style="font-size:0.7rem;color:#94a3b8;font-weight:700;margin-bottom:4px;padding-left:4px;">INBOUND (${inbounds.length})</div>${inbounds.map(id=>renderFlightCard(id,'in')).join('')}</div>` : ''}${outbounds.length>0 ? `<div><div style="font-size:0.7rem;color:#94a3b8;font-weight:700;margin-bottom:4px;padding-left:4px;">OUTBOUND (${outbounds.length})</div>${outbounds.map(id=>renderFlightCard(id,'out')).join('')}</div>` : ''}</div>`;
-
     let atcHtml = activeAtcFacilities.filter(f => f.airportName === icao).length === 0 ? '<div style="padding: 20px; text-align: center; color: #64748b;">No active frequencies.</div>' : `<div style="padding: 12px;">${activeAtcFacilities.filter(f => f.airportName === icao).map(f => `<div class="atc-grid-card" style="padding: 8px;"><div style="display: flex; align-items: center; gap: 12px;"><span class="atc-type-badge ${f.type===1?'atc-type-twr':f.type===0?'atc-type-gnd':(f.type===4||f.type===5)?'atc-type-app':'atc-type-obs'}" style="width: 60px; font-size: 0.65rem;">${atcTypeToString(f.type)}</span><span class="atc-controller" style="font-size: 0.85rem;">${f.username||'Unknown'}</span></div><span class="atc-duration" style="font-size: 0.75rem;"><i class="fa-regular fa-clock"></i> ${formatAtcDuration(f.startTime)}</span></div>`).join('')}</div>`;
     let notamsHtml = activeNotams.filter(n => n.airportIcao === icao).length === 0 ? '<div style="padding: 20px; text-align: center; color: #64748b;">No active NOTAMs.</div>' : `<div style="padding: 12px; display: flex; flex-direction: column; gap: 8px;">${activeNotams.filter(n => n.airportIcao === icao).map(n => `<div style="background: rgba(234, 179, 8, 0.1); border-left: 3px solid #eab308; padding: 8px; border-radius: 4px; color: #fef08a; font-family: monospace; font-size: 0.75rem;"><i class="fa-solid fa-triangle-exclamation"></i> ${n.message}</div>`).join('')}</div>`;
 
     // Trigger Legend Update immediately after render
     setTimeout(updateTrafficLegendUI, 0);
 
+    // --- Traffic Dropdown Logic ---
+    const trafficSelectorHtml = `
+        <div style="padding: 10px 16px; border-bottom: 1px solid var(--border-glass); background: rgba(0,0,0,0.15); display: flex; align-items: center; justify-content: space-between;">
+            <div style="display: flex; flex-direction: column; gap: 2px;">
+                <span style="font-size: 0.75rem; font-weight: 700; color: #fff;">TRAFFIC FILTER</span>
+                <span style="font-size: 0.6rem; color: #94a3b8; text-transform: uppercase;">Select List Type</span>
+            </div>
+            <select id="traffic-type-select" style="background: #1e293b; color: #fff; border: 1px solid var(--border-glass); border-radius: 4px; font-size: 0.75rem; padding: 4px 8px; outline: none; cursor: pointer; font-family: inherit;">
+                <option value="all">Show All</option>
+                <option value="inbound">Inbound (${inbounds.length})</option>
+                <option value="outbound">Outbound (${outbounds.length})</option>
+            </select>
+        </div>
+    `;
+
+    let trafficHtml = (!trafficFetchSuccess) ? '<div style="padding: 20px; text-align: center; color: #64748b;">Data unavailable.</div>' :
+        (inbounds.length === 0 && outbounds.length === 0) ? '<div style="padding: 20px; text-align: center; color: #64748b;">No live traffic.</div>' :
+        `
+        ${trafficSelectorHtml}
+        <div id="traffic-list-container" style="padding: 12px; display: flex; flex-direction: column; gap: 4px;">
+            <div id="inbound-list">
+                ${inbounds.length > 0 ? `<div style="font-size:0.7rem;color:#94a3b8;font-weight:700;margin-bottom:8px;padding-left:4px;text-transform:uppercase; letter-spacing: 0.05em;">Inbound Traffic</div>${inbounds.map(id => renderFlightCard(id, 'in')).join('')}` : ''}
+            </div>
+            <div id="outbound-list">
+                ${outbounds.length > 0 ? `<div style="font-size:0.7rem;color:#94a3b8;font-weight:700;margin-top: 12px; margin-bottom:8px;padding-left:4px;text-transform:uppercase; letter-spacing: 0.05em;">Outbound Traffic</div>${outbounds.map(id => renderFlightCard(id, 'out')).join('')}` : ''}
+            </div>
+        </div>
+        `;
+
     return `
-        <div class="airport-hero" style="background-image: url('klax.webp')">
+        <div class="airport-hero" style="background-image: url('${airportImg}')">
             <div class="airport-hero-overlay"></div>
             <div class="hero-actions">
                 <button id="airport-window-hide-btn" class="hero-btn" title="Hide Window"><i class="fa-solid fa-compress"></i></button>
@@ -7257,6 +7309,27 @@ function updateTrafficLegendUI() {
         if (hideBtn) {
             airportInfoWindow.classList.remove('visible');
             if (currentAirportInWindow) airportInfoWindowRecallBtn.classList.add('visible');
+        }
+    });
+
+    airportInfoWindow.addEventListener('change', (e) => {
+        const typeSelect = e.target.closest('#traffic-type-select');
+        if (typeSelect) {
+            const val = typeSelect.value;
+            const inList = airportInfoWindow.querySelector('#inbound-list');
+            const outList = airportInfoWindow.querySelector('#outbound-list');
+            
+            if (val === 'inbound') {
+                if(inList) inList.style.display = 'block';
+                if(outList) outList.style.display = 'none';
+            } else if (val === 'outbound') {
+                if(inList) inList.style.display = 'none';
+                if(outList) outList.style.display = 'block';
+            } else {
+                // Show All
+                if(inList) inList.style.display = 'block';
+                if(outList) outList.style.display = 'block';
+            }
         }
     });
 
