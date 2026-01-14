@@ -9621,16 +9621,18 @@ function populateAircraftInfoWindow(baseProps, plan, sortedRoutePoints, communit
              </div>
         </div>
 
-        <div class="ac-info-window-tabs">
-            <div class="ac-tabs-wrapper">
-                <button class="ac-info-tab-btn active" data-tab="ac-tab-flight-data">
+        <!-- NEW UPDATED DATA SWITCHER (Like the ND/Flight Plan switcher) -->
+        <div class="ac-info-window-tabs" style="padding: 12px 16px; display: flex; align-items: center; justify-content: space-between; gap: 16px;">
+            <div class="modern-view-switcher" id="main-data-switcher" style="flex: 1; background: rgba(15, 23, 42, 0.4); border-radius: 12px; padding: 4px; display: flex; position: relative; border: 1px solid rgba(255,255,255,0.05); height: 44px;">
+                 <button class="ac-info-tab-btn active" data-tab="ac-tab-flight-data" style="flex: 1; border: none; background: transparent; color: #fff; font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: 1.2px; padding: 0 10px; cursor: pointer; z-index: 1; transition: color 0.3s ease; display: flex; align-items: center; justify-content: center; gap: 8px;">
                     <i class="fa-solid fa-gauge-high"></i> Flight Display
-                </button>
-                <button class="ac-info-tab-btn pilot-tab-btn" data-tab="ac-tab-pilot-report" data-user-id="${baseProps.userId}" data-username="${pilotUsername}">
+                 </button>
+                 <button class="ac-info-tab-btn pilot-tab-btn" data-tab="ac-tab-pilot-report" data-user-id="${baseProps.userId}" data-username="${pilotUsername}" style="flex: 1; border: none; background: transparent; color: #94a3b8; font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: 1.2px; padding: 0 10px; cursor: pointer; z-index: 1; transition: color 0.3s ease; display: flex; align-items: center; justify-content: center; gap: 8px;">
                     <i class="fa-solid fa-chart-simple"></i> ${pilotReportTabText}
-                </button>
+                 </button>
+                 <div class="switcher-highlight" id="main-switcher-highlight" style="position: absolute; top: 4px; left: 4px; width: calc(50% - 4px); height: calc(100% - 8px); background: rgba(255,255,255,0.08); border: 1px solid rgba(255,255,255,0.1); border-radius: 8px; transition: transform 0.3s cubic-bezier(0.4, 0, 0.2, 1);"></div>
             </div>
-            <img src="Images/inflight.png" alt="Inflight Logo" class="ac-info-tab-logo">
+            <img src="Images/inflight.png" alt="Inflight Logo" class="ac-info-tab-logo" style="height: 24px; width: auto; opacity: 0.8;">
         </div>
 
       <div class="unified-display-main-content">
@@ -9709,7 +9711,7 @@ function populateAircraftInfoWindow(baseProps, plan, sortedRoutePoints, communit
                                             <line id="Line 6" x1="746.5" y1="263" x2="746.5" y2="281" stroke="#ECED06" stroke-width="3"/>
                                             <line id="Line 4" x1="746.5" y1="329" x2="746.5" y2="347" stroke="#ECED06" stroke-width="3"/>
                                             <path id="Ellipse 1" d="M636 481C636 484.866 632.866 488 629 488C625.134 488 622 484.866 622 481C622 477.134 625.134 474 629 474C632.866 474 636 477.134 636 481Z" fill="#D9D9D9"/>
-                                            <path id="Ellipse 4" d="M636 147C636 150.866 632.866 154 629 154C625.134 154 622 150.866 622 147C622 143.134 625.134 140 629 140C632.866 140 636 143.134 636 147Z" fill="#D9D9D9"/>
+                                            <path id="Ellipse 4" d="M636 147C636 150.866 632.866 154 629 154C625.134 154 622 150.866 622 147C622 143.134 625.134 140 629 140C632.866 140 636 147Z" fill="#D9D9D9"/>
                                             <g id="Ellipse 3">
                                                 <path d="M636 229C636 232.866 632.866 236 629 236C625.134 236 622 232.866 622 229C622 225.134 625.134 222 629 222C632.866 222 636 225.134 636 229Z" fill="#D9D9D9"/>
                                                 <path d="M636 395C636 398.866 632.866 402 629 402C625.134 402 622 398.866 622 395C622 391.134 625.134 388 629 388C632.866 388 636 391.134 636 395Z" fill="#D9D9D9"/>
@@ -10100,8 +10102,43 @@ function populateAircraftInfoWindow(baseProps, plan, sortedRoutePoints, communit
     window.sensorTimerInterval = setInterval(updateSensorTimers, 1000);
 
     // --- REDESIGNED DISPLAY TOGGLE LOGIC ---
+    // Handle Main Category Tabs (Flight Display vs Pilot Report)
+    const mainTabBtns = windowEl.querySelectorAll('.ac-info-tab-btn');
+    const mainHighlight = windowEl.querySelector('#main-switcher-highlight');
+    const tabPanes = windowEl.querySelectorAll('.ac-tab-pane');
+
+    mainTabBtns.forEach((btn, index) => {
+        btn.addEventListener('click', (e) => {
+            mainTabBtns.forEach(b => {
+                b.classList.remove('active');
+                b.style.color = '#94a3b8';
+            });
+            e.currentTarget.classList.add('active');
+            e.currentTarget.style.color = '#fff';
+
+            if (mainHighlight) {
+                mainHighlight.style.transform = `translateX(${index * 100}%)`;
+            }
+
+            const targetId = e.currentTarget.dataset.tab;
+            tabPanes.forEach(pane => {
+                pane.classList.remove('active');
+                pane.style.display = pane.id === targetId ? 'flex' : 'none';
+            });
+            
+            // Specifically for the pilot report tab, trigger any necessary loading logic
+            if (e.currentTarget.classList.contains('pilot-tab-btn')) {
+                const uid = e.currentTarget.dataset.userId;
+                const uname = e.currentTarget.dataset.username;
+                if (typeof loadPilotStats === 'function') loadPilotStats(uid, uname);
+            }
+        });
+        if (btn.classList.contains('active')) btn.style.color = '#fff';
+    });
+
+    // Handle Secondary Navigation Switcher (ND vs FMC)
     const toggleBtns = windowEl.querySelectorAll('.display-toggle-btn');
-    const highlight = windowEl.querySelector('.switcher-highlight');
+    const displayHighlight = windowEl.querySelector('.switcher-highlight:not(#main-switcher-highlight)');
     const ndContainer = windowEl.querySelector('#nd-view-container');
     const fmcContainer = windowEl.querySelector('#fmc-view-container');
 
@@ -10114,9 +10151,8 @@ function populateAircraftInfoWindow(baseProps, plan, sortedRoutePoints, communit
             e.currentTarget.classList.add('active');
             e.currentTarget.style.color = '#fff';
             
-            // Move highlight pill
-            if (highlight) {
-                highlight.style.transform = `translateX(${index * 100}%)`;
+            if (displayHighlight) {
+                displayHighlight.style.transform = `translateX(${index * 100}%)`;
             }
 
             const target = e.currentTarget.dataset.target; 
@@ -10128,11 +10164,10 @@ function populateAircraftInfoWindow(baseProps, plan, sortedRoutePoints, communit
                 fmcContainer.style.display = 'flex';
             }
         });
-        
-        // Initial color for active btn
         if (btn.classList.contains('active')) btn.style.color = '#fff';
     });
     
+    // Initial display states
     ndContainer.style.display = 'block';
     fmcContainer.style.display = 'none';
 }
