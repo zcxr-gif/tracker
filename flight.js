@@ -4,6 +4,7 @@ import { LandingUI } from './landingUI.js';
 import { initPlaneSizeSlider } from './planeSizeController.js';
 import { GroupFlightManager } from './groupFlightManager.js';
 import { updateActiveSectors } from './atcHighlights.js';
+import { AltitudeManager } from './altitudeManager.js';
 
 document.addEventListener('DOMContentLoaded', async () => {
 
@@ -8291,6 +8292,7 @@ function initializeSectorOpsMap(centerICAO) {
     return new Promise(resolve => {
         sectorOpsMap.on('load', async () => {
             GroupFlightManager.init(sectorOpsMap);
+            AltitudeManager.init(sectorOpsMap);
             await setupMapLayersAndFog();
             await initializeMapBoundaries(sectorOpsMap);
             resolve();
