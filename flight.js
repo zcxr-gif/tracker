@@ -9445,6 +9445,12 @@ function populateAircraftInfoWindow(baseProps, plan, sortedRoutePoints, communit
     const originalFlatWaypointObjects = (plan && plan.flightPlanItems) ? getFlatWaypointObjects(plan.flightPlanItems) : [];
     const hasPlan = originalFlatWaypoints.length >= 2;
     const windowEl = document.getElementById('aircraft-info-window');
+
+    // --- State Persistence Logic ---
+    // Check which tab was active before we wipe the innerHTML
+    const currentActiveTab = windowEl.querySelector('.ac-info-tab-btn.active')?.dataset.tab || 'ac-tab-flight-data';
+    const currentViewTarget = windowEl.querySelector('.display-toggle-btn.active')?.dataset.target || 'nd-view';
+
     // --- Aircraft Info ---
     const aircraftName = baseProps.aircraft?.aircraftName || 'Unknown Type';
     const airlineName = baseProps.aircraft?.liveryName ||
@@ -9575,6 +9581,15 @@ function populateAircraftInfoWindow(baseProps, plan, sortedRoutePoints, communit
         fmsLegsHtml = `<div class="fms-empty-state" style="padding: 40px; text-align: center; color: #475569; font-size: 12px; font-weight: 600; letter-spacing: 1px;">NO ROUTE DATA AVAILABLE</div>`;
     }
 
+    // Determine initial active classes for rendering
+    const flightDataActiveClass = currentActiveTab === 'ac-tab-flight-data' ? 'active' : '';
+    const pilotReportActiveClass = currentActiveTab === 'ac-tab-pilot-report' ? 'active' : '';
+    const flightDataDisplay = currentActiveTab === 'ac-tab-flight-data' ? 'flex' : 'none';
+    const pilotReportDisplay = currentActiveTab === 'ac-tab-pilot-report' ? 'block' : 'none';
+    
+    // Switcher Highlight Position
+    const highlightX = currentActiveTab === 'ac-tab-pilot-report' ? '100%' : '0%';
+
     // --- HTML Construction ---
     windowEl.innerHTML = `
     <div class="info-window-content">
@@ -9621,22 +9636,21 @@ function populateAircraftInfoWindow(baseProps, plan, sortedRoutePoints, communit
              </div>
         </div>
 
-        <!-- NEW UPDATED DATA SWITCHER (Like the ND/Flight Plan switcher) -->
         <div class="ac-info-window-tabs" style="padding: 12px 16px; display: flex; align-items: center; justify-content: space-between; gap: 16px;">
             <div class="modern-view-switcher" id="main-data-switcher" style="flex: 1; background: rgba(15, 23, 42, 0.4); border-radius: 12px; padding: 4px; display: flex; position: relative; border: 1px solid rgba(255,255,255,0.05); height: 44px;">
-                 <button class="ac-info-tab-btn active" data-tab="ac-tab-flight-data" style="flex: 1; border: none; background: transparent; color: #fff; font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: 1.2px; padding: 0 10px; cursor: pointer; z-index: 1; transition: color 0.3s ease; display: flex; align-items: center; justify-content: center; gap: 8px;">
+                 <button class="ac-info-tab-btn ${flightDataActiveClass}" data-tab="ac-tab-flight-data" style="flex: 1; border: none; background: transparent; color: #fff; font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: 1.2px; padding: 0 10px; cursor: pointer; z-index: 1; transition: color 0.3s ease; display: flex; align-items: center; justify-content: center; gap: 8px;">
                     <i class="fa-solid fa-gauge-high"></i> Flight Display
                  </button>
-                 <button class="ac-info-tab-btn pilot-tab-btn" data-tab="ac-tab-pilot-report" data-user-id="${baseProps.userId}" data-username="${pilotUsername}" style="flex: 1; border: none; background: transparent; color: #94a3b8; font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: 1.2px; padding: 0 10px; cursor: pointer; z-index: 1; transition: color 0.3s ease; display: flex; align-items: center; justify-content: center; gap: 8px;">
+                 <button class="ac-info-tab-btn pilot-tab-btn ${pilotReportActiveClass}" data-tab="ac-tab-pilot-report" data-user-id="${baseProps.userId}" data-username="${pilotUsername}" style="flex: 1; border: none; background: transparent; color: #94a3b8; font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: 1.2px; padding: 0 10px; cursor: pointer; z-index: 1; transition: color 0.3s ease; display: flex; align-items: center; justify-content: center; gap: 8px;">
                     <i class="fa-solid fa-chart-simple"></i> ${pilotReportTabText}
                  </button>
-                 <div class="switcher-highlight" id="main-switcher-highlight" style="position: absolute; top: 4px; left: 4px; width: calc(50% - 4px); height: calc(100% - 8px); background: rgba(255,255,255,0.08); border: 1px solid rgba(255,255,255,0.1); border-radius: 8px; transition: transform 0.3s cubic-bezier(0.4, 0, 0.2, 1);"></div>
+                 <div class="switcher-highlight" id="main-switcher-highlight" style="position: absolute; top: 4px; left: 4px; width: calc(50% - 4px); height: calc(100% - 8px); background: rgba(255,255,255,0.08); border: 1px solid rgba(255,255,255,0.1); border-radius: 8px; transition: transform 0.3s cubic-bezier(0.4, 0, 0.2, 1); transform: translateX(${highlightX});"></div>
             </div>
             <img src="Images/inflight.png" alt="Inflight Logo" class="ac-info-tab-logo" style="height: 24px; width: auto; opacity: 0.8;">
         </div>
 
       <div class="unified-display-main-content">
-            <div id="ac-tab-flight-data" class="ac-tab-pane active" style="gap: 6px;">
+            <div id="ac-tab-flight-data" class="ac-tab-pane ${flightDataActiveClass}" style="gap: 6px; display: ${flightDataDisplay};">
                 <div class="pfd-and-location-grid">
                      <div class="pfd-main-panel">
                       <div class="display-bezel" style="background: rgba(15, 23, 42, 0.4); border: 1px solid rgba(255,255,255,0.05); border-radius: 12px; overflow: hidden; box-shadow: 0 4px 24px rgba(0,0,0,0.4);">
@@ -9819,24 +9833,24 @@ function populateAircraftInfoWindow(baseProps, plan, sortedRoutePoints, communit
                 <div class="nd-full-width-section">
                     <!-- REDESIGNED VIEW SWITCHER -->
                     <div class="modern-view-switcher" style="margin-bottom: 12px; background: rgba(15, 23, 42, 0.4); border-radius: 12px; padding: 4px; display: flex; position: relative; border: 1px solid rgba(255,255,255,0.05);">
-                         <button class="display-toggle-btn active" data-target="nd-view" style="flex: 1; border: none; background: transparent; color: #94a3b8; font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: 1.5px; padding: 10px; cursor: pointer; z-index: 1; transition: color 0.3s ease;">
+                         <button class="display-toggle-btn ${currentViewTarget === 'nd-view' ? 'active' : ''}" data-target="nd-view" style="flex: 1; border: none; background: transparent; color: #94a3b8; font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: 1.5px; padding: 10px; cursor: pointer; z-index: 1; transition: color 0.3s ease;">
                             <i class="fa-solid fa-compass" style="margin-right: 6px;"></i> Navigation
                          </button>
-                         <button class="display-toggle-btn" data-target="fmc-view" style="flex: 1; border: none; background: transparent; color: #94a3b8; font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: 1.5px; padding: 10px; cursor: pointer; z-index: 1; transition: color 0.3s ease;">
+                         <button class="display-toggle-btn ${currentViewTarget === 'fmc-view' ? 'active' : ''}" data-target="fmc-view" style="flex: 1; border: none; background: transparent; color: #94a3b8; font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: 1.5px; padding: 10px; cursor: pointer; z-index: 1; transition: color 0.3s ease;">
                             <i class="fa-solid fa-list-ul" style="margin-right: 6px;"></i> Flight Plan
                          </button>
-                         <div class="switcher-highlight" style="position: absolute; top: 4px; left: 4px; width: calc(50% - 4px); height: calc(100% - 8px); background: rgba(255,255,255,0.08); border: 1px solid rgba(255,255,255,0.1); border-radius: 8px; transition: transform 0.3s cubic-bezier(0.4, 0, 0.2, 1);"></div>
+                         <div class="switcher-highlight" style="position: absolute; top: 4px; left: 4px; width: calc(50% - 4px); height: calc(100% - 8px); background: rgba(255,255,255,0.08); border: 1px solid rgba(255,255,255,0.1); border-radius: 8px; transition: transform 0.3s cubic-bezier(0.4, 0, 0.2, 1); transform: translateX(${currentViewTarget === 'fmc-view' ? '100%' : '0%'});"></div>
                     </div>
 
                     <div class="display-bezel" style="background: rgba(15, 23, 42, 0.4); border: 1px solid rgba(255,255,255,0.05); border-radius: 12px; overflow: hidden; box-shadow: 0 4px 24px rgba(0,0,0,0.4);">
                         <div class="crt-container scanlines" style="aspect-ratio: 1/1; display: flex; flex-direction: column; overflow: hidden;">
-                             <div id="nd-view-container" style="width: 100%; height: 100%; display: block;">
+                             <div id="nd-view-container" style="width: 100%; height: 100%; display: ${currentViewTarget === 'nd-view' ? 'block' : 'none'};">
                                 <div id="nd-container">
                                     <iframe id="nav-display-frame" src="nav.html" scrolling="no"></iframe>
                                 </div>
                             </div>
 
-                            <div id="fmc-view-container" style="display: none; width: 100%; height: 100%; background: #000; flex-direction: column;">
+                            <div id="fmc-view-container" style="display: ${currentViewTarget === 'fmc-view' ? 'flex' : 'none'}; width: 100%; height: 100%; background: #000; flex-direction: column;">
                                 <div class="fms-module-container" style="height: 100%; max-height: 100%; width: 100%; border: none; background: transparent; box-shadow: none; border-radius: 0; display: flex; flex-direction: column; overflow: hidden;">
                                     <div class="fms-header" style="background: rgba(255,255,255,0.05); padding: 14px 18px; border-bottom: 1px solid rgba(255,255,255,0.05); flex-shrink: 0; display: flex; justify-content: space-between; align-items: center;">
                                         <span class="tech-module-title" style="font-weight: 700; font-size: 11px; letter-spacing: 1px;"><i class="fa-solid fa-route" style="color: #38bdf8;"></i> ROUTE PROFILE</span>
@@ -10042,8 +10056,8 @@ function populateAircraftInfoWindow(baseProps, plan, sortedRoutePoints, communit
                 </div>
             </div>
  
-            <div id="ac-tab-pilot-report" class="ac-tab-pane">
-                 <div id="pilot-stats-display"></div>
+            <div id="ac-tab-pilot-report" class="ac-tab-pane ${pilotReportActiveClass}" style="display: ${pilotReportDisplay}; padding: 12px;">
+                 <div id="pilot-stats-display" style="width: 100%; min-height: 200px;"></div>
             </div>
         </div>
     </div>
@@ -10054,6 +10068,11 @@ function populateAircraftInfoWindow(baseProps, plan, sortedRoutePoints, communit
     updatePfdDisplay(baseProps.position);
     updateAircraftInfoWindow(baseProps, plan, sortedRoutePoints, communityAircraftData);
     
+    // Automatically trigger Pilot Report loading if it was the active tab
+    if (currentActiveTab === 'ac-tab-pilot-report' && typeof loadPilotStats === 'function') {
+        loadPilotStats(baseProps.userId, pilotUsername);
+    }
+
     const imagePath = techCardImagePath;
     const fallbackPath = '/CommunityPlanes/default.png';
     const newImageUrl = `url('${imagePath}'), url('${fallbackPath}')`;
@@ -10102,7 +10121,6 @@ function populateAircraftInfoWindow(baseProps, plan, sortedRoutePoints, communit
     window.sensorTimerInterval = setInterval(updateSensorTimers, 1000);
 
     // --- REDESIGNED DISPLAY TOGGLE LOGIC ---
-    // Handle Main Category Tabs (Flight Display vs Pilot Report)
     const mainTabBtns = windowEl.querySelectorAll('.ac-info-tab-btn');
     const mainHighlight = windowEl.querySelector('#main-switcher-highlight');
     const tabPanes = windowEl.querySelectorAll('.ac-tab-pane');
@@ -10123,10 +10141,11 @@ function populateAircraftInfoWindow(baseProps, plan, sortedRoutePoints, communit
             const targetId = e.currentTarget.dataset.tab;
             tabPanes.forEach(pane => {
                 pane.classList.remove('active');
-                pane.style.display = pane.id === targetId ? 'flex' : 'none';
+                // Use block for pilot report, flex for flight display
+                const displayType = targetId === 'ac-tab-pilot-report' ? 'block' : 'flex';
+                pane.style.display = pane.id === targetId ? displayType : 'none';
             });
             
-            // Specifically for the pilot report tab, trigger any necessary loading logic
             if (e.currentTarget.classList.contains('pilot-tab-btn')) {
                 const uid = e.currentTarget.dataset.userId;
                 const uname = e.currentTarget.dataset.username;
@@ -10136,7 +10155,6 @@ function populateAircraftInfoWindow(baseProps, plan, sortedRoutePoints, communit
         if (btn.classList.contains('active')) btn.style.color = '#fff';
     });
 
-    // Handle Secondary Navigation Switcher (ND vs FMC)
     const toggleBtns = windowEl.querySelectorAll('.display-toggle-btn');
     const displayHighlight = windowEl.querySelector('.switcher-highlight:not(#main-switcher-highlight)');
     const ndContainer = windowEl.querySelector('#nd-view-container');
@@ -10166,10 +10184,6 @@ function populateAircraftInfoWindow(baseProps, plan, sortedRoutePoints, communit
         });
         if (btn.classList.contains('active')) btn.style.color = '#fff';
     });
-    
-    // Initial display states
-    ndContainer.style.display = 'block';
-    fmcContainer.style.display = 'none';
 }
 
 /**
