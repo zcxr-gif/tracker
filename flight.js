@@ -3349,8 +3349,8 @@ async function initializeMapBoundaries(map) {
         map.addLayer({
             id: 'fir-fills',
             type: 'fill',
-            source: 'fir-boundaries',
-            'source-layer': 'Boundaries', // NOTE: Replace 'Boundaries' with your actual layer name from Mapbox Studio
+            source: 'fir-cf7909d4073c3ed77222',
+            'source-layer': 'cf7909d4073c3ed77222', // NOTE: Replace 'Boundaries' with your actual layer name from Mapbox Studio
             layout: {},
             paint: {
                 'fill-color': '#22c55e', // Emerald-500
@@ -3362,8 +3362,8 @@ async function initializeMapBoundaries(map) {
         map.addLayer({
             id: 'fir-borders',
             type: 'line',
-            source: 'fir-boundaries',
-            'source-layer': 'Boundaries', // NOTE: This must match the fill layer above
+            source: 'fir-cf7909d4073c3ed77222',
+            'source-layer': 'cf7909d4073c3ed77222', // NOTE: This must match the fill layer above
             layout: {},
             paint: {
                 'line-color': '#ffffff',
