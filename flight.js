@@ -3346,7 +3346,7 @@ async function initializeMapBoundaries(map) {
 
         // 2. Function to add layers once we know the internal name
         const addFirLayers = (layerName) => {
-            console.log("Success! Found your source-layer name:", layerName);
+            console.log("boundary Layers added:", layerName);
 
             if (!map.getLayer('fir-fills')) {
                 map.addLayer({
@@ -3387,18 +3387,6 @@ async function initializeMapBoundaries(map) {
         };
 
         map.on('sourcedata', checkSource);
-
-        // 4. Click interaction
-        map.on('click', 'fir-fills', (e) => {
-            const props = e.features[0].properties;
-            const firId = props.id || props.icao || props.name || props.ID; 
-            const info = firNameLookup[firId] || { name: "Unknown FIR" };
-            
-            new mapboxgl.Popup()
-                .setLngLat(e.lngLat)
-                .setHTML(`<strong>${info.name}</strong><br/>Code: ${firId}`)
-                .addTo(map);
-        });
 
     } catch (err) {
         console.error("Error loading map boundaries:", err);
