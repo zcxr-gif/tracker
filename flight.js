@@ -4,6 +4,7 @@ import { LandingUI } from './landingUI.js';
 import { initPlaneSizeSlider } from './planeSizeController.js';
 import { GroupFlightManager } from './groupFlightManager.js';
 import { updateActiveSectors } from './atcHighlights.js';
+import { SettingsUI } from './settingsUI.js';
 
 document.addEventListener('DOMContentLoaded', async () => {
 
@@ -12192,6 +12193,7 @@ async function initializeApp() {
         await initializeSectorOpsView();
 
         await LandingUI.init();
+        SettingsUI.init();
         
         const isVisible = localStorage.getItem('landingUI_visible') === 'true';
     if (isVisible) {
