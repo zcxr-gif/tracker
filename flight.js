@@ -98,6 +98,7 @@ window.currentAirportTraffic = { in: [], out: [] }; // Stores IDs for the curren
         showAircraftLabels: false,
         useFlatMap: false,
         useSimpleFlightWindow: false,
+        planeIconSize: 0.06,
         themeStartColor: '#18181b', // [UPDATED] Carbon/Zinc-900
         themeEndColor: '#18181b',   // [UPDATED] Carbon/Zinc-900
         themeOpacity: 90            // [UPDATED] Slightly more transparent (90%)
