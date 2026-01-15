@@ -4679,28 +4679,62 @@ async function toggleSigmetLayer(show) {
     }
 }
 /**
-     * --- [NEW] Applies all active map filters.
-     * This function calls the specific sub-functions to update
-     * aircraft layers and airport markers based on the mapFilters state.
-     */
-    function updateMapFilters() {
-        if (!sectorOpsMap) return;
+ * --- [FIXED] Applies all active map filters and visual settings instantly. ---
+ */
+function updateMapFilters() {
+    if (!sectorOpsMap) return;
 
-        GroupFlightManager.toggle(mapFilters.showGroupFlights);
-        GroupFlightManager.update(currentMapFeatures);
-
-        // 1. Update Aircraft Filter (using Mapbox setFilter)
-        updateAircraftLayerFilter();
-
-        // 2. Update Aircraft Label Filter
-        updateAircraftLabelVisibility();
-
-        // 3. Update Airport Filter (by re-rendering markers)
-        renderAirportMarkers();
-        
-        // 4. Update Toolbar Button States (Weather + Filters)
-        updateToolbarButtonStates();
+    // 1. Handle Map Projection (Globe vs Flat)
+    const currentProjection = sectorOpsMap.getProjection().name;
+    const targetProjection = mapFilters.useFlatMap ? 'mercator' : 'globe';
+    if (currentProjection !== targetProjection) {
+        sectorOpsMap.setProjection(targetProjection);
     }
+
+    // 2. Handle Map Style Changes (Dark/Light/Satellite)
+    const styleUrls = {
+        'dark': 'mapbox://styles/mapbox/dark-v11',
+        'light': 'mapbox://styles/servernoob/cmg3wq7an002p01s17kbx7lqk',
+        'satellite': 'mapbox://styles/mapbox/satellite-streets-v12'
+    };
+    const targetStyle = styleUrls[mapFilters.mapStyle || 'dark'];
+    
+    if (currentMapStyle !== targetStyle) {
+        currentMapStyle = targetStyle;
+        sectorOpsMap.setStyle(targetStyle);
+        // After style loads, we MUST rebuild the custom layers (planes, paths)
+        sectorOpsMap.once('style.load', () => {
+            setupMapLayersAndFog(); 
+            // Also re-apply the filters to the new style
+            updateAircraftLayerFilter();
+        });
+    }
+
+    // 3. Apply Aircraft Icon Visuals (Color & Size)
+    if (sectorOpsMap.getLayer('sector-ops-live-flights-layer')) {
+        // Update Color
+        sectorOpsMap.setLayoutProperty(
+            'sector-ops-live-flights-layer', 
+            'icon-image', 
+            getIconImageExpression(mapFilters.iconColorMode)
+        );
+        // Update Size
+        sectorOpsMap.setLayoutProperty(
+            'sector-ops-live-flights-layer', 
+            'icon-size', 
+            mapFilters.planeIconSize || 0.05
+        );
+    }
+
+    // 4. Existing Logic
+    GroupFlightManager.toggle(mapFilters.showGroupFlights);
+    GroupFlightManager.update(currentMapFeatures);
+
+    updateAircraftLayerFilter();
+    updateAircraftLabelVisibility();
+    renderAirportMarkers();
+    updateToolbarButtonStates();
+}
 
 function updateAircraftLayerFilter() {
     if (!sectorOpsMap || !sectorOpsMap.getLayer('sector-ops-live-flights-layer')) return;
