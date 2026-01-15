@@ -105,6 +105,10 @@ window.currentAirportTraffic = { in: [], out: [] }; // Stores IDs for the curren
         themeOpacity: 90            // [UPDATED] Slightly more transparent (90%)
     };
 
+    window.saveFiltersToLocalStorage = saveFiltersToLocalStorage;
+    window.updateMapFilters = updateMapFilters;
+    window.initializeSectorOpsMap = initializeSectorOpsMap;
+
     const departureHubs = []; // Empty array
     let ALL_AVAILABLE_ROUTES = []; // Empty array
     const DYNAMIC_FLEET = []; // Empty array
