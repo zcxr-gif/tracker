@@ -1,15 +1,14 @@
 /**
- * settingsUI.js
- * A functional Settings Engine with a Tabbed Interface integrated with window.mapFilters.
+ * settingsUI.js - Optimized Professional Settings Engine
  */
 
 export const SettingsUI = {
     _modalOpen: false,
-    _activeTab: 'general', // Track current tab
+    _activeGroup: 'general', // Track which tab is active
 
     settingGroups: {
         general: {
-            label: "General",
+            label: "General Display",
             icon: "fa-eye",
             settings: [
                 { id: 'hideAtcMarkers', label: 'Hide ATC Facilities', type: 'boolean', icon: 'fa-tower-broadcast' },
@@ -18,7 +17,7 @@ export const SettingsUI = {
             ]
         },
         map: {
-            label: "Map",
+            label: "Map Projection",
             icon: "fa-map",
             settings: [
                 { id: 'mapStyle', label: 'Map Style', type: 'select', options: ['dark', 'light', 'satellite'], icon: 'fa-palette' },
@@ -26,7 +25,7 @@ export const SettingsUI = {
             ]
         },
         interface: {
-            label: "Interface",
+            label: "Interface & UI",
             icon: "fa-desktop",
             settings: [
                 { id: 'useSimpleFlightWindow', label: 'Use Simple Window', type: 'boolean', icon: 'fa-tablet-screen-button' },
@@ -48,7 +47,7 @@ export const SettingsUI = {
 
         const html = `
             <div id="settings-modal-overlay" class="modal-overlay">
-                <div class="filter-modal settings-modal">
+                <div class="filter-modal settings-modal-container">
                     <div class="modal-header">
                         <div class="header-main">
                             <div class="header-icon-box"><i class="fa-solid fa-gear"></i></div>
@@ -60,21 +59,24 @@ export const SettingsUI = {
                         <button class="close-modal" id="close-settings-modal">&times;</button>
                     </div>
                     
-                    <div class="modal-body tabbed-layout">
-                        <div class="settings-sidebar">
+                    <div class="modal-body-wrapper">
+                        <div class="settings-sidebar custom-scroll">
                             ${Object.entries(this.settingGroups).map(([key, group]) => `
-                                <div class="tab-nav-item ${this._activeTab === key ? 'active' : ''}" data-tab="${key}">
+                                <div class="settings-nav-item ${this._activeGroup === key ? 'active' : ''}" data-group="${key}">
                                     <i class="fa-solid ${group.icon}"></i>
                                     <span>${group.label}</span>
                                 </div>
                             `).join('')}
                         </div>
 
-                        <div class="filter-config-pane">
-                            <div id="settings-tab-content" class="modal-active-list custom-scroll">
-                                ${this.renderActiveTab()}
+                        <div class="settings-content-pane">
+                            <div class="config-pane-header">
+                                <label id="settings-pane-title">${this.settingGroups[this._activeGroup].label}</label>
                             </div>
-                            <div class="modal-footer-embedded">
+                            <div id="settings-active-list" class="settings-list-container custom-scroll">
+                                ${this.renderSettingsList(this._activeGroup)}
+                            </div>
+                            <div class="settings-footer">
                                 <button class="modal-btn primary" id="save-settings-btn">Save & Apply</button>
                             </div>
                         </div>
@@ -84,86 +86,85 @@ export const SettingsUI = {
         document.body.insertAdjacentHTML('beforeend', html);
     },
 
-    renderActiveTab() {
+    renderSettingsList(groupId) {
         const filters = window.mapFilters || {};
-        const group = this.settingGroups[this._activeTab];
+        const group = this.settingGroups[groupId];
         
-        return `
-            <div class="tab-header-mini">${group.label} Settings</div>
-            ${group.settings.map(s => {
-                const value = filters[s.id];
-                let inputHtml = '';
+        return group.settings.map(s => {
+            const value = filters[s.id];
+            let inputHtml = '';
 
-                if (s.type === 'boolean') {
-                    inputHtml = `
-                        <label class="toggle-switch">
-                            <input type="checkbox" id="setting-${s.id}" ${value ? 'checked' : ''}>
-                            <span class="toggle-slider"></span>
-                        </label>`;
-                } else if (s.type === 'select') {
-                    inputHtml = `
-                        <select id="setting-${s.id}" class="setting-select">
-                            ${s.options.map(opt => `<option value="${opt}" ${value === opt ? 'selected' : ''}>${opt.toUpperCase()}</option>`).join('')}
-                        </select>`;
-                }
+            if (s.type === 'boolean') {
+                inputHtml = `
+                    <label class="toggle-switch">
+                        <input type="checkbox" id="setting-${s.id}" ${value ? 'checked' : ''}>
+                        <span class="toggle-slider"></span>
+                    </label>`;
+            } else if (s.type === 'select') {
+                inputHtml = `
+                    <select id="setting-${s.id}" class="setting-select">
+                        ${s.options.map(opt => `<option value="${opt}" ${value === opt ? 'selected' : ''}>${opt.toUpperCase()}</option>`).join('')}
+                    </select>`;
+            }
 
-                return `
-                    <div class="modal-filter-card">
-                        <div class="card-left-strip"></div>
-                        <div class="card-content">
-                            <div class="row-header">
-                                <div class="row-label"><i class="fa-solid ${s.icon} row-icon"></i> ${s.label}</div>
-                                ${inputHtml}
-                            </div>
-                        </div>
-                    </div>`;
-            }).join('')}`;
-    },
-
-    switchTab(tabId) {
-        this._activeTab = tabId;
-        
-        // Update Sidebar UI
-        document.querySelectorAll('.tab-nav-item').forEach(el => {
-            el.classList.toggle('active', el.dataset.tab === tabId);
-        });
-
-        // Update Content
-        const contentArea = document.getElementById('settings-tab-content');
-        if (contentArea) {
-            contentArea.innerHTML = this.renderActiveTab();
-        }
+            return `
+                <div class="setting-card">
+                    <div class="setting-card-info">
+                        <i class="fa-solid ${s.icon} card-icon"></i>
+                        <span class="card-label">${s.label}</span>
+                    </div>
+                    <div class="setting-card-action">
+                        ${inputHtml}
+                    </div>
+                </div>`;
+        }).join('');
     },
 
     attachListeners() {
-        document.getElementById('close-settings-modal')?.addEventListener('click', () => this.toggle());
-        document.getElementById('save-settings-btn')?.addEventListener('click', () => this.save());
+        const overlay = document.getElementById('settings-modal-overlay');
         
-        // Tab switching listener
-        document.querySelector('.settings-sidebar')?.addEventListener('click', (e) => {
-            const navItem = e.target.closest('.tab-nav-item');
+        // Tab Switching Logic
+        overlay?.addEventListener('click', (e) => {
+            const navItem = e.target.closest('.settings-nav-item');
             if (navItem) {
-                this.switchTab(navItem.dataset.tab);
+                const groupId = navItem.dataset.group;
+                this.switchTab(groupId);
             }
         });
 
-        // Close on overlay click
-        document.getElementById('settings-modal-overlay')?.addEventListener('click', (e) => {
+        document.getElementById('close-settings-modal')?.addEventListener('click', () => this.toggle());
+        document.getElementById('save-settings-btn')?.addEventListener('click', () => this.save());
+        
+        overlay?.addEventListener('click', (e) => {
             if (e.target.id === 'settings-modal-overlay') this.toggle();
         });
     },
 
-    save() {
-        const prevStyle = window.mapFilters.mapStyle;
-        const prevProjection = window.mapFilters.useFlatMap;
+    switchTab(groupId) {
+        this._activeGroup = groupId;
+        
+        // Update UI Classes
+        document.querySelectorAll('.settings-nav-item').forEach(el => {
+            el.classList.toggle('active', el.dataset.group === groupId);
+        });
 
-        // Collect values ONLY from the currently rendered tab to avoid overwriting 
-        // existing filters with nulls from unrendered tabs.
-        const currentGroup = this.settingGroups[this._activeTab];
-        currentGroup.settings.forEach(s => {
-            const el = document.getElementById(`setting-${s.id}`);
-            if (!el) return;
-            window.mapFilters[s.id] = s.type === 'boolean' ? el.checked : el.value;
+        // Update Title and Content
+        document.getElementById('settings-pane-title').innerText = this.settingGroups[groupId].label;
+        document.getElementById('settings-active-list').innerHTML = this.renderSettingsList(groupId);
+    },
+
+    save() {
+        const prevStyle = window.mapFilters?.mapStyle;
+        const prevProjection = window.mapFilters?.useFlatMap;
+
+        // Collect all values from ALL groups, not just active one
+        Object.values(this.settingGroups).forEach(group => {
+            group.settings.forEach(s => {
+                const el = document.getElementById(`setting-${s.id}`);
+                if (el) {
+                    window.mapFilters[s.id] = s.type === 'boolean' ? el.checked : el.value;
+                }
+            });
         });
 
         window.saveFiltersToLocalStorage?.();
@@ -177,7 +178,6 @@ export const SettingsUI = {
                 };
                 window.sectorOpsMap.setStyle(styles[window.mapFilters.mapStyle]);
             }
-
             if (window.mapFilters.useFlatMap !== prevProjection) {
                 window.initializeSectorOpsMap?.(); 
             }
@@ -191,68 +191,100 @@ export const SettingsUI = {
     toggle() {
         const overlay = document.getElementById('settings-modal-overlay');
         if (overlay) {
-            const isNowOpen = overlay.classList.toggle('open');
-            if (isNowOpen) {
-                this.switchTab(this._activeTab); // Refresh current tab
-            }
+            overlay.classList.toggle('open');
         }
     },
 
     injectStyles() {
         const css = `
-            .tabbed-layout { display: flex; height: 100%; overflow: hidden; padding: 0 !important; }
-            
-            .settings-sidebar { 
-                width: 200px; 
-                background: rgba(0,0,0,0.2); 
-                border-right: 1px solid rgba(255,255,255,0.05);
+            .settings-modal-container { 
+                width: 750px; 
+                max-width: 90vw; 
+                background: #1a1a1a; 
+                border-radius: 12px; 
+                overflow: hidden;
                 display: flex;
                 flex-direction: column;
-                padding: 10px 0;
             }
-
-            .tab-nav-item {
-                padding: 12px 20px;
+            .modal-body-wrapper { 
+                display: flex; 
+                height: 500px; 
+                background: #111;
+            }
+            
+            /* Sidebar Styles */
+            .settings-sidebar { 
+                width: 220px; 
+                background: rgba(0,0,0,0.2); 
+                border-right: 1px solid rgba(255,255,255,0.05);
+                padding: 15px 0;
+            }
+            .settings-nav-item {
                 display: flex;
                 align-items: center;
                 gap: 12px;
+                padding: 12px 20px;
                 cursor: pointer;
-                color: rgba(255,255,255,0.6);
+                color: #888;
                 transition: all 0.2s;
-                border-left: 3px solid transparent;
+                font-size: 0.9rem;
             }
-
-            .tab-nav-item i { width: 20px; text-align: center; }
-
-            .tab-nav-item:hover { background: rgba(255,255,255,0.05); color: white; }
-
-            .tab-nav-item.active {
-                background: rgba(255,255,255,0.1);
-                color: #00e5ff;
-                border-left-color: #00e5ff;
+            .settings-nav-item:hover { background: rgba(255,255,255,0.03); color: #fff; }
+            .settings-nav-item.active { 
+                background: rgba(255,255,255,0.05); 
+                color: #00e5ff; 
+                border-left: 3px solid #00e5ff;
             }
+            .settings-nav-item i { width: 20px; text-align: center; }
 
-            .settings-modal .filter-config-pane { flex: 1; display: flex; flex-direction: column; }
+            /* Content Area */
+            .settings-content-pane { 
+                flex: 1; 
+                display: flex; 
+                flex-direction: column; 
+                padding: 0;
+            }
+            .config-pane-header { padding: 20px; border-bottom: 1px solid rgba(255,255,255,0.05); }
+            .config-pane-header label { font-size: 1.1rem; color: #fff; font-weight: 600; }
             
-            .tab-header-mini {
-                padding: 15px 20px 5px 20px;
-                text-transform: uppercase;
-                font-size: 0.7rem;
-                letter-spacing: 1px;
-                color: rgba(255,255,255,0.4);
-                font-weight: bold;
+            .settings-list-container { flex: 1; padding: 20px; overflow-y: auto; }
+            
+            /* Cards */
+            .setting-card {
+                display: flex;
+                justify-content: space-between;
+                align-items: center;
+                background: rgba(255,255,255,0.03);
+                border: 1px solid rgba(255,255,255,0.05);
+                border-radius: 8px;
+                padding: 12px 16px;
+                margin-bottom: 10px;
             }
+            .setting-card-info { display: flex; align-items: center; gap: 15px; }
+            .card-icon { color: #00e5ff; font-size: 1rem; width: 20px; }
+            .card-label { color: #e0e0e0; font-size: 0.9rem; }
 
             .setting-select { 
-                background: rgba(0,0,0,0.3); border: 1px solid rgba(255,255,255,0.1); 
-                color: white; border-radius: 4px; padding: 4px 8px; font-size: 0.8rem;
-                outline: none;
+                background: #2a2a2a; 
+                border: 1px solid #444; 
+                color: #fff; 
+                border-radius: 4px; 
+                padding: 5px 10px; 
+                font-size: 0.8rem; 
             }
-
-            .modal-filter-card .toggle-switch { margin-left: auto; scale: 0.8; transform-origin: right; }
+            
+            .settings-footer { 
+                padding: 20px; 
+                background: rgba(0,0,0,0.2); 
+                text-align: right; 
+                border-top: 1px solid rgba(255,255,255,0.05);
+            }
         `;
-        const style = document.createElement('style');
-        style.appendChild(document.createTextNode(css));
-        document.head.appendChild(style);
+        if (!document.getElementById('settings-styles')) {
+            const style = document.createElement('style');
+            style.id = 'settings-styles';
+            style.appendChild(document.createTextNode(css));
+            document.head.appendChild(style);
+        }
     }
 };
