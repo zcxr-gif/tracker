@@ -77,44 +77,95 @@ route: {
     },
 
     render() {
-    const existing = document.getElementById('inflight-tactical-ui');
-    if (existing) existing.remove();
+        const existing = document.getElementById('inflight-tactical-ui');
+        if (existing) existing.remove();
 
-    this.allFilters = [];
-    Object.values(this.filterGroups).forEach(group => this.allFilters.push(...group.filters));
+        // Flatten filters for easier lookup later
+        this.allFilters = [];
+        Object.values(this.filterGroups).forEach(group => this.allFilters.push(...group.filters));
 
-    const html = `
-        <div id="inflight-tactical-ui" class="tactical-ui-root">
-            <div class="top-branding">
-                <div class="status-dot"></div>
-                <span id="landing-server-name">EXPERT SERVER</span>
-            </div>
-
-            <div class="top-right-actions">
-                <div class="search-blade">
-                    <i class="fa-solid fa-magnifying-glass search-icon"></i>
-                    <input type="text" id="blade-search-input" placeholder="Search..." autocomplete="off">
-                    <div class="search-shortcut">⌘K</div>
-                </div>
-            </div>
-
-            <div id="filter-modal-overlay" class="modal-overlay">
+        const html = `
+            <div id="inflight-tactical-ui" class="tactical-ui-root">
+                <div class="top-branding">
+                    <div class="status-dot"></div>
+                    <span id="landing-server-name">EXPERT SERVER</span>
                 </div>
 
-            <div class="utility-nexus">
-                <div class="orb-row">
-                    <button class="orb-btn" id="tile-weather" aria-label="Weather"><i class="fa-solid fa-cloud"></i></button>
-                    <button class="orb-btn nexus-trigger" id="toggle-filter-modal" aria-label="Filters"><i class="fa-solid fa-filter"></i></button>
-                    <button class="orb-btn" id="tile-settings" aria-label="Settings"><i class="fa-solid fa-gear"></i></button>
-                    <button class="orb-btn highlight-orb" id="tile-server" aria-label="Network"><i class="fa-solid fa-wifi"></i></button>
+                <div class="search-blade-container">
+                    <div class="search-blade">
+                        <i class="fa-solid fa-magnifying-glass search-icon"></i>
+                        <input type="text" id="blade-search-input" placeholder="Quick search callsign..." autocomplete="off">
+                        <div class="search-shortcut">⌘K</div>
+                    </div>
+                </div>
+
+                <div id="filter-modal-overlay" class="modal-overlay">
+                    <div class="filter-modal">
+                        <div class="modal-header">
+                            <div class="header-main">
+                                <div class="header-icon-box"><i class="fa-solid fa-sliders-h"></i></div>
+                                <div class="header-text">
+                                    <h2>Tactical Filters</h2>
+                                    <span>Refine airspace visualization</span>
+                                </div>
+                            </div>
+                            <button class="close-modal" id="close-filter-modal">&times;</button>
+                        </div>
+                        
+                        <div class="modal-body">
+                            <div class="filter-selection-pane custom-scroll">
+                                ${Object.entries(this.filterGroups).map(([key, group]) => `
+                                    <div class="filter-group-wrapper">
+                                        <div class="filter-group-header">${group.label}</div>
+                                        <div class="filter-options-list">
+                                            ${group.filters.map(f => `
+                                                <button class="nexus-item" data-filter-id="${f.id}">
+                                                    <div class="nexus-icon"><i class="fa-solid ${f.icon}"></i></div>
+                                                    <span class="nexus-label">${f.label}</span>
+                                                    <i class="fa-solid fa-plus nexus-add"></i>
+                                                </button>
+                                            `).join('')}
+                                        </div>
+                                    </div>
+                                `).join('')}
+                            </div>
+
+                            <div class="filter-config-pane">
+                                <div class="config-header">
+                                    <label>Active Rules</label>
+                                    <span id="active-count-badge">0 Active</span>
+                                </div>
+                                <div id="modal-active-filters" class="modal-active-list custom-scroll">
+                                    <div class="empty-state">
+                                        <div class="empty-icon-circle">
+                                            <i class="fa-solid fa-filter"></i>
+                                        </div>
+                                        <p>No active filters</p>
+                                        <span>Select parameters from the left sidebar to configure rules.</span>
+                                    </div>
+                                </div>
+                                <div class="modal-footer-embedded">
+                                    <button class="modal-btn secondary" id="clear-filters-btn">Reset</button>
+                                    <button class="modal-btn primary" id="apply-filters-btn">Apply Changes</button>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="utility-nexus">
+                    <div class="orb-row">
+                        <button class="orb-btn" id="tile-weather" aria-label="Weather"><i class="fa-solid fa-cloud"></i></button>
+                        <button class="orb-btn nexus-trigger" id="toggle-filter-modal" aria-label="Filters"><i class="fa-solid fa-filter"></i></button>
+                        <button class="orb-btn highlight-orb" id="tile-server" aria-label="Network"><i class="fa-solid fa-wifi"></i></button>
+                    </div>
                 </div>
             </div>
-        </div>
-    `;
+        `;
 
-    const container = document.getElementById('sector-ops-map-fullscreen');
-    if (container) container.insertAdjacentHTML('beforeend', html);
-}
+        const container = document.getElementById('sector-ops-map-fullscreen');
+        if (container) container.insertAdjacentHTML('beforeend', html);
+    },
 
     attachListeners() {
         const modalOverlay = document.getElementById('filter-modal-overlay');
@@ -360,11 +411,7 @@ route: {
             /* Header */
             .modal-header { height: 70px; padding: 0 24px; border-bottom: 1px solid rgba(255, 255, 255, 0.06); display: flex; justify-content: space-between; align-items: center; background: rgba(255,255,255,0.01); }
             .header-main { display: flex; align-items: center; gap: 16px; color: #fff; }
-            .header-icon-box { 
-    width: 30px; /* Reduced from 36px */
-    height: 30px; 
-    font-size: 0.85rem; 
-}
+            .header-icon-box { width: 36px; height: 36px; background: rgba(56, 189, 248, 0.1); border-radius: 8px; color: #38bdf8; display: grid; place-items: center; font-size: 1rem; }
             .header-text h2 { margin: 0; font-size: 1.1rem; font-weight: 700; line-height: 1.2; }
             .header-text span { font-size: 0.75rem; color: #94a3b8; font-weight: 500; }
             .close-modal { background: none; border: none; color: #64748b; font-size: 1.5rem; cursor: pointer; transition: color 0.2s; line-height: 1; }
@@ -395,11 +442,7 @@ route: {
             .nexus-item.active { background: rgba(56, 189, 248, 0.1); color: #38bdf8; }
             .nexus-item.active::before { content: ''; position: absolute; left: 0; top: 0; bottom: 0; width: 3px; background: #38bdf8; }
             
-            .nexus-icon { 
-    width: 16px; /* Reduced from 20px */
-    text-align: center; 
-    font-size: 0.75rem; /* Reduced from 0.9rem */
-}
+            .nexus-icon { width: 20px; text-align: center; font-size: 0.9rem; }
             .nexus-label { font-size: 0.85rem; font-weight: 500; flex: 1; }
             .nexus-add { font-size: 0.7rem; opacity: 0; transform: translateX(-5px); transition: all 0.2s; }
             .nexus-item:hover .nexus-add { opacity: 0.5; transform: translateX(0); }
@@ -439,9 +482,7 @@ route: {
             
             .row-header { display: flex; justify-content: space-between; align-items: center; }
             .row-label { display: flex; align-items: center; gap: 8px; color: #e4e4e7; font-size: 0.85rem; font-weight: 600; }
-            .row-label i { 
-    font-size: 0.75rem; /* Smaller icons in the active filter cards */
-}
+            .row-label i { color: #52525b; }
             
             .row-remove {
                 background: transparent; border: none; color: #ef4444; 
@@ -491,50 +532,20 @@ route: {
             
             .utility-nexus { position: absolute; bottom: 40px; right: 40px; pointer-events: none; }
             .orb-row { display: flex; gap: 12px; pointer-events: auto; }
-            .orb-btn {
-    width: 42px; /* Reduced from 48px */
-    height: 42px;
-    font-size: 0.95rem; /* Reduced from 1.1rem */
-}
+            .orb-btn { width: 48px; height: 48px; border-radius: 50%; background: rgba(15, 15, 15, 0.6); backdrop-filter: blur(15px); border: 1px solid rgba(255, 255, 255, 0.1); color: rgba(255, 255, 255, 0.7); cursor: pointer; display: grid; place-items: center; transition: all 0.2s; font-size: 1.1rem; }
             .orb-btn:hover { transform: translateY(-4px); background: rgba(30, 30, 30, 0.9); color: #fff; border-color: rgba(255,255,255,0.4); box-shadow: 0 5px 15px rgba(0,0,0,0.5); }
             .highlight-orb { border-color: rgba(16, 185, 129, 0.4); color: #10b981; }
 
             .search-blade-container { position: absolute; top: 30px; left: 50%; transform: translateX(-50%); pointer-events: auto; z-index: 2010; }
-            .search-blade {
-    background: rgba(10, 10, 10, 0.8);
-    backdrop-filter: blur(12px);
-    border: 1px solid rgba(255, 255, 255, 0.15);
-    border-radius: 100px;
-    height: 38px; /* Slightly slimmer */
-    width: 240px; /* Smaller default width for top-right */
-    display: flex;
-    align-items: center;
-    padding: 0 14px;
-    box-shadow: 0 10px 30px rgba(0,0,0,0.3);
-    transition: all 0.3s cubic-bezier(0.16, 1, 0.3, 1);
-}
-            .search-blade:focus-within {
-    width: 300px;
-    border-color: #38bdf8;
-}
+            .search-blade { background: rgba(10, 10, 10, 0.8); backdrop-filter: blur(12px); border: 1px solid rgba(255, 255, 255, 0.15); border-radius: 100px; height: 44px; width: 340px; display: flex; align-items: center; padding: 0 16px; box-shadow: 0 10px 30px rgba(0,0,0,0.3); transition: width 0.3s; }
+            .search-blade:focus-within { width: 420px; border-color: #38bdf8; box-shadow: 0 10px 40px rgba(56, 189, 248, 0.15); }
             #blade-search-input { flex: 1; background: none; border: none; color: #fff; margin-left: 12px; font-size: 14px; outline: none; }
-            .search-icon { 
-    font-size: 12px; /* Reduced from 14px */
-}
+            .search-icon { color: rgba(255,255,255,0.4); font-size: 14px; }
             .search-shortcut { font-size: 10px; color: #71717a; background: rgba(255,255,255,0.08); padding: 3px 6px; border-radius: 4px; font-weight: 600; }
             
             .top-branding { position: absolute; top: 30px; left: 40px; display: flex; align-items: center; gap: 8px; pointer-events: auto; background: rgba(0,0,0,0.6); padding: 8px 16px; border-radius: 30px; backdrop-filter: blur(10px); border: 1px solid rgba(255,255,255,0.1); box-shadow: 0 4px 20px rgba(0,0,0,0.3); }
             .status-dot { width: 6px; height: 6px; background: #10b981; border-radius: 50%; box-shadow: 0 0 10px #10b981; }
             #landing-server-name { font-size: 0.75rem; font-weight: 700; color: #fff; letter-spacing: 0.5px; }
-            .top-right-actions {
-    position: absolute;
-    top: 30px;
-    right: 40px; /* Aligned with the right margin of the orbs */
-    pointer-events: auto;
-    z-index: 2010;
-    display: flex;
-    gap: 12px;
-}
         `;
         
         const styleId = 'landing-ui-advanced-css';
