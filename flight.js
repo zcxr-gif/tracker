@@ -3332,49 +3332,66 @@ let firNameLookup = {};
 
 async function initializeMapBoundaries(map) {
     try {
-        // 1. Fetch VATSpy data for naming (keep this as is)
         const vatspyRes = await fetch('./VATSpy.dat');
         const vatspyRaw = await vatspyRes.text();
-
-        // 2. Build the name dictionary
         firNameLookup = parseVatspyData(vatspyRaw);
 
-        // 3. Add Vector Source to Mapbox using your new Tileset ID
-        map.addSource('fir-boundaries', {
-            type: 'vector',
-            url: 'mapbox://servernoob.949756etywel' // Your new tileset URL
-        });
+        // 1. Add the source if it doesn't exist
+        if (!map.getSource('fir-boundaries')) {
+            map.addSource('fir-boundaries', {
+                type: 'vector',
+                url: 'mapbox://servernoob.949756etywel'
+            });
+        }
 
-        // 4. Add Fill Layer (for highlighting active sectors)
-        map.addLayer({
-            id: 'fir-fills',
-            type: 'fill',
-            source: 'fir-cf7909d4073c3ed77222',
-            'source-layer': 'cf7909d4073c3ed77222', // NOTE: Replace 'Boundaries' with your actual layer name from Mapbox Studio
-            layout: {},
-            paint: {
-                'fill-color': '#22c55e', // Emerald-500
-                'fill-opacity': 0         // Start hidden
+        // 2. Function to add layers once we know the internal name
+        const addFirLayers = (layerName) => {
+            console.log("Success! Found your source-layer name:", layerName);
+
+            if (!map.getLayer('fir-fills')) {
+                map.addLayer({
+                    id: 'fir-fills',
+                    type: 'fill',
+                    source: 'fir-boundaries',
+                    'source-layer': layerName, // Auto-detected name
+                    paint: {
+                        'fill-color': '#22c55e',
+                        'fill-opacity': 0 
+                    }
+                });
             }
-        });
 
-        // 5. Add Border Layer (the visible lines)
-        map.addLayer({
-            id: 'fir-borders',
-            type: 'line',
-            source: 'fir-cf7909d4073c3ed77222',
-            'source-layer': 'cf7909d4073c3ed77222', // NOTE: This must match the fill layer above
-            layout: {},
-            paint: {
-                'line-color': '#ffffff',
-                'line-width': 0.5,
-                'line-opacity': 0.2
+            if (!map.getLayer('fir-borders')) {
+                map.addLayer({
+                    id: 'fir-borders',
+                    type: 'line',
+                    source: 'fir-boundaries',
+                    'source-layer': layerName, // Auto-detected name
+                    paint: {
+                        'line-color': '#ffffff',
+                        'line-width': 0.5,
+                        'line-opacity': 0.2
+                    }
+                });
             }
-        });
+        };
 
-        // 6. Interaction: Show FIR Name on click
+        // 3. Wait for the source to load metadata so we can find the name
+        const checkSource = () => {
+            const source = map.getSource('fir-boundaries');
+            // Vector sources have 'vectorLayerIds' once they are loaded
+            if (source && source.vectorLayerIds && source.vectorLayerIds.length > 0) {
+                addFirLayers(source.vectorLayerIds[0]);
+                map.off('sourcedata', checkSource); // Stop listening once found
+            }
+        };
+
+        map.on('sourcedata', checkSource);
+
+        // 4. Click interaction
         map.on('click', 'fir-fills', (e) => {
-            const firId = e.features[0].properties.id;
+            const props = e.features[0].properties;
+            const firId = props.id || props.icao || props.name || props.ID; 
             const info = firNameLookup[firId] || { name: "Unknown FIR" };
             
             new mapboxgl.Popup()
