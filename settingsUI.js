@@ -189,11 +189,51 @@ export const SettingsUI = {
     },
 
     toggle() {
-        const overlay = document.getElementById('settings-modal-overlay');
-        if (overlay) {
-            overlay.classList.toggle('open');
+        this._modalOpen = !this._modalOpen;
+        const modal = document.getElementById('settings-modal-overlay');
+        if (modal) {
+            modal.classList.toggle('active', this._modalOpen);
+            // Refresh the list when opening to match current state
+            if (this._modalOpen) this.switchTab(this._activeGroup);
         }
     },
+
+    save() {
+        // Access the global filters from flight.js
+        const filters = window.mapFilters;
+        if (!filters) return;
+
+        // Loop through all settings in all groups and grab their DOM values
+        Object.values(this.settingGroups).forEach(group => {
+            group.settings.forEach(setting => {
+                const input = document.getElementById(`setting-${setting.id}`);
+                if (!input) return;
+
+                if (setting.type === 'boolean') {
+                    filters[setting.id] = input.checked;
+                } else if (setting.type === 'select') {
+                    filters[setting.id] = input.value;
+                }
+            });
+        });
+
+        // 1. Save to LocalStorage
+        if (window.saveFiltersToLocalStorage) {
+            window.saveFiltersToLocalStorage();
+        }
+
+        // 2. Apply to Map immediately
+        if (window.updateMapFilters) {
+            window.updateMapFilters();
+        }
+
+        // 3. Close and Notify
+        this.toggle();
+        if (window.showGlobalNotification) {
+            window.showGlobalNotification("Settings Applied", "success");
+        }
+    }
+};
 
     injectStyles() {
         const css = `
