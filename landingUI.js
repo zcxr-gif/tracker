@@ -4,8 +4,6 @@
  * Supports mixing filters, range inputs, and categorical selection.
  */
 
-import { SettingsUI } from './settingsUI.js';
-
 export const LandingUI = {
     _isVisible: false,
     _modalOpen: false,
@@ -209,8 +207,9 @@ export const LandingUI = {
         });
 
         document.getElementById('tile-settings')?.addEventListener('click', () => {
-    SettingsUI.toggle(); // Use the new stylized settings window
-});
+            // Placeholder for settings logic
+            console.log("Settings orb clicked");
+        });
     },
 
     activateFilter(id) {

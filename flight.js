@@ -4,7 +4,6 @@ import { LandingUI } from './landingUI.js';
 import { initPlaneSizeSlider } from './planeSizeController.js';
 import { GroupFlightManager } from './groupFlightManager.js';
 import { updateActiveSectors } from './atcHighlights.js';
-import { SettingsUI } from './settingsUI.js';
 
 document.addEventListener('DOMContentLoaded', async () => {
 
@@ -562,6 +561,21 @@ function injectCustomStyles() {
     if (document.getElementById(styleId)) return;
 
     const css = `
+
+    .settings-section { display: flex; flex-direction: column; gap: 16px; }
+.settings-row { 
+    display: flex; 
+    justify-content: space-between; 
+    align-items: center; 
+    background: rgba(255,255,255,0.03); 
+    padding: 12px 16px; 
+    border-radius: 10px; 
+    border: 1px solid rgba(255,255,255,0.05);
+}
+.row-label { color: #e4e4e7; font-size: 0.85rem; font-weight: 500; display: flex; align-items: center; gap: 10px; }
+.row-label i { color: #52525b; width: 16px; text-align: center; }
+.settings-color-input { background: none; border: none; width: 40px; height: 30px; cursor: pointer; padding: 0; }
+.settings-modal .filter-config-pane { background: #121214 !important; }    
 
         /* --- REDESFIGNED TACTICAL FLIGHT CARDS --- */
 .route-card-reborn {
@@ -7714,6 +7728,257 @@ function formatDataForSimpleWindow(flightProps, plan, routePoints, communityData
             console.log(`ND Iframe Handshake successful. Data pushed for ${flightId}`);
         }
     }
+
+    const SettingsUI = {
+    _isVisible: false,
+    _currentCategory: 'airspace',
+
+    categories: {
+        airspace: { label: "Airspace", icon: "fa-tower-broadcast" },
+        visuals: { label: "Visualization", icon: "fa-eye" },
+        interface: { label: "Interface", icon: "fa-tablet-screen-button" },
+        theme: { label: "Window Theme", icon: "fa-palette" }
+    },
+
+    init() {
+        this.render();
+        this.attachListeners();
+        // Hook into the LandingUI 'Settings' button
+        document.getElementById('tile-settings')?.addEventListener('click', () => this.toggle(true));
+        // Hook into the old toolbar button if it exists
+        document.getElementById('open-filter-settings-btn')?.addEventListener('click', () => this.toggle(true));
+    },
+
+    toggle(state) {
+        this._isVisible = state;
+        const modal = document.getElementById('global-settings-modal-overlay');
+        if (modal) {
+            modal.classList.toggle('open', state);
+            if (state) this.renderCategory(this._currentCategory);
+        }
+    },
+
+    render() {
+        const html = `
+            <div id="global-settings-modal-overlay" class="modal-overlay">
+                <div class="filter-modal settings-modal">
+                    <div class="modal-header">
+                        <div class="header-main">
+                            <div class="header-icon-box"><i class="fa-solid fa-gear"></i></div>
+                            <div class="header-text">
+                                <h2>Global Settings</h2>
+                                <span>Configure your airspace experience</span>
+                            </div>
+                        </div>
+                        <button class="close-modal" id="close-settings-modal">&times;</button>
+                    </div>
+                    
+                    <div class="modal-body">
+                        <div class="filter-selection-pane custom-scroll">
+                            <div class="filter-group-wrapper">
+                                <div class="filter-group-header">Configuration</div>
+                                <div class="filter-options-list">
+                                    ${Object.entries(this.categories).map(([key, cat]) => `
+                                        <button class="nexus-item ${this._currentCategory === key ? 'active' : ''}" data-cat-id="${key}">
+                                            <div class="nexus-icon"><i class="fa-solid ${cat.icon}"></i></div>
+                                            <span class="nexus-label">${cat.label}</span>
+                                        </button>
+                                    `).join('')}
+                                </div>
+                            </div>
+                        </div>
+
+                        <div class="filter-config-pane custom-scroll">
+                            <div id="settings-category-content" class="settings-content-wrapper">
+                                </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        `;
+
+        const container = document.getElementById('sector-ops-map-fullscreen');
+        if (container) container.insertAdjacentHTML('beforeend', html);
+    },
+
+    attachListeners() {
+        const modal = document.getElementById('global-settings-modal-overlay');
+        
+        modal?.addEventListener('click', (e) => {
+            if (e.target === modal || e.target.id === 'close-settings-modal') this.toggle(false);
+        });
+
+        document.querySelectorAll('.settings-modal .nexus-item').forEach(item => {
+            item.addEventListener('click', () => {
+                this._currentCategory = item.dataset.catId;
+                document.querySelectorAll('.settings-modal .nexus-item').forEach(i => i.classList.remove('active'));
+                item.classList.add('active');
+                this.renderCategory(this._currentCategory);
+            });
+        });
+    },
+
+    renderCategory(catId) {
+        const container = document.getElementById('settings-category-content');
+        if (!container) return;
+
+        let html = '';
+
+        switch(catId) {
+            case 'airspace':
+                html = `
+                    <div class="settings-section">
+                        <label class="config-header">Network Visibility</label>
+                        <div class="settings-row">
+                            <div class="row-label"><i class="fa-solid fa-tower-broadcast"></i> Hide Staffed Airports</div>
+                            <label class="toggle-switch"><input type="checkbox" id="set-hide-atc" ${mapFilters.hideAtcMarkers ? 'checked' : ''}><span class="toggle-slider"></span></label>
+                        </div>
+                        <div class="settings-row">
+                            <div class="row-label"><i class="fa-solid fa-map-marked-alt"></i> Show Unstaffed Airports</div>
+                            <label class="toggle-switch"><input type="checkbox" id="set-show-unstaffed" ${mapFilters.showUnstaffedAirports ? 'checked' : ''}><span class="toggle-slider"></span></label>
+                        </div>
+                        <div class="settings-row">
+                            <div class="row-label"><i class="fa-solid fa-user-shield"></i> Show Staff Only</div>
+                            <label class="toggle-switch"><input type="checkbox" id="set-staff-only" ${mapFilters.showStaffOnly ? 'checked' : ''}><span class="toggle-slider"></span></label>
+                        </div>
+                        <div class="settings-row">
+                            <div class="row-label"><i class="fa-solid fa-medal"></i> Show VA Only</div>
+                            <label class="toggle-switch"><input type="checkbox" id="set-va-only" ${mapFilters.showVaOnly ? 'checked' : ''}><span class="toggle-slider"></span></label>
+                        </div>
+                    </div>
+                `;
+                break;
+            case 'visuals':
+                html = `
+                    <div class="settings-section">
+                        <label class="config-header">Map & Assets</label>
+                        <div class="settings-row">
+                            <div class="row-label"><i class="fa-solid fa-tags"></i> Aircraft Labels</div>
+                            <label class="toggle-switch"><input type="checkbox" id="set-labels" ${mapFilters.showAircraftLabels ? 'checked' : ''}><span class="toggle-slider"></span></label>
+                        </div>
+                        <div class="settings-row">
+                            <div class="row-label"><i class="fa-solid fa-map"></i> Flat Map Projection</div>
+                            <label class="toggle-switch"><input type="checkbox" id="set-flat-map" ${mapFilters.useFlatMap ? 'checked' : ''}><span class="toggle-slider"></span></label>
+                        </div>
+                        <div class="settings-row">
+                            <div class="row-label">Map Style</div>
+                            <div class="input-wrapper select-wrapper">
+                                <select id="set-map-style" class="row-input-select">
+                                    <option value="dark" ${mapFilters.mapStyle === 'dark' ? 'selected' : ''}>Dark (Default)</option>
+                                    <option value="light" ${mapFilters.mapStyle === 'light' ? 'selected' : ''}>Light</option>
+                                    <option value="satellite" ${mapFilters.mapStyle === 'satellite' ? 'selected' : ''}>Satellite</option>
+                                </select>
+                            </div>
+                        </div>
+                        <div class="settings-row">
+                            <div class="row-label">Icon Color</div>
+                            <div class="input-wrapper select-wrapper">
+                                <select id="set-icon-color" class="row-input-select">
+                                    <option value="default" ${mapFilters.iconColorMode === 'default' ? 'selected' : ''}>Default (White)</option>
+                                    <option value="blue" ${mapFilters.iconColorMode === 'blue' ? 'selected' : ''}>Blue</option>
+                                    <option value="orange" ${mapFilters.iconColorMode === 'orange' ? 'selected' : ''}>Orange</option>
+                                </select>
+                            </div>
+                        </div>
+                    </div>
+                `;
+                break;
+            case 'interface':
+                html = `
+                    <div class="settings-section">
+                        <label class="config-header">User Interface</label>
+                        <div class="settings-row">
+                            <div class="row-label"><i class="fa-solid fa-tablet-button"></i> Simple Flight Window</div>
+                            <label class="toggle-switch"><input type="checkbox" id="set-simple-win" ${mapFilters.useSimpleFlightWindow ? 'checked' : ''}><span class="toggle-slider"></span></label>
+                        </div>
+                        <div class="settings-row">
+                            <div class="row-label">Flight Plan Mode</div>
+                            <div class="input-wrapper select-wrapper">
+                                <select id="set-plan-mode" class="row-input-select">
+                                    <option value="none" ${mapFilters.planDisplayMode === 'none' ? 'selected' : ''}>Hide Plan</option>
+                                    <option value="direct" ${mapFilters.planDisplayMode === 'direct' ? 'selected' : ''}>Direct to Destination</option>
+                                    <option value="full" ${mapFilters.planDisplayMode === 'full' ? 'selected' : ''}>Full Filed Plan</option>
+                                </select>
+                            </div>
+                        </div>
+                    </div>
+                `;
+                break;
+            case 'theme':
+                html = `
+                    <div class="settings-section">
+                        <label class="config-header">Window Appearance</label>
+                        <div class="settings-row">
+                            <div class="row-label">Gradient Start Color</div>
+                            <input type="color" id="set-theme-start" class="settings-color-input" value="${mapFilters.themeStartColor || '#18181b'}">
+                        </div>
+                        <div class="settings-row">
+                            <div class="row-label">Gradient End Color</div>
+                            <input type="color" id="set-theme-end" class="settings-color-input" value="${mapFilters.themeEndColor || '#18181b'}">
+                        </div>
+                        <div class="settings-row">
+                            <div class="row-label">Theme Opacity (%)</div>
+                            <input type="number" id="set-theme-opacity" class="row-input" style="width: 80px;" value="${mapFilters.themeOpacity || 90}">
+                        </div>
+                        <button id="set-theme-reset" class="modal-btn secondary" style="width: 100%; margin-top: 20px;">Reset Default Theme</button>
+                    </div>
+                `;
+                break;
+        }
+
+        container.innerHTML = html;
+        this.attachConfigListeners();
+    },
+
+    attachConfigListeners() {
+        const update = (key, val) => {
+            mapFilters[key] = val;
+            saveFiltersToLocalStorage();
+            updateMapFilters();
+        };
+
+        // Mapping settings IDs to mapFilters keys
+        const ids = {
+            'set-hide-atc': 'hideAtcMarkers',
+            'set-show-unstaffed': 'showUnstaffedAirports',
+            'set-staff-only': 'showStaffOnly',
+            'set-va-only': 'showVaOnly',
+            'set-labels': 'showAircraftLabels',
+            'set-flat-map': 'useFlatMap',
+            'set-simple-win': 'useSimpleFlightWindow',
+            'set-map-style': 'mapStyle',
+            'set-icon-color': 'iconColorMode',
+            'set-plan-mode': 'planDisplayMode',
+            'set-theme-start': 'themeStartColor',
+            'set-theme-end': 'themeEndColor',
+            'set-theme-opacity': 'themeOpacity'
+        };
+
+        Object.entries(ids).forEach(([id, key]) => {
+            const el = document.getElementById(id);
+            if (!el) return;
+            el.addEventListener(el.type === 'checkbox' ? 'change' : 'input', (e) => {
+                let val = el.type === 'checkbox' ? e.target.checked : e.target.value;
+                
+                // Special handlers
+                if (id === 'set-flat-map') {
+                    sectorOpsMap.setProjection(val ? 'mercator' : 'globe');
+                }
+                
+                update(key, val);
+            });
+        });
+
+        document.getElementById('set-theme-reset')?.addEventListener('click', () => {
+            mapFilters.themeStartColor = '#18181b';
+            mapFilters.themeEndColor = '#18181b';
+            mapFilters.themeOpacity = 90;
+            saveFiltersToLocalStorage();
+            this.renderCategory('theme');
+            updateMapFilters();
+        });
+    }
+};
 
     async function initializeSectorOpsView() {
     // [FIX] 1. Load saved preferences FIRST
