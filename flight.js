@@ -4664,40 +4664,29 @@ async function toggleSigmetLayer(show) {
         if (sectorOpsMap.getLayer(LINE_LAYER_ID)) sectorOpsMap.setLayoutProperty(LINE_LAYER_ID, 'visibility', vis);
     }
 }
+/**
+     * --- [NEW] Applies all active map filters.
+     * This function calls the specific sub-functions to update
+     * aircraft layers and airport markers based on the mapFilters state.
+     */
+    function updateMapFilters() {
+        if (!sectorOpsMap) return;
 
-// 1. Ensure mapFilters is attached to window so SettingsUI can see it
-window.mapFilters = mapFilters; 
+        GroupFlightManager.toggle(mapFilters.showGroupFlights);
+        GroupFlightManager.update(currentMapFeatures);
 
-// 2. Update the updateMapFilters function to handle Styles and Projections
-function updateMapFilters() {
-    if (!sectorOpsMap) return;
+        // 1. Update Aircraft Filter (using Mapbox setFilter)
+        updateAircraftLayerFilter();
 
-    // Handle Map Projection (Flat vs Globe)
-    const targetProjection = mapFilters.useFlatMap ? 'mercator' : 'globe';
-    if (sectorOpsMap.getProjection().name !== targetProjection) {
-        sectorOpsMap.setProjection(targetProjection);
+        // 2. Update Aircraft Label Filter
+        updateAircraftLabelVisibility();
+
+        // 3. Update Airport Filter (by re-rendering markers)
+        renderAirportMarkers();
+        
+        // 4. Update Toolbar Button States (Weather + Filters)
+        updateToolbarButtonStates();
     }
-
-    // Handle Map Style
-    const styleMap = {
-        'dark': 'mapbox://styles/mapbox/dark-v11',
-        'light': 'mapbox://styles/servernoob/cmg3wq7an002p01s17kbx7lqk',
-        'satellite': 'mapbox://styles/mapbox/satellite-streets-v12'
-    };
-    const targetStyle = styleMap[mapFilters.mapStyle] || styleMap['dark'];
-    
-    // Only update if the style actually changed to prevent flickering
-    if (sectorOpsMap.getStyle() && !sectorOpsMap.getStyle().url?.includes(mapFilters.mapStyle)) {
-        sectorOpsMap.setStyle(targetStyle);
-    }
-
-    // Existing Filter Logic
-    GroupFlightManager.toggle(mapFilters.showGroupFlights);
-    updateAircraftLayerFilter();
-    updateAircraftLabelVisibility();
-    renderAirportMarkers();
-    updateToolbarButtonStates();
-}
 
 function updateAircraftLayerFilter() {
     if (!sectorOpsMap || !sectorOpsMap.getLayer('sector-ops-live-flights-layer')) return;
