@@ -4702,6 +4702,7 @@ function updateAircraftLayerFilter() {
         filter.push(['in', tactical.type.toUpperCase(), ['upcase', ['get', 'aircraftName']]]);
     }
 
+
     // --- Intelligent Livery Matching ---
     // Matches if user types "Delta" and livery is "Delta Air Lines"
     if (tactical.livery && tactical.livery.trim() !== '') {
@@ -4753,14 +4754,17 @@ function updateAircraftLayerFilter() {
         filter.push(['in', mapFilters.quickSearch.toUpperCase(), ['upcase', ['get', 'callsign']]]);
     }
 
-    // Inside updateAircraftLayerFilter in flight.js
     if (tactical.country && tactical.country !== 'All Countries') {
     // Extract prefix from UI string "United States (N)" -> "N"
-    const prefix = tactical.country.match(/\((.*?)\)/)[1]; 
+    const prefix = tactical.country.match(/\((.*?)\)/)[1];
     
-    // Filter: Registration must start with the selected prefix
-    filter.push(['==', ['slice', ['get', 'registration'], 0, prefix.length], prefix]);
-    }
+    // FIX: Prioritize the community 'tailNumber' over the system 'registration'
+    filter.push([
+        '==', 
+        ['slice', ['coalesce', ['get', 'tailNumber'], ['get', 'registration'], ''], 0, prefix.length], 
+        prefix
+    ]);
+}
 
     // Existing Filters (Departure/Arrival/Phase/etc.)
     if (tactical.departureIcao) filter.push(['==', ['upcase', ['get', 'departureIcao']], tactical.departureIcao.toUpperCase()]);
