@@ -3332,35 +3332,39 @@ let firNameLookup = {};
 
 async function initializeMapBoundaries(map) {
     try {
-        // 1. Fetch only the metadata (VATSpy.dat) for names
+        // 1. Fetch VATSpy data for naming (keep this as is)
         const vatspyRes = await fetch('./VATSpy.dat');
         const vatspyRaw = await vatspyRes.text();
+
+        // 2. Build the name dictionary
         firNameLookup = parseVatspyData(vatspyRaw);
 
-        // 2. Add the Vector Source instead of fetching the heavy GeoJSON
+        // 3. Add Vector Source to Mapbox using your new Tileset ID
         map.addSource('fir-boundaries', {
             type: 'vector',
-            url: 'mapbox://servernoob.949756etywel' 
+            url: 'mapbox://servernoob.949756etywel' // Your new tileset URL
         });
 
-        // 3. Add Layers using 'source-layer' 
-        // Note: 'source-layer' is usually the name of the file you uploaded to Studio
+        // 4. Add Fill Layer (for highlighting active sectors)
         map.addLayer({
             id: 'fir-fills',
             type: 'fill',
             source: 'fir-boundaries',
-            'source-layer': 'Boundaries', // Replace with your actual layer name from Mapbox Studio
+            'source-layer': 'Boundaries', // NOTE: Replace 'Boundaries' with your actual layer name from Mapbox Studio
+            layout: {},
             paint: {
-                'fill-color': '#22c55e',
-                'fill-opacity': 0 
+                'fill-color': '#22c55e', // Emerald-500
+                'fill-opacity': 0         // Start hidden
             }
         });
 
+        // 5. Add Border Layer (the visible lines)
         map.addLayer({
             id: 'fir-borders',
             type: 'line',
             source: 'fir-boundaries',
-            'source-layer': 'Boundaries', // Replace with your actual layer name
+            'source-layer': 'Boundaries', // NOTE: This must match the fill layer above
+            layout: {},
             paint: {
                 'line-color': '#ffffff',
                 'line-width': 0.5,
@@ -3368,7 +3372,17 @@ async function initializeMapBoundaries(map) {
             }
         });
 
-        // ... click interactions ...
+        // 6. Interaction: Show FIR Name on click
+        map.on('click', 'fir-fills', (e) => {
+            const firId = e.features[0].properties.id;
+            const info = firNameLookup[firId] || { name: "Unknown FIR" };
+            
+            new mapboxgl.Popup()
+                .setLngLat(e.lngLat)
+                .setHTML(`<strong>${info.name}</strong><br/>Code: ${firId}`)
+                .addTo(map);
+        });
+
     } catch (err) {
         console.error("Error loading map boundaries:", err);
     }
