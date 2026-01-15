@@ -3332,42 +3332,35 @@ let firNameLookup = {};
 
 async function initializeMapBoundaries(map) {
     try {
-        // 1. Fetch both files in parallel
-        const [boundaryRes, vatspyRes] = await Promise.all([
-            fetch('./Boundaries.geojson'),
-            fetch('./VATSpy.dat')
-        ]);
-
-        const boundaryData = await boundaryRes.json();
+        // 1. Fetch only the metadata (VATSpy.dat) for names
+        const vatspyRes = await fetch('./VATSpy.dat');
         const vatspyRaw = await vatspyRes.text();
-
-        // 2. Build the name dictionary
         firNameLookup = parseVatspyData(vatspyRaw);
 
-        // 3. Add Source to Mapbox
+        // 2. Add the Vector Source instead of fetching the heavy GeoJSON
         map.addSource('fir-boundaries', {
-            type: 'geojson',
-            data: boundaryData
+            type: 'vector',
+            url: 'mapbox://servernoob.949756etywel' 
         });
 
-        // 4. Add Fill Layer (for highlighting active sectors)
+        // 3. Add Layers using 'source-layer' 
+        // Note: 'source-layer' is usually the name of the file you uploaded to Studio
         map.addLayer({
             id: 'fir-fills',
             type: 'fill',
             source: 'fir-boundaries',
-            layout: {},
+            'source-layer': 'Boundaries', // Replace with your actual layer name from Mapbox Studio
             paint: {
-                'fill-color': '#22c55e', // Emerald-500
-                'fill-opacity': 0         // Start hidden, updated by atcHighlights.js
+                'fill-color': '#22c55e',
+                'fill-opacity': 0 
             }
         });
 
-        // 5. Add Border Layer (the visible lines)
         map.addLayer({
             id: 'fir-borders',
             type: 'line',
             source: 'fir-boundaries',
-            layout: {},
+            'source-layer': 'Boundaries', // Replace with your actual layer name
             paint: {
                 'line-color': '#ffffff',
                 'line-width': 0.5,
@@ -3375,17 +3368,7 @@ async function initializeMapBoundaries(map) {
             }
         });
 
-        // 6. Interaction: Show FIR Name on click
-        map.on('click', 'fir-fills', (e) => {
-            const firId = e.features[0].properties.id;
-            const info = firNameLookup[firId] || { name: "Unknown FIR" };
-            
-            new mapboxgl.Popup()
-                .setLngLat(e.lngLat)
-                .setHTML(`<strong>${info.name}</strong><br/>Code: ${firId}`)
-                .addTo(map);
-        });
-
+        // ... click interactions ...
     } catch (err) {
         console.error("Error loading map boundaries:", err);
     }
@@ -8292,6 +8275,7 @@ function initializeSectorOpsMap(centerICAO) {
         sectorOpsMap.on('load', async () => {
             GroupFlightManager.init(sectorOpsMap);
             await setupMapLayersAndFog();
+            setTimeout(() => initializeMapBoundaries(sectorOpsMap), 2000);
             await initializeMapBoundaries(sectorOpsMap);
             resolve();
         });
