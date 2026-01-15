@@ -1,14 +1,15 @@
 /**
  * settingsUI.js
- * A functional Settings Engine integrated with window.mapFilters.
+ * A functional Settings Engine with a Tabbed Interface integrated with window.mapFilters.
  */
 
 export const SettingsUI = {
     _modalOpen: false,
+    _activeTab: 'general', // Track current tab
 
     settingGroups: {
         general: {
-            label: "General Display",
+            label: "General",
             icon: "fa-eye",
             settings: [
                 { id: 'hideAtcMarkers', label: 'Hide ATC Facilities', type: 'boolean', icon: 'fa-tower-broadcast' },
@@ -17,7 +18,7 @@ export const SettingsUI = {
             ]
         },
         map: {
-            label: "Map Projection",
+            label: "Map",
             icon: "fa-map",
             settings: [
                 { id: 'mapStyle', label: 'Map Style', type: 'select', options: ['dark', 'light', 'satellite'], icon: 'fa-palette' },
@@ -25,7 +26,7 @@ export const SettingsUI = {
             ]
         },
         interface: {
-            label: "Interface & UI",
+            label: "Interface",
             icon: "fa-desktop",
             settings: [
                 { id: 'useSimpleFlightWindow', label: 'Use Simple Window', type: 'boolean', icon: 'fa-tablet-screen-button' },
@@ -59,27 +60,19 @@ export const SettingsUI = {
                         <button class="close-modal" id="close-settings-modal">&times;</button>
                     </div>
                     
-                    <div class="modal-body">
-                        <div class="filter-selection-pane custom-scroll">
+                    <div class="modal-body tabbed-layout">
+                        <div class="settings-sidebar">
                             ${Object.entries(this.settingGroups).map(([key, group]) => `
-                                <div class="filter-group-wrapper">
-                                    <div class="filter-group-header">${group.label}</div>
-                                    <div class="filter-options-list">
-                                        ${group.settings.map(s => `
-                                            <div class="nexus-item static-item">
-                                                <div class="nexus-icon"><i class="fa-solid ${s.icon}"></i></div>
-                                                <span class="nexus-label">${s.label}</span>
-                                            </div>
-                                        `).join('')}
-                                    </div>
+                                <div class="tab-nav-item ${this._activeTab === key ? 'active' : ''}" data-tab="${key}">
+                                    <i class="fa-solid ${group.icon}"></i>
+                                    <span>${group.label}</span>
                                 </div>
                             `).join('')}
                         </div>
 
                         <div class="filter-config-pane">
-                            <div class="config-header"><label>Configuration</label></div>
-                            <div id="settings-active-list" class="modal-active-list custom-scroll">
-                                ${this.renderSettingsList()}
+                            <div id="settings-tab-content" class="modal-active-list custom-scroll">
+                                ${this.renderActiveTab()}
                             </div>
                             <div class="modal-footer-embedded">
                                 <button class="modal-btn primary" id="save-settings-btn">Save & Apply</button>
@@ -91,10 +84,13 @@ export const SettingsUI = {
         document.body.insertAdjacentHTML('beforeend', html);
     },
 
-    renderSettingsList() {
+    renderActiveTab() {
         const filters = window.mapFilters || {};
-        return Object.values(this.settingGroups).map(group => {
-            return group.settings.map(s => {
+        const group = this.settingGroups[this._activeTab];
+        
+        return `
+            <div class="tab-header-mini">${group.label} Settings</div>
+            ${group.settings.map(s => {
                 const value = filters[s.id];
                 let inputHtml = '';
 
@@ -121,14 +117,36 @@ export const SettingsUI = {
                             </div>
                         </div>
                     </div>`;
-            }).join('');
-        }).join('');
+            }).join('')}`;
+    },
+
+    switchTab(tabId) {
+        this._activeTab = tabId;
+        
+        // Update Sidebar UI
+        document.querySelectorAll('.tab-nav-item').forEach(el => {
+            el.classList.toggle('active', el.dataset.tab === tabId);
+        });
+
+        // Update Content
+        const contentArea = document.getElementById('settings-tab-content');
+        if (contentArea) {
+            contentArea.innerHTML = this.renderActiveTab();
+        }
     },
 
     attachListeners() {
         document.getElementById('close-settings-modal')?.addEventListener('click', () => this.toggle());
         document.getElementById('save-settings-btn')?.addEventListener('click', () => this.save());
         
+        // Tab switching listener
+        document.querySelector('.settings-sidebar')?.addEventListener('click', (e) => {
+            const navItem = e.target.closest('.tab-nav-item');
+            if (navItem) {
+                this.switchTab(navItem.dataset.tab);
+            }
+        });
+
         // Close on overlay click
         document.getElementById('settings-modal-overlay')?.addEventListener('click', (e) => {
             if (e.target.id === 'settings-modal-overlay') this.toggle();
@@ -139,21 +157,18 @@ export const SettingsUI = {
         const prevStyle = window.mapFilters.mapStyle;
         const prevProjection = window.mapFilters.useFlatMap;
 
-        // 1. Collect values from UI
-        Object.values(this.settingGroups).forEach(group => {
-            group.settings.forEach(s => {
-                const el = document.getElementById(`setting-${s.id}`);
-                if (!el) return;
-                window.mapFilters[s.id] = s.type === 'boolean' ? el.checked : el.value;
-            });
+        // Collect values ONLY from the currently rendered tab to avoid overwriting 
+        // existing filters with nulls from unrendered tabs.
+        const currentGroup = this.settingGroups[this._activeTab];
+        currentGroup.settings.forEach(s => {
+            const el = document.getElementById(`setting-${s.id}`);
+            if (!el) return;
+            window.mapFilters[s.id] = s.type === 'boolean' ? el.checked : el.value;
         });
 
-        // 2. Persist to Local Storage
         window.saveFiltersToLocalStorage?.();
 
-        // 3. Handle Special Updates (Map Style & Projection)
         if (window.sectorOpsMap) {
-            // Update Style
             if (window.mapFilters.mapStyle !== prevStyle) {
                 const styles = {
                     dark: 'mapbox://styles/mapbox/dark-v11',
@@ -163,15 +178,12 @@ export const SettingsUI = {
                 window.sectorOpsMap.setStyle(styles[window.mapFilters.mapStyle]);
             }
 
-            // Update Projection (Requires re-init because projection is a load-time setting)
             if (window.mapFilters.useFlatMap !== prevProjection) {
                 window.initializeSectorOpsMap?.(); 
             }
         }
 
-        // 4. Trigger standard filter updates (Aicraft/ATC markers)
         window.updateMapFilters?.();
-
         this.toggle();
         window.showGlobalNotification?.("Settings Applied", "success");
     },
@@ -181,19 +193,62 @@ export const SettingsUI = {
         if (overlay) {
             const isNowOpen = overlay.classList.toggle('open');
             if (isNowOpen) {
-                document.getElementById('settings-active-list').innerHTML = this.renderSettingsList();
+                this.switchTab(this._activeTab); // Refresh current tab
             }
         }
     },
 
     injectStyles() {
         const css = `
-            .settings-modal .filter-selection-pane { width: 35%; }
-            .settings-modal .filter-config-pane { width: 65%; }
-            .setting-select { 
-                background: rgba(255,255,255,0.05); border: 1px solid rgba(255,255,255,0.1); 
-                color: white; border-radius: 4px; padding: 4px 8px; font-size: 0.8rem;
+            .tabbed-layout { display: flex; height: 100%; overflow: hidden; padding: 0 !important; }
+            
+            .settings-sidebar { 
+                width: 200px; 
+                background: rgba(0,0,0,0.2); 
+                border-right: 1px solid rgba(255,255,255,0.05);
+                display: flex;
+                flex-direction: column;
+                padding: 10px 0;
             }
+
+            .tab-nav-item {
+                padding: 12px 20px;
+                display: flex;
+                align-items: center;
+                gap: 12px;
+                cursor: pointer;
+                color: rgba(255,255,255,0.6);
+                transition: all 0.2s;
+                border-left: 3px solid transparent;
+            }
+
+            .tab-nav-item i { width: 20px; text-align: center; }
+
+            .tab-nav-item:hover { background: rgba(255,255,255,0.05); color: white; }
+
+            .tab-nav-item.active {
+                background: rgba(255,255,255,0.1);
+                color: #00e5ff;
+                border-left-color: #00e5ff;
+            }
+
+            .settings-modal .filter-config-pane { flex: 1; display: flex; flex-direction: column; }
+            
+            .tab-header-mini {
+                padding: 15px 20px 5px 20px;
+                text-transform: uppercase;
+                font-size: 0.7rem;
+                letter-spacing: 1px;
+                color: rgba(255,255,255,0.4);
+                font-weight: bold;
+            }
+
+            .setting-select { 
+                background: rgba(0,0,0,0.3); border: 1px solid rgba(255,255,255,0.1); 
+                color: white; border-radius: 4px; padding: 4px 8px; font-size: 0.8rem;
+                outline: none;
+            }
+
             .modal-filter-card .toggle-switch { margin-left: auto; scale: 0.8; transform-origin: right; }
         `;
         const style = document.createElement('style');
