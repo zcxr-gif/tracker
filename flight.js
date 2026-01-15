@@ -98,7 +98,7 @@ window.currentAirportTraffic = { in: [], out: [] }; // Stores IDs for the curren
         showAircraftLabels: false,
         useFlatMap: false,
         useSimpleFlightWindow: false,
-        planeIconSize: 0.06,
+        planeIconSize: 0.05,
         themeStartColor: '#18181b', // [UPDATED] Carbon/Zinc-900
         themeEndColor: '#18181b',   // [UPDATED] Carbon/Zinc-900
         themeOpacity: 90            // [UPDATED] Slightly more transparent (90%)
@@ -8164,7 +8164,7 @@ async function setupMapLayersAndFog() {
             source: 'sector-ops-live-flights-source',
             layout: {
                 'icon-image': (typeof getIconImageExpression !== 'undefined') ? getIconImageExpression(mapFilters.iconColorMode) : 'icon-default',
-                'icon-size': 0.08,
+                'icon-size': mapFilters.planeIconSize || 0.05,
                 'icon-rotate': ['get', 'heading'],
                 'icon-rotation-alignment': 'map',
                 'icon-allow-overlap': true,
