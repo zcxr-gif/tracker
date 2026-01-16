@@ -4,6 +4,7 @@ import { LandingUI } from './landingUI.js';
 import { initPlaneSizeSlider } from './planeSizeController.js';
 import { GroupFlightManager } from './groupFlightManager.js';
 import { updateActiveSectors } from './atcHighlights.js';
+import { NatTracksLayer } from './natTracksLayer.js';
 
 document.addEventListener('DOMContentLoaded', async () => {
 
@@ -40,6 +41,7 @@ window.currentAirportTraffic = { in: [], out: [] }; // Stores IDs for the curren
     let isAircraftWindowLoading = false;
     let activeFirIds = new Set(); // Globally track which FIRs are staffed
     window.getLiveFlightData = () => Object.values(currentMapFeatures);
+    let natTracksLayerInstance = null;
 
     // --- [NEW] Map Style Constants & State ---
     const MAP_STYLE_DARK = 'mapbox://styles/mapbox/dark-v11';
@@ -5037,6 +5039,7 @@ function unwrapLineCoordinates(coords) {
     return newCoords;
 }
 
+
     /**
  * Calculates True Airspeed (TAS) in knots based on Pressure Altitude and OAT.
  * Uses the approximate TAS formula derived from the speed of sound ratio.
@@ -8126,6 +8129,12 @@ Object.entries(ids).forEach(([id, key]) => {
             flights: Object.keys(currentMapFeatures).length,
             atc: activeAtcFacilities.length
         });
+
+        const natTracks = new NatTracksLayer(sectorOpsMap);
+        natTracks.fetchTracks();
+        
+        // (Optional) Store it globally if you need to reference it later
+        window.globalNatTracks = natTracks;
 
         // --- 11. Load Content and Setup Listeners ---
         await loadExternalPanelContent();
