@@ -1,7 +1,7 @@
 /**
  * LandingUI.js
  * REDESIGN: Tactical Modal - Advanced Centralized Filter Engine
- * UPDATED: Added spreading weather menu with options.
+ * UPDATED: Fixed weather button alignment and forced upward spread.
  */
 
 export const LandingUI = {
@@ -484,42 +484,47 @@ export const LandingUI = {
             .status-dot { width: 6px; height: 6px; background: #10b981; border-radius: 50%; box-shadow: 0 0 10px #10b981; }
             #landing-server-name { font-size: 0.7rem; font-weight: 700; color: #fff; letter-spacing: 0.5px; white-space: nowrap; }
 
-            /* WEATHER EXPANSION STYLES */
+            /* WEATHER EXPANSION STYLES - FIXED ALIGNMENT & SPREAD UP */
             .weather-nexus-container {
                 position: relative;
                 display: flex;
-                flex-direction: column-reverse;
+                flex-direction: column-reverse; /* Force content to stack upwards */
                 align-items: center;
                 gap: 12px;
+                pointer-events: none; /* Container itself shouldn't block, children should */
             }
 
             .weather-spread {
                 display: flex;
-                flex-direction: column-reverse;
+                flex-direction: column-reverse; /* Individual options also stack upwards */
+                align-items: center;
                 gap: 8px;
                 opacity: 0;
-                transform: translateY(20px) scale(0.8);
+                transform: translateY(20px) scale(0.9);
                 pointer-events: none;
                 transition: all 0.4s cubic-bezier(0.16, 1, 0.3, 1);
-                margin-bottom: -10px;
+                position: absolute;
+                bottom: calc(100% + 10px); /* Anchor exactly above the button */
+                left: 50%;
+                transform-origin: bottom center;
+                transform: translateX(-50%) translateY(20px) scale(0.9);
             }
 
             .weather-nexus-container.expanded .weather-spread {
                 opacity: 1;
-                transform: translateY(0) scale(1);
+                transform: translateX(-50%) translateY(0) scale(1);
                 pointer-events: auto;
-                margin-bottom: 0;
             }
 
             .spread-opt {
                 width: auto;
                 min-width: 42px;
                 height: 42px;
-                padding: 0 12px;
+                padding: 0 16px;
                 border-radius: 21px;
                 background: rgba(15, 15, 15, 0.85);
                 backdrop-filter: blur(15px);
-                border: 1px solid rgba(255, 255, 255, 0.1);
+                border: 1px solid rgba(255, 255, 255, 0.15);
                 color: rgba(255, 255, 255, 0.6);
                 cursor: pointer;
                 display: flex;
@@ -527,31 +532,43 @@ export const LandingUI = {
                 gap: 10px;
                 transition: all 0.2s ease;
                 white-space: nowrap;
-                box-shadow: 0 4px 15px rgba(0,0,0,0.4);
+                box-shadow: 0 8px 25px rgba(0,0,0,0.5);
             }
 
             .spread-opt i { font-size: 0.9rem; width: 18px; text-align: center; }
-            .spread-label { font-size: 0.75rem; font-weight: 600; opacity: 0; transform: translateX(-5px); transition: all 0.3s; width: 0; overflow: hidden; }
+            .spread-label { 
+                font-size: 0.75rem; 
+                font-weight: 600; 
+                opacity: 0; 
+                max-width: 0;
+                overflow: hidden;
+                transition: all 0.3s; 
+                white-space: nowrap;
+            }
             
-            .weather-nexus-container.expanded .spread-label { opacity: 1; transform: translateX(0); width: auto; }
+            .weather-nexus-container.expanded .spread-label { 
+                opacity: 1; 
+                max-width: 150px; 
+                margin-right: 4px;
+            }
 
             .spread-opt:hover { 
-                background: rgba(30, 30, 30, 1); 
+                background: rgba(40, 40, 40, 1); 
                 color: #fff; 
-                border-color: rgba(255,255,255,0.3);
+                border-color: rgba(56, 189, 248, 0.5);
                 transform: scale(1.05);
             }
 
             .spread-opt.active {
                 background: rgba(56, 189, 248, 0.15);
                 color: #38bdf8;
-                border-color: rgba(56, 189, 248, 0.4);
+                border-color: rgba(56, 189, 248, 0.5);
             }
 
             .spread-opt.disabled {
-                opacity: 0.5;
+                opacity: 0.4;
                 cursor: not-allowed;
-                filter: grayscale(0.8);
+                filter: grayscale(1);
             }
             
             .spread-opt.disabled:hover { transform: none; background: rgba(15,15,15,0.85); border-color: rgba(255,255,255,0.1); }
