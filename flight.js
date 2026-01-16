@@ -2948,41 +2948,6 @@ function injectCustomStyles() {
             color: #fbbf24; } /* Amber icon for remarks */
 
 
-        .search-badge-ac {
-            font-size: 0.6rem;
-            background: rgba(255,255,255,0.1);
-            border: 1px solid rgba(255,255,255,0.1);
-            color: #cbd5e1;
-            padding: 1px 6px;
-            border-radius: 4px;
-            font-weight: 600;
-            letter-spacing: 0.5px;
-        }
-
-        .search-sub-text {
-            color: #94a3b8;
-            font-size: 0.75rem;
-            white-space: nowrap;
-            overflow: hidden;
-            text-overflow: ellipsis;
-            font-weight: 500;
-        }
-
-        /* Column 3: Stats (Alt/Speed) */
-        .search-result-stats {
-            display: flex;
-            flex-direction: column;
-            align-items: flex-end;
-            justify-content: center;
-            gap: 3px;
-        }
-
-        .search-stat-pill {
-            font-family: var(--font-data);
-            font-size: 0.85rem;
-            font-weight: 700;
-            text-shadow: 0 0 10px rgba(0,0,0,0.5);
-        }
 
         .stat-alt { color: #38bdf8;
         } /* Sky Blue */
@@ -4076,78 +4041,49 @@ async function generateTripCard() {
     }, 100);
 }
     
-    /**
-     * --- [ENHANCED] Handles the search input event.
-     * Searches Callsign, Username, Aircraft Type, Livery, and Altitude.
-     */
-    function handleSearchInput(searchText) {
-        const searchInput = document.getElementById('blade-search-input');
-        if (!dropdown) return;
+/**
+ * Fixes the search input handler to correctly show the results list
+ */
+function handleSearchInput(searchText) {
+    // FIX: Define the dropdown reference at the start of the function
+    const dropdown = document.getElementById('search-results-dropdown'); 
+    if (!dropdown) return;
 
-        // Require at least 2 characters to start searching
-        if (!searchText || searchText.length < 2) {
-            dropdown.innerHTML = '';
-            dropdown.style.display = 'none';
-            return;
-        }
-
-        const upperSearchText = searchText.toUpperCase();
-        const matches = [];
-
-        // Search through the live flight data cache
-        for (const flightId in currentMapFeatures) {
-            try {
-                const feature = currentMapFeatures[flightId];
-                if (!feature || !feature.properties) continue;
-
-                const props = feature.properties;
-                
-                // 1. Get Basic Strings
-                const callsign = (props.callsign || '').toUpperCase();
-                const username = (props.username || '').toUpperCase();
-                
-                // 2. Get Aircraft/Livery Data safely
-                let acName = '';
-                let livName = '';
-                if (props.aircraft) {
-                    const acObj = (typeof props.aircraft === 'string') ? JSON.parse(props.aircraft) : props.aircraft;
-                    acName = (acObj.aircraftName || '').toUpperCase();
-                    livName = (acObj.liveryName || '').toUpperCase();
-                }
-
-                // 3. Get Altitude as String
-                const altStr = props.altitude ? Math.round(props.altitude).toString() : '';
-
-                // 4. Perform Matching
-                const isMatch = 
-                    callsign.includes(upperSearchText) ||
-                    username.includes(upperSearchText) ||
-                    acName.includes(upperSearchText) ||
-                    livName.includes(upperSearchText) ||
-                    altStr.startsWith(upperSearchText); // Altitude usually searched by start (e.g. "350" for 35000)
-
-                if (isMatch) {
-                    matches.push(feature);
-                }
-            } catch (error) {
-                console.error('Error searching feature:', error);
-            }
-        }
+    // Require at least 2 characters to start searching
+    if (!searchText || searchText.length < 2) {
+        dropdown.innerHTML = '';
+        dropdown.style.display = 'none';
         
-        // Sort results: Exact callsign matches first, then others
-        matches.sort((a, b) => {
-            const aCall = (a.properties.callsign || '').toUpperCase();
-            const bCall = (b.properties.callsign || '').toUpperCase();
-            const aExact = aCall === upperSearchText;
-            const bExact = bCall === upperSearchText;
-            if (aExact && !bExact) return -1;
-            if (!aExact && bExact) return 1;
-            return 0;
-        });
-
-        renderSearchResultsDropdown(matches);
+        // Also ensure the search bar container loses its "active" class
+        const searchBar = document.querySelector('#sector-ops-search-container .search-bar-container');
+        if (searchBar) searchBar.classList.remove('has-results');
+        return;
     }
 
+    const upperSearchText = searchText.toUpperCase();
+    const matches = [];
+
+    // Search through the live flight data cache
+    for (const flightId in currentMapFeatures) {
+        const feature = currentMapFeatures[flightId];
+        const props = feature.properties;
+        
+        const callsign = (props.callsign || '').toUpperCase();
+        const username = (props.username || '').toUpperCase();
+        const acName = (props.aircraftName || '').toUpperCase();
+        const livName = (props.liveryName || '').toUpperCase();
+
+        if (callsign.includes(upperSearchText) || 
+            username.includes(upperSearchText) || 
+            acName.includes(upperSearchText) || 
+            livName.includes(upperSearchText)) {
+            matches.push(feature);
+        }
+    }
+    
+    // Render the list
+    renderSearchResultsDropdown(matches);
+}
 
  /**
  * --- [RE-DONE] Renders detailed search results.
@@ -7889,28 +7825,6 @@ function formatDataForSimpleWindow(flightProps, plan, routePoints, communityData
                 </div>
             `;
             mapContainer.insertAdjacentHTML('beforeend', selectorHtml);
-        }
-
-        // --- 4. Inject the Search Bar ---
-        if (!document.getElementById('sector-ops-search-container')) {
-            const searchHtml = `
-                <div id="sector-ops-search-container">
-                    <div class="search-bar-container">
-                        <input type="text" id="sector-ops-search-input" placeholder="Search callsign..." autocomplete="off">
-                        
-                        <button id="sector-ops-search-clear" class="search-clear-btn" title="Clear">
-                             <i class="fa-solid fa-xmark"></i>
-                        </button>
-                        
-                        <div class="search-icon-label">
-                            <i class="fa-solid fa-magnifying-glass"></i>
-                        </div>
-                    </div>
-                    
-                    <div id="search-results-dropdown" class="search-results-dropdown"></div>
-                </div>
-            `;
-            mapContainer.insertAdjacentHTML('beforeend', searchHtml);
         }
 
         // --- 5. Inject Airport Info Window ---
@@ -12027,14 +11941,6 @@ function setupSearchEventListeners() {
         searchClear.style.display = 'none';
         closeDropdown();
         searchInput.focus(); 
-    });
-
-    // --- 5. Result Selection ---
-    dropdown.addEventListener('click', (e) => {
-        const item = e.target.closest('.search-result-item');
-        if (item) {
-            onSearchResultClick(item); 
-        }
     });
 
     // Prevent blur when clicking dropdown
