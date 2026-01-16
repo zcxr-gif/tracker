@@ -1,16 +1,17 @@
 /**
  * natTracksLayer.js (Mapbox GL JS Version)
- * Updated for better aesthetics: solid lines, color-coding, and labels.
+ * Optimized: Solid lines, color-coding, and layer-depth management.
  */
 
 const ACARS_SOCKET_URL = 'https://site--acars-backend--6dmjph8ltlhv.code.run';
 
 export class NatTracksLayer {
-    constructor(map) {
+    constructor(map, planeLayerId = 'aircraft-layer') {
         this.map = map;
+        this.planeLayerId = planeLayerId; // The ID of your aircraft layer
         this.sourceId = 'nat-tracks-source';
         this.lineLayerId = 'nat-tracks-layer';
-        this.labelLayerId = 'nat-tracks-labels'; // New layer for the letters
+        this.glowLayerId = 'nat-tracks-glow';
         this.tracks = [];
         
         this.initSource();
@@ -22,53 +23,42 @@ export class NatTracksLayer {
             data: { type: 'FeatureCollection', features: [] }
         });
 
-        // 1. Line Layer (Solid & Color-Coded)
+        // 1. Glow/Outer Blur Layer (Improves visibility against dark backgrounds)
+        this.map.addLayer({
+            id: this.glowLayerId,
+            type: 'line',
+            source: this.sourceId,
+            layout: { 'line-join': 'round', 'line-cap': 'round' },
+            paint: {
+                'line-color': '#000000',
+                'line-width': 5,
+                'line-opacity': 0.3,
+                'line-blur': 3
+            }
+        }, this.planeLayerId); // <--- Ensures it renders BELOW the planes
+
+        // 2. Main Track Layer (Color-Coded & Solid)
         this.map.addLayer({
             id: this.lineLayerId,
             type: 'line',
             source: this.sourceId,
-            layout: {
-                'line-join': 'round',
-                'line-cap': 'round'
-            },
+            layout: { 'line-join': 'round', 'line-cap': 'round' },
             paint: {
-                // Color coding based on the track name (A, B, C, etc.)
                 'line-color': [
                     'match',
                     ['get', 'name'],
-                    'A', '#e74c3c', // Red
-                    'B', '#f1c40f', // Yellow
-                    'C', '#2ecc71', // Green
-                    'D', '#9b59b6', // Purple
-                    'E', '#e67e22', // Orange
-                    'F', '#1abc9c', // Teal
-                    '#3498db'       // Default Blue for others
+                    'A', '#FF4B2B', // Vibrant Red-Orange
+                    'B', '#FFD200', // Gold
+                    'C', '#1D976C', // Emerald
+                    'D', '#8E2DE2', // Deep Purple
+                    'E', '#00d2ff', // Sky Blue
+                    'F', '#F09819', // Amber
+                    '#5D26C1'       // Default Indigo
                 ],
                 'line-width': 2.5,
-                'line-opacity': 0.8
-                // Removed line-dasharray for solid lines
+                'line-opacity': 0.9
             }
-        });
-
-        // 2. Label Layer (Displaying the Letter)
-        this.map.addLayer({
-            id: this.labelLayerId,
-            type: 'symbol',
-            source: this.sourceId,
-            layout: {
-                'symbol-placement': 'line-center', // Places letter in the middle of the line
-                'text-field': ['get', 'name'],
-                'text-size': 14,
-                'text-font': ['Open Sans Bold', 'Arial Unicode MS Bold'],
-                'text-allow-overlap': false,
-                'text-ignore-placement': false
-            },
-            paint: {
-                'text-color': '#ffffff',
-                'text-halo-color': 'rgba(0,0,0,0.8)',
-                'text-halo-width': 2
-            }
-        });
+        }, this.planeLayerId); // <--- Ensures it renders BELOW the planes
 
         this.setupPopup();
     }
@@ -118,6 +108,7 @@ export class NatTracksLayer {
             if (point.includes('/')) {
                 const parts = point.split('/');
                 const lat = parseFloat(parts[0]);
+                // Handle Longitude: NAT points are West (negative)
                 const lon = -parseFloat(parts[1]); 
                 return [lon, lat]; 
             }
@@ -128,21 +119,27 @@ export class NatTracksLayer {
     setupPopup() {
         const popup = new mapboxgl.Popup({
             closeButton: false,
-            className: 'nat-track-popup'
+            className: 'nat-track-popup',
+            maxWidth: '300px'
         });
 
-        // Apply click listener to the line layer
         this.map.on('click', this.lineLayerId, (e) => {
             const props = e.features[0].properties;
             
             const html = `
-                <div style="font-family: sans-serif; font-size: 12px; padding: 5px;">
-                    <strong style="font-size: 14px;">Track ${props.name}</strong><br>
-                    <hr style="margin: 5px 0; border: 0; border-top: 1px solid #eee;">
-                    <strong>Direction:</strong> ${props.type}<br>
-                    <strong>Eastbound FL:</strong> ${props.eastLevels}<br>
-                    <strong>Westbound FL:</strong> ${props.westLevels}<br>
-                    <strong>Path:</strong> <span style="word-break: break-all;">${props.pathString}</span>
+                <div style="font-family: 'Segoe UI', Tahoma, sans-serif; padding: 10px; border-radius: 8px;">
+                    <div style="display: flex; justify-content: space-between; align-items: center;">
+                        <span style="font-size: 18px; font-weight: bold; color: #333;">Track ${props.name}</span>
+                        <span style="background: #eee; padding: 2px 6px; border-radius: 4px; font-size: 10px;">${props.type}</span>
+                    </div>
+                    <hr style="border: 0; border-top: 1px solid #ddd; margin: 8px 0;">
+                    <div style="font-size: 11px; color: #555; line-height: 1.6;">
+                        <strong>Eastbound FL:</strong> <span style="color: #2c3e50;">${props.eastLevels}</span><br>
+                        <strong>Westbound FL:</strong> <span style="color: #2c3e50;">${props.westLevels}</span><br>
+                        <div style="margin-top: 5px; padding: 5px; background: #f9f9f9; border-radius: 4px; font-family: monospace;">
+                            ${props.pathString}
+                        </div>
+                    </div>
                 </div>
             `;
 
@@ -156,7 +153,7 @@ export class NatTracksLayer {
     toggle(show) {
         const visibility = show ? 'visible' : 'none';
         this.map.setLayoutProperty(this.lineLayerId, 'visibility', visibility);
-        this.map.setLayoutProperty(this.labelLayerId, 'visibility', visibility);
+        this.map.setLayoutProperty(this.glowLayerId, 'visibility', visibility);
     }
 }
 
