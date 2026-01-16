@@ -159,24 +159,25 @@ export const LandingUI = {
                     <div class="orb-row">
                         <!-- WEATHER NEXUS WRAPPER -->
                         <div class="weather-nexus-container" id="weather-menu-wrapper">
-                            <div class="weather-spread">
-                                <button class="spread-opt active" id="opt-radar">
-                                    <i class="fa-solid fa-satellite-dish"></i>
-                                    <span class="spread-label">Radar (Precip)</span>
-                                </button>
-                                <button class="spread-opt disabled">
-                                    <i class="fa-solid fa-triangle-exclamation"></i>
-                                    <span class="spread-label">SIGMETs</span>
-                                </button>
-                                <button class="spread-opt disabled">
-                                    <i class="fa-solid fa-cloud"></i>
-                                    <span class="spread-label">Cloud Cover</span>
-                                </button>
-                                <button class="spread-opt disabled">
-                                    <i class="fa-solid fa-wind"></i>
-                                    <span class="spread-label">Wind Speed</span>
-                                </button>
-                            </div>
+                            /* Find the .weather-spread section and update the buttons like this: */
+<div class="weather-spread">
+    <button class="spread-opt" data-weather="precip" id="opt-radar">
+        <i class="fa-solid fa-satellite-dish"></i>
+        <span class="spread-label">Radar (Precip)</span>
+    </button>
+    <button class="spread-opt" data-weather="sigmets">
+        <i class="fa-solid fa-triangle-exclamation"></i>
+        <span class="spread-label">SIGMETs</span>
+    </button>
+    <button class="spread-opt" data-weather="clouds">
+        <i class="fa-solid fa-cloud"></i>
+        <span class="spread-label">Cloud Cover</span>
+    </button>
+    <button class="spread-opt" data-weather="wind">
+        <i class="fa-solid fa-wind"></i>
+        <span class="spread-label">Wind Speed</span>
+    </button>
+</div>
                             <button class="orb-btn" id="tile-weather" aria-label="Weather"><i class="fa-solid fa-cloud-sun-rain"></i></button>
                         </div>
 
@@ -219,14 +220,21 @@ export const LandingUI = {
         });
 
         // Functional Weather Option
-        radarBtn?.addEventListener('click', (e) => {
-            e.stopPropagation();
-            // Trigger the internal weather settings logic
-            document.getElementById('open-weather-settings-btn')?.click();
-            
-            // Visual feedback
-            radarBtn.classList.toggle('active');
-        });
+       // Replace the radarBtn click logic with this generic spread listener:
+document.querySelectorAll('.spread-opt').forEach(btn => {
+    btn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        
+        // Toggle visual active state
+        const isActive = btn.classList.toggle('active');
+        const weatherType = btn.dataset.weather;
+
+        // Dispatch event to flight.js
+        window.dispatchEvent(new CustomEvent('weatherToggle', { 
+            detail: { type: weatherType, isActive: isActive } 
+        }));
+    });
+});
 
         // Toggle Server Dropdown
         serverSelector?.addEventListener('click', (e) => {

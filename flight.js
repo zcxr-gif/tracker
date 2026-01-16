@@ -11820,6 +11820,31 @@ function processRawPilotData(gradeInfo) {
         openWeatherBtn.classList.toggle('active', isAnyActive);
     }
 
+    window.addEventListener('weatherToggle', (e) => {
+    const { type, isActive } = e.detail;
+    
+    switch(type) {
+        case 'precip':
+            toggleWeatherLayer(isActive);
+            break;
+        case 'sigmets':
+            toggleSigmetLayer(isActive);
+            break;
+        case 'clouds':
+            // Ensure toggleCloudLayer is defined or show notification
+            if (typeof toggleCloudLayer === 'function') toggleCloudLayer(isActive);
+            else showNotification("Cloud layer currently unavailable", "info");
+            break;
+        case 'wind':
+            if (typeof toggleWindLayer === 'function') toggleWindLayer(isActive);
+            else showNotification("Wind layer currently unavailable", "info");
+            break;
+    }
+    
+    // Optional: Keep the old toolbar button synced if it exists
+    updateWeatherToolbarButtonState(); 
+});
+
     /**
      * Sets up event listeners for the Weather Settings info window.
      */
