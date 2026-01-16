@@ -1,7 +1,8 @@
 /**
  * LandingUI.js
  * REDESIGN: Tactical Modal - Advanced Centralized Filter Engine
- * UPDATED: Added Hover Previews for Settings and Filters
+ * UPDATED: Integrated Live Search Engine & Panel Styles
+ * FULL EXPANSION: No condensation of styles or logic.
  */
 
 export const LandingUI = {
@@ -27,13 +28,7 @@ export const LandingUI = {
                 { id: 'category', label: 'Category', icon: 'fa-shapes', type: 'select', options: ['Heavy', 'Widebody', 'Narrowbody', 'Regional', 'GA', 'Military', 'Fighter'] },
                 { id: 'type', label: 'Aircraft Type', icon: 'fa-plane', type: 'text', placeholder: 'e.g. B737, A320' },
                 { id: 'livery', label: 'Livery', icon: 'fa-paint-roller', type: 'text', placeholder: 'e.g. United, FedEx' },
-                { 
-                    id: 'country', 
-                    label: 'Country Registry', 
-                    icon: 'fa-globe', 
-                    type: 'select', 
-                    options: [] 
-                },
+                { id: 'country', label: 'Country Registry', icon: 'fa-globe', type: 'select', options: [] },
                 { id: 'airline', label: 'Airline Code', icon: 'fa-building', type: 'text', placeholder: 'e.g. UAL, BAW' }
             ]
         },
@@ -71,6 +66,65 @@ export const LandingUI = {
         }
     },
 
+    /**
+     * LOCAL SEARCH ENGINE
+     * Filter through live flight data and render the panel-style results
+     */
+    handleLocalSearch(query) {
+        const resultsContainer = document.getElementById('blade-search-results');
+        if (!query || query.length < 2) {
+            if (resultsContainer) {
+                resultsContainer.innerHTML = '';
+                resultsContainer.classList.remove('visible');
+            }
+            return;
+        }
+
+        // Get live data from global hook (flight.js)
+        const flights = window.getLiveFlightData ? window.getLiveFlightData() : [];
+        const upperQuery = query.toUpperCase();
+
+        const matches = flights.filter(f => {
+            const p = f.properties;
+            const callsignMatch = p.callsign?.toUpperCase().includes(upperQuery);
+            const userMatch = p.username?.toUpperCase().includes(upperQuery);
+            const aircraftMatch = p.aircraftName?.toUpperCase().includes(upperQuery);
+            return callsignMatch || userMatch || aircraftMatch;
+        });
+
+        this.renderSearchResults(matches);
+    },
+
+    renderSearchResults(matches) {
+        const container = document.getElementById('blade-search-results');
+        if (!container) return;
+        
+        if (matches.length === 0) {
+            container.innerHTML = `
+                <div class="search-no-results">
+                    <i class="fa-solid fa-plane-slash"></i>
+                    <span>No matching flights</span>
+                </div>
+            `;
+        } else {
+            container.innerHTML = matches.slice(0, 15).map(f => `
+                <div class="search-result-item" 
+                     onclick="window.handleSearchResultClick ? window.handleSearchResultClick('${f.properties.flightId}', ${f.geometry.coordinates[1]}, ${f.geometry.coordinates[0]}) : console.log('Click:', '${f.properties.flightId}')">
+                    <div class="res-main">
+                        <span class="res-callsign">${f.properties.callsign || 'N/A'}</span>
+                        <span class="res-aircraft">${f.properties.aircraftName || ''}</span>
+                    </div>
+                    <div class="res-sub">
+                        <span class="res-pilot"><i class="fa-solid fa-user"></i> ${f.properties.username || 'Anonymous'}</span>
+                        <span class="res-alt">${Math.round(f.properties.altitude || 0)}ft</span>
+                    </div>
+                </div>
+            `).join('');
+        }
+        
+        container.classList.add('visible');
+    },
+
     render() {
         const existing = document.getElementById('inflight-tactical-ui');
         if (existing) existing.remove();
@@ -80,6 +134,7 @@ export const LandingUI = {
 
         const html = `
             <div id="inflight-tactical-ui" class="tactical-ui-root">
+                <!-- SERVER SELECTOR -->
                 <div class="top-branding dropdown" id="server-selector">
                     <div class="status-dot"></div>
                     <div class="branding-content">
@@ -93,14 +148,18 @@ export const LandingUI = {
                     </div>
                 </div>
 
+                <!-- SEARCH BAR -->
                 <div class="top-right-actions">
                     <div class="search-blade">
                         <i class="fa-solid fa-magnifying-glass search-icon"></i>
                         <input type="text" id="blade-search-input" placeholder="Quick search..." autocomplete="off">
                         <div class="search-shortcut">⌘K</div>
+                        <!-- Search Results Dropdown -->
+                        <div id="blade-search-results" class="search-results-dropdown custom-scroll"></div>
                     </div>
                 </div>
 
+                <!-- FILTER MODAL -->
                 <div id="filter-modal-overlay" class="modal-overlay">
                     <div class="filter-modal">
                         <div class="modal-header">
@@ -155,12 +214,13 @@ export const LandingUI = {
                     </div>
                 </div>
 
+                <!-- BOTTOM UTILITY NEXUS -->
                 <div class="utility-nexus">
                     <div class="orb-row">
-                        <!-- WEATHER NEXUS WRAPPER -->
+                        <!-- WEATHER NEXUS -->
                         <div class="weather-nexus-container" id="weather-menu-wrapper">
                             <div class="weather-spread">
-                                <button class="spread-opt" data-weather="precip" id="opt-radar">
+                                <button class="spread-opt" data-weather="precip">
                                     <i class="fa-solid fa-satellite-dish"></i>
                                     <span class="spread-label">Radar (Precip)</span>
                                 </button>
@@ -177,12 +237,14 @@ export const LandingUI = {
                                     <span class="spread-label">Wind Speed</span>
                                 </button>
                             </div>
-                            <button class="orb-btn" id="tile-weather" aria-label="Weather"><i class="fa-solid fa-cloud-sun-rain"></i></button>
+                            <button class="orb-btn" id="tile-weather" aria-label="Weather">
+                                <i class="fa-solid fa-cloud-sun-rain"></i>
+                            </button>
                         </div>
 
                         <!-- FILTER ORB -->
                         <div class="nexus-orb-wrapper">
-                            <div class="nexus-preview-tooltip" id="filter-preview-tooltip"></div>
+                            <div class="nexus-preview-tooltip" id="filters-preview-tooltip"></div>
                             <button class="orb-btn nexus-trigger" id="toggle-filter-modal" aria-label="Filters">
                                 <i class="fa-solid fa-filter"></i>
                                 <div id="filter-active-dot" class="active-pulse-dot"></div>
@@ -202,39 +264,53 @@ export const LandingUI = {
         `;
 
         const container = document.getElementById('sector-ops-map-fullscreen');
-        if (container) container.insertAdjacentHTML('beforeend', html);
+        if (container) {
+            container.insertAdjacentHTML('beforeend', html);
+        }
     },
 
     attachListeners() {
         const modalOverlay = document.getElementById('filter-modal-overlay');
         const filterBtn = document.getElementById('toggle-filter-modal');
         const settingsBtn = document.getElementById('tile-settings');
-        const closeBtn = document.getElementById('close-filter-modal');
-        const applyBtn = document.getElementById('apply-filters-btn');
-        const clearBtn = document.getElementById('clear-filters-btn');
+        const searchInput = document.getElementById('blade-search-input');
+        const searchResults = document.getElementById('blade-search-results');
         const serverSelector = document.getElementById('server-selector');
-        
-        const weatherWrapper = document.getElementById('weather-menu-wrapper');
         const weatherTrigger = document.getElementById('tile-weather');
+        const weatherWrapper = document.getElementById('weather-menu-wrapper');
+        
+        // Global Keyboard Shortcut
+        window.addEventListener('keydown', (e) => {
+            if ((e.metaKey || e.ctrlKey) && e.key === 'k') {
+                e.preventDefault();
+                searchInput?.focus();
+            }
+        });
 
-        // Hover Previews
+        // Search Input Engine
+        searchInput?.addEventListener('input', (e) => {
+            this.handleLocalSearch(e.target.value);
+        });
+
+        // Close Search on Outside Click
+        document.addEventListener('click', (e) => {
+            const searchBlade = document.querySelector('.search-blade');
+            if (searchResults && !searchBlade?.contains(e.target)) {
+                searchResults.classList.remove('visible');
+            }
+        });
+
+        // Hover Tooltips
         filterBtn?.addEventListener('mouseenter', () => this.showPreview('filters'));
         filterBtn?.addEventListener('mouseleave', () => this.hidePreview('filters'));
         settingsBtn?.addEventListener('mouseenter', () => this.showPreview('settings'));
         settingsBtn?.addEventListener('mouseleave', () => this.hidePreview('settings'));
 
-        // Weather Menu Logic
+        // Weather Menu
         weatherTrigger?.addEventListener('click', (e) => {
             e.stopPropagation();
             this._weatherMenuOpen = !this._weatherMenuOpen;
-            weatherWrapper.classList.toggle('expanded', this._weatherMenuOpen);
-        });
-
-        document.addEventListener('click', (e) => {
-            if (!weatherWrapper?.contains(e.target)) {
-                this._weatherMenuOpen = false;
-                weatherWrapper?.classList.remove('expanded');
-            }
+            weatherWrapper?.classList.toggle('expanded', this._weatherMenuOpen);
         });
 
         document.querySelectorAll('.spread-opt').forEach(btn => {
@@ -248,6 +324,7 @@ export const LandingUI = {
             });
         });
 
+        // Server Dropdown
         serverSelector?.addEventListener('click', (e) => {
             e.stopPropagation();
             serverSelector.classList.toggle('open');
@@ -255,6 +332,8 @@ export const LandingUI = {
 
         document.addEventListener('click', () => {
             serverSelector?.classList.remove('open');
+            weatherWrapper?.classList.remove('expanded');
+            this._weatherMenuOpen = false;
         });
 
         document.querySelectorAll('.server-option').forEach(opt => {
@@ -266,20 +345,26 @@ export const LandingUI = {
             });
         });
 
+        // Filter Modal Controls
         const toggleModal = (state) => {
             this._modalOpen = state;
-            modalOverlay.classList.toggle('open', state);
-            if (state) this.refreshUI();
+            modalOverlay?.classList.toggle('open', state);
+            if (state) {
+                this.refreshUI();
+                document.body.style.overflow = 'hidden';
+            } else {
+                document.body.style.overflow = '';
+            }
         };
 
         filterBtn?.addEventListener('click', () => toggleModal(true));
-        closeBtn?.addEventListener('click', () => toggleModal(false));
-        applyBtn?.addEventListener('click', () => {
+        document.getElementById('close-filter-modal')?.addEventListener('click', () => toggleModal(false));
+        document.getElementById('apply-filters-btn')?.addEventListener('click', () => {
             this.dispatchFilterUpdate();
             toggleModal(false);
         });
         
-        clearBtn?.addEventListener('click', () => {
+        document.getElementById('clear-filters-btn')?.addEventListener('click', () => {
             this._activeFilters = {};
             this.refreshUI();
             this.dispatchFilterUpdate();
@@ -290,22 +375,8 @@ export const LandingUI = {
         });
 
         document.querySelectorAll('.nexus-item').forEach(item => {
-            item.addEventListener('click', () => {
-                const id = item.dataset.filterId;
-                this.activateFilter(id);
-            });
+            item.addEventListener('click', () => this.activateFilter(item.dataset.filterId));
         });
-        
-        // Inside LandingUI.js -> attachListeners()
-// Ensure this listener in landingUI.js looks like this:
-document.getElementById('blade-search-input')?.addEventListener('input', (e) => {
-    const val = e.target.value;
-
-    // This should ONLY trigger the results list, NOT map filtering
-    if (window.handleSearchInput) {
-        window.handleSearchInput(val);
-    }
-});
     },
 
     showPreview(type) {
@@ -341,7 +412,6 @@ document.getElementById('blade-search-input')?.addEventListener('input', (e) => 
                 }).join('');
             }
         } else {
-            // Settings Preview
             content = `
                 <div class="preview-line">
                     <i class="fa-solid fa-server"></i>
@@ -351,7 +421,7 @@ document.getElementById('blade-search-input')?.addEventListener('input', (e) => 
                 <div class="preview-line">
                     <i class="fa-solid fa-earth-americas"></i>
                     <span class="preview-label">Region:</span>
-                    <span class="preview-value">Global</span>
+                    <span class="preview-value">Global Airspace</span>
                 </div>
             `;
         }
@@ -359,23 +429,27 @@ document.getElementById('blade-search-input')?.addEventListener('input', (e) => 
         tooltip.innerHTML = `
             <div class="preview-header">${type.toUpperCase()} STATUS</div>
             <div class="preview-body">${content}</div>
-            <div class="preview-footer">Click icon to open full window</div>
+            <div class="preview-footer">Click icon to manage full settings</div>
         `;
         tooltip.classList.add('visible');
     },
 
     hidePreview(type) {
-        const tooltip = document.getElementById(`${type}-preview-tooltip`);
-        tooltip?.classList.remove('visible');
+        document.getElementById(`${type}-preview-tooltip`)?.classList.remove('visible');
     },
 
     activateFilter(id) {
         if (!this._activeFilters[id]) {
             const def = this.allFilters.find(f => f.id === id);
-            if (def.type === 'range') this._activeFilters[id] = { min: '', max: '' };
-            else if (def.type === 'select') this._activeFilters[id] = def.options[0];
-            else if (def.type === 'boolean') this._activeFilters[id] = true;
-            else this._activeFilters[id] = '';
+            if (def.type === 'range') {
+                this._activeFilters[id] = { min: '', max: '' };
+            } else if (def.type === 'boolean') {
+                this._activeFilters[id] = true;
+            } else if (def.type === 'select') {
+                this._activeFilters[id] = def.options[0];
+            } else {
+                this._activeFilters[id] = '';
+            }
         }
         this.refreshUI();
     },
@@ -393,18 +467,81 @@ document.getElementById('blade-search-input')?.addEventListener('input', (e) => 
         }
     },
 
+    refreshUI() {
+        const container = document.getElementById('modal-active-filters');
+        const badge = document.getElementById('active-count-badge');
+        const activeDot = document.getElementById('filter-active-dot');
+        if (!container) return;
+
+        const activeEntries = Object.entries(this._activeFilters);
+        if (badge) badge.textContent = `${activeEntries.length} Active Rule${activeEntries.length !== 1 ? 's' : ''}`;
+        if (activeDot) activeDot.style.opacity = activeEntries.length > 0 ? '1' : '0';
+
+        document.querySelectorAll('.nexus-item').forEach(item => {
+            const id = item.dataset.filterId;
+            item.classList.toggle('active', !!this._activeFilters[id]);
+        });
+
+        if (activeEntries.length === 0) {
+            container.innerHTML = `
+                <div class="empty-state">
+                    <div class="empty-icon-circle"><i class="fa-solid fa-filter"></i></div>
+                    <p>No active filters</p>
+                    <span>Select parameters from the left sidebar to configure rules.</span>
+                </div>
+            `;
+            return;
+        }
+
+        container.innerHTML = activeEntries.map(([id, value]) => {
+            const def = this.allFilters.find(f => f.id === id);
+            return `
+                <div class="modal-filter-card slide-in">
+                    <div class="card-left-strip"></div>
+                    <div class="card-content">
+                        <div class="row-header" style="display:flex; justify-content:space-between; align-items:center;">
+                            <div class="row-label">
+                                <i class="fa-solid ${def.icon}"></i>
+                                <span>${def.label}</span>
+                            </div>
+                            <button class="row-remove js-remove-filter" data-id="${id}" title="Remove Filter" style="background:none; border:none; color:#ef4444; cursor:pointer; padding:5px;">
+                                <i class="fa-solid fa-trash-can"></i>
+                            </button>
+                        </div>
+                        <div class="row-control">${this.renderInputControl(id, value)}</div>
+                    </div>
+                </div>
+            `;
+        }).join('');
+
+        // Re-attach local listeners
+        container.querySelectorAll('.js-remove-filter').forEach(btn => {
+            btn.addEventListener('click', (e) => this.removeFilter(e.currentTarget.dataset.id));
+        });
+        container.querySelectorAll('.data-input').forEach(input => {
+            input.addEventListener('input', (e) => this.updateFilterValue(e.target.dataset.id, e.target.value));
+        });
+        container.querySelectorAll('.data-input-min').forEach(input => {
+            input.addEventListener('input', (e) => this.updateFilterValue(e.target.dataset.id, e.target.value, 'min'));
+        });
+        container.querySelectorAll('.data-input-max').forEach(input => {
+            input.addEventListener('input', (e) => this.updateFilterValue(e.target.dataset.id, e.target.value, 'max'));
+        });
+    },
+
     renderInputControl(id, value) {
         const def = this.allFilters.find(f => f.id === id);
+        
         if (def.type === 'select') {
             return `
                 <div class="input-wrapper select-wrapper">
                     <select class="row-input-select data-input" data-id="${id}">
                         ${def.options.map(opt => `<option value="${opt}" ${value === opt ? 'selected' : ''}>${opt}</option>`).join('')}
                     </select>
-                    <i class="fa-solid fa-chevron-down select-caret"></i>
                 </div>
             `;
         } 
+        
         if (def.type === 'range') {
             return `
                 <div class="range-pill-container">
@@ -420,239 +557,603 @@ document.getElementById('blade-search-input')?.addEventListener('input', (e) => 
                 </div>
             `;
         }
+        
         if (def.type === 'boolean') {
-            return `<div class="bool-indicator"><i class="fa-solid fa-check"></i> Active</div>`;
+            return `<div class="bool-indicator" style="font-size:0.8rem; color:#10b981; font-weight:600;"><i class="fa-solid fa-check"></i> Active Policy Enabled</div>`;
         }
+        
         return `
             <div class="input-wrapper">
-                <input type="text" class="row-input data-input" data-id="${id}" placeholder="${def.placeholder || 'Enter value...'}" value="${value}">
+                <input type="text" class="row-input data-input" data-id="${id}" placeholder="${def.placeholder || 'Search value...'}" value="${value}">
             </div>
         `;
     },
 
-    refreshUI() {
-        const container = document.getElementById('modal-active-filters');
-        const badge = document.getElementById('active-count-badge');
-        const activeDot = document.getElementById('filter-active-dot');
-        if (!container) return;
-
-        const activeEntries = Object.entries(this._activeFilters);
-        if (badge) badge.textContent = `${activeEntries.length} Rule${activeEntries.length !== 1 ? 's' : ''}`;
-        
-        // Update the pulse dot on the filter icon
-        if (activeDot) activeDot.style.opacity = activeEntries.length > 0 ? '1' : '0';
-
-        document.querySelectorAll('.nexus-item').forEach(item => {
-            const id = item.dataset.filterId;
-            item.classList.toggle('active', !!this._activeFilters[id]);
-        });
-
-        if (activeEntries.length === 0) {
-            container.innerHTML = `
-                <div class="empty-state">
-                    <div class="empty-icon-circle"><i class="fa-solid fa-filter"></i></div>
-                    <p>No active filters</p>
-                    <span>Select parameters from the left sidebar to configure rules.</span>
-                </div>`;
-            return;
-        }
-
-        container.innerHTML = activeEntries.map(([id, value]) => {
-            const def = this.allFilters.find(f => f.id === id);
-            return `
-                <div class="modal-filter-card slide-in">
-                    <div class="card-left-strip"></div>
-                    <div class="card-content">
-                        <div class="row-header">
-                            <div class="row-label">
-                                <i class="fa-solid ${def.icon}"></i>
-                                <span>${def.label}</span>
-                            </div>
-                            <button class="row-remove js-remove-filter" data-id="${id}" title="Remove Filter">
-                                <i class="fa-solid fa-trash-can"></i>
-                            </button>
-                        </div>
-                        <div class="row-control">${this.renderInputControl(id, value)}</div>
-                    </div>
-                </div>
-            `;
-        }).join('');
-
-        // Re-attach input listeners
-        container.querySelectorAll('.js-remove-filter').forEach(btn => {
-            btn.addEventListener('click', (e) => this.removeFilter(e.currentTarget.dataset.id));
-        });
-        container.querySelectorAll('.data-input').forEach(input => {
-            input.addEventListener('input', (e) => this.updateFilterValue(e.target.dataset.id, e.target.value));
-        });
-        container.querySelectorAll('.data-input-min').forEach(input => {
-            input.addEventListener('input', (e) => this.updateFilterValue(e.target.dataset.id, e.target.value, 'min'));
-        });
-        container.querySelectorAll('.data-input-max').forEach(input => {
-            input.addEventListener('input', (e) => this.updateFilterValue(e.target.dataset.id, e.target.value, 'max'));
-        });
-    },
-
     dispatchFilterUpdate() {
         const quickSearch = document.getElementById('blade-search-input')?.value || '';
-        window.dispatchEvent(new CustomEvent('filterUpdate', {
-            detail: { filters: { ...this._activeFilters }, quickSearch }
+        window.dispatchEvent(new CustomEvent('filterUpdate', { 
+            detail: { filters: { ...this._activeFilters }, quickSearch } 
         }));
     },
 
     update(isActive, stats = {}) {
         const el = document.getElementById('inflight-tactical-ui');
-        if (!el) return;
-        isActive ? el.classList.add('active') : el.classList.remove('active');
+        if (el) {
+            isActive ? el.classList.add('active') : el.classList.remove('active');
+        }
     },
 
     injectStyles() {
         const css = `
-            @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
+            @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap');
 
-            .tactical-ui-root { position: absolute; inset: 0; z-index: 2000; pointer-events: none; opacity: 0; visibility: hidden; transition: opacity 0.5s ease; font-family: 'Inter', sans-serif; }
-            .tactical-ui-root.active { opacity: 1; visibility: visible; }
-            
-            /* HOVER PREVIEW TOOLTIP */
-            .nexus-orb-wrapper { position: relative; pointer-events: auto; }
-            .nexus-preview-tooltip {
-                position: absolute; bottom: calc(100% + 15px); right: 0;
-                width: 200px; background: rgba(10, 10, 12, 0.85); 
-                backdrop-filter: blur(20px); border: 1px solid rgba(255, 255, 255, 0.12);
-                border-radius: 12px; padding: 12px; color: #fff;
-                opacity: 0; transform: translateY(10px); visibility: hidden;
+            .tactical-ui-root {
+                position: absolute;
+                inset: 0;
+                z-index: 2000;
+                pointer-events: none;
+                opacity: 0;
+                visibility: hidden;
+                transition: opacity 0.5s ease;
+                font-family: 'Inter', sans-serif;
+            }
+            .tactical-ui-root.active {
+                opacity: 1;
+                visibility: visible;
+            }
+
+            /* SEARCH BLADE & DROP-DOWN PANEL STYLE */
+            .top-right-actions {
+                position: absolute;
+                top: 30px;
+                right: 40px;
+                pointer-events: auto;
+            }
+            .search-blade {
+                background: rgba(10, 10, 10, 0.8);
+                backdrop-filter: blur(15px);
+                border: 1px solid rgba(255, 255, 255, 0.15);
+                border-radius: 100px;
+                height: 40px;
+                width: 240px;
+                display: flex;
+                align-items: center;
+                padding: 0 15px;
+                transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+                position: relative;
+                box-shadow: 0 10px 30px rgba(0,0,0,0.4);
+            }
+            .search-blade:focus-within {
+                width: 320px;
+                border-color: #38bdf8;
+                background: rgba(0, 0, 0, 0.95);
+                box-shadow: 0 15px 40px rgba(0,0,0,0.6), 0 0 0 2px rgba(56, 189, 248, 0.2);
+            }
+            #blade-search-input {
+                flex: 1;
+                background: none;
+                border: none;
+                color: #fff;
+                margin-left: 10px;
+                outline: none;
+                font-size: 14px;
+                font-weight: 500;
+            }
+            .search-icon {
+                color: rgba(255, 255, 255, 0.4);
+                font-size: 14px;
+            }
+            .search-shortcut {
+                background: rgba(255, 255, 255, 0.1);
+                padding: 2px 6px;
+                border-radius: 6px;
+                font-size: 0.65rem;
+                color: rgba(255, 255, 255, 0.5);
+                font-weight: 800;
+                margin-left: 10px;
+            }
+
+            .search-results-dropdown {
+                position: absolute;
+                top: calc(100% + 12px);
+                left: 0;
+                right: 0;
+                background: rgba(15, 15, 17, 0.98);
+                backdrop-filter: blur(25px);
+                border: 1px solid rgba(255, 255, 255, 0.1);
+                border-radius: 20px;
+                max-height: 420px;
+                overflow-y: auto;
+                display: none;
+                box-shadow: 0 25px 60px rgba(0,0,0,0.8);
+                z-index: 1001;
+                padding: 8px 0;
+            }
+            .search-results-dropdown.visible {
+                display: block;
+            }
+            .search-result-item {
+                padding: 12px 20px;
+                cursor: pointer;
+                border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+                transition: all 0.2s;
+            }
+            .search-result-item:hover {
+                background: rgba(56, 189, 248, 0.15);
+            }
+            .res-main {
+                display: flex;
+                justify-content: space-between;
+                align-items: center;
+                margin-bottom: 5px;
+            }
+            .res-callsign {
+                font-weight: 800;
+                color: #fff;
+                font-size: 1rem;
+                letter-spacing: 0.5px;
+            }
+            .res-aircraft {
+                font-size: 0.7rem;
+                color: rgba(255, 255, 255, 0.4);
+                text-transform: uppercase;
+                font-weight: 600;
+            }
+            .res-sub {
+                display: flex;
+                justify-content: space-between;
+                align-items: center;
+                font-size: 0.75rem;
+            }
+            .res-pilot {
+                color: #38bdf8;
+                font-weight: 500;
+                display: flex;
+                align-items: center;
+                gap: 5px;
+            }
+            .res-alt {
+                color: #10b981;
+                font-family: 'JetBrains Mono', monospace;
+                font-weight: 600;
+            }
+            .search-no-results {
+                padding: 40px 20px;
+                text-align: center;
+                color: rgba(255, 255, 255, 0.3);
+                display: flex;
+                flex-direction: column;
+                gap: 12px;
+            }
+            .search-no-results i {
+                font-size: 24px;
+                opacity: 0.5;
+            }
+
+            /* UTILITY NEXUS STYLES */
+            .utility-nexus {
+                position: absolute;
+                bottom: 40px;
+                right: 40px;
+                pointer-events: none;
+            }
+            .orb-row {
+                display: flex;
+                gap: 15px;
+                pointer-events: auto;
+                align-items: flex-end;
+            }
+            .orb-btn {
+                width: 48px;
+                height: 48px;
+                border-radius: 50%;
+                background: rgba(15, 15, 15, 0.7);
+                backdrop-filter: blur(15px);
+                border: 1px solid rgba(255, 255, 255, 0.12);
+                color: rgba(255, 255, 255, 0.7);
+                cursor: pointer;
+                display: grid;
+                place-items: center;
                 transition: all 0.3s cubic-bezier(0.16, 1, 0.3, 1);
-                box-shadow: 0 20px 40px rgba(0,0,0,0.5); z-index: 4000;
-                pointer-events: none;
+                position: relative;
+                box-shadow: 0 10px 20px rgba(0,0,0,0.3);
             }
-            .nexus-preview-tooltip.visible { opacity: 1; transform: translateY(0); visibility: visible; }
-            
-            .preview-header { font-size: 0.6rem; font-weight: 800; color: #71717a; letter-spacing: 1px; margin-bottom: 8px; border-bottom: 1px solid rgba(255,255,255,0.05); padding-bottom: 4px; }
-            .preview-body { display: flex; flex-direction: column; gap: 6px; }
-            .preview-line { display: flex; align-items: center; gap: 8px; font-size: 0.75rem; }
-            .preview-line i { width: 14px; text-align: center; color: #38bdf8; font-size: 0.7rem; }
-            .preview-label { color: #a1a1aa; }
-            .preview-value { font-weight: 600; color: #fff; }
-            .preview-empty { font-size: 0.75rem; color: #52525b; font-style: italic; }
-            .preview-footer { margin-top: 10px; font-size: 0.6rem; color: #38bdf8; font-weight: 500; opacity: 0.8; }
-
-            /* PULSE DOT */
-            .active-pulse-dot {
-                position: absolute; top: 0; right: 0; width: 8px; height: 8px;
-                background: #38bdf8; border-radius: 50%; border: 2px solid #000;
-                opacity: 0; transition: opacity 0.3s;
+            .orb-btn:hover {
+                transform: translateY(-5px);
+                background: #fff;
+                color: #000;
+                border-color: #fff;
+                box-shadow: 0 15px 30px rgba(255,255,255,0.2);
             }
 
-            /* SERVER DROPDOWN STYLES */
-            .top-branding.dropdown { 
-                position: absolute; top: 30px; left: 40px; 
-                display: flex; align-items: center; gap: 12px; 
-                pointer-events: auto; background: rgba(0,0,0,0.6); 
-                padding: 8px 18px; border-radius: 30px; 
-                backdrop-filter: blur(10px); border: 1px solid rgba(255,255,255,0.1); 
-                box-shadow: 0 4px 20px rgba(0,0,0,0.3);
-                cursor: pointer; transition: all 0.2s;
+            /* TOOLTIPS */
+            .nexus-orb-wrapper {
+                position: relative;
             }
-            .top-branding.dropdown:hover { background: rgba(20,20,20,0.8); border-color: rgba(255,255,255,0.2); }
-            .branding-content { display: flex; align-items: center; gap: 10px; }
-            .dropdown-arrow { font-size: 0.6rem; color: #71717a; transition: transform 0.2s; }
-            .top-branding.dropdown.open .dropdown-arrow { transform: rotate(180deg); }
-            
-            .server-menu { 
-                position: absolute; top: calc(100% + 10px); left: 0; width: 100%;
-                background: #18181b; border: 1px solid #3f3f46; border-radius: 12px;
-                overflow: hidden; opacity: 0; transform: translateY(-10px);
-                visibility: hidden; transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
-                box-shadow: 0 10px 30px rgba(0,0,0,0.5);
-            }
-            .top-branding.dropdown.open .server-menu { opacity: 1; transform: translateY(0); visibility: visible; }
-            .server-option { padding: 10px 18px; color: #a1a1aa; font-size: 0.75rem; font-weight: 600; transition: all 0.2s; border-bottom: 1px solid rgba(255,255,255,0.03); }
-            .server-option:hover { background: rgba(56, 189, 248, 0.1); color: #38bdf8; }
-
-            .status-dot { width: 6px; height: 6px; background: #10b981; border-radius: 50%; box-shadow: 0 0 10px #10b981; }
-            #landing-server-name { font-size: 0.7rem; font-weight: 700; color: #fff; letter-spacing: 0.5px; white-space: nowrap; }
-
-            /* WEATHER EXPANSION */
-            .weather-nexus-container { position: relative; display: flex; flex-direction: column-reverse; align-items: center; gap: 12px; }
-            .weather-spread {
-                display: flex; flex-direction: column-reverse; align-items: center; gap: 8px; opacity: 0;
+            .nexus-preview-tooltip {
+                position: absolute;
+                bottom: calc(100% + 20px);
+                right: 0;
+                width: 240px;
+                background: rgba(10, 10, 12, 0.95);
+                backdrop-filter: blur(30px);
+                border: 1px solid rgba(255, 255, 255, 0.15);
+                border-radius: 16px;
+                padding: 16px;
+                color: #fff;
+                opacity: 0;
+                visibility: hidden;
+                transform: translateY(15px);
                 transition: all 0.4s cubic-bezier(0.16, 1, 0.3, 1);
-                position: absolute; bottom: calc(100% + 10px); left: 50%;
-                transform-origin: bottom center; transform: translateX(-50%) translateY(20px) scale(0.9);
+                box-shadow: 0 30px 60px rgba(0,0,0,0.6);
+                pointer-events: none;
+                z-index: 4000;
+            }
+            .nexus-preview-tooltip.visible {
+                opacity: 1;
+                visibility: visible;
+                transform: translateY(0);
+            }
+            .preview-header {
+                font-size: 0.65rem;
+                font-weight: 800;
+                color: #71717a;
+                letter-spacing: 1.5px;
+                margin-bottom: 12px;
+                border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+                padding-bottom: 6px;
+                text-transform: uppercase;
+            }
+            .preview-line {
+                display: flex;
+                align-items: center;
+                gap: 10px;
+                font-size: 0.8rem;
+                margin-bottom: 8px;
+            }
+            .preview-line i {
+                color: #38bdf8;
+                width: 16px;
+                text-align: center;
+                font-size: 0.75rem;
+            }
+            .preview-label { color: #a1a1aa; }
+            .preview-value { font-weight: 700; color: #fff; margin-left: auto; }
+            .preview-footer {
+                margin-top: 12px;
+                font-size: 0.65rem;
+                color: #38bdf8;
+                font-weight: 600;
+                border-top: 1px solid rgba(255, 255, 255, 0.05);
+                padding-top: 8px;
+            }
+
+            /* SERVER SELECTOR PANEL STYLE */
+            .top-branding.dropdown {
+                position: absolute;
+                top: 30px;
+                left: 40px;
+                pointer-events: auto;
+                background: rgba(0, 0, 0, 0.7);
+                padding: 10px 20px;
+                border-radius: 100px;
+                backdrop-filter: blur(15px);
+                border: 1px solid rgba(255, 255, 255, 0.1);
+                cursor: pointer;
+                color: #fff;
+                display: flex;
+                align-items: center;
+                gap: 12px;
+                box-shadow: 0 10px 20px rgba(0,0,0,0.3);
+                transition: all 0.3s;
+            }
+            .top-branding.dropdown:hover {
+                background: rgba(20, 20, 20, 0.9);
+                border-color: rgba(255,255,255,0.2);
+            }
+            .status-dot { width: 8px; height: 8px; background: #10b981; border-radius: 50%; box-shadow: 0 0 12px #10b981; }
+            #landing-server-name { font-size: 0.75rem; font-weight: 800; letter-spacing: 1px; }
+            .dropdown-arrow { font-size: 0.7rem; opacity: 0.5; transition: transform 0.3s; }
+            .top-branding.dropdown.open .dropdown-arrow { transform: rotate(180deg); }
+
+            .server-menu {
+                position: absolute;
+                top: calc(100% + 12px);
+                left: 0;
+                width: 100%;
+                background: #18181b;
+                border: 1px solid #3f3f46;
+                border-radius: 16px;
+                display: none;
+                flex-direction: column;
+                overflow: hidden;
+                box-shadow: 0 20px 40px rgba(0,0,0,0.6);
+                z-index: 5000;
+            }
+            .top-branding.dropdown.open .server-menu { display: flex; }
+            .server-option {
+                padding: 12px 20px;
+                font-size: 0.8rem;
+                font-weight: 600;
+                color: #a1a1aa;
+                transition: all 0.2s;
+            }
+            .server-option:hover {
+                background: rgba(56, 189, 248, 0.1);
+                color: #38bdf8;
+            }
+
+            /* WEATHER EXPANSION STYLE */
+            .weather-nexus-container { position: relative; display: flex; flex-direction: column-reverse; align-items: center; gap: 15px; }
+            .weather-spread {
+                display: flex;
+                flex-direction: column-reverse;
+                align-items: center;
+                gap: 10px;
+                opacity: 0;
+                visibility: hidden;
+                position: absolute;
+                bottom: calc(100% + 15px);
+                left: 50%;
+                transform: translateX(-50%) translateY(20px);
+                transition: all 0.4s cubic-bezier(0.16, 1, 0.3, 1);
                 pointer-events: none;
             }
-            .weather-nexus-container.expanded .weather-spread { opacity: 1; transform: translateX(-50%) translateY(0) scale(1); pointer-events: auto; }
+            .weather-nexus-container.expanded .weather-spread {
+                opacity: 1;
+                visibility: visible;
+                transform: translateX(-50%) translateY(0);
+                pointer-events: auto;
+            }
             .spread-opt {
-                width: auto; min-width: 42px; height: 42px; padding: 0 16px; border-radius: 21px;
-                background: rgba(15, 15, 15, 0.85); backdrop-filter: blur(15px);
-                border: 1px solid rgba(255, 255, 255, 0.15); color: rgba(255, 255, 255, 0.6);
-                cursor: pointer; display: flex; align-items: center; gap: 10px; transition: all 0.2s ease;
-                white-space: nowrap; box-shadow: 0 8px 25px rgba(0,0,0,0.5);
+                padding: 10px 18px;
+                border-radius: 100px;
+                background: rgba(15, 15, 15, 0.9);
+                backdrop-filter: blur(20px);
+                border: 1px solid rgba(255, 255, 255, 0.15);
+                color: rgba(255, 255, 255, 0.6);
+                cursor: pointer;
+                display: flex;
+                align-items: center;
+                gap: 12px;
+                white-space: nowrap;
+                transition: all 0.2s;
+                box-shadow: 0 10px 20px rgba(0,0,0,0.4);
             }
-            .spread-opt i { font-size: 0.9rem; width: 18px; text-align: center; }
-            .spread-label { font-size: 0.75rem; font-weight: 600; opacity: 0; max-width: 0; overflow: hidden; transition: all 0.3s; }
-            .weather-nexus-container.expanded .spread-label { opacity: 1; max-width: 150px; margin-right: 4px; }
-            .spread-opt:hover { background: #282828; color: #fff; border-color: rgba(56, 189, 248, 0.5); transform: scale(1.05); }
-            .spread-opt.active { background: rgba(56, 189, 248, 0.15); color: #38bdf8; border-color: rgba(56, 189, 248, 0.5); }
+            .spread-opt i { font-size: 0.9rem; }
+            .spread-label { font-size: 0.75rem; font-weight: 700; }
+            .spread-opt:hover { background: #222; color: #fff; border-color: #38bdf8; }
+            .spread-opt.active { background: rgba(56, 189, 248, 0.2); color: #38bdf8; border-color: #38bdf8; }
 
-            /* MODAL & UI CORE */
-            .filter-modal {
-                background: #121214; width: 850px; height: 580px; max-width: 95vw; max-height: 85vh;
-                border: 1px solid rgba(255, 255, 255, 0.08); border-radius: 16px;
-                box-shadow: 0 50px 100px -20px rgba(0,0,0,0.9);
-                display: flex; flex-direction: column; overflow: hidden; pointer-events: auto;
-                animation: modalPop 0.3s cubic-bezier(0.16, 1, 0.3, 1);
+            /* MODAL SYSTEM (TACTICAL PANEL) */
+            .modal-overlay {
+                position: fixed;
+                inset: 0;
+                background: rgba(0, 0, 0, 0.8);
+                backdrop-filter: blur(15px);
+                display: flex;
+                align-items: center;
+                justify-content: center;
+                opacity: 0;
+                visibility: hidden;
+                transition: all 0.4s cubic-bezier(0.16, 1, 0.3, 1);
+                z-index: 3000;
+                pointer-events: auto;
             }
-            @keyframes modalPop { from { transform: scale(0.95); opacity: 0; } to { transform: scale(1); opacity: 1; } }
-
-            .modal-header { height: 70px; padding: 0 24px; border-bottom: 1px solid rgba(255, 255, 255, 0.06); display: flex; justify-content: space-between; align-items: center; }
-            .header-main { display: flex; align-items: center; gap: 16px; color: #fff; }
-            .header-icon-box { width: 30px; height: 30px; background: rgba(56, 189, 248, 0.1); border-radius: 8px; color: #38bdf8; display: grid; place-items: center; }
-            .header-text h2 { margin: 0; font-size: 1.1rem; font-weight: 700; }
-            .header-text span { font-size: 0.75rem; color: #94a3b8; }
-            .close-modal { background: none; border: none; color: #64748b; font-size: 1.5rem; cursor: pointer; }
-
-            .modal-body { display: flex; flex: 1; overflow: hidden; }
-            .filter-selection-pane { width: 260px; background: rgba(0,0,0,0.2); border-right: 1px solid rgba(255,255,255,0.06); padding: 20px 16px; overflow-y: auto; }
-            .filter-group-header { font-size: 0.7rem; color: #52525b; font-weight: 800; text-transform: uppercase; margin-bottom: 10px; letter-spacing: 1px; }
-            
-            .nexus-item { background: transparent; border: none; width: 100%; padding: 10px 12px; border-radius: 8px; cursor: pointer; display: flex; align-items: center; gap: 12px; transition: all 0.2s; color: #a1a1aa; position: relative; }
-            .nexus-item:hover { background: rgba(255,255,255,0.04); color: #e4e4e7; }
-            .nexus-item.active { background: rgba(56, 189, 248, 0.1); color: #38bdf8; }
-            .nexus-item.active::before { content: ''; position: absolute; left: 0; top: 0; bottom: 0; width: 3px; background: #38bdf8; }
-            
-            .filter-config-pane { flex: 1; padding: 24px; display: flex; flex-direction: column; background: #18181b; position: relative; }
-            .modal-active-list { flex: 1; overflow-y: auto; display: flex; flex-direction: column; gap: 12px; padding-bottom: 60px; }
-            .modal-footer-embedded { position: absolute; bottom: 0; left: 0; right: 0; padding: 16px 24px; background: #18181b; border-top: 1px solid rgba(255,255,255,0.06); display: flex; justify-content: flex-end; gap: 12px; }
-            .modal-btn { padding: 8px 20px; border-radius: 6px; font-weight: 600; cursor: pointer; border: none; font-size: 0.85rem; }
-            .modal-btn.primary { background: #38bdf8; color: #0f172a; }
-
-            .modal-filter-card { background: #202023; border: 1px solid rgba(255,255,255,0.04); border-radius: 8px; display: flex; overflow: hidden; }
-            .card-left-strip { width: 4px; background: #38bdf8; opacity: 0.7; }
-            .card-content { flex: 1; padding: 12px 16px; display: flex; flex-direction: column; gap: 10px; }
-            
-            .row-input, .row-input-select { width: 100%; background: #121214; border: 1px solid #3f3f46; color: #fff; padding: 8px 12px; border-radius: 6px; font-size: 0.85rem; outline: none; }
-            .range-pill-container { display: flex; background: #121214; border: 1px solid #3f3f46; border-radius: 6px; align-items: center; overflow: hidden; }
-            .range-half { flex: 1; display: flex; align-items: center; position: relative; }
-            .range-input { width: 100%; background: transparent; border: none; color: #fff; padding: 8px 8px 8px 36px; outline: none; font-size: 0.85rem; }
-            .range-label { position: absolute; left: 10px; font-size: 0.6rem; font-weight: 700; color: #52525b; }
-            .range-divider { width: 1px; height: 20px; background: #27272a; }
-
-            .modal-overlay { position: fixed; inset: 0; background: rgba(0, 0, 0, 0.6); backdrop-filter: blur(8px); display: flex; align-items: center; justify-content: center; opacity: 0; visibility: hidden; transition: all 0.3s; z-index: 3000; pointer-events: auto; }
             .modal-overlay.open { opacity: 1; visibility: visible; }
             
-            .utility-nexus { position: absolute; bottom: 40px; right: 40px; pointer-events: none; }
-            .orb-row { display: flex; gap: 10px; pointer-events: auto; align-items: flex-end; }
-            .orb-btn { width: 42px; height: 42px; border-radius: 50%; background: rgba(15, 15, 15, 0.6); backdrop-filter: blur(15px); border: 1px solid rgba(255, 255, 255, 0.1); color: rgba(255, 255, 255, 0.7); cursor: pointer; display: grid; place-items: center; transition: all 0.2s; position: relative; }
-            .orb-btn:hover { transform: translateY(-4px); background: #1e1e1e; color: #fff; border-color: rgba(255,255,255,0.4); box-shadow: 0 5px 15px rgba(0,0,0,0.5); }
+            .filter-modal {
+                background: #0a0a0b;
+                width: 900px;
+                height: 620px;
+                max-width: 95vw;
+                max-height: 90vh;
+                border: 1px solid rgba(255, 255, 255, 0.12);
+                border-radius: 24px;
+                display: flex;
+                flex-direction: column;
+                overflow: hidden;
+                box-shadow: 0 50px 100px rgba(0,0,0,0.9);
+                transform: scale(0.95) translateY(20px);
+                transition: all 0.4s cubic-bezier(0.16, 1, 0.3, 1);
+            }
+            .modal-overlay.open .filter-modal { transform: scale(1) translateY(0); }
 
-            .top-right-actions { position: absolute; top: 30px; right: 40px; pointer-events: auto; }
-            .search-blade { background: rgba(10, 10, 10, 0.8); backdrop-filter: blur(12px); border: 1px solid rgba(255, 255, 255, 0.15); border-radius: 100px; height: 38px; width: 220px; display: flex; align-items: center; padding: 0 14px; transition: all 0.3s; }
-            .search-blade:focus-within { width: 300px; border-color: #38bdf8; }
-            #blade-search-input { flex: 1; background: none; border: none; color: #fff; margin-left: 10px; outline: none; font-size: 13px; }
+            .modal-header {
+                height: 80px;
+                padding: 0 32px;
+                background: rgba(255, 255, 255, 0.02);
+                border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+                display: flex;
+                justify-content: space-between;
+                align-items: center;
+            }
+            .header-main { display: flex; align-items: center; gap: 20px; }
+            .header-icon-box {
+                width: 44px;
+                height: 44px;
+                background: rgba(56, 189, 248, 0.1);
+                border-radius: 12px;
+                color: #38bdf8;
+                display: grid;
+                place-items: center;
+                font-size: 1.2rem;
+            }
+            .header-text h2 { margin: 0; font-size: 1.25rem; font-weight: 800; color: #fff; }
+            .header-text span { font-size: 0.85rem; color: #71717a; font-weight: 500; }
+            .close-modal { background: none; border: none; color: #71717a; font-size: 2rem; cursor: pointer; transition: 0.2s; }
+            .close-modal:hover { color: #fff; transform: rotate(90deg); }
+
+            .modal-body { display: flex; flex: 1; overflow: hidden; }
+            .filter-selection-pane {
+                width: 280px;
+                background: rgba(0, 0, 0, 0.3);
+                border-right: 1px solid rgba(255, 255, 255, 0.08);
+                padding: 24px;
+                overflow-y: auto;
+            }
+            .filter-group-header {
+                font-size: 0.7rem;
+                font-weight: 900;
+                color: #3f3f46;
+                text-transform: uppercase;
+                letter-spacing: 2px;
+                margin-bottom: 16px;
+                margin-top: 24px;
+            }
+            .filter-group-header:first-child { margin-top: 0; }
+            
+            .nexus-item {
+                width: 100%;
+                text-align: left;
+                background: transparent;
+                border: none;
+                padding: 12px 16px;
+                border-radius: 12px;
+                color: #71717a;
+                cursor: pointer;
+                display: flex;
+                align-items: center;
+                gap: 12px;
+                transition: all 0.2s;
+                margin-bottom: 4px;
+            }
+            .nexus-item:hover { background: rgba(255, 255, 255, 0.04); color: #fff; }
+            .nexus-item.active { background: rgba(56, 189, 248, 0.1); color: #38bdf8; font-weight: 700; }
+            .nexus-icon { width: 24px; text-align: center; font-size: 0.9rem; }
+
+            .filter-config-pane {
+                flex: 1;
+                padding: 32px;
+                background: #0d0d0e;
+                display: flex;
+                flex-direction: column;
+                position: relative;
+            }
+            .config-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 24px; }
+            .config-header label { font-size: 0.75rem; font-weight: 900; color: #3f3f46; text-transform: uppercase; letter-spacing: 2px; }
+            #active-count-badge { background: #38bdf8; color: #000; padding: 4px 12px; border-radius: 100px; font-size: 0.7rem; font-weight: 800; }
+
+            .modal-active-list { flex: 1; overflow-y: auto; display: flex; flex-direction: column; gap: 16px; padding-bottom: 100px; }
+            .modal-filter-card {
+                background: #141416;
+                border: 1px solid rgba(255, 255, 255, 0.06);
+                border-radius: 16px;
+                display: flex;
+                overflow: hidden;
+                box-shadow: 0 4px 20px rgba(0,0,0,0.2);
+            }
+            .card-left-strip { width: 5px; background: #38bdf8; }
+            .card-content { flex: 1; padding: 20px; }
+            .row-label { display: flex; align-items: center; gap: 12px; font-size: 0.9rem; font-weight: 700; color: #fff; }
+            .row-label i { color: #38bdf8; opacity: 0.8; }
+            .row-control { margin-top: 16px; }
+
+            /* INPUTS */
+            .row-input, .row-input-select {
+                width: 100%;
+                background: #1c1c1f;
+                border: 1px solid #27272a;
+                border-radius: 10px;
+                color: #fff;
+                padding: 12px 16px;
+                font-size: 0.9rem;
+                font-family: inherit;
+                outline: none;
+                transition: all 0.2s;
+            }
+            .row-input:focus, .row-input-select:focus { border-color: #38bdf8; background: #222226; }
+
+            .range-pill-container {
+                display: flex;
+                background: #1c1c1f;
+                border: 1px solid #27272a;
+                border-radius: 10px;
+                overflow: hidden;
+            }
+            .range-half { flex: 1; display: flex; align-items: center; padding: 0 12px; }
+            .range-label { font-size: 0.6rem; font-weight: 900; color: #3f3f46; margin-right: 12px; }
+            .range-input { background: none; border: none; color: #fff; width: 100%; padding: 12px 0; outline: none; font-size: 0.9rem; font-weight: 600; }
+            .range-divider { width: 1px; height: 24px; background: #27272a; }
+
+            .modal-footer-embedded {
+                position: absolute;
+                bottom: 0;
+                left: 0;
+                right: 0;
+                padding: 24px 32px;
+                background: rgba(13, 13, 14, 0.9);
+                backdrop-filter: blur(10px);
+                border-top: 1px solid rgba(255, 255, 255, 0.08);
+                display: flex;
+                justify-content: flex-end;
+                gap: 16px;
+            }
+            .modal-btn {
+                padding: 12px 28px;
+                border-radius: 12px;
+                font-weight: 700;
+                font-size: 0.9rem;
+                cursor: pointer;
+                transition: all 0.2s;
+                border: none;
+            }
+            .modal-btn.primary { background: #38bdf8; color: #000; }
+            .modal-btn.primary:hover { transform: translateY(-2px); box-shadow: 0 10px 20px rgba(56, 189, 248, 0.3); }
+            .modal-btn.secondary { background: rgba(255, 255, 255, 0.05); color: #fff; border: 1px solid rgba(255, 255, 255, 0.1); }
+            .modal-btn.secondary:hover { background: rgba(255, 255, 255, 0.1); }
+
+            .empty-state {
+                flex: 1;
+                display: flex;
+                flex-direction: column;
+                align-items: center;
+                justify-content: center;
+                color: #3f3f46;
+                text-align: center;
+                padding: 40px;
+            }
+            .empty-icon-circle {
+                width: 80px;
+                height: 80px;
+                border-radius: 50%;
+                background: rgba(255, 255, 255, 0.02);
+                border: 2px dashed rgba(255, 255, 255, 0.05);
+                display: grid;
+                place-items: center;
+                font-size: 2rem;
+                margin-bottom: 20px;
+            }
+            .empty-state p { margin: 0; color: #a1a1aa; font-weight: 700; font-size: 1.1rem; }
+            .empty-state span { font-size: 0.85rem; margin-top: 8px; max-width: 240px; }
+
+            .active-pulse-dot {
+                position: absolute;
+                top: 0;
+                right: 0;
+                width: 10px;
+                height: 10px;
+                background: #38bdf8;
+                border-radius: 50%;
+                border: 2px solid #0a0a0b;
+                opacity: 0;
+                transition: opacity 0.3s;
+                box-shadow: 0 0 10px #38bdf8;
+            }
+
+            .custom-scroll::-webkit-scrollbar { width: 6px; }
+            .custom-scroll::-webkit-scrollbar-track { background: transparent; }
+            .custom-scroll::-webkit-scrollbar-thumb { background: rgba(255, 255, 255, 0.1); border-radius: 10px; }
+            .custom-scroll::-webkit-scrollbar-thumb:hover { background: rgba(255, 255, 255, 0.2); }
+
+            @keyframes slideIn {
+                from { opacity: 0; transform: translateY(10px); }
+                to { opacity: 1; transform: translateY(0); }
+            }
+            .slide-in { animation: slideIn 0.3s forwards; }
         `;
         
-        const styleId = 'landing-ui-advanced-css';
+        const styleId = 'landing-ui-integrated-css';
         if (!document.getElementById(styleId)) {
             const style = document.createElement('style');
             style.id = styleId;

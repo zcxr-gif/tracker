@@ -39,6 +39,7 @@ window.currentAirportTraffic = { in: [], out: [] }; // Stores IDs for the curren
     const ACARS_SOCKET_URL = 'https://site--acars-backend--6dmjph8ltlhv.code.run'; // <-- NEW: For WebSocket
     let isAircraftWindowLoading = false;
     let activeFirIds = new Set(); // Globally track which FIRs are staffed
+    window.getLiveFlightData = () => Object.values(currentMapFeatures);
 
     // --- [NEW] Map Style Constants & State ---
     const MAP_STYLE_DARK = 'mapbox://styles/mapbox/dark-v11';
