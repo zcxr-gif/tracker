@@ -3023,6 +3023,32 @@ function injectCustomStyles() {
     overflow-y: auto;
     border-top: 1px solid rgba(255, 255, 255, 0.05);
 }
+    /* --- UNIVERSAL MODERN SCROLLBAR --- */
+/* Target all scrollable elements */
+*::-webkit-scrollbar {
+    width: 6px;     /* Thin enough to be sleek, thick enough to grab */
+    height: 6px;    /* For horizontal bars */
+}
+
+*::-webkit-scrollbar-track {
+    background: transparent; /* Keep background clean */
+}
+
+*::-webkit-scrollbar-thumb {
+    background-color: rgba(255, 255, 255, 0.1); /* Subtle white tint */
+    border-radius: 10px;
+    border: 1px solid transparent; /* Padding effect */
+}
+
+*::-webkit-scrollbar-thumb:hover {
+    background-color: var(--color-brand, #38bdf8); /* High-tech blue highlight on hover */
+}
+
+/* Firefox Support */
+* {
+    scrollbar-width: thin;
+    scrollbar-color: rgba(255, 255, 255, 0.1) transparent;
+}
     `;
 
     const style = document.createElement('style');
