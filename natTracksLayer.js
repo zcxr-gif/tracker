@@ -1,66 +1,70 @@
 /**
  * natTracksLayer.js (Mapbox GL JS Version)
- * Optimized: Solid lines, color-coding, and layer-depth management.
+ * Refined version: Removed labels, added hover effects, and improved parsing.
  */
 
 const ACARS_SOCKET_URL = 'https://site--acars-backend--6dmjph8ltlhv.code.run';
 
 export class NatTracksLayer {
-    constructor(map, planeLayerId = 'aircraft-layer') {
+    constructor(map) {
         this.map = map;
-        this.planeLayerId = planeLayerId; // The ID of your aircraft layer
         this.sourceId = 'nat-tracks-source';
         this.lineLayerId = 'nat-tracks-layer';
-        this.glowLayerId = 'nat-tracks-glow';
         this.tracks = [];
+        this.refreshInterval = null;
+        this.hoveredTrackId = null;
         
         this.initSource();
     }
 
     initSource() {
+        if (this.map.getSource(this.sourceId)) return;
+
         this.map.addSource(this.sourceId, {
             type: 'geojson',
-            data: { type: 'FeatureCollection', features: [] }
+            data: { type: 'FeatureCollection', features: [] },
+            generateId: true // Required for feature-state hover effects
         });
 
-        // 1. Glow/Outer Blur Layer (Improves visibility against dark backgrounds)
-        this.map.addLayer({
-            id: this.glowLayerId,
-            type: 'line',
-            source: this.sourceId,
-            layout: { 'line-join': 'round', 'line-cap': 'round' },
-            paint: {
-                'line-color': '#000000',
-                'line-width': 5,
-                'line-opacity': 0.3,
-                'line-blur': 3
-            }
-        }, this.planeLayerId); // <--- Ensures it renders BELOW the planes
-
-        // 2. Main Track Layer (Color-Coded & Solid)
+        // Line Layer (Solid & Color-Coded)
         this.map.addLayer({
             id: this.lineLayerId,
             type: 'line',
             source: this.sourceId,
-            layout: { 'line-join': 'round', 'line-cap': 'round' },
+            layout: {
+                'line-join': 'round',
+                'line-cap': 'round'
+            },
             paint: {
                 'line-color': [
                     'match',
                     ['get', 'name'],
-                    'A', '#FF4B2B', // Vibrant Red-Orange
-                    'B', '#FFD200', // Gold
-                    'C', '#1D976C', // Emerald
-                    'D', '#8E2DE2', // Deep Purple
-                    'E', '#00d2ff', // Sky Blue
-                    'F', '#F09819', // Amber
-                    '#5D26C1'       // Default Indigo
+                    'A', '#ff4d4d', // Vibrant Red
+                    'B', '#ffcc00', // Gold
+                    'C', '#2ecc71', // Emerald
+                    'D', '#a29bfe', // Soft Purple
+                    'E', '#e67e22', // Carrot Orange
+                    'F', '#00cec9', // Robin's Egg
+                    '#3498db'       // Sky Blue
                 ],
-                'line-width': 2.5,
-                'line-opacity': 0.9
+                // Line thickens when hovered
+                'line-width': [
+                    'case',
+                    ['boolean', ['feature-state', 'hover'], false],
+                    4.5,
+                    2.2
+                ],
+                // Line becomes more opaque when hovered
+                'line-opacity': [
+                    'case',
+                    ['boolean', ['feature-state', 'hover'], false],
+                    1,
+                    0.6
+                ]
             }
-        }, this.planeLayerId); // <--- Ensures it renders BELOW the planes
+        });
 
-        this.setupPopup();
+        this.setupInteractions();
     }
 
     async fetchTracks() {
@@ -77,6 +81,15 @@ export class NatTracksLayer {
         }
     }
 
+    startAutoRefresh(intervalMs = 300000) { // Default 5 mins
+        this.fetchTracks();
+        this.refreshInterval = setInterval(() => this.fetchTracks(), intervalMs);
+    }
+
+    stopAutoRefresh() {
+        if (this.refreshInterval) clearInterval(this.refreshInterval);
+    }
+
     render() {
         const features = this.tracks.map(track => {
             const coordinates = this.parsePath(track.path);
@@ -86,8 +99,8 @@ export class NatTracksLayer {
                 properties: {
                     name: track.name,
                     type: track.type,
-                    eastLevels: track.eastLevels ? track.eastLevels.join(', ') : 'None',
-                    westLevels: track.westLevels ? track.westLevels.join(', ') : 'None',
+                    eastLevels: track.eastLevels?.join(', ') || 'None',
+                    westLevels: track.westLevels?.join(', ') || 'None',
                     pathString: track.path.join(' → ')
                 },
                 geometry: {
@@ -95,65 +108,95 @@ export class NatTracksLayer {
                     coordinates: coordinates
                 }
             };
-        }).filter(f => f.geometry.coordinates.length > 0);
+        }).filter(f => f.geometry.coordinates.length > 1);
 
-        this.map.getSource(this.sourceId).setData({
-            type: 'FeatureCollection',
-            features: features
-        });
+        const source = this.map.getSource(this.sourceId);
+        if (source) source.setData({ type: 'FeatureCollection', features });
     }
 
     parsePath(path) {
         return path.map(point => {
+            // Handle "50/20" format
             if (point.includes('/')) {
-                const parts = point.split('/');
-                const lat = parseFloat(parts[0]);
-                // Handle Longitude: NAT points are West (negative)
-                const lon = -parseFloat(parts[1]); 
-                return [lon, lat]; 
+                const [lat, lon] = point.split('/').map(parseFloat);
+                return [-lon, lat]; // Assuming West for NAT
+            }
+            // Handle "50N020W" standard aviation format
+            const match = point.match(/(\d+)([NS])(\d+)([EW])/);
+            if (match) {
+                let lat = parseFloat(match[1]);
+                let lon = parseFloat(match[3]);
+                if (match[2] === 'S') lat = -lat;
+                if (match[4] === 'W') lon = -lon;
+                return [lon, lat];
             }
             return null; 
         }).filter(coord => coord !== null);
     }
 
-    setupPopup() {
+    setupInteractions() {
         const popup = new mapboxgl.Popup({
             closeButton: false,
+            closeOnClick: false,
             className: 'nat-track-popup',
-            maxWidth: '300px'
+            offset: 15
         });
 
+        // HOVER EFFECTS
+        this.map.on('mousemove', this.lineLayerId, (e) => {
+            if (e.features.length > 0) {
+                if (this.hoveredTrackId !== null) {
+                    this.map.setFeatureState(
+                        { source: this.sourceId, id: this.hoveredTrackId },
+                        { hover: false }
+                    );
+                }
+                this.hoveredTrackId = e.features[0].id;
+                this.map.setFeatureState(
+                    { source: this.sourceId, id: this.hoveredTrackId },
+                    { hover: true }
+                );
+                this.map.getCanvas().style.cursor = 'pointer';
+            }
+        });
+
+        this.map.on('mouseleave', this.lineLayerId, () => {
+            if (this.hoveredTrackId !== null) {
+                this.map.setFeatureState(
+                    { source: this.sourceId, id: this.hoveredTrackId },
+                    { hover: false }
+                );
+            }
+            this.hoveredTrackId = null;
+            this.map.getCanvas().style.cursor = '';
+            popup.remove();
+        });
+
+        // CLICK POPUP
         this.map.on('click', this.lineLayerId, (e) => {
             const props = e.features[0].properties;
-            
             const html = `
-                <div style="font-family: 'Segoe UI', Tahoma, sans-serif; padding: 10px; border-radius: 8px;">
-                    <div style="display: flex; justify-content: space-between; align-items: center;">
-                        <span style="font-size: 18px; font-weight: bold; color: #333;">Track ${props.name}</span>
+                <div style="font-family: 'Inter', sans-serif; min-width: 180px;">
+                    <div style="display:flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
+                        <b style="font-size: 16px;">Track ${props.name}</b>
                         <span style="background: #eee; padding: 2px 6px; border-radius: 4px; font-size: 10px;">${props.type}</span>
                     </div>
-                    <hr style="border: 0; border-top: 1px solid #ddd; margin: 8px 0;">
-                    <div style="font-size: 11px; color: #555; line-height: 1.6;">
-                        <strong>Eastbound FL:</strong> <span style="color: #2c3e50;">${props.eastLevels}</span><br>
-                        <strong>Westbound FL:</strong> <span style="color: #2c3e50;">${props.westLevels}</span><br>
-                        <div style="margin-top: 5px; padding: 5px; background: #f9f9f9; border-radius: 4px; font-family: monospace;">
-                            ${props.pathString}
-                        </div>
+                    <div style="font-size: 11px; line-height: 1.5;">
+                        <b>Eastbound:</b> ${props.eastLevels}<br>
+                        <b>Westbound:</b> ${props.westLevels}<br>
+                        <div style="margin-top: 6px; color: #666; font-style: italic;">${props.pathString}</div>
                     </div>
                 </div>
             `;
-
             popup.setLngLat(e.lngLat).setHTML(html).addTo(this.map);
         });
-
-        this.map.on('mouseenter', this.lineLayerId, () => this.map.getCanvas().style.cursor = 'pointer');
-        this.map.on('mouseleave', this.lineLayerId, () => this.map.getCanvas().style.cursor = '');
     }
 
     toggle(show) {
         const visibility = show ? 'visible' : 'none';
-        this.map.setLayoutProperty(this.lineLayerId, 'visibility', visibility);
-        this.map.setLayoutProperty(this.glowLayerId, 'visibility', visibility);
+        if (this.map.getLayer(this.lineLayerId)) {
+            this.map.setLayoutProperty(this.lineLayerId, 'visibility', visibility);
+        }
     }
 }
 
