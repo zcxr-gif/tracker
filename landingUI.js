@@ -1,7 +1,7 @@
 /**
  * LandingUI.js
  * REDESIGN: Tactical Modal - Advanced Centralized Filter Engine
- * UPDATED: Integrated Live Search Engine & Panel Styles
+ * UPDATED: Seamless Search Connectivity & Enhanced Dropdown UI
  * FULL EXPANSION: No condensation of styles or logic.
  */
 
@@ -72,10 +72,17 @@ export const LandingUI = {
      */
     handleLocalSearch(query) {
         const resultsContainer = document.getElementById('blade-search-results');
+        const searchBlade = document.querySelector('.search-blade');
+
         if (!query || query.length < 2) {
             if (resultsContainer) {
                 resultsContainer.innerHTML = '';
                 resultsContainer.classList.remove('visible');
+                // Restore rounded corners when closed
+                if (searchBlade) {
+                    searchBlade.style.borderBottomLeftRadius = '100px';
+                    searchBlade.style.borderBottomRightRadius = '100px';
+                }
             }
             return;
         }
@@ -91,6 +98,15 @@ export const LandingUI = {
             const aircraftMatch = p.aircraftName?.toUpperCase().includes(upperQuery);
             return callsignMatch || userMatch || aircraftMatch;
         });
+
+        // Toggle connected look based on whether we have results to show
+        if (matches.length > 0 && searchBlade) {
+            searchBlade.style.borderBottomLeftRadius = '0';
+            searchBlade.style.borderBottomRightRadius = '0';
+        } else if (searchBlade) {
+            searchBlade.style.borderBottomLeftRadius = '100px';
+            searchBlade.style.borderBottomRightRadius = '100px';
+        }
 
         this.renderSearchResults(matches);
     },
@@ -275,6 +291,7 @@ export const LandingUI = {
         const settingsBtn = document.getElementById('tile-settings');
         const searchInput = document.getElementById('blade-search-input');
         const searchResults = document.getElementById('blade-search-results');
+        const searchBlade = document.querySelector('.search-blade');
         const serverSelector = document.getElementById('server-selector');
         const weatherTrigger = document.getElementById('tile-weather');
         const weatherWrapper = document.getElementById('weather-menu-wrapper');
@@ -294,9 +311,13 @@ export const LandingUI = {
 
         // Close Search on Outside Click
         document.addEventListener('click', (e) => {
-            const searchBlade = document.querySelector('.search-blade');
             if (searchResults && !searchBlade?.contains(e.target)) {
                 searchResults.classList.remove('visible');
+                // Restore rounded corners if clicked away
+                if (searchBlade) {
+                    searchBlade.style.borderBottomLeftRadius = '100px';
+                    searchBlade.style.borderBottomRightRadius = '100px';
+                }
             }
         });
 
@@ -602,7 +623,7 @@ export const LandingUI = {
                 visibility: visible;
             }
 
-            /* SEARCH BLADE & DROP-DOWN PANEL STYLE */
+            /* SEARCH BLADE & CONNECTED DROP-DOWN */
             .top-right-actions {
                 position: absolute;
                 top: 30px;
@@ -610,24 +631,25 @@ export const LandingUI = {
                 pointer-events: auto;
             }
             .search-blade {
-                background: rgba(10, 10, 10, 0.8);
-                backdrop-filter: blur(15px);
+                background: rgba(10, 10, 10, 0.85);
+                backdrop-filter: blur(20px);
                 border: 1px solid rgba(255, 255, 255, 0.15);
                 border-radius: 100px;
-                height: 40px;
+                height: 44px;
                 width: 240px;
                 display: flex;
                 align-items: center;
-                padding: 0 15px;
-                transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+                padding: 0 18px;
+                transition: all 0.35s cubic-bezier(0.4, 0, 0.2, 1);
                 position: relative;
                 box-shadow: 0 10px 30px rgba(0,0,0,0.4);
+                z-index: 1002;
             }
             .search-blade:focus-within {
-                width: 320px;
+                width: 380px;
                 border-color: #38bdf8;
-                background: rgba(0, 0, 0, 0.95);
-                box-shadow: 0 15px 40px rgba(0,0,0,0.6), 0 0 0 2px rgba(56, 189, 248, 0.2);
+                background: #0f0f11;
+                box-shadow: 0 15px 40px rgba(0,0,0,0.6), 0 0 0 1px rgba(56, 189, 248, 0.3);
             }
             #blade-search-input {
                 flex: 1;
@@ -636,7 +658,7 @@ export const LandingUI = {
                 color: #fff;
                 margin-left: 10px;
                 outline: none;
-                font-size: 14px;
+                font-size: 15px;
                 font-weight: 500;
             }
             .search-icon {
@@ -644,28 +666,30 @@ export const LandingUI = {
                 font-size: 14px;
             }
             .search-shortcut {
-                background: rgba(255, 255, 255, 0.1);
-                padding: 2px 6px;
+                background: rgba(255, 255, 255, 0.08);
+                padding: 3px 8px;
                 border-radius: 6px;
                 font-size: 0.65rem;
-                color: rgba(255, 255, 255, 0.5);
+                color: rgba(255, 255, 255, 0.4);
                 font-weight: 800;
                 margin-left: 10px;
             }
 
             .search-results-dropdown {
                 position: absolute;
-                top: calc(100% + 12px);
-                left: 0;
-                right: 0;
-                background: rgba(15, 15, 17, 0.98);
+                top: 42px; /* Overlaps bottom border of search blade precisely */
+                left: -1px;
+                right: -1px;
+                background: #0f0f11;
                 backdrop-filter: blur(25px);
-                border: 1px solid rgba(255, 255, 255, 0.1);
-                border-radius: 20px;
+                border: 1px solid #38bdf8;
+                border-top: none; /* Look connected */
+                border-bottom-left-radius: 20px;
+                border-bottom-right-radius: 20px;
                 max-height: 420px;
                 overflow-y: auto;
                 display: none;
-                box-shadow: 0 25px 60px rgba(0,0,0,0.8);
+                box-shadow: 0 30px 60px rgba(0,0,0,0.8);
                 z-index: 1001;
                 padding: 8px 0;
             }
@@ -673,13 +697,16 @@ export const LandingUI = {
                 display: block;
             }
             .search-result-item {
-                padding: 12px 20px;
+                padding: 14px 22px;
                 cursor: pointer;
-                border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+                border-bottom: 1px solid rgba(255, 255, 255, 0.03);
                 transition: all 0.2s;
+                border-left: 3px solid transparent;
             }
             .search-result-item:hover {
-                background: rgba(56, 189, 248, 0.15);
+                background: rgba(56, 189, 248, 0.1);
+                border-left-color: #38bdf8;
+                padding-left: 26px;
             }
             .res-main {
                 display: flex;
@@ -690,11 +717,11 @@ export const LandingUI = {
             .res-callsign {
                 font-weight: 800;
                 color: #fff;
-                font-size: 1rem;
+                font-size: 1.05rem;
                 letter-spacing: 0.5px;
             }
             .res-aircraft {
-                font-size: 0.7rem;
+                font-size: 0.75rem;
                 color: rgba(255, 255, 255, 0.4);
                 text-transform: uppercase;
                 font-weight: 600;
@@ -703,7 +730,7 @@ export const LandingUI = {
                 display: flex;
                 justify-content: space-between;
                 align-items: center;
-                font-size: 0.75rem;
+                font-size: 0.8rem;
             }
             .res-pilot {
                 color: #38bdf8;
@@ -718,7 +745,7 @@ export const LandingUI = {
                 font-weight: 600;
             }
             .search-no-results {
-                padding: 40px 20px;
+                padding: 50px 20px;
                 text-align: center;
                 color: rgba(255, 255, 255, 0.3);
                 display: flex;
@@ -726,8 +753,8 @@ export const LandingUI = {
                 gap: 12px;
             }
             .search-no-results i {
-                font-size: 24px;
-                opacity: 0.5;
+                font-size: 28px;
+                opacity: 0.4;
             }
 
             /* UTILITY NEXUS STYLES */
@@ -744,8 +771,8 @@ export const LandingUI = {
                 align-items: flex-end;
             }
             .orb-btn {
-                width: 48px;
-                height: 48px;
+                width: 52px;
+                height: 52px;
                 border-radius: 50%;
                 background: rgba(15, 15, 15, 0.7);
                 backdrop-filter: blur(15px);
@@ -757,13 +784,14 @@ export const LandingUI = {
                 transition: all 0.3s cubic-bezier(0.16, 1, 0.3, 1);
                 position: relative;
                 box-shadow: 0 10px 20px rgba(0,0,0,0.3);
+                font-size: 1.1rem;
             }
             .orb-btn:hover {
                 transform: translateY(-5px);
                 background: #fff;
                 color: #000;
                 border-color: #fff;
-                box-shadow: 0 15px 30px rgba(255,255,255,0.2);
+                box-shadow: 0 15px 30px rgba(255,255,255,0.25);
             }
 
             /* TOOLTIPS */
@@ -774,12 +802,12 @@ export const LandingUI = {
                 position: absolute;
                 bottom: calc(100% + 20px);
                 right: 0;
-                width: 240px;
+                width: 260px;
                 background: rgba(10, 10, 12, 0.95);
                 backdrop-filter: blur(30px);
                 border: 1px solid rgba(255, 255, 255, 0.15);
-                border-radius: 16px;
-                padding: 16px;
+                border-radius: 18px;
+                padding: 20px;
                 color: #fff;
                 opacity: 0;
                 visibility: hidden;
@@ -796,36 +824,36 @@ export const LandingUI = {
             }
             .preview-header {
                 font-size: 0.65rem;
-                font-weight: 800;
+                font-weight: 900;
                 color: #71717a;
                 letter-spacing: 1.5px;
-                margin-bottom: 12px;
+                margin-bottom: 14px;
                 border-bottom: 1px solid rgba(255, 255, 255, 0.08);
-                padding-bottom: 6px;
+                padding-bottom: 8px;
                 text-transform: uppercase;
             }
             .preview-line {
                 display: flex;
                 align-items: center;
-                gap: 10px;
-                font-size: 0.8rem;
-                margin-bottom: 8px;
+                gap: 12px;
+                font-size: 0.85rem;
+                margin-bottom: 10px;
             }
             .preview-line i {
                 color: #38bdf8;
-                width: 16px;
+                width: 18px;
                 text-align: center;
-                font-size: 0.75rem;
+                font-size: 0.8rem;
             }
             .preview-label { color: #a1a1aa; }
             .preview-value { font-weight: 700; color: #fff; margin-left: auto; }
             .preview-footer {
-                margin-top: 12px;
+                margin-top: 14px;
                 font-size: 0.65rem;
                 color: #38bdf8;
                 font-weight: 600;
                 border-top: 1px solid rgba(255, 255, 255, 0.05);
-                padding-top: 8px;
+                padding-top: 10px;
             }
 
             /* SERVER SELECTOR PANEL STYLE */
@@ -835,7 +863,7 @@ export const LandingUI = {
                 left: 40px;
                 pointer-events: auto;
                 background: rgba(0, 0, 0, 0.7);
-                padding: 10px 20px;
+                padding: 10px 24px;
                 border-radius: 100px;
                 backdrop-filter: blur(15px);
                 border: 1px solid rgba(255, 255, 255, 0.1);
@@ -852,9 +880,9 @@ export const LandingUI = {
                 border-color: rgba(255,255,255,0.2);
             }
             .status-dot { width: 8px; height: 8px; background: #10b981; border-radius: 50%; box-shadow: 0 0 12px #10b981; }
-            #landing-server-name { font-size: 0.75rem; font-weight: 800; letter-spacing: 1px; }
-            .dropdown-arrow { font-size: 0.7rem; opacity: 0.5; transition: transform 0.3s; }
-            .top-branding.dropdown.open .dropdown-arrow { transform: rotate(180deg); }
+            #landing-server-name { font-size: 0.8rem; font-weight: 800; letter-spacing: 1px; }
+            .dropdown-arrow { font-size: 0.75rem; opacity: 0.4; transition: transform 0.3s; }
+            .top-branding.dropdown.open .dropdown-arrow { transform: rotate(180deg); opacity: 1; }
 
             .server-menu {
                 position: absolute;
@@ -872,8 +900,8 @@ export const LandingUI = {
             }
             .top-branding.dropdown.open .server-menu { display: flex; }
             .server-option {
-                padding: 12px 20px;
-                font-size: 0.8rem;
+                padding: 14px 24px;
+                font-size: 0.85rem;
                 font-weight: 600;
                 color: #a1a1aa;
                 transition: all 0.2s;
@@ -889,7 +917,7 @@ export const LandingUI = {
                 display: flex;
                 flex-direction: column-reverse;
                 align-items: center;
-                gap: 10px;
+                gap: 12px;
                 opacity: 0;
                 visibility: hidden;
                 position: absolute;
@@ -906,22 +934,22 @@ export const LandingUI = {
                 pointer-events: auto;
             }
             .spread-opt {
-                padding: 10px 18px;
+                padding: 12px 20px;
                 border-radius: 100px;
-                background: rgba(15, 15, 15, 0.9);
+                background: rgba(15, 15, 15, 0.95);
                 backdrop-filter: blur(20px);
                 border: 1px solid rgba(255, 255, 255, 0.15);
                 color: rgba(255, 255, 255, 0.6);
                 cursor: pointer;
                 display: flex;
                 align-items: center;
-                gap: 12px;
+                gap: 14px;
                 white-space: nowrap;
                 transition: all 0.2s;
                 box-shadow: 0 10px 20px rgba(0,0,0,0.4);
             }
-            .spread-opt i { font-size: 0.9rem; }
-            .spread-label { font-size: 0.75rem; font-weight: 700; }
+            .spread-opt i { font-size: 0.95rem; }
+            .spread-label { font-size: 0.8rem; font-weight: 700; }
             .spread-opt:hover { background: #222; color: #fff; border-color: #38bdf8; }
             .spread-opt.active { background: rgba(56, 189, 248, 0.2); color: #38bdf8; border-color: #38bdf8; }
 
@@ -929,7 +957,7 @@ export const LandingUI = {
             .modal-overlay {
                 position: fixed;
                 inset: 0;
-                background: rgba(0, 0, 0, 0.8);
+                background: rgba(0, 0, 0, 0.85);
                 backdrop-filter: blur(15px);
                 display: flex;
                 align-items: center;
@@ -944,52 +972,52 @@ export const LandingUI = {
             
             .filter-modal {
                 background: #0a0a0b;
-                width: 900px;
-                height: 620px;
+                width: 940px;
+                height: 660px;
                 max-width: 95vw;
                 max-height: 90vh;
                 border: 1px solid rgba(255, 255, 255, 0.12);
-                border-radius: 24px;
+                border-radius: 28px;
                 display: flex;
                 flex-direction: column;
                 overflow: hidden;
                 box-shadow: 0 50px 100px rgba(0,0,0,0.9);
-                transform: scale(0.95) translateY(20px);
+                transform: scale(0.96) translateY(20px);
                 transition: all 0.4s cubic-bezier(0.16, 1, 0.3, 1);
             }
             .modal-overlay.open .filter-modal { transform: scale(1) translateY(0); }
 
             .modal-header {
-                height: 80px;
-                padding: 0 32px;
+                height: 90px;
+                padding: 0 40px;
                 background: rgba(255, 255, 255, 0.02);
                 border-bottom: 1px solid rgba(255, 255, 255, 0.08);
                 display: flex;
                 justify-content: space-between;
                 align-items: center;
             }
-            .header-main { display: flex; align-items: center; gap: 20px; }
+            .header-main { display: flex; align-items: center; gap: 24px; }
             .header-icon-box {
-                width: 44px;
-                height: 44px;
-                background: rgba(56, 189, 248, 0.1);
-                border-radius: 12px;
+                width: 50px;
+                height: 50px;
+                background: rgba(56, 189, 248, 0.12);
+                border-radius: 14px;
                 color: #38bdf8;
                 display: grid;
                 place-items: center;
-                font-size: 1.2rem;
+                font-size: 1.3rem;
             }
-            .header-text h2 { margin: 0; font-size: 1.25rem; font-weight: 800; color: #fff; }
-            .header-text span { font-size: 0.85rem; color: #71717a; font-weight: 500; }
-            .close-modal { background: none; border: none; color: #71717a; font-size: 2rem; cursor: pointer; transition: 0.2s; }
+            .header-text h2 { margin: 0; font-size: 1.4rem; font-weight: 800; color: #fff; }
+            .header-text span { font-size: 0.9rem; color: #71717a; font-weight: 500; }
+            .close-modal { background: none; border: none; color: #71717a; font-size: 2.2rem; cursor: pointer; transition: 0.2s; }
             .close-modal:hover { color: #fff; transform: rotate(90deg); }
 
             .modal-body { display: flex; flex: 1; overflow: hidden; }
             .filter-selection-pane {
-                width: 280px;
+                width: 300px;
                 background: rgba(0, 0, 0, 0.3);
                 border-right: 1px solid rgba(255, 255, 255, 0.08);
-                padding: 24px;
+                padding: 30px;
                 overflow-y: auto;
             }
             .filter-group-header {
@@ -998,8 +1026,8 @@ export const LandingUI = {
                 color: #3f3f46;
                 text-transform: uppercase;
                 letter-spacing: 2px;
-                margin-bottom: 16px;
-                margin-top: 24px;
+                margin-bottom: 18px;
+                margin-top: 30px;
             }
             .filter-group-header:first-child { margin-top: 0; }
             
@@ -1008,100 +1036,100 @@ export const LandingUI = {
                 text-align: left;
                 background: transparent;
                 border: none;
-                padding: 12px 16px;
-                border-radius: 12px;
+                padding: 14px 18px;
+                border-radius: 14px;
                 color: #71717a;
                 cursor: pointer;
                 display: flex;
                 align-items: center;
-                gap: 12px;
-                transition: all 0.2s;
-                margin-bottom: 4px;
+                gap: 14px;
+                transition: all 0.25s;
+                margin-bottom: 6px;
             }
-            .nexus-item:hover { background: rgba(255, 255, 255, 0.04); color: #fff; }
-            .nexus-item.active { background: rgba(56, 189, 248, 0.1); color: #38bdf8; font-weight: 700; }
-            .nexus-icon { width: 24px; text-align: center; font-size: 0.9rem; }
+            .nexus-item:hover { background: rgba(255, 255, 255, 0.05); color: #fff; }
+            .nexus-item.active { background: rgba(56, 189, 248, 0.12); color: #38bdf8; font-weight: 700; }
+            .nexus-icon { width: 24px; text-align: center; font-size: 1rem; }
 
             .filter-config-pane {
                 flex: 1;
-                padding: 32px;
+                padding: 40px;
                 background: #0d0d0e;
                 display: flex;
                 flex-direction: column;
                 position: relative;
             }
-            .config-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 24px; }
-            .config-header label { font-size: 0.75rem; font-weight: 900; color: #3f3f46; text-transform: uppercase; letter-spacing: 2px; }
-            #active-count-badge { background: #38bdf8; color: #000; padding: 4px 12px; border-radius: 100px; font-size: 0.7rem; font-weight: 800; }
+            .config-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 28px; }
+            .config-header label { font-size: 0.8rem; font-weight: 900; color: #3f3f46; text-transform: uppercase; letter-spacing: 2.5px; }
+            #active-count-badge { background: #38bdf8; color: #000; padding: 6px 14px; border-radius: 100px; font-size: 0.75rem; font-weight: 800; }
 
-            .modal-active-list { flex: 1; overflow-y: auto; display: flex; flex-direction: column; gap: 16px; padding-bottom: 100px; }
+            .modal-active-list { flex: 1; overflow-y: auto; display: flex; flex-direction: column; gap: 20px; padding-bottom: 120px; }
             .modal-filter-card {
                 background: #141416;
-                border: 1px solid rgba(255, 255, 255, 0.06);
-                border-radius: 16px;
+                border: 1px solid rgba(255, 255, 255, 0.08);
+                border-radius: 20px;
                 display: flex;
                 overflow: hidden;
-                box-shadow: 0 4px 20px rgba(0,0,0,0.2);
+                box-shadow: 0 8px 30px rgba(0,0,0,0.3);
             }
-            .card-left-strip { width: 5px; background: #38bdf8; }
-            .card-content { flex: 1; padding: 20px; }
-            .row-label { display: flex; align-items: center; gap: 12px; font-size: 0.9rem; font-weight: 700; color: #fff; }
-            .row-label i { color: #38bdf8; opacity: 0.8; }
-            .row-control { margin-top: 16px; }
+            .card-left-strip { width: 6px; background: #38bdf8; }
+            .card-content { flex: 1; padding: 24px; }
+            .row-label { display: flex; align-items: center; gap: 14px; font-size: 1rem; font-weight: 700; color: #fff; }
+            .row-label i { color: #38bdf8; opacity: 0.9; }
+            .row-control { margin-top: 20px; }
 
             /* INPUTS */
             .row-input, .row-input-select {
                 width: 100%;
                 background: #1c1c1f;
-                border: 1px solid #27272a;
-                border-radius: 10px;
+                border: 1px solid #2d2d30;
+                border-radius: 12px;
                 color: #fff;
-                padding: 12px 16px;
-                font-size: 0.9rem;
+                padding: 14px 18px;
+                font-size: 0.95rem;
                 font-family: inherit;
                 outline: none;
                 transition: all 0.2s;
             }
-            .row-input:focus, .row-input-select:focus { border-color: #38bdf8; background: #222226; }
+            .row-input:focus, .row-input-select:focus { border-color: #38bdf8; background: #232326; box-shadow: 0 0 0 4px rgba(56, 189, 248, 0.1); }
 
             .range-pill-container {
                 display: flex;
                 background: #1c1c1f;
-                border: 1px solid #27272a;
-                border-radius: 10px;
+                border: 1px solid #2d2d30;
+                border-radius: 12px;
                 overflow: hidden;
             }
-            .range-half { flex: 1; display: flex; align-items: center; padding: 0 12px; }
-            .range-label { font-size: 0.6rem; font-weight: 900; color: #3f3f46; margin-right: 12px; }
-            .range-input { background: none; border: none; color: #fff; width: 100%; padding: 12px 0; outline: none; font-size: 0.9rem; font-weight: 600; }
-            .range-divider { width: 1px; height: 24px; background: #27272a; }
+            .range-half { flex: 1; display: flex; align-items: center; padding: 0 16px; }
+            .range-label { font-size: 0.65rem; font-weight: 900; color: #3f3f46; margin-right: 14px; }
+            .range-input { background: none; border: none; color: #fff; width: 100%; padding: 14px 0; outline: none; font-size: 1rem; font-weight: 600; }
+            .range-divider { width: 1px; height: 28px; background: #2d2d30; align-self: center; }
 
             .modal-footer-embedded {
                 position: absolute;
                 bottom: 0;
                 left: 0;
                 right: 0;
-                padding: 24px 32px;
-                background: rgba(13, 13, 14, 0.9);
-                backdrop-filter: blur(10px);
+                padding: 30px 40px;
+                background: rgba(13, 13, 14, 0.95);
+                backdrop-filter: blur(12px);
                 border-top: 1px solid rgba(255, 255, 255, 0.08);
                 display: flex;
                 justify-content: flex-end;
-                gap: 16px;
+                gap: 20px;
             }
             .modal-btn {
-                padding: 12px 28px;
-                border-radius: 12px;
+                padding: 14px 32px;
+                border-radius: 14px;
                 font-weight: 700;
-                font-size: 0.9rem;
+                font-size: 1rem;
                 cursor: pointer;
-                transition: all 0.2s;
+                transition: all 0.3s cubic-bezier(0.16, 1, 0.3, 1);
                 border: none;
             }
             .modal-btn.primary { background: #38bdf8; color: #000; }
-            .modal-btn.primary:hover { transform: translateY(-2px); box-shadow: 0 10px 20px rgba(56, 189, 248, 0.3); }
-            .modal-btn.secondary { background: rgba(255, 255, 255, 0.05); color: #fff; border: 1px solid rgba(255, 255, 255, 0.1); }
-            .modal-btn.secondary:hover { background: rgba(255, 255, 255, 0.1); }
+            .modal-btn.primary:hover { transform: translateY(-3px); box-shadow: 0 12px 25px rgba(56, 189, 248, 0.35); }
+            .modal-btn.secondary { background: rgba(255, 255, 255, 0.06); color: #fff; border: 1px solid rgba(255, 255, 255, 0.12); }
+            .modal-btn.secondary:hover { background: rgba(255, 255, 255, 0.12); }
 
             .empty-state {
                 flex: 1;
@@ -1114,43 +1142,43 @@ export const LandingUI = {
                 padding: 40px;
             }
             .empty-icon-circle {
-                width: 80px;
-                height: 80px;
+                width: 90px;
+                height: 90px;
                 border-radius: 50%;
-                background: rgba(255, 255, 255, 0.02);
-                border: 2px dashed rgba(255, 255, 255, 0.05);
+                background: rgba(255, 255, 255, 0.03);
+                border: 2px dashed rgba(255, 255, 255, 0.08);
                 display: grid;
                 place-items: center;
-                font-size: 2rem;
-                margin-bottom: 20px;
+                font-size: 2.2rem;
+                margin-bottom: 24px;
             }
-            .empty-state p { margin: 0; color: #a1a1aa; font-weight: 700; font-size: 1.1rem; }
-            .empty-state span { font-size: 0.85rem; margin-top: 8px; max-width: 240px; }
+            .empty-state p { margin: 0; color: #a1a1aa; font-weight: 700; font-size: 1.2rem; }
+            .empty-state span { font-size: 0.95rem; margin-top: 10px; max-width: 260px; line-height: 1.5; }
 
             .active-pulse-dot {
                 position: absolute;
                 top: 0;
                 right: 0;
-                width: 10px;
-                height: 10px;
+                width: 12px;
+                height: 12px;
                 background: #38bdf8;
                 border-radius: 50%;
                 border: 2px solid #0a0a0b;
                 opacity: 0;
                 transition: opacity 0.3s;
-                box-shadow: 0 0 10px #38bdf8;
+                box-shadow: 0 0 15px #38bdf8;
             }
 
-            .custom-scroll::-webkit-scrollbar { width: 6px; }
+            .custom-scroll::-webkit-scrollbar { width: 8px; }
             .custom-scroll::-webkit-scrollbar-track { background: transparent; }
-            .custom-scroll::-webkit-scrollbar-thumb { background: rgba(255, 255, 255, 0.1); border-radius: 10px; }
-            .custom-scroll::-webkit-scrollbar-thumb:hover { background: rgba(255, 255, 255, 0.2); }
+            .custom-scroll::-webkit-scrollbar-thumb { background: rgba(255, 255, 255, 0.12); border-radius: 10px; border: 2px solid transparent; background-clip: content-box; }
+            .custom-scroll::-webkit-scrollbar-thumb:hover { background: rgba(255, 255, 255, 0.2); border: 2px solid transparent; background-clip: content-box; }
 
             @keyframes slideIn {
-                from { opacity: 0; transform: translateY(10px); }
+                from { opacity: 0; transform: translateY(12px); }
                 to { opacity: 1; transform: translateY(0); }
             }
-            .slide-in { animation: slideIn 0.3s forwards; }
+            .slide-in { animation: slideIn 0.35s forwards; }
         `;
         
         const styleId = 'landing-ui-integrated-css';
