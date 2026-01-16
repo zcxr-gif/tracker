@@ -5720,6 +5720,14 @@ function handleSocketFlightUpdate(data) {
             delete currentMapFeatures[flightId]; 
         }
     }
+    const landingVisible = localStorage.getItem('landingUI_visible') !== 'false';
+    if (landingVisible && !currentFlightInWindow && !currentAirportInWindow) {
+        LandingUI.update(true, {
+            server: currentServerName,
+            flights: Object.keys(currentMapFeatures).length,
+            atc: activeAtcFacilities.length
+        });
+    }
 }
 
 function initializeSectorOpsSocket() {
@@ -12544,16 +12552,17 @@ async function initializeApp() {
         await LandingUI.init();
         SettingsUI.init();
         
-        const isVisible = localStorage.getItem('landingUI_visible') === 'true';
-    if (isVisible) {
-        const savedData = JSON.parse(localStorage.getItem('landingUI_data') || '{}');
-        // Refresh with latest live counts if available, otherwise use saved
-        LandingUI.update(true, {
-            server: currentServerName,
-            flights: Object.keys(currentMapFeatures).length || savedData.flights || 0,
-            atc: activeAtcFacilities.length || savedData.atc || 0
-        });
-    }
+        // Default to true if not explicitly set to 'false'
+const isVisible = localStorage.getItem('landingUI_visible') !== 'false'; 
+
+if (isVisible) {
+    LandingUI.update(true, {
+        server: currentServerName,
+        // These will update to real numbers as soon as data arrives
+        flights: Object.keys(currentMapFeatures).length || 0, 
+        atc: activeAtcFacilities.length || 0
+    });
+}
 
     window.addEventListener('filterUpdate', (e) => {
     const { filters, quickSearch } = e.detail;
