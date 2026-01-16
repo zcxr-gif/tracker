@@ -296,9 +296,15 @@ export const LandingUI = {
             });
         });
         
-        document.getElementById('blade-search-input')?.addEventListener('input', () => {
-            this.dispatchFilterUpdate();
-        });
+        // Inside LandingUI.js -> attachListeners()
+document.getElementById('blade-search-input')?.addEventListener('input', (e) => {
+    const val = e.target.value;
+
+    // 2. Trigger the global search logic (opens the results dropdown)
+    if (window.handleSearchInput) {
+        window.handleSearchInput(val);
+    }
+});
     },
 
     showPreview(type) {
