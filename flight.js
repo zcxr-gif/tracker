@@ -2959,30 +2959,6 @@ function injectCustomStyles() {
             letter-spacing: 0.5px;
         }
 
-        .search-sub-text {
-            color: #94a3b8;
-            font-size: 0.75rem;
-            white-space: nowrap;
-            overflow: hidden;
-            text-overflow: ellipsis;
-            font-weight: 500;
-        }
-
-        /* Column 3: Stats (Alt/Speed) */
-        .search-result-stats {
-            display: flex;
-            flex-direction: column;
-            align-items: flex-end;
-            justify-content: center;
-            gap: 3px;
-        }
-
-        .search-stat-pill {
-            font-family: var(--font-data);
-            font-size: 0.85rem;
-            font-weight: 700;
-            text-shadow: 0 0 10px rgba(0,0,0,0.5);
-        }
 
         .stat-alt { color: #38bdf8;
         } /* Sky Blue */
