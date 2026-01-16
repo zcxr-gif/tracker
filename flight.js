@@ -7765,20 +7765,21 @@ if (sizeSlider && sizeDisplay) {
     });
 }
 
-        Object.entries(ids).forEach(([id, key]) => {
-            const el = document.getElementById(id);
-            if (!el) return;
-            el.addEventListener(el.type === 'checkbox' ? 'change' : 'input', (e) => {
-                let val = el.type === 'checkbox' ? e.target.checked : e.target.value;
-                
-                // Special handlers
-                if (id === 'set-flat-map') {
-                    sectorOpsMap.setProjection(val ? 'mercator' : 'globe');
-                }
-                
-                update(key, val);
-            });
-        });
+        // Inside SettingsUI.attachConfigListeners
+Object.entries(ids).forEach(([id, key]) => {
+    const el = document.getElementById(id);
+    if (!el) return;
+    el.addEventListener(el.type === 'checkbox' ? 'change' : 'input', (e) => {
+        let val = el.type === 'checkbox' ? e.target.checked : e.target.value;
+        
+        // FIX: Ensure numeric inputs are converted to numbers
+        if (el.type === 'range' || el.type === 'number') {
+            val = parseFloat(val);
+        }
+
+        update(key, val);
+    });
+});
 
         document.getElementById('set-theme-reset')?.addEventListener('click', () => {
             mapFilters.themeStartColor = '#18181b';
@@ -8219,19 +8220,21 @@ async function setupMapLayersAndFog() {
 
     // 4. Add the ICON layer
     if (!sectorOpsMap.getLayer('sector-ops-live-flights-layer')) {
-        sectorOpsMap.addLayer({
-            id: 'sector-ops-live-flights-layer',
-            type: 'symbol',
-            source: 'sector-ops-live-flights-source',
-            layout: {
-                'icon-image': (typeof getIconImageExpression !== 'undefined') ? getIconImageExpression(mapFilters.iconColorMode) : 'icon-default',
-                'icon-size': mapFilters.planeIconSize || 0.05,
-                'icon-rotate': ['get', 'heading'],
-                'icon-rotation-alignment': 'map',
-                'icon-allow-overlap': true,
-                'icon-ignore-placement': true,
-            }
-        });
+        // Inside setupMapLayersAndFog
+sectorOpsMap.addLayer({
+    'id': 'sector-ops-live-flights-layer',
+    'type': 'symbol',
+    'source': 'sector-ops-live-flights-source',
+    'layout': {
+        'icon-image': getIconImageExpression(mapFilters.iconColorMode),
+        // FIX: Wrap mapFilters.planeIconSize in parseFloat()
+        'icon-size': parseFloat(mapFilters.planeIconSize) || 0.05, 
+        'icon-allow-overlap': true,
+        'icon-ignore-placement': true,
+        'icon-rotation-alignment': 'map',
+        'icon-rotate': ['get', 'heading']
+    }
+});
 
         // Click Listener
         sectorOpsMap.on('click', 'sector-ops-live-flights-layer', (e) => {
