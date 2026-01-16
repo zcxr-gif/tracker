@@ -3129,71 +3129,51 @@ function parseVatspyData(rawData) {
     return firDictionary;
 }
 
-let vatspyRawCache = null; // Global cache to prevent re-fetching on style change
-
 async function initializeMapBoundaries(map) {
     if (!map) return;
 
     try {
-        // Only fetch and parse if we don't have it cached
-        if (!vatspyRawCache) {
-            const vatspyRes = await fetch('./VATSpy.dat');
-            vatspyRawCache = await vatspyRes.text();
-            firNameLookup = parseVatspyData(vatspyRawCache);
-        }
-
+        // 1. Source changed to local GeoJSON (Free)
         if (!map.getSource('fir-boundaries')) {
             map.addSource('fir-boundaries', {
-                type: 'vector',
-                url: 'mapbox://servernoob.949756etywel'
+                type: 'geojson',
+                data: './Boundaries.geojson' // Ensure this file is in your root directory
             });
         }
 
         const styleMode = mapFilters.mapStyle || 'dark';
-        const borderColor = (styleMode === 'light') ? '#475569' : '#ffffff'; // Darker borders for light mode
+        const borderColor = (styleMode === 'light') ? '#475569' : '#ffffff';
         const borderOpacity = (styleMode === 'light') ? 0.4 : 0.2;
 
-        const addFirLayers = (layerName) => {
-            if (!map.getLayer('fir-fills')) {
-                map.addLayer({
-                    id: 'fir-fills',
-                    type: 'fill',
-                    source: 'fir-boundaries',
-                    'source-layer': layerName,
-                    paint: {
-                        'fill-color': '#22c55e',
-                        'fill-opacity': 0 // Keep invisible unless hovering/staffed
-                    }
-                }, 'sector-ops-live-flights-layer'); // Ensure it stays under planes
-            }
+        // 2. fir-fills Layer (Removed source-layer)
+        if (!map.getLayer('fir-fills')) {
+            map.addLayer({
+                id: 'fir-fills',
+                type: 'fill',
+                source: 'fir-boundaries',
+                paint: {
+                    'fill-color': '#22c55e',
+                    'fill-opacity': 0 // Invisible until staffed or hovered
+                }
+            }, 'sector-ops-live-flights-layer'); 
+        }
 
-            if (!map.getLayer('fir-borders')) {
-                map.addLayer({
-                    id: 'fir-borders',
-                    type: 'line',
-                    source: 'fir-boundaries',
-                    'source-layer': layerName,
-                    paint: {
-                        'line-color': borderColor,
-                        'line-width': 0.8,
-                        'line-opacity': borderOpacity
-                    }
-                }, 'sector-ops-live-flights-layer');
-            }
-        };
-
-        const checkSource = () => {
-            const source = map.getSource('fir-boundaries');
-            if (source && source.vectorLayerIds && source.vectorLayerIds.length > 0) {
-                addFirLayers(source.vectorLayerIds[0]);
-                map.off('sourcedata', checkSource);
-            }
-        };
-
-        map.on('sourcedata', checkSource);
+        // 3. fir-borders Layer (Removed source-layer)
+        if (!map.getLayer('fir-borders')) {
+            map.addLayer({
+                id: 'fir-borders',
+                type: 'line',
+                source: 'fir-boundaries',
+                paint: {
+                    'line-color': borderColor,
+                    'line-width': 0.8,
+                    'line-opacity': borderOpacity
+                }
+            }, 'sector-ops-live-flights-layer');
+        }
 
     } catch (err) {
-        console.error("Error loading map boundaries:", err);
+        console.error("Error loading local map boundaries:", err);
     }
 }
 
