@@ -297,10 +297,11 @@ export const LandingUI = {
         });
         
         // Inside LandingUI.js -> attachListeners()
+// Ensure this listener in landingUI.js looks like this:
 document.getElementById('blade-search-input')?.addEventListener('input', (e) => {
     const val = e.target.value;
 
-    // 2. Trigger the global search logic (opens the results dropdown)
+    // This should ONLY trigger the results list, NOT map filtering
     if (window.handleSearchInput) {
         window.handleSearchInput(val);
     }
