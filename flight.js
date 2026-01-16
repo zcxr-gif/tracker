@@ -2948,17 +2948,6 @@ function injectCustomStyles() {
             color: #fbbf24; } /* Amber icon for remarks */
 
 
-        .search-badge-ac {
-            font-size: 0.6rem;
-            background: rgba(255,255,255,0.1);
-            border: 1px solid rgba(255,255,255,0.1);
-            color: #cbd5e1;
-            padding: 1px 6px;
-            border-radius: 4px;
-            font-weight: 600;
-            letter-spacing: 0.5px;
-        }
-
 
         .stat-alt { color: #38bdf8;
         } /* Sky Blue */
@@ -7865,28 +7854,6 @@ function formatDataForSimpleWindow(flightProps, plan, routePoints, communityData
                 </div>
             `;
             mapContainer.insertAdjacentHTML('beforeend', selectorHtml);
-        }
-
-        // --- 4. Inject the Search Bar ---
-        if (!document.getElementById('sector-ops-search-container')) {
-            const searchHtml = `
-                <div id="sector-ops-search-container">
-                    <div class="search-bar-container">
-                        <input type="text" id="sector-ops-search-input" placeholder="Search callsign..." autocomplete="off">
-                        
-                        <button id="sector-ops-search-clear" class="search-clear-btn" title="Clear">
-                             <i class="fa-solid fa-xmark"></i>
-                        </button>
-                        
-                        <div class="search-icon-label">
-                            <i class="fa-solid fa-magnifying-glass"></i>
-                        </div>
-                    </div>
-                    
-                    <div id="search-results-dropdown" class="search-results-dropdown"></div>
-                </div>
-            `;
-            mapContainer.insertAdjacentHTML('beforeend', searchHtml);
         }
 
         // --- 5. Inject Airport Info Window ---
