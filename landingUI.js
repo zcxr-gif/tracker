@@ -1,7 +1,7 @@
 /**
  * LandingUI.js
  * REDESIGN: Tactical Modal - Advanced Centralized Filter Engine
- * UPDATED: Seamless Search Connectivity & Enhanced Dropdown UI
+ * UPDATED: Seamless Search Connectivity, Keyboard Navigation & Text Highlighting
  * FULL EXPANSION: No condensation of styles or logic.
  */
 
@@ -11,6 +11,8 @@ export const LandingUI = {
     _weatherMenuOpen: false,
     _activeFilters: {}, 
     _currentServer: 'Expert', // Default server
+    _searchCursorIndex: -1, // Track keyboard navigation
+    _currentMatches: [],
 
     filterGroups: {
         flight: {
@@ -75,11 +77,13 @@ export const LandingUI = {
         const searchBlade = document.querySelector('.search-blade');
 
         if (!query || query.length < 2) {
+            this._currentMatches = [];
+            this._searchCursorIndex = -1;
             if (resultsContainer) {
                 resultsContainer.innerHTML = '';
                 resultsContainer.classList.remove('visible');
-                // Restore rounded corners when closed
                 if (searchBlade) {
+                    searchBlade.classList.remove('has-results');
                     searchBlade.style.borderBottomLeftRadius = '100px';
                     searchBlade.style.borderBottomRightRadius = '100px';
                 }
@@ -87,35 +91,43 @@ export const LandingUI = {
             return;
         }
 
-        // Get live data from global hook (flight.js)
         const flights = window.getLiveFlightData ? window.getLiveFlightData() : [];
         const upperQuery = query.toUpperCase();
 
-        const matches = flights.filter(f => {
+        this._currentMatches = flights.filter(f => {
             const p = f.properties;
             const callsignMatch = p.callsign?.toUpperCase().includes(upperQuery);
             const userMatch = p.username?.toUpperCase().includes(upperQuery);
             const aircraftMatch = p.aircraftName?.toUpperCase().includes(upperQuery);
             return callsignMatch || userMatch || aircraftMatch;
-        });
+        }).slice(0, 15);
 
-        // Toggle connected look based on whether we have results to show
-        if (matches.length > 0 && searchBlade) {
+        this._searchCursorIndex = -1; // Reset selection on new search
+
+        if (this._currentMatches.length > 0 && searchBlade) {
+            searchBlade.classList.add('has-results');
             searchBlade.style.borderBottomLeftRadius = '0';
             searchBlade.style.borderBottomRightRadius = '0';
         } else if (searchBlade) {
+            searchBlade.classList.remove('has-results');
             searchBlade.style.borderBottomLeftRadius = '100px';
             searchBlade.style.borderBottomRightRadius = '100px';
         }
 
-        this.renderSearchResults(matches);
+        this.renderSearchResults(query);
     },
 
-    renderSearchResults(matches) {
+    highlightText(text, query) {
+        if (!query || !text) return text;
+        const regex = new RegExp(`(${query})`, 'gi');
+        return text.replace(regex, '<b class="search-highlight">$1</b>');
+    },
+
+    renderSearchResults(query) {
         const container = document.getElementById('blade-search-results');
         if (!container) return;
         
-        if (matches.length === 0) {
+        if (this._currentMatches.length === 0) {
             container.innerHTML = `
                 <div class="search-no-results">
                     <i class="fa-solid fa-plane-slash"></i>
@@ -123,15 +135,16 @@ export const LandingUI = {
                 </div>
             `;
         } else {
-            container.innerHTML = matches.slice(0, 15).map(f => `
-                <div class="search-result-item" 
-                     onclick="window.handleSearchResultClick ? window.handleSearchResultClick('${f.properties.flightId}', ${f.geometry.coordinates[1]}, ${f.geometry.coordinates[0]}) : console.log('Click:', '${f.properties.flightId}')">
+            container.innerHTML = this._currentMatches.map((f, idx) => `
+                <div class="search-result-item ${this._searchCursorIndex === idx ? 'selected' : ''}" 
+                     data-index="${idx}"
+                     onclick="LandingUI.executeSearchClick('${f.properties.flightId}', ${f.geometry.coordinates[1]}, ${f.geometry.coordinates[0]})">
                     <div class="res-main">
-                        <span class="res-callsign">${f.properties.callsign || 'N/A'}</span>
-                        <span class="res-aircraft">${f.properties.aircraftName || ''}</span>
+                        <span class="res-callsign">${this.highlightText(f.properties.callsign || 'N/A', query)}</span>
+                        <span class="res-aircraft">${this.highlightText(f.properties.aircraftName || '', query)}</span>
                     </div>
                     <div class="res-sub">
-                        <span class="res-pilot"><i class="fa-solid fa-user"></i> ${f.properties.username || 'Anonymous'}</span>
+                        <span class="res-pilot"><i class="fa-solid fa-user"></i> ${this.highlightText(f.properties.username || 'Anonymous', query)}</span>
                         <span class="res-alt">${Math.round(f.properties.altitude || 0)}ft</span>
                     </div>
                 </div>
@@ -139,6 +152,25 @@ export const LandingUI = {
         }
         
         container.classList.add('visible');
+    },
+
+    executeSearchClick(id, lat, lon) {
+        if (window.handleSearchResultClick) {
+            window.handleSearchResultClick(id, lat, lon);
+        } else {
+            console.log('Search Execution:', id, lat, lon);
+        }
+        // Cleanup after click
+        const searchResults = document.getElementById('blade-search-results');
+        const searchBlade = document.querySelector('.search-blade');
+        const searchInput = document.getElementById('blade-search-input');
+        
+        if (searchResults) searchResults.classList.remove('visible');
+        if (searchBlade) {
+            searchBlade.style.borderBottomLeftRadius = '100px';
+            searchBlade.style.borderBottomRightRadius = '100px';
+        }
+        if (searchInput) searchInput.blur();
     },
 
     render() {
@@ -302,6 +334,22 @@ export const LandingUI = {
                 e.preventDefault();
                 searchInput?.focus();
             }
+
+            // Keyboard Navigation Logic
+            if (searchResults?.classList.contains('visible')) {
+                if (e.key === 'ArrowDown') {
+                    e.preventDefault();
+                    this._searchCursorIndex = Math.min(this._searchCursorIndex + 1, this._currentMatches.length - 1);
+                    this.renderSearchResults(searchInput.value);
+                } else if (e.key === 'ArrowUp') {
+                    e.preventDefault();
+                    this._searchCursorIndex = Math.max(this._searchCursorIndex - 1, 0);
+                    this.renderSearchResults(searchInput.value);
+                } else if (e.key === 'Enter' && this._searchCursorIndex >= 0) {
+                    const selected = this._currentMatches[this._searchCursorIndex];
+                    this.executeSearchClick(selected.properties.flightId, selected.geometry.coordinates[1], selected.geometry.coordinates[0]);
+                }
+            }
         });
 
         // Search Input Engine
@@ -313,7 +361,6 @@ export const LandingUI = {
         document.addEventListener('click', (e) => {
             if (searchResults && !searchBlade?.contains(e.target)) {
                 searchResults.classList.remove('visible');
-                // Restore rounded corners if clicked away
                 if (searchBlade) {
                     searchBlade.style.borderBottomLeftRadius = '100px';
                     searchBlade.style.borderBottomRightRadius = '100px';
@@ -640,7 +687,7 @@ export const LandingUI = {
                 display: flex;
                 align-items: center;
                 padding: 0 18px;
-                transition: all 0.35s cubic-bezier(0.4, 0, 0.2, 1);
+                transition: all 0.4s cubic-bezier(0.175, 0.885, 0.32, 1.275);
                 position: relative;
                 box-shadow: 0 10px 30px rgba(0,0,0,0.4);
                 z-index: 1002;
@@ -651,6 +698,13 @@ export const LandingUI = {
                 background: #0f0f11;
                 box-shadow: 0 15px 40px rgba(0,0,0,0.6), 0 0 0 1px rgba(56, 189, 248, 0.3);
             }
+            
+            /* Class toggled in JS when dropdown opens */
+            .search-blade.has-results {
+                border-bottom-left-radius: 0 !important;
+                border-bottom-right-radius: 0 !important;
+            }
+
             #blade-search-input {
                 flex: 1;
                 background: none;
@@ -703,11 +757,21 @@ export const LandingUI = {
                 transition: all 0.2s;
                 border-left: 3px solid transparent;
             }
-            .search-result-item:hover {
-                background: rgba(56, 189, 248, 0.1);
+            .search-result-item:hover, .search-result-item.selected {
+                background: rgba(56, 189, 248, 0.12);
                 border-left-color: #38bdf8;
-                padding-left: 26px;
+                padding-left: 28px;
             }
+            
+            /* Text Highlighting Style */
+            .search-highlight {
+                color: #38bdf8;
+                background: rgba(56, 189, 248, 0.1);
+                border-radius: 2px;
+                padding: 0 1px;
+                font-weight: 800;
+            }
+
             .res-main {
                 display: flex;
                 justify-content: space-between;
