@@ -6950,6 +6950,16 @@ function updateTrafficLegendUI() {
             clearRouteLayers();
             if (typeof AirportLayoutManager !== 'undefined' && sectorOpsMap) AirportLayoutManager.clearAll(sectorOpsMap);
             currentAirportInWindow = null;
+            if (!currentFlightInWindow) {
+        const landingData = {
+            server: currentServerName,
+            flights: Object.keys(currentMapFeatures).length,
+            atc: activeAtcFacilities.length
+        };
+        LandingUI.update(true, landingData);
+        localStorage.setItem('landingUI_visible', 'true');
+        localStorage.setItem('landingUI_data', JSON.stringify(landingData));
+    }
         }
 
         if (hideBtn) {
