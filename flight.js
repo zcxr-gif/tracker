@@ -3700,6 +3700,12 @@ function generateTrafficForecastHTML(congestion) {
             }
         });
 
+        const shortName = newServerName.split(' ')[0]; // Converts "Expert Server" to "Expert"
+    const landingServerLabel = document.getElementById('landing-server-name');
+    if (landingServerLabel) {
+        landingServerLabel.textContent = `${shortName.toUpperCase()} SERVER`;
+    }
+
         // 5. Show Notification
         showNotification(`Switching to ${currentServerName}...`, 'info');
 
@@ -4678,6 +4684,21 @@ async function toggleSigmetLayer(show) {
         if (sectorOpsMap.getLayer(LINE_LAYER_ID)) sectorOpsMap.setLayoutProperty(LINE_LAYER_ID, 'visibility', vis);
     }
 }
+
+// Add this inside the document.addEventListener('DOMContentLoaded', async () => { ... }) block
+window.addEventListener('serverChange', (e) => {
+    const serverMapping = {
+        'Expert': 'Expert Server',
+        'Training': 'Training Server',
+        'Casual': 'Casual Server'
+    };
+    const fullServerName = serverMapping[e.detail.server] || e.detail.server;
+    
+    // Call the existing switchServer function defined in flight.js
+    if (typeof switchServer === 'function') {
+        switchServer(fullServerName);
+    }
+});
 /**
  * --- [FIXED] Applies all active map filters and visual settings instantly. ---
  */
