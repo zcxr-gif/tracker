@@ -12298,7 +12298,21 @@ if (isVisible) {
     // Run the filter update logic
     updateMapFilters();
 });
-        
+    if (sectorOpsMap) {
+        // 'idle' fires when the map has finished loading all tiles for the current view
+        sectorOpsMap.once('idle', () => {
+            console.log("Map tiles downloaded and cached. Removing loader.");
+            mainContentLoader.classList.remove('active');
+        });
+
+        // Fallback: If map fails to fire idle within 10 seconds, remove loader anyway
+        setTimeout(() => {
+            if (mainContentLoader.classList.contains('active')) {
+                mainContentLoader.classList.remove('active');
+            }
+        }, 10000);
+    } else {
+        // Fallback if map doesn't exist
         mainContentLoader.classList.remove('active');
     }
 

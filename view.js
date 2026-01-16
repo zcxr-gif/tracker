@@ -1,0 +1,6840 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <title>InfiniteView Tracker | Flight Tracker for Infinite Flight</title>
+  <meta charset="UTF-8">
+  <meta http-equiv="X-UA-Compatible" content="ie=edge">
+  <link rel="manifest" href="./manifest.json">
+  <link rel="icon" type="image/png" href="./resources/ifhubicon.png">
+  <link rel="apple-touch-icon" sizes="128x128" href="./resources/ifhubicon.png">
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="application-name" content="InfiniteView">
+  <meta name="description" content="InfiniteView Tracker is built for Infinite Flight, a mobile flight simulator. Track flights across all three servers in real-time, view flight schedules and airport traffic, and trending aircraft at a quick glance.">
+  <meta property="og:title" content="InfiniteView Tracker" />
+  <meta property="og:site_name" content="InfiniteView Tracker">
+  <meta property="og:description" content="A Flight Tracker for Infinite Flight" />
+  <meta property="og:image" content="https://infiniteview.app/resources/ifhubicon.png" />
+  <meta property="og:url" content="https://infiniteview.app"/>
+  <meta property="og:type" content="website" />
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/moment.js/2.29.4/moment.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/2.9.4/Chart.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+  <script src="./resources/airportlocationdata.js"></script>
+  <script src="./resources/liverydata.js"></script>
+  <script src="./resources/airlinecolours.js"></script>
+  <style>
+  :root {
+    --primary-bg: #121212;
+    --secondary-bg: #1e1e1e;
+    --tertiary-bg: #2d2d2d;
+    --card-bg: #252525;
+    --accent-color: #FFC300;
+    --accent-hover: #ffb700;
+    --text-primary: #ffffff;
+    --text-secondary: #b0b0b0;
+    --text-tertiary: #808080;
+    --success-color: #4caf50;
+    --warning-color: #ff9800;
+    --error-color: #f44336;
+    --border-radius-sm: 6px;
+    --border-radius-md: 10px;
+    --border-radius-lg: 16px;
+    --transition-speed: 0.3s;
+  }
+  :root {
+          --primary-bg: #1a1a1a;
+          --secondary-bg: #2a2a2a;
+          --border-color: #3a3a3a;
+          --accent-color: #ffd700;
+          --accent-hover: #ffed4a;
+          --text-primary: #ffffff;
+          --text-secondary: #b0b0b0;
+          --text-muted: #808080;
+          --flight-path: #404040;
+          --completed-path: #ffd700;
+          --diversion-color: #ff4444;
+          --warning-bg: rgba(255, 68, 68, 0.05);
+          --success-color: #22c55e;
+      }
+
+  * {
+    box-sizing: border-box;
+    margin: 0;
+    padding: 0;
+  }
+
+  html, body {
+    height: 100%;
+    width: 100%;
+    overflow: hidden;
+    scrollbar-width: none;
+    -ms-overflow-style: none;
+  }
+
+  body::-webkit-scrollbar, body::-webkit-scrollbar-button { display: none; } /* Chrome */
+
+  body {
+    font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, 'Open Sans', 'Helvetica Neue', sans-serif;
+    background-color: var(--primary-bg);
+    color: var(--text-primary);
+    line-height: 1.5;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+  }
+
+  /* Map Markers */
+  .marker-container {
+    display: inline-block;
+  }
+
+  .marker-icon {
+    transform-origin: center;
+  }
+
+  .airportactive {
+    background-image: url("./resources/airportactive.png");
+    background-size: cover;
+    width: 25px;
+    height: 33px;
+    cursor: pointer;
+  }
+
+  .airportnotactive {
+    background-image: url("./resources/airportnotactive.png");
+    background-size: cover;
+    width: 25px;
+    height: 33px;
+    cursor: pointer;
+    opacity: 0.8;
+  }
+
+  .clickedplaneicon {
+    background-image: url("./resources/airportclicked.png");
+    background-size: cover;
+    border-radius: 25%;
+    cursor: pointer;
+  }
+
+  .planeicon {
+    background-image: url("./resources/testplaneicon.png");
+    background-size: cover;
+    border-radius: 25%;
+    cursor: pointer;
+  }
+
+  /* Container Styles */
+  .container {
+    display: grid;
+    grid-template-columns: repeat(2, 1fr);
+    gap: 2px;
+    background-color: var(--secondary-bg);
+    padding: 2px;
+    padding-bottom: 60px;
+    border-radius: var(--border-radius-lg);
+    border-color: white;
+    border-width: thin;
+    scrollbar-width: none;
+    width: 100%;
+  }
+
+  .container > div {
+    background-color: var(--card-bg);
+    padding: 8px;
+    border-radius: var(--border-radius-md);
+    text-align: center;
+  }
+
+  .graph-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    margin-bottom: 8px;
+  }
+
+  .graph-subtitle {
+    font-size: 12px;
+    color: var(--text-secondary);
+  }
+
+  .replay-controls {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    margin-top: 6px;
+  }
+
+  .replay-controls input[type="range"] {
+    accent-color: var(--accent-color);
+  }
+
+  .replay-meta {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 12px;
+    font-size: 12px;
+    color: var(--text-secondary);
+    justify-content: flex-start;
+  }
+
+  .replay-meta span {
+    background: rgba(255, 255, 255, 0.05);
+    padding: 4px 8px;
+    border-radius: 8px;
+  }
+
+  .replay-marker {
+    width: 22px;
+    height: 22px;
+    border-radius: 50%;
+    background: radial-gradient(circle at 30% 30%, #ffe680, #d4a200 70%);
+    border: 2px solid rgba(0, 0, 0, 0.6);
+    box-shadow: 0 0 12px rgba(255, 215, 0, 0.55);
+  }
+
+  .favorites-card {
+    text-align: left;
+    padding: 16px;
+    border: 1px solid rgba(255, 255, 255, 0.05);
+    background: rgba(0, 0, 0, 0.25);
+  }
+
+  .favorites-search {
+    margin-bottom: 12px;
+  }
+
+  .favorites-search input {
+    width: 100%;
+    padding: 8px 10px;
+    border-radius: 8px;
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    background: rgba(255, 255, 255, 0.04);
+    color: var(--text-primary);
+    font-size: 13px;
+  }
+
+  .favorites-section {
+    margin-top: 8px;
+  }
+
+  .favorites-section-heading {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: 8px;
+    margin-bottom: 6px;
+  }
+
+  .favorites-section-heading h4 {
+    margin: 0;
+    font-size: 14px;
+  }
+
+  .favorites-section-hint {
+    font-size: 11px;
+    color: var(--text-muted);
+  }
+
+  .favorites-privacy-hint {
+    margin-top: -4px;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    flex-wrap: wrap;
+  }
+
+  .favorites-link {
+    background: none;
+    border: none;
+    color: var(--accent-color);
+    cursor: pointer;
+    font-size: 11px;
+    text-decoration: underline;
+    padding: 0;
+  }
+
+  .favorites-link:focus-visible {
+    outline: 2px solid var(--accent-color);
+    outline-offset: 2px;
+  }
+
+  .favorites-divider {
+    border: none;
+    border-top: 1px solid rgba(255, 255, 255, 0.05);
+    margin: 16px 0;
+  }
+
+  .cookie-consent-banner {
+    position: fixed;
+    bottom: 20px;
+    right: 20px;
+    width: min(360px, calc(100% - 32px));
+    z-index: 12;
+    background-color: rgba(18, 18, 18, 0.95);
+    border-radius: var(--border-radius-lg);
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    box-shadow: 0 20px 50px rgba(0, 0, 0, 0.7);
+    padding: 18px;
+    line-height: 1.4;
+  }
+
+  .cookie-consent-banner.hidden {
+    display: none;
+  }
+
+  .cookie-consent-content h4 {
+    margin: 0 0 4px 0;
+    font-size: 15px;
+  }
+
+  .cookie-consent-content p {
+    margin: 0 0 10px 0;
+    font-size: 13px;
+    color: var(--text-secondary);
+  }
+
+  .cookie-consent-controls {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 12px;
+    flex-wrap: wrap;
+  }
+
+  .cookie-consent-controls .consent-toggle {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 13px;
+  }
+
+  .cookie-consent-privacy {
+    font-size: 12px;
+    color: var(--accent-color);
+    text-decoration: underline;
+    cursor: pointer;
+  }
+
+  @media (max-width: 640px) {
+    .cookie-consent-banner {
+      right: 16px;
+      left: 16px;
+      width: auto;
+    }
+  }
+
+  .favorite-user-form {
+    margin-bottom: 10px;
+  }
+
+  .favorite-user-form input {
+    width: 100%;
+    padding: 8px 10px;
+    border-radius: 8px;
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    background: rgba(255, 255, 255, 0.04);
+    color: var(--text-primary);
+    font-size: 13px;
+  }
+
+  .favorite-flight-username {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    font-size: 11px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    color: #000;
+    background: var(--accent-color);
+    padding: 2px 6px;
+    border-radius: 999px;
+    margin-bottom: 4px;
+  }
+
+  .favorite-friend-icon {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 18px;
+    height: 18px;
+    border-radius: 999px;
+    margin-right: 6px;
+    background: rgba(0, 0, 0, 0.2);
+    color: var(--accent-color);
+    font-size: 10px;
+  }
+
+  .favorite-friend-icon i {
+    pointer-events: none;
+  }
+
+  .favorite-user-item {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    padding: 8px 10px;
+    background: rgba(255, 255, 255, 0.03);
+    border: 1px solid rgba(255, 255, 255, 0.04);
+    border-radius: 10px;
+    cursor: pointer;
+    transition: border var(--transition-speed), transform var(--transition-speed);
+  }
+
+  .favorite-user-item:hover {
+    border-color: rgba(255, 195, 0, 0.4);
+    transform: translateY(-1px);
+  }
+
+  .favorite-user-name {
+    font-weight: 600;
+    font-size: 14px;
+    color: var(--text-primary);
+  }
+
+  .favorite-user-item .favorite-remove-button {
+    margin-left: auto;
+  }
+
+  .favorites-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-start;
+    gap: 12px;
+    margin-bottom: 10px;
+  }
+
+  .favorites-header h3 {
+    margin: 0;
+    font-size: 16px;
+  }
+
+  .favorites-description {
+    font-size: 12px;
+    color: var(--text-muted);
+    margin-top: 4px;
+  }
+
+  .favorites-status {
+    font-size: 12px;
+    color: var(--accent-color);
+    margin-bottom: 8px;
+    display: none;
+  }
+
+  .favorites-empty {
+    font-size: 12px;
+    color: var(--text-muted);
+    margin: 8px 0;
+  }
+
+  .favorites-list {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    max-height: 220px;
+    overflow-y: auto;
+  }
+
+  .favorite-flight-item {
+    border-radius: 10px;
+    padding: 10px 12px;
+    background: rgba(255, 255, 255, 0.03);
+    border: 1px solid rgba(255, 255, 255, 0.04);
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    cursor: pointer;
+    transition: border var(--transition-speed), transform var(--transition-speed);
+  }
+
+  .favorite-flight-item.live {
+    border-color: rgba(34, 197, 94, 0.4);
+  }
+
+  .favorite-flight-item:hover {
+    border-color: rgba(255, 195, 0, 0.4);
+    transform: translateY(-1px);
+  }
+
+  .favorite-flight-info {
+    flex: 1;
+  }
+
+  .favorite-flight-title {
+    font-weight: 600;
+    font-size: 14px;
+    margin-bottom: 4px;
+  }
+
+  .favorite-flight-route {
+    font-size: 12px;
+    color: var(--text-muted);
+  }
+
+  .favorite-flight-meta {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+  }
+
+  .favorite-flight-tag {
+    font-size: 11px;
+    padding: 2px 8px;
+    border-radius: 999px;
+    background: rgba(255, 255, 255, 0.08);
+    text-transform: uppercase;
+  }
+
+  .favorite-remove-button {
+    background: transparent;
+    border: none;
+    color: var(--text-secondary);
+    cursor: pointer;
+    font-size: 14px;
+    padding: 2px 4px;
+    border-radius: 4px;
+    transition: background var(--transition-speed);
+  }
+
+  .favorite-remove-button:hover {
+    background: rgba(255, 255, 255, 0.1);
+    color: var(--text-primary);
+  }
+
+  .container > div:hover {
+    transform: translateY(-2px);
+  }
+
+  .container > div span {
+    display: block;
+    font-size: 14px;
+    color: var(--text-secondary);
+    margin-bottom: 4px;
+  }
+
+  .container > div h2 {
+    margin: 5px 0;
+    font-size: 18px;
+    font-weight: 500;
+  }
+
+  .photo-mode-overlay {
+    position: fixed;
+    left: 50%;
+    bottom: 22px;
+    transform: translateX(-50%);
+    z-index: 20;
+    display: grid;
+    grid-template-columns: minmax(180px, 1.2fr) minmax(180px, 1fr);
+    grid-template-rows: auto auto;
+    gap: 12px 18px;
+    padding: 12px 18px;
+    border-radius: 22px;
+    background: linear-gradient(135deg, rgba(255, 195, 0, 0.12), rgba(18, 18, 18, 0.2)),
+      rgba(18, 18, 18, 0.22);
+    border: 1px solid rgba(255, 255, 255, 0.12);
+    box-shadow: 0 18px 36px rgba(0, 0, 0, 0.35);
+    backdrop-filter: blur(20px) saturate(180%);
+    -webkit-backdrop-filter: blur(20px) saturate(180%);
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity var(--transition-speed), transform var(--transition-speed);
+    max-width: min(900px, calc(100% - 32px));
+  }
+
+  .photo-mode-overlay.status-delayed {
+    background: linear-gradient(135deg, rgba(255, 85, 85, 0.12), rgba(18, 18, 18, 0.2)),
+      rgba(18, 18, 18, 0.22);
+    border-color: rgba(255, 85, 85, 0.25);
+  }
+
+  .photo-mode-overlay.status-diverted {
+    background: linear-gradient(135deg, rgba(255, 85, 85, 0.16), rgba(18, 18, 18, 0.22)),
+      rgba(18, 18, 18, 0.24);
+    border-color: rgba(255, 85, 85, 0.3);
+  }
+
+  body.photo-mode-active .photo-mode-overlay {
+    opacity: 1;
+    pointer-events: auto;
+    transform: translateX(-50%) translateY(0);
+  }
+
+  body.photo-mode-active #mySidenav,
+  body.photo-mode-active header,
+  body.photo-mode-active .filter-container,
+  body.photo-mode-active .search-bar,
+  body.photo-mode-active #search-bar,
+  body.photo-mode-active #search-input,
+  body.photo-mode-active #search-results,
+  body.photo-mode-active .search-results,
+  body.photo-mode-active #rankingbutton,
+  body.photo-mode-active #rankingdropdown,
+  body.photo-mode-active #serverdropdown,
+  body.photo-mode-active #filterPanel,
+  body.photo-mode-active #searchInput,
+  body.photo-mode-active #profile-button,
+  body.photo-mode-active #favorites-button,
+  body.photo-mode-active #favorites-popup,
+  body.photo-mode-active #sign-in-popup,
+  body.photo-mode-active .popup-overlay,
+  body.photo-mode-active .cookie-consent-banner,
+  body.photo-mode-active #friend-storage-banner,
+  body.photo-mode-active .dropdown,
+  body.photo-mode-active .mapboxgl-ctrl-top-left,
+  body.photo-mode-active .mapboxgl-ctrl-top-right,
+  body.photo-mode-active .mapboxgl-ctrl-bottom-left,
+  body.photo-mode-active .mapboxgl-ctrl-bottom-right {
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity var(--transition-speed);
+    visibility: hidden;
+  }
+
+  .photo-mode-info {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+  }
+
+  .photo-mode-callsign {
+    font-size: 16px;
+    font-weight: 600;
+    letter-spacing: 0.4px;
+    color: var(--text-primary);
+    white-space: nowrap;
+    text-shadow: 0 1px 2px rgba(0, 0, 0, 0.55);
+  }
+
+  .photo-mode-meta {
+    font-size: 12px;
+    color: var(--text-secondary);
+    text-shadow: 0 1px 2px rgba(0, 0, 0, 0.45);
+  }
+
+  .photo-mode-route {
+    grid-column: 2;
+    grid-row: 1;
+    justify-self: end;
+  }
+
+  .photo-mode-progress {
+    grid-column: 1 / span 2;
+    min-width: 180px;
+  }
+
+  .photo-mode-status {
+    grid-column: 2;
+    grid-row: 2;
+    justify-self: end;
+  }
+
+  .photo-mode-route {
+    display: flex;
+    align-items: center;
+    gap: 18px;
+    font-size: 12px;
+    color: var(--text-secondary);
+    white-space: nowrap;
+  }
+
+  .photo-mode-airport {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+  }
+
+  .photo-mode-airport-code {
+    font-size: 14px;
+    font-weight: 600;
+    color: var(--text-primary);
+    text-shadow: 0 1px 2px rgba(0, 0, 0, 0.55);
+  }
+
+  .photo-mode-airport-time {
+    font-size: 11px;
+    color: var(--text-tertiary);
+    text-shadow: 0 1px 2px rgba(0, 0, 0, 0.45);
+  }
+
+  .photo-mode-airport-label {
+    font-size: 11px;
+    color: var(--text-secondary);
+  }
+
+  .photo-mode-status {
+    font-size: 12px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.6px;
+    color: var(--text-primary);
+    text-shadow: 0 1px 2px rgba(0, 0, 0, 0.55);
+  }
+
+  .photo-mode-progress-track {
+    width: 100%;
+    height: 6px;
+    border-radius: 999px;
+    background: rgba(255, 255, 255, 0.15);
+    overflow: hidden;
+    position: relative;
+  }
+
+  .photo-mode-progress-fill {
+    height: 100%;
+    width: 0%;
+    background: var(--accent-color);
+    border-radius: 999px;
+    transition: width 0.6s ease;
+  }
+
+  .photo-mode-progress-fill.diverted {
+    background: linear-gradient(90deg, var(--accent-color) 0%, var(--accent-color) 70%, var(--diversion-color) 100%);
+  }
+
+  .photo-mode-progress-text {
+    margin-top: 6px;
+    font-size: 12px;
+    color: var(--text-secondary);
+  }
+
+  .flight-rating-card {
+    margin-top: 12px;
+    padding: 14px;
+    border-radius: 14px;
+    background: rgba(0, 0, 0, 0.35);
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    width: 100%;
+    grid-column: 1 / -1;
+  }
+
+  .flight-rating-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    width: 100%;
+  }
+
+  .flight-rating-title {
+    font-size: 14px;
+    font-weight: 600;
+    color: var(--text-primary);
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+  }
+
+  .flight-rating-beta {
+    font-size: 10px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.8px;
+    padding: 2px 6px;
+    border-radius: 999px;
+    background: rgba(255, 195, 0, 0.16);
+    color: var(--accent-color);
+  }
+
+  .flight-rating-summary {
+    font-size: 12px;
+    color: var(--text-secondary);
+  }
+
+  .flight-rating-score {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 82px;
+    height: 82px;
+    border-radius: 50%;
+    background: radial-gradient(circle at 30% 30%, rgba(255, 255, 255, 0.18), rgba(0, 0, 0, 0.35));
+    border: 2px solid rgba(255, 255, 255, 0.2);
+    box-shadow: inset 0 0 18px rgba(0, 0, 0, 0.35);
+    font-size: 18px;
+    font-weight: 700;
+    color: var(--accent-color);
+    min-width: 82px;
+  }
+
+  .flight-rating-breakdown {
+    margin-top: 10px;
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+    gap: 8px;
+  }
+
+  .flight-rating-chip {
+    padding: 8px 10px;
+    border-radius: 10px;
+    background: rgba(255, 255, 255, 0.04);
+    border: 1px solid rgba(255, 255, 255, 0.06);
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    font-size: 12px;
+    color: var(--text-secondary);
+  }
+
+  .flight-rating-chip strong {
+    color: var(--text-primary);
+    font-weight: 600;
+  }
+
+  .flight-rating-details {
+    margin-top: 10px;
+    font-size: 12px;
+    color: var(--text-secondary);
+  }
+
+  .flight-rating-details summary {
+    cursor: pointer;
+    color: var(--accent-color);
+    font-weight: 600;
+  }
+
+  .flight-rating-details ul {
+    margin-top: 6px;
+    padding-left: 18px;
+  }
+
+  .flight-rating-details li {
+    margin-bottom: 4px;
+  }
+
+  .share-modal-overlay {
+    position: fixed;
+    inset: 0;
+    background: rgba(0, 0, 0, 0.65);
+    display: none;
+    align-items: center;
+    justify-content: center;
+    z-index: 30;
+    padding: 20px;
+  }
+
+  .share-modal-overlay.active {
+    display: flex;
+  }
+
+  .share-modal {
+    width: min(520px, 90vw);
+    background: linear-gradient(135deg, rgba(26, 26, 26, 0.95), rgba(10, 10, 10, 0.9));
+    border: 1px solid rgba(255, 255, 255, 0.14);
+    border-radius: 16px;
+    padding: 20px;
+    box-shadow: 0 24px 60px rgba(0, 0, 0, 0.5);
+  }
+
+  .share-modal-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 16px;
+  }
+
+  .share-modal-title {
+    font-size: 16px;
+    font-weight: 600;
+    color: var(--text-primary);
+  }
+
+  .share-modal-close {
+    background: transparent;
+    border: none;
+    color: var(--text-secondary);
+    font-size: 18px;
+    cursor: pointer;
+  }
+
+  .share-modal-content {
+    display: grid;
+    grid-template-columns: 1fr auto;
+    gap: 16px;
+    align-items: center;
+  }
+
+  .share-flight-info {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    color: var(--text-secondary);
+    font-size: 12px;
+  }
+
+  .share-flight-info strong {
+    color: var(--text-primary);
+    font-size: 14px;
+  }
+
+  .share-qr-wrapper {
+    position: relative;
+    width: 152px;
+    height: 152px;
+    border-radius: 16px;
+    background: #fff;
+    padding: 10px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+
+  .share-qr-wrapper canvas,
+  .share-qr-wrapper img {
+    max-width: 100%;
+    max-height: 100%;
+  }
+
+  .share-qr-logo {
+    position: absolute;
+    width: 42px;
+    height: 42px;
+    border-radius: 12px;
+    background: #111;
+    border: 2px solid #fff;
+    padding: 4px;
+  }
+
+  .share-qr {
+    width: 100%;
+    height: 100%;
+  }
+
+  .share-modal-actions {
+    margin-top: 16px;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 10px;
+  }
+
+  .share-modal-actions button,
+  .share-modal-actions a {
+    padding: 8px 12px;
+    border-radius: 999px;
+    border: 1px solid rgba(255, 255, 255, 0.2);
+    background: rgba(255, 255, 255, 0.08);
+    color: var(--text-primary);
+    font-size: 12px;
+    cursor: pointer;
+    text-decoration: none;
+  }
+
+  .share-brand {
+    margin-top: 12px;
+    font-size: 11px;
+    color: var(--text-tertiary);
+    text-align: center;
+  }
+
+  @media (max-width: 720px) {
+    .photo-mode-overlay {
+      grid-template-columns: 1fr;
+    }
+
+    .photo-mode-route,
+    .photo-mode-status {
+      grid-column: 1;
+      justify-self: start;
+    }
+  }
+
+  .full-width {
+    grid-column: span 2;
+    max-width: 100%;
+  }
+
+  .wrapper {
+    width: 80%;
+  }
+
+  /* Progress Bar */
+  .progress-bar {
+    width: 80%;
+    margin: auto;
+    height: 0.8em;
+    background: var(--tertiary-bg);
+    padding: 1%;
+    border-radius: 50px;
+    position: relative;
+    overflow: hidden;
+  }
+
+  .flight-header {
+          display: flex;
+          align-items: center;
+          gap: 8px;
+          padding: 2px;
+
+      }
+
+      .flight-actions {
+          margin-left: auto;
+          display: inline-flex;
+          align-items: center;
+          gap: 8px;
+      }
+
+      .flight-number {
+          font-weight: 600;
+          font-size: 16px;
+          color: var(--text-primary);
+          margin-right: 20px;
+      }
+
+      .aircraft-type {
+          font-size: 12px;
+          color: var(--text-muted);
+          background: var(--border-color);
+          padding: 2px 8px;
+          border-radius: 4px;
+          margin-right: 20px;
+      }
+
+      .status-badge {
+          font-size: 11px;
+          font-weight: 600;
+          padding: 4px 8px;
+          border-radius: 4px;
+          text-transform: uppercase;
+          letter-spacing: 0.5px;
+      }
+
+      .focus-toggle-button {
+          display: inline-flex;
+          align-items: center;
+          justify-content: center;
+          gap: 6px;
+          padding: 6px 12px;
+          border-radius: 6px;
+          background: var(--tertiary-bg);
+          border: 1px solid var(--border-color);
+          color: var(--text-secondary);
+          font-size: 12px;
+          font-weight: 500;
+          cursor: pointer;
+          transition: background var(--transition-speed), color var(--transition-speed), border-color var(--transition-speed), box-shadow var(--transition-speed);
+      }
+
+      .focus-toggle-button:hover,
+      .focus-toggle-button:focus-visible {
+          background: var(--accent-hover);
+          border-color: var(--accent-hover);
+          color: #000;
+          outline: none;
+      }
+
+      .focus-toggle-button.active {
+          background: var(--accent-color);
+          border-color: var(--accent-color);
+          color: #000;
+          box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.2);
+      }
+
+      .photo-mode-toggle-button {
+          background: rgba(255, 255, 255, 0.08);
+      }
+
+      .photo-mode-toggle-button i {
+          font-size: 13px;
+      }
+
+      .favorite-toggle-button {
+          background: rgba(255, 255, 255, 0.05);
+      }
+
+      .favorite-toggle-button.active {
+          background: var(--accent-color);
+          border-color: var(--accent-color);
+          color: #000;
+      }
+
+      .favorite-toggle-button:disabled {
+          opacity: 0.5;
+          cursor: not-allowed;
+      }
+
+      .flight-route {
+          padding: 20px;
+      }
+
+      .route-header {
+          display: flex;
+          justify-content: space-between;
+          align-items: flex-start;
+      }
+
+      .airport {
+          flex: 1;
+          transition: opacity 0.3s ease;
+      }
+
+      .airport.faded {
+          opacity: 0.2;
+      }
+
+      .airport-main {
+          display: flex;
+          align-items: baseline;
+          gap: 8px;
+      }
+
+      .airport-code {
+          font-size: 24px;
+          font-weight: 700;
+          color: var(--text-primary);
+      }
+
+      .airport-name {
+          font-size: 12px;
+          color: var(--text-muted);
+          font-weight: 500;
+      }
+
+      .time-info {
+          display: flex;
+          flex-direction: column;
+          gap: 2px;
+      }
+
+      .scheduled-time {
+          font-size: 14px;
+          color: var(--text-secondary);
+          font-weight: 500;
+      }
+
+      .actual-time {
+          font-size: 11px;
+          color: var(--text-muted);
+      }
+
+      .actual-time.delayed {
+          color: var(--diversion-color);
+      }
+
+      .actual-time.early {
+          color: var(--success-color);
+      }
+
+      .route-center {
+          text-align: center;
+          flex: 1;
+          margin: 0 30px;
+      }
+
+      .flight-duration {
+          font-size: 12px;
+          color: var(--text-muted);
+      }
+
+      .diversion-notice {
+          background: var(--warning-bg);
+          border: 1px solid var(--diversion-color);
+          border-radius: 6px;
+          padding: 12px;
+          margin-bottom: 15px;
+          display: none;
+      }
+
+      .diversion-notice.show {
+          display: block;
+      }
+
+      .diversion-title {
+          font-size: 12px;
+          font-weight: 600;
+          color: var(--diversion-color);
+          margin-bottom: 4px;
+          text-transform: uppercase;
+          letter-spacing: 0.5px;
+      }
+
+      .diversion-info {
+          display: flex;
+          justify-content: space-between;
+          align-items: center;
+      }
+
+      .diversion-airport {
+          display: flex;
+          align-items: baseline;
+          gap: 8px;
+      }
+
+      .diversion-code {
+          font-size: 18px;
+          font-weight: 700;
+          color: var(--diversion-color);
+          font-family: 'SF Mono', Monaco, 'Cascadia Code', monospace;
+      }
+
+      .diversion-name {
+          font-size: 11px;
+          color: var(--text-secondary);
+      }
+
+      .diversion-time {
+          font-size: 11px;
+          color: var(--text-secondary);
+      }
+
+      .progress-section {
+          position: relative;
+          height: 30px;
+          margin: 20px 0;
+          margin-top: -20px;
+      }
+
+      .progress-track {
+          position: absolute;
+          top: 50%;
+          left: 0;
+          right: 0;
+          height: 2px;
+          background: var(--flight-path);
+          transform: translateY(-50%);
+      }
+
+      .progress-fill {
+          height: 100%;
+          background: var(--completed-path);
+          transition: width 1.2s cubic-bezier(0.4, 0, 0.2, 1);
+          position: relative;
+      }
+
+      .progress-fill.diverted {
+          background: linear-gradient(90deg, var(--completed-path) 0%, var(--completed-path) 70%, var(--diversion-color) 100%);
+      }
+
+      .aircraft-icon {
+          position: absolute;
+          top: 50%;
+          transform: translate(-50%, -50%);
+          width: 16px;
+          height: 16px;
+          background: var(--text-primary);
+          transition: left 1.2s cubic-bezier(0.4, 0, 0.2, 1);
+          clip-path: polygon(
+                        100% 50%,  /* rotated tip */
+                        0% 0%,     /* rotated bottom-left */
+                        15% 20%,   /* rotated inner-left */
+                        10% 50%,   /* rotated base center */
+                        15% 80%,   /* rotated inner-right */
+                        0% 100%    /* rotated bottom-right */
+                      );
+      }
+
+      .aircraft-icon.diverted {
+          background: var(--diversion-color);
+      }
+
+      .aircraft-icon.completed {
+          display: none;
+      }
+
+      .route-points {
+          position: absolute;
+          top: 50%;
+          left: 0;
+          right: 0;
+          transform: translateY(-50%);
+          display: flex;
+          justify-content: space-between;
+          pointer-events: none;
+      }
+
+      .route-point {
+          width: 10px;
+          height: 10px;
+          border-radius: 50%;
+          background: var(--text-muted);
+          border: 2px solid var(--secondary-bg);
+      }
+
+      .route-point.complete {
+          background: var(--accent-color);
+      }
+
+      .route-point.active {
+          background: var(--completed-path);
+      }
+
+      .route-point.diversion {
+          background: var(--diversion-color);
+      }
+
+      .progress-info {
+          display: grid;
+          grid-template-columns: 1fr auto 1fr;
+          align-items: center;
+          margin-top: 5px;
+          font-size: 11px;
+          color: var(--text-muted);
+          gap: 10px;
+      }
+
+      .progress-left {
+          text-align: left;
+      }
+
+      .progress-center {
+          text-align: center;
+      }
+
+      .progress-text {
+          font-weight: 500;
+          color: var(--text-secondary);
+          font-size: 12px;
+      }
+
+      .progress-right {
+          text-align: right;
+      }
+
+  hr {
+    height: 2px;
+    background-color: var(--accent-color);
+    border: none;
+    margin: 12px 0;
+  }
+
+  /* Sidebar Navigation */
+  .sidenav {
+    height: 20%;
+    width: 30%;
+    position: fixed;
+    border-radius: var(--border-radius-lg);
+    z-index: 2;
+    top: 10%;
+    left: 69%;
+    display: none;
+    transition: all var(--transition-speed) ease;
+    overflow-y: auto;
+    min-height: 85%;
+    background-color: rgba(30, 30, 30, 0.85);
+    border: 1px solid rgba(255, 255, 255, 0.1);
+  }
+
+  @media (max-width: 850px) {
+    .sidenav {
+      height: 20%;
+      width: 100%;
+      position: fixed;
+      border-radius: var(--border-radius-lg) var(--border-radius-lg) 0 0;
+      z-index: 10;
+      left: 0;
+      bottom: 0;
+      top: auto;
+      display: none;
+      transition: all var(--transition-speed) ease;
+      overflow-y: auto;
+      background-color: rgba(30, 30, 30, 0.9);
+    }
+  }
+
+  .sidenav.expanded {
+    height: 50%;
+  }
+
+  .sidenav a {
+    padding: 0px 0px 0px 10px;
+    text-decoration: none;
+    font-size: 15px;
+    color: var(--text-primary);
+    transition: var(--transition-speed);
+  }
+
+  .sidenav a:hover {
+    color: var(--accent-color);
+  }
+
+  #MapContainer {
+    transition: margin-left .5s;
+    position: absolute;
+    top: 0;
+    z-index: 1;
+    right: 0;
+    bottom: 0;
+    left: 0;
+  }
+
+  /* Map Controls */
+  .leaflet-control-zoom {
+    background-color: var(--secondary-bg);
+    border-radius: var(--border-radius-sm);
+    overflow: hidden;
+  }
+
+  .leaflet-control-zoom a {
+    background: var(--tertiary-bg);
+    color: var(--text-primary);
+    border: none !important;
+    transition: background-color var(--transition-speed);
+  }
+
+  .leaflet-control-zoom a:hover {
+    background: var(--card-bg);
+  }
+
+  @media screen and (max-height: 500px) {
+    .sidenav {padding-top: 0px;}
+    .sidenav a {font-size: 18px;}
+  }
+
+  .wrapper {
+    width: 100%;
+  }
+
+  /* Profile Card */
+  .profile-card {
+    width: 100%;
+    max-width: 500px;
+    background-color: var(--card-bg);
+    border-radius: var(--border-radius-lg);
+    overflow: hidden;
+    outline-color: white;
+  }
+
+  .profile-header {
+    text-align: center;
+    margin-bottom: 18px;
+    padding: 20px;
+  }
+
+  .profile-header h2, .profile-header h3 {
+    margin: 0;
+    font-size: 18px;
+    color: var(--accent-color);
+    font-weight: 600;
+  }
+
+  .profile-content {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 16px;
+    padding: 0 8px 8px;
+  }
+
+  .profile-content .section {
+    background-color: var(--secondary-bg);
+    padding: 4px;
+    border-radius: var(--border-radius-md);
+    text-align: center;
+    transition: transform var(--transition-speed);
+  }
+
+  .profile-content .section:hover {
+    transform: translateY(-2px);
+  }
+
+  .section h3 {
+    margin: 0;
+    font-size: 16px;
+    color: var(--accent-color);
+    font-weight: 500;
+  }
+
+  .section p {
+    margin: 10px 0 0;
+    font-size: 22px;
+    color: var(--text-primary);
+    font-weight: 600;
+  }
+
+  /* Header */
+  header {
+    position: fixed;
+    top: 2%;
+    width: 100%;
+    border-radius: var(--border-radius-md);
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    background-color: rgba(37, 37, 37, 0.85);
+    padding: 6px 8px;
+    z-index: 1000;
+    border: 1px solid rgba(255, 255, 255, 0.05);
+  }
+
+  /* Search Bar */
+  .search-bar {
+    position: relative;
+    display: flex;
+    align-items: center;
+    background-color: var(--tertiary-bg);
+    padding: 4px 6px;
+    border-radius: var(--border-radius-md);
+    width: 75%;
+    transition: all var(--transition-speed);
+    border: 1px solid rgba(255, 255, 255, 0.05);
+  }
+
+  .search-bar:focus-within {
+    box-shadow: 0 0 0 2px rgba(255, 195, 0, 0.3);
+  }
+
+  .search-bar input {
+    background: none;
+    border: none;
+    color: var(--text-primary);
+    font-size: 14px;
+    outline: none;
+    width: 100%;
+    font-family: inherit;
+  }
+
+  .search-bar input::placeholder {
+    color: var(--text-tertiary);
+  }
+
+  .search-bar .icon {
+    margin-right: 10px;
+    color: var(--text-secondary);
+    display: inline;
+  }
+
+  /* Search Results Dropdown */
+  .search-results {
+    display: none;
+    position: absolute;
+    top: 100%;
+    left: 0;
+    width: 100%;
+    background-color: var(--secondary-bg);
+    z-index: 1;
+    border-radius: 0 0 var(--border-radius-md) var(--border-radius-md);
+    max-height: 300px;
+    font-size: 14px;
+    overflow-y: auto;
+    border: 1px solid rgba(255, 255, 255, 0.05);
+    margin-top: 4px;
+  }
+
+  .search-results a {
+    color: var(--text-primary);
+    padding: 12px 16px;
+    text-decoration: none;
+    display: block;
+    transition: background-color var(--transition-speed);
+  }
+
+  .search-results a:hover {
+    background-color: var(--tertiary-bg);
+  }
+
+  /* Dropdown Menu */
+  .dropdown {
+    position: relative;
+    display: inline-block;
+  }
+
+  .dropdown button {
+    background-color: var(--tertiary-bg);
+    color: var(--text-primary);
+    border-radius: var(--border-radius-md);
+    padding: 4px 6px;
+    border: 1px solid rgba(255, 255, 255, 0.05);
+    font-size: 14px;
+    cursor: pointer;
+    transition: background-color var(--transition-speed);
+    font-family: inherit;
+    font-weight: 500;
+  }
+
+  .dropdown button:hover {
+    background-color: var(--card-bg);
+  }
+
+  .dropdown-content {
+    display: none;
+    position: absolute;
+    background-color: var(--secondary-bg);
+    min-width: 180px;
+    font-size: 14px;
+    z-index: 1;
+    border-radius: var(--border-radius-md);
+    overflow: hidden;
+    border: 1px solid rgba(255, 255, 255, 0.05);
+    margin-top: 4px;
+  }
+
+  .dropdown-content a {
+    color: var(--text-primary);
+    padding: 12px 16px;
+    text-decoration: none;
+    display: block;
+    cursor: pointer;
+    transition: background-color var(--transition-speed);
+  }
+
+  .dropdown-content a:hover {
+    background-color: var(--tertiary-bg);
+  }
+
+  .dropdown:hover .dropdown-content {
+    display: block;
+  }
+
+  /* Profile Button */
+  #profile-button {
+    position: fixed;
+    bottom: 30px;
+    left: 20px;
+    background-color: #333;
+    border-radius: 50%;
+    width: 35px;
+    height: 35px;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    font-size: 20px;
+    color: var(--primary-bg);
+    z-index: 3;
+    cursor: pointer;
+    transition: transform var(--transition-speed), background-color var(--transition-speed);
+  }
+
+  #profile-button:hover {
+    background-color: var(--accent-hover);
+    transform: scale(1.05);
+  }
+
+  #favorites-button {
+    position: fixed;
+    bottom: 30px;
+    left: 70px;
+    background-color: #333;
+    border-radius: 50%;
+    width: 35px;
+    height: 35px;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    font-size: 18px;
+    color: var(--primary-bg);
+    z-index: 3;
+    cursor: pointer;
+    transition: transform var(--transition-speed), background-color var(--transition-speed);
+  }
+
+  .favorites-activity-count {
+    position: absolute;
+    top: -6px;
+    right: -6px;
+    min-width: 18px;
+    height: 18px;
+    padding: 0 5px;
+    border-radius: 999px;
+    background-color: var(--accent-color);
+    color: var(--primary-bg);
+    font-size: 11px;
+    font-weight: 600;
+    display: none;
+    align-items: center;
+    justify-content: center;
+    border: 2px solid var(--primary-bg);
+    pointer-events: none;
+    box-shadow: 0 4px 10px rgba(0, 0, 0, 0.4);
+  }
+
+  .favorites-activity-count.visible {
+    display: flex;
+  }
+
+  #favorites-button:hover,
+  #favorites-button.active {
+    background-color: var(--accent-color);
+    color: var(--primary-bg);
+    transform: scale(1.05);
+  }
+
+  .favorites-popup {
+    position: fixed;
+    bottom: 80px;
+    left: 20px;
+    width: min(340px, calc(100% - 40px));
+    z-index: 4;
+    background-color: rgba(18, 18, 18, 0.95);
+    border-radius: var(--border-radius-lg);
+    border: 1px solid rgba(255, 255, 255, 0.05);
+    box-shadow: 0 20px 50px rgba(0, 0, 0, 0.6);
+    backdrop-filter: blur(6px);
+  }
+
+  .favorites-popup.hidden {
+    display: none;
+  }
+
+  /* Sign In Popup */
+  #sign-in-popup {
+    position: fixed;
+    top: 50%;
+    z-index: 11;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    background-color: var(--secondary-bg);
+    padding: 24px;
+    border-radius: var(--border-radius-lg);
+    display: none;
+    flex-direction: column;
+    align-items: center;
+    border: 1px solid rgba(255, 255, 255, 0.05);
+    max-width: 90%;
+    width: 400px;
+  }
+
+  .hidden {
+    display: none;
+  }
+
+  .g_id_signin {
+    margin-top: 16px;
+  }
+
+  /* Subscription Badge */
+  .subscription-badge {
+    display: inline-block;
+    padding: 5px 10px;
+    background-color: rgba(255, 158, 40, 0.15);
+    color: var(--accent-color);
+    font-size: 0.8rem;
+    border-radius: var(--border-radius-md);
+    margin-left: -70px;
+    font-weight: 600;
+    text-transform: uppercase;
+    vertical-align: middle;
+    animation: glowing 1.5s infinite alternate;
+  }
+
+  @keyframes glowing {
+    from {
+      box-shadow: 0 0 10px rgba(228, 113, 46, 0.3), 0 0 20px rgba(228, 113, 46, 0.1);
+    }
+    to {
+      box-shadow: 0 0 15px rgba(228, 113, 46, 0.5), 0 0 25px rgba(228, 113, 46, 0.2);
+    }
+  }
+
+  /* Overlay Text */
+  .overlay-text {
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    color: var(--text-primary);
+    font-size: 24px;
+    font-weight: 600;
+    text-align: center;
+    background-color: rgba(0, 0, 0, 0.7);
+    padding: 16px 24px;
+    border-radius: var(--border-radius-md);
+  }
+
+  /* Popup Overlay */
+  .popup-overlay {
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    background: rgba(0, 0, 0, 0.8);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    visibility: hidden;
+    opacity: 0;
+    transition: opacity var(--transition-speed) ease, visibility var(--transition-speed);
+    z-index: 99999;
+  }
+
+  /* Popup Container */
+  .popup {
+    background-color: var(--secondary-bg);
+    padding: 32px;
+    border-radius: var(--border-radius-lg);
+    max-width: 90%;
+    width: 400px;
+    text-align: center;
+    transform: scale(0.9);
+    transition: transform var(--transition-speed);
+    border: 1px solid rgba(255, 255, 255, 0.05);
+  }
+
+  /* Message Text */
+  .popup h2 {
+    margin-top: 0;
+    color: var(--accent-color);
+    font-size: 24px;
+    font-weight: 600;
+    margin-bottom: 16px;
+  }
+
+  .popup p {
+    margin-bottom: 24px;
+    line-height: 1.6;
+    color: var(--text-secondary);
+  }
+
+  /* Button Styling */
+  .popup button {
+    margin-top: 8px;
+    padding: 10px 24px;
+    border: none;
+    border-radius: var(--border-radius-md);
+    background-color: var(--accent-color);
+    color: var(--primary-bg);
+    font-size: 16px;
+    font-weight: 500;
+    cursor: pointer;
+    transition: background-color var(--transition-speed), transform var(--transition-speed);
+    font-family: inherit;
+  }
+
+  .popup button:hover {
+    background-color: var(--accent-hover);
+    transform: translateY(-2px);
+  }
+
+  .popup button:active {
+    transform: translateY(0);
+  }
+
+  /* Show Popup */
+  .popup-overlay.active {
+    visibility: visible;
+    opacity: 1;
+  }
+
+  .popup-overlay.active .popup {
+    transform: scale(1);
+  }
+
+  /* Image Container */
+  .image-container {
+    position: relative;
+    display: inline-block;
+    overflow: hidden;
+    border-radius: 8px;
+    width: 100%;
+}
+
+.image-container img {
+    display: block;
+    width: 100%;
+    height: auto;
+    z-index: -1;
+}
+
+/* Removed hover transform for performance */
+
+.image-container .credits {
+    position: absolute;
+    bottom: 12px;
+    left: 12px;
+    color: white;
+    background-color: rgba(0, 0, 0, 0.7);
+    padding: 6px 12px;
+    font-size: 12px;
+    border-radius: 4px;
+    white-space: nowrap;
+    /* Removed backdrop-filter for iOS performance */
+}
+
+/* Toggle Switch - Simplified */
+#switch-container {
+    display: flex;
+    align-items: center;
+    background: #333;
+    width: fit-content;
+    padding: 8px 12px;
+    border-radius: 8px;
+    margin-top: 8px;
+    font-size: 12px;
+    border: 1px solid #444;
+}
+
+.label {
+    font-size: 12px;
+    margin: 0 8px;
+    color: #ccc;
+}
+
+.switch {
+    position: relative;
+    display: inline-block;
+    width: 50px;
+    height: 24px;
+}
+
+.switch input {
+    display: none;
+}
+
+.slider {
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background-color: #555;
+    border-radius: 34px;
+    cursor: pointer;
+    transition: background-color 0.2s;
+    border: 1px solid #666;
+}
+
+.slider:before {
+    position: absolute;
+    content: '';
+    height: 18px;
+    width: 18px;
+    left: 3px;
+    bottom: 2px;
+    background-color: white;
+    border-radius: 50%;
+    transition: transform 0.2s;
+}
+
+input:checked + .slider {
+    background-color: #4CAF50;
+}
+
+input:checked + .slider:before {
+    transform: translateX(26px);
+}
+
+/* Flight List - Simplified */
+.flight-list {
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+}
+
+.flight-item {
+    background-color: #222;
+    border-radius: 8px;
+    overflow: hidden;
+    border: 1px solid #333;
+}
+
+/* Removed hover effects for performance */
+
+.flight-summary {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 16px 20px;
+    cursor: pointer;
+}
+
+.status-circle {
+    width: 12px;
+    height: 12px;
+    border-radius: 50%;
+}
+
+.status-circle.green {
+    background-color: #4CAF50;
+}
+
+.status-circle.orange {
+    background-color: #FF9800;
+}
+
+.flight-info {
+    flex: 1;
+    margin-left: 16px;
+}
+
+.flight-info span {
+    display: block;
+}
+
+.flight-name {
+    font-size: 1rem;
+    font-weight: 600;
+    color: #fff;
+}
+
+.flight-origin {
+    font-size: 0.9rem;
+    color: #ccc;
+    margin-top: 4px;
+}
+
+.flight-eta {
+    font-size: 0.9rem;
+    color: #ccc;
+    margin-top: 2px;
+}
+
+.arrow {
+    font-size: 1.2rem;
+    color: #ccc;
+    transition: transform 0.2s ease;
+}
+
+.flight-item.expanded .arrow {
+    transform: rotate(180deg);
+}
+
+/* Flight Details - Simplified */
+.flight-details {
+    padding: 16px 20px;
+    border-top: 1px solid #333;
+    display: block;
+}
+
+.aircraft-image {
+    float: left;
+    width: 120px;
+    height: 70px;
+    border-radius: 4px;
+    object-fit: cover;
+    background-color: #333;
+    margin-right: 16px;
+}
+
+.details-info {
+    display: block;
+}
+
+.details-info div {
+    margin-bottom: 8px;
+    font-size: 0.9rem;
+    color: #ccc;
+}
+
+.details-info strong {
+    font-weight: 600;
+    color: #fff;
+}
+
+.fly-button {
+    display: block;
+    float: right;
+    margin-top: -20px;
+    background-color: #2196F3;
+    color: white;
+    border: none;
+    padding: 8px 16px;
+    border-radius: 8px;
+    font-size: 0.9rem;
+    font-weight: 500;
+    cursor: pointer;
+}
+
+.add-flight-button {
+    display: block;
+    margin: 20px auto 0;
+    background-color: #2196F3;
+    color: white;
+    border: none;
+    padding: 12px 24px;
+    border-radius: 8px;
+    font-size: 1rem;
+    font-weight: 500;
+    cursor: pointer;
+}
+
+/* Simplified glowing box icon */
+.glowing-box-icon {
+    position: relative;
+    width: 60px;
+    height: 60px;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    background: linear-gradient(135deg, #00c6ff, #0072ff);
+    border-radius: 12px;
+    overflow: hidden;
+}
+
+.glowing-box-icon span {
+    position: relative;
+    z-index: 2;
+    color: #fff;
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+    font-size: 18px;
+    font-weight: 600;
+}
+
+/* Removed pulse animation for performance */
+
+/* Responsive Design */
+@media (max-width: 700px) {
+    header {
+        width: 100%;
+        left: 0%;
+        top: 0%;
+        background-color: rgba(18, 18, 18, 0.95);
+        border-radius: 0px;
+        padding: 12px 16px;
+    }
+    .search-bar {
+        width: 55%;
+    }
+}
+
+@media (min-width: 800px) {
+    header {
+        width: 50%;
+        left: 49%;
+        right: auto;
+    }
+    .sidenav {
+        width: 50%;
+        left: 49%;
+        right: auto;
+    }
+}
+
+@media (min-width: 1000px) {
+    header {
+        width: 30%;
+        left: 69%;
+        right: auto;
+    }
+    .sidenav {
+        width: 30%;
+        left: 69%;
+        right: auto;
+    }
+}
+
+@media (max-width: 500px) {
+    .profile-content {
+        grid-template-columns: 1fr;
+    }
+    .container {
+        padding: 12px;
+        gap: 12px;
+    }
+    .container > div {
+        padding: 12px;
+    }
+    .popup {
+        padding: 24px;
+    }
+}
+
+/* Simplified Globe Box */
+#globebox {
+    margin: 0px;
+    background: linear-gradient(135deg, #36669c, #41a0ae, #3ec995, #77f07f);
+    padding: 8px;
+    border-radius: 8px;
+    font-size: 12px;
+}
+
+#globetext {
+    font-weight: 600;
+    color: white;
+}
+
+/* Links */
+a {
+    color: #2196F3;
+    text-decoration: none;
+}
+
+.circle-button {
+    background-color: gray;
+    color: white;
+    border: none;
+    border-radius: 50%;
+    width: 30px;
+    height: 30px;
+    font-size: 10px;
+    font-weight: bold;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    float: right;
+}
+
+#favorite-user-button {
+    background-color: rgba(255, 255, 255, 0.1);
+    color: var(--accent-color);
+}
+
+#favorite-user-button.active {
+    background-color: var(--accent-color);
+    color: #000;
+}
+
+/* Simplified fire glow effect */
+.fire-glow {
+    border: 1px solid rgba(255, 145, 0, 0.7);
+    background: linear-gradient(180deg, rgba(255, 140, 0, 0.08), rgba(17, 17, 17, 0.9));
+    color: white;
+    text-align: center;
+    box-shadow:
+      0 0 6px rgba(255, 128, 0, 0.5),
+      0 0 16px rgba(255, 110, 0, 0.35),
+      0 0 32px rgba(255, 95, 0, 0.25),
+      inset 0 0 8px rgba(255, 170, 0, 0.2);
+}
+
+.airportpage-widget {
+    color: #f0f6fc;
+    padding: 1.8rem 2rem;
+    width: 320px;
+    border-radius: 12px;
+    background: #1a1a1a;
+    border: 1px solid #333;
+    display: flex;
+    flex-direction: column;
+    gap: 1.2rem;
+}
+
+.airportpage-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-end;
+}
+
+.airportpage-name {
+    font-size: 1.4rem;
+    font-weight: 600;
+}
+
+.airportpage-code {
+    font-size: 1rem;
+    opacity: 0.65;
+}
+
+.airportpage-stats {
+    display: flex;
+    flex-direction: column;
+    gap: 0.6rem;
+}
+
+.airportpage-stat-row {
+    display: flex;
+    justify-content: space-between;
+    font-size: 0.95rem;
+}
+
+.airportpage-delay {
+    display: flex;
+    flex-direction: column;
+    gap: 0.75rem;
+}
+
+.airportpage-delay-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+    flex-wrap: wrap;
+}
+
+.airportpage-bar {
+    position: relative;
+    height: 14px;
+    background: linear-gradient(90deg, #1f1f1f, #2a2a2a);
+    border-radius: 999px;
+    overflow: hidden;
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    flex: 1;
+    min-width: 160px;
+}
+
+.airportpage-bar-fill {
+    height: 100%;
+    transition: width 0.3s ease;
+}
+
+.delay-averages {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+    gap: 10px;
+}
+
+.delay-chip {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    background: rgba(255, 255, 255, 0.04);
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    color: #fff;
+    padding: 10px 12px;
+    border-radius: 14px;
+    font-size: 0.88rem;
+    letter-spacing: 0.2px;
+    box-shadow: 0 10px 20px rgba(0, 0, 0, 0.32);
+}
+
+.delay-chip.muted {
+    background: rgba(255, 255, 255, 0.05);
+    border-color: rgba(255, 255, 255, 0.08);
+    color: var(--text-secondary);
+}
+
+.delay-chip.yellow {
+    background: linear-gradient(135deg, rgba(255, 195, 0, 0.16), rgba(255, 195, 0, 0.04));
+    border-color: rgba(255, 195, 0, 0.22);
+}
+
+.delay-chip.red {
+    background: linear-gradient(135deg, rgba(218, 54, 51, 0.2), rgba(218, 54, 51, 0.08));
+    border-color: rgba(218, 54, 51, 0.35);
+}
+
+.chip-label {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    text-transform: uppercase;
+    font-weight: 600;
+    font-size: 0.72rem;
+    letter-spacing: 0.5px;
+    color: var(--accent-color);
+    opacity: 0.85;
+}
+
+.chip-value {
+    font-weight: 700;
+    font-size: 1rem;
+}
+
+.delay-bar-group {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+}
+
+.delay-index-pill {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    background: rgba(0, 0, 0, 0.6);
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    padding: 6px 12px;
+    border-radius: 999px;
+    font-weight: 700;
+    font-size: 0.9rem;
+    letter-spacing: 0.3px;
+    color: var(--accent-color);
+    box-shadow: 0 6px 12px rgba(0, 0, 0, 0.25);
+}
+
+.frequency-meta {
+    font-size: 0.75rem;
+    color: var(--text-muted);
+    margin-top: 2px;
+    letter-spacing: 0.2px;
+    min-height: 14px;
+}
+
+.frequency-meta strong {
+    color: var(--text-secondary);
+}
+
+.airportpage-status-green { background-color: #238636; }
+.airportpage-status-orange { background-color: #e3b341; }
+.airportpage-status-red { background-color: #da3633; }
+
+.airportpage-footer {
+    font-size: 0.75rem;
+    color: #8b949e;
+    text-align: center;
+}
+
+.atis-container {
+    background: rgba(30, 30, 50, 0.95);
+    border-radius: 20px;
+    padding: 30px;
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    max-width: 600px;
+    width: 100%;
+}
+
+.header {
+    text-align: center;
+    margin-bottom: 30px;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+    padding-bottom: 20px;
+}
+
+.airport-code {
+    font-size: 2.5rem;
+    font-weight: 700;
+    color: #4fd1c7;
+    margin-bottom: 5px;
+}
+
+.info-label {
+    color: #888;
+    font-size: 0.9rem;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+}
+
+.info-bravo {
+    background: linear-gradient(45deg, #ff6b6b, #ee5a24);
+    color: white;
+    padding: 4px 12px;
+    border-radius: 15px;
+    font-size: 0.8rem;
+    font-weight: 600;
+}
+
+.data-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 20px;
+    margin-bottom: 30px;
+}
+
+.data-card {
+    background: rgba(255, 255, 255, 0.05);
+    border-radius: 15px;
+    padding: 20px;
+    border: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+.card-title {
+    color: #FFC300;
+    font-size: 0.85rem;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 1px;
+    margin-bottom: 10px;
+}
+
+.card-value {
+    font-size: 1rem;
+    font-weight: 700;
+    color: #fff;
+    margin-bottom: 5px;
+}
+
+.card-unit {
+    color: #888;
+    font-size: 0.9rem;
+}
+
+.runway-section {
+    border-radius: 16px;
+    padding: 18px;
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    background: linear-gradient(180deg, rgba(37,37,37,0.85), rgba(29,29,29,0.9));
+    box-shadow: 0 10px 25px rgba(0, 0, 0, 0.35);
+}
+
+.runway-title {
+    color: #FFFFFF;
+    font-size: 1.1rem;
+    font-weight: 700;
+    margin-bottom: 10px;
+    text-align: center;
+    letter-spacing: 0.5px;
+}
+
+.runway-info {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+    gap: 12px;
+    text-align: left;
+}
+
+.runway-type {
+    flex: 1;
+    background: rgba(255, 255, 255, 0.02);
+    border: 1px solid rgba(255, 255, 255, 0.05);
+    border-radius: 12px;
+    padding: 12px;
+}
+
+.runway-type h4 {
+    color: var(--text-secondary);
+    font-size: 0.85rem;
+    margin-bottom: 10px;
+    text-transform: uppercase;
+    letter-spacing: 0.6px;
+}
+
+.runway-numbers {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+}
+
+.runway-chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 10px;
+    padding: 10px 12px;
+    border-radius: 12px;
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    background: rgba(255, 255, 255, 0.04);
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.04);
+    min-width: 110px;
+}
+
+.runway-chip .runway-code {
+    font-weight: 700;
+    font-size: 1rem;
+    letter-spacing: 0.5px;
+    color: #fff;
+}
+
+.runway-chip .runway-status {
+    font-size: 0.8rem;
+    text-transform: uppercase;
+    letter-spacing: 0.6px;
+    color: var(--text-secondary);
+}
+
+.runway-chip.runway-green {
+    border-color: rgba(34, 197, 94, 0.4);
+    background: linear-gradient(135deg, rgba(34,197,94,0.18), rgba(34,197,94,0.08));
+}
+
+.runway-chip.runway-yellow {
+    border-color: rgba(255, 195, 0, 0.35);
+    background: linear-gradient(135deg, rgba(255,195,0,0.15), rgba(255,195,0,0.05));
+}
+
+.runway-chip.runway-red {
+    border-color: rgba(218, 54, 51, 0.35);
+    background: linear-gradient(135deg, rgba(218,54,51,0.15), rgba(218,54,51,0.05));
+}
+
+.runway-legend {
+    margin-top: 14px;
+    font-size: 0.8rem;
+    color: #888;
+    text-align: center;
+    display: flex;
+    justify-content: center;
+    gap: 16px;
+    flex-wrap: wrap;
+}
+
+.legend-item {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    padding: 6px 10px;
+    border-radius: 999px;
+    background: rgba(255, 255, 255, 0.03);
+    border: 1px solid rgba(255, 255, 255, 0.04);
+}
+
+.legend-color {
+    width: 10px;
+    height: 10px;
+    border-radius: 50%;
+}
+
+.legend-green { background-color: #28a745; }
+.legend-yellow { background-color: #ffc107; }
+.legend-red { background-color: #dc3545; }
+
+.time-display {
+    text-align: center;
+    margin-top: 20px;
+    padding-top: 20px;
+    border-top: 1px solid rgba(255, 255, 255, 0.1);
+    color: #888;
+    font-size: 0.9rem;
+}
+
+.flight-history-section {
+    position: relative;
+    margin-bottom: 25px;
+}
+
+.flight-history-toggle-button {
+    background: #222;
+    color: #FFFFFF;
+    border: none;
+    padding: 16px 25px;
+    width: 100%;
+    text-align: left;
+    border-radius: 12px;
+    cursor: pointer;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    font-size: 1.1rem;
+    font-weight: 600;
+    transition: background-color 0.2s ease;
+}
+
+.flight-history-toggle-button:hover {
+    background: #333;
+}
+
+.flight-history-toggle-button i {
+    transition: transform 0.3s ease;
+    font-size: 1rem;
+}
+
+.flight-history-flights-container {
+    background: #111;
+    border-radius: 0 0 12px 12px;
+    overflow: hidden;
+    max-height: 0;
+    opacity: 0;
+    transition: all 0.3s ease;
+    margin-top: 8px;
+}
+
+.flight-history-flights-container.flight-history-visible {
+    max-height: 1000px;
+    opacity: 1;
+}
+
+.flight-history-flight-list {
+    padding: 8px 0;
+}
+
+.flight-history-flight-item {
+    padding: 14px 20px;
+    border-bottom: 1px solid #333;
+}
+
+.flight-history-flight-item:last-child {
+    border-bottom: none;
+}
+
+.flight-history-flight-header {
+    display: flex;
+    justify-content: space-between;
+    margin-bottom: 8px;
+    align-items: center;
+}
+
+.flight-history-flight-name {
+    font-weight: 700;
+    color: #999;
+    font-size: 16px;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    max-width: 200px;
+}
+
+.flight-history-flight-date {
+    color: #FFC300;
+    font-size: 13px;
+    flex-shrink: 0;
+    margin-left: 10px;
+}
+
+.flight-history-flight-info {
+    display: flex;
+    justify-content: space-between;
+    font-size: 14px;
+}
+
+.flight-history-route {
+    color: #e0e1dd;
+    font-weight: 500;
+}
+
+.flight-history-times {
+    display: flex;
+    gap: 15px;
+}
+
+.flight-history-time-block {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-end;
+}
+
+.flight-history-time-label {
+    color: #999;
+    font-size: 11px;
+    text-transform: uppercase;
+}
+
+.flight-history-time-value {
+    font-weight: 600;
+    color: #e0e1dd;
+    font-size: 13px;
+    margin-top: 3px;
+}
+
+.flight-history-loading {
+    padding: 20px;
+    text-align: center;
+    color: #90e0ef;
+}
+
+.flight-history-loading i {
+    margin-bottom: 10px;
+    font-size: 24px;
+}
+
+/* Simplified rotation animation */
+@keyframes flight-history-spin {
+    0% { transform: rotate(0deg); }
+    100% { transform: rotate(360deg); }
+}
+
+.filter-container {
+    position: absolute;
+    top: 20px;
+    left: 15px;
+    z-index: 1000;
+}
+
+.filter-button {
+    background: rgba(20, 20, 20, 0.95);
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    border-radius: 12px;
+    padding: 5px 12px;
+    color: #ffffff;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 12px;
+    font-weight: 500;
+    transition: background-color 0.2s ease;
+}
+
+.filter-button:hover {
+    background: rgba(30, 30, 30, 0.95);
+    border-color: rgba(255, 255, 255, 0.2);
+}
+
+.filter-panel {
+    position: absolute;
+    top: 60px;
+    left: 0;
+    width: min(400px, 90vw);
+    background: rgba(15, 15, 15, 0.95);
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    border-radius: 16px;
+    padding: 20px;
+    transform: translateY(-10px);
+    opacity: 0;
+    visibility: hidden;
+    transition: all 0.2s ease;
+}
+
+.filter-panel.active {
+    transform: translateY(0);
+    opacity: 1;
+    visibility: visible;
+}
+
+.search-input {
+    width: 100%;
+    background: rgba(255, 255, 255, 0.05);
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    border-radius: 10px;
+    padding: 12px 16px;
+    color: #ffffff;
+    font-size: 14px;
+    outline: none;
+    transition: border-color 0.2s ease;
+    margin-bottom: 16px;
+}
+
+.search-input:focus {
+    border-color: #3b82f6;
+    background: rgba(255, 255, 255, 0.08);
+}
+
+.search-input::placeholder {
+    color: rgba(255, 255, 255, 0.5);
+}
+
+.filter-tags {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    margin-bottom: 16px;
+    min-height: 20px;
+}
+
+.filter-tag {
+    background: rgba(255, 195, 0, 0.2);
+    border: 1px solid rgba(255, 195, 0, 0.3);
+    border-radius: 20px;
+    padding: 6px 12px;
+    font-size: 12px;
+    color: #FFFFFF;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+}
+
+.filter-tag .remove {
+    cursor: pointer;
+    opacity: 0.7;
+    transition: opacity 0.2s ease;
+}
+
+.filter-tag .remove:hover {
+    opacity: 1;
+}
+
+.suggestions {
+    background: rgba(20, 20, 20, 0.95);
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    border-radius: 8px;
+    margin-top: 8px;
+    max-height: 250px;
+    overflow-y: auto;
+    display: none;
+}
+
+.suggestions.active {
+    display: block;
+}
+
+.suggestion-item {
+    padding: 12px 14px;
+    cursor: pointer;
+    font-size: 13px;
+    transition: background-color 0.2s ease;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+}
+
+.suggestion-item:last-child {
+    border-bottom: none;
+}
+
+.suggestion-item:hover {
+    background: rgba(255, 255, 255, 0.08);
+}
+
+.suggestion-item.selected {
+    background: rgba(59, 130, 246, 0.2);
+}
+
+.suggestion-content {
+    flex: 1;
+}
+
+.suggestion-title {
+    color: #ffffff;
+    font-weight: 500;
+}
+
+.suggestion-detail {
+    color: rgba(255, 255, 255, 0.6);
+    font-size: 11px;
+    margin-top: 2px;
+}
+
+.suggestion-type {
+    background: rgba(255, 195, 0, 0.2);
+    color: #FFFFFF;
+    padding: 2px 6px;
+    border-radius: 4px;
+    font-size: 10px;
+    text-transform: uppercase;
+    font-weight: 600;
+}
+
+.keyword-highlight {
+    background: rgba(255, 195, 0, 0.3);
+    color: #FFFFFF;
+    padding: 1px 3px;
+    border-radius: 3px;
+    font-weight: 600;
+}
+
+.input-container {
+    position: relative;
+}
+
+.filter-actions {
+    display: flex;
+    gap: 8px;
+    margin-top: 16px;
+}
+
+.btn {
+    padding: 8px 16px;
+    border-radius: 8px;
+    font-size: 13px;
+    font-weight: 500;
+    cursor: pointer;
+    transition: background-color 0.2s ease;
+    border: none;
+}
+
+.btn-primary {
+    background: #FFC300;
+    color: white;
+}
+
+.btn-primary:hover {
+    background: #e6b000;
+}
+
+.btn-secondary {
+    background: rgba(255, 255, 255, 0.1);
+    color: #ffffff;
+}
+
+.btn-secondary:hover {
+    background: rgba(255, 255, 255, 0.15);
+}
+
+.filter-icon {
+    width: 16px;
+    height: 16px;
+    fill: currentColor;
+}
+
+.status-text {
+    font-size: 12px;
+    color: rgba(255, 255, 255, 0.6);
+    margin-top: 12px;
+}
+
+.waypoints-widget {
+           border-radius: 8px;
+           overflow: hidden;
+           color: #e0e0e0;
+           font-size: 14px;
+       }
+
+       .toggle-header {
+           padding: 3px 4px;
+           cursor: pointer;
+           display: flex;
+           align-items: center;
+           justify-content: between;
+           transition: all 0.2s ease;
+           user-select: none;
+       }
+
+       .toggle-header:hover {
+           background: linear-gradient(135deg, #2563eb 0%, #3b82f6 100%);
+       }
+
+       .toggle-title {
+           font-weight: 600;
+           display: flex;
+           align-items: center;
+           gap: 8px;
+           flex: 1;
+       }
+
+       .toggle-icon {
+           font-size: 12px;
+           color: rgba(255, 255, 255, 0.8);
+       }
+
+       .stats-mini {
+           display: flex;
+           gap: 5px;
+           font-size: 10px;
+           opacity: 0.9;
+       }
+
+       .chevron {
+           transition: transform 0.2s ease;
+           font-size: 12px;
+           margin-left: 8px;
+       }
+
+       .waypoints-widget.collapsed .chevron {
+           transform: rotate(-90deg);
+       }
+
+       .content {
+           display: none;
+           max-height: 300px;
+           overflow-y: auto;
+           background: rgba(15, 15, 15, 0.8);
+       }
+
+       .waypoints-widget:not(.collapsed) .content {
+           display: block;
+           animation: slideDown 0.3s ease;
+       }
+
+       @keyframes slideDown {
+           from {
+               opacity: 0;
+               max-height: 0;
+           }
+           to {
+               opacity: 1;
+               max-height: 300px;
+           }
+       }
+
+       .content::-webkit-scrollbar {
+           width: 4px;
+       }
+
+       .content::-webkit-scrollbar-track {
+           background: rgba(255, 255, 255, 0.05);
+       }
+
+       .content::-webkit-scrollbar-thumb {
+           background: rgba(255, 255, 255, 0.2);
+           border-radius: 2px;
+       }
+
+       .procedure-group {
+           border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+       }
+
+       .procedure-group:last-child {
+           border-bottom: none;
+       }
+
+       .procedure-header {
+           padding: 8px 12px;
+           background: rgba(59, 130, 246, 0.08);
+           cursor: pointer;
+           transition: background 0.2s ease;
+           display: flex;
+           align-items: center;
+           justify-content: space-between;
+           font-size: 12px;
+           border-bottom: 1px solid rgba(59, 130, 246, 0.1);
+       }
+
+       .procedure-header:hover {
+           background: rgba(59, 130, 246, 0.12);
+       }
+
+       .procedure-title {
+           font-weight: 500;
+           color: #93c5fd;
+           display: flex;
+           align-items: center;
+           gap: 6px;
+       }
+
+       .procedure-count {
+           background: #2563eb;
+           color: white;
+           border-radius: 10px;
+           padding: 2px 6px;
+           font-size: 10px;
+           font-weight: 600;
+           min-width: 16px;
+           text-align: center;
+       }
+
+       .procedure-chevron {
+           font-size: 10px;
+           transition: transform 0.2s ease;
+           color: #60a5fa;
+       }
+
+       .procedure-group.collapsed .procedure-chevron {
+           transform: rotate(-90deg);
+       }
+
+       .waypoints {
+           display: none;
+       }
+
+       .procedure-group:not(.collapsed) .waypoints {
+           display: block;
+       }
+
+       .waypoint {
+           padding: 8px 12px 8px 20px;
+           cursor: pointer;
+           transition: all 0.2s ease;
+           border-bottom: 1px solid rgba(255, 255, 255, 0.03);
+           position: relative;
+       }
+
+       .waypoint:last-child {
+           border-bottom: none;
+       }
+
+       .waypoint:hover {
+           background: rgba(255, 255, 255, 0.03);
+           padding-left: 24px;
+       }
+
+       .waypoint::before {
+           content: '';
+           position: absolute;
+           left: 8px;
+           top: 50%;
+           transform: translateY(-50%);
+           width: 4px;
+           height: 4px;
+           background: #10b981;
+           border-radius: 50%;
+           box-shadow: 0 0 4px rgba(16, 185, 129, 0.5);
+       }
+
+       .waypoint-header {
+           display: flex;
+           align-items: center;
+           justify-content: space-between;
+       }
+
+       .waypoint-name {
+           font-weight: 500;
+           font-size: 13px;
+           color: #f1f5f9;
+       }
+
+       .waypoint-preview {
+           font-size: 11px;
+           color: #94a3b8;
+           font-family: 'Consolas', 'Monaco', monospace;
+       }
+
+       .waypoint-details {
+           margin-top: 8px;
+           padding: 8px;
+           background: rgba(0, 0, 0, 0.4);
+           border-radius: 4px;
+           border-left: 2px solid #10b981;
+           display: none;
+           font-size: 11px;
+       }
+
+       .waypoint.expanded .waypoint-details {
+           display: block;
+           animation: expandDetails 0.2s ease;
+       }
+
+       @keyframes expandDetails {
+           from {
+               opacity: 0;
+               transform: translateY(-4px);
+           }
+           to {
+               opacity: 1;
+               transform: translateY(0);
+           }
+       }
+
+       .detail-row {
+           display: flex;
+           justify-content: space-between;
+           margin-bottom: 4px;
+       }
+
+       .detail-row:last-child {
+           margin-bottom: 0;
+       }
+
+       .detail-label {
+           opacity: 0.7;
+           font-weight: 500;
+       }
+
+       .detail-value {
+           color: #f1f5f9;
+       }
+
+
+       .waypoint.standalone {
+           border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+           margin-left: 0;
+       }
+
+       .waypoint.standalone::before {
+           left: 8px;
+       }
+
+       .expand-controls {
+           padding: 4px 6px;
+           background: rgba(0, 0, 0, 0.2);
+           display: flex;
+           gap: 8px;
+           border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+       }
+
+       .btn-mini {
+           padding: 4px 8px;
+           border: 1px solid rgba(96, 165, 250, 0.3);
+           background: rgba(96, 165, 250, 0.1);
+           color: #93c5fd;
+           border-radius: 4px;
+           cursor: pointer;
+           font-size: 11px;
+           font-weight: 500;
+           transition: all 0.2s ease;
+       }
+
+       .btn-mini:hover {
+           background: rgba(96, 165, 250, 0.2);
+           transform: translateY(-1px);
+       }
+
+        .btn-mini:disabled {
+            opacity: 0.4;
+            cursor: not-allowed;
+            transform: none;
+        }
+
+        .graph-actions {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+       /* Demo container styling */
+       .demo-container {
+           max-width: 400px;
+           margin: 0 auto;
+           background: white;
+           padding: 20px;
+           border-radius: 12px;
+           box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+       }
+
+       .demo-header {
+           margin-bottom: 16px;
+           text-align: center;
+       }
+
+       .demo-content {
+           background: #f8f9fa;
+           padding: 12px;
+           border-radius: 6px;
+           margin-bottom: 16px;
+           color: #6b7280;
+           font-size: 13px;
+           text-align: center;
+       }
+
+       .label-settings {
+           margin-top: 16px;
+           padding: 12px;
+           background: rgba(255, 255, 255, 0.03);
+           border-radius: 10px;
+           border: 1px solid rgba(255, 255, 255, 0.06);
+       }
+
+       .label-settings-header {
+           display: flex;
+           justify-content: space-between;
+           align-items: center;
+           gap: 12px;
+       }
+
+       .label-settings h4 {
+           margin: 0;
+           font-size: 14px;
+       }
+
+       .label-settings .subtitle {
+           margin: 2px 0 0;
+           font-size: 12px;
+           color: var(--text-secondary);
+       }
+
+       .label-options {
+           display: grid;
+           grid-template-columns: repeat(2, minmax(0, 1fr));
+           gap: 8px;
+           margin-top: 12px;
+       }
+
+       .label-option {
+           display: flex;
+           align-items: center;
+           gap: 8px;
+           font-size: 13px;
+           color: var(--text-primary);
+           background: rgba(0, 0, 0, 0.15);
+           padding: 8px 10px;
+           border-radius: 8px;
+           border: 1px solid rgba(255, 255, 255, 0.08);
+       }
+
+       .label-option input[type="checkbox"] {
+           accent-color: var(--accent-color);
+       }
+  </style>
+</head>
+<body>
+<div id="popup-overlay" class="popup-overlay">
+  <div class="popup">
+      <h2>Session Paused</h2>
+      <p>You've been inactive for a while. Press the button below to continue.</p>
+      <button onclick="continueSession()">Continue</button>
+  </div>
+</div>
+<div id="downtime-overlay" class="popup-overlay">
+  <div class="popup">
+      <h2>🔥 High Traffic Alert 🔥</h2>
+      <p>We are experiencing a busy period. Pro subscribers please sign in to gain access!</p>
+      <button onclick="downtimeSession()">Continue</button>
+  </div>
+</div>
+<div id="discord-overlay" class="popup-overlay">
+  <div class="popup">
+    <h2>Hold up!</h2>
+    <p>
+      Pair your flights to Discord with InfiniteView.
+      Check out the tutorial
+      <a href="https://community.infiniteflight.com/t/infiniteview-discord-client/1054869" target="_blank" rel="noopener noreferrer">
+        here
+      </a>.
+    </p>
+    <button onclick="downtimeSession()">Continue</button>
+  </div>
+</div>
+<div id="notification-overlay" class="popup-overlay">
+  <div class="popup" style="overflow: hidden;">
+    <h2>Notifications enabled!</h2>
+    <p>You will receive realtime notifications for the following stages of flight:</p>
+    <p style="float: left; width: 100%; margin: 2px 0;">✓ Takeoff</p>
+    <p style="float: left; width: 100%; margin: 2px 0;">✓ Initial cruise and descent</p>
+    <p style="float: left; width: 100%; margin: 2px 0;">✓ Landing</p>
+    <p style="float: left; width: 100%; margin: 2px 0;">✓ Diversions</p>
+    <button onclick="downtimeSession()">Continue</button>
+  </div>
+</div>
+<div id="profile-button" onclick="onSignInClick()" title="Profile and settings">👤</div>
+<div id="favorites-button" onclick="toggleFavoritesPanel()" title="Saved flights" style="color: var(--accent-color)">☆
+  <span class="favorites-activity-count" id="favorites-activity-count" aria-hidden="true"></span>
+</div>
+<div id="favorites-popup" class="favorites-popup hidden" aria-live="polite">
+  <div class="favorites-card" id="favoritesCard">
+    <div class="favorites-header">
+      <div>
+        <h3>Saved Flights & Friends</h3>
+        <p class="favorites-description">Bookmark aircraft for quick jumps or keep tabs on friends.</p>
+      </div>
+      <button class="btn-mini" id="clearFavoritesButton" style="display: none;">Clear Flights</button>
+    </div>
+    <p class="favorites-status" id="favorites-status"></p>
+    <section class="favorites-section" aria-label="Saved flights">
+      <div class="favorites-section-heading">
+        <h4>Flights</h4>
+        <span class="favorites-section-hint">Tap ☆ on a flight to add it here.</span>
+      </div>
+      <p class="favorites-empty" id="favorites-empty-state">Tap the ☆ button on a flight to pin it here.</p>
+      <div class="favorites-list" id="favorites-list"></div>
+    </section>
+    <hr class="favorites-divider">
+    <section class="favorites-section" aria-label="Favorite users">
+      <div class="favorites-section-heading">
+        <h4>Friends</h4>
+        <span class="favorites-section-hint">Friends you add appear below with their status.</span>
+      </div>
+      <form class="favorites-search favorite-user-form" id="favorite-user-form">
+        <input type="search" id="favorite-user-input" placeholder="Add friends by username" autocomplete="off" aria-label="Add friends by username">
+      </form>
+      <p class="favorites-section-hint favorites-privacy-hint">
+        Cookies/local storage keep your friends saved here.
+        <button type="button" class="favorites-link" id="friend-storage-manage">Cookie preferences</button>
+      </p>
+      <p class="favorites-empty" id="favorite-users-empty">Add pilots to jump to them when they’re in the air.</p>
+      <div class="favorites-list" id="favorite-users-list"></div>
+    </section>
+  </div>
+</div>
+<div id="friend-storage-banner" class="cookie-consent-banner hidden" role="dialog" aria-live="polite" aria-label="Local storage preferences">
+  <div class="cookie-consent-content">
+    <h4>Local storage permission</h4>
+    <p>We use cookies/local storage to save your friends list, followed flights, label settings, and flight animation preferences on this device.</p>
+    <a class="cookie-consent-privacy" href="https://infiniteview.app/legal/privacy.html" target="_blank" rel="noopener">Privacy Policy</a>
+  </div>
+  <div class="cookie-consent-controls">
+    <div class="consent-toggle">
+      <span>Allow storage</span>
+      <label class="switch">
+        <input type="checkbox" id="friend-storage-toggle" aria-label="Allow saving friends and followed flights to local storage">
+        <span class="slider"></span>
+      </label>
+    </div>
+    <button class="btn-mini" type="button" id="friend-storage-dismiss">Done</button>
+  </div>
+</div>
+<div id="sign-in-popup" class="hidden">
+  <p id='sign-in-text1' style="text-align: center; font-size: 18px; font-weight: 600; margin-bottom: 16px;">Profile Menu</p>
+  <div class="dropdown" id='profiledropdown'>
+    <div style="margin-top: 15%" id="googleloginbutton" class="g_id_signin" data-type="standard" data-auto_prompt="false"></div>
+    <p id='googleinfotext' style='color: var(--text-secondary); font-size: 12px; text-align: center; margin: 12px 0;'>By signing in with Google, you agree to our Privacy Policy and understand Google may set cookies.</p>
+    <button style='display: none; background-color: var(--accent-color); color: var(--primary-bg); width: 100%; padding: 10px; border-radius: var(--border-radius-md); font-weight: 500; margin-bottom: 8px; border: none;' id="infiniteprobutton" onclick='getPro()'>Get Infinite View Pro</button>
+    <button style='display: none; background-color: var(--tertiary-bg); color: var(--text-primary); width: 100%; padding: 10px; border-radius: var(--border-radius-md); font-weight: 500; margin-bottom: 16px; border: 1px solid rgba(255, 255, 255, 0.1);' id="logoutbutton" onclick="onSignOutClick()">Logout</button>
+    <div id='dropdown'>
+      <div id="switch-container" style='text-align: center;'>
+      <span class="label">2D Paths</span>
+        <label class="switch">
+          <input type="checkbox" id="flightpath-switch">
+          <span class="slider"></span>
+        </label>
+        <span class="label">3D Paths (experimental)</span>
+      </div>
+      <div id="switch-container" style='text-align: center;'>
+      <span class="label">Direct path</span>
+        <label class="switch">
+          <input type="checkbox" id="flightplan-switch">
+          <span class="slider"></span>
+        </label>
+        <span class="label">Flight Plan</span>
+      </div>
+      <div id="switch-container" style='text-align: center;'>
+      <span class="label">Static planes</span>
+        <label class="switch">
+          <input type="checkbox" id="flight-animation-toggle">
+          <span class="slider"></span>
+        </label>
+        <span class="label">Animated planes</span>
+      </div>
+      <div class="label-settings" aria-labelledby="label-settings-title">
+        <div class="label-settings-header">
+          <div>
+            <h4 id="label-settings-title">Flight labels</h4>
+            <p class="subtitle">Show info next to each plane on the map.</p>
+          </div>
+          <label class="switch" title="Toggle flight labels">
+            <input type="checkbox" id="plane-labels-toggle">
+            <span class="slider"></span>
+          </label>
+        </div>
+        <div class="label-options" id="plane-label-options">
+          <label class="label-option">
+            <input type="checkbox" id="label-option-aircraft">
+            <span>Aircraft</span>
+          </label>
+          <label class="label-option">
+            <input type="checkbox" id="label-option-airline">
+            <span>Airline</span>
+          </label>
+          <label class="label-option">
+            <input type="checkbox" id="label-option-route">
+            <span>Route (start - end)</span>
+          </label>
+          <label class="label-option">
+            <input type="checkbox" id="label-option-speed-altitude">
+            <span>Speed / Altitude</span>
+          </label>
+        </div>
+        <button class="favorites-link" type="button" id="profile-cookie-preferences">Cookie preferences</button>
+      </div>
+    </div>
+    <p style='color: var(--accent-color); font-size: 12px; text-align: center; margin: 16px 0;'>
+      <span style="cursor: pointer;" onclick="window.open('https://infiniteview.app/legal/terms.html')">Terms of Use</span> |
+      <span style="cursor: pointer;" onclick="window.open('https://infiniteview.app/legal/privacy.html')">Privacy Policy</span> |
+      <span style="cursor: pointer;" onclick="window.open('https://infiniteview.app/legal/refundpolicy.html')">Refunds</span>
+    </p>
+    <hr>
+    <p style='font-size: 13px; text-align: center; margin: 12px 0; color: var(--text-secondary);'>Plane icons by @Mohamed2030 ❤️</p>
+    <a href="https://infiniteview.app/" style='display: block; text-align: center; margin: 8px 0;'>Learn more about InfiniteView Pro</a>
+    <a href="/cdn-cgi/l/email-protection#bec9d7d2d2fed7d0d8d7d0d7cadbc8d7dbc990dfcece" style='display: block; text-align: center; margin: 8px 0;'>Contact us</a>
+  </div>
+</div>
+<header>
+    <!-- Dropdown Menu -->
+    <div class="dropdown">
+        <button id='serverdropdown'>E</button>
+        <div class="dropdown-content">
+            <a onclick="changeServer('ed323139-baa7-4834-b9d6-5fb9f19ff11e')">Expert</a>
+            <a onclick="changeServer('15f884a5-52ec-467e-bda5-414d4569544d')">Training</a>
+            <a onclick="changeServer('1f5ff830-8e4d-4477-89e7-21c136d54844')">Casual</a>
+        </div>
+    </div>
+    <div class="dropdown">
+        <button onclick="showTrending('show')" id='rankingbutton'>🔥</button>
+        <div class="search-results" id='rankingdropdown' style="min-width: 250px; top: 150%; padding-left: 5px;">
+        </div>
+    </div>
+    <!-- Search Bar -->
+    <div class="search-bar" id='search-bar'>
+        <span class="icon" id='search-icon'>🔍</span>
+        <input type="text" id="search-input" placeholder="Search callsign or username" onkeyup="showResults()" readonly>
+        <div class="search-results" id="search-results">
+            <!-- Search results will be injected here -->
+        </div>
+    </div>
+</header>
+<div id="mySidenav" class="sidenav" style="overflow-y: auto; scrollbar-width: none; -ms-overflow-style: none; ">
+  <div class="container">
+      <div class="full-width" id='1Box' style='padding: 0px; border-radius: 0px; border-top-left-radius: 10px; border-top-right-radius: 10px;'>
+          <h2 id='1Title'></h2>
+          <span id='1Text'></span>
+          <br>
+      </div>
+      <div class="full-width" id='2Box' style="z-index: 10;">
+        <div class="airportpage-header">
+          <div class="airportpage-name" id="airportpage-name">Heathrow Airport</div>
+          <div class="airportpage-code" id="airportpage-code">LHR</div>
+        </div>
+
+        <div class="airportpage-stats">
+          <div class="airportpage-stat-row" style='padding-top: 15px;'>
+            <span>Inbound Flights</span><span id="airportpage-inbound">--</span>
+          </div>
+          <div class="airportpage-stat-row">
+            <span>Outbound Flights</span><span id="airportpage-outbound">--</span>
+          </div>
+        </div>
+
+        <div class="airportpage-delay">
+          <div class="airportpage-delay-header">
+            <div class="airportpage-stat-row">
+              <span>Delay Index</span>
+            </div>
+            <div class="delay-index-pill" id="airportpage-delayValue">--</div>
+          </div>
+          <div class="delay-bar-group">
+            <div class="airportpage-bar">
+              <div id="airportpage-barFill" class="airportpage-bar-fill"></div>
+            </div>
+            <div class="delay-averages">
+              <div class="delay-chip" id="airportpage-arrivalDelay">
+                <span class="chip-label"><i class="fa-solid fa-plane-arrival"></i> Avg Arrival</span>
+                <span class="chip-value" id="airportpage-arrivalDelayValue">--</span>
+              </div>
+              <div class="delay-chip" id="airportpage-departureDelay">
+                <span class="chip-label"><i class="fa-solid fa-plane-departure"></i> Avg Departure</span>
+                <span class="chip-value" id="airportpage-departureDelayValue">--</span>
+              </div>
+            </div>
+          </div>
+        </div>
+        <div class="airportpage-footer" id='airportpage-footer'>Flight data updated live</div>
+      </div>
+      <div class="full-width" id='flight-info-panel'>
+        <div class="flight-header">
+            <div class="flight-number" id="flight-number">Cargo 1</div>
+            <div class="aircraft-type" id="aircraft-type">77F</div>
+            <div class="status-badge trending" id="trendingBadge">#1 Trending</div>
+            <div class="flight-actions">
+                <button type="button" class="focus-toggle-button" id="focus-flight-button">Focus</button>
+                <button type="button" class="focus-toggle-button favorite-toggle-button" id="favorite-flight-button">☆</button>
+                <button type="button" class="focus-toggle-button photo-mode-toggle-button" id="photo-mode-button" style="display: none;" aria-label="Photo mode">
+                  <i class="fa-solid fa-camera"></i>
+                </button>
+            </div>
+        </div>
+        <h3 id="airline-name" style='float: left; font-size: 12px;'>British Airways - Special Livery</h3>
+        <div class='full-width' style="background-color: var(--tertiary-bg); padding-top: 7px; ">
+          <div class="image-container" id='aircraftimage' style='display: block; border-radius: 0 0 0 0px;'></div>
+        </div>
+        <div class="flight-route" id='flight-route'>
+            <div class="diversion-notice" id="diversionNotice">
+                <div class="diversion-title">Flight Diverted</div>
+                <div class="diversion-info">
+                    <div class="diversion-airport">
+                        <div class="diversion-code" id="diversion-code">MAN</div>
+                        <div class="diversion-name" id="diversion-name">Manchester</div>
+                    </div>
+                    <div class="diversion-time" id="diversion-time">ETA 10:39</div>
+                </div>
+            </div>
+            <div class="route-header">
+                <div class="airport">
+                    <div class="airport-main" style='float: left;' id="departure-airport">
+                        <span style="font-size: 32px; color: white;">N/A <sup style="font-size: 14px;">[10:00]</sup></span>
+                    </div>
+                </div>
+                <div class="airport">
+                    <div class="airport-main" style='float: right;' id="arrival-airport">
+                        <span style="font-size: 32px; color: white;"><sup style="font-size: 14px;">[10:30]</sup> N/A</span>
+                    </div>
+                </div>
+            </div>
+            <div style="display: flex; justify-content: space-between;">
+              <div class="flight-duration" id='departure-time'>Actual (10:01)</div>
+              <div class="flight-duration" id='arrival-time'>Estimated (10:32)</div>
+            </div>
+          </div>
+            <div class="progress-section">
+                <div class="progress-track">
+                    <div class="progress-fill" id="progressFill"></div>
+                </div>
+                <div class="aircraft-icon" id="aircraftIcon"></div>
+                <div class="route-points">
+                    <div class="route-point active"></div>
+                    <div class="route-point" id="arrivalPoint"></div>
+                </div>
+            </div>
+            <div class="progress-center">
+                <div class="progress-text" id="progressText">65km from destination</div>
+            </div>
+      </div>
+      <div class="full-width" id='atisbox' style="display: block; overflow: auto">
+        <div class="runway-section">
+          <div class="runway-title">Active Runways</div>
+          <div class="runway-info">
+              <div class="runway-type">
+                  <h4>Landing</h4>
+                  <div class="runway-numbers" id="landing-runways"></div>
+              </div>
+              <div class="runway-type">
+                  <h4>Departure</h4>
+                  <div class="runway-numbers" id="departure-runways"></div>
+              </div>
+          </div>
+          <div class="runway-legend">
+              <div class="legend-item">
+                  <div class="legend-color legend-green"></div>
+                  <span>Good</span>
+              </div>
+              <div class="legend-item">
+                  <div class="legend-color legend-yellow"></div>
+                  <span>Crosswind</span>
+              </div>
+              <div class="legend-item">
+                  <div class="legend-color legend-red"></div>
+                  <span>Tailwind</span>
+              </div>
+          </div>
+      </div>
+        <div class="data-grid" style='display: none;'>
+            <div class="data-card">
+                <div class="card-title">Wind</div>
+                <div class="card-value">
+                    090° @ 8kt
+                </div>
+                <div class="card-unit">Variable 060-140°</div>
+            </div>
+
+            <div class="data-card">
+                <div class="card-title">Visibility</div>
+                <div class="card-value">21</div>
+                <div class="card-unit">kilometers</div>
+            </div>
+
+            <div class="data-card">
+                <div class="card-title">Temperature</div>
+                <div class="card-value">26°C</div>
+                <div class="card-unit">Dew Point: 13°C</div>
+            </div>
+
+            <div class="data-card">
+                <div class="card-title">QNH</div>
+                <div class="card-value">1024</div>
+                <div class="card-unit">hectopascals</div>
+            </div>
+        </div>
+
+        <div class="time-display">
+            Updated: 10:24 ZULU
+        </div>
+        <span id='atistext'></span>
+      </div>
+      <div id="31Box">
+          <span id="31Title">Altitude</span>
+          <h2 id="31Text">--ft</h2>
+          <div class="frequency-meta" id="31Meta"></div>
+      </div>
+      <div id="32Box">
+          <span id="32Title">VS</span>
+          <h2 id="32Text">+- ft/min</h2>
+          <div class="frequency-meta" id="32Meta"></div>
+      </div>
+      <div id="41Box">
+          <span id="41Title">Heading</span>
+          <h2 id="41Text">---deg</h2>
+          <div class="frequency-meta" id="41Meta"></div>
+      </div>
+      <div id="42Box">
+          <span id="42Title">Ground Speed</span>
+          <h2 id="42Text">---kts</h2>
+          <div class="frequency-meta" id="42Meta"></div>
+      </div>
+      <div id='51Box'>
+          <span id="51Title">ETA</span>
+          <h2 id="51Text">---min</h2>
+          <div class="frequency-meta" id="51Meta"></div>
+      </div>
+      <div id='52box'>
+          <span id="52Title">Status</span>
+          <h2 id="52Text" style="color: var(--success-color);">On time</h2>
+          <div class="frequency-meta" id="52Meta"></div>
+      </div>
+      <div class='full-width' id='flightplan'>
+        <div class="waypoints-widget collapsed" id="waypoints-widget">
+          <div class="toggle-header" onclick="toggleWidget()">
+              <div class="toggle-title">
+                  <span class="toggle-icon">ᣛ</span>
+                  View Flight Plan
+              </div>
+              <div class="stats-mini">
+                  <span style='font-size: 10px;'><span id="total-waypoints" style='font-size: 10px;'>-</span> waypoints</span>
+              </div>
+          </div>
+
+          <div class="content">
+              <div class="expand-controls">
+                  <button class="btn-mini" onclick="expandAll()">Expand All</button>
+                  <button class="btn-mini" onclick="collapseAll()">Collapse All</button>
+              </div>
+              <div id="waypoints-container">
+                  <!-- Waypoints will be populated here -->
+              </div>
+          </div>
+        </div>
+      </div>
+      <div class="full-width" id='6box' style="display: block; overflow: auto; max-height: 320px;">
+          <div class="graph-header">
+            <div>
+              <div class="graph-subtitle" id="graph-subtitle">Drag the timeline to replay this flight.</div>
+            </div>
+            <div class="graph-actions">
+              <button class="btn-mini" id="replay-exit" style="display: none;">Exit replay</button>
+            </div>
+          </div>
+          <canvas id='canvas' style='display: none;'></canvas>
+          <div class="replay-controls" id="replay-controls" style="display: none;">
+            <input type="range" id="replay-slider" min="0" max="0" value="0" step="1">
+            <div class="replay-meta">
+              <span id="replay-timestamp">--:--:--</span>
+              <span id="replay-altitude">-- ft</span>
+              <span id="replay-speed">-- kts</span>
+            </div>
+          </div>
+      </div>
+      <div class="full-width" id='7box' style="display: block; overflow: auto; max-height: 300px;">
+          <span>Virtual Org</span>
+          <h2>InfiniteView [IFV]</h2>
+      </div>
+      <div class='full-width' style='margin: 0px; max-height: 1000px;' id='8box'>
+        <div class="profile-card">
+          <div class="profile-header">
+            <div style="display: flex; align-items: center; justify-content: center; gap: 10px; flex-wrap: wrap;">
+              <button class="circle-button" id='notification-button'>🔕</button>
+              <h3 id='user-title'>User Profile</h3>
+              <button class="circle-button" id='pair-button'>Pair</button>
+            </div>
+          </div>
+          <div class="profile-content">
+              <div class="section">
+                  <h3>XP</h3>
+                  <p id='81Text'>5000</p>
+              </div>
+              <div class="section">
+                  <h3>Grade</h3>
+                  <p id='101Text'>A</p>
+              </div>
+              <div class="section">
+                  <h3># Flights</h3>
+                  <p id='102Text'>A</p>
+              </div>
+              <div class="section">
+                  <h3>Flight Hours</h3>
+                  <p id='91Text'>150</p>
+              </div>
+              <div class="section">
+                  <h3>Landings</h3>
+                  <p id='92Text'>120</p>
+              </div>
+          <div class="section">
+              <h3>Violations</h3>
+              <p id='82Text'>2</p>
+          </div>
+          <p style="text-align: center; color: white; font-size: 10px" id="flight-secret">secret</p>
+          <div class="flight-rating-card" id="flight-rating-card" style="display: none;">
+              <div class="flight-rating-header">
+                  <div>
+                      <div class="flight-rating-title">Flight Rating <span class="flight-rating-beta">Beta</span></div>
+                      <div class="flight-rating-summary" id="flight-rating-summary">Smoothness scored across takeoff, cruise, and landing.</div>
+                  </div>
+                  <div class="flight-rating-score" id="flight-rating-score">--/10</div>
+              </div>
+              <div class="flight-rating-breakdown">
+                  <div class="flight-rating-chip">
+                      <span>Takeoff</span>
+                      <strong id="flight-rating-takeoff">--</strong>
+                  </div>
+                  <div class="flight-rating-chip">
+                      <span>Cruise</span>
+                      <strong id="flight-rating-cruise">--</strong>
+                  </div>
+                  <div class="flight-rating-chip">
+                      <span>Landing</span>
+                      <strong id="flight-rating-landing">--</strong>
+                  </div>
+              </div>
+              <details class="flight-rating-details">
+                  <summary>How this score is built</summary>
+                  <ul id="flight-rating-details-list"></ul>
+              </details>
+          </div>
+      </div>
+          <div class="flight-history-section">
+              <button class="flight-history-toggle-button" id="flightHistoryToggle">
+                  <span><i class="fas fa-plane"></i> Show Flight History</span>
+                  <i class="fas fa-chevron-down"></i>
+              </button>
+
+              <div class="flight-history-flights-container" id="flightHistoryFlightsContainer">
+                  <div class="flight-history-flight-list" id="flightHistoryFlightList">
+                      <div class="flight-history-loading">
+                          <i class="fas fa-circle-notch"></i>
+                          <p>Loading flight data...</p>
+                      </div>
+                  </div>
+              </div>
+          </div>
+      </div>
+    </div>
+    <div class='full-width' style='margin: 0px;' id='globebox'>
+      <h2 id='globetext'></h2>
+    </div>
+  </div>
+</div>
+<div id="MapContainer" style="min-height: 100%;"></div>
+<div class="photo-mode-overlay" id="photo-mode-overlay" aria-live="polite">
+    <div class="photo-mode-info">
+        <div class="photo-mode-callsign" id="photo-mode-callsign">Select a flight</div>
+        <div class="photo-mode-meta" id="photo-mode-aircraft-meta">--</div>
+    </div>
+    <div class="photo-mode-route">
+        <div class="photo-mode-airport">
+            <div class="photo-mode-airport-label" id="photo-mode-departure-label">Departure</div>
+            <div class="photo-mode-airport-code" id="photo-mode-departure-code">---</div>
+            <div class="photo-mode-airport-time" id="photo-mode-departure-time">--:--</div>
+        </div>
+        <div class="photo-mode-airport">
+            <div class="photo-mode-airport-label" id="photo-mode-arrival-label">Arrival</div>
+            <div class="photo-mode-airport-code" id="photo-mode-arrival-code">---</div>
+            <div class="photo-mode-airport-time" id="photo-mode-arrival-time">--:--</div>
+        </div>
+    </div>
+    <div class="photo-mode-progress">
+        <div class="photo-mode-progress-track">
+            <div class="photo-mode-progress-fill" id="photo-mode-progress-fill"></div>
+        </div>
+        <div class="photo-mode-progress-text" id="photo-mode-progress-text">Flight progress</div>
+    </div>
+    <div class="photo-mode-status" id="photo-mode-status">On Time</div>
+</div>
+<div class="share-modal-overlay" id="share-modal" onclick="closeShareModal()">
+  <div class="share-modal" onclick="event.stopPropagation()">
+    <div class="share-modal-header">
+      <div class="share-modal-title">Share Flight</div>
+      <button class="share-modal-close" type="button" onclick="closeShareModal()">✕</button>
+    </div>
+    <div class="share-modal-content">
+      <div class="share-flight-info">
+        <strong id="share-flight-title">Flight details</strong>
+        <div id="share-flight-route">Route</div>
+        <div id="share-flight-aircraft">Aircraft</div>
+        <div id="share-flight-status">Status</div>
+      </div>
+      <div class="share-qr-wrapper">
+        <div class="share-qr" id="share-qr" aria-label="QR code for this flight"></div>
+        <img class="share-qr-logo" src="./resources/ifhubicon.png" alt="InfiniteView logo">
+      </div>
+    </div>
+    <div class="share-modal-actions">
+      <button type="button" onclick="copyShareLink()">Copy Link</button>
+      <a id="share-qr-download" href="#" download="infiniteview-flight-qr.png">Download QR</a>
+    </div>
+    <div class="share-brand">InfiniteView · Share your flight with a quick scan</div>
+  </div>
+</div>
+<div class="filter-container" id="filter-container" style='display: none;'>
+    <div class="filter-button" onclick="toggleFilter()">
+        <svg class="filter-icon" viewBox="0 0 24 24">
+            <path d="M4.25 5.61C6.27 8.2 10 13 10 13v6c0 .55.45 1 1 1h2c.55 0 1-.45 1-1v-6s3.73-4.8 5.75-7.39c.51-.66.04-1.61-.79-1.61H5.04c-.83 0-1.3.95-.79 1.61z"/>
+        </svg>
+        Filter Planes
+        <span id="filter-count" style="display: none; background: #FFC300; border-radius: 10px; padding: 2px 6px; font-size: 11px; margin-left: 4px;"></span>
+    </div>
+
+    <div class="filter-panel" id="filterPanel">
+        <div class="input-container">
+            <input
+                type="text"
+                class="search-input"
+                id="searchInput"
+                placeholder="Type to filter: 'American above 30000 feet' or 'flights to JFK'"
+                autocomplete="off"
+            >
+
+            <div class="suggestions" id="suggestions"></div>
+        </div>
+
+        <div class="filter-tags" id="filterTags"></div>
+
+        <div class="filter-actions">
+            <button class="btn btn-primary" onclick="applyFilters()">Apply Filters</button>
+            <button class="btn btn-secondary" onclick="clearFilters()">Clear All</button>
+        </div>
+
+        <div class="status-text" id="statusText">
+            Enter natural language filters like "Delta flights above 25000" or "flights to LAX"
+        </div>
+    </div>
+</div>
+  <script data-cfasync="false" src="/cdn-cgi/scripts/5c5dd728/cloudflare-static/email-decode.min.js"></script><script type="text/javascript"></script>
+  <link href="https://api.mapbox.com/mapbox-gl-js/v3.13.0/mapbox-gl.css" rel="stylesheet">
+  <script src="https://api.mapbox.com/mapbox-gl-js/v3.13.0/mapbox-gl.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@turf/turf/turf.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/threebox-plugin@2.2.7/dist/threebox.min.js"></script>
+  <link href="https://cdn.jsdelivr.net/npm/threebox-plugin@2.2.7/dist/threebox.min.css" rel="stylesheet">
+  <link rel="stylesheet" href="./resources/ifhubsearch.css">
+  <script src="https://accounts.google.com/gsi/client" async defer></script>
+  <script>
+
+  // NOTIFCATION handler
+
+  let swRegistration = null;
+  let isSubscribed = false;
+  const airportPanelTemplate = document.getElementById('2Box')?.innerHTML || '';
+
+  function ensureAirportPanel() {
+    if (!document.getElementById('airportpage-name')) {
+      const panel = document.getElementById('2Box');
+      if (panel && airportPanelTemplate) {
+        panel.innerHTML = airportPanelTemplate;
+      }
+    }
+  }
+
+  // Initialize the app
+  if ('serviceWorker' in navigator && 'PushManager' in window) {
+      initializeApp();
+  } else {
+      showStatus('Push notifications are not supported in this browser.', 'error');
+  }
+
+  function showStatus(msg, type){
+    console.log(msg, type)
+  }
+
+  async function initializeApp() {
+    try {
+        // Register service worker
+        swRegistration = await navigator.serviceWorker.register('./resources/sw.js?123');
+        console.log('Service Worker registered');
+
+        // Wait for the service worker to be ready
+        await navigator.serviceWorker.ready;
+        console.log('Service Worker is ready');
+
+        // Check if already subscribed
+        const subscription = await swRegistration.pushManager.getSubscription();
+        isSubscribed = !(subscription === null);
+    } catch (error) {
+        console.error('Service Worker registration failed:', error);
+        showStatus('Failed to initialize notifications. Please refresh the page.', 'error');
+    }
+  }
+
+  async function enableNotifications(fid) {
+      try {
+          // Ensure service worker is ready before proceeding
+          if (!swRegistration || !swRegistration.active) {
+              await navigator.serviceWorker.ready;
+              swRegistration = await navigator.serviceWorker.getRegistration();
+          }
+
+          // Request permission
+          const permission = await Notification.requestPermission();
+          if (permission !== 'granted') {
+              showStatus('Notification permission denied. Please enable it in your browser settings.', 'error');
+              return;
+          }
+
+          // Check if we already have a subscription
+          let subscription = await swRegistration.pushManager.getSubscription();
+          if (!subscription) {
+              // Only create a new subscription if one doesn't exist
+              const vapidResponse = await fetch('https://api.infiniteview.app/public-key');
+              const vapidData = await vapidResponse.json();
+              subscription = await swRegistration.pushManager.subscribe({
+                  userVisibleOnly: true,
+                  applicationServerKey: urlBase64ToUint8Array(vapidData.public_key)
+              });
+          }
+
+          // Send subscription to server for this specific flight
+          const response = await fetch('https://api.infiniteview.app/subscribe?flightid=' + fid, {
+              method: 'POST',
+              headers: {
+                  'Content-Type': 'application/json'
+              },
+              body: JSON.stringify(subscription)
+          });
+
+          const result = await response.json();
+          if (result.success) {
+              isSubscribed = true;
+          } else {
+              showStatus('Failed to subscribe to notifications.', 'error');
+          }
+      } catch (error) {
+          console.error('Error enabling notifications:', error);
+          showStatus('Error enabling notifications. Please try again.', 'error');
+      }
+  }
+
+  async function disableNotifications(fid) {
+      try {
+          const subscription = await swRegistration.pushManager.getSubscription();
+
+          if (subscription) {
+              await subscription.unsubscribe();
+              // Tell server to remove subscription
+              await fetch('https://api.infiniteview.app/unsubscribe?flightid='+fid, {
+                  method: 'POST',
+                  headers: {
+                      'Content-Type': 'application/json'
+                  },
+                  body: JSON.stringify(subscription)
+              });
+          }
+
+          isSubscribed = false;
+          showStatus('Notifications disabled successfully.', 'info');
+      } catch (error) {
+          console.error('Error disabling notifications:', error);
+          showStatus('Error disabling notifications. Please try again.', 'error');
+      }
+  }
+
+  function urlBase64ToUint8Array(base64String) {
+    const padding = '='.repeat((4 - base64String.length % 4) % 4);
+    const base64 = (base64String + padding)
+        .replace(/\-/g, '+')
+        .replace(/_/g, '/');
+
+    const rawData = window.atob(base64);
+    const outputArray = new Uint8Array(rawData.length);
+
+    for (let i = 0; i < rawData.length; ++i) {
+        outputArray[i] = rawData.charCodeAt(i);
+    }
+    return outputArray;
+  }
+
+
+
+  const sidenav = document.getElementById('mySidenav');
+
+  // Check if the device is mobile
+  const isMobile = window.matchMedia("(max-width: 768px)").matches;
+
+  if (isMobile) {
+    //window.location.replace("https://infiniteview.app/temp");
+    let isExpanded = false;
+    document.getElementById('filter-container').style.top = '65px';
+    sidenav.addEventListener('scroll', () => {
+        const scrollTop = sidenav.scrollTop;
+
+        // If scrolled more than 10px, expand the div
+        if (scrollTop >= 30 && !isExpanded) {
+            sidenav.style.top='20%'
+            isExpanded = true; // Set flag to prevent repeated expansion
+        }
+
+        // If scrolled back up to less than 10px, collapse the div
+        else if (scrollTop < 5 && isExpanded) {
+            sidenav.style.top = '73%'
+            isExpanded = false; // Reset flag
+        }
+    });
+  }
+
+  var allowEditingScheduledTimes = false; // Set to true to enable editing
+
+  // Variables to store edited times for API submission
+  let editedTimes = {
+      departureScheduled: null,  // Format: "YYYY-MM-DD HH:MM"
+      arrivalScheduled: null,    // Format: "YYYY-MM-DD HH:MM"
+      departureActual: null,     // Format: "YYYY-MM-DD HH:MM"
+      arrivalActual: null        // Format: "YYYY-MM-DD HH:MM"
+  };
+
+  // Original times (fallback values)
+  let originalTimes = {
+      departureScheduled: "10:00",
+      arrivalScheduled: "10:30",
+      departureActual: "10:01",
+      arrivalActual: "10:32"
+  };
+
+  // Get current date for datetime-local input
+  function getCurrentDate() {
+      const today = new Date();
+      return today.toISOString().split('T')[0]; // Returns YYYY-MM-DD format
+  }
+
+  // Convert time to datetime-local format
+  function timeToDatetimeLocal(time, baseDate = null) {
+      const date = baseDate || getCurrentDate();
+      return `${date}T${time}`;
+  }
+
+  // Extract date and time from datetime-local format
+  function extractDateAndTime(datetimeLocal) {
+      const [date, time] = datetimeLocal.split('T');
+      return { date, time };
+  }
+
+  // Function to initialize editable times
+  function initializeEditableTimes() {
+      if (!allowEditingScheduledTimes) return;
+
+      // Find time elements in the DOM
+      const departureAirport = document.getElementById('departure-airport');
+      const arrivalAirport = document.getElementById('arrival-airport');
+
+      if (departureAirport) {
+          makeTimeEditable(departureAirport, 'departureScheduled', extractScheduledTime(departureAirport.innerHTML));
+      }
+
+      if (arrivalAirport) {
+          makeTimeEditable(arrivalAirport, 'arrivalScheduled', extractScheduledTime(arrivalAirport.innerHTML));
+      }
+  }
+
+  // Function to extract scheduled time from HTML content
+  function extractScheduledTime(htmlContent) {
+      const match = htmlContent.match(/\[(\d{2}:\d{2})\]/);
+      return match ? match[1] : null;
+  }
+
+  // Function to extract actual time from HTML content
+  function extractActualTime(htmlContent) {
+      const match = htmlContent.match(/\((\d{2}:\d{2})\)/);
+      return match ? match[1] : null;
+  }
+
+  // Function to make time elements editable
+  function makeTimeEditable(element, timeType, currentTime) {
+      if (!currentTime) return;
+
+      // Store original time
+      originalTimes[timeType] = currentTime;
+
+      // Add click event to make editable
+      element.style.cursor = 'pointer';
+      element.title = 'Click to edit date and time';
+
+      element.addEventListener('click', function(e) {
+          // Prevent event bubbling
+          e.stopPropagation();
+          if (allowEditingScheduledTimes == false){
+            return e
+          }
+
+          // Create datetime-local input field
+          const input = document.createElement('input');
+          input.type = 'datetime-local';
+          input.value = timeToDatetimeLocal(currentTime);
+          input.style.cssText = `
+              background: var(--tertiary-bg);
+              border: 2px solid var(--accent-color);
+              border-radius: 4px;
+              color: var(--text-primary);
+              padding: 4px;
+              font-size: 14px;
+              width: 180px;
+          `;
+
+          // Position input over the clicked element
+          const rect = e.target.getBoundingClientRect();
+          input.style.position = 'fixed';
+          input.style.left = rect.left + 'px';
+          input.style.top = rect.top + 'px';
+          input.style.zIndex = '9999';
+
+          // Add input to body
+          document.body.appendChild(input);
+          input.focus();
+
+          // Handle input completion
+          function completeEdit() {
+              const newDateTime = input.value;
+              if (newDateTime && isValidDateTime(newDateTime)) {
+                  const { date, time } = extractDateAndTime(newDateTime);
+                  const fullDateTime = `${date} ${time}`;
+
+                  updateTime(element, timeType, time, date);
+                  // Ensure subsequent edits start from the newly selected time
+                  currentTime = time;
+                  editedTimes[timeType] = fullDateTime;
+                  console.log(`Updated ${timeType}:`, fullDateTime);
+                  console.log('All edited times:', editedTimes);
+                  sendEditedTimesToAPI()
+                  // Remove highlight after a brief delay to show the edit was successful
+                  setTimeout(() => {
+                      removeHighlight(element);
+                  }, 1500);
+              }
+              document.body.removeChild(input);
+          }
+
+          // Handle input events
+          input.addEventListener('blur', completeEdit);
+          input.addEventListener('keydown', function(e) {
+              if (e.key === 'Enter') {
+                  completeEdit();
+              } else if (e.key === 'Escape') {
+                  document.body.removeChild(input);
+              }
+          });
+      });
+  }
+
+  // Function to validate datetime format
+  function isValidDateTime(datetime) {
+      const datetimeRegex = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}$/;
+      return datetimeRegex.test(datetime);
+  }
+
+  // Function to validate time format (kept for backwards compatibility)
+  function isValidTime(time) {
+      const timeRegex = /^([01]?[0-9]|2[0-3]):[0-5][0-9]$/;
+      return timeRegex.test(time);
+  }
+
+  function updateTime(element, timeType, newTime, newDate = null) {
+      const currentHTML = element.innerHTML;
+
+      if (timeType.includes('Scheduled')) {
+          // Update scheduled time in brackets - only show time
+          element.innerHTML = currentHTML.replace(/\[\d{2}:\d{2}\]/, `[${newTime}]`);
+      } else if (timeType.includes('Actual')) {
+          // Update actual time in parentheses - only show time
+          element.innerHTML = currentHTML.replace(/\(\d{2}:\d{2}\)/, `(${newTime})`);
+      }
+
+      // Add visual indicator that time was edited (temporarily)
+      element.style.backgroundColor = 'rgba(255, 195, 0, 0.1)';
+      element.style.border = '1px solid var(--accent-color)';
+      element.style.borderRadius = '4px';
+  }
+
+  // Function to remove highlight from element
+  function removeHighlight(element) {
+      element.style.backgroundColor = '';
+      element.style.border = '';
+      element.style.borderRadius = '';
+  }
+
+  // Function to get all edited times for API submission
+  function getEditedTimesForAPI() {
+      const timesToSend = {};
+
+      // Only include times that have been actually edited
+      Object.keys(editedTimes).forEach(key => {
+          if (editedTimes[key] !== null) {
+              timesToSend[key] = editedTimes[key];
+          }
+      });
+
+      return timesToSend;
+  }
+
+  // Function to reset all edited times
+  function resetEditedTimes() {
+      editedTimes = {
+          departureScheduled: null,
+          arrivalScheduled: null,
+          departureActual: null,
+          arrivalActual: null
+      };
+
+      // Remove visual indicators
+      const elements = [
+          document.getElementById('departure-airport'),
+          document.getElementById('arrival-airport'),
+          document.getElementById('departure-time'),
+          document.getElementById('arrival-time')
+      ];
+
+      elements.forEach(el => {
+          if (el) {
+              removeHighlight(el);
+          }
+      });
+  }
+
+  // Function to enable/disable editing
+  function toggleEditingMode(enable) {
+      allowEditingScheduledTimes = enable;
+
+      if (enable) {
+          console.log('Editing mode enabled');
+          initializeEditableTimes();
+      } else {
+          console.log('Editing mode disabled');
+          resetEditedTimes();
+      }
+  }
+
+  // Function to send edited times to API
+  async function sendEditedTimesToAPI() {
+      const timesToSend = getEditedTimesForAPI();
+
+      if (Object.keys(timesToSend).length === 0) {
+          console.log('No times have been edited');
+          return;
+      }
+
+      console.log('Sending edited times to API:', timesToSend);
+
+      try {
+          // Replace with your actual API endpoint
+          const start = timesToSend.departureScheduled != null
+              ? new Date(timesToSend.departureScheduled).getTime()
+              : null;
+          const end = timesToSend.arrivalScheduled != null
+              ? new Date(timesToSend.arrivalScheduled).getTime()
+              : null;
+
+          const params = new URLSearchParams({
+              apikey: 'ZNvNHJYC5IcLYUMlFpBI',
+              userkey: localStorage.getItem('InfiniteFlightPairing'),
+              flightid: editFid
+          });
+
+          if (start !== null) params.append('start', start);
+          if (end !== null) params.append('end', end);
+
+          if (!params.has('start') && !params.has('end')) {
+              console.warn('No schedule changes to send');
+              return;
+          }
+
+          const response = await fetch(`https://api.infiniteview.app/change-schedule?${params.toString()}`, {
+              method: 'GET',
+              headers: {
+                  'Content-Type': 'application/json',
+              },
+          });
+
+          if (response.ok) {
+              const data = await response.json();
+              console.log('Response data:', data);
+              console.log('Times successfully updated');
+          } else {
+              console.error('Failed to update times:', response.statusText);
+          }
+      } catch (error) {
+          console.error('Error sending times to API:', error);
+      }
+  }
+
+  // Initialize when DOM is loaded
+  document.addEventListener('DOMContentLoaded', function() {
+      // Auto-initialize if editing is enabled
+      if (allowEditingScheduledTimes) {
+          setTimeout(initializeEditableTimes, 1000); // Delay to ensure DOM is ready
+      }
+  });
+
+  // Example usage functions (you can call these from console or other scripts)
+  function enableEditing() {
+      toggleEditingMode(true);
+  }
+
+  function disableEditing() {
+      toggleEditingMode(false);
+  }
+
+  function logCurrentEditedTimes() {
+      console.log('Currently edited times:', getEditedTimesForAPI());
+  }
+
+  // Export functions for global access
+  window.flightTimeEditor = {
+      enableEditing,
+      disableEditing,
+      getEditedTimes: getEditedTimesForAPI,
+      sendToAPI: sendEditedTimesToAPI,
+      resetTimes: resetEditedTimes,
+      logTimes: logCurrentEditedTimes
+  };
+
+  // Calculate wind components for runway
+  function calculateWindComponents(windDirection, windSpeed, runwayHeading) {
+      const windRad = (windDirection * Math.PI) / 180;
+      const runwayRad = (runwayHeading * Math.PI) / 180;
+
+      const headwindComponent = windSpeed * Math.cos(windRad - runwayRad);
+      const crosswindComponent = Math.abs(windSpeed * Math.sin(windRad - runwayRad));
+
+      return {
+          headwind: headwindComponent, // positive = headwind, negative = tailwind
+          crosswind: crosswindComponent
+      };
+  }
+
+  // Get runway heading from runway designation (e.g., "09L" -> 90 degrees)
+  function getRunwayHeading(runwayDesignation) {
+      const numericPart = parseInt(runwayDesignation.replace(/[LRC]/, ''));
+      return numericPart * 10;
+  }
+
+  // Determine wind condition color for a runway
+  function getWindConditionColor(windDirection, windSpeed, runwayDesignation) {
+      const runwayHeading = getRunwayHeading(runwayDesignation);
+      const components = calculateWindComponents(windDirection, windSpeed, runwayHeading);
+
+      // Check for tailwind (5+ kts) - RED
+      if (components.headwind < -5) {
+          return 'red';
+      }
+
+      // Check for crosswind (5+ kts) - YELLOW
+      if (components.crosswind >= 5) {
+          return 'yellow';
+      }
+
+      // Otherwise - GREEN
+      return 'green';
+  }
+
+  // Get overall wind condition for multiple runways (for wind arrow color)
+  function getOverallWindCondition(windDirection, windSpeed, runways) {
+      const conditions = runways.map(runway =>
+          getWindConditionColor(windDirection, windSpeed, runway)
+      );
+
+      // Priority: red > yellow > green
+      if (conditions.includes('red')) return 'red';
+      if (conditions.includes('yellow')) return 'yellow';
+      return 'green';
+  }
+
+  // ATIS Parser Function
+  function parseATIS(atisString) {
+      const data = {
+          airport: "",
+          information: "",
+          time: "",
+          wind: { direction: "", speed: "", variable: "" },
+          visibility: "",
+          temperature: "",
+          dewPoint: "",
+          qnh: "",
+          runways: { landing: [], departure: [] }
+      };
+
+      // Extract airport code (first word)
+      const airportMatch = atisString.match(/^(\w+)/);
+      if (airportMatch) data.airport = airportMatch[1];
+
+      // Extract information letter
+      const infoMatch = atisString.match(/information (\w+)/i);
+      if (infoMatch) data.information = infoMatch[1];
+
+      // Extract time
+      const timeMatch = atisString.match(/time (\d{4}) ZULU/i);
+      if (timeMatch) data.time = timeMatch[1] + " ZULU";
+
+      // Extract wind information
+      const windMatch = atisString.match(/Wind (\d{3}) at (\d+)/i);
+      if (windMatch) {
+          data.wind.direction = windMatch[1];
+          data.wind.speed = windMatch[2];
+      }
+
+      // Extract variable wind
+      const variableMatch = atisString.match(/variable between (\d{3}) and (\d{3})/i);
+      if (variableMatch) {
+          data.wind.variable = `${variableMatch[1]}-${variableMatch[2]}`;
+      }
+
+      // Extract visibility
+      const visMatch = atisString.match(/Visibility (\d+)/i);
+      if (visMatch) data.visibility = visMatch[1];
+
+      // Extract temperature
+      const tempMatch = atisString.match(/Temperature (\d+)/i);
+      if (tempMatch) data.temperature = tempMatch[1];
+
+      // Extract dew point
+      const dewMatch = atisString.match(/Dew Point (\d+)/i);
+      if (dewMatch) data.dewPoint = dewMatch[1];
+
+      // Extract QNH
+      const qnhMatch = atisString.match(/QNH (\d+)/i);
+      if (qnhMatch) data.qnh = qnhMatch[1];
+
+      // Extract landing runways - improved parsing to stop at period or comma
+      const landingMatch = atisString.match(/Landing Runways?\s+([^.,]+)/i);
+      if (landingMatch) {
+        // Normalize separators: replace " and " with commas
+        const runwaysText = landingMatch[1].replace(/\band\b/gi, ",");
+        // Split on commas, trim spaces, remove empties
+        data.runways.landing = runwaysText
+          .split(/[,/]/)
+          .map(r => r.trim())
+          .filter(r => r.length > 0);
+      }
+      // Extract departure runways - improved parsing to stop at period or comma
+      const departureMatch = atisString.match(/Departing Runways?\s+([^.,]+)/i);
+      if (departureMatch) {
+        // Normalize separators: convert "and" to commas
+        const runwaysText = departureMatch[1].replace(/\band\b/gi, ",");
+        // Split on commas or slashes, trim, and remove empties
+        data.runways.departure = runwaysText
+          .split(/[,/]/)
+          .map(r => r.trim())
+          .filter(r => r.length > 0);
+      }
+
+      return data;
+  }
+
+  // Create individual runway elements with color coding
+  function createRunwayElements(runways, windDirection, windSpeed) {
+      const conditionLabels = {
+          green: 'Headwind',
+          yellow: 'Crosswind',
+          red: 'Tailwind'
+      };
+      return runways.map(runway => {
+          const condition = getWindConditionColor(windDirection, windSpeed, runway);
+          return `<div class="runway-chip runway-${condition}">
+                      <div class="runway-code">${runway}</div>
+                      <div class="runway-status">${conditionLabels[condition] || 'Active'}</div>
+                  </div>`;
+      }).join('');
+  }
+
+  function updateDisplay(data) {
+      const windDirection = parseInt(data.wind.direction);
+      const windSpeed = parseInt(data.wind.speed);
+
+      // Update wind card
+      const windCard = document.querySelector('.data-card .card-value');
+      windCard.innerHTML = `${data.wind.direction}° @ ${data.wind.speed}kt`;
+
+      // Update other cards
+      const cards = document.querySelectorAll('.data-card');
+      cards[1].querySelector('.card-value').textContent = data.visibility;
+      cards[2].querySelector('.card-value').textContent = `${data.temperature}°C`;
+      cards[2].querySelector('.card-unit').textContent = `Dew Point: ${data.dewPoint}°C`;
+      cards[3].querySelector('.card-value').textContent = data.qnh;
+
+      // Update runways with individual color coding
+      const landingRunwaysEl = document.getElementById('landing-runways');
+      const departureRunwaysEl = document.getElementById('departure-runways');
+
+      // Create individual runway elements with their own colors
+      landingRunwaysEl.innerHTML = createRunwayElements(data.runways.landing, windDirection, windSpeed);
+      departureRunwaysEl.innerHTML = createRunwayElements(data.runways.departure, windDirection, windSpeed);
+
+      // Update time
+      document.querySelector('.time-display').textContent = `Updated: ${data.time}`;
+  }
+
+
+    // Authentication stuff
+
+    function onSignInClick() {
+       popup = document.getElementById('sign-in-popup');
+       if (popup.style.display == 'block'){
+         popup.style.display = 'none';
+       } else {
+         popup.style.display = 'block';
+       }
+     }
+
+     function onSignOutClick(){
+       localStorage.removeItem('JWT')
+       google.accounts.id.disableAutoSelect();
+       document.getElementById('googleloginbutton').style.display = 'block'
+       document.getElementById('infiniteprobutton').style.display = 'none'
+       document.getElementById('logoutbutton').style.display = 'none'
+       document.getElementById('sign-in-text1').innerHTML = 'Profile Menu'
+       document.getElementById('googleinfotext').style.display = 'block'
+       if (document.getElementById('googleButton')){
+         document.getElementById('googleButton').style.display = 'block'
+       } else {
+         div = document.getElementById('profiledropdown')
+         newElement = "<button style = 'display: block; background-color: #FFC300; justify-content: center; align-items: center;'id='googleButton' >Sign in with Google</button>"
+         div.insertAdjacentHTML('afterbegin', newElement);
+         document.getElementById('googleButton').addEventListener("click", function() {
+           const CLIENT_ID = "816537345417-9berue02lssgo8uumj8rhpcppk89givo.apps.googleusercontent.com";
+
+           // Initialize the Google Identity Services
+           google.accounts.id.initialize({
+             client_id: CLIENT_ID,
+             callback: handleCredentialResponse,
+           });
+           google.accounts.id.renderButton(
+             document.getElementById("googleButton"), // The DOM element for the button
+             { theme: "outline", size: "large" } // Customization options
+           );
+
+           // Optionally prompt the user immediately
+           google.accounts.id.prompt(); // Optional for auto sign-in
+         });
+       }
+     }
+
+    if (localStorage.getItem("JWT") !== null){
+      handleCredentialResponse({credential : localStorage.getItem("JWT")}, 'false')
+    } else {
+      div = document.getElementById('profiledropdown')
+      newElement = "<button style = 'display: block; background-color: #FFC300; justify-content: center; align-items: center;'id='googleButton' >Sign in with Google</button>"
+      div.insertAdjacentHTML('afterbegin', newElement);
+      document.getElementById('googleButton').addEventListener("click", function() {
+        const CLIENT_ID = "816537345417-9berue02lssgo8uumj8rhpcppk89givo.apps.googleusercontent.com";
+
+        // Initialize the Google Identity Services
+        google.accounts.id.initialize({
+          client_id: CLIENT_ID,
+          callback: handleCredentialResponse,
+        });
+        google.accounts.id.renderButton(
+          document.getElementById("googleButton"), // The DOM element for the button
+          { theme: "outline", size: "large" } // Customization options
+        );
+
+        // Optionally prompt the user immediately
+        google.accounts.id.prompt(); // Optional for auto sign-in
+      });
+    }
+
+    function getPro(){
+      email = parseJwt(localStorage.getItem("JWT")).email
+      popup = window.open("https://infiniteviewapp.lemonsqueezy.com/buy/4a1eed0c-16de-4b5f-86c2-d236fb69095d?checkout[email]="+email, "popupWindow", "width=600,height=400");
+
+      const checkPopupClosed = setInterval(() => {
+          if (popup.closed) {
+              clearInterval(checkPopupClosed); // Stop checking once it's closed
+              handleCredentialResponse({credential : localStorage.getItem("JWT")}, 'false')
+          }
+      }, 500);
+    }
+
+    function cancelSub(){
+      jwt = localStorage.getItem("JWT")
+      fetch('https://api.infiniteview.app/cancel-subscription', {
+          method: 'POST',
+          headers: {
+              'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({ token: jwt }),
+      })
+      .then(response => response.json())
+      .then(data => {
+          if (data.status == 'verified' && data.result == 'success') {
+            document.getElementById('sign-in-text1').innerHTML = 'Hi, ' + parseJwt(jwt).name.split(' ')[0] + '.<br> Your subscription will be cancelled at the end of this billing period.'
+            document.getElementById('infiniteprobutton').style.display = 'none'
+          } else {
+            document.getElementById('sign-in-text').innerHTML = 'Subscription cancellation failed.<br>Please log out and try again.'
+          }
+      })
+      .catch(error => {
+          console.error('Error verifying token:', error);
+      });
+    }
+
+    function handleCredentialResponse(response, skip='false') {
+        const jwt = response.credential;
+
+        // Decode the JWT to extract user information
+        const userInfo = parseJwt(jwt);
+        //document.getElementById('infiniteprobutton').style.display = 'flex'
+        document.getElementById('sign-in-text1').innerHTML = 'Hi!'
+        document.getElementById('googleloginbutton').style.display = 'none'
+        document.getElementById('logoutbutton').style.display = 'flex'
+        localStorage.setItem('JWT', jwt)
+        // here we check if they have pro,  if they do load the pro stuff.
+        fetch('https://api.infiniteview.app/verify-token', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({ token: jwt }),
+        })
+        .then(response => response.json())
+        .then(data => {
+            if (data.link != 'null'){
+              document.getElementById('sign-in-text1').innerHTML = "Hi!<br>Manage your account <a onclick=\"window.open('"+data.link+"', 'popupWindow', 'width=600,height=400')\" style='color: #FFC300;'>here</a>";
+              try{
+                document.getElementById('googleButton').style.display = 'none';
+              } catch(err){
+                console.log('Logged in')
+              }
+            }
+            if (data.status == 'verified' && data.url != 'null') {
+                // If the user has "Pro" access, load the pro.js script
+                if (skip == 'true'){
+                  location.reload()
+                } else {
+                  console.log('Loading Pro features')
+                  var script = document.createElement('script');
+                  script.src = data.url+'?2212';
+                  script.type = 'text/javascript';
+                  document.head.appendChild(script);
+                  document.getElementById('googleinfotext').style.display = 'none'
+                  document.getElementById('infiniteprobutton').style.display = 'none'
+                  setTimeout(function(){markerBehaviour()},5000); // Assuming this manages Pro features for the user
+                }
+            } else {
+                if (data.status == 'not verified'){
+                  onSignOutClick()
+                  document.getElementById('googleButton').style.display = 'block';
+                } else {
+                    document.getElementById('infiniteprobutton').style.display = 'flex'
+                    document.getElementById('infiniteprobutton').innerHTML = 'Subscribe to Pro'
+                    document.getElementById('infiniteprobutton').onclick = getPro
+                }
+            }
+        })
+        .catch(error => {
+            console.error('Error verifying token:', error);
+        });
+    }
+
+      // Function to decode the JWT token
+    function parseJwt (token) {
+        const base64Url = token.split('.')[1];
+        const base64 = base64Url.replace(/-/g, '+').replace(/_/g, '/');
+        const jsonPayload = decodeURIComponent(atob(base64).split('').map(function(c) {
+            return '%' + ('00' + c.charCodeAt(0).toString(16)).slice(-2);
+        }).join(''));
+
+        return JSON.parse(jsonPayload);
+    }
+
+    var loop;
+    function inititateTimeout(){
+      clearInterval(loop)
+      showPopup()
+    }
+
+    function resetInactivityTimer() {
+        clearTimeout(inactivityTimeout);
+        inactivityTimeout = setTimeout(inititateTimeout, inactivityTime);
+    }
+
+    function showPopup() {
+        document.getElementById('popup-overlay').classList.add('active');
+    }
+
+    function continueSession() {
+        document.getElementById('popup-overlay').classList.remove('active');
+        refreshCounterForATC = 5
+        resetInactivityTimer();
+        airport(serverurl)
+        refresh()
+        loop = setInterval(refresh, 30000);
+    }
+
+    function downtimeSession() {
+        document.getElementById('downtime-overlay').classList.remove('active');
+        document.getElementById('discord-overlay').classList.remove('active');
+        document.getElementById('notification-overlay').classList.remove('active');
+        resetInactivityTimer();
+    }
+
+    // Track user activity
+    window.onload = resetInactivityTimer;
+    window.onmousemove = resetInactivityTimer;
+    window.onkeydown = resetInactivityTimer;
+
+
+      var UPDATING = 'no';
+      var TYPE = '';
+      var LOADING = false
+      var PLANE_BEING_VIEWED = '';
+      var PREVIOUS_FLIGHTS_LINK = ''
+      var PLANE_BEING_VIEWED_DETAILS = {};
+      var GLOBAL_LOCATION = false;
+      let inactivityTime = 5*60000; // 30 seconds for demonstration; adjust as needed
+      let inactivityTimeout;
+      // Hide results when clicking outside the search bar
+      document.addEventListener('click', function(event) {
+          const searchBar = document.querySelector('.search-bar');
+          const resultsContainer = document.getElementById('search-results');
+          const trendingButton = document.getElementById('rankingbutton');
+          const profileButton = document.getElementById('profile-button');
+          const popup = document.getElementById('sign-in-popup');
+          if (!searchBar.contains(event.target)) {
+              if(!trendingButton.contains(event.target)){
+                resultsContainer.style.display = 'none';
+                filteredTerms = [];
+                if (!popup.contains(event.target) && !profileButton.contains(event.target)){
+                  popup.style.display = 'none';
+                }
+              }
+          }
+      });
+
+      function markerBehaviour(){}
+      function getPlaneIcon(username, aircraftId){
+        team = ["WML", "Lewis", "VanillaCakePeople", "Mohamed2030", "ka77", "boeair", "Adam", "Niimble", "Captain_zane", "Saf"]
+        ifstaff = ["philippe", "jasonrosewell", "Cameron", "Dan", "schyllberg", "jarno80", "RAH", "Laura", "Tyler_Shelton"]
+        if (team.includes(username)){
+          return 'testspecialplaneicon'
+        }else if (ifstaff.includes(username)){
+          return 'testinfinitespecialplaneicon'
+        } else if (username == 'Santa Claus'){
+          return 'santaicon'
+          console.log('CHANGED TO SANTA ICON')
+        } else {
+          return 'testplaneicon'
+        }
+      }
+
+      function openNav() {
+        ifclick = 'yes';
+        try {
+          document.getElementById('canvas').style.display = 'none';
+        } catch(err){
+          null;
+        }
+        const isMobile = window.matchMedia("(max-width: 768px)").matches;
+        if (isMobile){
+          document.getElementById("mySidenav").style.top = '73%'
+          document.getElementById("mySidenav").style.width = '95%';
+          document.getElementById("mySidenav").style.left = '2.5%';
+        } else {
+          document.getElementById("mySidenav").style.top = '10%'
+        }
+        //document.getElementById("mySidenav").style.height = "280px";
+        document.getElementById("mySidenav").style.display = "block";
+        document.getElementById("mySidenav").style.backgroundColor = 'transparent'
+
+          //document.getElementById("MapContainer").style.marginTop = "280px";
+      }
+
+      function closeNav() {
+        if (UPDATING == 'no'){
+          ifclick = 'no'
+          // we do NOT change the PLANE_BEING_VIEWED, for reasons in my head
+        }
+
+        try{
+          document.getElementById('canvas').style.display = 'none'
+          myLineChart.destroy();
+          myLineChart = null;
+          currentChartWindow = null;
+        }
+        catch(err){
+          null;
+        }
+
+        exitReplayMode();
+
+        //document.getElementById("mySidenav").style.height = "0";
+        document.getElementById("mySidenav").style.display = "none"
+
+        if (document.getElementById('flightHistoryFlightsContainer').classList.contains('flight-history-visible')) {
+          document.getElementById('flightHistoryFlightsContainer').classList.toggle('flight-history-visible');
+          document.getElementById('flightHistoryFlightList').innerHTML = '';
+        }
+          //document.getElementById("MapContainer").style.marginTop= "0";
+      }
+
+      function toggleDetails(element) {
+        const flightItem = element.closest('.flight-item');
+        const details = flightItem.querySelector('.flight-details');
+        if (details.style.display === 'none' || details.style.display === '') {
+          details.style.display = 'block';
+        } else {
+          details.style.display = 'none';
+        }
+      }
+
+      function addFlight(flightName, route, origin, eta, aircraftType, airline, altitude, delayInfo, liveryId, fid, type) {
+        altitude = numberWithCommas(Math.round(altitude)) + 'ft'
+        if (type == 'in'){
+          typetxt = 'ETA:'
+        } else {
+          typetxt = 'Sched.'
+        }
+        const flightList = document.getElementById('flight-list-'+type);
+        // Create new flight item with passed variables
+        const flightItem = document.createElement('div');
+        flightItem.className = 'flight-item';
+        flightItem.innerHTML = `
+          <div class="flight-summary" onclick="toggleDetails(this)" style="text-align: left;">
+            <div class="status-circle ${delayInfo === 'On Time' ? 'green' : 'orange'}"></div>
+            <div class="flight-info">
+              <span class="flight-name">${flightName}</span>
+              <span class="flight-origin">${origin}</span>
+              <span class="flight-eta">${typetxt} ${eta}</span>
+            </div>
+            <div class="arrow">&#x25BC;</div>
+          </div>
+          <div class="flight-details" style="display: none;">
+            <img src="https://cdn.infiniteview.app/${liveryId}.jpg" onerror="this.onerror=null; this.src='https://cdn.infiniteview.app/unknown.jpg';" alt="Aircraft" loading="lazy" class="aircraft-image">
+            <div class="details-info" style="text-align: left;">
+              <div><strong>${aircraftType}</strong> (${airline})</div>
+              <div>${route}</div>
+              <div>${altitude}</div>
+            </div>
+            <button class="fly-button" onclick="redirectToMarker('${fid}')">Fly</button>
+          </div>
+        `;
+
+        // Append the new flight to the list
+        flightList.appendChild(flightItem);
+      }
+
+
+  function compare( a, b ) {
+    if ( a.due < b.due ){
+      return -1;
+    }
+    if ( a.due > b.due ){
+          return 1;
+    }
+    return 0;
+  }
+
+  function parseDelayMinutes(value) {
+    if (value === undefined || value === null) return 0;
+    if (typeof value === 'number' && !isNaN(value)) return value;
+    if (typeof value === 'string') {
+      const lower = value.toLowerCase();
+      if (lower.includes(':')) return 0; // avoid parsing HH:MM strings
+      const minuteMatch = lower.match(/(-?\d+)\s*m/);
+      if (minuteMatch) return parseInt(minuteMatch[1], 10);
+      if (lower.includes('delay') || lower.includes('late')) return 15;
+    }
+    return 0;
+  }
+
+  function calculateAverageDelayMinutes(flights, { considerNegativeDue = false } = {}) {
+    if (!Array.isArray(flights) || flights.length === 0) return null;
+
+    let totalDelay = 0;
+
+    flights.forEach(flight => {
+      const delayText = flight.status ?? flight.time;
+      let delay = parseDelayMinutes(delayText);
+
+      if (considerNegativeDue && typeof flight.due === 'number' && flight.due < 0) {
+        delay = Math.max(delay, Math.abs(Math.round(flight.due)));
+      }
+
+      totalDelay += Math.max(0, delay);
+    });
+
+    return Math.round(totalDelay / flights.length);
+  }
+
+  function formatDelayText(minutes) {
+    if (minutes === null) return '--';
+    if (minutes <= 0) return 'On time';
+    if (minutes < 60) return `${minutes}m delay`;
+    const hours = Math.floor(minutes / 60);
+    const mins = minutes % 60;
+    return `${hours}h ${mins}m delay`;
+  }
+
+  function getFacilityOpenMinutes(facility) {
+    if (!facility) return null;
+
+    const candidate = [
+      facility.startTime,
+      facility.sessionStartTime,
+      facility.sessionStart,
+      facility.openTime,
+      facility.openedAt,
+      facility.frequencyStartTime
+    ].find(value => value !== undefined && value !== null);
+
+    if (!candidate) return null;
+
+    let timestamp = candidate;
+    if (typeof candidate === 'string') {
+      const parsed = Date.parse(candidate);
+      if (!Number.isNaN(parsed)) {
+        timestamp = parsed;
+      }
+    }
+
+    if (typeof timestamp === 'number' && timestamp < 1e12) {
+      timestamp *= 1000; // convert seconds to milliseconds
+    }
+
+    if (Number.isNaN(timestamp)) return null;
+
+    return Math.max(0, Math.floor((Date.now() - timestamp) / 60000));
+  }
+
+  function formatOpenDuration(minutes) {
+    if (minutes === null) return 'Closed';
+    if (minutes < 60) return `Open ${minutes}m`;
+    const hours = Math.floor(minutes / 60);
+    const mins = minutes % 60;
+    if (hours >= 12 && mins === 0) return `Open ${hours}h`;
+    return `Open ${hours}h ${mins}m`;
+  }
+
+      function destinationPoint(lat, lon, distance, bearing) {
+          var radius = 6371e3; // (Mean) radius of earth
+
+          var toRadians = function(v) { return v * Math.PI / 180; };
+          var toDegrees = function(v) { return v * 180 / Math.PI; };
+
+          // sinphi2 = sinphi1·cosDelta + cosphi1·sinDelta·costheta
+          // tanDeltalambda = sintheta·sinDelta·cosphi1 / cosDelta−sinphi1·sinphi2
+          // see mathforum.org/library/drmath/view/52049.html for derivation
+
+          var Delta = Number(distance) / radius; // angular distance in radians
+          var theta = toRadians(Number(bearing));
+
+          var phi1 = toRadians(Number(lat));
+          var lambda1 = toRadians(Number(lon));
+
+          var sinphi1 = Math.sin(phi1), cosphi1 = Math.cos(phi1);
+          var sinDelta = Math.sin(Delta), cosDelta = Math.cos(Delta);
+          var sintheta = Math.sin(theta), costheta = Math.cos(theta);
+
+          var sinphi2 = sinphi1*cosDelta + cosphi1*sinDelta*costheta;
+          var phi2 = Math.asin(sinphi2);
+          var y = sintheta * sinDelta * cosphi1;
+          var x = cosDelta - sinphi1 * sinphi2;
+          var lambda2 = lambda1 + Math.atan2(y, x);
+
+          return [toDegrees(phi2), (toDegrees(lambda2)+540)%360-180]; // normalise to −180..+180°
+      }
+
+      function getDistanceFromLatLonInKm(lat1,lon1,lat2,lon2) {
+        var R = 6371; // Radius of the earth in km
+        var dLat = deg2rad(lat2-lat1);  // deg2rad below
+        var dLon = deg2rad(lon2-lon1);
+        var a =
+          Math.sin(dLat/2) * Math.sin(dLat/2) +
+          Math.cos(deg2rad(lat1)) * Math.cos(deg2rad(lat2)) *
+          Math.sin(dLon/2) * Math.sin(dLon/2)
+          ;
+        var c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
+        var d = R * c; // Distance in km
+        return d;
+      }
+
+      function deg2rad(deg) {
+        return deg * (Math.PI/180)
+      }
+
+      function numberWithCommas(x) {
+        try{
+          return x.toString().replace(/\B(?=(\d{3})+(?!\d))/g, ",");
+        } catch(err){
+          return '???'
+        }
+      }
+
+      var LAST_WEB_REQUEST = Date.now()
+      var takeoff_dict = {}                     //Must be global
+      var landing_dict = {}                     //Must be global
+      var dict = {}
+      var active_atc = {}
+      var active_atc_times = {}
+      var atc_dict = {}
+      var flight_dict = {}
+      var all_flights_start_end = {}
+      var name_flightid = {}
+      var plane_markers = {}
+      var planeFeaturesById = {}
+      const FAVORITES_STORAGE_KEY = 'iv_favorite_flights'
+      const FAVORITE_USERS_STORAGE_KEY = 'iv_favorite_users'
+      const FRIEND_STORAGE_CONSENT_KEY = 'iv_friend_storage_consent'
+      const FLIGHT_ANIMATION_STORAGE_KEY = 'iv_flight_animation_enabled'
+      const MAX_SAVED_FLIGHTS = 12
+      const MAX_SAVED_USERS = 50
+      let favoriteFlights = []
+      let favoriteUsers = []
+      let friendStorageAllowed = false
+      let currentSelectedFlight = null
+      let pendingFavoriteTarget = null
+      let favoritesStatusTimeout = null
+      const planeDataLoadedForServer = {}
+      let replayActiveFlightId = null
+      let replayMarker = null
+      let replayPreviousFocus = null
+      let replayOriginalPlaneState = null
+      const TELEMETRY_UPDATE_INTERVAL_MS = 1000
+      const HEADING_RATE_SCALING_SECONDS = 20
+      const planeTelemetryState = {}
+      let telemetryUpdateInterval = null
+      let planeAnimationFrameId = null
+      let planeAnimationEnabled = false
+      const PLANE_ANIMATION_MIN_INTERVAL_MS = 100
+      const FILTER_UPDATE_THROTTLE_MS = 750
+      const PATH_UPDATE_INTERVAL_MS = 500
+      let lastPlaneAnimationTime = 0
+      let lastFilterUpdateTime = 0
+      let filteredPlaneFeatures = []
+
+      const activeFlightPathState = {
+        flightId: null,
+        segments: [],
+        historySegmentCount: 0,
+        renderer: null,
+        lastUpdate: 0
+      }
+
+      function normalizeHeading(heading) {
+        const normalized = ((heading % 360) + 360) % 360
+        return normalized
+      }
+
+      function shortestHeadingDelta(from, to) {
+        const delta = normalizeHeading(to) - normalizeHeading(from)
+        return ((delta + 540) % 360) - 180
+      }
+
+      function loadFavoriteFlights() {
+        if (!friendStorageAllowed) {
+          return []
+        }
+        try {
+          const stored = localStorage.getItem(FAVORITES_STORAGE_KEY)
+          const parsed = stored ? JSON.parse(stored) : []
+          return Array.isArray(parsed) ? parsed : []
+        } catch (error) {
+          console.warn('Unable to load favorites', error)
+          return []
+        }
+      }
+
+      function saveFavoriteFlights() {
+        if (!friendStorageAllowed) {
+          return
+        }
+        try {
+          localStorage.setItem(FAVORITES_STORAGE_KEY, JSON.stringify(favoriteFlights))
+        } catch (error) {
+          console.warn('Unable to save favorites', error)
+        }
+      }
+
+      function loadFavoriteUsers() {
+        if (!friendStorageAllowed) {
+          return []
+        }
+        try {
+          const stored = localStorage.getItem(FAVORITE_USERS_STORAGE_KEY)
+          const parsed = stored ? JSON.parse(stored) : []
+          return Array.isArray(parsed) ? parsed : []
+        } catch (error) {
+          console.warn('Unable to load favorite users', error)
+          return []
+        }
+      }
+
+      function saveFavoriteUsers() {
+        if (!friendStorageAllowed) {
+          return
+        }
+        try {
+          localStorage.setItem(FAVORITE_USERS_STORAGE_KEY, JSON.stringify(favoriteUsers))
+        } catch (error) {
+          console.warn('Unable to save favorite users', error)
+        }
+      }
+
+      function mergeFavoriteFlightLists(current, stored) {
+        const combined = Array.isArray(current) ? [...current] : []
+        if (!Array.isArray(stored)) {
+          return combined
+        }
+        const seen = new Set(combined.map(fav => `${fav.flightid}:${fav.server}`))
+        stored.forEach(fav => {
+          if (!fav || !fav.flightid || !fav.server) {
+            return
+          }
+          const key = `${fav.flightid}:${fav.server}`
+          if (!seen.has(key)) {
+            combined.push(fav)
+            seen.add(key)
+          }
+        })
+        return combined.slice(0, MAX_SAVED_FLIGHTS)
+      }
+
+      function mergeFavoriteUserLists(current, stored) {
+        const combined = Array.isArray(current) ? [...current] : []
+        if (!Array.isArray(stored)) {
+          return combined
+        }
+        const seen = new Set(combined.map(user => (user && user.username ? user.username.toLowerCase() : '')))
+        stored.forEach(user => {
+          if (!user || !user.username) {
+            return
+          }
+          const normalized = user.username.toLowerCase()
+          if (!seen.has(normalized)) {
+            combined.push(user)
+            seen.add(normalized)
+          }
+        })
+        return combined.slice(0, MAX_SAVED_USERS)
+      }
+
+      function updateSelectedFlightTelemetry() {
+        const selectedFlightId = currentSelectedFlight?.flightid
+        if (!selectedFlightId) return
+
+        const telemetry = planeTelemetryState[selectedFlightId]
+        if (!telemetry) return
+
+        const now = Date.now()
+        const elapsedSeconds = Math.max((now - telemetry.timestamp) / 1000, 0)
+        const projectedAltitude = telemetry.baseAltitude + (telemetry.verticalSpeed || 0) * (elapsedSeconds / 60)
+        const headingDelta = (telemetry.headingRate || 0) * Math.min(elapsedSeconds, HEADING_RATE_SCALING_SECONDS)
+        const projectedHeading = normalizeHeading((telemetry.baseHeading || 0) + headingDelta)
+
+        const altitudeEl = document.getElementById('31Text')
+        const headingEl = document.getElementById('41Text')
+
+        if (altitudeEl) {
+          altitudeEl.innerHTML = `${numberWithCommas(Math.round(projectedAltitude))} FT`
+        }
+
+        if (headingEl) {
+          headingEl.innerHTML = `${Math.round(projectedHeading)} °`
+        }
+
+        const flightEntry = flight_dict[selectedFlightId]
+        if (flightEntry && Array.isArray(flightEntry.text)) {
+          flightEntry.text[1] = projectedAltitude
+          flightEntry.text[3] = Math.round(projectedHeading)
+        }
+      }
+
+      function startTelemetryUpdater() {
+        if (telemetryUpdateInterval) return
+        telemetryUpdateInterval = setInterval(updateSelectedFlightTelemetry, TELEMETRY_UPDATE_INTERVAL_MS)
+      }
+
+      function clearActiveFlightPath() {
+        activeFlightPathState.flightId = null
+        activeFlightPathState.segments = []
+        activeFlightPathState.historySegmentCount = 0
+        activeFlightPathState.renderer = null
+        activeFlightPathState.lastUpdate = 0
+      }
+
+      function setActiveFlightPath(flightId, segments, historySegmentCount, renderer) {
+        activeFlightPathState.flightId = flightId
+        activeFlightPathState.segments = segments || []
+        activeFlightPathState.historySegmentCount = historySegmentCount || 0
+        activeFlightPathState.renderer = renderer || null
+        activeFlightPathState.lastUpdate = 0
+      }
+
+      function updateActiveFlightPathConnection() {
+        const { flightId, segments, renderer } = activeFlightPathState
+        if (!flightId || !renderer || !segments || !segments.length) return
+
+        const marker = plane_markers[flightId]
+        if (!marker || !marker.location || typeof marker.location[0] !== 'number' || typeof marker.location[1] !== 'number') {
+          return
+        }
+
+        const now = Date.now()
+        if (now - activeFlightPathState.lastUpdate < PATH_UPDATE_INTERVAL_MS) {
+          return
+        }
+
+        const lat = marker.location[0]
+        const lng = marker.location[1]
+        const historyIndex = Math.min(Math.max(activeFlightPathState.historySegmentCount - 1, 0), segments.length - 1)
+
+        if (segments[historyIndex] && segments[historyIndex].end) {
+          segments[historyIndex].end = { lat, lng }
+        }
+
+        const nextIndex = activeFlightPathState.historySegmentCount
+        if (nextIndex < segments.length && segments[nextIndex] && segments[nextIndex].start) {
+          segments[nextIndex].start = { lat, lng }
+        }
+
+        activeFlightPathState.lastUpdate = now
+        renderer(segments)
+      }
+
+      function projectPlanePosition(flightId, telemetry, now, allowHeadingUpdate = false) {
+        const feature = planeFeaturesById[flightId]
+        if (!feature || !telemetry) return false
+
+        const baseLat = telemetry.baseLat ?? feature?.properties?.lat
+        const baseLng = telemetry.baseLng ?? feature?.properties?.lng
+        if (typeof baseLat !== 'number' || typeof baseLng !== 'number') return false
+
+        const baseHeading = telemetry.baseHeading ?? feature?.properties?.heading ?? 0
+        const elapsedSeconds = Math.max((now - telemetry.timestamp) / 1000, 0)
+        const headingDelta = (telemetry.headingRate || 0) * Math.min(elapsedSeconds, HEADING_RATE_SCALING_SECONDS)
+        const projectedHeading = normalizeHeading(baseHeading + headingDelta)
+        const speedKnots = telemetry.baseSpeed ?? feature?.properties?.speed ?? 0
+        const shouldProjectPosition = speedKnots > 30
+        const shouldUpdateHeading = shouldProjectPosition || allowHeadingUpdate
+        if (!shouldUpdateHeading) return false
+
+        const distanceMeters = shouldProjectPosition ? Math.max(0, speedKnots) * 0.514444 * elapsedSeconds : 0
+        const [lat, lng] = shouldProjectPosition
+          ? destinationPoint(baseLat, baseLng, distanceMeters, projectedHeading)
+          : [baseLat, baseLng]
+
+        feature.geometry.coordinates = [lng, lat]
+        if (feature.properties) {
+          feature.properties.lat = lat
+          feature.properties.lng = lng
+          feature.properties.heading = projectedHeading
+          feature.properties.direction = projectedHeading
+        }
+
+        const marker = plane_markers[flightId]
+        if (marker) {
+          marker._lngLat = { lat, lng }
+          marker.location = [lat, lng]
+          marker.heading = projectedHeading
+        }
+
+        return true
+      }
+
+      function animatePlanes() {
+        if (!planeAnimationEnabled) {
+          planeAnimationFrameId = null
+          return
+        }
+        const now = Date.now()
+        if (now - lastPlaneAnimationTime < PLANE_ANIMATION_MIN_INTERVAL_MS) {
+          planeAnimationFrameId = requestAnimationFrame(animatePlanes)
+          return
+        }
+
+        lastPlaneAnimationTime = now
+        let updated = false
+
+        Object.keys(planeTelemetryState).forEach(flightId => {
+          const telemetry = planeTelemetryState[flightId]
+          const isSelectedFlight =
+            currentSelectedFlight?.flightid === flightId || activeFlightPathState.flightId === flightId
+
+          if (projectPlanePosition(flightId, telemetry, now, isSelectedFlight)) {
+            updated = true
+          }
+        })
+
+        if (updated) {
+          const planeSource = map.getSource('planes-source')
+          if (planeSource) {
+            planeSource.setData({
+              type: 'FeatureCollection',
+              features: filteredPlaneFeatures.length ? filteredPlaneFeatures : planeFeatures
+            })
+          }
+
+          if (now - lastFilterUpdateTime >= FILTER_UPDATE_THROTTLE_MS) {
+            applyFilters()
+            lastFilterUpdateTime = now
+          }
+          updateActiveFlightPathConnection()
+        }
+
+        planeAnimationFrameId = requestAnimationFrame(animatePlanes)
+      }
+
+      function startPlaneAnimation() {
+        if (!planeAnimationEnabled || planeAnimationFrameId) return
+        planeAnimationFrameId = requestAnimationFrame(animatePlanes)
+      }
+
+      function stopPlaneAnimation() {
+        if (!planeAnimationFrameId) return
+        cancelAnimationFrame(planeAnimationFrameId)
+        planeAnimationFrameId = null
+      }
+
+      function getServerMeta(id) {
+        switch (id) {
+          case 'ed323139-baa7-4834-b9d6-5fb9f19ff11e':
+            return { short: 'Expert', letter: 'E' }
+          case '15f884a5-52ec-467e-bda5-414d4569544d':
+            return { short: 'Training', letter: 'T' }
+          case '1f5ff830-8e4d-4477-89e7-21c136d54844':
+            return { short: 'Casual', letter: 'C' }
+          default:
+            return { short: 'Live', letter: '?' }
+        }
+      }
+
+      function setFavoritesStatus(message = '', duration = 0) {
+        const statusEl = document.getElementById('favorites-status')
+        if (!statusEl) return
+        if (favoritesStatusTimeout) {
+          clearTimeout(favoritesStatusTimeout)
+          favoritesStatusTimeout = null
+        }
+        if (!message) {
+          statusEl.style.display = 'none'
+          statusEl.textContent = ''
+          return
+        }
+        statusEl.style.display = 'block'
+        statusEl.textContent = message
+        if (duration > 0) {
+          favoritesStatusTimeout = setTimeout(() => {
+            statusEl.style.display = 'none'
+            statusEl.textContent = ''
+          }, duration)
+        }
+      }
+
+      function getRouteLabel(flightId) {
+        const start = outboundFlightsDict[flightId]
+        const end = inboundFlightsDict[flightId]
+        if (start || end) {
+          return `${start || '????'} → ${end || '????'}`
+        }
+        return 'Route pending'
+      }
+
+      function updateFavoriteButtonState() {
+        const button = document.getElementById('favorite-flight-button')
+        if (!button) return
+        if (!currentSelectedFlight) {
+          button.disabled = true
+          button.classList.remove('active')
+          button.innerHTML = '☆'
+          button.setAttribute('aria-pressed', 'false')
+          return
+        }
+        button.disabled = false
+        const exists = favoriteFlights.some(fav => fav.flightid === currentSelectedFlight.flightid && fav.server === currentSelectedFlight.server)
+        button.classList.toggle('active', exists)
+        button.innerHTML = exists ? '★' : '☆'
+        button.setAttribute('aria-pressed', exists ? 'true' : 'false')
+      }
+
+      function renderFavoriteFlights() {
+        const list = document.getElementById('favorites-list')
+        const emptyState = document.getElementById('favorites-empty-state')
+        const clearButton = document.getElementById('clearFavoritesButton')
+        if (!list || !emptyState) return
+        list.innerHTML = ''
+
+        const hasFlights = favoriteFlights.length > 0
+
+        if (!hasFlights) {
+          emptyState.style.display = 'block'
+          emptyState.textContent = 'Tap the ☆ button on a flight to pin it here.'
+          if (clearButton) clearButton.style.display = 'none'
+          updateFavoritesActivityCount()
+          return
+        }
+
+        if (clearButton) clearButton.style.display = 'inline-flex'
+
+        emptyState.style.display = 'none'
+        emptyState.textContent = 'Tap the ☆ button on a flight to pin it here.'
+
+        let routesUpdated = false
+        favoriteFlights.forEach(favorite => {
+          const item = document.createElement('div')
+          item.className = 'favorite-flight-item'
+          const isLive = favorite.server === serverurl && plane_markers[favorite.flightid]
+          if (isLive) {
+            item.classList.add('live')
+          }
+          let routeLabel = favorite.route || 'Route pending'
+          if (isLive) {
+            const liveRoute = getRouteLabel(favorite.flightid)
+            routeLabel = liveRoute
+            if (liveRoute !== favorite.route) {
+              favorite.route = liveRoute
+              routesUpdated = true
+            }
+          }
+          if (!favorite.username && plane_markers[favorite.flightid] && plane_markers[favorite.flightid].username) {
+            favorite.username = plane_markers[favorite.flightid].username
+            routesUpdated = true
+          }
+          const isFriend = favorite.username && isFavoriteUser(favorite.username)
+          const friendIcon = isFriend ? `<span class="favorite-friend-icon" title="Friend"><i class="fa-solid fa-user-group" aria-hidden="true"></i></span>` : ''
+          const usernameBadge = favorite.username ? `<div class="favorite-flight-username">${friendIcon}@${favorite.username}</div>` : ''
+          item.innerHTML = `
+            <div class="favorite-flight-info">
+              ${usernameBadge}
+              <div class="favorite-flight-title">${favorite.callsign || 'Unknown'}${favorite.aircraft ? ' · ' + favorite.aircraft : ''}</div>
+              <div class="favorite-flight-route">${routeLabel}</div>
+            </div>
+            <div class="favorite-flight-meta">
+              <span class="favorite-flight-tag">${getServerMeta(favorite.server).letter}</span>
+              <button class="favorite-remove-button" title="Remove">×</button>
+            </div>
+          `
+          item.addEventListener('click', () => handleFavoriteSelection(favorite))
+          const removeBtn = item.querySelector('.favorite-remove-button')
+          removeBtn.addEventListener('click', (event) => {
+            event.stopPropagation()
+            removeFavoriteFlight(favorite.flightid, favorite.server)
+          })
+          list.appendChild(item)
+        })
+        if (routesUpdated) {
+          saveFavoriteFlights()
+        }
+
+        updateFavoritesActivityCount()
+      }
+
+      function renderFavoriteUsers() {
+        const list = document.getElementById('favorite-users-list')
+        const emptyState = document.getElementById('favorite-users-empty')
+        if (!list || !emptyState) return
+        list.innerHTML = ''
+
+        const hasUsers = favoriteUsers.length > 0
+        const emptyMessage = friendStorageAllowed
+          ? 'Add pilots to jump to them when they’re in the air.'
+          : 'Enable local storage to keep your friends saved between visits.'
+
+        if (!hasUsers) {
+          emptyState.style.display = 'block'
+          emptyState.textContent = emptyMessage
+          updateFavoritesActivityCount()
+          return
+        }
+
+        emptyState.style.display = 'none'
+        emptyState.textContent = emptyMessage
+
+        favoriteUsers.forEach(user => {
+          const item = document.createElement('div')
+          item.className = 'favorite-user-item'
+          item.innerHTML = `
+            <span class="favorite-user-name">@${user.username}</span>
+            <button class="favorite-remove-button" title="Remove" aria-label="Remove ${user.username}">×</button>
+          `
+          item.addEventListener('click', () => handleFavoriteUserSelection(user))
+          const removeBtn = item.querySelector('.favorite-remove-button')
+          if (removeBtn) {
+            removeBtn.addEventListener('click', (event) => {
+              event.stopPropagation()
+              if (removeFavoriteUser(user.username)) {
+                setFavoritesStatus(`${user.username} removed from friends.`, 2500)
+              }
+              configureFavoriteUserButton({ username: user.username, userid: user.userid })
+            })
+          }
+          list.appendChild(item)
+        })
+
+        updateFavoritesActivityCount()
+      }
+
+      function getActiveFavoriteFlightIds() {
+        const activeFlightIds = new Set()
+        if (!favoriteFlights.length) {
+          return activeFlightIds
+        }
+        favoriteFlights.forEach(favorite => {
+          if (!favorite || !favorite.flightid) {
+            return
+          }
+          if (favorite.server === serverurl && plane_markers[favorite.flightid]) {
+            activeFlightIds.add(favorite.flightid)
+          }
+        })
+        return activeFlightIds
+      }
+
+      function countActiveFavoriteFlights(activeFlightIds) {
+        return activeFlightIds.size
+      }
+
+      function countActiveFavoriteUsers(excludedFlightIds = new Set()) {
+        if (!favoriteUsers.length) return 0
+        let activeCount = 0
+        const seen = new Set()
+        favoriteUsers.forEach(user => {
+          if (!user || !user.username) {
+            return
+          }
+          const normalized = user.username.toLowerCase()
+          if (seen.has(normalized)) {
+            return
+          }
+          seen.add(normalized)
+          const flights = name_flightid[user.username]
+          if (!Array.isArray(flights)) {
+            return
+          }
+          const activeFlights = flights.filter(flightId => plane_markers[flightId])
+          if (!activeFlights.length) {
+            return
+          }
+          const hasUniqueActivity = activeFlights.some(flightId => !excludedFlightIds.has(flightId))
+          if (hasUniqueActivity) {
+            activeCount += 1
+          }
+        })
+        return activeCount
+      }
+
+      function updateFavoritesActivityCount() {
+        const badge = document.getElementById('favorites-activity-count')
+        if (!badge) return
+        const activeFavoriteFlightIds = getActiveFavoriteFlightIds()
+        const totalActive = countActiveFavoriteFlights(activeFavoriteFlightIds) + countActiveFavoriteUsers(activeFavoriteFlightIds)
+        if (totalActive > 0) {
+          badge.textContent = totalActive > 99 ? '99+' : totalActive
+          badge.classList.add('visible')
+          badge.setAttribute('aria-hidden', 'false')
+        } else {
+          badge.textContent = ''
+          badge.classList.remove('visible')
+          badge.setAttribute('aria-hidden', 'true')
+        }
+      }
+
+      function syncFavoriteFriendFlights() {
+        if (!favoriteUsers.length) return false
+        const activeFriendFlightMap = new Map()
+        favoriteUsers.forEach(user => {
+          const username = user.username
+          if (!username) return
+          const flightIds = name_flightid[username]
+          if (!Array.isArray(flightIds)) return
+          flightIds.forEach(flightId => {
+            const marker = plane_markers[flightId]
+            if (!marker) return
+            const key = `${flightId}:${serverurl}`
+            if (!activeFriendFlightMap.has(key)) {
+              activeFriendFlightMap.set(key, marker)
+            }
+          })
+        })
+
+        let updated = false
+        activeFriendFlightMap.forEach(marker => {
+          const exists = favoriteFlights.some(fav => fav.flightid === marker.flightid && fav.server === serverurl)
+          if (!exists) {
+            const flightInfo = flight_dict && flight_dict[marker.flightid] ? flight_dict[marker.flightid] : null
+            const flightHead = flightInfo && Array.isArray(flightInfo.head) ? flightInfo.head : []
+            favoriteFlights.unshift({
+              flightid: marker.flightid,
+              callsign: flightHead[1] || marker.callsign || 'Unknown',
+              airline: flightHead[3] || (flightInfo && flightInfo.airline) || marker.airline || '',
+              aircraft: flightHead[2] || '',
+              route: getRouteLabel(marker.flightid),
+              server: serverurl,
+              username: marker.username || '',
+              autoFriend: true
+            })
+            updated = true
+          }
+        })
+
+        if (favoriteFlights.length > MAX_SAVED_FLIGHTS) {
+          favoriteFlights = favoriteFlights.slice(0, MAX_SAVED_FLIGHTS)
+          updated = true
+        }
+
+        if (planeDataLoadedForServer[serverurl]) {
+          const activeKeys = new Set(activeFriendFlightMap.keys())
+          const filtered = favoriteFlights.filter(fav => {
+            if (!fav.autoFriend || fav.server !== serverurl) return true
+            const key = `${fav.flightid}:${fav.server}`
+            if (activeKeys.has(key)) {
+              return true
+            }
+            updated = true
+            return false
+          })
+          if (filtered.length !== favoriteFlights.length) {
+            favoriteFlights = filtered
+          }
+        }
+
+        if (updated) {
+          saveFavoriteFlights()
+        }
+        return updated
+      }
+
+      function toggleFavoriteFlight() {
+        if (!currentSelectedFlight) return
+        const idx = favoriteFlights.findIndex(fav => fav.flightid === currentSelectedFlight.flightid && fav.server === currentSelectedFlight.server)
+        if (idx >= 0) {
+          favoriteFlights.splice(idx, 1)
+          setFavoritesStatus('Flight removed from saved list.', 2500)
+        } else {
+          favoriteFlights.unshift({
+            ...currentSelectedFlight,
+            savedAt: Date.now()
+          })
+          if (favoriteFlights.length > MAX_SAVED_FLIGHTS) {
+            favoriteFlights = favoriteFlights.slice(0, MAX_SAVED_FLIGHTS)
+          }
+          setFavoritesStatus('Flight saved for quick access.', 2500)
+        }
+        saveFavoriteFlights()
+        renderFavoriteFlights()
+        updateFavoriteButtonState()
+      }
+
+      function removeFavoriteFlight(flightId, server) {
+        favoriteFlights = favoriteFlights.filter(fav => !(fav.flightid === flightId && fav.server === server))
+        saveFavoriteFlights()
+        renderFavoriteFlights()
+        updateFavoriteButtonState()
+      }
+
+      function clearFavoriteFlights() {
+        favoriteFlights = []
+        saveFavoriteFlights()
+        renderFavoriteFlights()
+        updateFavoriteButtonState()
+        setFavoritesStatus('All saved flights cleared.', 3000)
+      }
+
+      function handleFavoriteSelection(favorite) {
+        closeFavoritesPanel()
+        if (favorite.server && favorite.server !== serverurl) {
+          pendingFavoriteTarget = favorite.flightid
+          setFavoritesStatus('Switching servers to find your saved flight…')
+          changeServer(favorite.server)
+          return
+        }
+        if (plane_markers[favorite.flightid]) {
+          setFavoritesStatus('')
+          redirectToMarker(favorite.flightid)
+        } else {
+          setFavoritesStatus('This flight is not currently live, but it will remain saved.')
+        }
+      }
+
+      function handlePendingFavoriteFocus() {
+        if (pendingFavoriteTarget && plane_markers[pendingFavoriteTarget]) {
+          redirectToMarker(pendingFavoriteTarget)
+          pendingFavoriteTarget = null
+          setFavoritesStatus('')
+        }
+      }
+
+      function toggleFavoritesPanel(forceState) {
+        const panel = document.getElementById('favorites-popup')
+        const button = document.getElementById('favorites-button')
+        if (!panel || !button) return
+        const shouldShow = typeof forceState === 'boolean' ? forceState : panel.classList.contains('hidden')
+        panel.classList.toggle('hidden', !shouldShow)
+        button.classList.toggle('active', shouldShow)
+      }
+
+      function closeFavoritesPanel() {
+        toggleFavoritesPanel(false)
+      }
+
+      function initializeFavoritesFeature() {
+        initializeFriendStorageConsent()
+        favoriteFlights = loadFavoriteFlights()
+        favoriteUsers = loadFavoriteUsers()
+        renderFavoriteFlights()
+        renderFavoriteUsers()
+        updateFavoriteButtonState()
+        configureFavoriteUserButton()
+        const favoriteButton = document.getElementById('favorite-flight-button')
+        if (favoriteButton) {
+          favoriteButton.addEventListener('click', (event) => {
+            event.preventDefault()
+            toggleFavoriteFlight()
+          })
+        }
+        const clearButton = document.getElementById('clearFavoritesButton')
+        if (clearButton) {
+          clearButton.addEventListener('click', (event) => {
+            event.preventDefault()
+            clearFavoriteFlights()
+          })
+        }
+        const favoriteUserForm = document.getElementById('favorite-user-form')
+        if (favoriteUserForm) {
+          favoriteUserForm.addEventListener('submit', (event) => {
+            event.preventDefault()
+            const input = document.getElementById('favorite-user-input')
+            if (!input) return
+            const username = input.value.trim()
+            if (!username) return
+            const alreadySaved = isFavoriteUser(username)
+            if (addFavoriteUser(username)) {
+              setFavoritesStatus(alreadySaved ? `${username} is already in your friends list.` : `${username} added to friends.`, 2500)
+              input.value = ''
+            }
+          })
+        }
+        const favoriteUserButton = document.getElementById('favorite-user-button')
+        if (favoriteUserButton) {
+          favoriteUserButton.style.display = 'none'
+        }
+      }
+
+      function initializeFavoritesPanelControls() {
+        const panel = document.getElementById('favorites-popup')
+        const button = document.getElementById('favorites-button')
+        if (!panel || !button) return
+
+        document.addEventListener('click', (event) => {
+          if (panel.classList.contains('hidden')) return
+          if (!panel.contains(event.target) && !button.contains(event.target)) {
+            closeFavoritesPanel()
+          }
+        })
+
+        document.addEventListener('keydown', (event) => {
+          if (event.key === 'Escape') {
+            closeFavoritesPanel()
+          }
+        })
+      }
+
+      function initTrackerEnhancements() {
+        initializeFavoritesFeature()
+        initializeFavoritesPanelControls()
+        initializePlaneLabelControls()
+        initializePlaneAnimationControls()
+        initializePhotoModeControls()
+      }
+
+      if (document.readyState === 'loading') {
+        document.addEventListener('DOMContentLoaded', initTrackerEnhancements)
+      } else {
+        initTrackerEnhancements()
+      }
+      var airport_markers = {}
+      var flightpathlist = []
+      var CURRENT_FLIGHT_DATA = {}
+      var latlngs_dict = {}
+      var NEED_TO_UPDATE = 'no'
+      var inboundFlightsDict = {}
+      var outboundFlightsDict = {}
+      var rankedPlanes = []
+      var rankedAirports = []
+      var CURRENT_TRACK = ''
+      var TO_UPDATE = 'no'
+      var focusModeActive = false
+      var focusFlightId = null
+      var activeFlightDetailsId = null
+      var photoModeActive = false
+      var photoModeFlightId = null
+      var photoModeLastProgress = 0
+      var globeflightid;
+      var serverid;
+      var globedelay;
+      var planeFeatures = [];
+      var allPlanes = [];
+
+      const PLANE_LABEL_STORAGE_KEY = 'plane-label-options';
+      function hasLocalStorageConsent() {
+        try {
+          return friendStorageAllowed || localStorage.getItem(FRIEND_STORAGE_CONSENT_KEY) === 'granted'
+        } catch (err) {
+          console.warn('Unable to read storage consent', err)
+          return false
+        }
+      }
+      function loadPlaneAnimationPreference() {
+        try {
+          if (!hasLocalStorageConsent()) {
+            return false
+          }
+          return localStorage.getItem(FLIGHT_ANIMATION_STORAGE_KEY) === 'enabled'
+        } catch (err) {
+          console.warn('Unable to load flight animation preference', err)
+        }
+        return false
+      }
+
+      function savePlaneAnimationPreference(enabled) {
+        try {
+          if (!hasLocalStorageConsent()) {
+            localStorage.removeItem(FLIGHT_ANIMATION_STORAGE_KEY)
+            return
+          }
+          localStorage.setItem(FLIGHT_ANIMATION_STORAGE_KEY, enabled ? 'enabled' : 'disabled')
+        } catch (err) {
+          console.warn('Unable to save flight animation preference', err)
+        }
+      }
+      const defaultPlaneLabelOptions = {
+        enabled: false,
+        aircraft: true,
+        airline: false,
+        route: false,
+        speedAltitude: false
+      };
+
+      function loadPlaneLabelOptions() {
+        try {
+          if (!hasLocalStorageConsent()) {
+            return { ...defaultPlaneLabelOptions }
+          }
+          const saved = localStorage.getItem(PLANE_LABEL_STORAGE_KEY);
+          if (saved) {
+            const parsed = JSON.parse(saved);
+            return { ...defaultPlaneLabelOptions, ...parsed };
+          }
+        } catch (err) {
+          console.warn('Unable to load plane label options', err);
+        }
+        return { ...defaultPlaneLabelOptions };
+      }
+
+      let planeLabelOptions = loadPlaneLabelOptions();
+
+      function savePlaneLabelOptions(options) {
+        try {
+          if (!hasLocalStorageConsent()) {
+            localStorage.removeItem(PLANE_LABEL_STORAGE_KEY)
+            return
+          }
+          localStorage.setItem(PLANE_LABEL_STORAGE_KEY, JSON.stringify(options));
+        } catch (err) {
+          console.warn('Unable to save plane label options', err);
+        }
+      }
+
+      function buildPlaneLabel(props, options = planeLabelOptions) {
+        if (!options.enabled) return '';
+        const parts = [];
+
+        if (options.aircraft && props.aircraftType) {
+          parts.push(props.aircraftType);
+        }
+
+        if (options.airline && props.airline) {
+          parts.push(props.airline);
+        }
+
+        if (options.route) {
+          const start = props.origin || '';
+          const end = props.destination || '';
+          if (start || end) {
+            parts.push(`${start || '???'} - ${end || '???'}`);
+          }
+        }
+
+        if (options.speedAltitude) {
+          const speedText = typeof props.speed === 'number' ? `${Math.round(props.speed)} kts` : '';
+          const altText = typeof props.altitude === 'number' ? `${Math.round(props.altitude)} ft` : '';
+          const metrics = [speedText, altText].filter(Boolean);
+          if (metrics.length) {
+            parts.push(metrics.join(' / '));
+          }
+        }
+
+        return parts.join(' • ');
+      }
+
+      function refreshPlaneLabelData() {
+        if (!planeFeatures || !planeFeatures.length) return;
+
+        planeFeatures = planeFeatures.map(feature => {
+          const properties = { ...(feature.properties || {}) };
+          properties.labelText = buildPlaneLabel(properties);
+          return { ...feature, properties };
+        });
+
+        allPlanes = planeFeatures;
+
+        const source = typeof map !== 'undefined' ? map.getSource('planes-source') : null;
+
+        if (typeof applyFilters === 'function') {
+          applyFilters();
+        } else if (source) {
+          source.setData({
+            type: 'FeatureCollection',
+            features: planeFeatures
+          });
+        }
+
+        updatePlaneLabelLayerVisibility();
+      }
+
+      function updatePlaneLabelLayerVisibility() {
+        if (typeof map === 'undefined') return;
+        const labelLayer = map.getLayer('plane-labels');
+        if (labelLayer) {
+          map.setLayoutProperty('plane-labels', 'visibility', planeLabelOptions.enabled ? 'visible' : 'none');
+        }
+      }
+
+      function isFocusedFlight(flightId) {
+        return focusModeActive && focusFlightId === flightId;
+      }
+
+      function updateFocusButtonUI(currentFlightId) {
+        const button = document.getElementById('focus-flight-button');
+        if (!button) {
+          return;
+        }
+
+        const flightId = currentFlightId || activeFlightDetailsId;
+        const isFocused = isFocusedFlight(flightId);
+
+        button.classList.toggle('active', !!isFocused);
+        button.textContent = isFocused ? 'Show All' : 'Focus';
+        button.setAttribute('aria-pressed', isFocused ? 'true' : 'false');
+      }
+
+      function updatePhotoModeButtonUI() {
+        const button = document.getElementById('photo-mode-button');
+        if (!button) {
+          return;
+        }
+
+        const hasFlight = !!photoModeFlightId;
+        button.style.display = hasFlight ? 'inline-flex' : 'none';
+        button.classList.toggle('active', photoModeActive);
+        button.innerHTML = '<i class="fa-solid fa-camera"></i>';
+        button.setAttribute('aria-pressed', photoModeActive ? 'true' : 'false');
+        button.setAttribute('title', photoModeActive ? 'Exit photo mode' : 'Enter photo mode');
+      }
+
+      function syncPhotoModeRoute() {
+        const depEl = document.getElementById('departure-airport');
+        const arrEl = document.getElementById('arrival-airport');
+        const depTimeEl = document.getElementById('departure-time');
+        const arrTimeEl = document.getElementById('arrival-time');
+
+        const depText = depEl ? depEl.textContent : '';
+        const arrText = arrEl ? arrEl.textContent : '';
+        const depCodeMatch = depText.match(/[A-Z0-9]{3,4}/g);
+        const arrCodeMatch = arrText.match(/[A-Z0-9]{3,4}/g);
+        const depTimeMatch = depText.match(/\[(.*?)\]/);
+        const arrTimeMatch = arrText.match(/\[(.*?)\]/);
+
+        const depCode = depCodeMatch ? depCodeMatch[0] : '---';
+        const arrCode = arrCodeMatch ? arrCodeMatch[arrCodeMatch.length - 1] : '---';
+        const depTime = depTimeMatch ? depTimeMatch[1] : '--:--';
+        const arrTime = arrTimeMatch ? arrTimeMatch[1] : '--:--';
+
+        const depCodeEl = document.getElementById('photo-mode-departure-code');
+        const arrCodeEl = document.getElementById('photo-mode-arrival-code');
+        const depTimeTarget = document.getElementById('photo-mode-departure-time');
+        const arrTimeTarget = document.getElementById('photo-mode-arrival-time');
+
+        if (depCodeEl) depCodeEl.textContent = depCode;
+        if (arrCodeEl) arrCodeEl.textContent = arrCode;
+        if (depTimeTarget) depTimeTarget.textContent = depTimeEl ? depTimeEl.textContent : depTime;
+        if (arrTimeTarget) arrTimeTarget.textContent = arrTimeEl ? arrTimeEl.textContent : arrTime;
+      }
+
+      function syncPhotoModeDetails() {
+        const aircraftTypeEl = document.getElementById('aircraft-type');
+        const liveryEl = document.getElementById('airline-name');
+        const metaEl = document.getElementById('photo-mode-aircraft-meta');
+
+        if (!metaEl) {
+          return;
+        }
+
+        const aircraftType = aircraftTypeEl ? aircraftTypeEl.textContent.trim() : '';
+        const livery = liveryEl ? liveryEl.textContent.trim() : '';
+        const parts = [aircraftType, livery].filter(Boolean);
+        metaEl.textContent = parts.length ? parts.join(' • ') : '--';
+      }
+
+      function calculateBearing(lat1, lon1, lat2, lon2) {
+        const toRad = (deg) => deg * (Math.PI / 180);
+        const toDeg = (rad) => (rad * 180) / Math.PI;
+        const dLon = toRad(lon2 - lon1);
+        const y = Math.sin(dLon) * Math.cos(toRad(lat2));
+        const x = Math.cos(toRad(lat1)) * Math.sin(toRad(lat2)) -
+          Math.sin(toRad(lat1)) * Math.cos(toRad(lat2)) * Math.cos(dLon);
+        return (toDeg(Math.atan2(y, x)) + 360) % 360;
+      }
+
+      function computeSegmentMetrics(points, startIndex, endIndex) {
+        const slice = points.slice(startIndex, endIndex + 1);
+        if (slice.length < 2) return null;
+
+        let maxVs = 0;
+        let sumAbsVs = 0;
+        let sumHeadingChange = 0;
+        let maxHeadingChange = 0;
+        let sumHeadingJitter = 0;
+        let sumVsJitter = 0;
+        let lastVs = slice[slice.length - 1].vs ?? 0;
+        let lastSpeed = slice[slice.length - 1].speed ?? 0;
+        let vsCount = 0;
+
+        slice.forEach(point => {
+          if (typeof point.vs === 'number') {
+            maxVs = Math.max(maxVs, Math.abs(point.vs));
+            sumAbsVs += Math.abs(point.vs);
+            vsCount += 1;
+          }
+          if (typeof point.headingChange === 'number') {
+            maxHeadingChange = Math.max(maxHeadingChange, point.headingChange);
+            sumHeadingChange += point.headingChange;
+          }
+          if (typeof point.turnRateJitter === 'number') {
+            sumHeadingJitter += point.turnRateJitter;
+          }
+          if (typeof point.vsChange === 'number') {
+            sumVsJitter += point.vsChange;
+          }
+        });
+
+        const avgAbsVs = vsCount ? sumAbsVs / vsCount : 0;
+        const avgHeadingChange = slice.length ? sumHeadingChange / slice.length : 0;
+        const avgHeadingJitter = slice.length ? sumHeadingJitter / slice.length : 0;
+        const avgVsJitter = slice.length ? sumVsJitter / slice.length : 0;
+
+        return {
+          maxVs,
+          avgAbsVs,
+          avgHeadingChange,
+          avgHeadingJitter,
+          maxHeadingChange,
+          avgVsJitter,
+          lastVs,
+          lastSpeed
+        };
+      }
+
+      function scoreSegment(type, metrics) {
+        if (!metrics) return null;
+        let score = 10;
+        const reasons = [];
+
+        if (type === 'takeoff') {
+          if (metrics.maxVs > 5000) {
+            const penalty = Math.min(6, ((metrics.maxVs - 5000) / 1000) * 1.2);
+            score -= penalty;
+            reasons.push(`High vertical speed peak (${Math.round(metrics.maxVs)} fpm).`);
+          }
+          if (metrics.avgVsJitter > 700) {
+            const penalty = Math.min(2, metrics.avgVsJitter / 700);
+            score -= penalty;
+            reasons.push(`Vertical speed fluctuations (${Math.round(metrics.avgVsJitter)} fpm).`);
+          }
+        }
+
+        if (type === 'cruise') {
+          if (metrics.avgAbsVs > 350) {
+            const penalty = Math.min(3, metrics.avgAbsVs / 350);
+            score -= penalty;
+            reasons.push(`Altitude oscillations (${Math.round(metrics.avgAbsVs)} fpm avg).`);
+          }
+          if (metrics.maxHeadingChange > 25) {
+            const penalty = Math.min(2, (metrics.maxHeadingChange - 25) / 10);
+            score -= penalty;
+            reasons.push(`Sharp bank angle during cruise (${metrics.maxHeadingChange.toFixed(1)}° peak).`);
+          }
+          if (metrics.avgHeadingJitter > 5) {
+            const penalty = Math.min(2.5, metrics.avgHeadingJitter / 5);
+            score -= penalty;
+            reasons.push(`Uneven turn rate during cruise (avg ${metrics.avgHeadingJitter.toFixed(1)}° jitter).`);
+          }
+          if (metrics.avgVsJitter > 500) {
+            const penalty = Math.min(3, metrics.avgVsJitter / 500);
+            score -= penalty;
+            reasons.push(`Vertical speed jitter (${Math.round(metrics.avgVsJitter)} fpm).`);
+          }
+        }
+
+        if (type === 'landing') {
+          const lastVsAbs = Math.abs(metrics.lastVs);
+          if (lastVsAbs > 1000) {
+            const penalty = Math.min(6, ((lastVsAbs - 1000) / 500) * 1.5);
+            score -= penalty;
+            reasons.push(`Firm touchdown (${Math.round(lastVsAbs)} fpm).`);
+          }
+          if (metrics.maxHeadingChange > 25) {
+            const penalty = Math.min(2, (metrics.maxHeadingChange - 25) / 8);
+            score -= penalty;
+            reasons.push(`Sharp bank on final (${metrics.maxHeadingChange.toFixed(1)}° peak).`);
+          }
+          if (metrics.avgHeadingJitter > 5) {
+            const penalty = Math.min(2, metrics.avgHeadingJitter / 5);
+            score -= penalty;
+            reasons.push(`Uneven turn rate on final (avg ${metrics.avgHeadingJitter.toFixed(1)}° jitter).`);
+          }
+          if (metrics.lastSpeed > 170) {
+            const penalty = Math.min(2, (metrics.lastSpeed - 170) / 20);
+            score -= penalty;
+            reasons.push(`Higher landing speed (${Math.round(metrics.lastSpeed)} kts).`);
+          }
+        }
+
+        score = Math.max(0, Math.min(10, score));
+        return { score, reasons };
+      }
+
+      function updateFlightRating(response) {
+        const card = document.getElementById('flight-rating-card');
+        if (!card || !Array.isArray(response) || response.length < 3) {
+          if (card) card.style.display = 'none';
+          return;
+        }
+
+        const rawPoints = response.map((entry, index) => {
+          const timestamp = Number(entry.Timestamp);
+          return {
+            alt: Number(entry.Altitude) || 0,
+            lat: Number(entry.Latitude),
+            lng: Number(entry.Longitude),
+            speed: Number(entry.Speed) || 0,
+            status: entry.Status || '',
+            timestamp: Number.isFinite(timestamp) && timestamp > 0 ? timestamp * 1000 : index * 1000
+          };
+        }).filter(point => Number.isFinite(point.lat) && Number.isFinite(point.lng));
+
+        if (rawPoints.length < 3) {
+          card.style.display = 'none';
+          return;
+        }
+
+        rawPoints.sort((a, b) => a.timestamp - b.timestamp);
+
+        rawPoints.forEach((point, index) => {
+          if (index === 0) return;
+          const prev = rawPoints[index - 1];
+          const heading = calculateBearing(prev.lat, prev.lng, point.lat, point.lng);
+          const dtMinutes = Math.max((point.timestamp - prev.timestamp) / 60000, 0.2);
+          point.heading = heading;
+          point.vs = (point.alt - prev.alt) / dtMinutes;
+          point.headingChange = Math.abs(shortestHeadingDelta(prev.heading ?? heading, heading));
+          point.turnRate = point.headingChange / dtMinutes;
+          point.vsChange = typeof prev.vs === 'number' ? Math.abs(point.vs - prev.vs) : 0;
+          point.turnRateJitter = typeof prev.turnRate === 'number'
+            ? Math.abs(point.turnRate - prev.turnRate)
+            : 0;
+        });
+
+        if (rawPoints.length > 1) {
+          rawPoints[0].heading = rawPoints[1].heading;
+          rawPoints[0].vs = 0;
+          rawPoints[0].headingChange = 0;
+          rawPoints[0].vsChange = 0;
+        }
+
+        const takeoffStart = rawPoints.findIndex(point => ['Taking off', 'Climbing'].includes(point.status));
+        const cruiseStart = rawPoints.findIndex(point => point.status === 'Cruising' || point.alt >= 20000);
+        let landingStart = -1;
+        for (let i = rawPoints.length - 1; i >= 0; i--) {
+          if (['Approach', 'Landing', 'On the ground'].includes(rawPoints[i].status) || rawPoints[i].alt < 5000) {
+            landingStart = i;
+            break;
+          }
+        }
+        const landedIndex = (() => {
+          for (let i = rawPoints.length - 1; i >= 0; i--) {
+            const status = (rawPoints[i].status || '').toLowerCase();
+            if (status === 'on the ground' || rawPoints[i].alt < 1000) {
+              return i;
+            }
+          }
+          return -1;
+        })();
+        const lastPoint = rawPoints[rawPoints.length - 1];
+        const lastStatus = (lastPoint.status || '').toLowerCase();
+        const landed = lastStatus === 'on the ground' || (lastPoint.alt < 1000 && lastPoint.speed < 60);
+        const airborne = rawPoints.some(point => point.alt > 100 || (point.status && point.status !== 'On the ground'));
+
+        const takeoffAirborneStart = rawPoints.findIndex(point => point.alt > 100 || (point.status && point.status !== 'On the ground'));
+        const takeoffRangeStart = takeoffStart >= 0 ? takeoffStart : 0;
+        const takeoffSegmentStart = takeoffAirborneStart >= 0 ? Math.max(takeoffRangeStart, takeoffAirborneStart) : takeoffRangeStart;
+        const takeoffRangeEnd = cruiseStart > takeoffRangeStart
+          ? cruiseStart
+          : Math.min(rawPoints.length - 1, takeoffRangeStart + Math.floor(rawPoints.length * 0.2));
+
+        const cruiseRangeStart = cruiseStart >= 0 ? cruiseStart : -1;
+        const cruiseRangeEnd = cruiseStart >= 0
+          ? (landingStart > cruiseStart ? landingStart : Math.min(rawPoints.length - 1, cruiseStart + Math.floor(rawPoints.length * 0.5)))
+          : -1;
+
+        const landingRangeStart = landed
+          ? (landingStart >= 0 ? landingStart : (rawPoints.length > 10 ? Math.floor(rawPoints.length * 0.8) : -1))
+          : -1;
+
+        const segments = [];
+        if (airborne) {
+          const takeoffMetrics = computeSegmentMetrics(rawPoints, takeoffSegmentStart, takeoffRangeEnd);
+          if (takeoffMetrics) {
+            segments.push({ label: 'Takeoff', type: 'takeoff', metrics: takeoffMetrics });
+          }
+        }
+
+        if (cruiseRangeStart >= 0 && cruiseRangeEnd > cruiseRangeStart + 1) {
+          const cruiseMetrics = computeSegmentMetrics(rawPoints, cruiseRangeStart, cruiseRangeEnd);
+          if (cruiseMetrics) {
+            segments.push({ label: 'Cruise', type: 'cruise', metrics: cruiseMetrics });
+          }
+        }
+
+        if (landed && landingRangeStart >= 0 && landingRangeStart < rawPoints.length - 2) {
+          const landingEndIndex = landedIndex >= 0 ? landedIndex : rawPoints.length - 1;
+          const landingMetrics = computeSegmentMetrics(rawPoints, landingRangeStart, landingEndIndex);
+          if (landingMetrics) {
+            segments.push({ label: 'Landing', type: 'landing', metrics: landingMetrics });
+          }
+        }
+
+        if (!segments.length) {
+          card.style.display = 'none';
+          return;
+        }
+
+        const detailList = document.getElementById('flight-rating-details-list');
+        if (detailList) {
+          detailList.innerHTML = '';
+        }
+
+        let totalScore = 0;
+        let scoredSegments = 0;
+
+        const scoreMap = {
+          Takeoff: document.getElementById('flight-rating-takeoff'),
+          Cruise: document.getElementById('flight-rating-cruise'),
+          Landing: document.getElementById('flight-rating-landing')
+        };
+
+        Object.values(scoreMap).forEach(el => {
+          if (el) el.textContent = '--';
+        });
+
+        segments.forEach(segment => {
+          const scored = scoreSegment(segment.type, segment.metrics);
+          if (!scored) return;
+          totalScore += scored.score;
+          scoredSegments += 1;
+          const scoreText = `${scored.score.toFixed(1)}/10`;
+          if (scoreMap[segment.label]) {
+            scoreMap[segment.label].textContent = scoreText;
+          }
+          const metricSummary = segment.type === 'takeoff'
+            ? `Peak VS ${Math.round(segment.metrics.maxVs)} fpm, VS jitter ${Math.round(segment.metrics.avgVsJitter)} fpm, last speed ${Math.round(segment.metrics.lastSpeed)} kts.`
+            : `Peak VS ${Math.round(segment.metrics.maxVs)} fpm, heading jitter ${segment.metrics.avgHeadingJitter.toFixed(1)}°.`;
+          const reasonText = scored.reasons.length ? scored.reasons.join(' ') : 'Smooth and stable for this phase.';
+          if (detailList) {
+            const li = document.createElement('li');
+            li.textContent = `${segment.label}: ${scoreText}. ${metricSummary} ${reasonText}`;
+            detailList.appendChild(li);
+          }
+        });
+
+        const averageScore = totalScore / scoredSegments;
+        const summaryEl = document.getElementById('flight-rating-summary');
+        const scoreEl = document.getElementById('flight-rating-score');
+
+        if (summaryEl) {
+          const phaseList = segments.map(segment => segment.label.toLowerCase()).join(', ');
+          summaryEl.textContent = `Average of ${scoredSegments} phase${scoredSegments > 1 ? 's' : ''}: ${phaseList}.`;
+        }
+
+        if (scoreEl) {
+          scoreEl.textContent = `${averageScore.toFixed(1)}/10`;
+        }
+
+        card.style.display = 'block';
+      }
+
+      function updatePhotoModeStatus() {
+        const overlay = document.getElementById('photo-mode-overlay');
+        const statusEl = document.getElementById('photo-mode-status');
+        const diversionNotice = document.getElementById('diversionNotice');
+        const statusSource = document.getElementById('52Text');
+
+        if (!overlay || !statusEl) {
+          return;
+        }
+
+        const statusText = statusSource ? statusSource.textContent.trim() : '';
+        const isDiverted = diversionNotice && diversionNotice.classList.contains('show');
+        const isDelayed = statusText.toLowerCase() === 'delayed';
+        const isOnTime = statusText.toLowerCase() === 'on time';
+        const displayText = isDiverted ? 'Diverted' : (statusText || 'Status');
+
+        statusEl.textContent = displayText;
+        overlay.classList.toggle('status-diverted', isDiverted);
+        overlay.classList.toggle('status-delayed', !isDiverted && isDelayed);
+
+        if (!isDiverted && !isDelayed) {
+          overlay.classList.remove('status-delayed');
+        }
+        if (!isDiverted && !isDelayed && isOnTime) {
+          overlay.classList.remove('status-delayed');
+        }
+      }
+
+      function syncPhotoModeProgress() {
+        const fill = document.getElementById('progressFill');
+        const photoFill = document.getElementById('photo-mode-progress-fill');
+        const photoText = document.getElementById('photo-mode-progress-text');
+        const progressText = document.getElementById('progressText');
+
+        if (fill && photoFill) {
+          photoFill.style.width = fill.style.width || `${photoModeLastProgress}%`;
+          photoFill.style.background = fill.style.background || '';
+          photoFill.classList.toggle('diverted', fill.classList.contains('diverted'));
+        }
+
+        if (progressText && photoText) {
+          photoText.textContent = progressText.textContent || 'Flight progress';
+        }
+
+        syncPhotoModeRoute();
+        syncPhotoModeDetails();
+        updatePhotoModeStatus();
+      }
+
+      function setPhotoModeState(active, flightId) {
+        if (active && !flightId && !photoModeFlightId) {
+          return;
+        }
+
+        photoModeActive = !!active;
+        if (flightId) {
+          photoModeFlightId = flightId;
+        }
+
+        document.body.classList.toggle('photo-mode-active', photoModeActive);
+        updatePhotoModeButtonUI();
+        syncPhotoModeProgress();
+        applyFilters();
+      }
+
+      function setPhotoModeFlight(flightId, callsign) {
+        photoModeFlightId = flightId || null;
+        const callsignEl = document.getElementById('photo-mode-callsign');
+        if (callsignEl) {
+          callsignEl.textContent = callsign || 'Selected flight';
+        }
+        updatePhotoModeButtonUI();
+        syncPhotoModeRoute();
+        syncPhotoModeDetails();
+        if (photoModeActive) {
+          applyFilters();
+        }
+      }
+
+      function updatePhotoModeProgressValue(progressValue) {
+        if (typeof progressValue === 'number' && !Number.isNaN(progressValue)) {
+          photoModeLastProgress = Math.max(0, Math.min(100, progressValue));
+        }
+        const photoFill = document.getElementById('photo-mode-progress-fill');
+        if (photoFill) {
+          photoFill.style.width = `${photoModeLastProgress}%`;
+        }
+        syncPhotoModeProgress();
+      }
+
+      function setFocusMode(active, flightId) {
+        if (active) {
+          focusModeActive = true;
+          focusFlightId = flightId;
+        } else {
+          focusModeActive = false;
+          focusFlightId = null;
+        }
+        updateFocusButtonUI(flightId);
+        applyFilters();
+      }
+
+      function configureFocusButton(flightId) {
+        const button = document.getElementById('focus-flight-button');
+        if (!button) {
+          return;
+        }
+
+        activeFlightDetailsId = flightId;
+        updateFocusButtonUI(flightId);
+
+        button.onclick = function() {
+          if (isFocusedFlight(flightId)) {
+            setFocusMode(false);
+          } else {
+            setFocusMode(true, flightId);
+
+            const feature = planeFeatures.find(feature => feature.properties && feature.properties.flightid === flightId);
+            let coordinates = null;
+
+            if (feature && feature.geometry && Array.isArray(feature.geometry.coordinates)) {
+              coordinates = feature.geometry.coordinates;
+            } else if (plane_markers[flightId] && plane_markers[flightId]._lngLat) {
+              coordinates = [plane_markers[flightId]._lngLat.lng, plane_markers[flightId]._lngLat.lat];
+            }
+
+            if (coordinates && typeof map !== 'undefined') {
+              try {
+                map.flyTo({
+                  center: coordinates,
+                  zoom: Math.max(map.getZoom(), 6),
+                  essential: false
+                });
+              } catch (err) {
+                console.warn('Unable to adjust map focus for flight', flightId, err);
+              }
+            }
+          }
+        };
+      }
+
+      function initializePhotoModeControls() {
+        const button = document.getElementById('photo-mode-button');
+
+        if (button) {
+          button.addEventListener('click', () => {
+            const targetFlight = photoModeFlightId || currentSelectedFlight?.flightid;
+            if (!targetFlight) {
+              return;
+            }
+            if (!photoModeActive) {
+              setPhotoModeState(true, targetFlight);
+            } else {
+              setPhotoModeState(false);
+            }
+          });
+        }
+      }
+
+      function showFriendStorageBanner() {
+        const banner = document.getElementById('friend-storage-banner')
+        if (banner) {
+          banner.classList.remove('hidden')
+        }
+      }
+
+      function hideFriendStorageBanner() {
+        const banner = document.getElementById('friend-storage-banner')
+        if (banner) {
+          banner.classList.add('hidden')
+        }
+      }
+
+      function setFriendStorageConsent(enabled, options = {}) {
+        friendStorageAllowed = enabled
+        const toggle = document.getElementById('friend-storage-toggle')
+        if (toggle && toggle.checked !== enabled) {
+          toggle.checked = enabled
+        }
+        if (enabled) {
+          localStorage.setItem(FRIEND_STORAGE_CONSENT_KEY, 'granted')
+          savePlaneLabelOptions(planeLabelOptions)
+          savePlaneAnimationPreference(planeAnimationEnabled)
+          const storedFlights = loadFavoriteFlights()
+          const storedUsers = loadFavoriteUsers()
+          favoriteFlights = mergeFavoriteFlightLists(favoriteFlights, storedFlights)
+          favoriteUsers = mergeFavoriteUserLists(favoriteUsers, storedUsers)
+          saveFavoriteFlights()
+          saveFavoriteUsers()
+          renderFavoriteFlights()
+          renderFavoriteUsers()
+          updateFavoriteButtonState()
+          syncFavoriteFriendFlights()
+          if (options.announce) {
+            setFavoritesStatus('Local storage enabled. Friends and followed flights will stay on this device.', 4000)
+          }
+        } else {
+          localStorage.setItem(FRIEND_STORAGE_CONSENT_KEY, 'denied')
+          localStorage.removeItem(FAVORITES_STORAGE_KEY)
+          localStorage.removeItem(FAVORITE_USERS_STORAGE_KEY)
+          localStorage.removeItem(PLANE_LABEL_STORAGE_KEY)
+          localStorage.removeItem(FLIGHT_ANIMATION_STORAGE_KEY)
+          renderFavoriteUsers()
+          updateFavoriteButtonState()
+          if (options.announce) {
+            setFavoritesStatus('Local storage disabled. Friends and flights will only be kept for this session.', 4000)
+          }
+        }
+      }
+
+      function initializePlaneLabelControls() {
+        const toggle = document.getElementById('plane-labels-toggle')
+        const aircraftOption = document.getElementById('label-option-aircraft')
+        const airlineOption = document.getElementById('label-option-airline')
+        const routeOption = document.getElementById('label-option-route')
+        const speedAltitudeOption = document.getElementById('label-option-speed-altitude')
+
+        if (!toggle || !aircraftOption || !airlineOption || !routeOption || !speedAltitudeOption) return
+
+        toggle.checked = planeLabelOptions.enabled
+        aircraftOption.checked = planeLabelOptions.aircraft
+        airlineOption.checked = planeLabelOptions.airline
+        routeOption.checked = planeLabelOptions.route
+        speedAltitudeOption.checked = planeLabelOptions.speedAltitude
+
+        const updateOptionsFromInputs = () => {
+          planeLabelOptions = {
+            enabled: toggle.checked,
+            aircraft: aircraftOption.checked,
+            airline: airlineOption.checked,
+            route: routeOption.checked,
+            speedAltitude: speedAltitudeOption.checked
+          }
+
+          if (!hasLocalStorageConsent()) {
+            showFriendStorageBanner()
+          }
+          savePlaneLabelOptions(planeLabelOptions)
+          refreshPlaneLabelData()
+          updatePlaneLabelLayerVisibility()
+        }
+
+        ;[toggle, aircraftOption, airlineOption, routeOption, speedAltitudeOption].forEach(input => {
+          input.addEventListener('change', updateOptionsFromInputs)
+        })
+
+        updatePlaneLabelLayerVisibility()
+      }
+
+      function initializePlaneAnimationControls() {
+        const toggle = document.getElementById('flight-animation-toggle')
+        if (!toggle) return
+
+        planeAnimationEnabled = loadPlaneAnimationPreference()
+        toggle.checked = planeAnimationEnabled
+        if (planeAnimationEnabled) {
+          startPlaneAnimation()
+        }
+
+        toggle.addEventListener('change', (event) => {
+          planeAnimationEnabled = event.target.checked
+          if (!hasLocalStorageConsent()) {
+            showFriendStorageBanner()
+          }
+          savePlaneAnimationPreference(planeAnimationEnabled)
+          if (planeAnimationEnabled) {
+            startPlaneAnimation()
+          } else {
+            stopPlaneAnimation()
+          }
+        })
+      }
+
+      function initializeFriendStorageConsent() {
+        const storedPreference = localStorage.getItem(FRIEND_STORAGE_CONSENT_KEY)
+        friendStorageAllowed = storedPreference === 'granted'
+        if (storedPreference === 'denied') {
+          localStorage.removeItem(FAVORITES_STORAGE_KEY)
+          localStorage.removeItem(FAVORITE_USERS_STORAGE_KEY)
+          localStorage.removeItem(PLANE_LABEL_STORAGE_KEY)
+          localStorage.removeItem(FLIGHT_ANIMATION_STORAGE_KEY)
+        }
+        const toggle = document.getElementById('friend-storage-toggle')
+        if (toggle) {
+          toggle.checked = friendStorageAllowed
+          toggle.addEventListener('change', (event) => {
+            setFriendStorageConsent(event.target.checked, { announce: true })
+          })
+        }
+        const dismissButton = document.getElementById('friend-storage-dismiss')
+        if (dismissButton) {
+          dismissButton.addEventListener('click', () => {
+            if (!localStorage.getItem(FRIEND_STORAGE_CONSENT_KEY)) {
+              localStorage.setItem(FRIEND_STORAGE_CONSENT_KEY, friendStorageAllowed ? 'granted' : 'denied')
+            }
+            hideFriendStorageBanner()
+          })
+        }
+        const manageButton = document.getElementById('friend-storage-manage')
+        if (manageButton) {
+          manageButton.addEventListener('click', (event) => {
+            event.preventDefault()
+            showFriendStorageBanner()
+          })
+        }
+        const profileManageButton = document.getElementById('profile-cookie-preferences')
+        if (profileManageButton) {
+          profileManageButton.addEventListener('click', (event) => {
+            event.preventDefault()
+            showFriendStorageBanner()
+          })
+        }
+        if (!storedPreference) {
+          showFriendStorageBanner()
+        }
+      }
+
+      function isFavoriteUser(username) {
+        if (!username) return false
+        const normalized = username.toLowerCase()
+        return favoriteUsers.some(user => (user.username || '').toLowerCase() === normalized)
+      }
+
+      function addFavoriteUser(username, userId = null) {
+        if (!username) return false
+        const cleanName = username.trim()
+        if (!cleanName) return false
+        const normalized = cleanName.toLowerCase()
+        const existingIndex = favoriteUsers.findIndex(user => (user.username || '').toLowerCase() === normalized)
+        let existingEntry = {}
+        if (existingIndex >= 0) {
+          existingEntry = favoriteUsers[existingIndex]
+          favoriteUsers.splice(existingIndex, 1)
+        }
+        favoriteUsers.unshift({
+          username: cleanName,
+          userid: userId || existingEntry.userid || null,
+          addedAt: Date.now()
+        })
+        if (favoriteUsers.length > MAX_SAVED_USERS) {
+          favoriteUsers = favoriteUsers.slice(0, MAX_SAVED_USERS)
+        }
+        saveFavoriteUsers()
+        renderFavoriteUsers()
+        const synced = syncFavoriteFriendFlights()
+        if (synced) {
+          renderFavoriteFlights()
+        }
+        return true
+      }
+
+      function removeFavoriteUser(username) {
+        if (!username) return false
+        const normalized = username.toLowerCase()
+        const lengthBefore = favoriteUsers.length
+        favoriteUsers = favoriteUsers.filter(user => (user.username || '').toLowerCase() !== normalized)
+        if (lengthBefore === favoriteUsers.length) {
+          return false
+        }
+        saveFavoriteUsers()
+        renderFavoriteUsers()
+        let needsRender = false
+        let flightsUpdated = false
+        favoriteFlights = favoriteFlights.filter(fav => {
+          if (fav.autoFriend && (fav.username || '').toLowerCase() === normalized) {
+            flightsUpdated = true
+            return false
+          }
+          return true
+        })
+        if (flightsUpdated) {
+          saveFavoriteFlights()
+          needsRender = true
+        }
+        const synced = syncFavoriteFriendFlights()
+        if (synced) {
+          needsRender = true
+        }
+        if (needsRender) {
+          renderFavoriteFlights()
+        }
+        return true
+      }
+
+      function toggleFavoriteUserFromProfile(username, userId) {
+        if (!username) return
+        if (isFavoriteUser(username)) {
+          if (removeFavoriteUser(username)) {
+            setFavoritesStatus(`${username} removed from friends.`, 2500)
+          }
+        } else if (addFavoriteUser(username, userId)) {
+          setFavoritesStatus(`${username} added to friends.`, 2500)
+        }
+        configureFavoriteUserButton({ username, userid: userId })
+      }
+
+      function configureFavoriteUserButton(marker = null) {
+        const button = document.getElementById('favorite-user-button')
+        if (!button) return
+        const username = marker && marker.username ? marker.username : ''
+        const userId = marker && marker.userid ? marker.userid : ''
+        if (!username) {
+          button.style.display = 'none'
+          button.classList.remove('active')
+          button.textContent = '☆'
+          button.title = 'Add friend'
+          button.onclick = null
+          return
+        }
+        button.style.display = 'flex'
+        const isSaved = isFavoriteUser(username)
+        button.classList.toggle('active', isSaved)
+        button.textContent = isSaved ? '★' : '☆'
+        button.title = isSaved ? 'Friend saved' : 'Add friend'
+        button.onclick = (event) => {
+          event.preventDefault()
+          toggleFavoriteUserFromProfile(username, userId || null)
+        }
+      }
+
+      function handleFavoriteUserSelection(user) {
+        if (!user) return
+        closeFavoritesPanel()
+        if (user.username && name_flightid[user.username] && name_flightid[user.username].length) {
+          const targetFlight = name_flightid[user.username].find(id => plane_markers[id])
+          if (targetFlight) {
+            redirectToMarker(targetFlight)
+            setFavoritesStatus(`Jumped to ${user.username}'s flight.`)
+            return
+          }
+        }
+        if (user.userid) {
+          window.open(`https://infiniteview.app/verify-flight?user=${user.userid}&name=${encodeURIComponent(user.username || 'Pilot')}`, '_blank')
+          setFavoritesStatus(`Opened ${user.username}'s flight history.`, 3000)
+        } else if (user.username) {
+          setFavoritesStatus(`${user.username} isn't live right now, but we'll keep them in your friends list.`, 3000)
+        }
+      }
+
+      var atc_frequency_convert = {0 :  "Ground",
+                                   1 :  "Tower",
+                                   2 :  "Unicom",
+                                   3 :  "Clearance",
+                                   4 :  "Approach",
+                                   5 :  "Departure",
+                                   6 :  "Center",
+                                   7 :  "ATIS",
+                                   8 :  "Aircraft",
+                                   9 :  "Recorded",
+                                   10:  "Unknown",
+                                   11:  "Unused"}
+
+      var flightline;
+      var marker;
+      var rankedAirports;
+      var ifclick = "no"
+      var serverurl = "ed323139-baa7-4834-b9d6-5fb9f19ff11e"
+      var zoom = 3
+      var lat = 0
+      var line_colour = ""
+      var index = 0;
+      const sourceId = `line-${index}`;
+      const layerId = `line-layer-${index}`;
+      var long = 0
+      var delayedForSearch = {}
+      var check_lat = 0
+      var check_long = 0
+      var check_zoom = 3
+      var strikes = 0
+      var data = ""
+      var xhr4 = ""
+      var editFid = ''
+      var CURRENT_MARKER = []
+      var markerClicked = false;
+      var wowza = false
+      var downloadKey = 'twoplustwoisfour'
+      var markerGroup = []
+      var atcGroup = []
+      var nonAtcGroup = []
+      var flightpath = {}
+      var PLANE_CONVERT = {"Airbus A318":"A318","Airbus A319":"A319","Airbus A320":"A320","Airbus A321":"A321","Airbus A330-200F":"A332F","Airbus A330-300":"A333","Airbus A330-900":"A339","Airbus A340-600":"A346","Airbus A350":"A359","Airbus A380":"A388","Boeing 717-200":"B712","Boeing 737-700":"B737","Boeing 737-800":"B738","Boeing 737-900":"B739","Boeing 737-8 MAX":"B38M","Boeing 747-200":"B742","Boeing 747-400":"B744","Boeing 747-8":"B748","Boeing 747-AF1":"VC25","Boeing 747-SCA":"B747SCA","Boeing 747-SOFIA":"SOFIA","Boeing 757-200":"B752","Boeing 767-300":"B763","Boeing 777-200ER":"B772","Boeing 777-200LR":"B77L","Boeing 777-300ER":"B77W","Boeing 777F":"B77F","Boeing 787-8":"B788","Boeing 787-9":"B789","Boeing 787-10":"B78X","Bombardier Dash 8-Q400":"DH8D","CRJ-200":"CRJ2","CRJ-700":"CRJ7","CRJ-900":"CRJ9","CRJ-1000":"CRJX","Cessna 172":"C172","Cessna 208":"C208","Challenger 350":"CL35","Cirrus SR22 GTS":"SR22","CubCrafters XCub":"XCUB","DC-10":"DC10","DC-10F":"DC10F","MD-11":"MD11","MD-11F":"MD11F","E175":"E75L","E190":"E190","A-10":"A10","AC-130":"AC130","C-130H":"C130H","C-130J":"C130J","C-130J-30":"C30J","C-17":"C17","F-14":"F14","F-16":"F16","F-22":"F22","F/A-18E Super Hornet":"FA18E","TBM-930":"TBM9","P-38":"P38","Spitfire":"SPIT","Space Shuttle":"SHUTTLE","Sleigh":"SLEIGH","TOP":"TOP","Unknown":"UNKN","Airbus A220-300":"BCS3"}
+
+      // Map initialize
+
+      //----------------------------------------------------------------------
+
+      //show downtime window if necessary
+      document.getElementById('downtime-overlay').classList.add('active');
+      //document.getElementById('discord-overlay').classList.add('active');
+
+      </script>
+    </div>
+  </body>
+</html>
