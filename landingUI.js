@@ -1,12 +1,13 @@
 /**
  * LandingUI.js
  * REDESIGN: Tactical Modal - Advanced Centralized Filter Engine
- * UPDATED: Moved server selection to top-left dropdown, removed network orb.
+ * UPDATED: Added spreading weather menu with options.
  */
 
 export const LandingUI = {
     _isVisible: false,
     _modalOpen: false,
+    _weatherMenuOpen: false,
     _activeFilters: {}, 
     _currentServer: 'Expert', // Default server
 
@@ -156,7 +157,29 @@ export const LandingUI = {
 
                 <div class="utility-nexus">
                     <div class="orb-row">
-                        <button class="orb-btn" id="tile-weather" aria-label="Weather"><i class="fa-solid fa-cloud"></i></button>
+                        <!-- WEATHER NEXUS WRAPPER -->
+                        <div class="weather-nexus-container" id="weather-menu-wrapper">
+                            <div class="weather-spread">
+                                <button class="spread-opt active" id="opt-radar">
+                                    <i class="fa-solid fa-satellite-dish"></i>
+                                    <span class="spread-label">Radar (Precip)</span>
+                                </button>
+                                <button class="spread-opt disabled">
+                                    <i class="fa-solid fa-triangle-exclamation"></i>
+                                    <span class="spread-label">SIGMETs</span>
+                                </button>
+                                <button class="spread-opt disabled">
+                                    <i class="fa-solid fa-cloud"></i>
+                                    <span class="spread-label">Cloud Cover</span>
+                                </button>
+                                <button class="spread-opt disabled">
+                                    <i class="fa-solid fa-wind"></i>
+                                    <span class="spread-label">Wind Speed</span>
+                                </button>
+                            </div>
+                            <button class="orb-btn" id="tile-weather" aria-label="Weather"><i class="fa-solid fa-cloud-sun-rain"></i></button>
+                        </div>
+
                         <button class="orb-btn nexus-trigger" id="toggle-filter-modal" aria-label="Filters"><i class="fa-solid fa-filter"></i></button>
                         <button class="orb-btn" id="tile-settings" aria-label="Settings"><i class="fa-solid fa-gear"></i></button>
                     </div>
@@ -175,6 +198,35 @@ export const LandingUI = {
         const applyBtn = document.getElementById('apply-filters-btn');
         const clearBtn = document.getElementById('clear-filters-btn');
         const serverSelector = document.getElementById('server-selector');
+        
+        const weatherWrapper = document.getElementById('weather-menu-wrapper');
+        const weatherTrigger = document.getElementById('tile-weather');
+        const radarBtn = document.getElementById('opt-radar');
+
+        // Weather Menu Spreading Logic
+        weatherTrigger?.addEventListener('click', (e) => {
+            e.stopPropagation();
+            this._weatherMenuOpen = !this._weatherMenuOpen;
+            weatherWrapper.classList.toggle('expanded', this._weatherMenuOpen);
+        });
+
+        // Close weather menu if clicking elsewhere
+        document.addEventListener('click', (e) => {
+            if (!weatherWrapper?.contains(e.target)) {
+                this._weatherMenuOpen = false;
+                weatherWrapper?.classList.remove('expanded');
+            }
+        });
+
+        // Functional Weather Option
+        radarBtn?.addEventListener('click', (e) => {
+            e.stopPropagation();
+            // Trigger the internal weather settings logic
+            document.getElementById('open-weather-settings-btn')?.click();
+            
+            // Visual feedback
+            radarBtn.classList.toggle('active');
+        });
 
         // Toggle Server Dropdown
         serverSelector?.addEventListener('click', (e) => {
@@ -231,10 +283,6 @@ export const LandingUI = {
         
         document.getElementById('blade-search-input')?.addEventListener('input', () => {
             this.dispatchFilterUpdate();
-        });
-        
-        document.getElementById('tile-weather')?.addEventListener('click', () => {
-             document.getElementById('open-weather-settings-btn')?.click();
         });
     },
 
@@ -436,6 +484,78 @@ export const LandingUI = {
             .status-dot { width: 6px; height: 6px; background: #10b981; border-radius: 50%; box-shadow: 0 0 10px #10b981; }
             #landing-server-name { font-size: 0.7rem; font-weight: 700; color: #fff; letter-spacing: 0.5px; white-space: nowrap; }
 
+            /* WEATHER EXPANSION STYLES */
+            .weather-nexus-container {
+                position: relative;
+                display: flex;
+                flex-direction: column-reverse;
+                align-items: center;
+                gap: 12px;
+            }
+
+            .weather-spread {
+                display: flex;
+                flex-direction: column-reverse;
+                gap: 8px;
+                opacity: 0;
+                transform: translateY(20px) scale(0.8);
+                pointer-events: none;
+                transition: all 0.4s cubic-bezier(0.16, 1, 0.3, 1);
+                margin-bottom: -10px;
+            }
+
+            .weather-nexus-container.expanded .weather-spread {
+                opacity: 1;
+                transform: translateY(0) scale(1);
+                pointer-events: auto;
+                margin-bottom: 0;
+            }
+
+            .spread-opt {
+                width: auto;
+                min-width: 42px;
+                height: 42px;
+                padding: 0 12px;
+                border-radius: 21px;
+                background: rgba(15, 15, 15, 0.85);
+                backdrop-filter: blur(15px);
+                border: 1px solid rgba(255, 255, 255, 0.1);
+                color: rgba(255, 255, 255, 0.6);
+                cursor: pointer;
+                display: flex;
+                align-items: center;
+                gap: 10px;
+                transition: all 0.2s ease;
+                white-space: nowrap;
+                box-shadow: 0 4px 15px rgba(0,0,0,0.4);
+            }
+
+            .spread-opt i { font-size: 0.9rem; width: 18px; text-align: center; }
+            .spread-label { font-size: 0.75rem; font-weight: 600; opacity: 0; transform: translateX(-5px); transition: all 0.3s; width: 0; overflow: hidden; }
+            
+            .weather-nexus-container.expanded .spread-label { opacity: 1; transform: translateX(0); width: auto; }
+
+            .spread-opt:hover { 
+                background: rgba(30, 30, 30, 1); 
+                color: #fff; 
+                border-color: rgba(255,255,255,0.3);
+                transform: scale(1.05);
+            }
+
+            .spread-opt.active {
+                background: rgba(56, 189, 248, 0.15);
+                color: #38bdf8;
+                border-color: rgba(56, 189, 248, 0.4);
+            }
+
+            .spread-opt.disabled {
+                opacity: 0.5;
+                cursor: not-allowed;
+                filter: grayscale(0.8);
+            }
+            
+            .spread-opt.disabled:hover { transform: none; background: rgba(15,15,15,0.85); border-color: rgba(255,255,255,0.1); }
+
             /* MODAL & UI CORE */
             .filter-modal {
                 background: #121214;
@@ -521,7 +641,7 @@ export const LandingUI = {
             .modal-overlay.open { opacity: 1; visibility: visible; }
             
             .utility-nexus { position: absolute; bottom: 40px; right: 40px; pointer-events: none; }
-            .orb-row { display: flex; gap: 10px; pointer-events: auto; }
+            .orb-row { display: flex; gap: 10px; pointer-events: auto; align-items: flex-end; }
             .orb-btn { width: 42px; height: 42px; border-radius: 50%; background: rgba(15, 15, 15, 0.6); backdrop-filter: blur(15px); border: 1px solid rgba(255, 255, 255, 0.1); color: rgba(255, 255, 255, 0.7); cursor: pointer; display: grid; place-items: center; transition: all 0.2s; font-size: 0.95rem; }
             .orb-btn:hover { transform: translateY(-4px); background: rgba(30, 30, 30, 0.9); color: #fff; border-color: rgba(255,255,255,0.4); box-shadow: 0 5px 15px rgba(0,0,0,0.5); }
 
