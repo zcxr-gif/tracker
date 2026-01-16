@@ -1,15 +1,15 @@
 /**
  * LandingUI.js
  * REDESIGN: Tactical Modal - Advanced Centralized Filter Engine
- * Supports mixing filters, range inputs, and categorical selection.
+ * UPDATED: Moved server selection to top-left dropdown, removed network orb.
  */
 
 export const LandingUI = {
     _isVisible: false,
     _modalOpen: false,
     _activeFilters: {}, 
+    _currentServer: 'Expert', // Default server
 
-    // Grouped for better UI organization
     filterGroups: {
         flight: {
             label: "Flight Data",
@@ -79,9 +79,17 @@ export const LandingUI = {
 
         const html = `
             <div id="inflight-tactical-ui" class="tactical-ui-root">
-                <div class="top-branding">
+                <div class="top-branding dropdown" id="server-selector">
                     <div class="status-dot"></div>
-                    <span id="landing-server-name">EXPERT SERVER</span>
+                    <div class="branding-content">
+                        <span id="landing-server-name">${this._currentServer.toUpperCase()} SERVER</span>
+                        <i class="fa-solid fa-chevron-down dropdown-arrow"></i>
+                    </div>
+                    <div class="server-menu">
+                        <div class="server-option" data-val="Expert">Expert</div>
+                        <div class="server-option" data-val="Training">Training</div>
+                        <div class="server-option" data-val="Casual">Casual</div>
+                    </div>
                 </div>
 
                 <div class="top-right-actions">
@@ -151,7 +159,6 @@ export const LandingUI = {
                         <button class="orb-btn" id="tile-weather" aria-label="Weather"><i class="fa-solid fa-cloud"></i></button>
                         <button class="orb-btn nexus-trigger" id="toggle-filter-modal" aria-label="Filters"><i class="fa-solid fa-filter"></i></button>
                         <button class="orb-btn" id="tile-settings" aria-label="Settings"><i class="fa-solid fa-gear"></i></button>
-                        <button class="orb-btn highlight-orb" id="tile-server" aria-label="Network"><i class="fa-solid fa-wifi"></i></button>
                     </div>
                 </div>
             </div>
@@ -167,6 +174,30 @@ export const LandingUI = {
         const closeBtn = document.getElementById('close-filter-modal');
         const applyBtn = document.getElementById('apply-filters-btn');
         const clearBtn = document.getElementById('clear-filters-btn');
+        const serverSelector = document.getElementById('server-selector');
+
+        // Toggle Server Dropdown
+        serverSelector?.addEventListener('click', (e) => {
+            e.stopPropagation();
+            serverSelector.classList.toggle('open');
+        });
+
+        // Close dropdown when clicking outside
+        document.addEventListener('click', () => {
+            serverSelector?.classList.remove('open');
+        });
+
+        // Server option selection
+        document.querySelectorAll('.server-option').forEach(opt => {
+            opt.addEventListener('click', (e) => {
+                const val = e.target.dataset.val;
+                this._currentServer = val;
+                document.getElementById('landing-server-name').textContent = `${val.toUpperCase()} SERVER`;
+                
+                // Dispatch event for system to handle server change
+                window.dispatchEvent(new CustomEvent('serverChange', { detail: { server: val } }));
+            });
+        });
 
         const toggleModal = (state) => {
             this._modalOpen = state;
@@ -204,11 +235,6 @@ export const LandingUI = {
         
         document.getElementById('tile-weather')?.addEventListener('click', () => {
              document.getElementById('open-weather-settings-btn')?.click();
-        });
-
-        document.getElementById('tile-settings')?.addEventListener('click', () => {
-            // Placeholder for settings logic
-            console.log("Settings orb clicked");
         });
     },
 
@@ -363,10 +389,6 @@ export const LandingUI = {
         const el = document.getElementById('inflight-tactical-ui');
         if (!el) return;
         isActive ? el.classList.add('active') : el.classList.remove('active');
-        if (stats.server) {
-            const serverEl = document.getElementById('landing-server-name');
-            if (serverEl) serverEl.textContent = stats.server.toUpperCase();
-        }
     },
 
     injectStyles() {
@@ -381,6 +403,40 @@ export const LandingUI = {
             .custom-scroll::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.2); border-radius: 4px; }
             .custom-scroll::-webkit-scrollbar-thumb:hover { background: rgba(255,255,255,0.4); }
 
+            /* SERVER DROPDOWN STYLES */
+            .top-branding.dropdown { 
+                position: absolute; top: 30px; left: 40px; 
+                display: flex; align-items: center; gap: 12px; 
+                pointer-events: auto; background: rgba(0,0,0,0.6); 
+                padding: 8px 18px; border-radius: 30px; 
+                backdrop-filter: blur(10px); border: 1px solid rgba(255,255,255,0.1); 
+                box-shadow: 0 4px 20px rgba(0,0,0,0.3);
+                cursor: pointer; transition: all 0.2s;
+            }
+            .top-branding.dropdown:hover { background: rgba(20,20,20,0.8); border-color: rgba(255,255,255,0.2); }
+            .branding-content { display: flex; align-items: center; gap: 10px; }
+            .dropdown-arrow { font-size: 0.6rem; color: #71717a; transition: transform 0.2s; }
+            .top-branding.dropdown.open .dropdown-arrow { transform: rotate(180deg); }
+            
+            .server-menu { 
+                position: absolute; top: calc(100% + 10px); left: 0; width: 100%;
+                background: #18181b; border: 1px solid #3f3f46; border-radius: 12px;
+                overflow: hidden; opacity: 0; transform: translateY(-10px);
+                visibility: hidden; transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+                box-shadow: 0 10px 30px rgba(0,0,0,0.5);
+            }
+            .top-branding.dropdown.open .server-menu { opacity: 1; transform: translateY(0); visibility: visible; }
+            .server-option { 
+                padding: 10px 18px; color: #a1a1aa; font-size: 0.75rem; font-weight: 600;
+                transition: all 0.2s; border-bottom: 1px solid rgba(255,255,255,0.03);
+            }
+            .server-option:last-child { border-bottom: none; }
+            .server-option:hover { background: rgba(56, 189, 248, 0.1); color: #38bdf8; }
+
+            .status-dot { width: 6px; height: 6px; background: #10b981; border-radius: 50%; box-shadow: 0 0 10px #10b981; }
+            #landing-server-name { font-size: 0.7rem; font-weight: 700; color: #fff; letter-spacing: 0.5px; white-space: nowrap; }
+
+            /* MODAL & UI CORE */
             .filter-modal {
                 background: #121214;
                 width: 850px; height: 580px;
@@ -468,7 +524,6 @@ export const LandingUI = {
             .orb-row { display: flex; gap: 10px; pointer-events: auto; }
             .orb-btn { width: 42px; height: 42px; border-radius: 50%; background: rgba(15, 15, 15, 0.6); backdrop-filter: blur(15px); border: 1px solid rgba(255, 255, 255, 0.1); color: rgba(255, 255, 255, 0.7); cursor: pointer; display: grid; place-items: center; transition: all 0.2s; font-size: 0.95rem; }
             .orb-btn:hover { transform: translateY(-4px); background: rgba(30, 30, 30, 0.9); color: #fff; border-color: rgba(255,255,255,0.4); box-shadow: 0 5px 15px rgba(0,0,0,0.5); }
-            .highlight-orb { border-color: rgba(16, 185, 129, 0.4); color: #10b981; }
 
             .top-right-actions { position: absolute; top: 30px; right: 40px; pointer-events: auto; z-index: 2010; }
             .search-blade { background: rgba(10, 10, 10, 0.8); backdrop-filter: blur(12px); border: 1px solid rgba(255, 255, 255, 0.15); border-radius: 100px; height: 38px; width: 220px; display: flex; align-items: center; padding: 0 14px; box-shadow: 0 10px 30px rgba(0,0,0,0.3); transition: all 0.3s cubic-bezier(0.16, 1, 0.3, 1); }
@@ -476,10 +531,6 @@ export const LandingUI = {
             #blade-search-input { flex: 1; background: none; border: none; color: #fff; margin-left: 10px; font-size: 13px; outline: none; }
             .search-icon { color: rgba(255,255,255,0.4); font-size: 12px; }
             .search-shortcut { font-size: 9px; color: #71717a; background: rgba(255,255,255,0.08); padding: 2px 5px; border-radius: 4px; font-weight: 600; }
-            
-            .top-branding { position: absolute; top: 30px; left: 40px; display: flex; align-items: center; gap: 8px; pointer-events: auto; background: rgba(0,0,0,0.6); padding: 8px 16px; border-radius: 30px; backdrop-filter: blur(10px); border: 1px solid rgba(255,255,255,0.1); box-shadow: 0 4px 20px rgba(0,0,0,0.3); }
-            .status-dot { width: 6px; height: 6px; background: #10b981; border-radius: 50%; box-shadow: 0 0 10px #10b981; }
-            #landing-server-name { font-size: 0.7rem; font-weight: 700; color: #fff; letter-spacing: 0.5px; }
         `;
         
         const styleId = 'landing-ui-advanced-css';
