@@ -7698,6 +7698,15 @@ function formatDataForSimpleWindow(flightProps, plan, routePoints, communityData
                                 </select>
                             </div>
                         </div>
+                        <div class="settings-row" style="flex-direction: column; align-items: flex-start; gap: 8px;">
+                <div style="display: flex; justify-content: space-between; width: 100%; align-items: center;">
+                    <div class="row-label"><i class="fa-solid fa-plane-up"></i> Aircraft Scale</div>
+                    <span id="plane-size-display" style="font-family: 'JetBrains Mono', monospace; color: #38bdf8; font-weight: 800; font-size: 0.9rem;">
+                        ${Math.round(mapFilters.planeIconSize * 100)}%
+                    </span>
+                </div>
+                <input type="range" id="set-plane-size" min="0.02" max="0.15" step="0.01" value="${mapFilters.planeIconSize}" style="width: 100%;">
+            </div>
                         <div class="settings-row">
                             <div class="row-label">Icon Color</div>
                             <div class="input-wrapper select-wrapper">
@@ -7769,6 +7778,7 @@ function formatDataForSimpleWindow(flightProps, plan, routePoints, communityData
         const ids = {
             'set-hide-atc': 'hideAtcMarkers',
             'set-show-unstaffed': 'showUnstaffedAirports',
+            'set-plane-size': 'planeIconSize',
             'set-staff-only': 'showStaffOnly',
             'set-va-only': 'showVaOnly',
             'set-labels': 'showAircraftLabels',
@@ -7781,6 +7791,21 @@ function formatDataForSimpleWindow(flightProps, plan, routePoints, communityData
             'set-theme-end': 'themeEndColor',
             'set-theme-opacity': 'themeOpacity'
         };
+
+        const sizeSlider = document.getElementById('set-plane-size');
+const sizeDisplay = document.getElementById('plane-size-display');
+
+if (sizeSlider && sizeDisplay) {
+    sizeSlider.addEventListener('input', (e) => {
+        const val = parseFloat(e.target.value);
+        sizeDisplay.textContent = `${Math.round(val * 100)}%`;
+        
+        // Update global filter and save
+        mapFilters.planeIconSize = val;
+        saveFiltersToLocalStorage();
+        updateMapFilters(); // Instantly applies icon-size to the Mapbox layer
+    });
+}
 
         Object.entries(ids).forEach(([id, key]) => {
             const el = document.getElementById(id);
