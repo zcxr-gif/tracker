@@ -488,15 +488,14 @@ export const LandingUI = {
             .weather-nexus-container {
                 position: relative;
                 display: flex;
-                flex-direction: column-reverse; /* Force content to stack upwards */
+                flex-direction: column-reverse;
                 align-items: center;
                 gap: 12px;
-                pointer-events: none; /* Container itself shouldn't block, children should */
             }
 
             .weather-spread {
                 display: flex;
-                flex-direction: column-reverse; /* Individual options also stack upwards */
+                flex-direction: column-reverse;
                 align-items: center;
                 gap: 8px;
                 opacity: 0;
@@ -504,7 +503,7 @@ export const LandingUI = {
                 pointer-events: none;
                 transition: all 0.4s cubic-bezier(0.16, 1, 0.3, 1);
                 position: absolute;
-                bottom: calc(100% + 10px); /* Anchor exactly above the button */
+                bottom: calc(100% + 10px);
                 left: 50%;
                 transform-origin: bottom center;
                 transform: translateX(-50%) translateY(20px) scale(0.9);
@@ -533,6 +532,7 @@ export const LandingUI = {
                 transition: all 0.2s ease;
                 white-space: nowrap;
                 box-shadow: 0 8px 25px rgba(0,0,0,0.5);
+                pointer-events: auto; /* Ensure options are clickable */
             }
 
             .spread-opt i { font-size: 0.9rem; width: 18px; text-align: center; }
@@ -659,7 +659,14 @@ export const LandingUI = {
             
             .utility-nexus { position: absolute; bottom: 40px; right: 40px; pointer-events: none; }
             .orb-row { display: flex; gap: 10px; pointer-events: auto; align-items: flex-end; }
-            .orb-btn { width: 42px; height: 42px; border-radius: 50%; background: rgba(15, 15, 15, 0.6); backdrop-filter: blur(15px); border: 1px solid rgba(255, 255, 255, 0.1); color: rgba(255, 255, 255, 0.7); cursor: pointer; display: grid; place-items: center; transition: all 0.2s; font-size: 0.95rem; }
+            .orb-btn { 
+                width: 42px; height: 42px; border-radius: 50%; 
+                background: rgba(15, 15, 15, 0.6); backdrop-filter: blur(15px); 
+                border: 1px solid rgba(255, 255, 255, 0.1); color: rgba(255, 255, 255, 0.7); 
+                cursor: pointer; display: grid; place-items: center; 
+                transition: all 0.2s; font-size: 0.95rem;
+                pointer-events: auto; /* Ensure button is clickable */
+            }
             .orb-btn:hover { transform: translateY(-4px); background: rgba(30, 30, 30, 0.9); color: #fff; border-color: rgba(255,255,255,0.4); box-shadow: 0 5px 15px rgba(0,0,0,0.5); }
 
             .top-right-actions { position: absolute; top: 30px; right: 40px; pointer-events: auto; z-index: 2010; }
