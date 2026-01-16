@@ -159,7 +159,6 @@ export const LandingUI = {
                     <div class="orb-row">
                         <!-- WEATHER NEXUS WRAPPER -->
                         <div class="weather-nexus-container" id="weather-menu-wrapper">
-                            /* Find the .weather-spread section and update the buttons like this: */
 <div class="weather-spread">
     <button class="spread-opt" data-weather="precip" id="opt-radar">
         <i class="fa-solid fa-satellite-dish"></i>
