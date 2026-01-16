@@ -1,30 +1,48 @@
 const CACHE_NAME = 'mapbox-tiles-cache-v1';
-const MAPBOX_URLS = [
-    'api.mapbox.com',
-    'tiles.mapbox.com'
-];
+const MAPBOX_URLS = ['api.mapbox.com', 'tiles.mapbox.com'];
 
+// 1. Immediate activation
 self.addEventListener('install', (event) => {
     self.skipWaiting();
 });
 
-self.addEventListener('fetch', (event) => {
-    const url = event.request.url;
+self.addEventListener('activate', (event) => {
+    // 2. Take control of the page immediately without a reload
+    event.waitUntil(clients.claim());
+});
 
-    // Only cache Mapbox tile/style requests
-    const isMapboxRequest = MAPBOX_URLS.some(domain => url.includes(domain));
+self.addEventListener('fetch', (event) => {
+    const { request } = event;
+    const url = new URL(request.url);
+
+    // 3. Faster domain check using 'host'
+    const isMapboxRequest = MAPBOX_URLS.some(domain => url.host.includes(domain));
 
     if (isMapboxRequest) {
-        event.respondWith(
-            caches.open(CACHE_NAME).then((cache) => {
-                return cache.match(event.request).then((response) => {
-                    // Return cached tile or fetch and then cache
-                    return response || fetch(event.request).then((networkResponse) => {
-                        cache.put(event.request, networkResponse.clone());
-                        return networkResponse;
-                    });
-                });
-            })
-        );
+        event.respondWith(handleMapboxRequest(request));
     }
 });
+
+async function handleMapboxRequest(request) {
+    // 4. Open cache once per request handler
+    const cache = await caches.open(CACHE_NAME);
+    const cachedResponse = await cache.match(request);
+
+    if (cachedResponse) {
+        return cachedResponse;
+    }
+
+    try {
+        const networkResponse = await fetch(request);
+
+        // 5. Optimization: Only cache valid, successful responses
+        if (networkResponse.ok) {
+            cache.put(request, networkResponse.clone());
+        }
+
+        return networkResponse;
+    } catch (error) {
+        // Fallback for network failure if not in cache
+        return new Response('Network error', { status: 408 });
+    }
+}
