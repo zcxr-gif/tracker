@@ -3101,43 +3101,16 @@ async function trackPilotView(flight) {
     }
 }
 
-/**
- * Parses VATSpy.dat to create a dictionary of FIR IDs to Names
- */
-function parseVatspyData(rawData) {
-    const firDictionary = {};
-    const lines = rawData.split(/\r?\n/);
-    let inFirSection = false;
-
-    for (const line of lines) {
-        if (line.startsWith('[FIRs]')) {
-            inFirSection = true;
-            continue;
-        }
-        if (line.startsWith('[')) {
-            inFirSection = false;
-            continue;
-        }
-
-        if (inFirSection && line.trim()) {
-            const [id, name, icao] = line.split('|');
-            if (id) {
-                firDictionary[id] = { name, icao };
-            }
-        }
-    }
-    return firDictionary;
-}
 
 async function initializeMapBoundaries(map) {
     if (!map) return;
 
     try {
-        // 1. Source changed to local GeoJSON (Free)
+        // 1. Switched to local GeoJSON as requested
         if (!map.getSource('fir-boundaries')) {
             map.addSource('fir-boundaries', {
                 type: 'geojson',
-                data: './Boundaries.geojson' // Ensure this file is in your root directory
+                data: './Boundaries.geojson' 
             });
         }
 
@@ -3145,7 +3118,12 @@ async function initializeMapBoundaries(map) {
         const borderColor = (styleMode === 'light') ? '#475569' : '#ffffff';
         const borderOpacity = (styleMode === 'light') ? 0.4 : 0.2;
 
-        // 2. fir-fills Layer (Removed source-layer)
+        // FIX: Check if the plane layer exists before trying to place boundaries under it
+        const beforeId = map.getLayer('sector-ops-live-flights-layer') 
+            ? 'sector-ops-live-flights-layer' 
+            : undefined;
+
+        // 2. fir-fills Layer
         if (!map.getLayer('fir-fills')) {
             map.addLayer({
                 id: 'fir-fills',
@@ -3153,12 +3131,12 @@ async function initializeMapBoundaries(map) {
                 source: 'fir-boundaries',
                 paint: {
                     'fill-color': '#22c55e',
-                    'fill-opacity': 0 // Invisible until staffed or hovered
+                    'fill-opacity': 0 
                 }
-            }, 'sector-ops-live-flights-layer'); 
+            }, beforeId); // Use safe reference
         }
 
-        // 3. fir-borders Layer (Removed source-layer)
+        // 3. fir-borders Layer
         if (!map.getLayer('fir-borders')) {
             map.addLayer({
                 id: 'fir-borders',
@@ -3169,7 +3147,7 @@ async function initializeMapBoundaries(map) {
                     'line-width': 0.8,
                     'line-opacity': borderOpacity
                 }
-            }, 'sector-ops-live-flights-layer');
+            }, beforeId); // Use safe reference
         }
 
     } catch (err) {
@@ -4474,11 +4452,11 @@ function updateMapFilters() {
             'icon-image', 
             getIconImageExpression(mapFilters.iconColorMode)
         );
-        // Update Size
+        const iconSize = parseFloat(mapFilters.planeIconSize) || 0.05;
         sectorOpsMap.setLayoutProperty(
             'sector-ops-live-flights-layer', 
-            'icon-size', 
-            mapFilters.planeIconSize || 0.05
+            'icon-size',
+            iconSize
         );
     }
 
