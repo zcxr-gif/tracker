@@ -1,6 +1,7 @@
 /**
  * natTracksLayer.js (Mapbox GL JS Version)
- * Updated version: Includes color-coded "bubbles" with track letters at the start and end of each track.
+ * Updated version: Includes integrated "bubbles" that feel like part of the line, 
+ * with synchronized hover effects.
  */
 
 const ACARS_SOCKET_URL = 'https://site--acars-backend--6dmjph8ltlhv.code.run';
@@ -63,22 +64,32 @@ export class NatTracksLayer {
                     'case',
                     ['boolean', ['feature-state', 'hover'], false],
                     1,
-                    0.6
+                    0.7
                 ]
             }
         });
 
-        // 2. Bubble Layer (The circle container)
+        // 2. Bubble Layer (The circle container - merged with line)
         this.map.addLayer({
             id: this.bubbleLayerId,
             type: 'circle',
             source: this.sourceId,
             filter: ['==', ['geometry-type'], 'Point'],
             paint: {
-                'circle-radius': 9,
+                'circle-radius': [
+                    'case',
+                    ['boolean', ['feature-state', 'hover'], false],
+                    11,
+                    9
+                ],
                 'circle-color': colorExpression,
-                'circle-stroke-width': 1.5,
-                'circle-stroke-color': '#ffffff'
+                'circle-opacity': [
+                    'case',
+                    ['boolean', ['feature-state', 'hover'], false],
+                    1,
+                    0.9
+                ]
+                // Removed stroke to make it feel "one" with the line
             }
         });
 
@@ -91,7 +102,12 @@ export class NatTracksLayer {
             layout: {
                 'text-field': ['get', 'name'],
                 'text-font': ['Open Sans Bold', 'Arial Unicode MS Bold'],
-                'text-size': 10,
+                'text-size': [
+                    'case',
+                    ['boolean', ['feature-state', 'hover'], false],
+                    11,
+                    9.5
+                ],
                 'text-allow-overlap': true,
                 'text-ignore-placement': true
             },
@@ -202,34 +218,37 @@ export class NatTracksLayer {
             offset: 15
         });
 
-        // Hover effect listener on the line layer
-        this.map.on('mousemove', this.lineLayerId, (e) => {
+        // Hover effect listener on the line and bubble layers
+        const handleHover = (e) => {
             if (e.features.length > 0) {
+                const feature = e.features[0];
+                const trackName = feature.properties.name;
+
+                // Remove previous hover state
                 if (this.hoveredTrackId !== null) {
-                    this.map.setFeatureState(
-                        { source: this.sourceId, id: this.hoveredTrackId },
-                        { hover: false }
-                    );
+                    this.setTrackHoverState(this.hoveredTrackId, false);
                 }
-                this.hoveredTrackId = e.features[0].id;
-                this.map.setFeatureState(
-                    { source: this.sourceId, id: this.hoveredTrackId },
-                    { hover: true }
-                );
+
+                // We use the track name (A, B, C...) to highlight all components of that track
+                this.hoveredTrackId = trackName;
+                this.setTrackHoverState(trackName, true);
+                
                 this.map.getCanvas().style.cursor = 'pointer';
             }
-        });
+        };
 
-        this.map.on('mouseleave', this.lineLayerId, () => {
+        const handleLeave = () => {
             if (this.hoveredTrackId !== null) {
-                this.map.setFeatureState(
-                    { source: this.sourceId, id: this.hoveredTrackId },
-                    { hover: false }
-                );
+                this.setTrackHoverState(this.hoveredTrackId, false);
             }
             this.hoveredTrackId = null;
             this.map.getCanvas().style.cursor = '';
             popup.remove();
+        };
+
+        [this.lineLayerId, this.bubbleLayerId].forEach(layerId => {
+            this.map.on('mousemove', layerId, handleHover);
+            this.map.on('mouseleave', layerId, handleLeave);
         });
 
         this.map.on('click', this.lineLayerId, (e) => {
@@ -248,6 +267,31 @@ export class NatTracksLayer {
                 </div>
             `;
             popup.setLngLat(e.lngLat).setHTML(html).addTo(this.map);
+        });
+    }
+
+    /**
+     * Helper to set hover state across all features (Line and Points) sharing a track name
+     */
+    setTrackHoverState(trackName, isHovering) {
+        // Since generateId: true only works for individual features, 
+        // and we want to highlight the whole "track entity" (Line + 2 Bubbles),
+        // we use a filter update or just iterate features if possible.
+        // For efficiency in Mapbox GL JS, we typically use feature-state,
+        // but that requires unique IDs. Here we'll update the feature state for all
+        // rendered features matching the name.
+        
+        const source = this.map.getSource(this.sourceId);
+        if (!source) return;
+
+        const allFeatures = source._data.features;
+        allFeatures.forEach((f, index) => {
+            if (f.properties.name === trackName) {
+                this.map.setFeatureState(
+                    { source: this.sourceId, id: index },
+                    { hover: isHovering }
+                );
+            }
         });
     }
 
