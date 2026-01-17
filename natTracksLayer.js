@@ -1,6 +1,6 @@
 /**
  * natTracksLayer.js (Mapbox GL JS Version)
- * Refined version: Removed labels, added hover effects, and improved parsing.
+ * Updated version: Includes color-coded "bubbles" with track letters at the start and end of each track.
  */
 
 const ACARS_SOCKET_URL = 'https://site--acars-backend--6dmjph8ltlhv.code.run';
@@ -10,6 +10,8 @@ export class NatTracksLayer {
         this.map = map;
         this.sourceId = 'nat-tracks-source';
         this.lineLayerId = 'nat-tracks-layer';
+        this.bubbleLayerId = 'nat-tracks-bubbles'; // Circle background
+        this.labelLayerId = 'nat-tracks-labels';   // Letter inside
         this.tracks = [];
         this.refreshInterval = null;
         this.hoveredTrackId = null;
@@ -26,41 +28,75 @@ export class NatTracksLayer {
             generateId: true // Required for feature-state hover effects
         });
 
-        // Line Layer (Solid & Color-Coded)
+        // Shared color logic for lines and bubbles
+        const colorExpression = [
+            'match',
+            ['get', 'name'],
+            'A', '#ff4d4d', // Vibrant Red
+            'B', '#ffcc00', // Gold
+            'C', '#2ecc71', // Emerald
+            'D', '#a29bfe', // Soft Purple
+            'E', '#e67e22', // Carrot Orange
+            'F', '#00cec9', // Robin's Egg
+            '#3498db'       // Sky Blue
+        ];
+
+        // 1. Line Layer (Solid & Color-Coded)
         this.map.addLayer({
             id: this.lineLayerId,
             type: 'line',
             source: this.sourceId,
+            filter: ['==', ['geometry-type'], 'LineString'],
             layout: {
                 'line-join': 'round',
                 'line-cap': 'round'
             },
             paint: {
-                'line-color': [
-                    'match',
-                    ['get', 'name'],
-                    'A', '#ff4d4d', // Vibrant Red
-                    'B', '#ffcc00', // Gold
-                    'C', '#2ecc71', // Emerald
-                    'D', '#a29bfe', // Soft Purple
-                    'E', '#e67e22', // Carrot Orange
-                    'F', '#00cec9', // Robin's Egg
-                    '#3498db'       // Sky Blue
-                ],
-                // Line thickens when hovered
+                'line-color': colorExpression,
                 'line-width': [
                     'case',
                     ['boolean', ['feature-state', 'hover'], false],
                     4.5,
                     2.2
                 ],
-                // Line becomes more opaque when hovered
                 'line-opacity': [
                     'case',
                     ['boolean', ['feature-state', 'hover'], false],
                     1,
                     0.6
                 ]
+            }
+        });
+
+        // 2. Bubble Layer (The circle container)
+        this.map.addLayer({
+            id: this.bubbleLayerId,
+            type: 'circle',
+            source: this.sourceId,
+            filter: ['==', ['geometry-type'], 'Point'],
+            paint: {
+                'circle-radius': 9,
+                'circle-color': colorExpression,
+                'circle-stroke-width': 1.5,
+                'circle-stroke-color': '#ffffff'
+            }
+        });
+
+        // 3. Label Layer (The letter inside the bubble)
+        this.map.addLayer({
+            id: this.labelLayerId,
+            type: 'symbol',
+            source: this.sourceId,
+            filter: ['==', ['geometry-type'], 'Point'],
+            layout: {
+                'text-field': ['get', 'name'],
+                'text-font': ['Open Sans Bold', 'Arial Unicode MS Bold'],
+                'text-size': 10,
+                'text-allow-overlap': true,
+                'text-ignore-placement': true
+            },
+            paint: {
+                'text-color': '#ffffff'
             }
         });
 
@@ -91,24 +127,50 @@ export class NatTracksLayer {
     }
 
     render() {
-        const features = this.tracks.map(track => {
+        const features = [];
+
+        this.tracks.forEach(track => {
             const coordinates = this.parsePath(track.path);
-            
-            return {
+            if (coordinates.length < 2) return;
+
+            const commonProps = {
+                name: track.name,
+                type: track.type,
+                eastLevels: track.eastLevels?.join(', ') || 'None',
+                westLevels: track.westLevels?.join(', ') || 'None',
+                pathString: track.path.join(' → ')
+            };
+
+            // Add the LineString feature
+            features.push({
                 type: 'Feature',
-                properties: {
-                    name: track.name,
-                    type: track.type,
-                    eastLevels: track.eastLevels?.join(', ') || 'None',
-                    westLevels: track.westLevels?.join(', ') || 'None',
-                    pathString: track.path.join(' → ')
-                },
+                properties: commonProps,
                 geometry: {
                     type: 'LineString',
                     coordinates: coordinates
                 }
-            };
-        }).filter(f => f.geometry.coordinates.length > 1);
+            });
+
+            // Add Point feature for the START of the track
+            features.push({
+                type: 'Feature',
+                properties: commonProps,
+                geometry: {
+                    type: 'Point',
+                    coordinates: coordinates[0]
+                }
+            });
+
+            // Add Point feature for the END of the track
+            features.push({
+                type: 'Feature',
+                properties: commonProps,
+                geometry: {
+                    type: 'Point',
+                    coordinates: coordinates[coordinates.length - 1]
+                }
+            });
+        });
 
         const source = this.map.getSource(this.sourceId);
         if (source) source.setData({ type: 'FeatureCollection', features });
@@ -116,12 +178,10 @@ export class NatTracksLayer {
 
     parsePath(path) {
         return path.map(point => {
-            // Handle "50/20" format
             if (point.includes('/')) {
                 const [lat, lon] = point.split('/').map(parseFloat);
-                return [-lon, lat]; // Assuming West for NAT
+                return [-lon, lat]; 
             }
-            // Handle "50N020W" standard aviation format
             const match = point.match(/(\d+)([NS])(\d+)([EW])/);
             if (match) {
                 let lat = parseFloat(match[1]);
@@ -142,7 +202,7 @@ export class NatTracksLayer {
             offset: 15
         });
 
-        // HOVER EFFECTS
+        // Hover effect listener on the line layer
         this.map.on('mousemove', this.lineLayerId, (e) => {
             if (e.features.length > 0) {
                 if (this.hoveredTrackId !== null) {
@@ -172,7 +232,6 @@ export class NatTracksLayer {
             popup.remove();
         });
 
-        // CLICK POPUP
         this.map.on('click', this.lineLayerId, (e) => {
             const props = e.features[0].properties;
             const html = `
@@ -194,9 +253,13 @@ export class NatTracksLayer {
 
     toggle(show) {
         const visibility = show ? 'visible' : 'none';
-        if (this.map.getLayer(this.lineLayerId)) {
-            this.map.setLayoutProperty(this.lineLayerId, 'visibility', visibility);
-        }
+        const layers = [this.lineLayerId, this.bubbleLayerId, this.labelLayerId];
+        
+        layers.forEach(layerId => {
+            if (this.map.getLayer(layerId)) {
+                this.map.setLayoutProperty(layerId, 'visibility', visibility);
+            }
+        });
     }
 }
 
