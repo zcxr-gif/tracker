@@ -1,11 +1,11 @@
 /**
  * natTracksLayer.js (Mapbox GL JS Version)
- * Updated: Integrated start/end track letters that match line styling.
+ * Updated: Added background "badges" (circles) for track letters and reduced font size.
  */
 
 const ACARS_SOCKET_URL = 'https://site--acars-backend--6dmjph8ltlhv.code.run';
 
-// Shared color logic to ensure line and text are "one"
+// Shared color logic for lines and circle backgrounds
 const TRACK_COLOR_EXPRESSION = [
     'match',
     ['get', 'name'],
@@ -24,6 +24,7 @@ export class NatTracksLayer {
         this.sourceId = 'nat-tracks-source';
         this.lineLayerId = 'nat-tracks-layer';
         this.labelLayerId = 'nat-tracks-labels';
+        this.bgLayerId = 'nat-tracks-bg-circles'; // New ID for circle backgrounds
         this.tracks = [];
         this.refreshInterval = null;
         this.hoveredTrackId = null;
@@ -40,7 +41,7 @@ export class NatTracksLayer {
             generateId: true 
         });
 
-        // Line Layer
+        // 1. Line Layer
         this.map.addLayer({
             id: this.lineLayerId,
             type: 'line',
@@ -54,7 +55,22 @@ export class NatTracksLayer {
             }
         });
 
-        // Label Layer (Points at each end)
+        // 2. Circle Background Layer (The "Badge")
+        this.map.addLayer({
+            id: this.bgLayerId,
+            type: 'circle',
+            source: this.sourceId,
+            filter: ['==', ['geometry-type'], 'Point'],
+            paint: {
+                'circle-color': TRACK_COLOR_EXPRESSION,
+                'circle-radius': ['case', ['boolean', ['feature-state', 'hover'], false], 10, 8],
+                'circle-opacity': ['case', ['boolean', ['feature-state', 'hover'], false], 1, 0.9],
+                'circle-stroke-width': 1,
+                'circle-stroke-color': 'rgba(0,0,0,0.2)'
+            }
+        });
+
+        // 3. Label Layer (Smaller text centered in circle)
         this.map.addLayer({
             id: this.labelLayerId,
             type: 'symbol',
@@ -63,23 +79,21 @@ export class NatTracksLayer {
             layout: {
                 'text-field': ['get', 'name'],
                 'text-font': ['Open Sans Bold', 'Arial Unicode MS Bold'],
-                'text-size': 11,
+                'text-size': 9, // Reduced size
                 'text-justify': 'center',
                 'text-allow-overlap': true,
                 'text-ignore-placement': true
             },
             paint: {
-                'text-color': TRACK_COLOR_EXPRESSION,
-                'text-opacity': ['case', ['boolean', ['feature-state', 'hover'], false], 1, 0.8],
-                // Subtle halo matches dark backgrounds to keep the letter "clean" on the line tip
-                'text-halo-color': 'rgba(26, 26, 26, 0.8)', 
-                'text-halo-width': 1
+                'text-color': '#ffffff', // White text for better contrast on colored circles
+                'text-opacity': 1
             }
         });
 
         this.setupInteractions();
     }
 
+    // ... (fetchTracks remains the same)
     async fetchTracks() {
         try {
             const response = await fetch(`${ACARS_SOCKET_URL}/api/live/tracks`);
@@ -93,6 +107,7 @@ export class NatTracksLayer {
         }
     }
 
+    // ... (render remains the same)
     render() {
         const features = [];
         this.tracks.forEach(track => {
@@ -107,21 +122,18 @@ export class NatTracksLayer {
                 pathString: track.path.join(' → ')
             };
 
-            // 1. The Line
             features.push({
                 type: 'Feature',
                 properties: commonProps,
                 geometry: { type: 'LineString', coordinates }
             });
 
-            // 2. Start Point Label
             features.push({
                 type: 'Feature',
                 properties: commonProps,
                 geometry: { type: 'Point', coordinates: coordinates[0] }
             });
 
-            // 3. End Point Label
             features.push({
                 type: 'Feature',
                 properties: commonProps,
@@ -133,6 +145,7 @@ export class NatTracksLayer {
         if (source) source.setData({ type: 'FeatureCollection', features });
     }
 
+    // ... (parsePath remains the same)
     parsePath(path) {
         return path.map(point => {
             if (point.includes('/')) {
@@ -196,7 +209,7 @@ export class NatTracksLayer {
 
     toggle(show) {
         const visibility = show ? 'visible' : 'none';
-        [this.lineLayerId, this.labelLayerId].forEach(id => {
+        [this.lineLayerId, this.labelLayerId, this.bgLayerId].forEach(id => {
             if (this.map.getLayer(id)) this.map.setLayoutProperty(id, 'visibility', visibility);
         });
     }
