@@ -4559,6 +4559,13 @@ function updateMapFilters() {
         });
     }
 
+    if (window.globalNatTracks) {
+        window.globalNatTracks.setOptions({
+            showTracks: mapFilters.showNatTracks,
+            showLabels: mapFilters.showNatLabels
+        });
+    }
+
     // 3. Apply Aircraft Icon Visuals (Color & Size)
     if (sectorOpsMap.getLayer('sector-ops-live-flights-layer')) {
         // Update Color
@@ -7854,6 +7861,8 @@ function formatDataForSimpleWindow(flightProps, plan, routePoints, communityData
 
         // Mapping settings IDs to mapFilters keys
         const ids = {
+            'set-nat-tracks': 'showNatTracks',
+            'set-nat-labels': 'showNatLabels',
             'set-hide-atc': 'hideAtcMarkers',
             'set-show-unstaffed': 'showUnstaffedAirports',
             'set-plane-size': 'planeIconSize',
@@ -8253,7 +8262,13 @@ const takeoverHtml = `
         });
 
         const natTracks = new NatTracksLayer(sectorOpsMap);
-        natTracks.fetchTracks();
+        natTracks.setOptions({
+    showTracks: mapFilters.showNatTracks,
+    showLabels: mapFilters.showNatLabels
+});
+
+natTracks.fetchTracks();
+window.globalNatTracks = natTracks;
         
         // (Optional) Store it globally if you need to reference it later
         window.globalNatTracks = natTracks;
