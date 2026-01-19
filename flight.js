@@ -9843,8 +9843,8 @@ function populateAircraftInfoWindow(baseProps, plan, sortedRoutePoints, communit
     updateAircraftInfoWindow(baseProps, plan, sortedRoutePoints, communityAircraftData);
     
     // Automatically trigger Pilot Report loading if it was the active tab
-    if (currentActiveTab === 'ac-tab-pilot-report' && typeof loadPilotStats === 'function') {
-        loadPilotStats(baseProps.userId, pilotUsername);
+    if (currentActiveTab === 'ac-tab-pilot-report' && typeof displayPilotStats === 'function') {
+        displayPilotStats(baseProps.userId, pilotUsername);
     }
 
     const imagePath = techCardImagePath;
@@ -9923,7 +9923,7 @@ function populateAircraftInfoWindow(baseProps, plan, sortedRoutePoints, communit
             if (e.currentTarget.classList.contains('pilot-tab-btn')) {
                 const uid = e.currentTarget.dataset.userId;
                 const uname = e.currentTarget.dataset.username;
-                if (typeof loadPilotStats === 'function') loadPilotStats(uid, uname);
+                if (typeof displayPilotStats === 'function') displayPilotStats(uid, uname);
             }
         });
         if (btn.classList.contains('active')) btn.style.color = '#fff';
