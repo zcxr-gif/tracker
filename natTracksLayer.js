@@ -1,6 +1,6 @@
 /**
  * natTracksLayer.js (Mapbox GL JS Version)
- * Updated: Layers moved UNDER airplane icons; sizes further reduced.
+ * Updated: Added support for toggling labels and full track visibility.
  */
 
 const ACARS_SOCKET_URL = 'https://site--acars-backend--6dmjph8ltlhv.code.run';
@@ -24,11 +24,14 @@ export class NatTracksLayer {
         this.lineLayerId = 'nat-tracks-layer';
         this.labelLayerId = 'nat-tracks-labels';
         this.bgLayerId = 'nat-tracks-bg-circles';
-        // The ID of the layer you want the tracks to appear BEHIND
         this.airplaneLayerId = 'flights-layer'; 
         this.tracks = [];
         this.refreshInterval = null;
         this.hoveredTrackId = null;
+
+        // Internal State for settings
+        this.showTracks = true;
+        this.showLabels = true;
         
         this.initSource();
     }
@@ -42,29 +45,35 @@ export class NatTracksLayer {
             generateId: true 
         });
 
-        // Check if the airplane layer exists to use as a reference for 'beforeId'
         const beforeId = this.map.getLayer(this.airplaneLayerId) ? this.airplaneLayerId : undefined;
 
-        // 1. Line Layer (Bottom)
+        // 1. Line Layer
         this.map.addLayer({
             id: this.lineLayerId,
             type: 'line',
             source: this.sourceId,
             filter: ['==', ['geometry-type'], 'LineString'],
-            layout: { 'line-join': 'round', 'line-cap': 'round' },
+            layout: { 
+                'line-join': 'round', 
+                'line-cap': 'round',
+                'visibility': this.showTracks ? 'visible' : 'none' 
+            },
             paint: {
                 'line-color': TRACK_COLOR_EXPRESSION,
                 'line-width': ['case', ['boolean', ['feature-state', 'hover'], false], 3.5, 1.8],
                 'line-opacity': ['case', ['boolean', ['feature-state', 'hover'], false], 0.8, 0.4]
             }
-        }, beforeId); // Injected before the planes
+        }, beforeId);
 
-        // 2. Circle Background (Middle)
+        // 2. Circle Background
         this.map.addLayer({
             id: this.bgLayerId,
             type: 'circle',
             source: this.sourceId,
             filter: ['==', ['geometry-type'], 'Point'],
+            layout: {
+                'visibility': (this.showTracks && this.showLabels) ? 'visible' : 'none'
+            },
             paint: {
                 'circle-color': TRACK_COLOR_EXPRESSION,
                 'circle-radius': ['case', ['boolean', ['feature-state', 'hover'], false], 8, 6.5],
@@ -74,7 +83,7 @@ export class NatTracksLayer {
             }
         }, beforeId);
 
-        // 3. Label Layer (Top of the track stack, but still under planes)
+        // 3. Label Layer
         this.map.addLayer({
             id: this.labelLayerId,
             type: 'symbol',
@@ -83,10 +92,11 @@ export class NatTracksLayer {
             layout: {
                 'text-field': ['get', 'name'],
                 'text-font': ['Open Sans Bold', 'Arial Unicode MS Bold'],
-                'text-size': 7.5, // Even smaller text
+                'text-size': 7.5,
                 'text-justify': 'center',
                 'text-allow-overlap': true,
-                'text-ignore-placement': true
+                'text-ignore-placement': true,
+                'visibility': (this.showTracks && this.showLabels) ? 'visible' : 'none'
             },
             paint: {
                 'text-color': '#ffffff'
@@ -96,7 +106,33 @@ export class NatTracksLayer {
         this.setupInteractions();
     }
 
-    // ... (rest of the logic: fetchTracks, render, parsePath, etc. remain the same)
+    /**
+     * New method to be called from your Settings UI
+     * @param {Object} options - { showTracks: boolean, showLabels: boolean }
+     */
+    setOptions(options) {
+        if (options.showTracks !== undefined) this.showTracks = options.showTracks;
+        if (options.showLabels !== undefined) this.showLabels = options.showLabels;
+        this.updateVisibility();
+    }
+
+    updateVisibility() {
+        const trackVisibility = this.showTracks ? 'visible' : 'none';
+        const labelVisibility = (this.showTracks && this.showLabels) ? 'visible' : 'none';
+
+        if (this.map.getLayer(this.lineLayerId)) {
+            this.map.setLayoutProperty(this.lineLayerId, 'visibility', trackVisibility);
+        }
+        if (this.map.getLayer(this.bgLayerId)) {
+            this.map.setLayoutProperty(this.bgLayerId, 'visibility', labelVisibility);
+        }
+        if (this.map.getLayer(this.labelLayerId)) {
+            this.map.setLayoutProperty(this.labelLayerId, 'visibility', labelVisibility);
+        }
+    }
+
+    // ... (rest of the methods: fetchTracks, render, parsePath, etc. remain unchanged)
+
     async fetchTracks() {
         try {
             const response = await fetch(`${ACARS_SOCKET_URL}/api/live/tracks`);
@@ -209,10 +245,8 @@ export class NatTracksLayer {
     }
 
     toggle(show) {
-        const visibility = show ? 'visible' : 'none';
-        [this.lineLayerId, this.labelLayerId, this.bgLayerId].forEach(id => {
-            if (this.map.getLayer(id)) this.map.setLayoutProperty(id, 'visibility', visibility);
-        });
+        this.showTracks = show;
+        this.updateVisibility();
     }
 }
 

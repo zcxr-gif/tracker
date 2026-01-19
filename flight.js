@@ -87,6 +87,8 @@ window.currentAirportTraffic = { in: [], out: [] }; // Stores IDs for the curren
     // --- NEW: To cache flight data when switching to stats view ---
     let cachedFlightDataForStatsView = { flightProps: null, plan: null };
     let mapFilters = {
+        showNatTracks: true,  // New: Toggle for the tracks themselves
+        showNatLabels: true,
         showVaOnly: false,
         showGroupFlights: false,
         showUnstaffedAirports: false,
@@ -7745,6 +7747,25 @@ function formatDataForSimpleWindow(flightProps, plan, routePoints, communityData
                             <div class="row-label"><i class="fa-solid fa-map"></i> Flat Map Projection</div>
                             <label class="toggle-switch"><input type="checkbox" id="set-flat-map" ${mapFilters.useFlatMap ? 'checked' : ''}><span class="toggle-slider"></span></label>
                         </div>
+
+                        <div class="settings-section">
+            <label class="config-header">Map & Assets</label>
+            <div class="settings-row">
+                <div class="row-label"><i class="fa-solid fa-route"></i> North Atlantic Tracks</div>
+                <label class="toggle-switch">
+                    <input type="checkbox" id="set-nat-tracks" ${mapFilters.showNatTracks ? 'checked' : ''}>
+                    <span class="toggle-slider"></span>
+                </label>
+            </div>
+
+            <div class="settings-row">
+                <div class="row-label"><i class="fa-solid fa-font"></i> Track Labels</div>
+                <label class="toggle-switch">
+                    <input type="checkbox" id="set-nat-labels" ${mapFilters.showNatLabels ? 'checked' : ''}>
+                    <span class="toggle-slider"></span>
+                </label>
+            </div>
+
                         <div class="settings-row">
                             <div class="row-label">Map Style</div>
                             <div class="input-wrapper select-wrapper">
