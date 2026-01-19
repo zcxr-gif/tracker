@@ -9706,52 +9706,61 @@ function populateAircraftInfoWindow(baseProps, plan, sortedRoutePoints, communit
                      </div>
                     </div> 
                     
-             <div class="info-right-col" style="gap: 16px; display: flex; flex-direction: column; width: 220px;">
-    <div class="tech-module" id="cockpit-seat-sensor" style="background: rgba(15, 23, 42, 0.3); border: 1px solid rgba(255, 255, 255, 0.08); border-radius: 20px; overflow: hidden; backdrop-filter: blur(24px); box-shadow: 0 8px 32px rgba(0, 0, 0, 0.3);">
-        
-        <div style="padding: 24px 20px 16px 20px; text-align: center; position: relative; background: linear-gradient(180deg, ${psBg} 0%, rgba(15, 23, 42, 0) 100%);">
-            <div style="width: 48px; height: 48px; border-radius: 14px; background: rgba(0, 0, 0, 0.4); margin: 0 auto 12px; display: flex; align-items: center; justify-content: center; color: ${psColor}; border: 1px solid ${psColor}40; box-shadow: 0 0 20px ${psColor}20;">
-                <i class="fa-solid ${psIcon}" style="font-size: 20px;"></i>
-            </div>
-            <h4 style="margin: 0; font-size: 14px; font-weight: 800; color: #fff; letter-spacing: 2px; text-transform: uppercase;">${psTitle}</h4>
-            <span style="font-size: 10px; color: #94a3b8; font-weight: 500; text-transform: uppercase; letter-spacing: 0.5px; opacity: 0.8;">${psDesc}</span>
-            
-            <div style="position: absolute; top: 12px; right: 12px; display: flex; align-items: center; gap: 6px; background: rgba(0,0,0,0.3); padding: 4px 8px; border-radius: 20px; border: 1px solid rgba(255,255,255,0.05);">
-                <span style="font-size: 8px; color: ${psColor}; font-weight: 800; letter-spacing: 0.5px;">SYNC</span>
-                <div style="width: 6px; height: 6px; background: ${psColor}; border-radius: 50%; box-shadow: 0 0 8px ${psColor};"></div>
-            </div>
-        </div>
-
-        <div style="padding: 0 20px 24px 20px; display: flex; flex-direction: column; gap: 20px;">
-            
-            <div style="display: grid; grid-template-columns: 1fr; gap: 12px;">
-                <div style="background: rgba(255, 255, 255, 0.03); padding: 12px; border-radius: 12px; border: 1px solid rgba(255, 255, 255, 0.05);">
-                    <span style="display: block; font-size: 9px; color: #64748b; font-weight: 700; text-transform: uppercase; margin-bottom: 4px;">Time Enroute</span>
-                    <span id="ac-sensor-elapsed" style="font-family: 'JetBrains Mono', monospace; font-size: 22px; color: #fff; font-weight: 400; line-height: 1;">--:--</span>
-                </div>
-
-                <div style="background: rgba(56, 189, 248, 0.05); padding: 12px; border-radius: 12px; border: 1px solid rgba(56, 189, 248, 0.1);">
-                    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 4px;">
-                        <span style="font-size: 9px; color: #38bdf8; font-weight: 700; text-transform: uppercase;">Remaining</span>
-                        <i class="fa-solid fa-hourglass-half" style="color: #38bdf8; font-size: 9px; opacity: 0.5;"></i>
+             <div class="info-right-col" style="gap: 16px; display: flex; flex-direction: column; width: 220px; flex-shrink: 0;">
+                <div class="tech-module" id="cockpit-seat-sensor" style="background: rgba(15, 23, 42, 0.3); border: 1px solid rgba(255, 255, 255, 0.08); border-radius: 20px; overflow: hidden; backdrop-filter: blur(24px); box-shadow: 0 8px 32px rgba(0, 0, 0, 0.3); flex: 1; display: flex; flex-direction: column;">
+                    <!-- Redesigned Minimal Status Header -->
+                    <div style="padding: 28px 20px 20px 20px; text-align: center; position: relative; background: linear-gradient(180deg, ${psBg} 0%, rgba(15, 23, 42, 0) 100%);">
+                        <div style="width: 44px; height: 44px; border-radius: 12px; background: rgba(0, 0, 0, 0.4); margin: 0 auto 12px; display: flex; align-items: center; justify-content: center; color: ${psColor}; border: 1px solid ${psColor}40; box-shadow: 0 0 20px ${psColor}20;">
+                            <i class="fa-solid ${psIcon}" style="font-size: 18px;"></i>
+                        </div>
+                        <h4 style="margin: 0; font-size: 13px; font-weight: 800; color: #fff; letter-spacing: 2px; text-transform: uppercase;">${psTitle}</h4>
+                        <span style="font-size: 9px; color: #94a3b8; font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px; opacity: 0.8; display: block; margin-top: 4px;">${psDesc}</span>
+                        
+                        <!-- Mini Sync Dot -->
+                        <div style="position: absolute; top: 12px; right: 12px; display: flex; align-items: center; gap: 5px; background: rgba(0,0,0,0.2); padding: 3px 8px; border-radius: 20px; border: 1px solid rgba(255,255,255,0.05);">
+                            <div style="width: 5px; height: 5px; background: ${psColor}; border-radius: 50%; box-shadow: 0 0 8px ${psColor};"></div>
+                            <span style="font-size: 8px; color: #fff; font-weight: 800; letter-spacing: 0.4px; opacity: 0.6;">LIVE</span>
+                        </div>
                     </div>
-                    <span id="ac-sensor-ete" style="font-family: 'JetBrains Mono', monospace; font-size: 22px; color: #38bdf8; font-weight: 400; line-height: 1;">--:--</span>
+
+                    <!-- Modern Stats Display -->
+                    <div style="padding: 0 16px 24px 16px; display: flex; flex-direction: column; gap: 12px; flex: 1;">
+                        
+                        <!-- Primary Elapsed Card -->
+                        <div style="background: rgba(255, 255, 255, 0.03); padding: 14px; border-radius: 14px; border: 1px solid rgba(255, 255, 255, 0.05);">
+                            <span style="display: block; font-size: 8px; color: #64748b; font-weight: 800; text-transform: uppercase; margin-bottom: 6px; letter-spacing: 0.5px;">Time Enroute</span>
+                            <div style="display: flex; align-items: baseline; gap: 4px;">
+                                <span id="ac-sensor-elapsed" style="font-family: 'JetBrains Mono', monospace; font-size: 24px; color: #fff; font-weight: 400; line-height: 1;">--:--</span>
+                                <span style="font-size: 9px; color: #475569; font-weight: 700;">H:M</span>
+                            </div>
+                        </div>
+
+                        <!-- Accented Remaining Card -->
+                        <div style="background: rgba(56, 189, 248, 0.04); padding: 14px; border-radius: 14px; border: 1px solid rgba(56, 189, 248, 0.1);">
+                            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px;">
+                                <span style="font-size: 8px; color: #38bdf8; font-weight: 800; text-transform: uppercase; letter-spacing: 0.5px;">Estimated Remaining</span>
+                                <i class="fa-solid fa-hourglass-start" style="color: #38bdf8; font-size: 8px; opacity: 0.4;"></i>
+                            </div>
+                            <div style="display: flex; align-items: baseline; gap: 4px;">
+                                <span id="ac-sensor-ete" style="font-family: 'JetBrains Mono', monospace; font-size: 24px; color: #38bdf8; font-weight: 400; line-height: 1;">--:--</span>
+                                <span style="font-size: 9px; color: #075985; font-weight: 700;">ETE</span>
+                            </div>
+                        </div>
+
+                        <!-- Minimal Footer Info -->
+                        <div style="margin-top: auto; padding-top: 16px; border-top: 1px solid rgba(255, 255, 255, 0.05); display: flex; justify-content: space-between; align-items: center;">
+                            <div style="display: flex; flex-direction: column;">
+                                <span style="font-size: 7px; color: #475569; font-weight: 800; text-transform: uppercase; letter-spacing: 0.5px;">Est. Trip Duration</span>
+                                <span id="ac-sensor-total" style="font-family: 'JetBrains Mono', monospace; font-size: 13px; color: #94a3b8; font-weight: 500;">--:--</span>
+                            </div>
+                            <div style="padding: 6px; background: rgba(255,255,255,0.02); border-radius: 8px;">
+                                <i class="fa-solid fa-timeline" style="color: #334155; font-size: 12px;"></i>
+                            </div>
+                        </div>
+
+                    </div>
                 </div>
             </div>
-
-            <div style="padding-top: 16px; border-top: 1px solid rgba(255, 255, 255, 0.05); display: flex; justify-content: space-between; align-items: center;">
-                <div style="display: flex; flex-direction: column;">
-                    <span style="font-size: 8px; color: #475569; font-weight: 700; text-transform: uppercase;">Est. Total</span>
-                    <span id="ac-sensor-total" style="font-family: 'JetBrains Mono', monospace; font-size: 14px; color: #94a3b8; font-weight: 500;">--:--</span>
-                </div>
-                <div style="padding: 6px; background: rgba(255,255,255,0.03); border-radius: 8px;">
-                    <i class="fa-solid fa-clock-rotate-left" style="color: #475569; font-size: 12px;"></i>
-                </div>
-            </div>
-
-        </div>
-    </div>
-</div>
 
                 <div class="nd-full-width-section">
                     <!-- REDESIGNED VIEW SWITCHER -->
