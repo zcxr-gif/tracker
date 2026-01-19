@@ -565,26 +565,26 @@ function injectCustomStyles() {
 
     const css = `
 
-    /* --- MINIMAL GRAY TRIP MODAL --- */
+    /* --- ENHANCED TRIP CARD OVERLAY --- */
 #trip-card-takeover {
     position: fixed;
-    bottom: 30px; /* Positioned at the bottom */
+    bottom: 40px;
     left: 50%;
-    transform: translateX(-50%) translateY(20px); /* Initial state for animation */
+    transform: translateX(-50%) translateY(30px);
     z-index: 9999;
     pointer-events: none;
     display: none;
-    width: 420px; /* Much smaller fixed width */
-    max-width: 90vw;
+    width: 450px;
+    max-width: 95vw;
     font-family: 'Inter', sans-serif;
-    background: rgba(24, 24, 27, 0.9); /* Deep Zinc Gray */
-    backdrop-filter: blur(16px) saturate(120%);
-    -webkit-backdrop-filter: blur(16px) saturate(120%);
-    border: 1px solid rgba(255, 255, 255, 0.08);
-    border-radius: 20px;
-    padding: 16px 20px;
-    box-shadow: 0 20px 40px rgba(0, 0, 0, 0.6);
-    transition: all 0.4s cubic-bezier(0.16, 1, 0.3, 1);
+    background: rgba(15, 15, 18, 0.85);
+    backdrop-filter: blur(20px) saturate(160%);
+    -webkit-backdrop-filter: blur(20px) saturate(160%);
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    border-radius: 24px;
+    padding: 20px;
+    box-shadow: 0 30px 60px rgba(0, 0, 0, 0.8);
+    transition: all 0.5s cubic-bezier(0.16, 1, 0.3, 1);
     opacity: 0;
 }
 
@@ -595,82 +595,67 @@ function injectCustomStyles() {
     opacity: 1;
 }
 
-/* Header: Identify & Close */
-.tc-modal-header {
+.tc-inner { display: flex; flex-direction: column; gap: 18px; }
+
+/* Header: Identity & Airline */
+.tc-header {
     display: flex;
     justify-content: space-between;
     align-items: center;
-    margin-bottom: 12px;
-    padding-bottom: 10px;
-    border-bottom: 1px solid rgba(255, 255, 255, 0.05);
 }
 
-.tc-callsign {
-    font-family: 'JetBrains Mono', monospace;
-    font-size: 1.4rem;
-    font-weight: 800;
-    color: #fff;
-    letter-spacing: -0.5px;
-}
+.tc-airline-info { display: flex; align-items: center; gap: 12px; }
+.tc-logo { height: 28px; width: auto; max-width: 80px; object-fit: contain; filter: drop-shadow(0 2px 4px rgba(0,0,0,0.5)); }
 
-.takeover-exit-btn {
+.tc-id-group { display: flex; flex-direction: column; }
+.tc-callsign { font-family: 'JetBrains Mono', monospace; font-size: 1.3rem; font-weight: 800; color: #fff; line-height: 1; }
+.tc-pilot { font-size: 0.7rem; color: #38bdf8; font-weight: 700; text-transform: uppercase; letter-spacing: 1px; margin-top: 4px; }
+
+.tc-exit-btn {
     background: rgba(255, 255, 255, 0.05);
     border: 1px solid rgba(255, 255, 255, 0.1);
     color: #94a3b8;
-    width: 28px;
-    height: 28px;
+    width: 32px; height: 32px;
     border-radius: 50%;
     cursor: pointer;
-    display: grid;
-    place-items: center;
+    display: grid; place-items: center;
     transition: all 0.2s;
 }
-.takeover-exit-btn:hover { background: #ef4444; color: white; border-color: #ef4444; }
+.tc-exit-btn:hover { background: #ef4444; color: white; border-color: #ef4444; transform: rotate(90deg); }
 
-/* Content Grid */
-.tc-data-row {
+/* Route Display */
+.tc-route-row {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 20px;
+    padding: 10px 0;
+}
+
+.tc-icao { font-family: 'JetBrains Mono', monospace; font-size: 2.2rem; font-weight: 800; color: #fff; letter-spacing: -1px; }
+.tc-icao.origin { opacity: 0.3; }
+
+.tc-path-icon { color: #38bdf8; font-size: 1.2rem; display: flex; align-items: center; gap: 10px; }
+.tc-path-line { height: 2px; width: 40px; background: linear-gradient(90deg, rgba(56, 189, 248, 0) 0%, #38bdf8 100%); border-radius: 2px; }
+
+/* Stats Grid */
+.tc-stats-grid {
     display: grid;
-    grid-template-columns: 1fr 1fr;
-    gap: 12px;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 10px;
 }
 
 .tc-stat-box {
-    background: rgba(255, 255, 255, 0.02);
-    border: 1px solid rgba(255, 255, 255, 0.04);
-    border-radius: 12px;
-    padding: 10px 14px;
+    background: rgba(255, 255, 255, 0.03);
+    border: 1px solid rgba(255, 255, 255, 0.05);
+    border-radius: 14px;
+    padding: 10px;
+    text-align: center;
 }
 
-.tc-label {
-    display: block;
-    font-size: 0.65rem;
-    font-weight: 800;
-    color: #52525b; /* Muted gray label */
-    text-transform: uppercase;
-    letter-spacing: 0.5px;
-    margin-bottom: 4px;
-}
-
-.tc-value {
-    color: #e4e4e7;
-    font-size: 1.1rem;
-    font-weight: 700;
-    font-family: 'JetBrains Mono', monospace;
-}
-
-.tc-unit { font-size: 0.7rem; color: #71717a; margin-left: 4px; }
-
-/* Pilot & Route Footers */
-.tc-modal-footer {
-    margin-top: 12px;
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-    font-size: 0.8rem;
-}
-
-.tc-route { font-weight: 700; color: #fff; }
-.tc-pilot { color: #38bdf8; font-weight: 600; text-transform: uppercase; }
+.tc-label { display: block; font-size: 0.6rem; font-weight: 800; color: #52525b; text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 4px; }
+.tc-val { color: #e4e4e7; font-size: 1rem; font-weight: 700; font-family: 'JetBrains Mono', monospace; }
+.tc-unit { font-size: 0.65rem; color: #71717a; margin-left: 2px; text-transform: uppercase; }
 
     .settings-section { display: flex; flex-direction: column; gap: 16px; }
 .settings-row { 
@@ -3917,38 +3902,45 @@ async function loadExternalPanelContent() {
 }
 
 
-/**
- * REPLACED: Live Trip Card Mode
- * Injects a minimal modal structure and activates the cinematic view.
- */
 function toggleTripCardMode(active) {
     const takeoverUI = document.getElementById('trip-card-takeover');
     if (!takeoverUI) return;
 
     if (active && currentFlightInWindow) {
-        // Build/Refresh the internal structure
         takeoverUI.innerHTML = `
-            <div class="tc-modal-container">
+            <div class="tc-inner">
                 <div class="tc-header">
-                    <div class="tc-identity">
-                        <span class="tc-callsign">---</span>
-                        <span class="tc-pilot">---</span>
+                    <div class="tc-airline-info">
+                        <img class="tc-logo" src="" onerror="this.style.display='none'">
+                        <div class="tc-id-group">
+                            <span class="tc-callsign">---</span>
+                            <span class="tc-pilot">---</span>
+                        </div>
                     </div>
-                    <button class="takeover-exit-btn" onclick="toggleTripCardMode(false)">
+                    <button class="tc-exit-btn" onclick="toggleTripCardMode(false)">
                         <i class="fa-solid fa-xmark"></i>
                     </button>
                 </div>
-                <div class="tc-route-display">
-                    <div class="tc-route">---</div>
+                <div class="tc-route-row">
+                    <span class="tc-icao origin">---</span>
+                    <div class="tc-path-icon">
+                        <div class="tc-path-line"></div>
+                        <i class="fa-solid fa-plane"></i>
+                    </div>
+                    <span class="tc-icao destination">---</span>
                 </div>
                 <div class="tc-stats-grid">
-                    <div class="tc-stat-card">
-                        <span class="tc-stat-label">Altitude</span>
-                        <div><span class="tc-alt">---</span><span class="tc-unit">FT</span></div>
+                    <div class="tc-stat-box">
+                        <span class="tc-label">Altitude</span>
+                        <span class="tc-val tc-alt">---</span><span class="tc-unit">ft</span>
                     </div>
-                    <div class="tc-stat-card">
-                        <span class="tc-stat-label">Ground Speed</span>
-                        <div><span class="tc-spd">---</span><span class="tc-unit">KTS</span></div>
+                    <div class="tc-stat-box">
+                        <span class="tc-label">Ground Speed</span>
+                        <span class="tc-val tc-spd">---</span><span class="tc-unit">kts</span>
+                    </div>
+                    <div class="tc-stat-box">
+                        <span class="tc-label">Aircraft</span>
+                        <span class="tc-val tc-ac" style="font-size: 0.8rem;">---</span>
                     </div>
                 </div>
             </div>
@@ -3956,12 +3948,10 @@ function toggleTripCardMode(active) {
 
         takeoverUI.classList.add('active');
         
-        // 1. Map Interaction: Focus on flight and hide others
         if (sectorOpsMap && sectorOpsMap.getLayer('sector-ops-live-flights-layer')) {
             sectorOpsMap.setFilter('sector-ops-live-flights-layer', ['==', 'flightId', currentFlightInWindow]);
         }
 
-        // 2. Clear standard UI
         document.getElementById('sector-ops-floating-panel')?.classList.remove('visible');
         aircraftInfoWindow?.classList.remove('visible');
         
@@ -3969,7 +3959,7 @@ function toggleTripCardMode(active) {
         
         const feature = currentMapFeatures[currentFlightInWindow];
         if (feature) {
-            sectorOpsMap.flyTo({ center: feature.geometry.coordinates, zoom: 7, speed: 0.8 });
+            sectorOpsMap.flyTo({ center: feature.geometry.coordinates, zoom: 7, speed: 0.8, pitch: 45 });
         }
     } else {
         takeoverUI.classList.remove('active');
@@ -3987,14 +3977,29 @@ function updateTripCardRealtime() {
     const ui = document.getElementById('trip-card-takeover');
     if (!ui) return;
 
+    // Basic Info
     ui.querySelector('.tc-callsign').textContent = props.callsign || 'N/A';
     ui.querySelector('.tc-pilot').textContent = (props.username || 'Unknown Pilot').toUpperCase();
+    
+    // Stats
     ui.querySelector('.tc-alt').textContent = Math.round(pos.alt_ft || 0).toLocaleString();
     ui.querySelector('.tc-spd').textContent = Math.round(pos.gs_kt || 0);
-    
-    const dep = props.departureIcao || '---';
-    const arr = props.arrivalIcao || '---';
-    ui.querySelector('.tc-route').innerHTML = `${dep} <i class="fa-solid fa-arrow-right-long" style="opacity:0.2; margin: 0 5px;"></i> ${arr}`;
+    ui.querySelector('.tc-ac').textContent = (props.aircraftName || '---').split(' ')[0];
+
+    // Route
+    ui.querySelector('.tc-icao.origin').textContent = props.departureIcao || '???';
+    ui.querySelector('.tc-icao.destination').textContent = props.arrivalIcao || '???';
+
+    // Airline Logo Logic
+    const livery = props.liveryName || '';
+    const words = livery.trim().split(/\s+/);
+    let logoName = words.length > 1 && /[^a-zA-Z0-9]/.test(words[1]) ? words[0] : (words[0] + (words[1] ? ' ' + words[1] : ''));
+    const sanitizedLogoName = logoName.toLowerCase().replace(/[^a-z0-9\s]/g, '').replace(/\s+/g, '_');
+    const logoImg = ui.querySelector('.tc-logo');
+    if (logoImg) {
+        logoImg.src = `Images/airline_logos/${sanitizedLogoName}.png`;
+        logoImg.style.display = 'block';
+    }
 }
     
 /**
