@@ -6697,7 +6697,7 @@ function initializeLiveMap() {
             style: currentMapStyle, // [SYNCED] Uses global style state
             center: [78.9629, 22.5937],
             zoom: 8,
-            minZoom: 2,
+            minZoom: 6,
             projection: 'globe',
             // --- PERFORMANCE & CACHING CONFIG ---
             fadeDuration: 0,           // [OPTIMIZED] Instant tile appearance from cache
@@ -8377,7 +8377,7 @@ function initializeSectorOpsMap(centerICAO) {
         style: currentMapStyle,
         center: centerCoords,
         zoom: 8,
-        minZoom: 2,
+        minZoom: 6,
         interactive: true,
         projection: mapFilters.useFlatMap ? 'mercator' : 'globe',
         // --- PERFORMANCE & CACHING CONFIG ---
