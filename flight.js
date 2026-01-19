@@ -1236,94 +1236,11 @@ function injectCustomStyles() {
             gap: 6px;
         }
 
-        /* --- MODERN DASHBOARD SIDEBAR --- */
-.info-right-col {
-    display: flex;
-    flex-direction: column;
-    gap: 12px;
-}
-
-/* Modern Glass Card */
-.status-blade-card {
-    background: rgba(15, 23, 42, 0.7) !important;
-    backdrop-filter: blur(12px);
-    border: 1px solid rgba(255, 255, 255, 0.06);
-    border-radius: 16px;
-    padding: 20px;
-    box-shadow: 0 12px 32px rgba(0,0,0,0.4);
-    display: flex;
-    flex-direction: column;
-}
-
-/* Status Indicator Header */
-.pilot-status-header {
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    text-align: center;
-    margin-bottom: 20px;
-}
-
-.status-avatar-circle {
-    width: 44px;
-    height: 44px;
-    border-radius: 50%;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    margin-bottom: 10px;
-    position: relative;
-    box-shadow: inset 0 0 10px rgba(0,0,0,0.3);
-}
-
-.status-label-main {
-    font-size: 11px;
-    font-weight: 800;
-    color: #fff;
-    letter-spacing: 1.5px;
-    text-transform: uppercase;
-}
-
-.status-description {
-    font-size: 10px;
-    color: #64748b;
-    margin-top: 4px;
-    line-height: 1.3;
-}
-
-/* Modern Data Rows */
-.dash-stat-row {
-    margin-top: 15px;
-}
-
-.dash-stat-label {
-    font-size: 9px;
-    color: #94a3b8;
-    text-transform: uppercase;
-    letter-spacing: 1px;
-    font-weight: 700;
-    display: block;
-    margin-bottom: 4px;
-}
-
-.dash-stat-value {
-    font-family: 'JetBrains Mono', monospace;
-    font-size: 22px;
-    color: #f8fafc;
-    font-weight: 700;
-    line-height: 1;
-}
-
-.dash-stat-value.highlight {
-    color: #38bdf8;
-    text-shadow: 0 0 20px rgba(56, 189, 248, 0.3);
-}
-
-.dash-divider {
-    height: 1px;
-    background: linear-gradient(to right, transparent, rgba(255,255,255,0.08), transparent);
-    margin: 15px 0;
-}
+        .info-right-col {
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
+        }
         
         /* --- FMS & MODULE STYLES --- */
         .fms-module-container {
@@ -9789,39 +9706,50 @@ function populateAircraftInfoWindow(baseProps, plan, sortedRoutePoints, communit
                      </div>
                     </div> 
                     
-             <div class="info-right-col">
-    <div class="status-blade-card" id="cockpit-seat-sensor">
+             <div class="info-right-col" style="gap: 16px; display: flex; flex-direction: column; width: 220px;">
+    <div class="tech-module" id="cockpit-seat-sensor" style="background: rgba(15, 23, 42, 0.3); border: 1px solid rgba(255, 255, 255, 0.08); border-radius: 20px; overflow: hidden; backdrop-filter: blur(24px); box-shadow: 0 8px 32px rgba(0, 0, 0, 0.3);">
         
-        <div class="pilot-status-header">
-            <div class="status-avatar-circle" style="background: ${psBg}; border: 2px solid ${psColor}40;">
-                <i class="fa-solid ${psIcon}" style="color: ${psColor}; font-size: 18px;"></i>
-                
-                <div class="tech-ping" style="position: absolute; bottom: -2px; right: -2px; width: 12px; height: 12px;">
-                    <span class="animate" style="background-color: ${psColor}; opacity: 0.4; position: absolute; inset: 0; border-radius: 50%;"></span>
-                    <span style="background-color: ${psColor}; position: absolute; inset: 0; border-radius: 50%; border: 2px solid #0f172a;"></span>
+        <div style="padding: 24px 20px 16px 20px; text-align: center; position: relative; background: linear-gradient(180deg, ${psBg} 0%, rgba(15, 23, 42, 0) 100%);">
+            <div style="width: 48px; height: 48px; border-radius: 14px; background: rgba(0, 0, 0, 0.4); margin: 0 auto 12px; display: flex; align-items: center; justify-content: center; color: ${psColor}; border: 1px solid ${psColor}40; box-shadow: 0 0 20px ${psColor}20;">
+                <i class="fa-solid ${psIcon}" style="font-size: 20px;"></i>
+            </div>
+            <h4 style="margin: 0; font-size: 14px; font-weight: 800; color: #fff; letter-spacing: 2px; text-transform: uppercase;">${psTitle}</h4>
+            <span style="font-size: 10px; color: #94a3b8; font-weight: 500; text-transform: uppercase; letter-spacing: 0.5px; opacity: 0.8;">${psDesc}</span>
+            
+            <div style="position: absolute; top: 12px; right: 12px; display: flex; align-items: center; gap: 6px; background: rgba(0,0,0,0.3); padding: 4px 8px; border-radius: 20px; border: 1px solid rgba(255,255,255,0.05);">
+                <span style="font-size: 8px; color: ${psColor}; font-weight: 800; letter-spacing: 0.5px;">SYNC</span>
+                <div style="width: 6px; height: 6px; background: ${psColor}; border-radius: 50%; box-shadow: 0 0 8px ${psColor};"></div>
+            </div>
+        </div>
+
+        <div style="padding: 0 20px 24px 20px; display: flex; flex-direction: column; gap: 20px;">
+            
+            <div style="display: grid; grid-template-columns: 1fr; gap: 12px;">
+                <div style="background: rgba(255, 255, 255, 0.03); padding: 12px; border-radius: 12px; border: 1px solid rgba(255, 255, 255, 0.05);">
+                    <span style="display: block; font-size: 9px; color: #64748b; font-weight: 700; text-transform: uppercase; margin-bottom: 4px;">Time Enroute</span>
+                    <span id="ac-sensor-elapsed" style="font-family: 'JetBrains Mono', monospace; font-size: 22px; color: #fff; font-weight: 400; line-height: 1;">--:--</span>
+                </div>
+
+                <div style="background: rgba(56, 189, 248, 0.05); padding: 12px; border-radius: 12px; border: 1px solid rgba(56, 189, 248, 0.1);">
+                    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 4px;">
+                        <span style="font-size: 9px; color: #38bdf8; font-weight: 700; text-transform: uppercase;">Remaining</span>
+                        <i class="fa-solid fa-hourglass-half" style="color: #38bdf8; font-size: 9px; opacity: 0.5;"></i>
+                    </div>
+                    <span id="ac-sensor-ete" style="font-family: 'JetBrains Mono', monospace; font-size: 22px; color: #38bdf8; font-weight: 400; line-height: 1;">--:--</span>
                 </div>
             </div>
-            <span class="status-label-main">${psTitle}</span>
-            <span id="seat-narrative-text" class="status-description">${psDesc}</span>
+
+            <div style="padding-top: 16px; border-top: 1px solid rgba(255, 255, 255, 0.05); display: flex; justify-content: space-between; align-items: center;">
+                <div style="display: flex; flex-direction: column;">
+                    <span style="font-size: 8px; color: #475569; font-weight: 700; text-transform: uppercase;">Est. Total</span>
+                    <span id="ac-sensor-total" style="font-family: 'JetBrains Mono', monospace; font-size: 14px; color: #94a3b8; font-weight: 500;">--:--</span>
+                </div>
+                <div style="padding: 6px; background: rgba(255,255,255,0.03); border-radius: 8px;">
+                    <i class="fa-solid fa-clock-rotate-left" style="color: #475569; font-size: 12px;"></i>
+                </div>
+            </div>
+
         </div>
-
-        <div class="dash-divider"></div>
-
-        <div class="dash-stat-row">
-            <span class="dash-stat-label">Mission Elapsed</span>
-            <span id="ac-sensor-elapsed" class="dash-stat-value">--:--</span>
-        </div>
-
-        <div class="dash-stat-row">
-            <span class="dash-stat-label" style="color: #38bdf8;">Time Remaining</span>
-            <span id="ac-sensor-ete" class="dash-stat-value highlight">--:--</span>
-        </div>
-
-        <div class="dash-stat-row" style="margin-top: 20px; padding-top: 15px; border-top: 1px dashed rgba(255,255,255,0.05);">
-            <span class="dash-stat-label" style="color: #475569;">Total Flight Time</span>
-            <span id="ac-sensor-total" class="dash-stat-value" style="font-size: 14px; color: #64748b;">--:--</span>
-        </div>
-
     </div>
 </div>
 
