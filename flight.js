@@ -7088,25 +7088,6 @@ function setupAircraftWindowEvents() {
             closeAircraftWindow(); 
         }
 
-        // 5. Handle Hide Logic
-        if (hideBtn) {
-            aircraftInfoWindow.classList.remove('visible');
-            clearLiveFlightPath(currentFlightInWindow);
-
-            // Clear intervals (pause updates while hidden)
-            if (activePfdUpdateInterval) clearInterval(activePfdUpdateInterval);
-            if (activeGeocodeUpdateInterval) clearInterval(activeGeocodeUpdateInterval);
-            if (activeWeatherUpdateInterval) clearInterval(activeWeatherUpdateInterval); 
-            
-            activePfdUpdateInterval = null;
-            activeGeocodeUpdateInterval = null;
-            activeWeatherUpdateInterval = null;
-            
-            if (currentFlightInWindow) {
-                aircraftInfoWindowRecallBtn.classList.add('visible', 'palpitate');
-                setTimeout(() => aircraftInfoWindowRecallBtn.classList.remove('palpitate'), 1000);
-            }
-        }
     });
 
     // Recall Button Logic
@@ -9537,7 +9518,7 @@ function populateAircraftInfoWindow(baseProps, plan, sortedRoutePoints, communit
     <div class="info-window-content">
         <div class="aircraft-overview-panel" id="ac-overview-panel">
             <div class="overview-actions">
-                <button class="aircraft-window-share-btn" title="Generate Trip Card" style="margin-right: auto;"><i class="fa-solid fa-camera"></i></button> <button class="aircraft-window-hide-btn" title="Hide"><i class="fa-solid fa-compress"></i></button>
+                <button class="aircraft-window-share-btn" title="Generate Trip Card" style="margin-right: auto;"><i class="fa-solid fa-camera"></i></button>
                 <button class="aircraft-window-close-btn" title="Close"><i class="fa-solid fa-xmark"></i></button>
             </div>
             <div class="overview-content">
