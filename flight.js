@@ -8863,7 +8863,7 @@ function generateAltitudeColoredRoute(sortedPoints, currentPosition, flightPlan 
     const features = [];
     const GAP_THRESHOLD_KM = 20; 
     const MIN_DIST_FROM_NOSE_KM = 0.1; 
-    const MAX_RENDER_SEGMENT_KM = 40; 
+    const MAX_RENDER_SEGMENT_KM = 200; 
 
     const fixPrec = (val) => parseFloat(val.toFixed(6));
 
