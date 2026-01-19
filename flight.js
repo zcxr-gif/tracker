@@ -654,7 +654,16 @@ function injectCustomStyles() {
 .row-label { color: #e4e4e7; font-size: 0.85rem; font-weight: 500; display: flex; align-items: center; gap: 10px; }
 .row-label i { color: #52525b; width: 16px; text-align: center; }
 .settings-color-input { background: none; border: none; width: 40px; height: 30px; cursor: pointer; padding: 0; }
-.settings-modal .filter-config-pane { background: #121214 !important; }    
+.settings-modal .filter-config-pane { 
+        background: #121214 !important; 
+        max-height: 500px; /* Limits height to trigger scrollbar */
+        overflow-y: auto !important; /* Enables vertical scrolling */
+    }
+    
+    /* Ensure the list pane also scrolls if it gets too long */
+    .filter-selection-pane.custom-scroll {
+        overflow-y: auto;
+    }    
 
         /* --- REDESFIGNED TACTICAL FLIGHT CARDS --- */
 .route-card-reborn {
@@ -7628,8 +7637,8 @@ function formatDataForSimpleWindow(flightProps, plan, routePoints, communityData
     _currentCategory: 'airspace',
 
     categories: {
-        airspace: { label: "Airspace", icon: "fa-tower-broadcast" },
-        visuals: { label: "Visualization", icon: "fa-eye" },
+        airspace: { label: "Filters", icon: "fa-tower-broadcast" },
+        visuals: { label: "Map & more", icon: "fa-eye" },
         interface: { label: "Interface", icon: "fa-tablet-screen-button" },
         theme: { label: "Window Theme", icon: "fa-palette" }
     },
