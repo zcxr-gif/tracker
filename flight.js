@@ -3127,6 +3127,11 @@ function injectCustomStyles() {
     scrollbar-width: thin;
     scrollbar-color: rgba(255, 255, 255, 0.1) transparent;
 }
+
+/* Example: Hiding the server selection buttons */
+.server-selection-container {
+    display: none !important;
+}
     `;
 
     const style = document.createElement('style');
@@ -8192,8 +8197,8 @@ async function setupMapLayersAndFog() {
         color: 'rgb(186, 210, 235)', // Lower atmosphere
         'high-color': 'rgb(36, 92, 223)', // Upper atmosphere
         'horizon-blend': 0.02, // Smooth blend
-        'space-color': 'rgb(11, 11, 25)', // Space color
-        'star-intensity': 0.6 // Adjust star intensity
+        'space-color': 'rgb(27, 27, 54)', // Space color
+        'star-intensity': 0.3 // Adjust star intensity
     });
 
     // 2. Load all aircraft icons
