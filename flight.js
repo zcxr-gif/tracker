@@ -1029,6 +1029,10 @@ function injectCustomStyles() {
         }
 
         /* --- TOOLBAR STYLES --- */
+
+        .dashboard-toolbar {
+    display: none !important;
+}
         .toolbar-btn {
             background: var(--bg-glass) !important;
             border: 1px solid var(--border-glass) !important;
