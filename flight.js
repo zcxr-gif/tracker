@@ -565,142 +565,112 @@ function injectCustomStyles() {
 
     const css = `
 
-    /* --- REDESIGNED LIVE TRIP CARD (MODAL) --- */
+    /* --- MINIMAL GRAY TRIP MODAL --- */
 #trip-card-takeover {
     position: fixed;
-    inset: 0;
+    bottom: 30px; /* Positioned at the bottom */
+    left: 50%;
+    transform: translateX(-50%) translateY(20px); /* Initial state for animation */
     z-index: 9999;
     pointer-events: none;
     display: none;
-    flex-direction: column;
-    justify-content: flex-end; /* Places it at the bottom */
-    align-items: center;
-    padding-bottom: 40px; /* Distance from bottom edge */
-    background: radial-gradient(circle at center, transparent 0%, rgba(0, 0, 0, 0.4) 100%);
-    transition: all 0.4s cubic-bezier(0.16, 1, 0.3, 1);
-}
-
-#trip-card-takeover.active { display: flex; }
-
-/* The Floating Modal */
-.tc-modal-container {
-    pointer-events: auto;
-    background: rgba(10, 12, 26, 0.8);
-    backdrop-filter: blur(25px) saturate(160%);
-    -webkit-backdrop-filter: blur(25px) saturate(160%);
-    border: 1px solid rgba(255, 255, 255, 0.1);
-    border-radius: 28px;
-    padding: 24px 32px;
-    display: flex;
-    flex-direction: column;
-    gap: 20px;
-    width: 520px;
+    width: 420px; /* Much smaller fixed width */
     max-width: 90vw;
-    box-shadow: 0 30px 60px rgba(0, 0, 0, 0.5);
-    animation: tcSlideUp 0.6s cubic-bezier(0.16, 1, 0.3, 1);
+    font-family: 'Inter', sans-serif;
+    background: rgba(24, 24, 27, 0.9); /* Deep Zinc Gray */
+    backdrop-filter: blur(16px) saturate(120%);
+    -webkit-backdrop-filter: blur(16px) saturate(120%);
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    border-radius: 20px;
+    padding: 16px 20px;
+    box-shadow: 0 20px 40px rgba(0, 0, 0, 0.6);
+    transition: all 0.4s cubic-bezier(0.16, 1, 0.3, 1);
+    opacity: 0;
 }
 
-@keyframes tcSlideUp {
-    from { opacity: 0; transform: translateY(40px) scale(0.95); }
-    to { opacity: 1; transform: translateY(0) scale(1); }
+#trip-card-takeover.active { 
+    display: block; 
+    pointer-events: auto;
+    transform: translateX(-50%) translateY(0);
+    opacity: 1;
 }
 
-/* Header: Identity & Exit */
-.tc-header {
+/* Header: Identify & Close */
+.tc-modal-header {
     display: flex;
     justify-content: space-between;
-    align-items: flex-start;
+    align-items: center;
+    margin-bottom: 12px;
+    padding-bottom: 10px;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.05);
 }
-
-.tc-identity { display: flex; flex-direction: column; }
 
 .tc-callsign {
     font-family: 'JetBrains Mono', monospace;
-    font-size: 2.2rem;
+    font-size: 1.4rem;
     font-weight: 800;
     color: #fff;
-    line-height: 1;
-    letter-spacing: -1.5px;
-}
-
-.tc-pilot {
-    font-size: 0.85rem;
-    color: #38bdf8;
-    font-weight: 700;
-    text-transform: uppercase;
-    letter-spacing: 1.5px;
-    margin-top: 2px;
+    letter-spacing: -0.5px;
 }
 
 .takeover-exit-btn {
-    background: rgba(239, 68, 68, 0.1);
-    border: 1px solid rgba(239, 68, 68, 0.2);
-    color: #ef4444;
-    width: 32px;
-    height: 32px;
+    background: rgba(255, 255, 255, 0.05);
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    color: #94a3b8;
+    width: 28px;
+    height: 28px;
     border-radius: 50%;
     cursor: pointer;
     display: grid;
     place-items: center;
     transition: all 0.2s;
 }
+.takeover-exit-btn:hover { background: #ef4444; color: white; border-color: #ef4444; }
 
-.takeover-exit-btn:hover { background: #ef4444; color: white; }
-
-/* Route Display */
-.tc-route-display {
-    background: rgba(255, 255, 255, 0.03);
-    border-radius: 16px;
-    padding: 14px;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    border: 1px solid rgba(255, 255, 255, 0.05);
-}
-
-.tc-route {
-    font-weight: 800;
-    font-size: 1.5rem;
-    color: #fff;
-    display: flex;
-    align-items: center;
-    gap: 15px;
-}
-
-/* Stats Grid */
-.tc-stats-grid {
+/* Content Grid */
+.tc-data-row {
     display: grid;
     grid-template-columns: 1fr 1fr;
     gap: 12px;
 }
 
-.tc-stat-card {
-    background: rgba(255, 255, 255, 0.03);
-    padding: 16px;
-    border-radius: 20px;
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    border: 1px solid rgba(255, 255, 255, 0.05);
+.tc-stat-box {
+    background: rgba(255, 255, 255, 0.02);
+    border: 1px solid rgba(255, 255, 255, 0.04);
+    border-radius: 12px;
+    padding: 10px 14px;
 }
 
-.tc-stat-label {
+.tc-label {
+    display: block;
     font-size: 0.65rem;
     font-weight: 800;
-    color: #52525b;
+    color: #52525b; /* Muted gray label */
     text-transform: uppercase;
-    letter-spacing: 1px;
+    letter-spacing: 0.5px;
     margin-bottom: 4px;
 }
 
-.tc-alt, .tc-spd {
-    font-family: 'JetBrains Mono', monospace;
-    font-size: 1.8rem;
+.tc-value {
+    color: #e4e4e7;
+    font-size: 1.1rem;
     font-weight: 700;
-    color: #fff;
+    font-family: 'JetBrains Mono', monospace;
 }
 
-.tc-unit { font-size: 0.8rem; color: #38bdf8; margin-left: 4px; }
+.tc-unit { font-size: 0.7rem; color: #71717a; margin-left: 4px; }
+
+/* Pilot & Route Footers */
+.tc-modal-footer {
+    margin-top: 12px;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    font-size: 0.8rem;
+}
+
+.tc-route { font-weight: 700; color: #fff; }
+.tc-pilot { color: #38bdf8; font-weight: 600; text-transform: uppercase; }
 
     .settings-section { display: flex; flex-direction: column; gap: 16px; }
 .settings-row { 
@@ -4008,9 +3978,6 @@ function toggleTripCardMode(active) {
     }
 }
 
-/**
- * Updates the new modal with live telemetry
- */
 function updateTripCardRealtime() {
     if (!currentFlightInWindow || !currentMapFeatures[currentFlightInWindow]) return;
 
@@ -4025,9 +3992,9 @@ function updateTripCardRealtime() {
     ui.querySelector('.tc-alt').textContent = Math.round(pos.alt_ft || 0).toLocaleString();
     ui.querySelector('.tc-spd').textContent = Math.round(pos.gs_kt || 0);
     
-    const dep = props.departureIcao || '???';
-    const arr = props.arrivalIcao || '???';
-    ui.querySelector('.tc-route').innerHTML = `${dep} <i class="fa-solid fa-arrow-right-long" style="opacity:0.3"></i> ${arr}`;
+    const dep = props.departureIcao || '---';
+    const arr = props.arrivalIcao || '---';
+    ui.querySelector('.tc-route').innerHTML = `${dep} <i class="fa-solid fa-arrow-right-long" style="opacity:0.2; margin: 0 5px;"></i> ${arr}`;
 }
     
 /**
@@ -8087,46 +8054,30 @@ Object.entries(ids).forEach(([id, key]) => {
 
         // Inject into initializeSectorOpsView
 if (!document.getElementById('trip-card-takeover')) {
-    const takeoverHtml = `
-        <div id="trip-card-takeover">
-            <div class="takeover-header">
-                <div class="ui-element" style="text-shadow: 0 4px 12px rgba(0,0,0,0.9);">
-                    <h2 style="margin: 0; color: #fff; font-size: 2.2rem; font-weight: 800;">
-                        Inflight<span style="color: #38bdf8;">Mode</span>
-                    </h2>
-                </div>
-                <button class="takeover-exit-btn ui-element" onclick="toggleTripCardMode(false)">
-                    <i class="fa-solid fa-xmark"></i> EXIT LIVE VIEW
-                </button>
+const takeoverHtml = `
+    <div id="trip-card-takeover">
+        <div class="tc-modal-header">
+            <span class="tc-callsign">---</span>
+            <button class="takeover-exit-btn" onclick="toggleTripCardMode(false)">
+                <i class="fa-solid fa-xmark"></i>
+            </button>
+        </div>
+        <div class="tc-data-row">
+            <div class="tc-stat-box">
+                <span class="tc-label">Altitude</span>
+                <div><span class="tc-alt tc-value">0</span><span class="tc-unit">FT</span></div>
             </div>
-
-            <div class="takeover-footer">
-                <div class="live-data-grid ui-element">
-                    <div>
-                        <span style="font-size: 0.8rem; color: #94a3b8; text-transform: uppercase; font-weight: 700; display: block;">Callsign</span>
-                        <h1 class="tc-callsign" style="margin: 0; font-size: 3.5rem; font-weight: 800; color: #fff; line-height: 1;">---</h1>
-                    </div>
-                    <div style="width: 1px; height: 50px; background: rgba(255,255,255,0.15); align-self: center;"></div>
-                    <div>
-                        <span style="font-size: 0.8rem; color: #94a3b8; text-transform: uppercase; font-weight: 700; display: block;">Route</span>
-                        <div class="tc-route" style="font-size: 1.8rem; color: #fff; font-weight: 700; display: flex; align-items: center; gap: 12px;">---</div>
-                    </div>
-                    <div>
-                        <span style="font-size: 0.8rem; color: #94a3b8; text-transform: uppercase; font-weight: 700; display: block;">Altitude</span>
-                        <span class="tc-alt" style="font-size: 1.8rem; color: #38bdf8; font-weight: 700; font-family: 'JetBrains Mono';">0</span>
-                    </div>
-                    <div>
-                        <span style="font-size: 0.8rem; color: #94a3b8; text-transform: uppercase; font-weight: 700; display: block;">Ground Speed</span>
-                        <span style="font-size: 1.8rem; color: #fbbf24; font-weight: 700; font-family: 'JetBrains Mono';"><span class="tc-spd">0</span> <small style="font-size: 0.5em;">kts</small></span>
-                    </div>
-                </div>
-                <div class="ui-element" style="margin-left: auto; text-align: right;">
-                    <span style="color: #94a3b8; font-size: 0.9rem;">Pilot</span>
-                    <div class="tc-pilot" style="color: #fff; font-size: 1.2rem; font-weight: 600;">---</div>
-                </div>
+            <div class="tc-stat-box">
+                <span class="tc-label">Ground Speed</span>
+                <div><span class="tc-spd tc-value">0</span><span class="tc-unit">KTS</span></div>
             </div>
         </div>
-    `;
+        <div class="tc-modal-footer">
+            <div class="tc-route">---</div>
+            <div class="tc-pilot">---</div>
+        </div>
+    </div>
+`;
     mapContainer.insertAdjacentHTML('beforeend', takeoverHtml);
 }
         
