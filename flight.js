@@ -8718,12 +8718,51 @@ async function handleAirportClick(icao, event = null) {
     }
 }
 
-    /**
- * --- [NEW HELPER FUNCTION FOR WAYPOINT FIX] ---
+/**
+ * --- [DEBUGGING HELPER] ---
+ * Call this function passing your GeoJSON data to check for "Mapbox Killers"
+ * (duplicate points, NaN coordinates, or extreme jumps).
+ */
+function debugMapboxPath(geojson) {
+    console.group("Mapbox Path Debugger");
+    if (!geojson || !geojson.features) {
+        console.error("❌ Invalid GeoJSON structure");
+        console.groupEnd();
+        return;
+    }
+
+    geojson.features.forEach((feature, fIdx) => {
+        const coords = feature.geometry.coordinates;
+        if (!coords || coords.length < 2) return;
+
+        for (let i = 0; i < coords.length - 1; i++) {
+            const p1 = coords[i];
+            const p2 = coords[i + 1];
+
+            // 1. Check for Duplicate Points (Fatal for Mapbox at certain zooms)
+            if (p1[0] === p2[0] && p1[1] === p2[1]) {
+                console.warn(`⚠️ Duplicate Point found in Feature ${fIdx} at index ${i}: [${p1}]`);
+            }
+
+            // 2. Check for NaN/Null
+            if (isNaN(p1[0]) || isNaN(p1[1]) || isNaN(p2[0]) || isNaN(p2[1])) {
+                console.error(`❌ NaN/Invalid Coordinate found in Feature ${fIdx} at index ${i}`);
+            }
+
+            // 3. Check for extreme length (Mapbox often culls lines longer than 1 tile width)
+            const dist = Math.sqrt(Math.pow(p2[0] - p1[0], 2) + Math.pow(p2[1] - p1[1], 2));
+            if (dist > 180) {
+                console.warn(`⚠️ Extreme jump (>180 deg) in Feature ${fIdx} at index ${i}. Likely an unwrapping failure.`);
+            }
+        }
+    });
+    console.log(`✅ Scan Complete. Total Features: ${geojson.features.length}`);
+    console.groupEnd();
+}
+
+/**
  * Recursively flattens the nested flightPlanItems from the SimBrief API plan
- * into a single, clean array of the full waypoint *objects*.
- * @param {Array} items - The flightPlanItems array from the API response.
- * @returns {Array<object>} A flat array of waypoint objects.
+ * into a single, clean array of the full waypoint objects.
  */
 function getFlatWaypointObjects(items) {
     const waypoints = [];
@@ -8731,14 +8770,10 @@ function getFlatWaypointObjects(items) {
 
     const extract = (planItems) => {
         for (const item of planItems) {
-            // If an item is a container for a procedure (like a SID/STAR),
-            // ignore its own object and process its children instead.
             if (Array.isArray(item.children) && item.children.length > 0) {
                 extract(item.children);
-            } 
-            // Otherwise, if it's a simple waypoint, add its object.
-            else if (item.location && typeof item.location.longitude === 'number' && typeof item.location.latitude === 'number' && (item.location.latitude !== 0 || item.location.longitude !== 0)) {
-                waypoints.push(item); // Push the whole object
+            } else if (item.location && typeof item.location.longitude === 'number' && typeof item.location.latitude === 'number' && (item.location.latitude !== 0 || item.location.longitude !== 0)) {
+                waypoints.push(item);
             }
         }
     };
@@ -8746,57 +8781,41 @@ function getFlatWaypointObjects(items) {
     extract(items);
     return waypoints;
 }
-    
-    /**
-     * --- [FIXED HELPER] ---
-     * Recursively flattens the nested flightPlanItems from the SimBrief API plan
-     * into a single, clean array of [longitude, latitude] coordinates.
-     * This version correctly handles nested procedures like SIDs and STARs.
-     * @param {Array} items - The flightPlanItems array from the API response.
-     * @returns {Array<[number, number]>} A flat array of coordinates.
-     */
-    function flattenWaypointsFromPlan(items) {
-        const waypoints = [];
-        if (!Array.isArray(items)) return waypoints;
 
-        const extract = (planItems) => {
-            for (const item of planItems) {
-                // If an item is a container for a procedure (like a SID/STAR),
-                // ignore its own coordinates and process its children instead.
-                if (Array.isArray(item.children) && item.children.length > 0) {
-                    extract(item.children);
-                } 
-                // Otherwise, if it's a simple waypoint, add its coordinates.
-                else if (item.location && typeof item.location.longitude === 'number' && typeof item.location.latitude === 'number' && (item.location.latitude !== 0 || item.location.longitude !== 0)) {
-                    waypoints.push([item.location.longitude, item.location.latitude]);
-                }
+/**
+ * Recursively flattens the nested flightPlanItems into a single array of [lon, lat].
+ */
+function flattenWaypointsFromPlan(items) {
+    const waypoints = [];
+    if (!Array.isArray(items)) return waypoints;
+
+    const extract = (planItems) => {
+        for (const item of planItems) {
+            if (Array.isArray(item.children) && item.children.length > 0) {
+                extract(item.children);
+            } else if (item.location && typeof item.location.longitude === 'number' && typeof item.location.latitude === 'number' && (item.location.latitude !== 0 || item.location.longitude !== 0)) {
+                waypoints.push([item.location.longitude, item.location.latitude]);
             }
-        };
+        }
+    };
 
-        extract(items);
-        return waypoints;
-    }
-
+    extract(items);
+    return waypoints;
+}
 
 function calculateTurnAngle(p1, p2, p3) {
-    // Vectors
     const v1 = { x: p2.longitude - p1.longitude, y: p2.latitude - p1.latitude };
     const v2 = { x: p3.longitude - p2.longitude, y: p3.latitude - p2.latitude };
-
-    // Dot product & Magnitudes
     const dot = (v1.x * v2.x) + (v1.y * v2.y);
     const mag1 = Math.sqrt(v1.x * v1.x + v1.y * v1.y);
     const mag2 = Math.sqrt(v2.x * v2.x + v2.y * v2.y);
-
     if (mag1 === 0 || mag2 === 0) return 0;
-
-    // Angle in radians
     const angleRad = Math.acos(Math.max(-1, Math.min(1, dot / (mag1 * mag2))));
-    return angleRad * (180 / Math.PI); // Convert to degrees
+    return angleRad * (180 / Math.PI);
 }
 
 /**
- * --- [HELPER] Generates a smoothed coordinate array using Cubic Hermite Splines ---
+ * Generates a smoothed coordinate array using Cubic Hermite Splines
  */
 function generateSmoothPath(points) {
     if (points.length < 3) return points;
@@ -8804,7 +8823,6 @@ function generateSmoothPath(points) {
     const smoothPoints = [];
     const mathPoints = points.map(p => ({ x: p.unwrappedLongitude, y: p.latitude, alt: p.altitude }));
 
-    // Add phantom points for spline continuity
     mathPoints.unshift(mathPoints[0]);
     mathPoints.push(mathPoints[mathPoints.length - 1]);
 
@@ -8815,7 +8833,6 @@ function generateSmoothPath(points) {
         const p3 = mathPoints[i + 3];
 
         const dist = Math.sqrt(Math.pow(p2.x - p1.x, 2) + Math.pow(p2.y - p1.y, 2));
-        // Dynamic resolution: more segments for longer lines to keep curvature smooth
         const segments = Math.max(2, Math.floor(dist * 8)); 
 
         if (i === 0) {
@@ -8825,12 +8842,9 @@ function generateSmoothPath(points) {
         for (let j = 1; j <= segments; j++) {
             const t = j / segments;
             const t2 = t * t, t3 = t2 * t;
-
-            // Cardinal Spline / Catmull-Rom Simplified
             const x = 0.5 * ((2 * p1.x) + (-p0.x + p2.x) * t + (2 * p0.x - 5 * p1.x + 4 * p2.x - p3.x) * t2 + (-p0.x + 3 * p1.x - 3 * p2.x + p3.x) * t3);
             const y = 0.5 * ((2 * p1.y) + (-p0.y + p2.y) * t + (2 * p0.y - 5 * p1.y + 4 * p2.y - p3.y) * t2 + (-p0.y + 3 * p1.y - 3 * p2.y + p3.y) * t3);
             const alt = p1.alt + (p2.alt - p1.alt) * t;
-
             smoothPoints.push({ unwrappedLongitude: x, latitude: y, altitude: alt });
         }
     }
@@ -8838,34 +8852,29 @@ function generateSmoothPath(points) {
 }
 
 /**
- * --- [FIXED v5] Smart Route Generator ---
+ * --- [UPDATED v6] Smart Route Generator ---
  * Fixes:
- * 1. Intelligent Plan Backfill (Simulated History).
- * 2. Gap Filling.
- * 3. Date Line Safety.
- * 4. 3D Great Circle Densification.
- * 5. [NEW] Disables Spline Smoothing for sparse/simulated paths to prevent "bowing".
+ * 1. Precision Limiting (6 decimal places) for tile stability.
+ * 2. Strict Duplicate Point Removal.
+ * 3. Enforced Densification for low-zoom visibility.
+ * 4. Automatic Antimeridian Safety.
  */
 function generateAltitudeColoredRoute(sortedPoints, currentPosition, flightPlan = null) {
     const features = [];
     const GAP_THRESHOLD_KM = 20; 
-    const MIN_DIST_FROM_NOSE_KM = 0.2; 
-    
-    // Maximum segment length for 3D rendering. 
-    const MAX_RENDER_SEGMENT_KM = 50; 
+    const MIN_DIST_FROM_NOSE_KM = 0.1; 
+    const MAX_RENDER_SEGMENT_KM = 40; 
+
+    const fixPrec = (val) => parseFloat(val.toFixed(6));
 
     // --- 1. PREPARE FLIGHT PLAN WAYPOINTS ---
     let flatPlan = [];
     if (flightPlan && flightPlan.flightPlanItems) {
-        const extract = (items) => {
-            let res = [];
-            items.forEach(item => {
-                if (item.children && item.children.length) res = res.concat(extract(item.children));
-                else if (item.location) res.push({ lat: item.location.latitude, lon: item.location.longitude, alt: item.altitude || 0 });
-            });
-            return res;
-        };
-        flatPlan = extract(flightPlan.flightPlanItems);
+        flatPlan = getFlatWaypointObjects(flightPlan.flightPlanItems).map(item => ({
+            lat: item.location.latitude,
+            lon: item.location.longitude,
+            alt: item.altitude || 0
+        }));
     }
 
     // Helper: Find closest waypoint index in plan
@@ -8881,40 +8890,26 @@ function generateAltitudeColoredRoute(sortedPoints, currentPosition, flightPlan 
         return bestIdx;
     };
 
-    // --- 2. SANITIZATION ---
-    const cleanHistory = sortedPoints.filter((p, i) => {
+    // --- 2. SANITIZATION & DUPLICATE REMOVAL ---
+    let cleanHistory = sortedPoints.filter((p, i) => {
         if (!p.latitude || !p.longitude) return false;
+        // Check distance to aircraft nose
         if (getDistanceKm(p.latitude, p.longitude, currentPosition.lat, currentPosition.lon) < MIN_DIST_FROM_NOSE_KM) return false;
+        
         if (i > 0) {
             const prev = sortedPoints[i-1];
-            if (getDistanceKm(p.latitude, p.longitude, prev.latitude, prev.longitude) < 0.2) return false;
+            // Remove duplicates (10m threshold) to prevent Mapbox culling
+            if (getDistanceKm(p.latitude, p.longitude, prev.latitude, prev.longitude) < 0.01) return false;
         }
         return true;
     });
 
-    // --- 3. SPIKE REMOVAL ---
-    let deSpikedHistory = [];
-    if (cleanHistory.length > 0) deSpikedHistory.push(cleanHistory[0]);
-
-    for (let i = 1; i < cleanHistory.length - 1; i++) {
-        const prev = deSpikedHistory[deSpikedHistory.length - 1];
-        const curr = cleanHistory[i];
-        const next = cleanHistory[i+1];
-        const turnAngle = calculateTurnAngle(prev, curr, next); 
-        if (Math.abs(turnAngle) < 130) { 
-            deSpikedHistory.push(curr);
-        }
-    }
-    if (cleanHistory.length > 1) deSpikedHistory.push(cleanHistory[cleanHistory.length - 1]);
-
-    // --- 4. INTELLIGENT PLAN BACKFILL ---
-    let effectiveHistory = [...deSpikedHistory];
-
+    // --- 3. INTELLIGENT PLAN BACKFILL ---
+    let effectiveHistory = [...cleanHistory];
     if (flatPlan.length > 0) {
         const currentPlanIdx = getPlanIndex(currentPosition.lat, currentPosition.lon);
         
         if (effectiveHistory.length < 5 && currentPlanIdx > 0) {
-            // Case A: Missing history -> Simulate from plan
             const simulated = flatPlan.slice(0, currentPlanIdx + 1).map(wp => ({
                 latitude: wp.lat,
                 longitude: wp.lon,
@@ -8924,184 +8919,111 @@ function generateAltitudeColoredRoute(sortedPoints, currentPosition, flightPlan 
             effectiveHistory = simulated;
         } 
         else if (effectiveHistory.length >= 5) {
-            // Case B: Partial history -> Prepend plan
             const firstHist = effectiveHistory[0];
             const startPlanIdx = getPlanIndex(firstHist.latitude, firstHist.longitude);
-            
             if (startPlanIdx > 2) {
                 const prefix = flatPlan.slice(0, startPlanIdx).map(wp => ({
-                    latitude: wp.lat,
-                    longitude: wp.lon,
-                    altitude: wp.alt
+                    latitude: wp.lat, longitude: wp.lon, altitude: wp.alt
                 }));
                 effectiveHistory = [...prefix, ...effectiveHistory];
             }
         }
     }
 
-    // --- 5. CONSTRUCT FINAL ARRAY (With Gap Filling) ---
+    // --- 4. CONSTRUCT FINAL ARRAY ---
     const finalPoints = [];
-    let prevPoint = null;
-
     effectiveHistory.forEach((p) => {
-        const point = { ...p, unwrappedLongitude: p.longitude };
-        
-        if (prevPoint) {
-            const dist = getDistanceKm(prevPoint.latitude, prevPoint.longitude, point.latitude, point.longitude);
-            if (dist > GAP_THRESHOLD_KM && flatPlan.length > 0) {
-                const startIdx = getPlanIndex(prevPoint.latitude, prevPoint.longitude);
-                const endIdx = getPlanIndex(point.latitude, point.longitude);
-
-                if (startIdx !== -1 && endIdx !== -1 && endIdx > startIdx) {
-                    for (let k = startIdx + 1; k < endIdx; k++) {
-                        const wp = flatPlan[k];
-                        const injectedAlt = wp.alt > 100 ? wp.alt : (prevPoint.altitude + point.altitude) / 2;
-                        finalPoints.push({
-                            latitude: wp.lat,
-                            longitude: wp.lon,
-                            unwrappedLongitude: wp.lon, 
-                            altitude: injectedAlt
-                        });
-                    }
-                }
-            }
+        const pt = { ...p, unwrappedLongitude: fixPrec(p.longitude), latitude: fixPrec(p.latitude) };
+        if (finalPoints.length > 0) {
+            const prev = finalPoints[finalPoints.length - 1];
+            if (prev.latitude === pt.latitude && prev.unwrappedLongitude === pt.unwrappedLongitude) return;
         }
-        finalPoints.push(point);
-        prevPoint = point;
+        finalPoints.push(pt);
     });
 
-    // Add Nose
+    // Add current Aircraft position as the "Nose"
     finalPoints.push({
-        latitude: currentPosition.lat,
-        longitude: currentPosition.lon,
-        unwrappedLongitude: currentPosition.lon,
-        altitude: currentPosition.alt_ft
+        latitude: fixPrec(currentPosition.lat),
+        longitude: fixPrec(currentPosition.lon),
+        unwrappedLongitude: fixPrec(currentPosition.lon),
+        altitude: currentPosition.alt_ft || 0
     });
 
     if (finalPoints.length < 2) return { type: 'FeatureCollection', features: [] };
 
-    // --- 6. UNWRAP LONGITUDES ---
+    // --- 5. UNWRAP LONGITUDES (Antimeridian Safety) ---
     let lastUnwrappedLon = finalPoints[0].longitude; 
-    finalPoints[0].unwrappedLongitude = lastUnwrappedLon;
-    let maxLatitude = 0; // Track max lat for safety
-
-    for (let i = 1; i < finalPoints.length; i++) {
-        let currentRawLon = finalPoints[i].longitude;
-        let delta = currentRawLon - (lastUnwrappedLon % 360);
-        if (delta > 180) delta -= 360;
-        if (delta < -180) delta += 360;
-        let newUnwrappedLon = lastUnwrappedLon + delta;
-        finalPoints[i].unwrappedLongitude = newUnwrappedLon;
-        lastUnwrappedLon = newUnwrappedLon;
-        
-        const absLat = Math.abs(finalPoints[i].latitude);
-        if (absLat > maxLatitude) maxLatitude = absLat;
+    let maxLatitude = 0;
+    for (let i = 0; i < finalPoints.length; i++) {
+        if (i > 0) {
+            let delta = finalPoints[i].longitude - (lastUnwrappedLon % 360);
+            if (delta > 180) delta -= 360;
+            if (delta < -180) delta += 360;
+            lastUnwrappedLon += delta;
+        }
+        finalPoints[i].unwrappedLongitude = fixPrec(lastUnwrappedLon);
+        maxLatitude = Math.max(maxLatitude, Math.abs(finalPoints[i].latitude));
     }
 
-    // --- 8. SMOOTHING (WITH SAFETY CHECK) ---
-    // [FIX] Calculate average segment distance.
-    // If points are far apart (e.g. > 20km), it means this is a simulated plan (not live breadcrumbs).
-    // Applying spline smoothing to points 500km apart creates massive distortions (the "bowing" issue).
+    // --- 6. SMOOTHING (WITH SAFETY CHECK) ---
     let totalPathDist = 0;
     for(let i=0; i<finalPoints.length-1; i++) {
-        totalPathDist += getDistanceKm(
-            finalPoints[i].latitude, finalPoints[i].unwrappedLongitude, 
-            finalPoints[i+1].latitude, finalPoints[i+1].unwrappedLongitude
-        );
+        totalPathDist += getDistanceKm(finalPoints[i].latitude, finalPoints[i].unwrappedLongitude, finalPoints[i+1].latitude, finalPoints[i+1].unwrappedLongitude);
     }
     const avgSegmentDist = totalPathDist / (finalPoints.length - 1);
     
-    // Disable smoothing if:
-    // 1. We are at high latitudes (> 60 deg) where Mercator distortion breaks splines.
-    // 2. The data is sparse (> 20km gaps), meaning we should rely on Great Circle densification (Step 9) instead.
-    const shouldDisableSmoothing = (maxLatitude > 60) || (avgSegmentDist > 20);
+    // Disable splines if segments are huge (simulated paths) or at extreme latitudes (Mercator distortion)
+    const shouldDisableSmoothing = (maxLatitude > 65) || (avgSegmentDist > 20);
 
-    let smoothPoints;
-    if (shouldDisableSmoothing) {
-        smoothPoints = finalPoints.map(p => ({
-            unwrappedLongitude: p.unwrappedLongitude,
-            latitude: p.latitude,
-            altitude: p.altitude
-        }));
-    } else {
-        smoothPoints = generateSmoothPath(finalPoints);
-    }
+    let smoothPoints = shouldDisableSmoothing ? finalPoints.map(p => ({ ...p })) : generateSmoothPath(finalPoints);
 
-    // Lock Nose
-    const trueEnd = finalPoints[finalPoints.length - 1];
-    const smoothEnd = smoothPoints[smoothPoints.length - 1];
-    smoothEnd.latitude = trueEnd.latitude;
-    smoothEnd.unwrappedLongitude = trueEnd.unwrappedLongitude;
-    smoothEnd.altitude = trueEnd.altitude;
-
-    // --- 9. BUILD GEOJSON (WITH 3D DENSIFICATION) ---
+    // --- 7. BUILD FEATURES WITH ENFORCED DENSIFICATION ---
     for (let i = 0; i < smoothPoints.length - 1; i++) {
         const p1 = smoothPoints[i];
         const p2 = smoothPoints[i+1];
 
-        // Basic Sanity Check
-        if (Math.abs(p1.latitude - p2.latitude) > 40 || Math.abs(p1.unwrappedLongitude - p2.unwrappedLongitude) > 100) continue;
-
         const distKm = getDistanceKm(p1.latitude, p1.unwrappedLongitude, p2.latitude, p2.unwrappedLongitude);
+        
+        // Chunk segments into pieces no longer than 40km.
+        // This keeps the line visible when tiles are clipped during zoom-out.
+        const steps = Math.max(1, Math.ceil(distKm / MAX_RENDER_SEGMENT_KM));
+        
+        for (let j = 0; j < steps; j++) {
+            const f1 = j / steps;
+            const f2 = (j + 1) / steps;
 
-        if (distKm > MAX_RENDER_SEGMENT_KM) {
-            const steps = Math.ceil(distKm / MAX_RENDER_SEGMENT_KM);
-            
-            for (let j = 0; j < steps; j++) {
-                const fractionStart = j / steps;
-                const fractionEnd = (j + 1) / steps;
+            const startCoord = getIntermediatePoint(p1.latitude, p1.unwrappedLongitude, p2.latitude, p2.unwrappedLongitude, f1);
+            const endCoord = getIntermediatePoint(p1.latitude, p1.unwrappedLongitude, p2.latitude, p2.unwrappedLongitude, f2);
 
-                // Interpolate Coordinates (Great Circle)
-                const startCoord = getIntermediatePoint(p1.latitude, p1.unwrappedLongitude, p2.latitude, p2.unwrappedLongitude, fractionStart);
-                const endCoord = getIntermediatePoint(p1.latitude, p1.unwrappedLongitude, p2.latitude, p2.unwrappedLongitude, fractionEnd);
+            if (startCoord.lat === endCoord.lat && startCoord.lon === endCoord.lon) continue;
 
-                // Interpolate Altitude (Linear)
-                const startAlt = p1.altitude + (p2.altitude - p1.altitude) * fractionStart;
-                const endAlt = p1.altitude + (p2.altitude - p1.altitude) * fractionEnd;
-                const avgChunkAlt = (startAlt + endAlt) / 2;
+            const sAlt = p1.altitude + (p2.altitude - p1.altitude) * f1;
+            const eAlt = p1.altitude + (p2.altitude - p1.altitude) * f2;
 
-                const normalizeLon = (lon, ref) => {
-                    let d = lon - (ref % 360);
-                    if (d > 180) d -= 360;
-                    if (d < -180) d += 360;
-                    return ref + d;
-                };
-
-                features.push({
-                    type: 'Feature',
-                    geometry: {
-                        type: 'LineString',
-                        coordinates: [
-                            [normalizeLon(startCoord.lon, p1.unwrappedLongitude), startCoord.lat],
-                            [normalizeLon(endCoord.lon, p1.unwrappedLongitude), endCoord.lat]
-                        ]
-                    },
-                    properties: {
-                        avgAltitude: avgChunkAlt,
-                        simulated: false 
-                    }
-                });
-            }
-        } else {
-            const avgAlt = (p1.altitude + p2.altitude) / 2;
             features.push({
                 type: 'Feature',
                 geometry: {
                     type: 'LineString',
                     coordinates: [
-                        [p1.unwrappedLongitude, p1.latitude],
-                        [p2.unwrappedLongitude, p2.latitude]
+                        [fixPrec(startCoord.lon), fixPrec(startCoord.lat)],
+                        [fixPrec(endCoord.lon), fixPrec(endCoord.lat)]
                     ]
                 },
                 properties: {
-                    avgAltitude: avgAlt,
-                    simulated: false 
+                    avgAltitude: (sAlt + eAlt) / 2
                 }
             });
         }
     }
 
-    return { type: 'FeatureCollection', features: features };
+    const collection = { type: 'FeatureCollection', features: features };
+    
+    // Debug output to console if running locally
+    if (window.location.hostname.includes('localhost') || window.location.hostname.includes('127.0.0.1')) {
+        debugMapboxPath(collection);
+    }
+
+    return collection;
 }
 
 /**
