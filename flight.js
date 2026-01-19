@@ -7823,6 +7823,7 @@ Object.entries(ids).forEach(([id, key]) => {
         const selectedHub = "KJFK"; 
         await initializeSectorOpsMap(selectedHub);
 
+        /*
         // --- 3. Inject Server Selector Pill ---
         if (!document.getElementById('server-selector-container')) {
             const selectorHtml = `
@@ -7834,6 +7835,7 @@ Object.entries(ids).forEach(([id, key]) => {
             `;
             mapContainer.insertAdjacentHTML('beforeend', selectorHtml);
         }
+        */
 
         // --- 5. Inject Airport Info Window ---
         if (!document.getElementById('airport-info-window')) {
