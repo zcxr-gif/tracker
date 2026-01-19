@@ -8998,15 +8998,6 @@ function generateAltitudeColoredRoute(sortedPoints, currentPosition, flightPlan 
         if (absLat > maxLatitude) maxLatitude = absLat;
     }
 
-    // --- 7. NORMALIZE STRIP ---
-    const headLon = finalPoints[finalPoints.length - 1].unwrappedLongitude;
-    const shift = Math.round(headLon / 360) * 360;
-    if (shift !== 0) {
-        for (let i = 0; i < finalPoints.length; i++) {
-            finalPoints[i].unwrappedLongitude -= shift;
-        }
-    }
-
     // --- 8. SMOOTHING (WITH SAFETY CHECK) ---
     // [FIX] Calculate average segment distance.
     // If points are far apart (e.g. > 20km), it means this is a simulated plan (not live breadcrumbs).
