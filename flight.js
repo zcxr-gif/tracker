@@ -1236,11 +1236,94 @@ function injectCustomStyles() {
             gap: 6px;
         }
 
-        .info-right-col {
-            display: flex;
-            flex-direction: column;
-            gap: 8px;
-        }
+        /* --- MODERN DASHBOARD SIDEBAR --- */
+.info-right-col {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+}
+
+/* Modern Glass Card */
+.status-blade-card {
+    background: rgba(15, 23, 42, 0.7) !important;
+    backdrop-filter: blur(12px);
+    border: 1px solid rgba(255, 255, 255, 0.06);
+    border-radius: 16px;
+    padding: 20px;
+    box-shadow: 0 12px 32px rgba(0,0,0,0.4);
+    display: flex;
+    flex-direction: column;
+}
+
+/* Status Indicator Header */
+.pilot-status-header {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    text-align: center;
+    margin-bottom: 20px;
+}
+
+.status-avatar-circle {
+    width: 44px;
+    height: 44px;
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    margin-bottom: 10px;
+    position: relative;
+    box-shadow: inset 0 0 10px rgba(0,0,0,0.3);
+}
+
+.status-label-main {
+    font-size: 11px;
+    font-weight: 800;
+    color: #fff;
+    letter-spacing: 1.5px;
+    text-transform: uppercase;
+}
+
+.status-description {
+    font-size: 10px;
+    color: #64748b;
+    margin-top: 4px;
+    line-height: 1.3;
+}
+
+/* Modern Data Rows */
+.dash-stat-row {
+    margin-top: 15px;
+}
+
+.dash-stat-label {
+    font-size: 9px;
+    color: #94a3b8;
+    text-transform: uppercase;
+    letter-spacing: 1px;
+    font-weight: 700;
+    display: block;
+    margin-bottom: 4px;
+}
+
+.dash-stat-value {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 22px;
+    color: #f8fafc;
+    font-weight: 700;
+    line-height: 1;
+}
+
+.dash-stat-value.highlight {
+    color: #38bdf8;
+    text-shadow: 0 0 20px rgba(56, 189, 248, 0.3);
+}
+
+.dash-divider {
+    height: 1px;
+    background: linear-gradient(to right, transparent, rgba(255,255,255,0.08), transparent);
+    margin: 15px 0;
+}
         
         /* --- FMS & MODULE STYLES --- */
         .fms-module-container {
@@ -9706,52 +9789,41 @@ function populateAircraftInfoWindow(baseProps, plan, sortedRoutePoints, communit
                      </div>
                     </div> 
                     
-             <div class="info-right-col" style="gap: 12px; display: flex; flex-direction: column;">
-                    <!-- RE-STYLED TECH MODULE (PILOT STATE & TIMERS) -->
-                    <div class="tech-module" id="cockpit-seat-sensor" style="background: rgba(15, 23, 42, 0.4); border: 1px solid rgba(255,255,255,0.05); border-radius: 12px; overflow: hidden; display: flex; flex-direction: column; backdrop-filter: blur(8px);">
-                        <div class="sensor-state-strip" style="background: ${psBg}; padding: 12px 16px; display: flex; align-items: center; justify-content: space-between; border-bottom: 1px solid rgba(255,255,255,0.03);">
-                            <div style="display: flex; align-items: center; gap: 12px;">
-                                <div style="width: 32px; height: 32px; border-radius: 8px; background: rgba(0,0,0,0.2); display: flex; align-items: center; justify-content: center; color: ${psColor}; border: 1px solid ${psColor}40;">
-                                     <i class="fa-solid ${psIcon}" style="font-size: 14px;"></i>
-                                </div>
-                                <div style="display: flex; flex-direction: column;">
-                                    <span style="font-weight: 700; font-size: 13px; color: #fff; letter-spacing: 0.5px; text-transform: uppercase;">${psTitle}</span>
-                                    <span style="font-size: 10px; color: #94a3b8; font-family: 'Inter', sans-serif;">${psDesc}</span>
-                                </div>
-                            </div>
-                            <div class="tech-ping" style="position: relative; width: 8px; height: 8px;">
-                                <span class="animate" style="background-color: ${psColor}; opacity: 0.5; position: absolute; width: 100%; height: 100%; border-radius: 50%;"></span>
-                                <span style="background-color: ${psColor}; position: absolute; width: 100%; height: 100%; border-radius: 50%;"></span>
-                            </div>
-                        </div>
+             <div class="info-right-col">
+    <div class="status-blade-card" id="cockpit-seat-sensor">
+        
+        <div class="pilot-status-header">
+            <div class="status-avatar-circle" style="background: ${psBg}; border: 2px solid ${psColor}40;">
+                <i class="fa-solid ${psIcon}" style="color: ${psColor}; font-size: 18px;"></i>
+                
+                <div class="tech-ping" style="position: absolute; bottom: -2px; right: -2px; width: 12px; height: 12px;">
+                    <span class="animate" style="background-color: ${psColor}; opacity: 0.4; position: absolute; inset: 0; border-radius: 50%;"></span>
+                    <span style="background-color: ${psColor}; position: absolute; inset: 0; border-radius: 50%; border: 2px solid #0f172a;"></span>
+                </div>
+            </div>
+            <span class="status-label-main">${psTitle}</span>
+            <span id="seat-narrative-text" class="status-description">${psDesc}</span>
+        </div>
 
-                        <div class="sensor-timers-body" style="padding: 16px; display: flex; flex-direction: column; gap: 12px;">
-                            <div class="timer-row" style="display: flex; justify-content: space-between; align-items: center;">
-                                <div style="display: flex; align-items: center; gap: 8px;">
-                                    <i class="fa-solid fa-stopwatch" style="color: #64748b; font-size: 11px;"></i>
-                                    <span style="font-size: 11px; color: #94a3b8; text-transform: uppercase; font-weight: 500;">Elapsed</span>
-                                </div>
-                                <span id="ac-sensor-elapsed" style="font-family: 'JetBrains Mono', monospace; font-size: 18px; color: #fff; font-weight: 600;">--:--</span>
-                            </div>
-                            <div class="timer-row" style="display: flex; justify-content: space-between; align-items: center;">
-                                <div style="display: flex; align-items: center; gap: 8px;">
-                                    <i class="fa-solid fa-hourglass-half" style="color: #38bdf8; font-size: 11px;"></i>
-                                    <span style="font-size: 11px; color: #94a3b8; text-transform: uppercase; font-weight: 500;">Remaining</span>
-                                </div>
-                                <span id="ac-sensor-ete" style="font-family: 'JetBrains Mono', monospace; font-size: 18px; color: #38bdf8; font-weight: 600;">--:--</span>
-                            </div>
-                            <div style="height: 1px; background: rgba(255,255,255,0.05); margin: 4px 0;"></div>
-                            <div class="timer-row" style="display: flex; justify-content: space-between; align-items: center;">
-                                <div style="display: flex; align-items: center; gap: 8px;">
-                                    <i class="fa-solid fa-clock" style="color: #64748b; font-size: 11px;"></i>
-                                    <span style="font-size: 11px; color: #64748b; text-transform: uppercase;">Total Duration</span>
-                                </div>
-                                <span id="ac-sensor-total" style="font-family: 'JetBrains Mono', monospace; font-size: 14px; color: #64748b; font-weight: 500;">--:--</span>
-                            </div>
-                        </div>
-                    </div>
-                </div> 
-            </div> 
+        <div class="dash-divider"></div>
+
+        <div class="dash-stat-row">
+            <span class="dash-stat-label">Mission Elapsed</span>
+            <span id="ac-sensor-elapsed" class="dash-stat-value">--:--</span>
+        </div>
+
+        <div class="dash-stat-row">
+            <span class="dash-stat-label" style="color: #38bdf8;">Time Remaining</span>
+            <span id="ac-sensor-ete" class="dash-stat-value highlight">--:--</span>
+        </div>
+
+        <div class="dash-stat-row" style="margin-top: 20px; padding-top: 15px; border-top: 1px dashed rgba(255,255,255,0.05);">
+            <span class="dash-stat-label" style="color: #475569;">Total Flight Time</span>
+            <span id="ac-sensor-total" class="dash-stat-value" style="font-size: 14px; color: #64748b;">--:--</span>
+        </div>
+
+    </div>
+</div>
 
                 <div class="nd-full-width-section">
                     <!-- REDESIGNED VIEW SWITCHER -->
