@@ -3935,7 +3935,12 @@ function toggleTripCardMode(active) {
             </div>
         `;
 
+        takeoverUI.querySelector('.tc-exit-btn')?.addEventListener('click', () => {
+    toggleTripCardMode(false);
+        });
+
         takeoverUI.classList.add('active');
+        
         
         if (sectorOpsMap && sectorOpsMap.getLayer('sector-ops-live-flights-layer')) {
             sectorOpsMap.setFilter('sector-ops-live-flights-layer', ['==', 'flightId', currentFlightInWindow]);
@@ -3948,14 +3953,17 @@ function toggleTripCardMode(active) {
         
         const feature = currentMapFeatures[currentFlightInWindow];
         if (feature) {
-            sectorOpsMap.flyTo({ center: feature.geometry.coordinates, zoom: 7, speed: 0.8, pitch: 45 });
+            sectorOpsMap.flyTo({ center: feature.geometry.coordinates, zoom: 7, speed: 0.8, pitch: 0 });
         }
     } else {
         takeoverUI.classList.remove('active');
         if (typeof updateAircraftLayerFilter === 'function') updateAircraftLayerFilter(); 
         aircraftInfoWindow?.classList.add('visible');
     }
+    
 }
+
+window.toggleTripCardMode = toggleTripCardMode;
 
 function updateTripCardRealtime() {
     if (!currentFlightInWindow || !currentMapFeatures[currentFlightInWindow]) return;
