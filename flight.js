@@ -8589,6 +8589,8 @@ function updateFlightPlanLayer(flightId, plan, currentPosition) {
                 id: layerIdFull,
                 type: 'line',
                 source: layerIdFull,
+                tolerance: 0,      // <--- ADD THIS
+                buffer: 0,         // <--- ADD THIS
                 'filter': ['==', '$type', 'LineString'], 
                 paint: {
                     'line-color': '#aaaaaa',
@@ -9281,9 +9283,15 @@ async function handleAircraftClick(flightProps, sessionId, event = null) {
                 id: flownLayerId,
                 type: 'line',
                 source: flownLayerId,
+                tolerance: 0,
+                buffer: 0,
                 paint: {
                     'line-color': ['interpolate', ['linear'], ['get', 'avgAltitude'], 0, '#e6e600', 10000, '#ff9900', 20000, '#ff3300', 29000, '#00BFFF', 38000, '#9400D3'],
-                    'line-width': 4,
+                    'line-width': [
+        'interpolate', ['linear'], ['zoom'],
+        2, 2,   // At zoom 2, line is 2px wide
+        10, 4   // At zoom 10, line is 4px wide
+    ],
                     'line-opacity': 0.9
                 }
             }, 'sector-ops-live-flights-layer');
