@@ -3936,10 +3936,23 @@ function toggleTripCardMode(active) {
         `;
 
         takeoverUI.classList.add('active');
-        // ... (existing map and view logic)
+        
+        if (sectorOpsMap && sectorOpsMap.getLayer('sector-ops-live-flights-layer')) {
+            sectorOpsMap.setFilter('sector-ops-live-flights-layer', ['==', 'flightId', currentFlightInWindow]);
+        }
+
+        document.getElementById('sector-ops-floating-panel')?.classList.remove('visible');
+        aircraftInfoWindow?.classList.remove('visible');
+        
         updateTripCardRealtime();
+        
+        const feature = currentMapFeatures[currentFlightInWindow];
+        if (feature) {
+            sectorOpsMap.flyTo({ center: feature.geometry.coordinates, zoom: 7, speed: 0.8, pitch: 45 });
+        }
     } else {
         takeoverUI.classList.remove('active');
+        if (typeof updateAircraftLayerFilter === 'function') updateAircraftLayerFilter(); 
         aircraftInfoWindow?.classList.add('visible');
     }
 }
