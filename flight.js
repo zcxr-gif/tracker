@@ -568,20 +568,20 @@ function injectCustomStyles() {
     /* --- COMPACT REDESIGNED TRIP CARD --- */
 #trip-card-takeover {
     position: fixed;
-    bottom: 30px;
+    bottom: 12px; /* Moved down from 30px for a smaller gap */
     left: 50%;
     transform: translateX(-50%) translateY(20px);
     z-index: 9999;
     pointer-events: none;
     display: none;
-    width: 380px; /* Reduced from 450px */
+    width: 440px; /* Expanded from 380px */
     max-width: 92vw;
     font-family: 'Inter', sans-serif;
     background: rgba(10, 10, 12, 0.9);
     backdrop-filter: blur(25px) saturate(180%);
     border: 1px solid rgba(255, 255, 255, 0.12);
-    border-radius: 20px; /* More compact radius */
-    padding: 0; /* Remove internal padding to allow image to hit edges */
+    border-radius: 20px;
+    padding: 0;
     box-shadow: 0 20px 50px rgba(0, 0, 0, 0.9);
     transition: all 0.4s cubic-bezier(0.16, 1, 0.3, 1);
     opacity: 0;
@@ -595,10 +595,9 @@ function injectCustomStyles() {
     opacity: 1;
 }
 
-/* Featured Aircraft Image Section */
 .tc-ac-image-container {
     width: 100%;
-    height: 140px;
+    height: 110px; /* Decreased height from 140px */
     position: relative;
     background: #000;
 }
@@ -614,7 +613,12 @@ function injectCustomStyles() {
     background: linear-gradient(to top, rgba(10,10,12,1) 0%, transparent 50%);
 }
 
-.tc-inner { padding: 16px; display: flex; flex-direction: column; gap: 14px; }
+.tc-inner { 
+    padding: 12px; /* Tightened padding from 16px */
+    display: flex; 
+    flex-direction: column; 
+    gap: 10px; /* Tightened gap from 14px to reduce overall card height */
+}
 
 /* Compact Header */
 .tc-header { display: flex; justify-content: space-between; align-items: flex-start; }
