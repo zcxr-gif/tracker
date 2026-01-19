@@ -565,61 +565,142 @@ function injectCustomStyles() {
 
     const css = `
 
-    /* --- LIVE TRIP CARD TAKEOVER --- */
+    /* --- REDESIGNED LIVE TRIP CARD (MODAL) --- */
 #trip-card-takeover {
     position: fixed;
     inset: 0;
     z-index: 9999;
-    pointer-events: none; /* Allows interacting with the map behind */
+    pointer-events: none;
     display: none;
     flex-direction: column;
-    justify-content: space-between;
-    padding: 40px;
-    font-family: 'Inter', sans-serif;
-    background: radial-gradient(circle at center, rgba(15, 23, 42, 0) 0%, rgba(15, 23, 42, 0.4) 60%, rgba(15, 23, 42, 0.8) 100%);
-    transition: all 0.5s ease;
+    justify-content: flex-end; /* Places it at the bottom */
+    align-items: center;
+    padding-bottom: 40px; /* Distance from bottom edge */
+    background: radial-gradient(circle at center, transparent 0%, rgba(0, 0, 0, 0.4) 100%);
+    transition: all 0.4s cubic-bezier(0.16, 1, 0.3, 1);
 }
 
 #trip-card-takeover.active { display: flex; }
 
-#trip-card-takeover .ui-element { pointer-events: auto; } /* Re-enable clicks for buttons/info */
+/* The Floating Modal */
+.tc-modal-container {
+    pointer-events: auto;
+    background: rgba(10, 12, 26, 0.8);
+    backdrop-filter: blur(25px) saturate(160%);
+    -webkit-backdrop-filter: blur(25px) saturate(160%);
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    border-radius: 28px;
+    padding: 24px 32px;
+    display: flex;
+    flex-direction: column;
+    gap: 20px;
+    width: 520px;
+    max-width: 90vw;
+    box-shadow: 0 30px 60px rgba(0, 0, 0, 0.5);
+    animation: tcSlideUp 0.6s cubic-bezier(0.16, 1, 0.3, 1);
+}
 
-.takeover-header {
+@keyframes tcSlideUp {
+    from { opacity: 0; transform: translateY(40px) scale(0.95); }
+    to { opacity: 1; transform: translateY(0) scale(1); }
+}
+
+/* Header: Identity & Exit */
+.tc-header {
     display: flex;
     justify-content: space-between;
     align-items: flex-start;
 }
 
-.takeover-footer {
-    display: flex;
-    align-items: flex-end;
-    gap: 30px;
-    margin-top: auto;
+.tc-identity { display: flex; flex-direction: column; }
+
+.tc-callsign {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 2.2rem;
+    font-weight: 800;
+    color: #fff;
+    line-height: 1;
+    letter-spacing: -1.5px;
 }
 
-.live-data-grid {
-    background: rgba(15, 23, 42, 0.7);
-    backdrop-filter: blur(12px);
-    border: 1px solid rgba(255, 255, 255, 0.1);
-    padding: 25px 40px;
-    border-radius: 20px;
-    display: flex;
-    gap: 50px;
-    box-shadow: 0 20px 50px rgba(0,0,0,0.5);
+.tc-pilot {
+    font-size: 0.85rem;
+    color: #38bdf8;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 1.5px;
+    margin-top: 2px;
 }
 
 .takeover-exit-btn {
-    background: rgba(239, 68, 68, 0.2);
-    border: 1px solid rgba(239, 68, 68, 0.4);
+    background: rgba(239, 68, 68, 0.1);
+    border: 1px solid rgba(239, 68, 68, 0.2);
     color: #ef4444;
-    padding: 10px 20px;
-    border-radius: 99px;
+    width: 32px;
+    height: 32px;
+    border-radius: 50%;
     cursor: pointer;
-    font-weight: 700;
+    display: grid;
+    place-items: center;
     transition: all 0.2s;
 }
 
 .takeover-exit-btn:hover { background: #ef4444; color: white; }
+
+/* Route Display */
+.tc-route-display {
+    background: rgba(255, 255, 255, 0.03);
+    border-radius: 16px;
+    padding: 14px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border: 1px solid rgba(255, 255, 255, 0.05);
+}
+
+.tc-route {
+    font-weight: 800;
+    font-size: 1.5rem;
+    color: #fff;
+    display: flex;
+    align-items: center;
+    gap: 15px;
+}
+
+/* Stats Grid */
+.tc-stats-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 12px;
+}
+
+.tc-stat-card {
+    background: rgba(255, 255, 255, 0.03);
+    padding: 16px;
+    border-radius: 20px;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    border: 1px solid rgba(255, 255, 255, 0.05);
+}
+
+.tc-stat-label {
+    font-size: 0.65rem;
+    font-weight: 800;
+    color: #52525b;
+    text-transform: uppercase;
+    letter-spacing: 1px;
+    margin-bottom: 4px;
+}
+
+.tc-alt, .tc-spd {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 1.8rem;
+    font-weight: 700;
+    color: #fff;
+}
+
+.tc-unit { font-size: 0.8rem; color: #38bdf8; margin-left: 4px; }
 
     .settings-section { display: flex; flex-direction: column; gap: 16px; }
 .settings-row { 
@@ -3868,49 +3949,67 @@ async function loadExternalPanelContent() {
 
 /**
  * REPLACED: Live Trip Card Mode
- * Takes over the UI, filters the map, and shows real-time stats.
+ * Injects a minimal modal structure and activates the cinematic view.
  */
 function toggleTripCardMode(active) {
     const takeoverUI = document.getElementById('trip-card-takeover');
     if (!takeoverUI) return;
 
     if (active && currentFlightInWindow) {
+        // Build/Refresh the internal structure
+        takeoverUI.innerHTML = `
+            <div class="tc-modal-container">
+                <div class="tc-header">
+                    <div class="tc-identity">
+                        <span class="tc-callsign">---</span>
+                        <span class="tc-pilot">---</span>
+                    </div>
+                    <button class="takeover-exit-btn" onclick="toggleTripCardMode(false)">
+                        <i class="fa-solid fa-xmark"></i>
+                    </button>
+                </div>
+                <div class="tc-route-display">
+                    <div class="tc-route">---</div>
+                </div>
+                <div class="tc-stats-grid">
+                    <div class="tc-stat-card">
+                        <span class="tc-stat-label">Altitude</span>
+                        <div><span class="tc-alt">---</span><span class="tc-unit">FT</span></div>
+                    </div>
+                    <div class="tc-stat-card">
+                        <span class="tc-stat-label">Ground Speed</span>
+                        <div><span class="tc-spd">---</span><span class="tc-unit">KTS</span></div>
+                    </div>
+                </div>
+            </div>
+        `;
+
         takeoverUI.classList.add('active');
         
-        // 1. Filter out all other aircraft on the map
+        // 1. Map Interaction: Focus on flight and hide others
         if (sectorOpsMap && sectorOpsMap.getLayer('sector-ops-live-flights-layer')) {
             sectorOpsMap.setFilter('sector-ops-live-flights-layer', ['==', 'flightId', currentFlightInWindow]);
         }
 
-        // 2. Hide standard UI components
+        // 2. Clear standard UI
         document.getElementById('sector-ops-floating-panel')?.classList.remove('visible');
         aircraftInfoWindow?.classList.remove('visible');
         
-        // 3. Update the data immediately
         updateTripCardRealtime();
         
-        // 4. Focus map on the flight
         const feature = currentMapFeatures[currentFlightInWindow];
         if (feature) {
-            sectorOpsMap.flyTo({ center: feature.geometry.coordinates, zoom: 7 });
+            sectorOpsMap.flyTo({ center: feature.geometry.coordinates, zoom: 7, speed: 0.8 });
         }
-
     } else {
-        // Deactivate and Restore
         takeoverUI.classList.remove('active');
-        
-        // Restore standard map filters (Show all aircraft again)
-        if (typeof updateAircraftLayerFilter === 'function') {
-            updateAircraftLayerFilter(); 
-        }
-        
-        // Re-show aircraft info window
+        if (typeof updateAircraftLayerFilter === 'function') updateAircraftLayerFilter(); 
         aircraftInfoWindow?.classList.add('visible');
     }
 }
 
 /**
- * Updates the takeover UI with live socket data
+ * Updates the new modal with live telemetry
  */
 function updateTripCardRealtime() {
     if (!currentFlightInWindow || !currentMapFeatures[currentFlightInWindow]) return;
@@ -3918,19 +4017,17 @@ function updateTripCardRealtime() {
     const feature = currentMapFeatures[currentFlightInWindow];
     const props = feature.properties;
     const pos = JSON.parse(props.position || '{}');
-    
     const ui = document.getElementById('trip-card-takeover');
     if (!ui) return;
 
-    // Update dynamic text fields
     ui.querySelector('.tc-callsign').textContent = props.callsign || 'N/A';
-    ui.querySelector('.tc-pilot').textContent = props.username || 'Unknown Pilot';
+    ui.querySelector('.tc-pilot').textContent = (props.username || 'Unknown Pilot').toUpperCase();
     ui.querySelector('.tc-alt').textContent = Math.round(pos.alt_ft || 0).toLocaleString();
     ui.querySelector('.tc-spd').textContent = Math.round(pos.gs_kt || 0);
     
-    const dep = props.departureIcao || '---';
-    const arr = props.arrivalIcao || '---';
-    ui.querySelector('.tc-route').innerHTML = `${dep} <i class="fa-solid fa-plane"></i> ${arr}`;
+    const dep = props.departureIcao || '???';
+    const arr = props.arrivalIcao || '???';
+    ui.querySelector('.tc-route').innerHTML = `${dep} <i class="fa-solid fa-arrow-right-long" style="opacity:0.3"></i> ${arr}`;
 }
     
 /**
