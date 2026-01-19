@@ -3136,6 +3136,107 @@ function injectCustomStyles() {
 .server-selection-container {
     display: none !important;
 }
+
+/* --- SPICED PILOT REPORT STYLES --- */
+.stats-rehaul-container {
+    padding: 20px;
+    font-family: 'Inter', sans-serif;
+}
+
+.stats-hero {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 24px;
+    padding: 20px;
+    background: rgba(255, 255, 255, 0.03);
+    border-radius: 16px;
+    border: 1px solid rgba(255, 255, 255, 0.05);
+}
+
+.hero-username {
+    font-size: 2.2rem; /* Big Typography */
+    font-weight: 800;
+    margin: 4px 0;
+    letter-spacing: -1px;
+    color: #fff;
+}
+
+.hero-rank-tag {
+    font-size: 0.7rem;
+    font-weight: 900;
+    color: #38bdf8;
+    text-transform: uppercase;
+    letter-spacing: 1.5px;
+}
+
+.grade-badge {
+    text-align: center;
+    background: #38bdf8;
+    color: #000;
+    padding: 10px 18px;
+    border-radius: 12px;
+    display: flex;
+    flex-direction: column;
+}
+
+.grade-label { font-size: 0.6rem; font-weight: 900; }
+.grade-val { font-size: 1.8rem; font-weight: 800; line-height: 1; }
+
+.spiced-kpi-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 12px;
+    margin-bottom: 20px;
+}
+
+.kpi-card {
+    background: rgba(10, 10, 12, 0.4);
+    padding: 16px;
+    border-radius: 12px;
+    border: 1px solid rgba(255, 255, 255, 0.05);
+}
+
+.kpi-label {
+    display: block;
+    font-size: 0.65rem;
+    color: #71717a;
+    font-weight: 800;
+    margin-bottom: 4px;
+}
+
+.kpi-value {
+    font-size: 1.4rem;
+    font-weight: 700;
+    color: #fff;
+    font-family: 'JetBrains Mono', monospace;
+}
+
+.kpi-value.warn { color: #ef4444; }
+.kpi-value small { font-size: 0.8rem; color: #52525b; }
+
+/* --- CONTROLLER SPICE THEMES --- */
+
+/* Specialist (Blue Glow) */
+.atc-specialist .stats-hero {
+    border-left: 5px solid #38bdf8;
+    box-shadow: -10px 0 20px -10px rgba(56, 189, 248, 0.3);
+}
+
+/* Officer (Cyan / High Tech) */
+.atc-officer .stats-hero {
+    border-left: 5px solid #22d3ee;
+    background: linear-gradient(90deg, rgba(34, 211, 238, 0.05) 0%, rgba(255,255,255,0.03) 100%);
+}
+.atc-officer .hero-rank-tag { color: #22d3ee; }
+
+/* Supervisor (Gold / Elite) */
+.atc-supervisor .stats-hero {
+    border-left: 5px solid #fbbf24;
+    background: linear-gradient(90deg, rgba(251, 191, 36, 0.1) 0%, rgba(255,255,255,0.03) 100%);
+}
+.atc-supervisor .hero-rank-tag { color: #fbbf24; }
+.atc-supervisor .grade-badge { background: #fbbf24; }
     `;
 
     const style = document.createElement('style');
@@ -10118,111 +10219,101 @@ function updateSeatSensor(flightProps) {
 }
 
 /**
- * --- [REHAULED v2.1] Renders the Pilot Report with collapsible sections and a case-sensitive profile link.
- * --- [MODIFIED v2.2] Removed back button for new tabbed layout
+ * --- [SPICED UP v3.0] Renders the Pilot Report with enhanced typography 
+ * and dynamic styling for high-ranking controllers.
  */
 function renderPilotStatsHTML(stats, username) {
     if (!stats) return '<p class="error-text">Could not load pilot statistics.</p>';
 
-    // --- Data Extraction & Helpers ---
-    const getRuleValue = (rules, ruleName) => {
-        if (!Array.isArray(rules)) return null;
-        const rule = rules.find(r => r.definition?.name === ruleName);
-        return rule ? rule.referenceValue : null;
+    // --- ATC Rank Logic ---
+    const atcRankId = stats.atcRank;
+    const atcRankMap = { 
+        0: 'Observer', 1: 'Trainee', 2: 'Apprentice', 
+        3: 'Specialist', 4: 'Officer', 5: 'Supervisor', 
+        6: 'Recruiter', 7: 'Manager' 
     };
-    const formatViolationDate = (dateString) => {
-        if (!dateString) return 'N/A';
-        return new Date(dateString).toLocaleDateString('en-US', { year: 'numeric', month: 'short', day: 'numeric' });
-    };
+    const atcRankName = atcRankId in atcRankMap ? atcRankMap[atcRankId] : 'N/A';
+    
+    // Determine "Spice" level for Controllers
+    let spiceClass = '';
+    let spiceIcon = '<i class="fa-solid fa-headset"></i>';
+    if (atcRankId === 3) { spiceClass = 'atc-specialist'; spiceIcon = '<i class="fa-solid fa-star-of-life"></i>'; }
+    if (atcRankId === 4) { spiceClass = 'atc-officer'; spiceIcon = '<i class="fa-solid fa-shield-halved"></i>'; }
+    if (atcRankId === 5) { spiceClass = 'atc-supervisor'; spiceIcon = '<i class="fa-solid fa-crown"></i>'; }
 
+    // --- KPI Extraction ---
     const currentGradeIndex = stats.gradeDetails?.gradeIndex;
     const currentGrade = stats.gradeDetails?.grades?.[currentGradeIndex];
     const nextGrade = stats.gradeDetails?.grades?.[currentGradeIndex + 1];
-
-    const atcRankId = stats.atcRank;
-    const atcRankMap = { 0: 'Observer', 1: 'Trainee', 2: 'Apprentice', 3: 'Specialist', 4: 'Officer', 5: 'Supervisor', 6: 'Recruiter', 7: 'Manager' };
-    const atcRankName = atcRankId in atcRankMap ? atcRankMap[atcRankId] : 'N/A';
     
-    // --- Key Performance Indicators (KPIs) ---
     const kpis = {
         grade: currentGrade?.name.replace('Grade ', '') || 'N/A',
         xp: (stats.totalXP || 0).toLocaleString(),
         atcRank: atcRankName,
-        totalViolations: (stats.violationCountByLevel?.level1 || 0) + (stats.violationCountByLevel?.level2 || 0) + (stats.violationCountByLevel?.level3 || 0)
-    };
-    
-    // --- Detailed Stats ---
-    const details = {
-        lvl1Vios: stats.violationCountByLevel?.level1 || 0,
-        lvl2Vios: stats.violationCountByLevel?.level2 || 0,
-        lvl3Vios: stats.violationCountByLevel?.level3 || 0,
-        lastViolation: formatViolationDate(stats.lastLevel1ViolationDate),
-        flightTime90d: getRuleValue(currentGrade?.rules, 'Flight Time (90 days)'),
-        landings90d: getRuleValue(currentGrade?.rules, 'Landings (90 days)')
+        totalViolations: (stats.violationCountByLevel?.level1 || 0) + 
+                         (stats.violationCountByLevel?.level2 || 0) + 
+                         (stats.violationCountByLevel?.level3 || 0)
     };
 
-    // --- Progression Card Generator ---
+    // Helper for progression cards
     const createProgressCard = (title, gradeData) => {
-        if (!gradeData) {
-            return `<div class="progress-card complete"><h4><i class="fa-solid fa-crown"></i> Max Grade Achieved</h4><p>Congratulations, you have reached the highest available grade!</p></div>`;
-        }
-        const reqXp = getRuleValue(gradeData.rules, 'XP');
-        const reqVios = getRuleValue(gradeData.rules, 'All Level 2/3 Violations (1 year)');
+        if (!gradeData) return `<div class="progress-card complete"><h4><i class="fa-solid fa-crown"></i> Max Grade</h4></div>`;
+        const reqXp = gradeData.rules.find(r => r.definition?.name === 'XP')?.referenceValue || 0;
         const xpProgress = reqXp > 0 ? Math.min(100, (stats.totalXP / reqXp) * 100) : 100;
-        const viosMet = stats.total12MonthsViolations <= reqVios;
-        return `<div class="progress-card"><h4>${title}</h4><div class="progress-item"><div class="progress-label"><span><i class="fa-solid fa-star"></i> XP</span><span>${stats.totalXP.toLocaleString()} / ${reqXp.toLocaleString()}</span></div><div class="progress-bar-bg"><div class="progress-bar-fg" style="width: ${xpProgress.toFixed(1)}%;"></div></div></div><div class="progress-item"><div class="progress-label"><span><i class="fa-solid fa-shield-halved"></i> 1-Year Violations</span><span class="${viosMet ? 'req-met' : 'req-not-met'}">${stats.total12MonthsViolations} / ${reqVios} max<i class="fa-solid ${viosMet ? 'fa-check-circle' : 'fa-times-circle'}"></i></span></div></div></div>`;
+        return `
+            <div class="progress-card">
+                <h4>${title}</h4>
+                <div class="progress-item">
+                    <div class="progress-label"><span>XP</span><span>${kpis.xp} / ${reqXp.toLocaleString()}</span></div>
+                    <div class="progress-bar-bg"><div class="progress-bar-fg" style="width: ${xpProgress}%"></div></div>
+                </div>
+            </div>`;
     };
-    
-    // --- Final HTML Assembly with Accordion ---
+
     return `
-        <div class="stats-rehaul-container">
-            <div class="stats-header">
-                <h4>${username}</h4>
-                <a href="https://community.infiniteflight.com/u/${username}/summary" target="_blank" rel="noopener noreferrer" class="community-profile-link" title="View Community Profile">
-                    <i class="fa-solid fa-external-link-alt"></i> View Profile
+    <div class="stats-rehaul-container ${spiceClass}">
+        <div class="stats-hero">
+            <div class="hero-left">
+                <span class="hero-rank-tag">${spiceIcon} ${kpis.atcRank}</span>
+                <h2 class="hero-username">${username}</h2>
+                <a href="https://community.infiniteflight.com/u/${username}/summary" target="_blank" class="hero-profile-link">
+                    COMMUNITY PROFILE <i class="fa-solid fa-external-link"></i>
                 </a>
             </div>
-
-            <div class="kpi-grid">
-                <div class="kpi-card"><div class="kpi-label"><i class="fa-solid fa-user-shield"></i> Grade</div><div class="kpi-value">${kpis.grade}</div></div>
-                <div class="kpi-card"><div class="kpi-label"><i class="fa-solid fa-star"></i> Total XP</div><div class="kpi-value">${kpis.xp}</div></div>
-                <div class="kpi-card"><div class="kpi-label"><i class="fa-solid fa-headset"></i> ATC Rank</div><div class="kpi-value">${kpis.atcRank}</div></div>
-                <div class="kpi-card"><div class="kpi-label"><i class="fa-solid fa-triangle-exclamation"></i> Total Violations</div><div class="kpi-value">${kpis.totalViolations}</div></div>
-            </div>
-
-            <div class="stats-accordion">
-                <div class="accordion-item">
-                    <button class="accordion-header">
-                        <span><i class="fa-solid fa-chart-line"></i> Grade Progression</span>
-                        <i class="fa-solid fa-chevron-down toggle-icon"></i>
-                    </button>
-                    <div class="accordion-content">
-                        <div class="progression-container">
-                            ${createProgressCard(`Current: Grade ${kpis.grade}`, currentGrade)}
-                            ${createProgressCard(`Next: Grade ${nextGrade?.name.replace('Grade ', '') || ''}`, nextGrade)}
-                        </div>
-                    </div>
+            <div class="hero-right">
+                <div class="grade-badge">
+                    <span class="grade-label">GRADE</span>
+                    <span class="grade-val">${kpis.grade}</span>
                 </div>
+            </div>
+        </div>
 
-                <div class="accordion-item">
-                    <button class="accordion-header">
-                        <span><i class="fa-solid fa-list-check"></i> Detailed Statistics</span>
-                        <i class="fa-solid fa-chevron-down toggle-icon"></i>
-                    </button>
-                    <div class="accordion-content">
-                        <div class="details-grid">
-                             <div class="detail-item"><span class="detail-label">Level 1 Violations</span><span class="detail-value">${details.lvl1Vios}</span></div>
-                            <div class="detail-item"><span class="detail-label">Level 2 Violations</span><span class="detail-value">${details.lvl2Vios}</span></div>
-                            <div class="detail-item"><span class="detail-label">Level 3 Violations</span><span class="detail-value">${details.lvl3Vios}</span></div>
-                             <div class="detail-item"><span class="detail-label">Last Violation Date</span><span class="detail-value">${details.lastViolation}</span></div>
-                            <div class="detail-item"><span class="detail-label">Flight Time (90 days)</span><span class="detail-value">${details.flightTime90d ? details.flightTime90d.toFixed(1) + ' hrs' : 'N/A'}</span></div>
-                            <div class="detail-item"><span class="detail-label">Landings (90 days)</span><span class="detail-value">${details.landings90d || 'N/A'}</span></div>
-                        </div>
+        <div class="spiced-kpi-grid">
+            <div class="kpi-card">
+                <span class="kpi-label">TOTAL EXPERIENCE</span>
+                <span class="kpi-value">${kpis.xp} <small>XP</small></span>
+            </div>
+            <div class="kpi-card">
+                <span class="kpi-label">VIOLATIONS</span>
+                <span class="kpi-value ${kpis.totalViolations > 0 ? 'warn' : ''}">${kpis.totalViolations}</span>
+            </div>
+        </div>
+
+        <div class="stats-accordion">
+            <div class="accordion-item active">
+                <button class="accordion-header">
+                    <span><i class="fa-solid fa-chart-line"></i> PROGRESSION</span>
+                    <i class="fa-solid fa-chevron-down toggle-icon"></i>
+                </button>
+                <div class="accordion-content" style="max-height: 500px;">
+                    <div class="progression-container">
+                        ${createProgressCard(`CURRENT: GRADE ${kpis.grade}`, currentGrade)}
+                        ${nextGrade ? createProgressCard(`NEXT: GRADE ${nextGrade.name.replace('Grade ', '')}`, nextGrade) : ''}
                     </div>
                 </div>
             </div>
-            
-            </div>
+        </div>
+    </div>
     `;
 }
 
