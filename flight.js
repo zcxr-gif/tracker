@@ -6911,7 +6911,7 @@ function setupAircraftWindowEvents() {
         // 0. Handle Screenshot (Share)
         if (shareBtn) {
             e.preventDefault();
-            generateTripCard();
+            toggleTripCardMode(true);
             return;
         }
 
