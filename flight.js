@@ -565,6 +565,62 @@ function injectCustomStyles() {
 
     const css = `
 
+    /* --- LIVE TRIP CARD TAKEOVER --- */
+#trip-card-takeover {
+    position: fixed;
+    inset: 0;
+    z-index: 9999;
+    pointer-events: none; /* Allows interacting with the map behind */
+    display: none;
+    flex-direction: column;
+    justify-content: space-between;
+    padding: 40px;
+    font-family: 'Inter', sans-serif;
+    background: radial-gradient(circle at center, rgba(15, 23, 42, 0) 0%, rgba(15, 23, 42, 0.4) 60%, rgba(15, 23, 42, 0.8) 100%);
+    transition: all 0.5s ease;
+}
+
+#trip-card-takeover.active { display: flex; }
+
+#trip-card-takeover .ui-element { pointer-events: auto; } /* Re-enable clicks for buttons/info */
+
+.takeover-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-start;
+}
+
+.takeover-footer {
+    display: flex;
+    align-items: flex-end;
+    gap: 30px;
+    margin-top: auto;
+}
+
+.live-data-grid {
+    background: rgba(15, 23, 42, 0.7);
+    backdrop-filter: blur(12px);
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    padding: 25px 40px;
+    border-radius: 20px;
+    display: flex;
+    gap: 50px;
+    box-shadow: 0 20px 50px rgba(0,0,0,0.5);
+}
+
+.takeover-exit-btn {
+    background: rgba(239, 68, 68, 0.2);
+    border: 1px solid rgba(239, 68, 68, 0.4);
+    color: #ef4444;
+    padding: 10px 20px;
+    border-radius: 99px;
+    cursor: pointer;
+    font-weight: 700;
+    transition: all 0.2s;
+}
+
+.takeover-exit-btn:hover { background: #ef4444; color: white; }
+
     .settings-section { display: flex; flex-direction: column; gap: 16px; }
 .settings-row { 
     display: flex; 
@@ -3811,223 +3867,70 @@ async function loadExternalPanelContent() {
 
 
 /**
- * --- [UPDATED] Generates High-Quality Trip Card ---
- * 1. Forces High-DPI Map Capture.
- * 2. Robust Image Selector.
- * 3. USES BACKEND PROXY to fix CORS/Blank Image issues.
+ * REPLACED: Live Trip Card Mode
+ * Takes over the UI, filters the map, and shows real-time stats.
  */
-async function generateTripCard() {
-    // 1. Check Library
-    if (typeof html2canvas === 'undefined') {
-        showNotification("Loading image generator...", "info");
-        try {
-            await new Promise((resolve, reject) => {
-                const script = document.createElement('script');
-                script.src = "https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js";
-                script.onload = resolve;
-                script.onerror = reject;
-                document.head.appendChild(script);
-            });
-        } catch (e) {
-            showNotification("Failed to load image library.", "error");
-            return;
+function toggleTripCardMode(active) {
+    const takeoverUI = document.getElementById('trip-card-takeover');
+    if (!takeoverUI) return;
+
+    if (active && currentFlightInWindow) {
+        takeoverUI.classList.add('active');
+        
+        // 1. Filter out all other aircraft on the map
+        if (sectorOpsMap && sectorOpsMap.getLayer('sector-ops-live-flights-layer')) {
+            sectorOpsMap.setFilter('sector-ops-live-flights-layer', ['==', 'flightId', currentFlightInWindow]);
         }
-    }
 
-    if (!currentFlightInWindow || !currentMapFeatures[currentFlightInWindow]) {
-        showNotification("No flight selected.", "error");
-        return;
-    }
-
-    // --- VISUAL OVERLAY ---
-    const loadingOverlay = document.createElement('div');
-    loadingOverlay.style.cssText = `
-        position: fixed; inset: 0; background: rgba(15, 23, 42, 0.8); backdrop-filter: blur(5px);
-        z-index: 100000; display: flex; flex-direction: column; align-items: center; justify-content: center;
-        color: white; font-family: 'Inter', sans-serif; transition: opacity 0.3s;
-    `;
-    loadingOverlay.innerHTML = `
-        <i class="fa-solid fa-camera fa-bounce" style="font-size: 3rem; color: #38bdf8; margin-bottom: 20px;"></i>
-        <h2 style="margin: 0; font-weight: 600;">Generating High-Res Card...</h2>
-        <p style="margin: 5px 0 0; color: #94a3b8; font-size: 0.9rem;">Processing via Proxy...</p>
-    `;
-    document.body.appendChild(loadingOverlay);
-
-    setTimeout(async () => {
-        let mapBlobUrl = null;
-
-        try {
-            const feature = currentMapFeatures[currentFlightInWindow];
-            const props = feature.properties;
-            const aircraftData = JSON.parse(props.aircraft || '{}');
-            const position = JSON.parse(props.position || '{}');
-            const coords = feature.geometry.coordinates;
-
-            // --- 1. HIGH-QUALITY MAP CAPTURE ---
-            if (sectorOpsMap) {
-                sectorOpsMap.jumpTo({ center: coords });
-                await new Promise(r => setTimeout(r, 400));
-            }
-
-            try {
-                await new Promise(resolve => {
-                    sectorOpsMap.once('render', resolve);
-                    sectorOpsMap.triggerRepaint();
-                });
-                
-                const mapCanvas = sectorOpsMap.getCanvas();
-                const highResCanvas = document.createElement('canvas');
-                highResCanvas.width = mapCanvas.width * 2; 
-                highResCanvas.height = mapCanvas.height * 2;
-                const ctx = highResCanvas.getContext('2d');
-                ctx.drawImage(mapCanvas, 0, 0, highResCanvas.width, highResCanvas.height);
-                
-                const blob = await new Promise(resolve => highResCanvas.toBlob(resolve, 'image/png', 1.0));
-                mapBlobUrl = URL.createObjectURL(blob);
-            } catch (e) {
-                console.warn("Map capture failed:", e);
-            }
-
-            // --- 2. IMAGE SELECTOR WITH PROXY ROUTING ---
-            let originalUrl = '/CommunityPlanes/default.png';
-            
-            // Try Method A: Dataset (Best for full res)
-            const overviewPanel = document.getElementById('ac-overview-panel');
-            if (overviewPanel && overviewPanel.dataset.currentPath) {
-                originalUrl = overviewPanel.dataset.currentPath;
-            } 
-            // Try Method B: Image Tag (Fallback)
-            else {
-                const imgTag = document.querySelector('.tech-image');
-                if (imgTag && imgTag.src) {
-                    originalUrl = imgTag.src;
-                }
-            }
-
-            // [NEW] Construct the Proxy URL
-            // If the URL is external (starts with http), route it through your backend.
-            // If it is local (e.g., /CommunityPlanes/...), use it as is.
-            let safeAircraftImgUrl = originalUrl;
-            if (originalUrl.startsWith('http')) {
-                // Using the backend URL from your existing code structure
-                const BACKEND_URL = "https://site--acars-backend--6dmjph8ltlhv.code.run";
-                safeAircraftImgUrl = `${BACKEND_URL}/api/image-proxy?url=${encodeURIComponent(originalUrl)}`;
-            }
-
-            // --- 3. CONSTRUCT CARD ---
-            const cardContainer = document.createElement('div');
-            cardContainer.id = "trip-card-container";
-            cardContainer.style.cssText = `
-                position: fixed; top: -9999px; left: -9999px;
-                width: 1200px; height: 675px;
-                background-color: #0f172a;
-                font-family: 'Inter', sans-serif;
-                overflow: hidden;
-                z-index: 99999;
-                display: flex;
-                flex-direction: column;
-            `;
-
-            const livName = aircraftData.liveryName || '';
-            const words = livName.trim().split(/\s+/);
-            let logoName = words.length > 1 && /[^a-zA-Z0-9]/.test(words[1]) ? words[0] : (words[0] + (words[1] ? ' ' + words[1] : ''));
-            const sanitizedLogoName = logoName.toLowerCase().replace(/[^a-z0-9\s]/g, '').replace(/\s+/g, '_');
-            const logoPath = sanitizedLogoName ? `Images/airline_logos/${sanitizedLogoName}.png` : '';
-            
-            const dep = document.getElementById('ac-header-dep') ? document.getElementById('ac-header-dep').textContent : 'N/A';
-            const arr = document.getElementById('ac-header-arr') ? document.getElementById('ac-header-arr').textContent : 'N/A';
-            const pilotName = props.username || "Unknown Pilot";
-            const alt = Math.round(position.alt_ft || 0).toLocaleString();
-            const spd = Math.round(position.gs_kt || 0);
-
-            // Note: We use 'safeAircraftImgUrl' in the background-image below
-            cardContainer.innerHTML = `
-                <div style="position: absolute; top: 0; left: 0; width: 100%; height: 100%; z-index: 1;">
-                    <div style="width: 100%; height: 100%; background-image: url('${mapBlobUrl}'); background-size: cover; background-position: center;"></div>
-                    <div style="position: absolute; inset: 0; background: radial-gradient(circle at center, rgba(15, 23, 42, 0.1) 0%, rgba(15, 23, 42, 0.4) 50%, rgba(15, 23, 42, 0.95) 100%);"></div>
-                </div>
-
-                <div style="position: relative; z-index: 10; padding: 40px; display: flex; justify-content: flex-end;">
-                     <div style="text-align: right; text-shadow: 0 4px 12px rgba(0,0,0,0.9);">
-                         <h2 style="margin: 0; color: #fff; font-size: 2.2rem; font-weight: 800; letter-spacing: -0.05em;">
-                            Inflight<span style="color: #38bdf8;">Tracker</span>
-                         </h2>
-                         <p style="margin: 0; color: #94a3b8; font-size: 1rem; font-weight: 600; text-transform: uppercase; letter-spacing: 0.1em;">
-                            <i class="fa-solid fa-satellite-dish" style="margin-right: 6px; color: #22c55e;"></i>Live Tracking
-                         </p>
-                    </div>
-                </div>
-
-                <div style="position: relative; z-index: 10; padding: 40px; margin-top: auto; display: flex; align-items: flex-end; gap: 35px;">
-                    
-                    <div style="width: 340px; background: #fff; padding: 8px; border-radius: 12px; transform: rotate(-2deg); box-shadow: 0 20px 40px rgba(0,0,0,0.6);">
-                        <div style="width: 100%; height: 210px; background-image: url('${safeAircraftImgUrl}'); background-size: cover; background-position: center; border-radius: 6px; background-color: #cbd5e1;"></div>
-                        <div style="padding: 12px 6px;">
-                             <div style="color: #0f172a; font-weight: 700; font-size: 1.1rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">${aircraftData.aircraftName}</div>
-                             <div style="color: #64748b; font-size: 0.85rem; font-weight: 500;">${aircraftData.liveryName}</div>
-                        </div>
-                    </div>
-
-                    <div style="flex: 1; padding-bottom: 5px;">
-                        <div style="margin-bottom: 25px;">
-                            <div style="display: flex; align-items: center; gap: 12px; margin-bottom: 8px;">
-                                 <span style="background: #38bdf8; color: #0f172a; padding: 3px 10px; border-radius: 4px; font-size: 0.8rem; font-weight: 800; text-transform: uppercase;">Pilot</span>
-                                 <span style="color: #e2e8f0; font-size: 1.3rem; font-weight: 600; text-shadow: 0 2px 5px rgba(0,0,0,0.9);">${pilotName}</span>
-                            </div>
-                            <div style="display: flex; align-items: center; gap: 20px;">
-                                ${logoPath ? `<img src="${logoPath}" style="height: 60px; width: auto; filter: drop-shadow(0 4px 8px rgba(0,0,0,0.8));" crossorigin="anonymous">` : ''}
-                                <h1 style="margin: 0; font-size: 4.5rem; font-weight: 800; color: #fff; line-height: 1; text-shadow: 0 5px 20px rgba(0,0,0,0.7); letter-spacing: -2px;">${props.callsign || 'N/A'}</h1>
-                            </div>
-                        </div>
-
-                        <div style="background: rgba(15, 23, 42, 0.6); backdrop-filter: blur(16px); border: 1px solid rgba(255, 255, 255, 0.1); padding: 20px 35px; border-radius: 16px; display: flex; align-items: center; gap: 50px;">
-                            <div>
-                                <span style="font-size: 0.8rem; color: #94a3b8; text-transform: uppercase; letter-spacing: 0.1em; font-weight: 700; display: block; margin-bottom: 6px;">Route</span>
-                                <div style="font-size: 1.8rem; color: #fff; font-weight: 700; display: flex; align-items: center; gap: 12px; line-height: 1;">
-                                    ${dep} <i class="fa-solid fa-plane" style="font-size: 0.6em; color: #38bdf8; transform: rotate(0deg);"></i> ${arr}
-                                </div>
-                            </div>
-                            <div style="width: 1px; height: 40px; background: rgba(255,255,255,0.15);"></div>
-                            <div>
-                                <span style="font-size: 0.8rem; color: #94a3b8; text-transform: uppercase; letter-spacing: 0.1em; font-weight: 700; display: block; margin-bottom: 6px;">Altitude</span>
-                                <span style="font-size: 1.8rem; color: #38bdf8; font-weight: 700; font-family: 'Consolas', monospace; line-height: 1;">${alt}</span>
-                            </div>
-                            <div style="width: 1px; height: 40px; background: rgba(255,255,255,0.15);"></div>
-                            <div>
-                                <span style="font-size: 0.8rem; color: #94a3b8; text-transform: uppercase; letter-spacing: 0.1em; font-weight: 700; display: block; margin-bottom: 6px;">Speed</span>
-                                <span style="font-size: 1.8rem; color: #fbbf24; font-weight: 700; font-family: 'Consolas', monospace; line-height: 1;">${spd} <span style="font-size: 0.5em;">kts</span></span>
-                            </div>
-                        </div>
-                    </div>
-                </div>
-            `;
-
-            document.body.appendChild(cardContainer);
-
-            // --- 4. RENDER & DOWNLOAD ---
-            const canvas = await html2canvas(cardContainer, {
-                backgroundColor: '#0f172a',
-                useCORS: true, 
-                allowTaint: true,
-                scale: 1.5 
-            });
-
-            const link = document.createElement('a');
-            link.download = `Inflight_${props.callsign}_${pilotName.replace(/\s+/g, '_')}.png`;
-            link.href = canvas.toDataURL('image/png');
-            link.click();
-            
-            if (mapBlobUrl) URL.revokeObjectURL(mapBlobUrl);
-            document.body.removeChild(cardContainer);
-            showNotification("High-Res Card Downloaded!", "success");
-
-        } catch (err) {
-            console.error(err);
-            showNotification("Failed to generate image.", "error");
-        } finally {
-            if (loadingOverlay) document.body.removeChild(loadingOverlay);
+        // 2. Hide standard UI components
+        document.getElementById('sector-ops-floating-panel')?.classList.remove('visible');
+        aircraftInfoWindow?.classList.remove('visible');
+        
+        // 3. Update the data immediately
+        updateTripCardRealtime();
+        
+        // 4. Focus map on the flight
+        const feature = currentMapFeatures[currentFlightInWindow];
+        if (feature) {
+            sectorOpsMap.flyTo({ center: feature.geometry.coordinates, zoom: 7 });
         }
-    }, 100);
+
+    } else {
+        // Deactivate and Restore
+        takeoverUI.classList.remove('active');
+        
+        // Restore standard map filters (Show all aircraft again)
+        if (typeof updateAircraftLayerFilter === 'function') {
+            updateAircraftLayerFilter(); 
+        }
+        
+        // Re-show aircraft info window
+        aircraftInfoWindow?.classList.add('visible');
+    }
+}
+
+/**
+ * Updates the takeover UI with live socket data
+ */
+function updateTripCardRealtime() {
+    if (!currentFlightInWindow || !currentMapFeatures[currentFlightInWindow]) return;
+
+    const feature = currentMapFeatures[currentFlightInWindow];
+    const props = feature.properties;
+    const pos = JSON.parse(props.position || '{}');
+    
+    const ui = document.getElementById('trip-card-takeover');
+    if (!ui) return;
+
+    // Update dynamic text fields
+    ui.querySelector('.tc-callsign').textContent = props.callsign || 'N/A';
+    ui.querySelector('.tc-pilot').textContent = props.username || 'Unknown Pilot';
+    ui.querySelector('.tc-alt').textContent = Math.round(pos.alt_ft || 0).toLocaleString();
+    ui.querySelector('.tc-spd').textContent = Math.round(pos.gs_kt || 0);
+    
+    const dep = props.departureIcao || '---';
+    const arr = props.arrivalIcao || '---';
+    ui.querySelector('.tc-route').innerHTML = `${dep} <i class="fa-solid fa-plane"></i> ${arr}`;
 }
     
 /**
@@ -5447,7 +5350,11 @@ function handleSocketFlightUpdate(data) {
             if (cachedFlightDataForStatsView.plan && mapFilters.planDisplayMode !== 'none' && isMapReady) {
                 updateFlightPlanLayer(flightId, cachedFlightDataForStatsView.plan, flight.position);
             }
-        }
+
+            if (document.getElementById('trip-card-takeover')?.classList.contains('active')) {
+        updateTripCardRealtime();
+    }
+}
 
         // Only update the Map Animation/Icons if the map is actually ready.
         if (isMapReady) {
@@ -8080,6 +7987,51 @@ Object.entries(ids).forEach(([id, key]) => {
             `;
             mapContainer.insertAdjacentHTML('beforeend', windowHtml);
         }
+
+        // Inject into initializeSectorOpsView
+if (!document.getElementById('trip-card-takeover')) {
+    const takeoverHtml = `
+        <div id="trip-card-takeover">
+            <div class="takeover-header">
+                <div class="ui-element" style="text-shadow: 0 4px 12px rgba(0,0,0,0.9);">
+                    <h2 style="margin: 0; color: #fff; font-size: 2.2rem; font-weight: 800;">
+                        Inflight<span style="color: #38bdf8;">Mode</span>
+                    </h2>
+                </div>
+                <button class="takeover-exit-btn ui-element" onclick="toggleTripCardMode(false)">
+                    <i class="fa-solid fa-xmark"></i> EXIT LIVE VIEW
+                </button>
+            </div>
+
+            <div class="takeover-footer">
+                <div class="live-data-grid ui-element">
+                    <div>
+                        <span style="font-size: 0.8rem; color: #94a3b8; text-transform: uppercase; font-weight: 700; display: block;">Callsign</span>
+                        <h1 class="tc-callsign" style="margin: 0; font-size: 3.5rem; font-weight: 800; color: #fff; line-height: 1;">---</h1>
+                    </div>
+                    <div style="width: 1px; height: 50px; background: rgba(255,255,255,0.15); align-self: center;"></div>
+                    <div>
+                        <span style="font-size: 0.8rem; color: #94a3b8; text-transform: uppercase; font-weight: 700; display: block;">Route</span>
+                        <div class="tc-route" style="font-size: 1.8rem; color: #fff; font-weight: 700; display: flex; align-items: center; gap: 12px;">---</div>
+                    </div>
+                    <div>
+                        <span style="font-size: 0.8rem; color: #94a3b8; text-transform: uppercase; font-weight: 700; display: block;">Altitude</span>
+                        <span class="tc-alt" style="font-size: 1.8rem; color: #38bdf8; font-weight: 700; font-family: 'JetBrains Mono';">0</span>
+                    </div>
+                    <div>
+                        <span style="font-size: 0.8rem; color: #94a3b8; text-transform: uppercase; font-weight: 700; display: block;">Ground Speed</span>
+                        <span style="font-size: 1.8rem; color: #fbbf24; font-weight: 700; font-family: 'JetBrains Mono';"><span class="tc-spd">0</span> <small style="font-size: 0.5em;">kts</small></span>
+                    </div>
+                </div>
+                <div class="ui-element" style="margin-left: auto; text-align: right;">
+                    <span style="color: #94a3b8; font-size: 0.9rem;">Pilot</span>
+                    <div class="tc-pilot" style="color: #fff; font-size: 1.2rem; font-weight: 600;">---</div>
+                </div>
+            </div>
+        </div>
+    `;
+    mapContainer.insertAdjacentHTML('beforeend', takeoverHtml);
+}
         
         // --- 9. Inject Toolbar Buttons (if missing) ---
         const toolbarToggleBtn = document.getElementById('toolbar-toggle-panel-btn');
@@ -9810,7 +9762,7 @@ function populateAircraftInfoWindow(baseProps, plan, sortedRoutePoints, communit
                 <!-- RE-STYLED NAV DATA PANEL - FLUID DESIGN -->
                 <div class="tech-module" id="location-data-panel" style="background: rgba(15, 23, 42, 0.4); border: 1px solid rgba(255,255,255,0.05); border-radius: 12px; overflow: hidden; backdrop-filter: blur(8px);">
                     <div class="tech-module-header" style="padding: 14px 18px; background: rgba(255,255,255,0.03); display: flex; align-items: center; justify-content: space-between; border-bottom: 1px solid rgba(255,255,255,0.05);">
-                         <span class="tech-module-title" style="font-weight: 700; font-size: 11px; text-transform: uppercase; color: #fff; letter-spacing: 1px;"><i class="fa-solid fa-radar" style="margin-right: 8px; color: #38bdf8;"></i> Navigation Intelligence</span>
+                         <span class="tech-module-title" style="font-weight: 700; font-size: 11px; text-transform: uppercase; color: #fff; letter-spacing: 1px;"><i class="fa-solid fa-radar" style="margin-right: 8px; color: #38bdf8;"></i> Navigation Info</span>
                          <div style="display: flex; align-items: center; gap: 8px;">
                              <span style="font-size: 9px; color: #4ade80; font-weight: 700; letter-spacing: 0.5px;">SYNC ACTIVE</span>
                              <div class="nav-status-indicator" style="width: 6px; height: 6px; background: #4ade80; border-radius: 50%; box-shadow: 0 0 8px #4ade80;"></div>
