@@ -1,11 +1,10 @@
 /**
  * natTracksLayer.js (Mapbox GL JS Version)
- * Updated: Added background "badges" (circles) for track letters and reduced font size.
+ * Updated: Layers moved UNDER airplane icons; sizes further reduced.
  */
 
 const ACARS_SOCKET_URL = 'https://site--acars-backend--6dmjph8ltlhv.code.run';
 
-// Shared color logic for lines and circle backgrounds
 const TRACK_COLOR_EXPRESSION = [
     'match',
     ['get', 'name'],
@@ -24,7 +23,9 @@ export class NatTracksLayer {
         this.sourceId = 'nat-tracks-source';
         this.lineLayerId = 'nat-tracks-layer';
         this.labelLayerId = 'nat-tracks-labels';
-        this.bgLayerId = 'nat-tracks-bg-circles'; // New ID for circle backgrounds
+        this.bgLayerId = 'nat-tracks-bg-circles';
+        // The ID of the layer you want the tracks to appear BEHIND
+        this.airplaneLayerId = 'flights-layer'; 
         this.tracks = [];
         this.refreshInterval = null;
         this.hoveredTrackId = null;
@@ -41,7 +42,10 @@ export class NatTracksLayer {
             generateId: true 
         });
 
-        // 1. Line Layer
+        // Check if the airplane layer exists to use as a reference for 'beforeId'
+        const beforeId = this.map.getLayer(this.airplaneLayerId) ? this.airplaneLayerId : undefined;
+
+        // 1. Line Layer (Bottom)
         this.map.addLayer({
             id: this.lineLayerId,
             type: 'line',
@@ -50,12 +54,12 @@ export class NatTracksLayer {
             layout: { 'line-join': 'round', 'line-cap': 'round' },
             paint: {
                 'line-color': TRACK_COLOR_EXPRESSION,
-                'line-width': ['case', ['boolean', ['feature-state', 'hover'], false], 4.5, 2.2],
-                'line-opacity': ['case', ['boolean', ['feature-state', 'hover'], false], 1, 0.6]
+                'line-width': ['case', ['boolean', ['feature-state', 'hover'], false], 3.5, 1.8],
+                'line-opacity': ['case', ['boolean', ['feature-state', 'hover'], false], 0.8, 0.4]
             }
-        });
+        }, beforeId); // Injected before the planes
 
-        // 2. Circle Background Layer (The "Badge")
+        // 2. Circle Background (Middle)
         this.map.addLayer({
             id: this.bgLayerId,
             type: 'circle',
@@ -63,14 +67,14 @@ export class NatTracksLayer {
             filter: ['==', ['geometry-type'], 'Point'],
             paint: {
                 'circle-color': TRACK_COLOR_EXPRESSION,
-                'circle-radius': ['case', ['boolean', ['feature-state', 'hover'], false], 10, 8],
-                'circle-opacity': ['case', ['boolean', ['feature-state', 'hover'], false], 1, 0.9],
+                'circle-radius': ['case', ['boolean', ['feature-state', 'hover'], false], 8, 6.5],
+                'circle-opacity': 0.9,
                 'circle-stroke-width': 1,
-                'circle-stroke-color': 'rgba(0,0,0,0.2)'
+                'circle-stroke-color': 'rgba(0,0,0,0.1)'
             }
-        });
+        }, beforeId);
 
-        // 3. Label Layer (Smaller text centered in circle)
+        // 3. Label Layer (Top of the track stack, but still under planes)
         this.map.addLayer({
             id: this.labelLayerId,
             type: 'symbol',
@@ -79,21 +83,20 @@ export class NatTracksLayer {
             layout: {
                 'text-field': ['get', 'name'],
                 'text-font': ['Open Sans Bold', 'Arial Unicode MS Bold'],
-                'text-size': 9, // Reduced size
+                'text-size': 7.5, // Even smaller text
                 'text-justify': 'center',
                 'text-allow-overlap': true,
                 'text-ignore-placement': true
             },
             paint: {
-                'text-color': '#ffffff', // White text for better contrast on colored circles
-                'text-opacity': 1
+                'text-color': '#ffffff'
             }
-        });
+        }, beforeId);
 
         this.setupInteractions();
     }
 
-    // ... (fetchTracks remains the same)
+    // ... (rest of the logic: fetchTracks, render, parsePath, etc. remain the same)
     async fetchTracks() {
         try {
             const response = await fetch(`${ACARS_SOCKET_URL}/api/live/tracks`);
@@ -107,7 +110,6 @@ export class NatTracksLayer {
         }
     }
 
-    // ... (render remains the same)
     render() {
         const features = [];
         this.tracks.forEach(track => {
@@ -145,7 +147,6 @@ export class NatTracksLayer {
         if (source) source.setData({ type: 'FeatureCollection', features });
     }
 
-    // ... (parsePath remains the same)
     parsePath(path) {
         return path.map(point => {
             if (point.includes('/')) {
