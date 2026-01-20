@@ -149,7 +149,7 @@ export const AirportLayoutManager = {
         }, planeLayerId);
 
         // 6. HOLD SHORT LINES (Pattern A)
-        // Solid Side
+        // Solid Side (Nearest to Runway)
         map.addLayer({
             id: `hold-short-solid-${icao}`,
             type: 'line',
@@ -162,7 +162,7 @@ export const AirportLayoutManager = {
             }
         }, planeLayerId);
 
-        // Dashed Side
+        // Dashed Side (Further from Runway)
         map.addLayer({
             id: `hold-short-dash-${icao}`,
             type: 'line',
@@ -239,7 +239,6 @@ export const AirportLayoutManager = {
                     properties: { type: "designation", ref: label, bearing: textRotation }
                 });
 
-                // Threshold Zebra
                 for (let i = -14; i <= 14; i += 4) {
                     const stripeOrigin = this.destPoint(origin, brng + 90, i);
                     const sStart = this.destPoint(stripeOrigin, brng, 2);
@@ -247,7 +246,6 @@ export const AirportLayoutManager = {
                     features.push({ type: "Feature", geometry: { type: "LineString", coordinates: [sStart, sEnd] }, properties: { type: "threshold-stripe" } });
                 }
 
-                // Aiming Points
                 [-12, 12].forEach(side => {
                     const bStart = this.destPoint(this.destPoint(origin, brng + 90, side), brng, 300);
                     const bEnd = this.destPoint(bStart, brng, 45);
@@ -259,7 +257,6 @@ export const AirportLayoutManager = {
             addEndMarkings(start, bearing, refs[0]);
             addEndMarkings(end, reverseBearing, refs[1]);
 
-            // Edge Stripes
             const lS = this.destPoint(start, bearing + 90, rwWidth/2), lE = this.destPoint(end, bearing + 90, rwWidth/2);
             const rS = this.destPoint(start, bearing - 90, rwWidth/2), rE = this.destPoint(end, bearing - 90, rwWidth/2);
             features.push({ type: "Feature", geometry: { type: "LineString", coordinates: [lS, lE] }, properties: { type: "edge-stripe" } });
@@ -267,19 +264,22 @@ export const AirportLayoutManager = {
         });
 
         // 2. Procedural Hold-Short Markings (Pattern A)
-        // We find taxiway nodes that are close to runway segments
+        // Ensure markings are placed ON the taxiway BEFORE the runway edge
         taxiways.forEach(tw => {
             const twCoords = tw.geometry.coordinates;
             twCoords.forEach(coord => {
                 runways.forEach(rw => {
                     const rwCoords = rw.geometry.coordinates;
                     for (let i = 0; i < rwCoords.length - 1; i++) {
-                        const dist = this.getDistanceToSegment(coord, rwCoords[i], rwCoords[i+1]);
-                        // If taxiway point is near runway edge (within ~40m)
-                        if (dist > 25 && dist < 45) {
-                            const rwBearing = this.getBearing(rwCoords[i], rwCoords[i+1]);
-                            // Create the 4-line pattern
-                            this.createHoldShortPattern(features, coord, rwBearing + 90, 25);
+                        const { dist, projection } = this.getClosestPointOnSegment(coord, rwCoords[i], rwCoords[i+1]);
+                        
+                        // ICAO standard: Hold short lines are ~30-60m from centerline (roughly 10-30m from edge)
+                        if (dist > 35 && dist < 65) {
+                            // Calculate vector from runway centerline toward the taxiway point
+                            const vectorBearing = this.getBearing(projection, coord);
+                            // Set the line orientation perpendicular to the taxiway vector
+                            // We place the marking exactly at the taxiway node location
+                            this.createHoldShortPattern(features, coord, vectorBearing, 25);
                         }
                     }
                 });
@@ -289,15 +289,16 @@ export const AirportLayoutManager = {
         return { type: 'FeatureCollection', features };
     },
 
-    createHoldShortPattern(features, center, angle, width) {
-        // Pattern A: 2 solid (runway side), 2 dashed (taxiway side)
-        // We use 'angle' as the orientation of the taxiway entering the runway
-        const offsets = [-3, -1, 1, 3]; // meters from center
+    createHoldShortPattern(features, center, enteringBearing, width) {
+        // enteringBearing is the direction from runway centerline to the taxiway point
+        // Pattern A: 2 solid (nearest to runway), 2 dashed (nearest to taxiway)
+        const offsets = [-3, -1, 1, 3]; 
         const halfWidth = width / 2;
 
         offsets.forEach((off, idx) => {
-            const p1 = this.destPoint(this.destPoint(center, angle + 90, halfWidth), angle, off);
-            const p2 = this.destPoint(this.destPoint(center, angle - 90, halfWidth), angle, off);
+            // Line is perpendicular to the 'entering' direction
+            const p1 = this.destPoint(this.destPoint(center, enteringBearing + 90, halfWidth), enteringBearing, off);
+            const p2 = this.destPoint(this.destPoint(center, enteringBearing - 90, halfWidth), enteringBearing, off);
             
             features.push({
                 type: "Feature",
@@ -309,13 +310,13 @@ export const AirportLayoutManager = {
         });
     },
 
-    getDistanceToSegment(p, a, b) {
+    getClosestPointOnSegment(p, a, b) {
         const d2 = Math.pow(a[0]-b[0], 2) + Math.pow(a[1]-b[1], 2);
-        if (d2 === 0) return this.getDistance(p, a);
+        if (d2 === 0) return { dist: this.getDistance(p, a), projection: a };
         let t = ((p[0]-a[0])*(b[0]-a[0]) + (p[1]-a[1])*(b[1]-a[1])) / d2;
         t = Math.max(0, Math.min(1, t));
         const projection = [a[0] + t*(b[0]-a[0]), a[1] + t*(b[1]-a[1])];
-        return this.getDistance(p, projection);
+        return { dist: this.getDistance(p, projection), projection };
     },
 
     processOsmData(elements) {
