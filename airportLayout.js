@@ -1,16 +1,24 @@
 /**
  * airportLayout.js
- * High-Detail Procedural Runway Build
- * Generates ICAO-standard markings (Thresholds, Aiming Points, Designations)
+ * Enhanced Procedural Layout with HTML-referenced Styling
+ * Includes ICAO Pattern A Hold-Short Markings
  */
 
 export const AirportLayoutManager = {
     activeLayers: new Set(),
     layoutCache: new Map(),
 
+    // --- STYLING CONSTANTS (Matched to HTML Reference) ---
+    COLORS: {
+        RUNWAY_BASE: '#333333',     // HTML ASPHALT
+        TAXIWAY_BASE: '#222222',     // Slightly darker pavement
+        MARKING_WHITE: '#FFFFFF',
+        MARKING_YELLOW: '#FACC15',   // HTML TAXIWAY_YELLOW
+        GRASS_FALLBACK: '#14532d'    // HTML GRASS
+    },
+
     // --- GEOMETRY UTILITIES ---
     
-    // Calculates bearing between two coordinates [lon, lat]
     getBearing(start, end) {
         const startLat = start[1] * Math.PI / 180;
         const startLon = start[0] * Math.PI / 180;
@@ -22,7 +30,6 @@ export const AirportLayoutManager = {
         return (Math.atan2(y, x) * 180 / Math.PI + 360) % 360;
     },
 
-    // Calculates distance in meters between two points
     getDistance(pt1, pt2) {
         const R = 6378137;
         const dLat = (pt2[1] - pt1[1]) * Math.PI / 180;
@@ -34,9 +41,8 @@ export const AirportLayoutManager = {
         return R * c;
     },
 
-    // Calculates a new coordinate based on distance (meters) and bearing
     destPoint(pt, brng, dist) {
-        const R = 6378137; // Earth's radius
+        const R = 6378137;
         const brngRad = brng * Math.PI / 180;
         const lat1 = pt[1] * Math.PI / 180;
         const lon1 = pt[0] * Math.PI / 180;
@@ -49,7 +55,7 @@ export const AirportLayoutManager = {
         if (!map) return;
 
         const sourceId = `airport-${icao}-source`;
-        const markingSourceId = `runway-markings-${icao}-source`;
+        const markingSourceId = `airport-markings-${icao}-source`;
         const planeLayerId = 'sector-ops-live-flights-layer'; 
         
         this.clearAll(map);
@@ -76,75 +82,101 @@ export const AirportLayoutManager = {
             }
         }
 
-        // --- PROCEDURAL RUNWAY BUILD ---
-        const markingData = this.generateRunwayBuild(geojsonData);
+        // --- PROCEDURAL MARKING BUILD ---
+        const markingData = this.generateMarkings(geojsonData);
 
         map.addSource(sourceId, { type: 'geojson', data: geojsonData });
         map.addSource(markingSourceId, { type: 'geojson', data: markingData });
 
-        // 1. TAXIWAY PAVEMENT
+        // 1. TAXIWAY PAVEMENT (Darker Asphalt)
         map.addLayer({
             id: `taxi-pavement-${icao}`,
             type: 'fill',
             source: sourceId,
             filter: ['all', ['==', '$type', 'Polygon'], ['!=', 'aeroway', 'runway']],
-            paint: { 'fill-color': '#1a1a1a', 'fill-opacity': 0.9 }
+            paint: { 'fill-color': this.COLORS.TAXIWAY_BASE, 'fill-opacity': 0.95 }
         }, planeLayerId);
 
-        // 2. RUNWAY BASE (Pavement)
+        // 2. RUNWAY BASE (HTML ASPHALT)
         map.addLayer({
             id: `runway-base-${icao}`,
             type: 'line',
             source: sourceId,
             filter: ['all', ['==', 'aeroway', 'runway'], ['==', '$type', 'LineString']],
-            layout: { 'line-cap': 'square', 'line-join': 'miter' },
+            layout: { 'line-cap': 'butt', 'line-join': 'miter' },
             paint: {
-                'line-color': '#0f0f0f',
+                'line-color': this.COLORS.RUNWAY_BASE,
                 'line-width': ['interpolate', ['exponential', 1.5], ['zoom'], 10, 2, 12, 6, 14, 25, 16, 80, 18, 180]
             }
         }, planeLayerId);
 
-        // 3. RUNWAY SIDE STRIPES (Solid white edges - Thinner as requested)
+        // 3. RUNWAY EDGE STRIPES
         map.addLayer({
             id: `runway-edge-stripes-${icao}`,
             type: 'line',
             source: markingSourceId,
             filter: ['==', 'type', 'edge-stripe'],
             paint: {
-                'line-color': '#ffffff',
-                'line-width': ['interpolate', ['linear'], ['zoom'], 14, 0.5, 18, 2], // Thinner
-                'line-opacity': 0.7
+                'line-color': this.COLORS.MARKING_WHITE,
+                'line-width': ['interpolate', ['linear'], ['zoom'], 14, 0.8, 18, 3],
+                'line-opacity': 0.8
             }
         }, planeLayerId);
 
-        // 4. RUNWAY MARKINGS (Thresholds & Aiming blocks)
+        // 4. RUNWAY BLOCKS (Threshold/Aiming)
         map.addLayer({
             id: `runway-blocks-${icao}`,
             type: 'line',
             source: markingSourceId,
             filter: ['match', ['get', 'type'], ['threshold-stripe', 'aiming-point', 'touchdown-zone'], true, false],
             paint: {
-                'line-color': '#ffffff',
+                'line-color': this.COLORS.MARKING_WHITE,
                 'line-width': ['interpolate', ['exponential', 1.5], ['zoom'], 14, 2, 16, 8, 18, 20],
-                'line-opacity': 0.95
+                'line-opacity': 1.0
             }
         }, planeLayerId);
 
-        // 5. RUNWAY CENTERLINE (Dashed)
+        // 5. TAXIWAY CENTERLINES
         map.addLayer({
-            id: `runway-centerline-${icao}`,
+            id: `taxi-lines-${icao}`,
             type: 'line',
             source: sourceId,
-            filter: ['all', ['==', 'aeroway', 'runway'], ['==', '$type', 'LineString']],
+            filter: ['all', ['==', '$type', 'LineString'], ['!=', 'aeroway', 'runway'], ['!=', 'aeroway', 'parking_guideline']],
             paint: {
-                'line-color': '#ffffff',
-                'line-width': ['interpolate', ['linear'], ['zoom'], 14, 1, 18, 4],
-                'line-dasharray': [5, 5],
-                'line-opacity': 0.9
+                'line-color': this.COLORS.MARKING_YELLOW,
+                'line-width': ['interpolate', ['exponential', 1.5], ['zoom'], 12, 0.5, 14, 1.5, 16, 3, 18, 6]
             }
         }, planeLayerId);
 
-        // 6. RUNWAY DESIGNATIONS (Numbers/Letters)
+        // 6. HOLD SHORT LINES (Pattern A)
+        // Solid Side
+        map.addLayer({
+            id: `hold-short-solid-${icao}`,
+            type: 'line',
+            source: markingSourceId,
+            filter: ['==', 'type', 'hold-short-solid'],
+            paint: {
+                'line-color': this.COLORS.MARKING_YELLOW,
+                'line-width': ['interpolate', ['linear'], ['zoom'], 14, 1, 18, 5],
+                'line-gap-width': ['interpolate', ['linear'], ['zoom'], 14, 1, 18, 5]
+            }
+        }, planeLayerId);
+
+        // Dashed Side
+        map.addLayer({
+            id: `hold-short-dash-${icao}`,
+            type: 'line',
+            source: markingSourceId,
+            filter: ['==', 'type', 'hold-short-dash'],
+            paint: {
+                'line-color': this.COLORS.MARKING_YELLOW,
+                'line-width': ['interpolate', ['linear'], ['zoom'], 14, 1, 18, 5],
+                'line-gap-width': ['interpolate', ['linear'], ['zoom'], 14, 1, 18, 5],
+                'line-dasharray': [2, 2]
+            }
+        }, planeLayerId);
+
+        // 7. RUNWAY DESIGNATIONS
         map.addLayer({
             id: `runway-labels-${icao}`,
             type: 'symbol',
@@ -152,31 +184,18 @@ export const AirportLayoutManager = {
             filter: ['==', 'type', 'designation'],
             layout: {
                 'text-field': ['get', 'ref'],
-                'text-size': ['interpolate', ['linear'], ['zoom'], 15, 12, 18, 40], // Stay consistent
+                'text-size': ['interpolate', ['linear'], ['zoom'], 15, 12, 18, 45],
                 'text-font': ['Open Sans Bold'],
-                'text-rotate': ['get', 'bearing'], // Corrected in generation logic to face pilot
+                'text-rotate': ['get', 'bearing'],
                 'text-rotation-alignment': 'map',
                 'text-allow-overlap': true,
                 'text-ignore-placement': true
             },
             paint: {
-                'text-color': '#ffffff',
+                'text-color': this.COLORS.MARKING_WHITE,
                 'text-halo-color': '#000000',
-                'text-halo-width': 1,
-                // Disappear after zoom 14.5
+                'text-halo-width': 1.5,
                 'text-opacity': ['interpolate', ['linear'], ['zoom'], 14, 0, 14.5, 1]
-            }
-        }, planeLayerId);
-
-        // 7. TAXIWAY LINES (Yellow)
-        map.addLayer({
-            id: `taxi-lines-${icao}`,
-            type: 'line',
-            source: sourceId,
-            filter: ['all', ['==', '$type', 'LineString'], ['!=', 'aeroway', 'runway'], ['!=', 'aeroway', 'parking_guideline']],
-            paint: {
-                'line-color': '#fde047',
-                'line-width': ['interpolate', ['exponential', 1.5], ['zoom'], 12, 0.4, 14, 1.2, 16, 3, 18, 6]
             }
         }, planeLayerId);
 
@@ -188,37 +207,31 @@ export const AirportLayoutManager = {
                 `runway-base-${icao}`,
                 `runway-edge-stripes-${icao}`,
                 `runway-blocks-${icao}`,
-                `runway-centerline-${icao}`,
-                `runway-labels-${icao}`,
-                `taxi-lines-${icao}`
+                `taxi-lines-${icao}`,
+                `hold-short-solid-${icao}`,
+                `hold-short-dash-${icao}`,
+                `runway-labels-${icao}`
             ] 
         });
     },
 
-    generateRunwayBuild(osmData) {
+    generateMarkings(osmData) {
         const features = [];
         const runways = osmData.features.filter(f => f.properties.aeroway === 'runway' && f.geometry.type === 'LineString');
+        const taxiways = osmData.features.filter(f => f.properties.aeroway === 'taxiway' && f.geometry.type === 'LineString');
 
+        // 1. Generate Runway Markings
         runways.forEach(rw => {
             const coords = rw.geometry.coordinates;
             const start = coords[0];
             const end = coords[coords.length - 1];
-            
-            // Core Runway Stats
             const bearing = this.getBearing(start, end);
             const reverseBearing = (bearing + 180) % 360;
-            const runwayLength = this.getDistance(start, end);
-            const runwayWidth = 45; // Standard ICAO width
+            const rwWidth = 45;
 
             const addEndMarkings = (origin, brng, label) => {
                 if (!label) return;
-
-                // A. Designation Number (Pos 40m from threshold)
-                // Text Bearing: Numbers are oriented so the pilot flying TOWARDS the runway reads them.
-                // If bearing is the landing direction, text rotation should be (bearing + 180) % 360 relative to North
-                // to face "inward". Mapbox 'text-rotate' is relative to North.
                 const textRotation = (brng + 180) % 360; 
-                
                 const numPos = this.destPoint(origin, brng, 40);
                 features.push({
                     type: "Feature",
@@ -226,70 +239,83 @@ export const AirportLayoutManager = {
                     properties: { type: "designation", ref: label, bearing: textRotation }
                 });
 
-                // B. Threshold Stripes (Zebra)
+                // Threshold Zebra
                 for (let i = -14; i <= 14; i += 4) {
                     const stripeOrigin = this.destPoint(origin, brng + 90, i);
-                    const stripeStart = this.destPoint(stripeOrigin, brng, 2);
-                    const stripeEnd = this.destPoint(stripeStart, brng, 15);
-                    features.push({
-                        type: "Feature",
-                        geometry: { type: "LineString", coordinates: [stripeStart, stripeEnd] },
-                        properties: { type: "threshold-stripe" }
-                    });
+                    const sStart = this.destPoint(stripeOrigin, brng, 2);
+                    const sEnd = this.destPoint(sStart, brng, 15);
+                    features.push({ type: "Feature", geometry: { type: "LineString", coordinates: [sStart, sEnd] }, properties: { type: "threshold-stripe" } });
                 }
 
-                // C. Aiming Points (The big blocks)
-                // Dynamically adjust placement if runway is too short
-                const aimDist = Math.min(300, runwayLength * 0.2);
-                [-12, 12].forEach(sideOffset => {
-                    const blockStart = this.destPoint(this.destPoint(origin, brng + 90, sideOffset), brng, aimDist);
-                    const blockEnd = this.destPoint(blockStart, brng, Math.min(45, runwayLength * 0.05));
-                    features.push({
-                        type: "Feature",
-                        geometry: { type: "LineString", coordinates: [blockStart, blockEnd] },
-                        properties: { type: "aiming-point" }
-                    });
-                });
-
-                // D. Touchdown Zone Markers (Scale with length)
-                const zones = [150, 450, 600].filter(d => d < runwayLength * 0.4);
-                zones.forEach(dist => {
-                    [-13, 13].forEach(sideOffset => {
-                        const tdStart = this.destPoint(this.destPoint(origin, brng + 90, sideOffset), brng, dist);
-                        const tdEnd = this.destPoint(tdStart, brng, 20);
-                        features.push({
-                            type: "Feature",
-                            geometry: { type: "LineString", coordinates: [tdStart, tdEnd] },
-                            properties: { type: "touchdown-zone" }
-                        });
-                    });
+                // Aiming Points
+                [-12, 12].forEach(side => {
+                    const bStart = this.destPoint(this.destPoint(origin, brng + 90, side), brng, 300);
+                    const bEnd = this.destPoint(bStart, brng, 45);
+                    features.push({ type: "Feature", geometry: { type: "LineString", coordinates: [bStart, bEnd] }, properties: { type: "aiming-point" } });
                 });
             };
 
-            // Parse designation (Handle "09/27" or "09L/27R")
             const refs = rw.properties.ref ? rw.properties.ref.split('/') : ["", ""];
             addEndMarkings(start, bearing, refs[0]);
             addEndMarkings(end, reverseBearing, refs[1]);
 
-            // E. Side Edge Stripes (Continuous solid lines - Thinner layer style)
-            const leftEdgeStart = this.destPoint(start, bearing + 90, runwayWidth / 2);
-            const leftEdgeEnd = this.destPoint(end, bearing + 90, runwayWidth / 2);
-            const rightEdgeStart = this.destPoint(start, bearing - 90, runwayWidth / 2);
-            const rightEdgeEnd = this.destPoint(end, bearing - 90, runwayWidth / 2);
+            // Edge Stripes
+            const lS = this.destPoint(start, bearing + 90, rwWidth/2), lE = this.destPoint(end, bearing + 90, rwWidth/2);
+            const rS = this.destPoint(start, bearing - 90, rwWidth/2), rE = this.destPoint(end, bearing - 90, rwWidth/2);
+            features.push({ type: "Feature", geometry: { type: "LineString", coordinates: [lS, lE] }, properties: { type: "edge-stripe" } });
+            features.push({ type: "Feature", geometry: { type: "LineString", coordinates: [rS, rE] }, properties: { type: "edge-stripe" } });
+        });
 
-            features.push({
-                type: "Feature",
-                geometry: { type: "LineString", coordinates: [leftEdgeStart, leftEdgeEnd] },
-                properties: { type: "edge-stripe" }
-            });
-            features.push({
-                type: "Feature",
-                geometry: { type: "LineString", coordinates: [rightEdgeStart, rightEdgeEnd] },
-                properties: { type: "edge-stripe" }
+        // 2. Procedural Hold-Short Markings (Pattern A)
+        // We find taxiway nodes that are close to runway segments
+        taxiways.forEach(tw => {
+            const twCoords = tw.geometry.coordinates;
+            twCoords.forEach(coord => {
+                runways.forEach(rw => {
+                    const rwCoords = rw.geometry.coordinates;
+                    for (let i = 0; i < rwCoords.length - 1; i++) {
+                        const dist = this.getDistanceToSegment(coord, rwCoords[i], rwCoords[i+1]);
+                        // If taxiway point is near runway edge (within ~40m)
+                        if (dist > 25 && dist < 45) {
+                            const rwBearing = this.getBearing(rwCoords[i], rwCoords[i+1]);
+                            // Create the 4-line pattern
+                            this.createHoldShortPattern(features, coord, rwBearing + 90, 25);
+                        }
+                    }
+                });
             });
         });
 
         return { type: 'FeatureCollection', features };
+    },
+
+    createHoldShortPattern(features, center, angle, width) {
+        // Pattern A: 2 solid (runway side), 2 dashed (taxiway side)
+        // We use 'angle' as the orientation of the taxiway entering the runway
+        const offsets = [-3, -1, 1, 3]; // meters from center
+        const halfWidth = width / 2;
+
+        offsets.forEach((off, idx) => {
+            const p1 = this.destPoint(this.destPoint(center, angle + 90, halfWidth), angle, off);
+            const p2 = this.destPoint(this.destPoint(center, angle - 90, halfWidth), angle, off);
+            
+            features.push({
+                type: "Feature",
+                geometry: { type: "LineString", coordinates: [p1, p2] },
+                properties: { 
+                    type: idx < 2 ? "hold-short-solid" : "hold-short-dash" 
+                }
+            });
+        });
+    },
+
+    getDistanceToSegment(p, a, b) {
+        const d2 = Math.pow(a[0]-b[0], 2) + Math.pow(a[1]-b[1], 2);
+        if (d2 === 0) return this.getDistance(p, a);
+        let t = ((p[0]-a[0])*(b[0]-a[0]) + (p[1]-a[1])*(b[1]-a[1])) / d2;
+        t = Math.max(0, Math.min(1, t));
+        const projection = [a[0] + t*(b[0]-a[0]), a[1] + t*(b[1]-a[1])];
+        return this.getDistance(p, projection);
     },
 
     processOsmData(elements) {
@@ -300,25 +326,14 @@ export const AirportLayoutManager = {
                 geometry = { type: 'Point', coordinates: [element.lon, element.lat] };
             } else if (element.geometry) {
                 const coords = element.geometry.map(p => [p.lon, p.lat]);
-                const isArea = element.tags && (
-                    element.tags.aeroway === 'apron' || 
-                    element.tags.aeroway === 'runway' ||
-                    element.tags.area === 'yes'
-                );
+                const isArea = element.tags && (element.tags.aeroway === 'apron' || element.tags.aeroway === 'runway' || element.tags.area === 'yes');
                 if (coords.length > 3 && coords[0][0] === coords[coords.length-1][0] && isArea) {
                     geometry = { type: 'Polygon', coordinates: [coords] };
                 } else {
                     geometry = { type: 'LineString', coordinates: coords };
                 }
             }
-
-            if (geometry) {
-                features.push({
-                    type: "Feature",
-                    geometry: geometry,
-                    properties: { ...element.tags, osm_id: element.id }
-                });
-            }
+            if (geometry) features.push({ type: "Feature", geometry: geometry, properties: { ...element.tags, osm_id: element.id } });
         });
         return { type: 'FeatureCollection', features };
     },
@@ -326,9 +341,7 @@ export const AirportLayoutManager = {
     clearAll(map) {
         if (!map) return;
         this.activeLayers.forEach(({ sourceId, markingSourceId, layers }) => {
-            layers.forEach(layerId => {
-                if (map.getLayer(layerId)) map.removeLayer(layerId);
-            });
+            layers.forEach(layerId => { if (map.getLayer(layerId)) map.removeLayer(layerId); });
             if (map.getSource(sourceId)) map.removeSource(sourceId);
             if (markingSourceId && map.getSource(markingSourceId)) map.removeSource(markingSourceId);
         });
