@@ -22,6 +22,18 @@ export const AirportLayoutManager = {
         return (Math.atan2(y, x) * 180 / Math.PI + 360) % 360;
     },
 
+    // Calculates distance in meters between two points
+    getDistance(pt1, pt2) {
+        const R = 6378137;
+        const dLat = (pt2[1] - pt1[1]) * Math.PI / 180;
+        const dLon = (pt2[0] - pt1[0]) * Math.PI / 180;
+        const a = Math.sin(dLat/2) * Math.sin(dLat/2) +
+                  Math.cos(pt1[1] * Math.PI / 180) * Math.cos(pt2[1] * Math.PI / 180) *
+                  Math.sin(dLon/2) * Math.sin(dLon/2);
+        const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
+        return R * c;
+    },
+
     // Calculates a new coordinate based on distance (meters) and bearing
     destPoint(pt, brng, dist) {
         const R = 6378137; // Earth's radius
@@ -92,7 +104,7 @@ export const AirportLayoutManager = {
             }
         }, planeLayerId);
 
-        // 3. RUNWAY SIDE STRIPES (Solid white edges)
+        // 3. RUNWAY SIDE STRIPES (Solid white edges - Thinner as requested)
         map.addLayer({
             id: `runway-edge-stripes-${icao}`,
             type: 'line',
@@ -100,8 +112,8 @@ export const AirportLayoutManager = {
             filter: ['==', 'type', 'edge-stripe'],
             paint: {
                 'line-color': '#ffffff',
-                'line-width': ['interpolate', ['linear'], ['zoom'], 14, 1, 18, 4],
-                'line-opacity': 0.8
+                'line-width': ['interpolate', ['linear'], ['zoom'], 14, 0.5, 18, 2], // Thinner
+                'line-opacity': 0.7
             }
         }, planeLayerId);
 
@@ -140,9 +152,9 @@ export const AirportLayoutManager = {
             filter: ['==', 'type', 'designation'],
             layout: {
                 'text-field': ['get', 'ref'],
-                'text-size': ['interpolate', ['linear'], ['zoom'], 15, 12, 18, 45],
+                'text-size': ['interpolate', ['linear'], ['zoom'], 15, 12, 18, 40], // Stay consistent
                 'text-font': ['Open Sans Bold'],
-                'text-rotate': ['get', 'bearing'],
+                'text-rotate': ['get', 'bearing'], // Corrected in generation logic to face pilot
                 'text-rotation-alignment': 'map',
                 'text-allow-overlap': true,
                 'text-ignore-placement': true
@@ -150,7 +162,9 @@ export const AirportLayoutManager = {
             paint: {
                 'text-color': '#ffffff',
                 'text-halo-color': '#000000',
-                'text-halo-width': 1
+                'text-halo-width': 1,
+                // Disappear after zoom 14.5
+                'text-opacity': ['interpolate', ['linear'], ['zoom'], 14, 0, 14.5, 1]
             }
         }, planeLayerId);
 
@@ -193,21 +207,26 @@ export const AirportLayoutManager = {
             // Core Runway Stats
             const bearing = this.getBearing(start, end);
             const reverseBearing = (bearing + 180) % 360;
+            const runwayLength = this.getDistance(start, end);
             const runwayWidth = 45; // Standard ICAO width
 
             const addEndMarkings = (origin, brng, label) => {
                 if (!label) return;
 
                 // A. Designation Number (Pos 40m from threshold)
+                // Text Bearing: Numbers are oriented so the pilot flying TOWARDS the runway reads them.
+                // If bearing is the landing direction, text rotation should be (bearing + 180) % 360 relative to North
+                // to face "inward". Mapbox 'text-rotate' is relative to North.
+                const textRotation = (brng + 180) % 360; 
+                
                 const numPos = this.destPoint(origin, brng, 40);
                 features.push({
                     type: "Feature",
                     geometry: { type: "Point", coordinates: numPos },
-                    properties: { type: "designation", ref: label, bearing: (brng + 90) % 360 }
+                    properties: { type: "designation", ref: label, bearing: textRotation }
                 });
 
                 // B. Threshold Stripes (Zebra)
-                // We draw 8 stripes total, spaced across the runway width
                 for (let i = -14; i <= 14; i += 4) {
                     const stripeOrigin = this.destPoint(origin, brng + 90, i);
                     const stripeStart = this.destPoint(stripeOrigin, brng, 2);
@@ -219,10 +238,12 @@ export const AirportLayoutManager = {
                     });
                 }
 
-                // C. Aiming Points (The big blocks at 300m)
+                // C. Aiming Points (The big blocks)
+                // Dynamically adjust placement if runway is too short
+                const aimDist = Math.min(300, runwayLength * 0.2);
                 [-12, 12].forEach(sideOffset => {
-                    const blockStart = this.destPoint(this.destPoint(origin, brng + 90, sideOffset), brng, 300);
-                    const blockEnd = this.destPoint(blockStart, brng, 45);
+                    const blockStart = this.destPoint(this.destPoint(origin, brng + 90, sideOffset), brng, aimDist);
+                    const blockEnd = this.destPoint(blockStart, brng, Math.min(45, runwayLength * 0.05));
                     features.push({
                         type: "Feature",
                         geometry: { type: "LineString", coordinates: [blockStart, blockEnd] },
@@ -230,8 +251,9 @@ export const AirportLayoutManager = {
                     });
                 });
 
-                // D. Touchdown Zone Markers (150m, 450m, 600m)
-                [150, 450, 600].forEach(dist => {
+                // D. Touchdown Zone Markers (Scale with length)
+                const zones = [150, 450, 600].filter(d => d < runwayLength * 0.4);
+                zones.forEach(dist => {
                     [-13, 13].forEach(sideOffset => {
                         const tdStart = this.destPoint(this.destPoint(origin, brng + 90, sideOffset), brng, dist);
                         const tdEnd = this.destPoint(tdStart, brng, 20);
@@ -249,7 +271,7 @@ export const AirportLayoutManager = {
             addEndMarkings(start, bearing, refs[0]);
             addEndMarkings(end, reverseBearing, refs[1]);
 
-            // E. Side Edge Stripes (Continuous solid lines)
+            // E. Side Edge Stripes (Continuous solid lines - Thinner layer style)
             const leftEdgeStart = this.destPoint(start, bearing + 90, runwayWidth / 2);
             const leftEdgeEnd = this.destPoint(end, bearing + 90, runwayWidth / 2);
             const rightEdgeStart = this.destPoint(start, bearing - 90, runwayWidth / 2);
