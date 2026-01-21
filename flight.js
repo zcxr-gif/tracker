@@ -6443,12 +6443,24 @@ function updatePfdDisplay(pfdData) {
         if (headingTapeGroup) headingTapeGroup.setAttribute('transform', 'translate(0, 0)');
     }
 
+// Add this helper to flight.js
+async function fetchAirportData(icao) {
+    try {
+        const response = await fetch(`${API_BASE_URL}/api/airports/${icao}`);
+        if (!response.ok) throw new Error('Airport data not found');
+        return await response.ok ? await response.json() : null;
+    } catch (error) {
+        console.error("Error fetching dynamic airport image:", error);
+        return null;
+    }
+}
+
 
 
 async function createAirportInfoWindowHTML(icao) {
     // 1. Get Static Data
     const staticData = airportsData[icao] || {};
-    
+
     // 2. Fetch Live Airport Details (Jetbridges, city, state, etc.)
     let liveData = null;
     try {
