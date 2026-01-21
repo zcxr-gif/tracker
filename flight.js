@@ -6460,6 +6460,9 @@ async function fetchAirportData(icao) {
 async function createAirportInfoWindowHTML(icao) {
     // 1. Get Static Data
     const staticData = airportsData[icao] || {};
+    const airportMetadata = await fetchAirportData(icao);
+    // Use the dynamic image if available, otherwise fall back to a default
+    const dynamicImageUrl = airportMetadata?.imageUrl || 'Images/default_airport.webp';
 
     // 2. Fetch Live Airport Details (Jetbridges, city, state, etc.)
     let liveData = null;
@@ -6706,10 +6709,9 @@ let trafficHtml = (!trafficFetchSuccess)
     setTimeout(updateTrafficLegendUI, 0);
 
     return `
-        <div class="airport-hero" style="background-image: url('klax.webp')">
-            <div class="airport-hero-overlay"></div>
-            <div class="hero-actions">
-                <button id="airport-window-hide-btn" class="hero-btn" title="Hide Window"><i class="fa-solid fa-compress"></i></button>
+        <div class="airport-hero" style="background-image: url('${dynamicImageUrl}')">
+        <div class="airport-hero-overlay"></div>
+        <div class="hero-actions">
                 <button id="airport-window-close-btn" class="hero-btn" title="Close Window"><i class="fa-solid fa-xmark"></i></button>
             </div>
             <div class="apt-ident-group">
