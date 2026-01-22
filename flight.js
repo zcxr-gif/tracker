@@ -4572,6 +4572,17 @@ function updateMapFilters() {
         });
     }
 
+    if (currentFlightInWindow) {
+        const layerId = sectorOpsLiveFlightPathLayers[currentFlightInWindow]?.flown;
+        if (layerId && sectorOpsMap.getLayer(layerId)) {
+            sectorOpsMap.setLayoutProperty(
+                layerId, 
+                'visibility', 
+                mapFilters.show3DPath ? 'none' : 'visible'
+            );
+        }
+    }
+
     if (window.globalNatTracks) {
         window.globalNatTracks.setOptions({
             showTracks: mapFilters.showNatTracks,
@@ -5540,15 +5551,24 @@ function handleSocketFlightUpdate(data) {
                 }
 
                 // 8. Update Map Trail
-                if (isMapReady) {
-                    const layerId = sectorOpsLiveFlightPathLayers[flightId]?.flown;
-                    const source = layerId ? sectorOpsMap.getSource(layerId) : null;
-                    if (source) {
-                        const newRouteData = generateAltitudeColoredRoute(localTrail, flight.position, cachedFlightDataForStatsView.plan);
-                        source.setData(newRouteData);
-                    }
-                }
+                // 8. Update Map Trail
+if (isMapReady) {
+    const layerId = sectorOpsLiveFlightPathLayers[flightId]?.flown;
+    if (layerId && sectorOpsMap.getLayer(layerId)) {
+        // [FIX] Hide 2D layer if 3D Path is active
+        const visibility = mapFilters.show3DPath ? 'none' : 'visible';
+        sectorOpsMap.setLayoutProperty(layerId, 'visibility', visibility);
+
+        // Only update 2D data if it's visible to save performance
+        if (!mapFilters.show3DPath) {
+            const source = sectorOpsMap.getSource(layerId);
+            if (source) {
+                const newRouteData = generateAltitudeColoredRoute(localTrail, flight.position, cachedFlightDataForStatsView.plan);
+                source.setData(newRouteData);
             }
+        }
+    }
+}
 
             // 9. Update Planned Route Line
             if (cachedFlightDataForStatsView.plan && mapFilters.planDisplayMode !== 'none' && isMapReady) {
