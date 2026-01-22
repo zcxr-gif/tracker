@@ -110,7 +110,7 @@ export const FlownPath3D = {
 
         // Use a fixed thickness instead of zoom-dependent scaling
         // This thickness is in world units (Mercator space)
-        const solidThickness = 0.000015; 
+        const solidThickness = 0.000005; 
 
         const points = [];
         for (let i = 0; i < positions.length; i += 3) {
