@@ -84,8 +84,6 @@ export const LandingUI = {
                 resultsContainer.classList.remove('visible');
                 if (searchBlade) {
                     searchBlade.classList.remove('has-results');
-                    searchBlade.style.borderBottomLeftRadius = '100px';
-                    searchBlade.style.borderBottomRightRadius = '100px';
                 }
             }
             return;
@@ -167,8 +165,6 @@ export const LandingUI = {
         
         if (searchResults) searchResults.classList.remove('visible');
         if (searchBlade) {
-            searchBlade.style.borderBottomLeftRadius = '100px';
-            searchBlade.style.borderBottomRightRadius = '100px';
         }
         if (searchInput) searchInput.blur();
     },
@@ -678,20 +674,21 @@ export const LandingUI = {
                 pointer-events: auto;
             }
             .search-blade {
-                background: rgba(10, 10, 10, 0.85);
-                backdrop-filter: blur(20px);
-                border: 1px solid rgba(255, 255, 255, 0.15);
-                border-radius: 100px;
-                height: 44px;
-                width: 240px;
-                display: flex;
-                align-items: center;
-                padding: 0 18px;
-                transition: all 0.4s cubic-bezier(0.175, 0.885, 0.32, 1.275);
-                position: relative;
-                box-shadow: 0 10px 30px rgba(0,0,0,0.4);
-                z-index: 1002;
-            }
+    background: rgba(10, 10, 10, 0.85);
+    backdrop-filter: blur(20px);
+    border: 1px solid rgba(255, 255, 255, 0.15);
+    border-radius: 100px;
+    height: 44px;
+    width: 240px;
+    display: flex;
+    align-items: center;
+    padding: 0 18px;
+    /* CHANGE: Removed the bouncy cubic-bezier and 'all' */
+    transition: width 0.3s ease, border-radius 0.3s ease, background 0.3s ease, border-color 0.3s ease;
+    position: relative;
+    box-shadow: 0 10px 30px rgba(0,0,0,0.4);
+    z-index: 1002;
+}
             .search-blade:focus-within {
                 width: 380px;
                 border-color: #38bdf8;
@@ -701,9 +698,11 @@ export const LandingUI = {
             
             /* Class toggled in JS when dropdown opens */
             .search-blade.has-results {
-                border-bottom-left-radius: 0 !important;
-                border-bottom-right-radius: 0 !important;
-            }
+    border-bottom-left-radius: 0 !important;
+    border-bottom-right-radius: 0 !important;
+    border-top-left-radius: 20px;
+    border-top-right-radius: 20px;
+}
 
             #blade-search-input {
                 flex: 1;
