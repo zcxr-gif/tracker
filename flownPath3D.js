@@ -1,74 +1,70 @@
 /**
- * flownPath3D.js
- * Handles the rendering of 3D flight trails using Three.js.
+ * flownPath3D.js - Enhanced Version
+ * Handles high-quality 3D flight trails with thickness and smoothing.
  */
 
 export const FlownPath3D = {
-    // Stores Three.js objects per flightId
     flightObjects: {},
 
     /**
-     * Adds or updates the 3D path using Three.js.
+     * Adds or updates the 3D path.
      */
     updatePath(map, flightId, trailData, is3DEnabled) {
         if (!map || !flightId) return;
 
         const layerId = `layer-3d-path-${flightId}`;
 
-        // Cleanup if disabled or insufficient data
         if (!is3DEnabled || !trailData || trailData.length < 2) {
             this.clearPath(map, flightId);
             return;
         }
 
-        // If the custom layer doesn't exist, create it
         if (!map.getLayer(layerId)) {
             const customLayer = this._createCustomLayer(layerId, flightId, trailData);
             map.addLayer(customLayer);
         } else {
-            // Update existing geometry
-            this._updateGeometry(flightId, trailData);
+            this._updateGeometry(flightId, trailData, map);
         }
 
-        // CRITICAL: Force Mapbox to repaint to show the updated line
         map.triggerRepaint();
     },
 
     /**
-     * Internal: Creates the Mapbox Custom Layer for Three.js
+     * Internal: Creates the Mapbox Custom Layer using Three.js Fat Lines
      */
     _createCustomLayer(layerId, flightId, trailData) {
         const THREE = window.THREE;
-        
+        // Ensure these are available on the THREE object or imported
+        // Required: THREE.Line2, THREE.LineGeometry, THREE.LineMaterial
+
         return {
             id: layerId,
             type: 'custom',
-            renderingMode: '3d', // Correct for vertical displacement
+            renderingMode: '3d',
             onAdd: function (map, gl) {
                 this.camera = new THREE.Camera();
                 this.scene = new THREE.Scene();
 
-                // Create the line geometry
-                const geometry = new THREE.BufferGeometry();
-                
-                // Note: linewidth > 1 is not supported in basic WebGL on most browsers.
-                // It will appear as 1px. For thicker paths, consider THREE.Line2 later.
-                const material = new THREE.LineBasicMaterial({ 
-                    color: 0x38bdf8, 
+                // 1. Use LineMaterial for thickness support
+                this.material = new THREE.LineMaterial({
+                    color: 0xffffff,
+                    linewidth: 4, // Thickness in pixels
+                    vertexColors: true, // Enable altitude-based gradient
                     transparent: true,
-                    opacity: 0.9,
-                    depthTest: true // Ensure it respects map depth (buildings/terrain)
+                    opacity: 0.8,
+                    dashed: false,
+                    depthTest: true
                 });
 
-                const line = new THREE.Line(geometry, material);
-                
-                // CRITICAL: Prevent the path from disappearing when looking away/zooming
-                line.frustumCulled = false; 
+                // 2. Geometry placeholder
+                this.geometry = new THREE.LineGeometry();
 
-                this.scene.add(line);
-                this.line = line;
+                // 3. Create the Line2 object
+                this.line = new THREE.Line2(this.geometry, this.material);
+                this.line.frustumCulled = false;
 
-                // Track this layer for updates
+                this.scene.add(this.line);
+
                 FlownPath3D.flightObjects[flightId] = this;
 
                 this.renderer = new THREE.WebGLRenderer({
@@ -78,49 +74,62 @@ export const FlownPath3D = {
                 });
                 this.renderer.autoClear = false;
 
-                // Initial data sync
-                FlownPath3D._updateGeometry(flightId, trailData, this.line);
+                FlownPath3D._updateGeometry(flightId, trailData, map);
             },
             render: function (gl, matrix) {
+                // Update resolution so line width remains consistent
+                this.material.resolution.set(gl.drawingBufferWidth, gl.drawingBufferHeight);
+                
                 const m = new THREE.Matrix4().fromArray(matrix);
                 this.camera.projectionMatrix = m;
-                this.renderer.resetState(); // Modern version of state.reset()
+                this.renderer.resetState();
                 this.renderer.render(this.scene, this.camera);
             }
         };
     },
 
     /**
-     * Internal: Updates coordinates into Mercator space for Three.js
+     * Internal: Smooths coordinates and updates the Line2 geometry
      */
-    _updateGeometry(flightId, trailData, existingLine = null) {
-        if (!trailData) return;
-        
+    _updateGeometry(flightId, trailData, map) {
+        const layerObj = this.flightObjects[flightId];
+        if (!layerObj || !trailData || trailData.length < 2) return;
+
         const THREE = window.THREE;
-        const positions = [];
         
-        trailData.forEach(p => {
-            const lng = p.longitude || p.lon;
-            const lat = p.latitude || p.lat;
-            // alt is meters; coord.z in Mercator space is relative to world size
+        // 1. Convert points to Vector3 in Mercator space
+        const points = trailData.map(p => {
             const alt = (p.altitude || p.alt || 0) * 0.3048; 
-            
-            const coord = mapboxgl.MercatorCoordinate.fromLngLat([lng, lat], alt);
-            positions.push(coord.x, coord.y, coord.z);
+            const coord = mapboxgl.MercatorCoordinate.fromLngLat([p.longitude || p.lon, p.latitude || p.lat], alt);
+            return new THREE.Vector3(coord.x, coord.y, coord.z);
         });
 
-        const layerObj = existingLine ? { line: existingLine } : this.flightObjects[flightId];
-        const line = layerObj?.line;
+        // 2. Smooth the path using a Catmull-Rom Curve
+        // This makes the flight look like a natural arc instead of a series of lines
+        const curve = new THREE.CatmullRomCurve3(points);
+        const smoothedPoints = curve.getPoints(trailData.length * 4); // Increase multiplier for more smoothness
 
-        if (line && positions.length > 0) {
-            // Update attribute
-            line.geometry.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
-            line.geometry.attributes.position.needsUpdate = true;
+        const positions = [];
+        const colors = [];
+        const colorLow = new THREE.Color(0x00f2fe);  // Bright Cyan (Low altitude)
+        const colorHigh = new THREE.Color(0xffffff); // White (High altitude)
+
+        smoothedPoints.forEach(p => {
+            positions.push(p.x, p.y, p.z);
             
-            // CRITICAL: Re-calculate bounds so Three.js knows the line exists in 3D space
-            line.geometry.computeBoundingSphere();
-            line.geometry.computeBoundingBox();
-        }
+            // Calculate color based on relative altitude (Z)
+            // Note: In Mercator, higher Z is "up" but very small values. 
+            // We'll interpolate between colors based on a heuristic or specific alt
+            const t = Math.min(Math.max(p.z * 10000, 0), 1); // Simple scale for visual effect
+            const mixedColor = new THREE.Color().copy(colorLow).lerp(colorHigh, t);
+            colors.push(mixedColor.r, mixedColor.g, mixedColor.b);
+        });
+
+        // 3. Update LineGeometry
+        layerObj.geometry.setPositions(positions);
+        layerObj.geometry.setColors(colors);
+        
+        layerObj.line.computeLineDistances(); // Required for some material effects
     },
 
     clearPath(map, flightId) {
