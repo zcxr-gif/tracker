@@ -5,6 +5,7 @@ import { initPlaneSizeSlider } from './planeSizeController.js';
 import { GroupFlightManager } from './groupFlightManager.js';
 import { updateActiveSectors } from './atcHighlights.js';
 import { NatTracksLayer } from './natTracksLayer.js';
+import { FlownPath3D } from './flownPath3D.js';
 
 document.addEventListener('DOMContentLoaded', async () => {
 
@@ -87,6 +88,7 @@ window.currentAirportTraffic = { in: [], out: [] }; // Stores IDs for the curren
     // --- NEW: To cache flight data when switching to stats view ---
     let cachedFlightDataForStatsView = { flightProps: null, plan: null };
     let mapFilters = {
+        show3DPath: false,
         showNatTracks: true,  // New: Toggle for the tracks themselves
         showNatLabels: true,
         showVaOnly: false,
@@ -5485,6 +5487,8 @@ function handleSocketFlightUpdate(data) {
             const localTrail = liveTrailCache.get(flightId);
             const fullFlightProps = { ...newProperties, position: flight.position, aircraft: aircraftData };
 
+            FlownPath3D.updatePath(sectorOpsMap, flightId, localTrail, mapFilters.show3DPath);
+
             if (localTrail) {
                 const newRoutePoint = {
                     latitude: flight.position.lat,
@@ -7798,6 +7802,17 @@ function formatDataForSimpleWindow(flightProps, plan, routePoints, communityData
                 </label>
             </div>
 
+            <div class="settings-row">
+    <div class="row-label">
+        <i class="fa-solid fa-cube"></i>
+        <span>3D Flight Path</span>
+    </div>
+    <label class="toggle-switch">
+        <input type="checkbox" id="setting-toggle-3dpath" ${mapFilters.show3DPath ? 'checked' : ''}>
+        <span class="toggle-slider"></span>
+    </label>
+</div>
+
                         <div class="settings-row">
                             <div class="row-label">Map Style</div>
                             <div class="input-wrapper select-wrapper">
@@ -9121,6 +9136,8 @@ function generateAltitudeColoredRoute(history, currentPos, flightPlan = null) {
  */
 function closeAircraftWindow() {
     if (!aircraftInfoWindow) return;
+
+    FlownPath3D.updatePath(sectorOpsMap, currentFlightInWindow, [], false);
 
     // 1. Hide UI
     aircraftInfoWindow.classList.remove('visible');
