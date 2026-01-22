@@ -236,14 +236,13 @@ export const FlownPath3D = {
     },
 
     /**
-     * Updates 3D labels to be positioned on both sides of the curtain
-     * and centered vertically between path and ground.
+     * Updates 3D labels to be positioned precisely on both sides of the curtain.
      */
     _updateLabels(layerObj, curve, trailData) {
         const THREE = window.THREE;
         if (!this.font || !THREE.TextGeometry) return;
 
-        // Clear existing labels
+        // 1. Clear existing labels and dispose of memory
         while(layerObj.labelGroup.children.length > 0){ 
             const child = layerObj.labelGroup.children[0];
             if (child.geometry) child.geometry.dispose();
@@ -252,7 +251,7 @@ export const FlownPath3D = {
         }
 
         const labelIntervals = [0.2, 0.5, 0.8]; 
-        const offsetDist = 0.00002; // Small offset from the curtain surface
+        const offsetDist = 0.000005; // Tight offset for "on-wall" look
 
         labelIntervals.forEach(t => {
             const pos = curve.getPointAt(t);
@@ -264,47 +263,56 @@ export const FlownPath3D = {
 
             const textParams = {
                 font: this.font,
-                size: 0.00001, // Slightly larger for better visibility
-                height: 0.0000005,
+                size: 0.000012, // Slightly larger for legibility
+                height: 0.0000001, // Keep it very thin/flat
                 curveSegments: 4
             };
-            const textMat = new THREE.MeshBasicMaterial({ color: 0xffffff });
 
-            // Vectors for positioning
+            // Common vectors
             const up = new THREE.Vector3(0, 0, 1);
             const side = new THREE.Vector3().crossVectors(tangent, up).normalize();
-            
-            // Midpoint of the curtain height
             const centeredZ = pos.z / 2;
 
             const createLabel = (direction) => {
                 const textGeo = new THREE.TextGeometry(labelText, textParams);
                 
-                // Center the geometry so rotation/positioning is based on text center
+                // Center the text geometry relative to its own center point
                 textGeo.computeBoundingBox();
                 const centerOffset = new THREE.Vector3();
                 textGeo.boundingBox.getCenter(centerOffset).multiplyScalar(-1);
                 textGeo.translate(centerOffset.x, centerOffset.y, centerOffset.z);
 
-                const mesh = new THREE.Mesh(textGeo, textMat.clone());
+                // IMPORTANT: FrontSide only so we don't see labels through the curtain
+                // polygonOffset prevents Z-fighting with the curtain mesh
+                const textMat = new THREE.MeshBasicMaterial({ 
+                    color: 0xffffff,
+                    side: THREE.FrontSide, 
+                    polygonOffset: true,
+                    polygonOffsetFactor: -1,
+                    polygonOffsetUnits: -1
+                });
+
+                const mesh = new THREE.Mesh(textGeo, textMat);
                 
-                // Start at the curtain wall center point
+                // Position at the midpoint of the curtain height
                 mesh.position.set(pos.x, pos.y, centeredZ);
                 
-                // Offset horizontally (perpendicular to path) to sit on the face
+                // Apply horizontal offset to sit on the specific face
                 const horizontalOffset = side.clone().multiplyScalar(direction * offsetDist);
                 mesh.position.add(horizontalOffset);
 
-                // Set orientation: text face should point toward 'side * direction'
-                // We set 'up' to world Z so text stays vertical
+                // Orientation:
+                // Ensure the 'up' of the text is the world 'Z' (vertical)
                 mesh.up.copy(up);
+                
+                // The target the text "looks at" is the direction perpendicular to the wall
                 const lookTarget = mesh.position.clone().add(side.clone().multiplyScalar(direction));
                 mesh.lookAt(lookTarget);
 
                 layerObj.labelGroup.add(mesh);
             };
 
-            // Left Face (-1) and Right Face (1)
+            // Create a label for the Left Face (-1) and Right Face (1)
             createLabel(-1);
             createLabel(1);
         });
