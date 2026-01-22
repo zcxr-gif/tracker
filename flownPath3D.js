@@ -81,22 +81,16 @@ export const FlownPath3D = {
     },
 
     _updateGeometry(map, flightId, trailData) {
-        if (!trailData || trailData.length < 2) return;
+        if (!trailData || !trailData.length || trailData.length < 2) return;
         
         const THREE = window.THREE;
         const layerObj = this.flightObjects[flightId];
         if (!layerObj || !layerObj.mesh) return;
 
         const points = [];
-        const thicknessFactors = [];
-        const curtainVertices = [];
-        const curtainIndices = [];
+        const rawThicknessFactors = [];
 
-        const baseThickness = 0.0000035; 
-        const minThicknessMult = 0.05;   
-        const fullThicknessAlt = 15000;  
-
-        // 1. Process Coordinates (Identical for both Curtain and Path)
+        // 1. Convert Data to Vector3 Points
         trailData.forEach((p, index) => {
             const lng = p.longitude || p.lon;
             const lat = p.latitude || p.lat;
@@ -104,52 +98,74 @@ export const FlownPath3D = {
             const altMeters = rawAlt * 0.3048; 
             
             const coord = mapboxgl.MercatorCoordinate.fromLngLat([lng, lat], altMeters);
-            
-            const topPoint = new THREE.Vector3(coord.x, coord.y, coord.z);
-            points.push(topPoint);
+            points.push(new THREE.Vector3(coord.x, coord.y, coord.z));
 
-            // Curtain Construction
-            curtainVertices.push(coord.x, coord.y, coord.z);    // Top
-            curtainVertices.push(coord.x, coord.y, 0);          // Bottom (Ground)
-
-            if (index > 0) {
-                const i = index * 2;
-                curtainIndices.push(i - 2, i - 1, i);
-                curtainIndices.push(i - 1, i + 1, i);
-            }
-
-            // Thickness Logic
+            // Calculate thickness for this specific raw point
+            const fullThicknessAlt = 15000;
+            const minThicknessMult = 0.05;
             let altFactor = Math.min(rawAlt / fullThicknessAlt, 1.0);
             altFactor = minThicknessMult + (altFactor * (1.0 - minThicknessMult));
+            
+            // Taper the end (the plane's current position)
             if (index === trailData.length - 1) altFactor *= 0.1;
-            thicknessFactors.push(altFactor);
+            else if (index === trailData.length - 2) altFactor *= 0.5;
+
+            rawThicknessFactors.push(altFactor);
         });
 
-        // Update Curtain Geometry
-        layerObj.curtainGeometry.setAttribute('position', new THREE.Float32BufferAttribute(curtainVertices, 3));
-        layerObj.curtainGeometry.setIndex(curtainIndices);
-        layerObj.curtainGeometry.attributes.position.needsUpdate = true;
+        // 2. Create the Smooth Spline
+        // 'centripetal' is crucial for flight paths—it avoids "wobbles" in sharp turns
+        const curve = new THREE.CatmullRomCurve3(points, false, 'centripetal');
+        
+        // Increase tubularSegments for high-quality smoothness
+        // 12 segments per data point usually looks like a perfect curve
+        const tubularSegments = points.length * 12; 
+        const radialSegments = 8; 
+        const baseThickness = 0.0000035;
 
-        // 2. Linear Path Construction (The Fix)
-        const curvePath = new THREE.CurvePath();
-        for (let i = 0; i < points.length - 1; i++) {
-            curvePath.add(new THREE.LineCurve3(points[i], points[i + 1]));
+        const newTubeGeometry = new THREE.TubeGeometry(curve, tubularSegments, baseThickness, radialSegments, false);
+
+        // 3. Update Curtain Geometry to match the Spline
+        const curtainVertices = [];
+        const curtainIndices = [];
+        
+        // We sample the curve to build the curtain so it matches the smooth tube
+        for (let i = 0; i <= tubularSegments; i++) {
+            const t = i / tubularSegments;
+            const pos = curve.getPoint(t);
+
+            curtainVertices.push(pos.x, pos.y, pos.z); // Top (on the spline)
+            curtainVertices.push(pos.x, pos.y, 0);     // Bottom (at ground level)
+
+            if (i > 0) {
+                const curr = i * 2;
+                const prev = (i - 1) * 2;
+                // Triangle 1
+                curtainIndices.push(prev, prev + 1, curr);
+                // Triangle 2
+                curtainIndices.push(prev + 1, curr + 1, curr);
+            }
         }
 
-        // KEY CHANGE: Set segments to EXACTLY the number of points minus one.
-        // This ensures the tube "rings" align perfectly with the curtain vertices.
-        const tubularSegments = points.length - 1; 
-        const radialSegments = 8; 
+        layerObj.curtainGeometry.setIndex(curtainIndices);
+        layerObj.curtainGeometry.setAttribute('position', new THREE.Float32BufferAttribute(curtainVertices, 3));
+        layerObj.curtainGeometry.attributes.position.needsUpdate = true;
 
-        const newTubeGeometry = new THREE.TubeGeometry(curvePath, tubularSegments, baseThickness, radialSegments, false);
+        // 4. Apply Dynamic Thickness Scaling to the Tube
         const position = newTubeGeometry.attributes.position;
         const normal = newTubeGeometry.attributes.normal;
 
-        // 3. Apply Thickness Scaling (Simplified 1:1 Mapping)
         for (let i = 0; i < position.count; i++) {
-            // Because segments = points - 1, ringIdx maps directly to our point index
             const ringIdx = Math.floor(i / (radialSegments + 1));
-            const factor = thicknessFactors[ringIdx];
+            const progress = ringIdx / tubularSegments;
+            
+            // Map progress to the rawThicknessFactors array
+            const floatIdx = progress * (rawThicknessFactors.length - 1);
+            const idx1 = Math.floor(floatIdx);
+            const idx2 = Math.min(idx1 + 1, rawThicknessFactors.length - 1);
+            const weight = floatIdx - idx1;
+
+            const factor = (rawThicknessFactors[idx1] * (1 - weight)) + (rawThicknessFactors[idx2] * weight);
             
             const nx = normal.getX(i);
             const ny = normal.getY(i);
@@ -158,6 +174,7 @@ export const FlownPath3D = {
             const py = position.getY(i);
             const pz = position.getZ(i);
 
+            // Push vertices inward based on the thickness factor
             const shrinkAmount = baseThickness * (1 - factor);
             position.setXYZ(i, px - (nx * shrinkAmount), py - (ny * shrinkAmount), pz - (nz * shrinkAmount));
         }
