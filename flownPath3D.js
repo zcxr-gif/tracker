@@ -1,104 +1,116 @@
 /**
  * flownPath3D.js
- * Handles the rendering of 3D flight trails based on altitude.
+ * Handles the rendering of 3D flight trails using Three.js.
  */
 
 export const FlownPath3D = {
+    // Stores Three.js objects per flightId
+    flightObjects: {},
+
     /**
-     * Adds or updates the 3D path for a specific flight.
-     * @param {Object} map - The Mapbox map instance.
-     * @param {string} flightId - Unique ID of the flight.
-     * @param {Array} trailData - Array of points [{lat, lon, alt}, ...].
-     * @param {boolean} is3DEnabled - Whether the 3D filter is active.
+     * Adds or updates the 3D path using Three.js.
      */
     updatePath(map, flightId, trailData, is3DEnabled) {
         if (!map || !flightId) return;
 
-        const sourceId = `source-3d-path-${flightId}`;
         const layerId = `layer-3d-path-${flightId}`;
 
-        // If 3D is disabled or trail data is empty, cleanup and exit
+        // Cleanup if disabled or insufficient data
         if (!is3DEnabled || !trailData || trailData.length < 2) {
             this.clearPath(map, flightId);
             return;
         }
 
-        // Mapbox uses METERS for altitude. Convert feet to meters.
-        // Format: [longitude, latitude, altitude_in_meters]
-        const coordinates = trailData.map(p => [
-            p.longitude || p.lon, 
-            p.latitude || p.lat, 
-            (p.altitude || p.alt || 0) * 0.3048
-        ]);
-
-        const geojson = {
-            type: 'Feature',
-            geometry: {
-                type: 'LineString',
-                coordinates: coordinates
-            }
-        };
-
-        if (!map.getSource(sourceId)) {
-            map.addSource(sourceId, { 
-                type: 'geojson', 
-                data: geojson,
-                lineMetrics: true // Required for gradients if used later
-            });
-
-            map.addLayer({
-                id: layerId,
-                type: 'line',
-                source: sourceId,
-                layout: { 
-                    'line-join': 'round', 
-                    'line-cap': 'round' 
-                },
-                paint: {
-                    'line-color': '#38bdf8',
-                    'line-width': 3,
-                    'line-opacity': 0.9,
-                    // CRITICAL: This allows the line to use the Z coordinate (altitude) 
-                    // from the GeoJSON instead of clamping it to the ground.
-                    'line-z-offset': 0 
-                }
-            });
+        // If the custom layer doesn't exist, create it
+        if (!map.getLayer(layerId)) {
+            const customLayer = this._createCustomLayer(layerId, flightId, trailData);
+            map.addLayer(customLayer);
         } else {
-            const source = map.getSource(sourceId);
-            if (source) source.setData(geojson);
+            // Update existing geometry
+            this._updateGeometry(flightId, trailData);
         }
     },
 
     /**
-     * Completely removes the 3D path layers and sources for a specific flight.
+     * Internal: Creates the Mapbox Custom Layer for Three.js
      */
-    clearPath(map, flightId) {
-        if (!map || !flightId) return;
+    _createCustomLayer(layerId, flightId, trailData) {
+        const THREE = window.THREE;
         
-        const layerId = `layer-3d-path-${flightId}`;
-        const sourceId = `source-3d-path-${flightId}`;
+        return {
+            id: layerId,
+            type: 'custom',
+            renderingMode: '3d',
+            onAdd: function (map, gl) {
+                this.camera = new THREE.Camera();
+                this.scene = new THREE.Scene();
 
+                // Create the line geometry
+                const geometry = new THREE.BufferGeometry();
+                const material = new THREE.LineBasicMaterial({ 
+                    color: 0x38bdf8, 
+                    linewidth: 3,
+                    transparent: true,
+                    opacity: 0.9 
+                });
+
+                const line = new THREE.Line(geometry, material);
+                this.scene.add(line);
+
+                this.line = line;
+                this.renderer = new THREE.WebGLRenderer({
+                    canvas: map.getCanvas(),
+                    context: gl,
+                    antialias: true
+                });
+                this.renderer.autoClear = false;
+
+                // Initial data sync
+                FlownPath3D._updateGeometry(flightId, trailData, this.line);
+            },
+            render: function (gl, matrix) {
+                const m = new THREE.Matrix4().fromArray(matrix);
+                this.camera.projectionMatrix = m;
+                this.renderer.state.reset();
+                this.renderer.render(this.scene, this.camera);
+            }
+        };
+    },
+
+    /**
+     * Internal: Updates coordinates into Mercator space for Three.js
+     */
+    _updateGeometry(flightId, trailData, existingLine = null) {
+        const THREE = window.THREE;
+        // Mapbox specific coordinates: [0,0] is NW, [1,1] is SE
+        const positions = [];
+        
+        trailData.forEach(p => {
+            const lng = p.longitude || p.lon;
+            const lat = p.latitude || p.lat;
+            const alt = (p.altitude || p.alt || 0) * 0.3048; // Feet to Meters
+            
+            const coord = mapboxgl.MercatorCoordinate.fromLngLat([lng, lat], alt);
+            positions.push(coord.x, coord.y, coord.z);
+        });
+
+        const line = existingLine || this.flightObjects[flightId]?.line;
+        if (line) {
+            line.geometry.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
+            line.geometry.attributes.position.needsUpdate = true;
+        }
+    },
+
+    clearPath(map, flightId) {
+        const layerId = `layer-3d-path-${flightId}`;
         if (map.getLayer(layerId)) {
             map.removeLayer(layerId);
         }
-        if (map.getSource(sourceId)) {
-            map.removeSource(sourceId);
-        }
+        delete this.flightObjects[flightId];
     },
 
-    /**
-     * Utility to clear all 3D paths if multiple are present
-     */
     clearAllPaths(map) {
         if (!map) return;
-        const layers = map.getStyle().layers;
-        if (!layers) return;
-
-        layers.forEach(layer => {
-            if (layer.id.startsWith('layer-3d-path-')) {
-                const flightId = layer.id.replace('layer-3d-path-', '');
-                this.clearPath(map, flightId);
-            }
-        });
+        Object.keys(this.flightObjects).forEach(id => this.clearPath(map, id));
     }
 };
