@@ -1,6 +1,7 @@
 /**
  * flownPath3D.js
  * Handles the rendering of 3D flight trails, vertical curtains, and 3D path-aligned labels.
+ * Updated to display high-frequency historical telemetry markers (Alt/Speed).
  */
 
 export const FlownPath3D = {
@@ -228,15 +229,15 @@ export const FlownPath3D = {
         layerObj.curtainGeometry.setIndex(curtainIndices);
         layerObj.curtainGeometry.setDrawRange(0, curtainIndices.length);
 
-        this._updateLabels(layerObj, curve, trailData, flightId);
+        this._updateLabels(layerObj, curve, trailData);
 
         tempTube.dispose();
     },
 
     /**
-     * Updates labels with larger text and additional flight metadata.
+     * Renders high-frequency history markers along the flight path.
      */
-    _updateLabels(layerObj, curve, trailData, flightId) {
+    _updateLabels(layerObj, curve, trailData) {
         const THREE = window.THREE;
         if (!this.font) return;
 
@@ -248,34 +249,37 @@ export const FlownPath3D = {
             layerObj.labelGroup.remove(child); 
         }
 
-        const labelIntervals = [0.2, 0.5, 0.8]; 
-        const offsetDist = 0.000003; // Distance from the curtain wall
+        // Increased frequency: markers every 10% of the flight path
+        const labelIntervals = [0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9]; 
+        const offsetDist = 0.000004; // Slightly more offset for larger text
 
         labelIntervals.forEach(t => {
             const pos = curve.getPointAt(t);
             const tangent = curve.getTangentAt(t).normalize();
             
+            // Map percentage of path to raw trail data index
             const rawIdx = Math.floor(t * (trailData.length - 1));
             const point = trailData[rawIdx];
             
-            // Additional Data Implementation
+            // Extract historical data
             const alt = point.altitude || point.alt || 0;
             const speed = point.speed || point.spd || 0;
-            const callsign = flightId || "FLIGHT";
 
-            // Creating multi-line content
+            // Multi-line historical stats
             const lines = [
-                `${callsign}`,
                 `${Math.round(alt).toLocaleString()} FT`,
                 `${Math.round(speed)} KTS`
             ];
 
-            const labelSize = 0.000025; // DOUBLED SIZE for better visibility
-            const lineHeight = labelSize * 1.5;
+            // INCREASED label size (0.000040 is ~60% larger than previous)
+            const labelSize = 0.000040; 
+            const lineHeight = labelSize * 1.3;
 
             const up = new THREE.Vector3(0, 0, 1);
             const side = new THREE.Vector3().crossVectors(tangent, up).normalize();
-            const centeredZ = pos.z / 2;
+            
+            // We center the text vertically on the "curtain" wall
+            const centeredZ = pos.z / 1.5; 
 
             const createLabelLine = (text, lineOffset, direction) => {
                 const shapes = this.font.generateShapes(text, labelSize);
@@ -289,6 +293,8 @@ export const FlownPath3D = {
                 const textMat = new THREE.MeshBasicMaterial({ 
                     color: 0xffffff,
                     side: THREE.FrontSide,
+                    transparent: true,
+                    opacity: 0.9,
                     depthTest: true, 
                     depthWrite: true,
                     polygonOffset: true,
@@ -298,12 +304,14 @@ export const FlownPath3D = {
 
                 const mesh = new THREE.Mesh(textGeo, textMat);
                 
-                // Adjust position based on Z-center and line offset
+                // Set position based on curve point and vertical line stack
                 mesh.position.set(pos.x, pos.y, centeredZ - lineOffset);
                 
+                // Offset from the curtain surface so it doesn't z-fight
                 const horizontalOffset = side.clone().multiplyScalar(direction * offsetDist);
                 mesh.position.add(horizontalOffset);
 
+                // Align rotation to face outwards from the path
                 const zAxis = side.clone().multiplyScalar(-direction); 
                 const yAxis = up.clone();
                 const xAxis = new THREE.Vector3().crossVectors(yAxis, zAxis).normalize();
@@ -315,11 +323,11 @@ export const FlownPath3D = {
                 layerObj.labelGroup.add(mesh);
             };
 
-            // Render each line for both sides of the curtain
+            // Render telemetry for both sides of the 3D curtain
             lines.forEach((lineText, index) => {
                 const verticalOffset = (index - (lines.length - 1) / 2) * lineHeight;
-                createLabelLine(lineText, verticalOffset, -1); // Side A
-                createLabelLine(lineText, verticalOffset, 1);  // Side B
+                createLabelLine(lineText, verticalOffset, -1); // Outer side
+                createLabelLine(lineText, verticalOffset, 1);  // Inner side
             });
         });
     },
