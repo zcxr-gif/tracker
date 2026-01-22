@@ -23,15 +23,12 @@ export const FlownPath3D = {
 
     /**
      * Loads the font required for 3D labels.
-     * Uses the FontLoader from THREE.Addons or via a dynamic import if available.
      */
     async _loadFont() {
         if (this.font) return this.font;
         
         const THREE = window.THREE;
         
-        // Ensure FontLoader and TextGeometry are available
-        // If they aren't on THREE, we'll import them from the CDN as Standalone scripts
         if (!THREE.FontLoader) {
             await this._loadScript('https://cdn.jsdelivr.net/npm/three@0.145.0/examples/js/loaders/FontLoader.js');
         }
@@ -48,9 +45,6 @@ export const FlownPath3D = {
         });
     },
 
-    /**
-     * Helper to load legacy JS examples that aren't modules but attach to THREE
-     */
     _loadScript(url) {
         return new Promise((resolve) => {
             const script = document.createElement('script');
@@ -85,7 +79,6 @@ export const FlownPath3D = {
             return;
         }
 
-        // Ensure font and dependencies are loaded
         try {
             await this._loadFont();
         } catch (e) {
@@ -113,7 +106,6 @@ export const FlownPath3D = {
                 this.camera = new THREE.Camera();
                 this.scene = new THREE.Scene();
 
-                // 1. Tube Geometry Setup
                 this.geometry = new THREE.BufferGeometry();
                 const totalTubeVertices = self.MAX_POINTS * self.SAMPLES_PER_POINT * (self.RADIAL_SEGMENTS + 1);
                 this.geometry.setAttribute('position', new THREE.BufferAttribute(new Float32Array(totalTubeVertices * 3), 3));
@@ -128,7 +120,6 @@ export const FlownPath3D = {
                 this.mesh.frustumCulled = false; 
                 this.scene.add(this.mesh);
 
-                // 2. Curtain Geometry Setup
                 this.curtainGeometry = new THREE.BufferGeometry();
                 const totalCurtainVertices = self.MAX_POINTS * self.SAMPLES_PER_POINT * 2;
                 this.curtainGeometry.setAttribute('position', new THREE.BufferAttribute(new Float32Array(totalCurtainVertices * 3), 3));
@@ -144,7 +135,6 @@ export const FlownPath3D = {
                 this.curtainMesh.frustumCulled = false;
                 this.scene.add(this.curtainMesh);
 
-                // 3. Label Group
                 this.labelGroup = new THREE.Group();
                 this.scene.add(this.labelGroup);
 
@@ -190,7 +180,6 @@ export const FlownPath3D = {
         const tubularSegments = Math.min((points.length - 1) * this.SAMPLES_PER_POINT, this.MAX_POINTS - 1);
         const tempTube = new THREE.TubeGeometry(curve, tubularSegments, this.BASE_THICKNESS, this.RADIAL_SEGMENTS, false);
         
-        // Update Tube Attributes (Thickness & Color)
         const posAttr = layerObj.geometry.attributes.position;
         const colorAttr = layerObj.geometry.attributes.color;
         const tempPos = tempTube.attributes.position;
@@ -214,7 +203,6 @@ export const FlownPath3D = {
         colorAttr.needsUpdate = true;
         layerObj.geometry.setDrawRange(0, tempTube.index.count);
 
-        // Update Curtain
         const curtainPosAttr = layerObj.curtainGeometry.attributes.position;
         const curtainColorAttr = layerObj.curtainGeometry.attributes.color;
         const curvePoints = curve.getPoints(tubularSegments);
@@ -242,12 +230,15 @@ export const FlownPath3D = {
         layerObj.curtainGeometry.setIndex(curtainIndices);
         layerObj.curtainGeometry.setDrawRange(0, curtainIndices.length);
 
-        // 3D LABELS: Stick to path
         this._updateLabels(layerObj, curve, trailData);
 
         tempTube.dispose();
     },
 
+    /**
+     * Updates 3D labels to be positioned on both sides of the curtain
+     * and centered vertically between path and ground.
+     */
     _updateLabels(layerObj, curve, trailData) {
         const THREE = window.THREE;
         if (!this.font || !THREE.TextGeometry) return;
@@ -255,46 +246,70 @@ export const FlownPath3D = {
         // Clear existing labels
         while(layerObj.labelGroup.children.length > 0){ 
             const child = layerObj.labelGroup.children[0];
-            child.geometry.dispose();
-            child.material.dispose();
+            if (child.geometry) child.geometry.dispose();
+            if (child.material) child.material.dispose();
             layerObj.labelGroup.remove(child); 
         }
 
-        // Place a label every ~20% of the path
         const labelIntervals = [0.2, 0.5, 0.8]; 
-        
+        const offsetDist = 0.000015; // Distance from the curtain surface
+
         labelIntervals.forEach(t => {
             const pos = curve.getPointAt(t);
             const tangent = curve.getTangentAt(t).normalize();
             
-            // Get local altitude for the text string
             const rawIdx = Math.floor(t * (trailData.length - 1));
             const alt = trailData[rawIdx].altitude || 0;
             const labelText = `${Math.round(alt).toLocaleString()} FT`;
 
-            const textGeo = new THREE.TextGeometry(labelText, {
+            // Common text geometry and material
+            const textParams = {
                 font: this.font,
                 size: 0.000008, 
-                height: 0.000001,
+                height: 0.0000005,
                 curveSegments: 4
-            });
-            
+            };
             const textMat = new THREE.MeshBasicMaterial({ color: 0xffffff });
-            const textMesh = new THREE.Mesh(textGeo, textMat);
 
-            // Positioning: Offset slightly to the side of the path
+            // Vectors for positioning
             const up = new THREE.Vector3(0, 0, 1);
             const side = new THREE.Vector3().crossVectors(tangent, up).normalize();
             
-            textMesh.position.copy(pos);
-            const offsetDist = 0.00001;
-            textMesh.position.add(side.multiplyScalar(offsetDist)); 
+            // Calculate vertically centered point (halfway between ground and flight path)
+            const centeredZ = pos.z / 2;
 
-            // Orientation: Align with path tangent
-            // Default TextGeometry is on X-Y plane. We rotate it to face the side
-            textMesh.quaternion.setFromUnitVectors(new THREE.Vector3(1, 0, 0), tangent);
-            
-            layerObj.labelGroup.add(textMesh);
+            // Helper to create and position a label mesh
+            const createLabel = (direction) => {
+                const textGeo = new THREE.TextGeometry(labelText, textParams);
+                // Center the geometry locally so rotation happens around text center
+                textGeo.computeBoundingBox();
+                const centerOffset = new THREE.Vector3();
+                textGeo.boundingBox.getCenter(centerOffset).multiplyScalar(-1);
+                textGeo.translate(centerOffset.x, centerOffset.y, centerOffset.z);
+
+                const mesh = new THREE.Mesh(textGeo, textMat.clone());
+                
+                // Position at midpoint of the curtain height
+                mesh.position.set(pos.x, pos.y, centeredZ);
+                
+                // Offset horizontally to the left or right
+                const horizontalOffset = side.clone().multiplyScalar(direction * offsetDist);
+                mesh.position.add(horizontalOffset);
+
+                // Align with path tangent
+                mesh.quaternion.setFromUnitVectors(new THREE.Vector3(1, 0, 0), tangent);
+                
+                // If on the "left" side relative to tangent, flip rotation to face outward properly
+                if (direction < 0) {
+                    mesh.rotateY(Math.PI);
+                }
+
+                layerObj.labelGroup.add(mesh);
+            };
+
+            // Create Left Label (direction -1) and Right Label (direction 1)
+            createLabel(-1);
+            createLabel(1);
         });
     },
     
@@ -310,8 +325,8 @@ export const FlownPath3D = {
                 }
             });
             layerObj.labelGroup.children.forEach(label => {
-                label.geometry.dispose();
-                label.material.dispose();
+                if (label.geometry) label.geometry.dispose();
+                if (label.material) label.material.dispose();
             });
         }
 
