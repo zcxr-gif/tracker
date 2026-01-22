@@ -1,12 +1,8 @@
 /**
  * flownPath3D.js
  * High-fidelity 3D flight path rendering for Mapbox using Three.js.
- * Features: 
- * - Thick Fat Lines (Line2) for high-altitude visibility.
- * - Altitude Curtains (vertical walls tethered to ground).
- * - Vertical Pillars for scale and depth.
- * - Catmull-Rom Spline smoothing.
- * - Altitude-based color gradients.
+ * Features: Variable thickness (Fat Lines), Spline smoothing, Altitude Gradients, 
+ * and Vertical Curtains (Walls) to the ground.
  */
 
 export const FlownPath3D = {
@@ -14,7 +10,7 @@ export const FlownPath3D = {
     flightObjects: {},
 
     /**
-     * Entry point: Adds or updates a high-quality 3D path.
+     * Entry point: Adds or updates a high-quality 3D path with curtains.
      * @param {Object} map - Mapbox GL instance.
      * @param {string} flightId - Unique identifier for the flight.
      * @param {Array} trailData - Array of {lat, lon, alt} points.
@@ -42,18 +38,17 @@ export const FlownPath3D = {
     },
 
     /**
-     * Internal: Creates the Mapbox Custom Layer with Path, Curtain, and Pillars.
+     * Internal: Creates the Mapbox Custom Layer.
+     * Manages both the Fat Line (path) and BufferMesh (curtain).
      */
     _createCustomLayer(layerId, flightId, trailData) {
         const THREE = window.THREE;
 
-        // Fallback check for Fat Line extensions
+        // Fallback check for Line2 extensions
         if (!THREE.Line2 || !THREE.LineGeometry || !THREE.LineMaterial) {
             console.warn("FlownPath3D: Three.js Line2 extensions missing. Falling back to basic lines.");
             return this._createBasicLayer(layerId, flightId, trailData);
         }
-
-        const self = this;
 
         return {
             id: layerId,
@@ -63,10 +58,10 @@ export const FlownPath3D = {
                 this.camera = new THREE.Camera();
                 this.scene = new THREE.Scene();
 
-                // --- 1. MAIN PATH (Fat Line) ---
+                // 1. Path Material (Fat Lines)
                 this.lineMaterial = new THREE.LineMaterial({
                     color: 0xffffff,
-                    linewidth: 8,        // Thicker lines for visibility from up top
+                    linewidth: 4,
                     vertexColors: true,
                     transparent: true,
                     opacity: 0.9,
@@ -74,36 +69,30 @@ export const FlownPath3D = {
                     alphaToCoverage: true 
                 });
 
-                this.lineGeometry = new THREE.LineGeometry();
-                this.line = new THREE.Line2(this.lineGeometry, this.lineMaterial);
-                this.line.frustumCulled = false;
-                this.scene.add(this.line);
-
-                // --- 2. CURTAIN (Vertical Mesh) ---
-                // Mesh connecting the flight path to the ground
-                this.curtainGeometry = new THREE.BufferGeometry();
+                // 2. Curtain Material (Vertical Wall)
                 this.curtainMaterial = new THREE.MeshBasicMaterial({
                     vertexColors: true,
                     transparent: true,
-                    opacity: 0.25,      // Subtle curtain effect
+                    opacity: 0.4,       // Subtle fill
                     side: THREE.DoubleSide,
-                    depthWrite: false   // Prevents z-fighting with terrain/buildings
+                    depthWrite: false,  // Better transparency sorting
+                    blending: THREE.AdditiveBlending // Makes the colors "glow" slightly against the map
                 });
+
+                // Initialize Line Object
+                this.lineGeometry = new THREE.LineGeometry();
+                this.line = new THREE.Line2(this.lineGeometry, this.lineMaterial);
+                this.line.frustumCulled = false;
+
+                // Initialize Curtain Object
+                this.curtainGeometry = new THREE.BufferGeometry();
                 this.curtainMesh = new THREE.Mesh(this.curtainGeometry, this.curtainMaterial);
+                this.curtainMesh.frustumCulled = false;
+
+                this.scene.add(this.line);
                 this.scene.add(this.curtainMesh);
 
-                // --- 3. PILLARS (Vertical Lines) ---
-                this.pillarGeometry = new THREE.BufferGeometry();
-                this.pillarMaterial = new THREE.LineBasicMaterial({
-                    color: 0xffffff,
-                    transparent: true,
-                    opacity: 0.4
-                });
-                this.pillarLines = new THREE.LineSegments(this.pillarGeometry, this.pillarMaterial);
-                this.scene.add(this.pillarLines);
-
-                // Store reference for updates
-                self.flightObjects[flightId] = this;
+                FlownPath3D.flightObjects[flightId] = this;
 
                 this.renderer = new THREE.WebGLRenderer({
                     canvas: map.getCanvas(),
@@ -112,10 +101,10 @@ export const FlownPath3D = {
                 });
                 this.renderer.autoClear = false;
 
-                self._updateGeometry(flightId, trailData);
+                FlownPath3D._updateGeometry(flightId, trailData);
             },
             render: function (gl, matrix) {
-                // IMPORTANT: Line2 requires resolution sync to draw thickness correctly in screen space
+                // Resolution sync for Line2
                 this.lineMaterial.resolution.set(gl.drawingBufferWidth, gl.drawingBufferHeight);
 
                 const m = new THREE.Matrix4().fromArray(matrix);
@@ -127,7 +116,7 @@ export const FlownPath3D = {
     },
 
     /**
-     * Internal: Smooths coordinates and calculates geometry for Path, Curtain, and Pillars.
+     * Internal: Smoothes coordinates and updates both Line and Curtain geometries.
      */
     _updateGeometry(flightId, trailData) {
         const layerObj = this.flightObjects[flightId];
@@ -135,7 +124,7 @@ export const FlownPath3D = {
 
         const THREE = window.THREE;
         
-        // 1. Convert raw points to 3D Vectors in Mercator space
+        // Convert raw points to 3D Vectors in Mercator space
         const rawVectors = trailData.map(p => {
             const lng = p.longitude || p.lon;
             const lat = p.latitude || p.lat;
@@ -144,81 +133,72 @@ export const FlownPath3D = {
             return new THREE.Vector3(coord.x, coord.y, coord.z);
         });
 
-        // 2. Spline Smoothing (4x density for fluidity)
+        // Spline Smoothing
         const curve = new THREE.CatmullRomCurve3(rawVectors);
         const smoothedPoints = curve.getPoints(trailData.length * 4);
 
-        // Data containers
         const linePositions = [];
         const lineColors = [];
         
         const curtainPositions = [];
         const curtainColors = [];
-        
-        const pillarPositions = [];
 
         // Color Palette
-        const colorLow = new THREE.Color(0x0c4a6e);  // Deep Navy (Ground/Curtain Bottom)
-        const colorHigh = new THREE.Color(0x38bdf8); // Sky Blue (Cruising/Line)
+        const colorLow = new THREE.Color(0x0c4a6e);  // Deep Navy
+        const colorHigh = new THREE.Color(0x38bdf8); // Sky Blue
 
         smoothedPoints.forEach((vector, i) => {
-            // --- MAIN LINE ---
-            linePositions.push(vector.x, vector.y, vector.z);
-            
-            // Calculate altitude gradient color
+            // 1. Calculate Path Color (Altitude-based)
             const relativeAlt = Math.abs(vector.z) * 100000; 
             const t = Math.min(Math.max(relativeAlt / 5, 0), 1);
             const mixedColor = new THREE.Color().copy(colorLow).lerp(colorHigh, t);
+
+            // 2. Line Data
+            linePositions.push(vector.x, vector.y, vector.z);
             lineColors.push(mixedColor.r, mixedColor.g, mixedColor.b);
 
-            // --- CURTAIN (Triangle Strip Mesh) ---
-            // Point at altitude
-            curtainPositions.push(vector.x, vector.y, vector.z);
-            curtainColors.push(mixedColor.r, mixedColor.g, mixedColor.b);
+            // 3. Curtain Data (Triangulation)
+            if (i < smoothedPoints.length - 1) {
+                const nextVector = smoothedPoints[i + 1];
+                
+                // Segment Quad Points
+                const topCurr = [vector.x, vector.y, vector.z];
+                const botCurr = [vector.x, vector.y, 0]; // Ground level
+                const topNext = [nextVector.x, nextVector.y, nextVector.z];
+                const botNext = [nextVector.x, nextVector.y, 0]; // Ground level
 
-            // Point at ground (z = 0 in Mercator space is sea level)
-            curtainPositions.push(vector.x, vector.y, 0);
-            curtainColors.push(colorLow.r, colorLow.g, colorLow.b); // Fade to dark at ground
+                // Tri 1
+                curtainPositions.push(...topCurr, ...botCurr, ...topNext);
+                // Tri 2
+                curtainPositions.push(...botCurr, ...botNext, ...topNext);
 
-            // --- PILLARS ---
-            // Add a pillar every ~15 smoothed points to provide scale without cluttering
-            if (i % 15 === 0) {
-                pillarPositions.push(vector.x, vector.y, vector.z);
-                pillarPositions.push(vector.x, vector.y, 0);
+                // Curtain Colors
+                const topColor = mixedColor;
+                const bottomColor = new THREE.Color(colorLow).multiplyScalar(0.4);
+
+                // Color mapping per vertex (match top and fade bottom)
+                // Triangle 1 Colors
+                curtainColors.push(topColor.r, topColor.g, topColor.b);
+                curtainColors.push(bottomColor.r, bottomColor.g, bottomColor.b);
+                curtainColors.push(topColor.r, topColor.g, topColor.b);
+
+                // Triangle 2 Colors
+                curtainColors.push(bottomColor.r, bottomColor.g, bottomColor.b);
+                curtainColors.push(bottomColor.r, bottomColor.g, bottomColor.b);
+                curtainColors.push(topColor.r, topColor.g, topColor.b);
             }
         });
 
-        // 3. Update Path (Fat Line) Attributes
+        // Update the Line2
         layerObj.lineGeometry.setPositions(linePositions);
         layerObj.lineGeometry.setColors(lineColors);
         layerObj.line.computeLineDistances();
 
-        // 4. Update Curtain (Mesh) Attributes
-        // Using BufferGeometry with standard draw calls (Triangles)
-        // For a strip of N points, we have (N-1) quads, each quad is 2 triangles (6 indices)
-        // Or we can use an index buffer for efficiency
-        const indices = [];
-        for (let j = 0; j < smoothedPoints.length - 1; j++) {
-            const currTop = j * 2;
-            const currBottom = j * 2 + 1;
-            const nextTop = (j + 1) * 2;
-            const nextBottom = (j + 1) * 2 + 1;
-
-            // Triangle 1
-            indices.push(currTop, currBottom, nextTop);
-            // Triangle 2
-            indices.push(currBottom, nextBottom, nextTop);
-        }
-
-        layerObj.curtainGeometry.setIndex(indices);
+        // Update the Curtain Mesh
         layerObj.curtainGeometry.setAttribute('position', new THREE.Float32BufferAttribute(curtainPositions, 3));
         layerObj.curtainGeometry.setAttribute('color', new THREE.Float32BufferAttribute(curtainColors, 3));
-        layerObj.curtainGeometry.attributes.position.needsUpdate = true;
-        layerObj.curtainGeometry.attributes.color.needsUpdate = true;
-
-        // 5. Update Pillars Attributes
-        layerObj.pillarGeometry.setAttribute('position', new THREE.Float32BufferAttribute(pillarPositions, 3));
-        layerObj.pillarGeometry.attributes.position.needsUpdate = true;
+        // Recalculate normals for correct rendering side handling
+        layerObj.curtainGeometry.computeVertexNormals();
     },
 
     /**
@@ -226,7 +206,6 @@ export const FlownPath3D = {
      */
     _createBasicLayer(layerId, flightId, trailData) {
         const THREE = window.THREE;
-        const self = this;
         return {
             id: layerId,
             type: 'custom',
@@ -238,7 +217,7 @@ export const FlownPath3D = {
                 this.material = new THREE.LineBasicMaterial({ color: 0x38bdf8, opacity: 0.8, transparent: true });
                 this.line = new THREE.Line(this.geometry, this.material);
                 this.scene.add(this.line);
-                self.flightObjects[flightId] = this;
+                FlownPath3D.flightObjects[flightId] = this;
                 this.renderer = new THREE.WebGLRenderer({ canvas: map.getCanvas(), context: gl });
                 this.renderer.autoClear = false;
             },
@@ -251,9 +230,6 @@ export const FlownPath3D = {
         };
     },
 
-    /**
-     * Remove specific flight layer and clean up resources.
-     */
     clearPath(map, flightId) {
         const layerId = `layer-3d-path-${flightId}`;
         if (map.getLayer(layerId)) {
@@ -262,9 +238,6 @@ export const FlownPath3D = {
         delete this.flightObjects[flightId];
     },
 
-    /**
-     * Clean up all active paths.
-     */
     clearAllPaths(map) {
         if (!map) return;
         Object.keys(this.flightObjects).forEach(id => this.clearPath(map, id));
