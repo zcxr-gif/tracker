@@ -74,7 +74,7 @@ export const FlownPath3D = {
         };
     },
 
-    /**
+/**
      * Internal: Updates coordinates and regenerates path with altitude-dependent thickness
      */
     _updateGeometry(map, flightId, trailData) {
@@ -87,10 +87,10 @@ export const FlownPath3D = {
         const points = [];
         const thicknessFactors = [];
 
-        // Adjusted Constants for more aggressive thinning
-        const baseThickness = 0.0000035; // Reduced from 5.5 to 3.5
-        const minThicknessMult = 0.05;   // Reduced from 20% to 5% at ground level
-        const fullThicknessAlt = 15000;  // Increased altitude for full thickness reach
+        // Constants for thickness scaling
+        const baseThickness = 0.0000035; 
+        const minThicknessMult = 0.05;   
+        const fullThicknessAlt = 15000;  
 
         trailData.forEach((p, index) => {
             const lng = p.longitude || p.lon;
@@ -101,20 +101,19 @@ export const FlownPath3D = {
             const coord = mapboxgl.MercatorCoordinate.fromLngLat([lng, lat], altMeters);
             points.push(new THREE.Vector3(coord.x, coord.y, coord.z));
 
-            // Calculate altitude-based multiplier (minThicknessMult to 1.0)
+            // Calculate altitude-based multiplier
             let altFactor = Math.min(rawAlt / fullThicknessAlt, 1.0);
             altFactor = minThicknessMult + (altFactor * (1.0 - minThicknessMult));
 
-            // Taper the tip of the trail
-            let tipTaper = 1.0;
-            if (index === trailData.length - 1) tipTaper = 0.05;
-            else if (index === trailData.length - 2) tipTaper = 0.5;
+            // Apply tapering to the very end of the trail
+            if (index === trailData.length - 1) altFactor *= 0.1;
+            else if (index === trailData.length - 2) altFactor *= 0.5;
 
-            thicknessFactors.push(altFactor * tipTaper);
+            thicknessFactors.push(altFactor);
         });
 
         const curve = new THREE.CatmullRomCurve3(points);
-        const tubularSegments = Math.max(40, points.length * 2);
+        const tubularSegments = Math.max(64, points.length * 2); // Increased for smoothness
         const radialSegments = 8; 
 
         const newGeometry = new THREE.TubeGeometry(
@@ -125,22 +124,25 @@ export const FlownPath3D = {
             false
         );
 
-        // Modify vertices for variable radius
         const position = newGeometry.attributes.position;
         const normal = newGeometry.attributes.normal;
 
         for (let i = 0; i < position.count; i++) {
-            // Find which ring this vertex belongs to
+            // 1. Identify which ring this vertex belongs to
             const ringIdx = Math.floor(i / (radialSegments + 1));
             const progress = ringIdx / tubularSegments;
             
-            // Map progress back to our thicknessFactors array
-            const factorIdx = Math.min(
-                Math.floor(progress * (thicknessFactors.length - 1)), 
-                thicknessFactors.length - 1
-            );
-            const factor = thicknessFactors[factorIdx];
+            // 2. Linear Interpolation for smooth thickness
+            // We find the exact spot in our thicknessFactors array
+            const floatIdx = progress * (thicknessFactors.length - 1);
+            const idx1 = Math.floor(floatIdx);
+            const idx2 = Math.min(idx1 + 1, thicknessFactors.length - 1);
+            const weight = floatIdx - idx1;
 
+            // Interpolated factor between the two nearest data points
+            const factor = (thicknessFactors[idx1] * (1 - weight)) + (thicknessFactors[idx2] * weight);
+
+            // 3. Apply displacement
             const nx = normal.getX(i);
             const ny = normal.getY(i);
             const nz = normal.getZ(i);
@@ -149,8 +151,10 @@ export const FlownPath3D = {
             const py = position.getY(i);
             const pz = position.getZ(i);
 
-            // Move the vertex toward the center line based on the factor
+            // Calculate how much to "pull" the vertex back toward the center
+            // If factor is 1.0, shrink is 0 (full thickness). If factor is 0.1, shrink is 0.9.
             const shrinkAmount = baseThickness * (1 - factor);
+
             position.setXYZ(
                 i, 
                 px - (nx * shrinkAmount),
@@ -159,7 +163,6 @@ export const FlownPath3D = {
             );
         }
 
-        // CRITICAL: Tell Three.js the vertices have changed!
         position.needsUpdate = true;
 
         if (layerObj.mesh.geometry) {
@@ -167,7 +170,7 @@ export const FlownPath3D = {
         }
         layerObj.mesh.geometry = newGeometry;
     },
-
+    
     clearPath(map, flightId) {
         const layerId = `layer-3d-path-${flightId}`;
         const layerObj = this.flightObjects[flightId];
