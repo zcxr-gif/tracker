@@ -29,11 +29,9 @@ export const FlownPath3D = {
         
         const THREE = window.THREE;
         
+        // We use FontLoader to get the font data, then we can use ShapeGeometry (Core)
         if (!THREE.FontLoader) {
             await this._loadScript('https://cdn.jsdelivr.net/npm/three@0.145.0/examples/js/loaders/FontLoader.js');
-        }
-        if (!THREE.TextGeometry) {
-            await this._loadScript('https://cdn.jsdelivr.net/npm/three@0.145.0/examples/js/geometries/TextGeometry.js');
         }
 
         const loader = new THREE.FontLoader();
@@ -178,6 +176,8 @@ export const FlownPath3D = {
 
         const curve = new THREE.CatmullRomCurve3(points, false, 'centripetal');
         const tubularSegments = Math.min((points.length - 1) * this.SAMPLES_PER_POINT, this.MAX_POINTS - 1);
+        
+        // We still use TubeGeometry for the path itself
         const tempTube = new THREE.TubeGeometry(curve, tubularSegments, this.BASE_THICKNESS, this.RADIAL_SEGMENTS, false);
         
         const posAttr = layerObj.geometry.attributes.position;
@@ -237,10 +237,11 @@ export const FlownPath3D = {
 
     /**
      * Updates 3D labels to be positioned precisely on both sides of the curtain.
+     * FIX: Use ShapeGeometry for 1-sided rendering and enable depth testing.
      */
     _updateLabels(layerObj, curve, trailData) {
         const THREE = window.THREE;
-        if (!this.font || !THREE.TextGeometry) return;
+        if (!this.font) return;
 
         // 1. Clear existing labels
         while(layerObj.labelGroup.children.length > 0){ 
@@ -251,7 +252,7 @@ export const FlownPath3D = {
         }
 
         const labelIntervals = [0.2, 0.5, 0.8]; 
-        const offsetDist = 0.000001; 
+        const offsetDist = 0.000002; // Slightly increased offset to avoid bleed-through
 
         labelIntervals.forEach(t => {
             const pos = curve.getPointAt(t);
@@ -261,19 +262,18 @@ export const FlownPath3D = {
             const alt = trailData[rawIdx].altitude || 0;
             const labelText = `${Math.round(alt).toLocaleString()} FT`;
 
-            const textParams = {
-                font: this.font,
-                size: 0.000012, 
-                height: 0.000001, 
-                curveSegments: 4
-            };
+            const labelSize = 0.000012;
 
             const up = new THREE.Vector3(0, 0, 1);
             const side = new THREE.Vector3().crossVectors(tangent, up).normalize();
             const centeredZ = pos.z / 2;
 
             const createLabel = (direction) => {
-                const textGeo = new THREE.TextGeometry(labelText, textParams);
+                // BUG FIX: Use ShapeGeometry instead of TextGeometry.
+                // TextGeometry has thickness, so the "back" of the 3D text is visible from behind.
+                // ShapeGeometry is a flat 2D plane in 3D space, which culls perfectly.
+                const shapes = this.font.generateShapes(labelText, labelSize);
+                const textGeo = new THREE.ShapeGeometry(shapes);
                 
                 textGeo.computeBoundingBox();
                 const centerOffset = new THREE.Vector3();
@@ -281,17 +281,20 @@ export const FlownPath3D = {
                 textGeo.translate(centerOffset.x, centerOffset.y, centerOffset.z);
 
                 /**
-                 * CULLING FIX:
-                 * By setting side to FrontSide AND depthTest to false, 
-                 * the labels will not be occluded by the semi-transparent curtain.
-                 * However, since we only render the 'Front', the text on the opposite side
-                 * will be invisible when viewed from the back.
+                 * CULLING & LEGIBILITY FIX:
+                 * 1. side: THREE.FrontSide ensures the label is invisible when viewed from the back.
+                 * 2. depthTest: true ensures the curtain physically blocks the label on the other side.
+                 * 3. polygonOffset: true prevents Z-fighting (flickering) against the curtain mesh.
                  */
                 const textMat = new THREE.MeshBasicMaterial({ 
                     color: 0xffffff,
                     side: THREE.FrontSide,
-                    depthTest: false, // Ensures text is always visible on top of its side
-                    transparent: true 
+                    depthTest: true, 
+                    depthWrite: true,
+                    transparent: false,
+                    polygonOffset: true,
+                    polygonOffsetFactor: -1, // Pulls the label slightly towards the camera
+                    polygonOffsetUnits: -1
                 });
 
                 const mesh = new THREE.Mesh(textGeo, textMat);
