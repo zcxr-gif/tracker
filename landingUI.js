@@ -683,18 +683,19 @@ export const LandingUI = {
     display: flex;
     align-items: center;
     padding: 0 18px;
-    /* CHANGE: Removed the bouncy cubic-bezier and 'all' */
-    transition: width 0.3s ease, border-radius 0.3s ease, background 0.3s ease, border-color 0.3s ease;
+    /* FIX: Removed border-radius from transition to stop 'bending' */
+    transition: width 0.2s ease, background 0.3s ease, border-color 0.3s ease;
     position: relative;
     box-shadow: 0 10px 30px rgba(0,0,0,0.4);
     z-index: 1002;
+    pointer-events: auto;
 }
             .search-blade:focus-within {
-                width: 380px;
-                border-color: #38bdf8;
-                background: #0f0f11;
-                box-shadow: 0 15px 40px rgba(0,0,0,0.6), 0 0 0 1px rgba(56, 189, 248, 0.3);
-            }
+    width: 380px;
+    border-color: #38bdf8;
+    background: #0f0f11;
+    box-shadow: 0 15px 40px rgba(0,0,0,0.6), 0 0 0 1px rgba(56, 189, 248, 0.3);
+}
             
             /* Class toggled in JS when dropdown opens */
             .search-blade.has-results {
@@ -702,8 +703,8 @@ export const LandingUI = {
     border-bottom-right-radius: 0 !important;
     border-top-left-radius: 20px;
     border-top-right-radius: 20px;
+    border-color: #38bdf8;
 }
-
             #blade-search-input {
                 flex: 1;
                 background: none;
