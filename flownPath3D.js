@@ -1,7 +1,6 @@
 /**
  * flownPath3D.js
  * Handles the rendering of 3D flight trails, vertical curtains, and 3D path-aligned labels.
- * Updated to display high-frequency historical telemetry markers (Alt/Speed).
  */
 
 export const FlownPath3D = {
@@ -235,7 +234,7 @@ export const FlownPath3D = {
     },
 
     /**
-     * Renders high-frequency history markers along the flight path.
+     * Renders labels that adjust their size based on the vertical space (curtain height).
      */
     _updateLabels(layerObj, curve, trailData) {
         const THREE = window.THREE;
@@ -249,33 +248,45 @@ export const FlownPath3D = {
             layerObj.labelGroup.remove(child); 
         }
 
-        // Updated frequency: labels every 35% of the flight path
+        // Labels at 35% and 70% of the path
         const labelIntervals = [0.35, 0.70]; 
         const offsetDist = 0.000004;
 
         labelIntervals.forEach(t => {
             const pos = curve.getPointAt(t);
             const tangent = curve.getTangentAt(t).normalize();
-            
             const rawIdx = Math.floor(t * (trailData.length - 1));
             const point = trailData[rawIdx];
-            
             const alt = point.altitude || point.alt || 0;
 
-            // Removed speed, showing only Altitude
-            const lines = [
-                `${Math.round(alt).toLocaleString()} FT`
-            ];
+            const lines = [ `${Math.round(alt).toLocaleString()} FT` ];
 
-            // DYNAMIC LABEL SIZE: Scale based on altitude
-            const baseSize = 0.000040;
-            const altScaling = Math.max(0.6, 1 - (alt / 40000) * 0.4);
-            const labelSize = baseSize * altScaling;
+            /**
+             * SPACE ADJUSTMENT LOGIC
+             * Available vertical space is pos.z (altitude in Mercator units).
+             */
+            const curtainHeight = pos.z; 
+            const maxAllowedHeight = curtainHeight * 0.75; // Leave 25% padding
+            
+            // Standard size for high altitudes
+            const baseSize = 0.000040; 
+            
+            // Calculate total height if we used the base size
+            const estimatedTotalHeight = lines.length * (baseSize * 1.3);
+            
+            // If the estimated height is too big for the curtain, scale it down
+            const scaleFactor = estimatedTotalHeight > maxAllowedHeight 
+                ? maxAllowedHeight / estimatedTotalHeight 
+                : 1;
+
+            const labelSize = baseSize * scaleFactor;
             const lineHeight = labelSize * 1.3;
 
             const up = new THREE.Vector3(0, 0, 1);
             const side = new THREE.Vector3().crossVectors(tangent, up).normalize();
-            const centeredZ = pos.z / 1.5; 
+            
+            // Anchor label perfectly in the middle of the curtain
+            const centeredZ = curtainHeight / 2; 
 
             const createLabelLine = (text, lineOffset, direction) => {
                 const shapes = this.font.generateShapes(text, labelSize);
@@ -299,7 +310,9 @@ export const FlownPath3D = {
                 });
 
                 const mesh = new THREE.Mesh(textGeo, textMat);
+                // Position is centered in curtain, then adjusted by lineOffset
                 mesh.position.set(pos.x, pos.y, centeredZ - lineOffset);
+                
                 const horizontalOffset = side.clone().multiplyScalar(direction * offsetDist);
                 mesh.position.add(horizontalOffset);
 
@@ -316,8 +329,8 @@ export const FlownPath3D = {
 
             lines.forEach((lineText, index) => {
                 const verticalOffset = (index - (lines.length - 1) / 2) * lineHeight;
-                createLabelLine(lineText, verticalOffset, -1);
-                createLabelLine(lineText, verticalOffset, 1);
+                createLabelLine(lineText, verticalOffset, -1); // Side A
+                createLabelLine(lineText, verticalOffset, 1);  // Side B
             });
         });
     },
