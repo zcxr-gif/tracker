@@ -4563,7 +4563,9 @@ function updateMapFilters() {
         // After style loads, we MUST rebuild the custom layers (planes, paths)
         sectorOpsMap.once('style.load', () => {
             setupMapLayersAndFog(); 
-            // Also re-apply the filters to the new style
+            if (window.globalNatTracks) {
+            window.globalNatTracks.initSource();
+        }
             updateAircraftLayerFilter();
         });
     }

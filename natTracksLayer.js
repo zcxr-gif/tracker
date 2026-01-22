@@ -103,6 +103,12 @@ export class NatTracksLayer {
             }
         }, beforeId);
 
+        if (this.tracks.length > 0) {
+        this.renderTracks();
+    } else {
+        this.fetchTracks(); // Or fetch if empty
+    }
+
         this.setupInteractions();
     }
 
