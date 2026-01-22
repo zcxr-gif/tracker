@@ -7811,16 +7811,21 @@ function formatDataForSimpleWindow(flightProps, plan, routePoints, communityData
                 </label>
             </div>
 
-            <div class="settings-row">
-    <div class="row-label">
-        <i class="fa-solid fa-cube"></i>
-        <span>3D Flight Path</span>
-    </div>
-    <label class="toggle-switch">
-        <input type="checkbox" id="setting-toggle-3dpath" ${mapFilters.show3DPath ? 'checked' : ''}>
-        <span class="toggle-slider"></span>
-    </label>
-</div>
+            <div class="settings-row" style="margin-bottom: 4px;">
+                <div class="row-label">
+                    <i class="fa-solid fa-cube"></i> 
+                    3D Path Trail
+                    <span style="background: #f59e0b; color: #000; font-size: 0.6rem; padding: 2px 6px; border-radius: 4px; margin-left: 10px; font-weight: 800; letter-spacing: 0.5px;">EXPERIMENTAL</span>
+                </div>
+                <label class="toggle-switch">
+                    <input type="checkbox" id="filter-toggle-3d-path" ${mapFilters.show3DPath ? 'checked' : ''}>
+                    <span class="toggle-slider"></span>
+                </label>
+            </div>
+            <p style="font-size: 0.7rem; color: #71717a; margin: 0 0 12px 16px; line-height: 1.4;">
+                <i class="fa-solid fa-circle-info" style="font-size: 0.6rem; margin-right: 4px;"></i>
+                Note: This feature is experimental and may be broken at times.
+            </p>
 
                         <div class="settings-row">
                             <div class="row-label">Map Style</div>
