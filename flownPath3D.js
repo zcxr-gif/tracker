@@ -242,7 +242,7 @@ export const FlownPath3D = {
         const THREE = window.THREE;
         if (!this.font || !THREE.TextGeometry) return;
 
-        // 1. Clear existing labels and dispose of memory
+        // 1. Clear existing labels
         while(layerObj.labelGroup.children.length > 0){ 
             const child = layerObj.labelGroup.children[0];
             if (child.geometry) child.geometry.dispose();
@@ -251,8 +251,9 @@ export const FlownPath3D = {
         }
 
         const labelIntervals = [0.2, 0.5, 0.8]; 
-        // Reduced distance to bring labels closer to the curtain mesh
-        const offsetDist = 0.0000005; 
+        // Increased slightly from the previous attempt to avoid precision-based burial 
+        // while remaining much closer than the original version.
+        const offsetDist = 0.000001; 
 
         labelIntervals.forEach(t => {
             const pos = curve.getPointAt(t);
@@ -265,19 +266,18 @@ export const FlownPath3D = {
             const textParams = {
                 font: this.font,
                 size: 0.000012, 
-                height: 0.0000001, 
+                height: 0.000001, // Added depth so the front is physically distinct from the back
                 curveSegments: 4
             };
 
             const up = new THREE.Vector3(0, 0, 1);
-            // Perpendicular to the curtain path
             const side = new THREE.Vector3().crossVectors(tangent, up).normalize();
             const centeredZ = pos.z / 2;
 
             const createLabel = (direction) => {
                 const textGeo = new THREE.TextGeometry(labelText, textParams);
                 
-                // Center the text geometry
+                // Center the text geometry on its own local origin
                 textGeo.computeBoundingBox();
                 const centerOffset = new THREE.Vector3();
                 textGeo.boundingBox.getCenter(centerOffset).multiplyScalar(-1);
@@ -287,30 +287,37 @@ export const FlownPath3D = {
                     color: 0xffffff,
                     side: THREE.FrontSide, 
                     polygonOffset: true,
-                    polygonOffsetFactor: -1,
+                    polygonOffsetFactor: -2, // Stronger offset to ensure it's on top
                     polygonOffsetUnits: -1
                 });
 
                 const mesh = new THREE.Mesh(textGeo, textMat);
                 mesh.position.set(pos.x, pos.y, centeredZ);
                 
-                // Add tiny offset based on side direction
+                // Position the label slightly off the wall
                 const horizontalOffset = side.clone().multiplyScalar(direction * offsetDist);
                 mesh.position.add(horizontalOffset);
 
-                // Set orientation
-                mesh.up.copy(up);
+                /**
+                 * ORIENTATION FIX:
+                 * We explicitly construct a rotation matrix so that:
+                 * Local Z (Forward) points AWAY from the curtain (normal = side * direction)
+                 * Local Y (Up) points UP (world Z)
+                 * Local X (Right) is perpendicular to both, aligning with the tangent.
+                 */
+                const zAxis = side.clone().multiplyScalar(direction);
+                const yAxis = up.clone();
+                const xAxis = new THREE.Vector3().crossVectors(yAxis, zAxis).normalize();
                 
-                // Point the FRONT of the mesh away from the curtain
-                // Since TextGeometry faces +Z by default, we look at the point away from side
-                const lookTarget = mesh.position.clone().add(side.clone().multiplyScalar(direction));
-                mesh.lookAt(lookTarget);
+                const matrix = new THREE.Matrix4();
+                matrix.makeBasis(xAxis, yAxis, zAxis);
+                mesh.quaternion.setFromRotationMatrix(matrix);
 
                 layerObj.labelGroup.add(mesh);
             };
 
-            createLabel(-1); // Left side
-            createLabel(1);  // Right side
+            createLabel(-1); // Side A
+            createLabel(1);  // Side B
         });
     },
     
