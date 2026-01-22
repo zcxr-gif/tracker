@@ -111,21 +111,26 @@ export const LandingUI = {
         this.renderSearchResults(query);
     },
 
+    /**
+     * Updated Highlight: High-contrast white instead of a colorful background.
+     */
     highlightText(text, query) {
         if (!query || !text) return text;
         const regex = new RegExp(`(${query})`, 'gi');
-        return text.replace(regex, '<b class="search-highlight">$1</b>');
+        return text.replace(regex, '<span class="search-match">$1</span>');
     },
 
+    /**
+     * Updated Search Results: Industrial manifest style.
+     */
     renderSearchResults(query) {
         const container = document.getElementById('blade-search-results');
         if (!container) return;
         
         if (this._currentMatches.length === 0) {
             container.innerHTML = `
-                <div class="search-no-results">
-                    <i class="fa-solid fa-plane-slash"></i>
-                    <span>No matching flights</span>
+                <div class="search-empty-state">
+                    <span>NO MATCHING TARGETS</span>
                 </div>
             `;
         } else {
@@ -133,13 +138,21 @@ export const LandingUI = {
                 <div class="search-result-item ${this._searchCursorIndex === idx ? 'selected' : ''}" 
                      data-index="${idx}"
                      onclick="LandingUI.executeSearchClick('${f.properties.flightId}', ${f.geometry.coordinates[1]}, ${f.geometry.coordinates[0]})">
-                    <div class="res-main">
-                        <span class="res-callsign">${this.highlightText(f.properties.callsign || 'N/A', query)}</span>
-                        <span class="res-aircraft">${this.highlightText(f.properties.aircraftName || '', query)}</span>
+                    
+                    <div class="res-row-top">
+                        <span class="res-callsign">${this.highlightText(f.properties.callsign || 'UNK', query)}</span>
+                        <span class="res-alt-data">${Math.round(f.properties.altitude || 0)} FT</span>
                     </div>
-                    <div class="res-sub">
-                        <span class="res-pilot"><i class="fa-solid fa-user"></i> ${this.highlightText(f.properties.username || 'Anonymous', query)}</span>
-                        <span class="res-alt">${Math.round(f.properties.altitude || 0)}ft</span>
+
+                    <div class="res-row-bottom">
+                        <div class="res-info-group">
+                            <span class="res-label">ACFT</span>
+                            <span class="res-value">${this.highlightText(f.properties.aircraftName || '---', query)}</span>
+                        </div>
+                        <div class="res-info-group">
+                            <span class="res-label">PILOT</span>
+                            <span class="res-value">${this.highlightText(f.properties.username || 'Anonymous', query)}</span>
+                        </div>
                     </div>
                 </div>
             `).join('');
@@ -726,38 +739,34 @@ export const LandingUI = {
                 font-weight: 800;
                 margin-left: 10px;
             }
-
-            .search-results-dropdown {
+.search-results-dropdown {
     position: absolute;
-    top: 100%; /* Positions it exactly at the bottom of the blade */
+    top: 100%;
     left: 0;
-    width: 100%; /* This is the key: it will follow the blade's 240px -> 380px transition */
-    background: #0f0f11;
-    backdrop-filter: blur(25px);
-    border: 1px solid #38bdf8;
+    width: 100%;
+    background: rgba(10, 10, 12, 0.98);
+    backdrop-filter: blur(20px);
+    border: 1px solid rgba(255, 255, 255, 0.1);
     border-top: none;
-    border-bottom-left-radius: 20px;
-    border-bottom-right-radius: 20px;
-    max-height: 420px;
+    border-bottom-left-radius: 12px;
+    border-bottom-right-radius: 12px;
+    max-height: 400px;
     overflow-y: auto;
     display: none;
-    box-shadow: 0 30px 60px rgba(0,0,0,0.8);
     z-index: 1001;
-    padding: 8px 0;
-    box-sizing: border-box; /* Prevents border from adding to width */
+    box-shadow: 0 20px 40px rgba(0,0,0,0.5);
 }
             .search-results-dropdown.visible {
     display: block;
 }
             .search-result-item {
-    padding: 14px 22px;
+    padding: 12px 20px;
     cursor: pointer;
-    border-bottom: 1px solid rgba(255, 255, 255, 0.03);
-    transition: all 0.2s;
-    border-left: 3px solid transparent;
-    display: flex; /* Using flex for the item itself */
+    border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+    transition: background 0.2s ease;
+    display: flex;
     flex-direction: column;
-    gap: 4px;
+    gap: 6px;
 }
 
 /* Ensure inner rows spread to fill the dynamic width */
@@ -767,69 +776,74 @@ export const LandingUI = {
     align-items: center;
     width: 100%;
 }
-            .search-result-item:hover, .search-result-item.selected {
-                background: rgba(56, 189, 248, 0.12);
-                border-left-color: #38bdf8;
-                padding-left: 28px;
+            .search-result-item:hover, 
+.search-result-item.selected {
+    background: rgba(255, 255, 255, 0.03);
+}dding-left: 28px;
             }
             
-            /* Text Highlighting Style */
-            .search-highlight {
-                color: #38bdf8;
-                background: rgba(56, 189, 248, 0.1);
-                border-radius: 2px;
-                padding: 0 1px;
-                font-weight: 800;
-            }
+            /* Data Rows */
+.res-row-top {
+    display: flex;
+    justify-content: space-between;
+    align-items: baseline;
+}
 
-            .res-main {
-                display: flex;
-                justify-content: space-between;
-                align-items: center;
-                margin-bottom: 5px;
-            }
-            .res-callsign {
-                font-weight: 800;
-                color: #fff;
-                font-size: 1.05rem;
-                letter-spacing: 0.5px;
-            }
-            .res-aircraft {
-                font-size: 0.75rem;
-                color: rgba(255, 255, 255, 0.4);
-                text-transform: uppercase;
-                font-weight: 600;
-            }
-            .res-sub {
-                display: flex;
-                justify-content: space-between;
-                align-items: center;
-                font-size: 0.8rem;
-            }
-            .res-pilot {
-                color: #38bdf8;
-                font-weight: 500;
-                display: flex;
-                align-items: center;
-                gap: 5px;
-            }
-            .res-alt {
-                color: #10b981;
-                font-family: 'JetBrains Mono', monospace;
-                font-weight: 600;
-            }
-            .search-no-results {
-                padding: 50px 20px;
-                text-align: center;
-                color: rgba(255, 255, 255, 0.3);
-                display: flex;
-                flex-direction: column;
-                gap: 12px;
-            }
-            .search-no-results i {
-                font-size: 28px;
-                opacity: 0.4;
-            }
+.res-callsign {
+    font-family: 'Inter', sans-serif;
+    font-weight: 700;
+    font-size: 14px;
+    letter-spacing: 0.5px;
+    color: rgba(255, 255, 255, 0.9);
+}
+
+.res-alt-data {
+    font-family: 'JetBrains Mono', monospace; /* Monospaced for data feel */
+    font-size: 12px;
+    color: rgba(255, 255, 255, 0.4);
+    font-weight: 500;
+}
+
+.res-row-bottom {
+    display: flex;
+    gap: 15px;
+}
+
+/* Label/Value Pairs */
+.res-info-group {
+    display: flex;
+    gap: 6px;
+    align-items: baseline;
+}
+
+.res-label {
+    font-size: 9px;
+    font-weight: 800;
+    color: rgba(255, 255, 255, 0.2);
+    text-transform: uppercase;
+}
+
+.res-value {
+    font-size: 11px;
+    font-weight: 500;
+    color: rgba(255, 255, 255, 0.5);
+}
+
+/* The Highlight Style */
+.search-match {
+    color: #fff;
+    font-weight: 800;
+    text-decoration: underline rgba(255, 255, 255, 0.3);
+}
+
+.search-empty-state {
+    padding: 40px 20px;
+    text-align: center;
+    font-size: 11px;
+    font-weight: 700;
+    color: rgba(255, 255, 255, 0.2);
+    letter-spacing: 2px;
+}
 
             /* UTILITY NEXUS STYLES */
             .utility-nexus {
