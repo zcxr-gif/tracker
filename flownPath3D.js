@@ -1,7 +1,6 @@
 /**
  * flownPath3D.js
- * Handles the rendering of 3D flight trails and vertical curtains using Three.js.
- * Optimized for incremental updates with dynamic altitude-based coloring.
+ * Handles the rendering of 3D flight trails, vertical curtains, and milestone pillars using Three.js.
  */
 
 export const FlownPath3D = {
@@ -12,6 +11,7 @@ export const FlownPath3D = {
     SAMPLES_PER_POINT: 8, 
     RADIAL_SEGMENTS: 6,   
     BASE_THICKNESS: 0.0000035,
+    PILLAR_INTERVAL: 2000, // Every 2000ft
 
     // Altitude Color Config (Feet)
     ALTITUDE_STOPS: [
@@ -91,12 +91,16 @@ export const FlownPath3D = {
                 this.curtainMaterial = new THREE.MeshBasicMaterial({
                     vertexColors: true,
                     transparent: true,
-                    opacity: 0.4,
+                    opacity: 0.3,
                     side: THREE.DoubleSide
                 });
                 this.curtainMesh = new THREE.Mesh(this.curtainGeometry, this.curtainMaterial);
                 this.curtainMesh.frustumCulled = false;
                 this.scene.add(this.curtainMesh);
+
+                // 3. Pillars Group
+                this.pillarsGroup = new THREE.Group();
+                this.scene.add(this.pillarsGroup);
 
                 FlownPath3D.flightObjects[flightId] = this;
 
@@ -127,15 +131,31 @@ export const FlownPath3D = {
 
         const points = [];
         const rawThicknessFactors = [];
-        const rawAltitudes = []; // Track altitudes for interpolation
+        const rawAltitudes = [];
+        const pillarLocations = [];
+
+        let lastPillarZone = -1;
         
         trailData.forEach((p, index) => {
             const alt = p.altitude || p.alt || 0;
             const altMeters = alt * 0.3048; 
             const coord = mapboxgl.MercatorCoordinate.fromLngLat([p.longitude || p.lon, p.latitude || p.lat], altMeters);
-            points.push(new THREE.Vector3(coord.x, coord.y, coord.z));
+            const vec = new THREE.Vector3(coord.x, coord.y, coord.z);
+            points.push(vec);
             rawAltitudes.push(alt);
 
+            // Pillar detection: Crossing a multiple of PILLAR_INTERVAL
+            const currentPillarZone = Math.floor(alt / this.PILLAR_INTERVAL);
+            if (index > 0 && currentPillarZone !== lastPillarZone && alt > 0) {
+                pillarLocations.push({
+                    pos: vec,
+                    alt: alt,
+                    color: this._getColorForAlt(alt)
+                });
+            }
+            lastPillarZone = currentPillarZone;
+
+            // Thickness calculations
             const fullThicknessAlt = 15000;
             const minThicknessMult = 0.05;
             let altFactor = Math.min(alt / fullThicknessAlt, 1.0);
@@ -147,6 +167,7 @@ export const FlownPath3D = {
             rawThicknessFactors.push(altFactor);
         });
 
+        // Update Tube
         const curve = new THREE.CatmullRomCurve3(points, false, 'centripetal');
         const tubularSegments = Math.min((points.length - 1) * this.SAMPLES_PER_POINT, this.MAX_POINTS - 1);
         const tempTube = new THREE.TubeGeometry(curve, tubularSegments, this.BASE_THICKNESS, this.RADIAL_SEGMENTS, false);
@@ -160,7 +181,6 @@ export const FlownPath3D = {
         for (let i = 0; i < tempPos.count; i++) {
             const ringIdx = Math.floor(i / (this.RADIAL_SEGMENTS + 1));
             const progress = ringIdx / tubularSegments;
-            
             const floatIdx = progress * (rawThicknessFactors.length - 1);
             const idx1 = Math.floor(floatIdx);
             const idx2 = Math.min(idx1 + 1, rawThicknessFactors.length - 1);
@@ -189,7 +209,7 @@ export const FlownPath3D = {
         colorAttr.needsUpdate = true;
         layerObj.geometry.setDrawRange(0, tempTube.index.count);
 
-        // Curtain
+        // Update Curtain
         const curtainPosAttr = layerObj.curtainGeometry.attributes.position;
         const curtainColorAttr = layerObj.curtainGeometry.attributes.color;
         const curvePoints = curve.getPoints(tubularSegments);
@@ -198,7 +218,6 @@ export const FlownPath3D = {
         for (let i = 0; i <= tubularSegments; i++) {
             const p = curvePoints[i];
             const idx = i * 2;
-            
             const floatIdx = (i / tubularSegments) * (rawAltitudes.length - 1);
             const idx1 = Math.floor(floatIdx);
             const idx2 = Math.min(idx1 + 1, rawAltitudes.length - 1);
@@ -208,7 +227,6 @@ export const FlownPath3D = {
 
             curtainPosAttr.setXYZ(idx, p.x, p.y, p.z);     
             curtainPosAttr.setXYZ(idx + 1, p.x, p.y, 0); 
-            
             curtainColorAttr.setXYZ(idx, color.r, color.g, color.b);
             curtainColorAttr.setXYZ(idx + 1, color.r, color.g, color.b);
 
@@ -224,7 +242,47 @@ export const FlownPath3D = {
         layerObj.curtainGeometry.setIndex(curtainIndices);
         layerObj.curtainGeometry.setDrawRange(0, curtainIndices.length);
 
+        // Update Pillars
+        this._updatePillars(layerObj, pillarLocations);
+
         tempTube.dispose();
+    },
+
+    _updatePillars(layerObj, locations) {
+        const THREE = window.THREE;
+        const group = layerObj.pillarsGroup;
+
+        // Clear existing pillars in this group
+        while(group.children.length > 0) {
+            const child = group.children[0];
+            if (child.geometry) child.geometry.dispose();
+            if (child.material) child.material.dispose();
+            group.remove(child);
+        }
+
+        const pillarRadius = this.BASE_THICKNESS * 2.5;
+
+        locations.forEach(loc => {
+            // A pillar from ground (z=0) to flight altitude (z=loc.pos.z)
+            const height = Math.abs(loc.pos.z);
+            if (height <= 0) return;
+
+            const geometry = new THREE.CylinderGeometry(pillarRadius, pillarRadius, height, 8);
+            const material = new THREE.MeshBasicMaterial({ 
+                color: loc.color,
+                transparent: true,
+                opacity: 0.8
+            });
+            
+            const pillar = new THREE.Mesh(geometry, material);
+            
+            // Cylinder is created centered on Y axis by default in Three.js
+            // Rotate to align with Z axis and position correctly
+            pillar.rotation.x = Math.PI / 2;
+            pillar.position.set(loc.pos.x, loc.pos.y, loc.pos.z / 2);
+            
+            group.add(pillar);
+        });
     },
     
     clearPath(map, flightId) {
@@ -232,10 +290,15 @@ export const FlownPath3D = {
         const layerObj = this.flightObjects[flightId];
 
         if (layerObj) {
-            [layerObj.mesh, layerObj.curtainMesh].forEach(mesh => {
-                if (mesh) {
-                    if (mesh.geometry) mesh.geometry.dispose();
-                    if (mesh.material) mesh.material.dispose();
+            const items = [layerObj.mesh, layerObj.curtainMesh];
+            if (layerObj.pillarsGroup) {
+                layerObj.pillarsGroup.children.forEach(c => items.push(c));
+            }
+
+            items.forEach(obj => {
+                if (obj) {
+                    if (obj.geometry) obj.geometry.dispose();
+                    if (obj.material) obj.material.dispose();
                 }
             });
         }
