@@ -1,6 +1,6 @@
 /**
  * flownPath3D.js
- * Handles the rendering of 3D flight trails using Three.js.
+ * Handles the rendering of 3D flight trails using Three.js with TubeGeometry for thickness.
  */
 
 export const FlownPath3D = {
@@ -43,30 +43,36 @@ export const FlownPath3D = {
         return {
             id: layerId,
             type: 'custom',
-            renderingMode: '3d', // Correct for vertical displacement
+            renderingMode: '3d',
             onAdd: function (map, gl) {
                 this.camera = new THREE.Camera();
                 this.scene = new THREE.Scene();
 
-                // Create the line geometry
-                const geometry = new THREE.BufferGeometry();
+                // Add lights so the Tube Mesh has shading and looks 3D
+                const light = new THREE.DirectionalLight(0xffffff, 1);
+                light.position.set(0, -1, 2).normalize();
+                this.scene.add(light);
                 
-                // Note: linewidth > 1 is not supported in basic WebGL on most browsers.
-                // It will appear as 1px. For thicker paths, consider THREE.Line2 later.
-                const material = new THREE.LineBasicMaterial({ 
+                const ambientLight = new THREE.AmbientLight(0xffffff, 0.4);
+                this.scene.add(ambientLight);
+
+                // Material for the tube
+                // MeshStandardMaterial reacts to light, giving it a solid 3D look
+                this.material = new THREE.MeshStandardMaterial({ 
                     color: 0x38bdf8, 
                     transparent: true,
                     opacity: 0.9,
-                    depthTest: true // Ensure it respects map depth (buildings/terrain)
+                    roughness: 0.5,
+                    metalness: 0.2
                 });
 
-                const line = new THREE.Line(geometry, material);
+                // The Mesh object that will hold our TubeGeometry
+                this.mesh = new THREE.Mesh(new THREE.BufferGeometry(), this.material);
                 
                 // CRITICAL: Prevent the path from disappearing when looking away/zooming
-                line.frustumCulled = false; 
+                this.mesh.frustumCulled = false; 
 
-                this.scene.add(line);
-                this.line = line;
+                this.scene.add(this.mesh);
 
                 // Track this layer for updates
                 FlownPath3D.flightObjects[flightId] = this;
@@ -79,25 +85,28 @@ export const FlownPath3D = {
                 this.renderer.autoClear = false;
 
                 // Initial data sync
-                FlownPath3D._updateGeometry(flightId, trailData, this.line);
+                FlownPath3D._updateGeometry(flightId, trailData);
             },
             render: function (gl, matrix) {
                 const m = new THREE.Matrix4().fromArray(matrix);
                 this.camera.projectionMatrix = m;
-                this.renderer.resetState(); // Modern version of state.reset()
+                this.renderer.resetState(); 
                 this.renderer.render(this.scene, this.camera);
             }
         };
     },
 
     /**
-     * Internal: Updates coordinates into Mercator space for Three.js
+     * Internal: Updates coordinates and regenerates TubeGeometry
      */
-    _updateGeometry(flightId, trailData, existingLine = null) {
-        if (!trailData) return;
+    _updateGeometry(flightId, trailData) {
+        if (!trailData || trailData.length < 2) return;
         
         const THREE = window.THREE;
-        const positions = [];
+        const layerObj = this.flightObjects[flightId];
+        if (!layerObj || !layerObj.mesh) return;
+
+        const points = [];
         
         trailData.forEach(p => {
             const lng = p.longitude || p.lon;
@@ -106,25 +115,47 @@ export const FlownPath3D = {
             const alt = (p.altitude || p.alt || 0) * 0.3048; 
             
             const coord = mapboxgl.MercatorCoordinate.fromLngLat([lng, lat], alt);
-            positions.push(coord.x, coord.y, coord.z);
+            points.push(new THREE.Vector3(coord.x, coord.y, coord.z));
         });
 
-        const layerObj = existingLine ? { line: existingLine } : this.flightObjects[flightId];
-        const line = layerObj?.line;
+        // 1. Create a curve from the points
+        const curve = new THREE.CatmullRomCurve3(points);
 
-        if (line && positions.length > 0) {
-            // Update attribute
-            line.geometry.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
-            line.geometry.attributes.position.needsUpdate = true;
-            
-            // CRITICAL: Re-calculate bounds so Three.js knows the line exists in 3D space
-            line.geometry.computeBoundingSphere();
-            line.geometry.computeBoundingBox();
+        // 2. Create New Tube Geometry
+        // Parameters: (path, tubularSegments, radius, radialSegments, closed)
+        // Radius is very small because Mapbox coordinates are 0 to 1 for the whole world.
+        const tubeRadius = 0.000007; 
+        const tubularSegments = points.length * 3; // Increase for smoother curves
+        const radialSegments = 8; // 8 is usually enough for a circular look at this scale
+        
+        const newGeometry = new THREE.TubeGeometry(
+            curve, 
+            tubularSegments, 
+            tubeRadius, 
+            radialSegments, 
+            false
+        );
+
+        // 3. Dispose of old geometry to prevent memory leaks
+        if (layerObj.mesh.geometry) {
+            layerObj.mesh.geometry.dispose();
         }
+
+        // 4. Assign new geometry
+        layerObj.mesh.geometry = newGeometry;
     },
 
     clearPath(map, flightId) {
         const layerId = `layer-3d-path-${flightId}`;
+        const layerObj = this.flightObjects[flightId];
+
+        if (layerObj) {
+            if (layerObj.mesh) {
+                if (layerObj.mesh.geometry) layerObj.mesh.geometry.dispose();
+                if (layerObj.mesh.material) layerObj.mesh.material.dispose();
+            }
+        }
+
         if (map.getLayer(layerId)) {
             map.removeLayer(layerId);
         }
