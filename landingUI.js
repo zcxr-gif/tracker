@@ -68,25 +68,15 @@ export const LandingUI = {
         }
     },
 
-    /**
-     * LOCAL SEARCH ENGINE
-     * Filter through live flight data and render the panel-style results
-     */
     handleLocalSearch(query) {
         const resultsContainer = document.getElementById('blade-search-results');
         const searchBlade = document.querySelector('.search-blade');
 
         if (!query || query.length < 2) {
             this._currentMatches = [];
-            this._searchCursorIndex = -1;
             if (resultsContainer) {
-                resultsContainer.innerHTML = '';
                 resultsContainer.classList.remove('visible');
-                if (searchBlade) {
-                    searchBlade.classList.remove('has-results');
-                    searchBlade.style.borderBottomLeftRadius = '100px';
-                    searchBlade.style.borderBottomRightRadius = '100px';
-                }
+                searchBlade?.classList.remove('active');
             }
             return;
         }
@@ -96,81 +86,45 @@ export const LandingUI = {
 
         this._currentMatches = flights.filter(f => {
             const p = f.properties;
-            const callsignMatch = p.callsign?.toUpperCase().includes(upperQuery);
-            const userMatch = p.username?.toUpperCase().includes(upperQuery);
-            const aircraftMatch = p.aircraftName?.toUpperCase().includes(upperQuery);
-            return callsignMatch || userMatch || aircraftMatch;
-        }).slice(0, 15);
-
-        this._searchCursorIndex = -1; // Reset selection on new search
-
-        if (this._currentMatches.length > 0 && searchBlade) {
-            searchBlade.classList.add('has-results');
-            searchBlade.style.borderBottomLeftRadius = '0';
-            searchBlade.style.borderBottomRightRadius = '0';
-        } else if (searchBlade) {
-            searchBlade.classList.remove('has-results');
-            searchBlade.style.borderBottomLeftRadius = '100px';
-            searchBlade.style.borderBottomRightRadius = '100px';
-        }
+            return p.callsign?.toUpperCase().includes(upperQuery) || 
+                   p.username?.toUpperCase().includes(upperQuery) || 
+                   p.aircraftName?.toUpperCase().includes(upperQuery);
+        }).slice(0, 8); // Limited to 8 for a cleaner look
 
         this.renderSearchResults(query);
     },
 
-    highlightText(text, query) {
-        if (!query || !text) return text;
-        const regex = new RegExp(`(${query})`, 'gi');
-        return text.replace(regex, '<b class="search-highlight">$1</b>');
-    },
-
     renderSearchResults(query) {
         const container = document.getElementById('blade-search-results');
+        const searchBlade = document.querySelector('.search-blade');
         if (!container) return;
         
         if (this._currentMatches.length === 0) {
             container.innerHTML = `
-                <div class="search-no-results">
-                    <i class="fa-solid fa-plane-slash"></i>
-                    <span>No matching flights</span>
-                </div>
-            `;
+                <div class="search-empty-state">
+                    <i class="fa-solid fa-magnifying-glass"></i>
+                    <p>No flights found for "${query}"</p>
+                </div>`;
         } else {
-            container.innerHTML = this._currentMatches.map((f, idx) => `
-                <div class="search-result-item ${this._searchCursorIndex === idx ? 'selected' : ''}" 
-                     data-index="${idx}"
-                     onclick="LandingUI.executeSearchClick('${f.properties.flightId}', ${f.geometry.coordinates[1]}, ${f.geometry.coordinates[0]})">
-                    <div class="res-main">
-                        <span class="res-callsign">${this.highlightText(f.properties.callsign || 'N/A', query)}</span>
-                        <span class="res-aircraft">${this.highlightText(f.properties.aircraftName || '', query)}</span>
-                    </div>
-                    <div class="res-sub">
-                        <span class="res-pilot"><i class="fa-solid fa-user"></i> ${this.highlightText(f.properties.username || 'Anonymous', query)}</span>
-                        <span class="res-alt">${Math.round(f.properties.altitude || 0)}ft</span>
+            container.innerHTML = this._currentMatches.map((f) => `
+                <div class="search-item" onclick="LandingUI.executeSearchClick('${f.properties.flightId}', ${f.geometry.coordinates[1]}, ${f.geometry.coordinates[0]})">
+                    <div class="item-icon"><i class="fa-solid fa-plane"></i></div>
+                    <div class="item-info">
+                        <div class="item-top">
+                            <span class="item-callsign">${this.highlightText(f.properties.callsign || 'N/A', query)}</span>
+                            <span class="item-aircraft">${f.properties.aircraftName || 'Unknown'}</span>
+                        </div>
+                        <div class="item-bottom">
+                            <span class="item-user"><i class="fa-solid fa-user-circle"></i> ${f.properties.username || 'Pilot'}</span>
+                            <span class="item-alt">${Math.round(f.properties.altitude).toLocaleString()} FT</span>
+                        </div>
                     </div>
                 </div>
             `).join('');
         }
         
+        searchBlade.classList.add('active');
         container.classList.add('visible');
-    },
-
-    executeSearchClick(id, lat, lon) {
-        if (window.handleSearchResultClick) {
-            window.handleSearchResultClick(id, lat, lon);
-        } else {
-            console.log('Search Execution:', id, lat, lon);
-        }
-        // Cleanup after click
-        const searchResults = document.getElementById('blade-search-results');
-        const searchBlade = document.querySelector('.search-blade');
-        const searchInput = document.getElementById('blade-search-input');
-        
-        if (searchResults) searchResults.classList.remove('visible');
-        if (searchBlade) {
-            searchBlade.style.borderBottomLeftRadius = '100px';
-            searchBlade.style.borderBottomRightRadius = '100px';
-        }
-        if (searchInput) searchInput.blur();
     },
 
     render() {
@@ -670,157 +624,160 @@ export const LandingUI = {
                 visibility: visible;
             }
 
-            /* SEARCH BLADE & CONNECTED DROP-DOWN */
-            .top-right-actions {
-                position: absolute;
-                top: 30px;
-                right: 40px;
-                pointer-events: auto;
-            }
-            .search-blade {
-                background: rgba(10, 10, 10, 0.85);
-                backdrop-filter: blur(20px);
-                border: 1px solid rgba(255, 255, 255, 0.15);
-                border-radius: 100px;
-                height: 44px;
-                width: 240px;
-                display: flex;
-                align-items: center;
-                padding: 0 18px;
-                transition: all 0.4s cubic-bezier(0.175, 0.885, 0.32, 1.275);
-                position: relative;
-                box-shadow: 0 10px 30px rgba(0,0,0,0.4);
-                z-index: 1002;
-            }
-            .search-blade:focus-within {
-                width: 380px;
-                border-color: #38bdf8;
-                background: #0f0f11;
-                box-shadow: 0 15px 40px rgba(0,0,0,0.6), 0 0 0 1px rgba(56, 189, 248, 0.3);
-            }
-            
-            /* Class toggled in JS when dropdown opens */
-            .search-blade.has-results {
-                border-bottom-left-radius: 0 !important;
-                border-bottom-right-radius: 0 !important;
-            }
+            /* MODERN SEARCH BAR */
+.top-right-actions {
+    position: absolute;
+    top: 30px;
+    right: 40px;
+    pointer-events: auto;
+}
 
-            #blade-search-input {
-                flex: 1;
-                background: none;
-                border: none;
-                color: #fff;
-                margin-left: 10px;
-                outline: none;
-                font-size: 15px;
-                font-weight: 500;
-            }
-            .search-icon {
-                color: rgba(255, 255, 255, 0.4);
-                font-size: 14px;
-            }
-            .search-shortcut {
-                background: rgba(255, 255, 255, 0.08);
-                padding: 3px 8px;
-                border-radius: 6px;
-                font-size: 0.65rem;
-                color: rgba(255, 255, 255, 0.4);
-                font-weight: 800;
-                margin-left: 10px;
-            }
+.search-blade {
+    background: rgba(15, 15, 15, 0.6);
+    backdrop-filter: blur(20px);
+    -webkit-backdrop-filter: blur(20px);
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    border-radius: 16px;
+    height: 48px;
+    width: 280px;
+    display: flex;
+    align-items: center;
+    padding: 0 16px;
+    transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+    position: relative;
+    box-shadow: 0 4px 20px rgba(0, 0, 0, 0.3);
+}
 
-            .search-results-dropdown {
-                position: absolute;
-                top: 42px; /* Overlaps bottom border of search blade precisely */
-                left: -1px;
-                right: -1px;
-                background: #0f0f11;
-                backdrop-filter: blur(25px);
-                border: 1px solid #38bdf8;
-                border-top: none; /* Look connected */
-                border-bottom-left-radius: 20px;
-                border-bottom-right-radius: 20px;
-                max-height: 420px;
-                overflow-y: auto;
-                display: none;
-                box-shadow: 0 30px 60px rgba(0,0,0,0.8);
-                z-index: 1001;
-                padding: 8px 0;
-            }
-            .search-results-dropdown.visible {
-                display: block;
-            }
-            .search-result-item {
-                padding: 14px 22px;
-                cursor: pointer;
-                border-bottom: 1px solid rgba(255, 255, 255, 0.03);
-                transition: all 0.2s;
-                border-left: 3px solid transparent;
-            }
-            .search-result-item:hover, .search-result-item.selected {
-                background: rgba(56, 189, 248, 0.12);
-                border-left-color: #38bdf8;
-                padding-left: 28px;
-            }
-            
-            /* Text Highlighting Style */
-            .search-highlight {
-                color: #38bdf8;
-                background: rgba(56, 189, 248, 0.1);
-                border-radius: 2px;
-                padding: 0 1px;
-                font-weight: 800;
-            }
+.search-blade:focus-within, .search-blade.active {
+    width: 340px;
+    background: rgba(20, 20, 22, 0.95);
+    border-color: rgba(56, 189, 248, 0.5);
+    box-shadow: 0 10px 40px rgba(0, 0, 0, 0.5), 0 0 0 1px rgba(56, 189, 248, 0.2);
+}
 
-            .res-main {
-                display: flex;
-                justify-content: space-between;
-                align-items: center;
-                margin-bottom: 5px;
-            }
-            .res-callsign {
-                font-weight: 800;
-                color: #fff;
-                font-size: 1.05rem;
-                letter-spacing: 0.5px;
-            }
-            .res-aircraft {
-                font-size: 0.75rem;
-                color: rgba(255, 255, 255, 0.4);
-                text-transform: uppercase;
-                font-weight: 600;
-            }
-            .res-sub {
-                display: flex;
-                justify-content: space-between;
-                align-items: center;
-                font-size: 0.8rem;
-            }
-            .res-pilot {
-                color: #38bdf8;
-                font-weight: 500;
-                display: flex;
-                align-items: center;
-                gap: 5px;
-            }
-            .res-alt {
-                color: #10b981;
-                font-family: 'JetBrains Mono', monospace;
-                font-weight: 600;
-            }
-            .search-no-results {
-                padding: 50px 20px;
-                text-align: center;
-                color: rgba(255, 255, 255, 0.3);
-                display: flex;
-                flex-direction: column;
-                gap: 12px;
-            }
-            .search-no-results i {
-                font-size: 28px;
-                opacity: 0.4;
-            }
+#blade-search-input {
+    flex: 1;
+    background: none;
+    border: none;
+    color: #fff;
+    margin-left: 12px;
+    outline: none;
+    font-size: 14px;
+    font-weight: 500;
+    letter-spacing: 0.3px;
+}
 
+.search-icon {
+    color: #38bdf8;
+    font-size: 14px;
+    opacity: 0.8;
+}
+
+/* FLOATING RESULTS PANEL */
+.search-results-dropdown {
+    position: absolute;
+    top: calc(100% + 12px);
+    right: 0;
+    width: 380px;
+    background: rgba(10, 10, 12, 0.98);
+    backdrop-filter: blur(30px);
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    border-radius: 20px;
+    padding: 8px;
+    display: none;
+    flex-direction: column;
+    gap: 4px;
+    box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.7);
+    transform: translateY(10px);
+    transition: all 0.3s ease;
+}
+
+.search-results-dropdown.visible {
+    display: flex;
+    transform: translateY(0);
+}
+
+/* INDIVIDUAL RESULT ITEMS */
+.search-item {
+    display: flex;
+    align-items: center;
+    gap: 15px;
+    padding: 12px;
+    border-radius: 14px;
+    cursor: pointer;
+    transition: all 0.2s ease;
+}
+
+.search-item:hover {
+    background: rgba(255, 255, 255, 0.05);
+}
+
+.item-icon {
+    width: 36px;
+    height: 36px;
+    background: rgba(56, 189, 248, 0.1);
+    color: #38bdf8;
+    display: grid;
+    place-items: center;
+    border-radius: 10px;
+    font-size: 14px;
+}
+
+.item-info { flex: 1; }
+
+.item-top {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 2px;
+}
+
+.item-callsign {
+    font-weight: 700;
+    color: #fff;
+    font-size: 14px;
+}
+
+.item-aircraft {
+    font-size: 11px;
+    color: #71717a;
+    font-weight: 600;
+    text-transform: uppercase;
+}
+
+.item-bottom {
+    display: flex;
+    justify-content: space-between;
+    font-size: 12px;
+    color: #a1a1aa;
+}
+
+.item-user { display: flex; align-items: center; gap: 5px; }
+
+.item-alt {
+    font-family: 'JetBrains Mono', monospace;
+    color: #10b981;
+    font-weight: 700;
+}
+
+.search-highlight {
+    color: #38bdf8;
+    background: rgba(56, 189, 248, 0.15);
+    border-radius: 4px;
+    padding: 0 2px;
+}
+
+.search-empty-state {
+    padding: 30px;
+    text-align: center;
+    color: #52525b;
+}
+
+.search-empty-state i {
+    font-size: 24px;
+    margin-bottom: 10px;
+    display: block;
+}
             /* UTILITY NEXUS STYLES */
             .utility-nexus {
                 position: absolute;
