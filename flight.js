@@ -7818,7 +7818,7 @@ function formatDataForSimpleWindow(flightProps, plan, routePoints, communityData
                     <span style="background: #f59e0b; color: #000; font-size: 0.6rem; padding: 2px 6px; border-radius: 4px; margin-left: 10px; font-weight: 800; letter-spacing: 0.5px;">EXPERIMENTAL</span>
                 </div>
                 <label class="toggle-switch">
-                    <input type="checkbox" id="filter-toggle-3d-path" ${mapFilters.show3DPath ? 'checked' : ''}>
+                    <input type="checkbox" id="setting-toggle-3dpath" ${mapFilters.show3DPath ? 'checked' : ''}>
                     <span class="toggle-slider"></span>
                 </label>
             </div>
