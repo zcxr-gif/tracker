@@ -52,11 +52,11 @@ export const FlownPath3D = {
                 // We create a standard geometry first, which MeshLine will consume
                 this.geometry = new THREE.BufferGeometry();
                 
-                // Material for the path
+                // Material for the path: Now solid and fully opaque
                 this.material = new THREE.MeshBasicMaterial({ 
                     color: 0x38bdf8, 
-                    transparent: true,
-                    opacity: 0.9,
+                    transparent: false, // Disabling transparency for a solid look
+                    opacity: 1.0,       // Full opacity
                     side: THREE.DoubleSide
                 });
 
@@ -83,9 +83,6 @@ export const FlownPath3D = {
                 const m = new THREE.Matrix4().fromArray(matrix);
                 this.camera.projectionMatrix = m;
                 
-                // Optional: Update thickness on every frame if zoom is changing
-                // though usually handled in updatePath for performance.
-                
                 this.renderer.resetState(); 
                 this.renderer.render(this.scene, this.camera);
             }
@@ -93,7 +90,7 @@ export const FlownPath3D = {
     },
 
     /**
-     * Internal: Updates coordinates and regenerates volumetric path with zoom-adjusted thickness
+     * Internal: Updates coordinates and regenerates volumetric path with fixed thickness
      */
     _updateGeometry(map, flightId, trailData) {
         if (!trailData || trailData.length < 2) return;
@@ -111,28 +108,16 @@ export const FlownPath3D = {
             positions.push(coord.x, coord.y, coord.z);
         });
 
-        // 1. Calculate Dynamic Thickness based on Zoom
-        // Mapbox zoom levels are logarithmic. We adjust the "world-space" thickness
-        // so it appears relatively constant to the user's eye.
-        const currentZoom = map.getZoom();
-        
-        // Base thickness at zoom 10
-        const baseThickness = 0.000008; 
-        
-        // As zoom decreases (user zooms out), we need to INCREASE the world-space thickness
-        // to keep it visible. As zoom increases (user zooms in), we decrease it for detail.
-        const zoomFactor = Math.pow(2, 10 - currentZoom);
-        const dynamicThickness = baseThickness * zoomFactor;
+        // Use a fixed thickness instead of zoom-dependent scaling
+        // This thickness is in world units (Mercator space)
+        const solidThickness = 0.000015; 
 
-        // 2. Generate a "Tube" style MeshLine manually 
-        // Note: Real THREE.MeshLine is an external library. Here we simulate 
-        // the thickness using a high-resolution TubeGeometry which is the built-in 
-        // way to handle 3D thickness in standard Three.js environments.
         const points = [];
         for (let i = 0; i < positions.length; i += 3) {
             points.push(new THREE.Vector3(positions[i], positions[i+1], positions[i+2]));
         }
 
+        // Generate the tube geometry manually to provide consistent 3D thickness
         const curve = new THREE.CatmullRomCurve3(points);
         const tubularSegments = Math.max(20, points.length * 2);
         const radialSegments = 6; 
@@ -140,12 +125,12 @@ export const FlownPath3D = {
         const newGeometry = new THREE.TubeGeometry(
             curve, 
             tubularSegments, 
-            dynamicThickness, 
+            solidThickness, 
             radialSegments, 
             false
         );
 
-        // 3. Dispose and Swap
+        // Dispose of old geometry and swap
         if (layerObj.mesh.geometry) {
             layerObj.mesh.geometry.dispose();
         }
