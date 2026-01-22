@@ -104,12 +104,8 @@ export const LandingUI = {
 
         if (this._currentMatches.length > 0 && searchBlade) {
             searchBlade.classList.add('has-results');
-            searchBlade.style.borderBottomLeftRadius = '0';
-            searchBlade.style.borderBottomRightRadius = '0';
         } else if (searchBlade) {
             searchBlade.classList.remove('has-results');
-            searchBlade.style.borderBottomLeftRadius = '100px';
-            searchBlade.style.borderBottomRightRadius = '100px';
         }
 
         this.renderSearchResults(query);
