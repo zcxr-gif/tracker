@@ -1,25 +1,24 @@
 /**
  * flownPath3D.js
- * Optimized for high-impact visuals: larger labels, rich data density, and neon aesthetics.
+ * Handles the rendering of 3D flight trails, vertical curtains, and 3D path-aligned labels.
  */
 
 export const FlownPath3D = {
     flightObjects: {},
     font: null,
     
-    // Performance & Visual Constants
-    MAX_POINTS: 8000, 
-    SAMPLES_PER_POINT: 12, // Increased for smoother curves
-    RADIAL_SEGMENTS: 8,    
-    BASE_THICKNESS: 0.000005, // Slightly thicker for "cooler" presence
+    // Performance Constants
+    MAX_POINTS: 5000, 
+    SAMPLES_PER_POINT: 8, 
+    RADIAL_SEGMENTS: 6,   
+    BASE_THICKNESS: 0.0000035,
 
-    // High-Contrast Neon Altitude Palette
+    // Altitude Color Config (Feet)
     ALTITUDE_STOPS: [
-        { alt: 0, color: new window.THREE.Color(0xff0055) },     // Deep Pink (Ground)
-        { alt: 5000, color: new window.THREE.Color(0xffaa00) },  // Amber
-        { alt: 15000, color: new window.THREE.Color(0x00ffcc) }, // Cyan/Teal
-        { alt: 30000, color: new window.THREE.Color(0x3366ff) }, // Electric Blue
-        { alt: 45000, color: new window.THREE.Color(0xcc00ff) }  // Purple (High Altitude)
+        { alt: 0, color: new window.THREE.Color(0xf97316) },     
+        { alt: 10000, color: new window.THREE.Color(0xfacc15) }, 
+        { alt: 25000, color: new window.THREE.Color(0x38bdf8) }, 
+        { alt: 40000, color: new window.THREE.Color(0x818cf8) }  
     ],
 
     /**
@@ -27,15 +26,19 @@ export const FlownPath3D = {
      */
     async _loadFont() {
         if (this.font) return this.font;
+        
         const THREE = window.THREE;
         
         if (!THREE.FontLoader) {
             await this._loadScript('https://cdn.jsdelivr.net/npm/three@0.145.0/examples/js/loaders/FontLoader.js');
         }
+        if (!THREE.TextGeometry) {
+            await this._loadScript('https://cdn.jsdelivr.net/npm/three@0.145.0/examples/js/geometries/TextGeometry.js');
+        }
 
         const loader = new THREE.FontLoader();
         return new Promise((resolve, reject) => {
-            loader.load('https://cdn.jsdelivr.net/npm/three@0.145.0/examples/fonts/helvetiker_bold.typeface.json', (response) => {
+            loader.load('https://cdn.jsdelivr.net/npm/three@0.145.0/examples/fonts/helvetiker_regular.typeface.json', (response) => {
                 this.font = response;
                 resolve(response);
             }, undefined, reject);
@@ -79,7 +82,7 @@ export const FlownPath3D = {
         try {
             await this._loadFont();
         } catch (e) {
-            console.error("Failed to load 3D Font", e);
+            console.error("Failed to load 3D Font for labels", e);
         }
 
         if (!map.getLayer(layerId)) {
@@ -103,7 +106,6 @@ export const FlownPath3D = {
                 this.camera = new THREE.Camera();
                 this.scene = new THREE.Scene();
 
-                // Path Tube
                 this.geometry = new THREE.BufferGeometry();
                 const totalTubeVertices = self.MAX_POINTS * self.SAMPLES_PER_POINT * (self.RADIAL_SEGMENTS + 1);
                 this.geometry.setAttribute('position', new THREE.BufferAttribute(new Float32Array(totalTubeVertices * 3), 3));
@@ -118,7 +120,6 @@ export const FlownPath3D = {
                 this.mesh.frustumCulled = false; 
                 this.scene.add(this.mesh);
 
-                // Vertical Curtain (Holographic look)
                 this.curtainGeometry = new THREE.BufferGeometry();
                 const totalCurtainVertices = self.MAX_POINTS * self.SAMPLES_PER_POINT * 2;
                 this.curtainGeometry.setAttribute('position', new THREE.BufferAttribute(new Float32Array(totalCurtainVertices * 3), 3));
@@ -127,7 +128,7 @@ export const FlownPath3D = {
                 this.curtainMaterial = new THREE.MeshBasicMaterial({
                     vertexColors: true,
                     transparent: true,
-                    opacity: 0.25,
+                    opacity: 0.4,
                     side: THREE.DoubleSide
                 });
                 this.curtainMesh = new THREE.Mesh(this.curtainGeometry, this.curtainMaterial);
@@ -177,7 +178,6 @@ export const FlownPath3D = {
 
         const curve = new THREE.CatmullRomCurve3(points, false, 'centripetal');
         const tubularSegments = Math.min((points.length - 1) * this.SAMPLES_PER_POINT, this.MAX_POINTS - 1);
-        
         const tempTube = new THREE.TubeGeometry(curve, tubularSegments, this.BASE_THICKNESS, this.RADIAL_SEGMENTS, false);
         
         const posAttr = layerObj.geometry.attributes.position;
@@ -231,13 +231,18 @@ export const FlownPath3D = {
         layerObj.curtainGeometry.setDrawRange(0, curtainIndices.length);
 
         this._updateLabels(layerObj, curve, trailData);
+
         tempTube.dispose();
     },
 
+    /**
+     * Updates 3D labels to be positioned precisely on both sides of the curtain.
+     */
     _updateLabels(layerObj, curve, trailData) {
         const THREE = window.THREE;
-        if (!this.font) return;
+        if (!this.font || !THREE.TextGeometry) return;
 
+        // 1. Clear existing labels
         while(layerObj.labelGroup.children.length > 0){ 
             const child = layerObj.labelGroup.children[0];
             if (child.geometry) child.geometry.dispose();
@@ -245,9 +250,8 @@ export const FlownPath3D = {
             layerObj.labelGroup.remove(child); 
         }
 
-        // Increased data frequency: Labels at 10% intervals
-        const labelIntervals = [0.1, 0.25, 0.4, 0.55, 0.7, 0.85, 0.95]; 
-        const offsetDist = 0.000003; 
+        const labelIntervals = [0.2, 0.5, 0.8]; 
+        const offsetDist = 0.000001; 
 
         labelIntervals.forEach(t => {
             const pos = curve.getPointAt(t);
@@ -255,38 +259,39 @@ export const FlownPath3D = {
             
             const rawIdx = Math.floor(t * (trailData.length - 1));
             const alt = trailData[rawIdx].altitude || 0;
-            
-            // Richer Data: Add altitude delta trend
-            let trend = "";
-            if (rawIdx > 0) {
-                const prevAlt = trailData[rawIdx - 1].altitude || 0;
-                if (alt > prevAlt + 50) trend = " ▲";
-                else if (alt < prevAlt - 50) trend = " ▼";
-            }
-            
-            const labelText = `${Math.round(alt).toLocaleString()} FT${trend}`;
-            const labelSize = 0.000018; // 50% Bigger
+            const labelText = `${Math.round(alt).toLocaleString()} FT`;
+
+            const textParams = {
+                font: this.font,
+                size: 0.000012, 
+                height: 0.000001, 
+                curveSegments: 4
+            };
 
             const up = new THREE.Vector3(0, 0, 1);
             const side = new THREE.Vector3().crossVectors(tangent, up).normalize();
-            const centeredZ = pos.z / 1.5; // Offset slightly for better visibility
+            const centeredZ = pos.z / 2;
 
             const createLabel = (direction) => {
-                const shapes = this.font.generateShapes(labelText, labelSize);
-                const textGeo = new THREE.ShapeGeometry(shapes);
+                const textGeo = new THREE.TextGeometry(labelText, textParams);
                 
                 textGeo.computeBoundingBox();
                 const centerOffset = new THREE.Vector3();
                 textGeo.boundingBox.getCenter(centerOffset).multiplyScalar(-1);
                 textGeo.translate(centerOffset.x, centerOffset.y, centerOffset.z);
 
+                /**
+                 * CULLING FIX:
+                 * By setting side to FrontSide AND depthTest to false, 
+                 * the labels will not be occluded by the semi-transparent curtain.
+                 * However, since we only render the 'Front', the text on the opposite side
+                 * will be invisible when viewed from the back.
+                 */
                 const textMat = new THREE.MeshBasicMaterial({ 
                     color: 0xffffff,
                     side: THREE.FrontSide,
-                    depthTest: true, 
-                    polygonOffset: true,
-                    polygonOffsetFactor: -2,
-                    polygonOffsetUnits: -2
+                    depthTest: false, // Ensures text is always visible on top of its side
+                    transparent: true 
                 });
 
                 const mesh = new THREE.Mesh(textGeo, textMat);
@@ -306,8 +311,8 @@ export const FlownPath3D = {
                 layerObj.labelGroup.add(mesh);
             };
 
-            createLabel(-1);
-            createLabel(1);
+            createLabel(-1); // Side A
+            createLabel(1);  // Side B
         });
     },
     
