@@ -1,7 +1,7 @@
 /**
  * LandingUI.js
  * REDESIGN: Tactical Modal - Advanced Centralized Filter Engine
- * UPDATED: Seamless Search Connectivity, Keyboard Navigation & Text Highlighting
+ * UPDATED: Mobile-First Architecture, Safe-Area Awareness & Adaptive Overlap Prevention
  * FULL EXPANSION: No condensation of styles or logic.
  */
 
@@ -68,10 +68,6 @@ export const LandingUI = {
         }
     },
 
-    /**
-     * LOCAL SEARCH ENGINE
-     * Filter through live flight data and render the panel-style results
-     */
     handleLocalSearch(query) {
         const resultsContainer = document.getElementById('blade-search-results');
         const searchBlade = document.querySelector('.search-blade');
@@ -100,7 +96,7 @@ export const LandingUI = {
             return callsignMatch || userMatch || aircraftMatch;
         }).slice(0, 15);
 
-        this._searchCursorIndex = -1; // Reset selection on new search
+        this._searchCursorIndex = -1;
 
         if (this._currentMatches.length > 0 && searchBlade) {
             searchBlade.classList.add('has-results');
@@ -111,18 +107,12 @@ export const LandingUI = {
         this.renderSearchResults(query);
     },
 
-    /**
-     * Updated Highlight: Elegant semi-transparent background.
-     */
     highlightText(text, query) {
         if (!query || !text) return text;
         const regex = new RegExp(`(${query})`, 'gi');
         return text.replace(regex, '<span class="premium-highlight">$1</span>');
     },
 
-    /**
-     * Updated Search Results: Clean, multi-column dashboard style.
-     */
     renderSearchResults(query) {
         const container = document.getElementById('blade-search-results');
         if (!container) return;
@@ -166,18 +156,17 @@ export const LandingUI = {
     executeSearchClick(id, lat, lon) {
         if (window.handleSearchResultClick) {
             window.handleSearchResultClick(id, lat, lon);
-        } else {
-            console.log('Search Execution:', id, lat, lon);
         }
-        // Cleanup after click
         const searchResults = document.getElementById('blade-search-results');
         const searchBlade = document.querySelector('.search-blade');
         const searchInput = document.getElementById('blade-search-input');
         
         if (searchResults) searchResults.classList.remove('visible');
-        if (searchBlade) {
+        if (searchBlade) searchBlade.classList.remove('has-results');
+        if (searchInput) {
+            searchInput.blur();
+            searchInput.value = '';
         }
-        if (searchInput) searchInput.blur();
     },
 
     render() {
@@ -189,27 +178,27 @@ export const LandingUI = {
 
         const html = `
             <div id="inflight-tactical-ui" class="tactical-ui-root">
-                <!-- SERVER SELECTOR -->
-                <div class="top-branding dropdown" id="server-selector">
-                    <div class="status-dot"></div>
-                    <div class="branding-content">
-                        <span id="landing-server-name">${this._currentServer.toUpperCase()} SERVER</span>
-                        <i class="fa-solid fa-chevron-down dropdown-arrow"></i>
+                
+                <div class="top-interface-bar">
+                    <!-- SERVER SELECTOR -->
+                    <div class="top-branding dropdown" id="server-selector">
+                        <div class="status-dot"></div>
+                        <div class="branding-content">
+                            <span id="landing-server-name">${this._currentServer.toUpperCase()} SERVER</span>
+                            <i class="fa-solid fa-chevron-down dropdown-arrow"></i>
+                        </div>
+                        <div class="server-menu">
+                            <div class="server-option" data-val="Expert">Expert</div>
+                            <div class="server-option" data-val="Training">Training</div>
+                            <div class="server-option" data-val="Casual">Casual</div>
+                        </div>
                     </div>
-                    <div class="server-menu">
-                        <div class="server-option" data-val="Expert">Expert</div>
-                        <div class="server-option" data-val="Training">Training</div>
-                        <div class="server-option" data-val="Casual">Casual</div>
-                    </div>
-                </div>
 
-                <!-- SEARCH BAR -->
-                <div class="top-right-actions">
+                    <!-- SEARCH BAR -->
                     <div class="search-blade">
                         <i class="fa-solid fa-magnifying-glass search-icon"></i>
-                        <input type="text" id="blade-search-input" placeholder="Quick search..." autocomplete="off">
+                        <input type="text" id="blade-search-input" placeholder="Search..." autocomplete="off">
                         <div class="search-shortcut">⌘K</div>
-                        <!-- Search Results Dropdown -->
                         <div id="blade-search-results" class="search-results-dropdown custom-scroll"></div>
                     </div>
                 </div>
@@ -222,7 +211,7 @@ export const LandingUI = {
                                 <div class="header-icon-box"><i class="fa-solid fa-sliders-h"></i></div>
                                 <div class="header-text">
                                     <h2>Tactical Filters</h2>
-                                    <span>Refine airspace visualization</span>
+                                    <span>Refine visualization</span>
                                 </div>
                             </div>
                             <button class="close-modal" id="close-filter-modal">&times;</button>
@@ -257,12 +246,11 @@ export const LandingUI = {
                                             <i class="fa-solid fa-filter"></i>
                                         </div>
                                         <p>No active filters</p>
-                                        <span>Select parameters from the left sidebar to configure rules.</span>
                                     </div>
                                 </div>
                                 <div class="modal-footer-embedded">
                                     <button class="modal-btn secondary" id="clear-filters-btn">Reset</button>
-                                    <button class="modal-btn primary" id="apply-filters-btn">Apply Changes</button>
+                                    <button class="modal-btn primary" id="apply-filters-btn">Apply</button>
                                 </div>
                             </div>
                         </div>
@@ -277,7 +265,7 @@ export const LandingUI = {
                             <div class="weather-spread">
                                 <button class="spread-opt" data-weather="precip">
                                     <i class="fa-solid fa-satellite-dish"></i>
-                                    <span class="spread-label">Radar (Precip)</span>
+                                    <span class="spread-label">Radar</span>
                                 </button>
                                 <button class="spread-opt" data-weather="sigmets">
                                     <i class="fa-solid fa-triangle-exclamation"></i>
@@ -285,11 +273,11 @@ export const LandingUI = {
                                 </button>
                                 <button class="spread-opt" data-weather="clouds">
                                     <i class="fa-solid fa-cloud"></i>
-                                    <span class="spread-label">Cloud Cover</span>
+                                    <span class="spread-label">Clouds</span>
                                 </button>
                                 <button class="spread-opt" data-weather="wind">
                                     <i class="fa-solid fa-wind"></i>
-                                    <span class="spread-label">Wind Speed</span>
+                                    <span class="spread-label">Wind</span>
                                 </button>
                             </div>
                             <button class="orb-btn" id="tile-weather" aria-label="Weather">
@@ -335,14 +323,12 @@ export const LandingUI = {
         const weatherTrigger = document.getElementById('tile-weather');
         const weatherWrapper = document.getElementById('weather-menu-wrapper');
         
-        // Global Keyboard Shortcut
         window.addEventListener('keydown', (e) => {
             if ((e.metaKey || e.ctrlKey) && e.key === 'k') {
                 e.preventDefault();
                 searchInput?.focus();
             }
 
-            // Keyboard Navigation Logic
             if (searchResults?.classList.contains('visible')) {
                 if (e.key === 'ArrowDown') {
                     e.preventDefault();
@@ -359,29 +345,22 @@ export const LandingUI = {
             }
         });
 
-        // Search Input Engine
         searchInput?.addEventListener('input', (e) => {
             this.handleLocalSearch(e.target.value);
         });
 
-        // Close Search on Outside Click
         document.addEventListener('click', (e) => {
             if (searchResults && !searchBlade?.contains(e.target)) {
                 searchResults.classList.remove('visible');
-                if (searchBlade) {
-                    searchBlade.style.borderBottomLeftRadius = '100px';
-                    searchBlade.style.borderBottomRightRadius = '100px';
-                }
+                if (searchBlade) searchBlade.classList.remove('has-results');
             }
         });
 
-        // Hover Tooltips
         filterBtn?.addEventListener('mouseenter', () => this.showPreview('filters'));
         filterBtn?.addEventListener('mouseleave', () => this.hidePreview('filters'));
         settingsBtn?.addEventListener('mouseenter', () => this.showPreview('settings'));
         settingsBtn?.addEventListener('mouseleave', () => this.hidePreview('settings'));
 
-        // Weather Menu
         weatherTrigger?.addEventListener('click', (e) => {
             e.stopPropagation();
             this._weatherMenuOpen = !this._weatherMenuOpen;
@@ -399,7 +378,6 @@ export const LandingUI = {
             });
         });
 
-        // Server Dropdown
         serverSelector?.addEventListener('click', (e) => {
             e.stopPropagation();
             serverSelector.classList.toggle('open');
@@ -420,15 +398,11 @@ export const LandingUI = {
             });
         });
 
-        // Filter Modal Controls
         const toggleModal = (state) => {
             this._modalOpen = state;
             modalOverlay?.classList.toggle('open', state);
             if (state) {
                 this.refreshUI();
-                document.body.style.overflow = 'hidden';
-            } else {
-                document.body.style.overflow = '';
             }
         };
 
@@ -493,18 +467,12 @@ export const LandingUI = {
                     <span class="preview-label">Server:</span>
                     <span class="preview-value">${this._currentServer}</span>
                 </div>
-                <div class="preview-line">
-                    <i class="fa-solid fa-earth-americas"></i>
-                    <span class="preview-label">Region:</span>
-                    <span class="preview-value">Global Airspace</span>
-                </div>
             `;
         }
 
         tooltip.innerHTML = `
-            <div class="preview-header">${type.toUpperCase()} STATUS</div>
+            <div class="preview-header">${type.toUpperCase()}</div>
             <div class="preview-body">${content}</div>
-            <div class="preview-footer">Click icon to manage full settings</div>
         `;
         tooltip.classList.add('visible');
     },
@@ -549,7 +517,7 @@ export const LandingUI = {
         if (!container) return;
 
         const activeEntries = Object.entries(this._activeFilters);
-        if (badge) badge.textContent = `${activeEntries.length} Active Rule${activeEntries.length !== 1 ? 's' : ''}`;
+        if (badge) badge.textContent = `${activeEntries.length} Rule${activeEntries.length !== 1 ? 's' : ''}`;
         if (activeDot) activeDot.style.opacity = activeEntries.length > 0 ? '1' : '0';
 
         document.querySelectorAll('.nexus-item').forEach(item => {
@@ -562,7 +530,6 @@ export const LandingUI = {
                 <div class="empty-state">
                     <div class="empty-icon-circle"><i class="fa-solid fa-filter"></i></div>
                     <p>No active filters</p>
-                    <span>Select parameters from the left sidebar to configure rules.</span>
                 </div>
             `;
             return;
@@ -574,12 +541,12 @@ export const LandingUI = {
                 <div class="modal-filter-card slide-in">
                     <div class="card-left-strip"></div>
                     <div class="card-content">
-                        <div class="row-header" style="display:flex; justify-content:space-between; align-items:center;">
+                        <div class="row-header">
                             <div class="row-label">
                                 <i class="fa-solid ${def.icon}"></i>
                                 <span>${def.label}</span>
                             </div>
-                            <button class="row-remove js-remove-filter" data-id="${id}" title="Remove Filter" style="background:none; border:none; color:#ef4444; cursor:pointer; padding:5px;">
+                            <button class="row-remove js-remove-filter" data-id="${id}">
                                 <i class="fa-solid fa-trash-can"></i>
                             </button>
                         </div>
@@ -589,7 +556,6 @@ export const LandingUI = {
             `;
         }).join('');
 
-        // Re-attach local listeners
         container.querySelectorAll('.js-remove-filter').forEach(btn => {
             btn.addEventListener('click', (e) => this.removeFilter(e.currentTarget.dataset.id));
         });
@@ -634,12 +600,12 @@ export const LandingUI = {
         }
         
         if (def.type === 'boolean') {
-            return `<div class="bool-indicator" style="font-size:0.8rem; color:#10b981; font-weight:600;"><i class="fa-solid fa-check"></i> Active Policy Enabled</div>`;
+            return `<div class="bool-indicator"><i class="fa-solid fa-check"></i> Enabled</div>`;
         }
         
         return `
             <div class="input-wrapper">
-                <input type="text" class="row-input data-input" data-id="${id}" placeholder="${def.placeholder || 'Search value...'}" value="${value}">
+                <input type="text" class="row-input data-input" data-id="${id}" placeholder="${def.placeholder || 'Value...'}" value="${value}">
             </div>
         `;
     },
@@ -662,8 +628,17 @@ export const LandingUI = {
         const css = `
             @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap');
 
+            :root {
+                --ui-bg: rgba(10, 10, 12, 0.9);
+                --accent: #38bdf8;
+                --safe-top: env(safe-area-inset-top, 0px);
+                --safe-bottom: env(safe-area-inset-bottom, 0px);
+                --safe-left: env(safe-area-inset-left, 0px);
+                --safe-right: env(safe-area-inset-right, 0px);
+            }
+
             .tactical-ui-root {
-                position: absolute;
+                position: fixed;
                 inset: 0;
                 z-index: 2000;
                 pointer-events: none;
@@ -671,53 +646,59 @@ export const LandingUI = {
                 visibility: hidden;
                 transition: opacity 0.5s ease;
                 font-family: 'Inter', sans-serif;
+                overflow: hidden;
             }
             .tactical-ui-root.active {
                 opacity: 1;
                 visibility: visible;
             }
 
-            /* SEARCH BLADE & CONNECTED DROP-DOWN */
-            .top-right-actions {
+            /* ADAPTIVE HEADER BAR */
+            .top-interface-bar {
                 position: absolute;
-                top: 30px;
-                right: 40px;
+                top: calc(20px + var(--safe-top));
+                left: calc(20px + var(--safe-left));
+                right: calc(20px + var(--safe-right));
+                display: flex;
+                justify-content: space-between;
+                align-items: center;
+                gap: 15px;
                 pointer-events: auto;
             }
-            .search-blade {
-    background: rgba(10, 10, 10, 0.85);
-    backdrop-filter: blur(20px);
-    border: 1px solid rgba(255, 255, 255, 0.15);
-    border-radius: 100px;
-    height: 44px;
-    width: 240px;
-    display: flex;
-    align-items: center;
-    padding: 0 18px;
-    /* STRICT TRANSITION: 
-       We only animate width and colors. 
-       Removing 'border-radius' or 'all' prevents the "bending" animation.
-    */
-    transition: width 0.25s ease, background 0.3s ease, border-color 0.3s ease, box-shadow 0.3s ease;
-    position: relative;
-    box-shadow: 0 10px 30px rgba(0,0,0,0.4);
-    z-index: 1002;
-    pointer-events: auto;
-}
 
-.search-blade:focus-within {
-    width: 380px;
-    border-color: #38bdf8;
-    background: #0f0f11;
-    box-shadow: 0 15px 40px rgba(0,0,0,0.6), 0 0 0 1px rgba(56, 189, 248, 0.3);
-}
+            .top-branding.dropdown {
+                background: var(--ui-bg);
+                backdrop-filter: blur(15px);
+                padding: 10px 20px;
+                border-radius: 100px;
+                border: 1px solid rgba(255, 255, 255, 0.1);
+                color: #fff;
+                display: flex;
+                align-items: center;
+                gap: 12px;
+                cursor: pointer;
+                transition: 0.3s;
+                flex-shrink: 0;
+            }
+
+            .status-dot { width: 8px; height: 8px; background: #10b981; border-radius: 50%; box-shadow: 0 0 10px #10b981; }
+            #landing-server-name { font-size: 0.75rem; font-weight: 800; letter-spacing: 0.5px; }
             
-            .search-blade.has-results {
-    border-bottom-left-radius: 0 !important;
-    border-bottom-right-radius: 0 !important;
-    border-top-left-radius: 20px !important;
-    border-top-right-radius: 20px !important;
-}
+            .search-blade {
+                background: var(--ui-bg);
+                backdrop-filter: blur(20px);
+                border: 1px solid rgba(255, 255, 255, 0.15);
+                border-radius: 100px;
+                height: 44px;
+                width: 260px;
+                display: flex;
+                align-items: center;
+                padding: 0 18px;
+                transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+                position: relative;
+            }
+            .search-blade:focus-within { width: 340px; border-color: var(--accent); }
+            
             #blade-search-input {
                 flex: 1;
                 background: none;
@@ -725,561 +706,180 @@ export const LandingUI = {
                 color: #fff;
                 margin-left: 10px;
                 outline: none;
-                font-size: 15px;
-                font-weight: 500;
-            }
-            .search-icon {
-                color: rgba(255, 255, 255, 0.4);
-                font-size: 14px;
+                font-size: 0.9rem;
             }
             .search-shortcut {
-                background: rgba(255, 255, 255, 0.08);
-                padding: 3px 8px;
-                border-radius: 6px;
-                font-size: 0.65rem;
-                color: rgba(255, 255, 255, 0.4);
-                font-weight: 800;
-                margin-left: 10px;
+                background: rgba(255, 255, 255, 0.1);
+                padding: 2px 6px;
+                border-radius: 4px;
+                font-size: 0.6rem;
+                color: rgba(255, 255, 255, 0.5);
+                margin-left: 8px;
             }
-/* --- PREMIUM MINIMALIST SEARCH --- */
 
-.search-results-dropdown {
-    position: absolute;
-    top: calc(100% + 8px);
-    left: 0;
-    width: 100%;
-    background: #0f0f11;
-    border: 1px solid rgba(255, 255, 255, 0.08);
-    border-radius: 12px;
-    max-height: 440px;
-    overflow-y: auto;
-    display: none;
-    z-index: 1001;
-    box-shadow: 0 20px 50px rgba(0,0,0,0.8), 0 0 0 1px rgba(255,255,255,0.05);
-    padding: 6px;
-}
+            /* SEARCH DROPDOWN */
+            .search-results-dropdown {
+                position: absolute;
+                top: calc(100% + 10px);
+                right: 0;
+                width: 100%;
+                background: #0f0f11;
+                border-radius: 16px;
+                border: 1px solid rgba(255,255,255,0.1);
+                max-height: 350px;
+                overflow-y: auto;
+                display: none;
+                z-index: 1001;
+                box-shadow: 0 20px 40px rgba(0,0,0,0.5);
+            }
+            .search-results-dropdown.visible { display: block; }
+            .premium-result-item { padding: 12px 18px; cursor: pointer; border-bottom: 1px solid rgba(255,255,255,0.05); }
+            .premium-result-item:hover { background: rgba(255,255,255,0.05); }
+            .res-callsign { font-weight: 700; color: #fff; font-size: 0.9rem; }
+            .res-pill { font-size: 0.65rem; background: rgba(255,255,255,0.1); padding: 2px 6px; border-radius: 4px; margin-left: 8px; color: #aaa; }
+            .res-pilot { font-size: 0.75rem; color: #777; margin-top: 4px; display: block; }
 
-.search-results-dropdown.visible { display: block; }
-
-.premium-result-item {
-    display: flex;
-    align-items: center;
-    padding: 12px 16px;
-    gap: 16px;
-    cursor: pointer;
-    border-radius: 8px;
-    transition: all 0.15s ease;
-    margin-bottom: 2px;
-}
-
-.premium-result-item:hover, 
-.premium-result-item.selected {
-    background: rgba(255, 255, 255, 0.05);
-}
-
-/* Left Indicator Icon */
-.res-meta-icon {
-    font-size: 6px;
-    color: rgba(255, 255, 255, 0.2);
-    transition: color 0.2s;
-}
-.premium-result-item:hover .res-meta-icon,
-.premium-result-item.selected .res-meta-icon {
-    color: #fff;
-}
-
-/* Center Content */
-.res-info-main { flex: 1; }
-
-.res-primary-row {
-    display: flex;
-    align-items: center;
-    gap: 10px;
-    margin-bottom: 4px;
-}
-
-.res-callsign {
-    font-size: 14px;
-    font-weight: 600;
-    color: #fff;
-}
-
-.res-pill {
-    font-size: 10px;
-    font-weight: 700;
-    text-transform: uppercase;
-    background: rgba(255, 255, 255, 0.06);
-    color: rgba(255, 255, 255, 0.5);
-    padding: 2px 6px;
-    border-radius: 4px;
-    letter-spacing: 0.02em;
-}
-
-.res-secondary-row {
-    font-size: 12px;
-    color: rgba(255, 255, 255, 0.4);
-}
-
-/* Right Side Stats */
-.res-stats {
-    text-align: right;
-}
-
-.res-altitude {
-    font-family: 'Inter', sans-serif;
-    font-weight: 600;
-    font-size: 13px;
-    color: #fff;
-}
-
-.res-altitude span {
-    font-size: 10px;
-    font-weight: 400;
-    color: rgba(255, 255, 255, 0.3);
-    margin-left: 2px;
-}
-
-/* Sophisticated Highlight */
-.premium-highlight {
-    background: rgba(255, 255, 255, 0.15);
-    color: #fff;
-    padding: 0 2px;
-    border-radius: 2px;
-}
-
-/* Empty State */
-.premium-empty-state {
-    padding: 32px;
-    text-align: center;
-    color: rgba(255, 255, 255, 0.3);
-    font-size: 13px;
-}
-
-            /* UTILITY NEXUS STYLES */
+            /* UTILITY NEXUS (BOTTOM) */
             .utility-nexus {
                 position: absolute;
-                bottom: 40px;
-                right: 40px;
-                pointer-events: none;
-            }
-            .orb-row {
-                display: flex;
-                gap: 15px;
+                bottom: calc(30px + var(--safe-bottom));
+                right: calc(30px + var(--safe-right));
                 pointer-events: auto;
-                align-items: flex-end;
             }
+            .orb-row { display: flex; gap: 12px; align-items: flex-end; }
             .orb-btn {
-                width: 52px;
-                height: 52px;
-                border-radius: 50%;
-                background: rgba(15, 15, 15, 0.7);
-                backdrop-filter: blur(15px);
-                border: 1px solid rgba(255, 255, 255, 0.12);
-                color: rgba(255, 255, 255, 0.7);
-                cursor: pointer;
-                display: grid;
-                place-items: center;
-                transition: all 0.3s cubic-bezier(0.16, 1, 0.3, 1);
-                position: relative;
-                box-shadow: 0 10px 20px rgba(0,0,0,0.3);
-                font-size: 1.1rem;
+                width: 54px; height: 54px; border-radius: 50%;
+                background: var(--ui-bg); backdrop-filter: blur(10px);
+                border: 1px solid rgba(255,255,255,0.15); color: #fff;
+                display: grid; place-items: center; cursor: pointer;
+                transition: 0.3s; font-size: 1.2rem;
             }
-            .orb-btn:hover {
-                transform: translateY(-5px);
-                background: #fff;
-                color: #000;
-                border-color: #fff;
-                box-shadow: 0 15px 30px rgba(255,255,255,0.25);
-            }
+            .orb-btn:hover { border-color: var(--accent); transform: scale(1.1); }
 
-            /* TOOLTIPS */
-            .nexus-orb-wrapper {
-                position: relative;
-            }
-            .nexus-preview-tooltip {
-                position: absolute;
-                bottom: calc(100% + 20px);
-                right: 0;
-                width: 260px;
-                background: rgba(10, 10, 12, 0.95);
-                backdrop-filter: blur(30px);
-                border: 1px solid rgba(255, 255, 255, 0.15);
-                border-radius: 18px;
-                padding: 20px;
-                color: #fff;
-                opacity: 0;
-                visibility: hidden;
-                transform: translateY(15px);
-                transition: all 0.4s cubic-bezier(0.16, 1, 0.3, 1);
-                box-shadow: 0 30px 60px rgba(0,0,0,0.6);
-                pointer-events: none;
-                z-index: 4000;
-            }
-            .nexus-preview-tooltip.visible {
-                opacity: 1;
-                visibility: visible;
-                transform: translateY(0);
-            }
-            .preview-header {
-                font-size: 0.65rem;
-                font-weight: 900;
-                color: #71717a;
-                letter-spacing: 1.5px;
-                margin-bottom: 14px;
-                border-bottom: 1px solid rgba(255, 255, 255, 0.08);
-                padding-bottom: 8px;
-                text-transform: uppercase;
-            }
-            .preview-line {
-                display: flex;
-                align-items: center;
-                gap: 12px;
-                font-size: 0.85rem;
-                margin-bottom: 10px;
-            }
-            .preview-line i {
-                color: #38bdf8;
-                width: 18px;
-                text-align: center;
-                font-size: 0.8rem;
-            }
-            .preview-label { color: #a1a1aa; }
-            .preview-value { font-weight: 700; color: #fff; margin-left: auto; }
-            .preview-footer {
-                margin-top: 14px;
-                font-size: 0.65rem;
-                color: #38bdf8;
-                font-weight: 600;
-                border-top: 1px solid rgba(255, 255, 255, 0.05);
-                padding-top: 10px;
-            }
-
-            /* SERVER SELECTOR PANEL STYLE */
-            .top-branding.dropdown {
-                position: absolute;
-                top: 30px;
-                left: 40px;
-                pointer-events: auto;
-                background: rgba(0, 0, 0, 0.7);
-                padding: 10px 24px;
-                border-radius: 100px;
-                backdrop-filter: blur(15px);
-                border: 1px solid rgba(255, 255, 255, 0.1);
-                cursor: pointer;
-                color: #fff;
-                display: flex;
-                align-items: center;
-                gap: 12px;
-                box-shadow: 0 10px 20px rgba(0,0,0,0.3);
-                transition: all 0.3s;
-            }
-            .top-branding.dropdown:hover {
-                background: rgba(20, 20, 20, 0.9);
-                border-color: rgba(255,255,255,0.2);
-            }
-            .status-dot { width: 8px; height: 8px; background: #10b981; border-radius: 50%; box-shadow: 0 0 12px #10b981; }
-            #landing-server-name { font-size: 0.8rem; font-weight: 800; letter-spacing: 1px; }
-            .dropdown-arrow { font-size: 0.75rem; opacity: 0.4; transition: transform 0.3s; }
-            .top-branding.dropdown.open .dropdown-arrow { transform: rotate(180deg); opacity: 1; }
-
-            .server-menu {
-                position: absolute;
-                top: calc(100% + 12px);
-                left: 0;
-                width: 100%;
-                background: #18181b;
-                border: 1px solid #3f3f46;
-                border-radius: 16px;
-                display: none;
-                flex-direction: column;
-                overflow: hidden;
-                box-shadow: 0 20px 40px rgba(0,0,0,0.6);
-                z-index: 5000;
-            }
-            .top-branding.dropdown.open .server-menu { display: flex; }
-            .server-option {
-                padding: 14px 24px;
-                font-size: 0.85rem;
-                font-weight: 600;
-                color: #a1a1aa;
-                transition: all 0.2s;
-            }
-            .server-option:hover {
-                background: rgba(56, 189, 248, 0.1);
-                color: #38bdf8;
-            }
-
-            /* WEATHER EXPANSION STYLE */
-            .weather-nexus-container { position: relative; display: flex; flex-direction: column-reverse; align-items: center; gap: 15px; }
+            /* WEATHER EXPANSION */
+            .weather-nexus-container { position: relative; }
             .weather-spread {
-                display: flex;
-                flex-direction: column-reverse;
-                align-items: center;
-                gap: 12px;
-                opacity: 0;
-                visibility: hidden;
-                position: absolute;
-                bottom: calc(100% + 15px);
-                left: 50%;
-                transform: translateX(-50%) translateY(20px);
-                transition: all 0.4s cubic-bezier(0.16, 1, 0.3, 1);
-                pointer-events: none;
+                position: absolute; bottom: 70px; right: 0;
+                display: flex; flex-direction: column; gap: 8px;
+                opacity: 0; visibility: hidden; transform: translateY(10px);
+                transition: 0.3s ease;
             }
-            .weather-nexus-container.expanded .weather-spread {
-                opacity: 1;
-                visibility: visible;
-                transform: translateX(-50%) translateY(0);
-                pointer-events: auto;
-            }
+            .weather-nexus-container.expanded .weather-spread { opacity: 1; visibility: visible; transform: translateY(0); }
             .spread-opt {
-                padding: 12px 20px;
-                border-radius: 100px;
-                background: rgba(15, 15, 15, 0.95);
-                backdrop-filter: blur(20px);
-                border: 1px solid rgba(255, 255, 255, 0.15);
-                color: rgba(255, 255, 255, 0.6);
-                cursor: pointer;
-                display: flex;
-                align-items: center;
-                gap: 14px;
-                white-space: nowrap;
-                transition: all 0.2s;
-                box-shadow: 0 10px 20px rgba(0,0,0,0.4);
+                background: var(--ui-bg); backdrop-filter: blur(10px);
+                border: 1px solid rgba(255,255,255,0.1); color: #fff;
+                padding: 10px 18px; border-radius: 30px; display: flex;
+                align-items: center; gap: 10px; cursor: pointer; white-space: nowrap;
+                font-size: 0.8rem; font-weight: 600;
             }
-            .spread-opt i { font-size: 0.95rem; }
-            .spread-label { font-size: 0.8rem; font-weight: 700; }
-            .spread-opt:hover { background: #222; color: #fff; border-color: #38bdf8; }
-            .spread-opt.active { background: rgba(56, 189, 248, 0.2); color: #38bdf8; border-color: #38bdf8; }
+            .spread-opt.active { background: var(--accent); color: #000; }
 
-            /* MODAL SYSTEM (TACTICAL PANEL) */
+            /* MODAL SYSTEM (MOBILE FRIENDLY) */
             .modal-overlay {
-                position: fixed;
-                inset: 0;
-                background: rgba(0, 0, 0, 0.85);
-                backdrop-filter: blur(15px);
-                display: flex;
-                align-items: center;
-                justify-content: center;
-                opacity: 0;
-                visibility: hidden;
-                transition: all 0.4s cubic-bezier(0.16, 1, 0.3, 1);
-                z-index: 3000;
-                pointer-events: auto;
+                position: fixed; inset: 0; background: rgba(0,0,0,0.8);
+                display: flex; align-items: center; justify-content: center;
+                opacity: 0; visibility: hidden; transition: 0.4s;
+                padding: 20px; z-index: 5000; pointer-events: auto;
             }
             .modal-overlay.open { opacity: 1; visibility: visible; }
             
             .filter-modal {
-                background: #0a0a0b;
-                width: 940px;
-                height: 660px;
-                max-width: 95vw;
-                max-height: 90vh;
-                border: 1px solid rgba(255, 255, 255, 0.12);
-                border-radius: 28px;
-                display: flex;
-                flex-direction: column;
-                overflow: hidden;
-                box-shadow: 0 50px 100px rgba(0,0,0,0.9);
-                transform: scale(0.96) translateY(20px);
-                transition: all 0.4s cubic-bezier(0.16, 1, 0.3, 1);
+                background: #0d0d0f;
+                width: 900px; max-width: 100%;
+                height: 600px; max-height: 100%;
+                border-radius: 24px; border: 1px solid rgba(255,255,255,0.1);
+                display: flex; flex-direction: column; overflow: hidden;
+                box-shadow: 0 40px 100px rgba(0,0,0,0.8);
             }
-            .modal-overlay.open .filter-modal { transform: scale(1) translateY(0); }
 
             .modal-header {
-                height: 90px;
-                padding: 0 40px;
-                background: rgba(255, 255, 255, 0.02);
-                border-bottom: 1px solid rgba(255, 255, 255, 0.08);
-                display: flex;
-                justify-content: space-between;
-                align-items: center;
+                padding: 20px 30px; border-bottom: 1px solid rgba(255,255,255,0.1);
+                display: flex; justify-content: space-between; align-items: center;
+                flex-shrink: 0;
             }
-            .header-main { display: flex; align-items: center; gap: 24px; }
-            .header-icon-box {
-                width: 50px;
-                height: 50px;
-                background: rgba(56, 189, 248, 0.12);
-                border-radius: 14px;
-                color: #38bdf8;
-                display: grid;
-                place-items: center;
-                font-size: 1.3rem;
-            }
-            .header-text h2 { margin: 0; font-size: 1.4rem; font-weight: 800; color: #fff; }
-            .header-text span { font-size: 0.9rem; color: #71717a; font-weight: 500; }
-            .close-modal { background: none; border: none; color: #71717a; font-size: 2.2rem; cursor: pointer; transition: 0.2s; }
-            .close-modal:hover { color: #fff; transform: rotate(90deg); }
+            .header-text h2 { margin: 0; color: #fff; font-size: 1.2rem; }
+            .header-text span { font-size: 0.8rem; color: #555; }
+            .close-modal { background: none; border: none; color: #fff; font-size: 2rem; cursor: pointer; }
 
             .modal-body { display: flex; flex: 1; overflow: hidden; }
             .filter-selection-pane {
-                width: 300px;
-                background: rgba(0, 0, 0, 0.3);
-                border-right: 1px solid rgba(255, 255, 255, 0.08);
-                padding: 30px;
-                overflow-y: auto;
+                width: 280px; background: rgba(0,0,0,0.2); border-right: 1px solid rgba(255,255,255,0.1);
+                padding: 25px; overflow-y: auto; flex-shrink: 0;
             }
-            .filter-group-header {
-                font-size: 0.7rem;
-                font-weight: 900;
-                color: #3f3f46;
-                text-transform: uppercase;
-                letter-spacing: 2px;
-                margin-bottom: 18px;
-                margin-top: 30px;
-            }
-            .filter-group-header:first-child { margin-top: 0; }
-            
+            .filter-group-header { font-size: 0.65rem; font-weight: 900; color: #444; text-transform: uppercase; margin: 20px 0 10px; }
             .nexus-item {
-                width: 100%;
-                text-align: left;
-                background: transparent;
-                border: none;
-                padding: 14px 18px;
-                border-radius: 14px;
-                color: #71717a;
-                cursor: pointer;
-                display: flex;
-                align-items: center;
-                gap: 14px;
-                transition: all 0.25s;
-                margin-bottom: 6px;
+                width: 100%; display: flex; align-items: center; gap: 12px;
+                background: none; border: none; padding: 10px; border-radius: 10px;
+                color: #888; cursor: pointer; text-align: left; font-size: 0.85rem;
             }
-            .nexus-item:hover { background: rgba(255, 255, 255, 0.05); color: #fff; }
-            .nexus-item.active { background: rgba(56, 189, 248, 0.12); color: #38bdf8; font-weight: 700; }
-            .nexus-icon { width: 24px; text-align: center; font-size: 1rem; }
+            .nexus-item:hover { background: rgba(255,255,255,0.05); color: #fff; }
+            .nexus-item.active { background: rgba(56, 189, 248, 0.1); color: var(--accent); }
 
-            .filter-config-pane {
-                flex: 1;
-                padding: 40px;
-                background: #0d0d0e;
-                display: flex;
-                flex-direction: column;
-                position: relative;
-            }
-            .config-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 28px; }
-            .config-header label { font-size: 0.8rem; font-weight: 900; color: #3f3f46; text-transform: uppercase; letter-spacing: 2.5px; }
-            #active-count-badge { background: #38bdf8; color: #000; padding: 6px 14px; border-radius: 100px; font-size: 0.75rem; font-weight: 800; }
-
-            .modal-active-list { flex: 1; overflow-y: auto; display: flex; flex-direction: column; gap: 20px; padding-bottom: 120px; }
+            .filter-config-pane { flex: 1; padding: 30px; display: flex; flex-direction: column; position: relative; overflow-y: auto; }
+            .modal-active-list { flex: 1; display: flex; flex-direction: column; gap: 15px; padding-bottom: 80px; }
+            
             .modal-filter-card {
-                background: #141416;
-                border: 1px solid rgba(255, 255, 255, 0.08);
-                border-radius: 20px;
-                display: flex;
-                overflow: hidden;
-                box-shadow: 0 8px 30px rgba(0,0,0,0.3);
+                background: #161618; border-radius: 16px; border: 1px solid rgba(255,255,255,0.05);
+                padding: 20px; display: flex; flex-direction: column;
             }
-            .card-left-strip { width: 6px; background: #38bdf8; }
-            .card-content { flex: 1; padding: 24px; }
-            .row-label { display: flex; align-items: center; gap: 14px; font-size: 1rem; font-weight: 700; color: #fff; }
-            .row-label i { color: #38bdf8; opacity: 0.9; }
-            .row-control { margin-top: 20px; }
+            .row-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px; }
+            .row-label { color: #fff; font-weight: 700; display: flex; align-items: center; gap: 10px; }
+            .row-remove { background: none; border: none; color: #ef4444; cursor: pointer; font-size: 1rem; }
 
-            /* INPUTS */
             .row-input, .row-input-select {
-                width: 100%;
-                background: #1c1c1f;
-                border: 1px solid #2d2d30;
-                border-radius: 12px;
-                color: #fff;
-                padding: 14px 18px;
-                font-size: 0.95rem;
-                font-family: inherit;
-                outline: none;
-                transition: all 0.2s;
+                width: 100%; background: #222; border: 1px solid #333;
+                border-radius: 8px; color: #fff; padding: 12px; outline: none;
             }
-            .row-input:focus, .row-input-select:focus { border-color: #38bdf8; background: #232326; box-shadow: 0 0 0 4px rgba(56, 189, 248, 0.1); }
 
-            .range-pill-container {
-                display: flex;
-                background: #1c1c1f;
-                border: 1px solid #2d2d30;
-                border-radius: 12px;
-                overflow: hidden;
-            }
-            .range-half { flex: 1; display: flex; align-items: center; padding: 0 16px; }
-            .range-label { font-size: 0.65rem; font-weight: 900; color: #3f3f46; margin-right: 14px; }
-            .range-input { background: none; border: none; color: #fff; width: 100%; padding: 14px 0; outline: none; font-size: 1rem; font-weight: 600; }
-            .range-divider { width: 1px; height: 28px; background: #2d2d30; align-self: center; }
+            .range-pill-container { display: flex; background: #222; border-radius: 8px; border: 1px solid #333; overflow: hidden; }
+            .range-half { flex: 1; display: flex; align-items: center; padding: 0 12px; }
+            .range-label { font-size: 0.6rem; font-weight: 900; color: #555; margin-right: 10px; }
+            .range-input { background: none; border: none; color: #fff; width: 100%; padding: 12px 0; outline: none; }
+            .range-divider { width: 1px; background: #333; height: 20px; align-self: center; }
 
             .modal-footer-embedded {
-                position: absolute;
-                bottom: 0;
-                left: 0;
-                right: 0;
-                padding: 30px 40px;
-                background: rgba(13, 13, 14, 0.95);
-                backdrop-filter: blur(12px);
-                border-top: 1px solid rgba(255, 255, 255, 0.08);
-                display: flex;
-                justify-content: flex-end;
-                gap: 20px;
+                position: absolute; bottom: 0; left: 0; right: 0;
+                padding: 20px 30px; background: #0d0d0f; border-top: 1px solid rgba(255,255,255,0.1);
+                display: flex; justify-content: flex-end; gap: 15px;
             }
-            .modal-btn {
-                padding: 14px 32px;
-                border-radius: 14px;
-                font-weight: 700;
-                font-size: 1rem;
-                cursor: pointer;
-                transition: all 0.3s cubic-bezier(0.16, 1, 0.3, 1);
-                border: none;
-            }
-            .modal-btn.primary { background: #38bdf8; color: #000; }
-            .modal-btn.primary:hover { transform: translateY(-3px); box-shadow: 0 12px 25px rgba(56, 189, 248, 0.35); }
-            .modal-btn.secondary { background: rgba(255, 255, 255, 0.06); color: #fff; border: 1px solid rgba(255, 255, 255, 0.12); }
-            .modal-btn.secondary:hover { background: rgba(255, 255, 255, 0.12); }
+            .modal-btn { padding: 12px 24px; border-radius: 12px; font-weight: 700; cursor: pointer; border: none; }
+            .modal-btn.primary { background: var(--accent); color: #000; }
+            .modal-btn.secondary { background: #222; color: #fff; }
 
-            .empty-state {
-                flex: 1;
-                display: flex;
-                flex-direction: column;
-                align-items: center;
-                justify-content: center;
-                color: #3f3f46;
-                text-align: center;
-                padding: 40px;
+            .bool-indicator { color: #10b981; font-weight: 700; font-size: 0.8rem; }
+
+            /* MOBILE SPECIFIC OVERRIDES */
+            @media (max-width: 768px) {
+                .top-interface-bar { flex-direction: column; align-items: stretch; top: calc(10px + var(--safe-top)); }
+                .search-blade { width: 100% !important; order: 2; }
+                .top-branding.dropdown { order: 1; align-self: flex-start; }
+                
+                .modal-overlay { padding: 0; }
+                .filter-modal { border-radius: 0; height: 100%; }
+                .modal-body { flex-direction: column; }
+                .filter-selection-pane { width: 100%; height: 200px; border-right: none; border-bottom: 1px solid #222; }
+                .modal-footer-embedded { position: sticky; bottom: 0; }
+                
+                .utility-nexus { bottom: calc(20px + var(--safe-bottom)); right: calc(20px + var(--safe-right)); }
+                .orb-btn { width: 48px; height: 48px; font-size: 1rem; }
+                
+                #landing-server-name { font-size: 0.65rem; }
             }
-            .empty-icon-circle {
-                width: 90px;
-                height: 90px;
-                border-radius: 50%;
-                background: rgba(255, 255, 255, 0.03);
-                border: 2px dashed rgba(255, 255, 255, 0.08);
-                display: grid;
-                place-items: center;
-                font-size: 2.2rem;
-                margin-bottom: 24px;
-            }
-            .empty-state p { margin: 0; color: #a1a1aa; font-weight: 700; font-size: 1.2rem; }
-            .empty-state span { font-size: 0.95rem; margin-top: 10px; max-width: 260px; line-height: 1.5; }
 
             .active-pulse-dot {
-                position: absolute;
-                top: 0;
-                right: 0;
-                width: 12px;
-                height: 12px;
-                background: #38bdf8;
-                border-radius: 50%;
-                border: 2px solid #0a0a0b;
-                opacity: 0;
-                transition: opacity 0.3s;
-                box-shadow: 0 0 15px #38bdf8;
+                position: absolute; top: 0; right: 0; width: 12px; height: 12px;
+                background: var(--accent); border-radius: 50%; border: 2px solid #000;
+                opacity: 0; transition: 0.3s; box-shadow: 0 0 10px var(--accent);
             }
 
-            .custom-scroll::-webkit-scrollbar { width: 8px; }
-            .custom-scroll::-webkit-scrollbar-track { background: transparent; }
-            .custom-scroll::-webkit-scrollbar-thumb { background: rgba(255, 255, 255, 0.12); border-radius: 10px; border: 2px solid transparent; background-clip: content-box; }
-            .custom-scroll::-webkit-scrollbar-thumb:hover { background: rgba(255, 255, 255, 0.2); border: 2px solid transparent; background-clip: content-box; }
-
-            @keyframes slideIn {
-                from { opacity: 0; transform: translateY(12px); }
-                to { opacity: 1; transform: translateY(0); }
-            }
-            .slide-in { animation: slideIn 0.35s forwards; }
+            .custom-scroll::-webkit-scrollbar { width: 5px; }
+            .custom-scroll::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.1); border-radius: 10px; }
+            
+            .empty-state { text-align: center; padding: 40px; color: #444; }
+            .empty-icon-circle { font-size: 2rem; margin-bottom: 10px; opacity: 0.3; }
         `;
         
-        const styleId = 'landing-ui-integrated-css';
+        const styleId = 'landing-ui-responsive-css';
         if (!document.getElementById(styleId)) {
             const style = document.createElement('style');
             style.id = styleId;
