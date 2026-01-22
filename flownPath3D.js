@@ -96,6 +96,7 @@ export const FlownPath3D = {
         const minThicknessMult = 0.05;   
         const fullThicknessAlt = 15000;  
 
+        // 1. Process Coordinates
         trailData.forEach((p, index) => {
             const lng = p.longitude || p.lon;
             const lat = p.latitude || p.lat;
@@ -103,26 +104,21 @@ export const FlownPath3D = {
             const altMeters = rawAlt * 0.3048; 
             
             const coord = mapboxgl.MercatorCoordinate.fromLngLat([lng, lat], altMeters);
-            const groundCoord = mapboxgl.MercatorCoordinate.fromLngLat([lng, lat], 0);
             
             const topPoint = new THREE.Vector3(coord.x, coord.y, coord.z);
             points.push(topPoint);
 
-            // --- Curtain Construction ---
-            // We add two vertices per trail point: Top and Bottom
+            // --- Curtain Construction (Point-to-Point) ---
             curtainVertices.push(coord.x, coord.y, coord.z);    // Top
             curtainVertices.push(coord.x, coord.y, 0);          // Bottom (Ground)
 
-            // Create triangles for the curtain wall (Quad)
             if (index > 0) {
                 const i = index * 2;
-                // Triangle 1: Top Prev, Bottom Prev, Top Curr
                 curtainIndices.push(i - 2, i - 1, i);
-                // Triangle 2: Bottom Prev, Bottom Curr, Top Curr
                 curtainIndices.push(i - 1, i + 1, i);
             }
 
-            // --- Tube Thickness Logic ---
+            // --- Thickness Logic ---
             let altFactor = Math.min(rawAlt / fullThicknessAlt, 1.0);
             altFactor = minThicknessMult + (altFactor * (1.0 - minThicknessMult));
             if (index === trailData.length - 1) altFactor *= 0.1;
@@ -136,34 +132,43 @@ export const FlownPath3D = {
         layerObj.curtainGeometry.setIndex(curtainIndices);
         layerObj.curtainGeometry.attributes.position.needsUpdate = true;
 
-        // Update Tube Geometry (Existing Logic)
-        const curve = new THREE.CatmullRomCurve3(points);
-        const tubularSegments = Math.max(64, points.length * 2);
+        // 2. Linear Path Construction (The Fix)
+        // Instead of a smooth spline, we create a path of straight lines
+        const curvePath = new THREE.CurvePath();
+        for (let i = 0; i < points.length - 1; i++) {
+            curvePath.add(new THREE.LineCurve3(points[i], points[i + 1]));
+        }
+
+        // We use a segment count that is a multiple of our points to ensure 
+        // the tube vertices align perfectly with our data points.
+        const tubularSegments = points.length * 4; 
         const radialSegments = 8; 
 
-        const newTubeGeometry = new THREE.TubeGeometry(curve, tubularSegments, baseThickness, radialSegments, false);
+        const newTubeGeometry = new THREE.TubeGeometry(curvePath, tubularSegments, baseThickness, radialSegments, false);
         const position = newTubeGeometry.attributes.position;
         const normal = newTubeGeometry.attributes.normal;
 
+        // 3. Apply Thickness Scaling
         for (let i = 0; i < position.count; i++) {
             const ringIdx = Math.floor(i / (radialSegments + 1));
             const progress = ringIdx / tubularSegments;
+            
+            // Map the progress along the tube back to our thicknessFactors array
             const floatIdx = progress * (thicknessFactors.length - 1);
             const idx1 = Math.floor(floatIdx);
             const idx2 = Math.min(idx1 + 1, thicknessFactors.length - 1);
             const weight = floatIdx - idx1;
 
             const factor = (thicknessFactors[idx1] * (1 - weight)) + (thicknessFactors[idx2] * weight);
+            
             const nx = normal.getX(i);
             const ny = normal.getY(i);
             const nz = normal.getZ(i);
-
             const px = position.getX(i);
             const py = position.getY(i);
             const pz = position.getZ(i);
 
             const shrinkAmount = baseThickness * (1 - factor);
-
             position.setXYZ(i, px - (nx * shrinkAmount), py - (ny * shrinkAmount), pz - (nz * shrinkAmount));
         }
 
