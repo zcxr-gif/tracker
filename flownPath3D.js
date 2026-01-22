@@ -3,9 +3,6 @@
  * Handles the rendering of 3D flight trails, vertical curtains, and 3D path-aligned labels.
  */
 
-import { FontLoader } from 'https://cdn.jsdelivr.net/npm/three@0.145.0/examples/jsm/loaders/FontLoader.js';
-import { TextGeometry } from 'https://cdn.jsdelivr.net/npm/three@0.145.0/examples/jsm/geometries/TextGeometry.js';
-
 export const FlownPath3D = {
     flightObjects: {},
     font: null,
@@ -24,15 +21,42 @@ export const FlownPath3D = {
         { alt: 40000, color: new window.THREE.Color(0x818cf8) }  
     ],
 
+    /**
+     * Loads the font required for 3D labels.
+     * Uses the FontLoader from THREE.Addons or via a dynamic import if available.
+     */
     async _loadFont() {
         if (this.font) return this.font;
-        const loader = new FontLoader();
-        // Loading a standard typeface font
-        return new Promise((resolve) => {
+        
+        const THREE = window.THREE;
+        
+        // Ensure FontLoader and TextGeometry are available
+        // If they aren't on THREE, we'll import them from the CDN as Standalone scripts
+        if (!THREE.FontLoader) {
+            await this._loadScript('https://cdn.jsdelivr.net/npm/three@0.145.0/examples/js/loaders/FontLoader.js');
+        }
+        if (!THREE.TextGeometry) {
+            await this._loadScript('https://cdn.jsdelivr.net/npm/three@0.145.0/examples/js/geometries/TextGeometry.js');
+        }
+
+        const loader = new THREE.FontLoader();
+        return new Promise((resolve, reject) => {
             loader.load('https://cdn.jsdelivr.net/npm/three@0.145.0/examples/fonts/helvetiker_regular.typeface.json', (response) => {
                 this.font = response;
                 resolve(response);
-            });
+            }, undefined, reject);
+        });
+    },
+
+    /**
+     * Helper to load legacy JS examples that aren't modules but attach to THREE
+     */
+    _loadScript(url) {
+        return new Promise((resolve) => {
+            const script = document.createElement('script');
+            script.src = url;
+            script.onload = resolve;
+            document.head.appendChild(script);
         });
     },
 
@@ -61,8 +85,12 @@ export const FlownPath3D = {
             return;
         }
 
-        // Ensure font is loaded for labels
-        await this._loadFont();
+        // Ensure font and dependencies are loaded
+        try {
+            await this._loadFont();
+        } catch (e) {
+            console.error("Failed to load 3D Font for labels", e);
+        }
 
         if (!map.getLayer(layerId)) {
             const customLayer = this._createCustomLayer(layerId, flightId, trailData);
@@ -166,7 +194,6 @@ export const FlownPath3D = {
         const posAttr = layerObj.geometry.attributes.position;
         const colorAttr = layerObj.geometry.attributes.color;
         const tempPos = tempTube.attributes.position;
-        const tempNorm = tempTube.attributes.normal;
 
         for (let i = 0; i < tempPos.count; i++) {
             const ringIdx = Math.floor(i / (this.RADIAL_SEGMENTS + 1));
@@ -223,6 +250,8 @@ export const FlownPath3D = {
 
     _updateLabels(layerObj, curve, trailData) {
         const THREE = window.THREE;
+        if (!this.font || !THREE.TextGeometry) return;
+
         // Clear existing labels
         while(layerObj.labelGroup.children.length > 0){ 
             const child = layerObj.labelGroup.children[0];
@@ -230,8 +259,6 @@ export const FlownPath3D = {
             child.material.dispose();
             layerObj.labelGroup.remove(child); 
         }
-
-        if (!this.font) return;
 
         // Place a label every ~20% of the path
         const labelIntervals = [0.2, 0.5, 0.8]; 
@@ -245,9 +272,9 @@ export const FlownPath3D = {
             const alt = trailData[rawIdx].altitude || 0;
             const labelText = `${Math.round(alt).toLocaleString()} FT`;
 
-            const textGeo = new TextGeometry(labelText, {
+            const textGeo = new THREE.TextGeometry(labelText, {
                 font: this.font,
-                size: 0.000008, // Adjust based on Mercator scale
+                size: 0.000008, 
                 height: 0.000001,
                 curveSegments: 4
             });
@@ -260,9 +287,11 @@ export const FlownPath3D = {
             const side = new THREE.Vector3().crossVectors(tangent, up).normalize();
             
             textMesh.position.copy(pos);
-            textMesh.position.add(side.multiplyScalar(0.00001)); // Offset side
+            const offsetDist = 0.00001;
+            textMesh.position.add(side.multiplyScalar(offsetDist)); 
 
             // Orientation: Align with path tangent
+            // Default TextGeometry is on X-Y plane. We rotate it to face the side
             textMesh.quaternion.setFromUnitVectors(new THREE.Vector3(1, 0, 0), tangent);
             
             layerObj.labelGroup.add(textMesh);
