@@ -91,7 +91,7 @@ export const FlownPath3D = {
                 this.curtainMaterial = new THREE.MeshBasicMaterial({
                     vertexColors: true,
                     transparent: true,
-                    opacity: 0.3,
+                    opacity: 0.15, // Reduced for a subtler look
                     side: THREE.DoubleSide
                 });
                 this.curtainMesh = new THREE.Mesh(this.curtainGeometry, this.curtainMaterial);
@@ -144,7 +144,7 @@ export const FlownPath3D = {
             points.push(vec);
             rawAltitudes.push(alt);
 
-            // Pillar detection: Crossing a multiple of PILLAR_INTERVAL
+            // Pillar detection
             const currentPillarZone = Math.floor(alt / this.PILLAR_INTERVAL);
             if (index > 0 && currentPillarZone !== lastPillarZone && alt > 0) {
                 pillarLocations.push({
@@ -252,7 +252,7 @@ export const FlownPath3D = {
         const THREE = window.THREE;
         const group = layerObj.pillarsGroup;
 
-        // Clear existing pillars in this group
+        // Efficient cleanup
         while(group.children.length > 0) {
             const child = group.children[0];
             if (child.geometry) child.geometry.dispose();
@@ -260,28 +260,38 @@ export const FlownPath3D = {
             group.remove(child);
         }
 
-        const pillarRadius = this.BASE_THICKNESS * 2.5;
+        // Visual constants for the "Needle" design
+        const stemRadius = this.BASE_THICKNESS * 0.4; // Very thin
+        const markerRadius = this.BASE_THICKNESS * 2.5; // Sphere at the top
 
         locations.forEach(loc => {
-            // A pillar from ground (z=0) to flight altitude (z=loc.pos.z)
             const height = Math.abs(loc.pos.z);
             if (height <= 0) return;
 
-            const geometry = new THREE.CylinderGeometry(pillarRadius, pillarRadius, height, 8);
-            const material = new THREE.MeshBasicMaterial({ 
+            // 1. The Stem (Vertical Needle)
+            const stemGeo = new THREE.CylinderGeometry(stemRadius, stemRadius, height, 6);
+            const stemMat = new THREE.MeshBasicMaterial({ 
                 color: loc.color,
                 transparent: true,
-                opacity: 0.8
+                opacity: 0.3,
+                blending: THREE.AdditiveBlending
             });
-            
-            const pillar = new THREE.Mesh(geometry, material);
-            
-            // Cylinder is created centered on Y axis by default in Three.js
-            // Rotate to align with Z axis and position correctly
-            pillar.rotation.x = Math.PI / 2;
-            pillar.position.set(loc.pos.x, loc.pos.y, loc.pos.z / 2);
-            
-            group.add(pillar);
+            const stem = new THREE.Mesh(stemGeo, stemMat);
+            stem.rotation.x = Math.PI / 2;
+            stem.position.set(loc.pos.x, loc.pos.y, loc.pos.z / 2);
+            group.add(stem);
+
+            // 2. The Head (Point Marker)
+            const headGeo = new THREE.SphereGeometry(markerRadius, 8, 8);
+            const headMat = new THREE.MeshBasicMaterial({ 
+                color: loc.color,
+                transparent: true,
+                opacity: 0.8,
+                blending: THREE.AdditiveBlending
+            });
+            const head = new THREE.Mesh(headGeo, headMat);
+            head.position.set(loc.pos.x, loc.pos.y, loc.pos.z);
+            group.add(head);
         });
     },
     
