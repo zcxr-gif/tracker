@@ -110,7 +110,11 @@ export class NatTracksLayer {
     }
 
         this.setupInteractions();
+        if (this.tracks && this.tracks.length > 0) {
+        this.render();
     }
+}
+
 
     /**
      * New method to be called from your Settings UI
