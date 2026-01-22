@@ -7903,6 +7903,7 @@ function formatDataForSimpleWindow(flightProps, plan, routePoints, communityData
         const ids = {
             'set-nat-tracks': 'showNatTracks',
             'set-nat-labels': 'showNatLabels',
+            'setting-toggle-3dpath': 'show3DPath',
             'set-hide-atc': 'hideAtcMarkers',
             'set-show-unstaffed': 'showUnstaffedAirports',
             'set-plane-size': 'planeIconSize',
