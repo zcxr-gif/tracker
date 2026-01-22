@@ -24,7 +24,7 @@ export class NatTracksLayer {
         this.lineLayerId = 'nat-tracks-layer';
         this.labelLayerId = 'nat-tracks-labels';
         this.bgLayerId = 'nat-tracks-bg-circles';
-        this.airplaneLayerId = 'flights-layer'; 
+        this.airplaneLayerId = 'sector-ops-live-flights-layer'; 
         this.tracks = [];
         this.refreshInterval = null;
         this.hoveredTrackId = null;
