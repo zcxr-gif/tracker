@@ -252,7 +252,7 @@ export const FlownPath3D = {
         }
 
         const labelIntervals = [0.2, 0.5, 0.8]; 
-        const offsetDist = 0.000015; // Distance from the curtain surface
+        const offsetDist = 0.00002; // Small offset from the curtain surface
 
         labelIntervals.forEach(t => {
             const pos = curve.getPointAt(t);
@@ -262,10 +262,9 @@ export const FlownPath3D = {
             const alt = trailData[rawIdx].altitude || 0;
             const labelText = `${Math.round(alt).toLocaleString()} FT`;
 
-            // Common text geometry and material
             const textParams = {
                 font: this.font,
-                size: 0.000008, 
+                size: 0.00001, // Slightly larger for better visibility
                 height: 0.0000005,
                 curveSegments: 4
             };
@@ -275,13 +274,13 @@ export const FlownPath3D = {
             const up = new THREE.Vector3(0, 0, 1);
             const side = new THREE.Vector3().crossVectors(tangent, up).normalize();
             
-            // Calculate vertically centered point (halfway between ground and flight path)
+            // Midpoint of the curtain height
             const centeredZ = pos.z / 2;
 
-            // Helper to create and position a label mesh
             const createLabel = (direction) => {
                 const textGeo = new THREE.TextGeometry(labelText, textParams);
-                // Center the geometry locally so rotation happens around text center
+                
+                // Center the geometry so rotation/positioning is based on text center
                 textGeo.computeBoundingBox();
                 const centerOffset = new THREE.Vector3();
                 textGeo.boundingBox.getCenter(centerOffset).multiplyScalar(-1);
@@ -289,25 +288,23 @@ export const FlownPath3D = {
 
                 const mesh = new THREE.Mesh(textGeo, textMat.clone());
                 
-                // Position at midpoint of the curtain height
+                // Start at the curtain wall center point
                 mesh.position.set(pos.x, pos.y, centeredZ);
                 
-                // Offset horizontally to the left or right
+                // Offset horizontally (perpendicular to path) to sit on the face
                 const horizontalOffset = side.clone().multiplyScalar(direction * offsetDist);
                 mesh.position.add(horizontalOffset);
 
-                // Align with path tangent
-                mesh.quaternion.setFromUnitVectors(new THREE.Vector3(1, 0, 0), tangent);
-                
-                // If on the "left" side relative to tangent, flip rotation to face outward properly
-                if (direction < 0) {
-                    mesh.rotateY(Math.PI);
-                }
+                // Set orientation: text face should point toward 'side * direction'
+                // We set 'up' to world Z so text stays vertical
+                mesh.up.copy(up);
+                const lookTarget = mesh.position.clone().add(side.clone().multiplyScalar(direction));
+                mesh.lookAt(lookTarget);
 
                 layerObj.labelGroup.add(mesh);
             };
 
-            // Create Left Label (direction -1) and Right Label (direction 1)
+            // Left Face (-1) and Right Face (1)
             createLabel(-1);
             createLabel(1);
         });
