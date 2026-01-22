@@ -251,7 +251,8 @@ export const FlownPath3D = {
         }
 
         const labelIntervals = [0.2, 0.5, 0.8]; 
-        const offsetDist = 0.000005; // Tight offset for "on-wall" look
+        // Reduced distance to bring labels closer to the curtain mesh
+        const offsetDist = 0.0000005; 
 
         labelIntervals.forEach(t => {
             const pos = curve.getPointAt(t);
@@ -263,27 +264,25 @@ export const FlownPath3D = {
 
             const textParams = {
                 font: this.font,
-                size: 0.000012, // Slightly larger for legibility
-                height: 0.0000001, // Keep it very thin/flat
+                size: 0.000012, 
+                height: 0.0000001, 
                 curveSegments: 4
             };
 
-            // Common vectors
             const up = new THREE.Vector3(0, 0, 1);
+            // Perpendicular to the curtain path
             const side = new THREE.Vector3().crossVectors(tangent, up).normalize();
             const centeredZ = pos.z / 2;
 
             const createLabel = (direction) => {
                 const textGeo = new THREE.TextGeometry(labelText, textParams);
                 
-                // Center the text geometry relative to its own center point
+                // Center the text geometry
                 textGeo.computeBoundingBox();
                 const centerOffset = new THREE.Vector3();
                 textGeo.boundingBox.getCenter(centerOffset).multiplyScalar(-1);
                 textGeo.translate(centerOffset.x, centerOffset.y, centerOffset.z);
 
-                // IMPORTANT: FrontSide only so we don't see labels through the curtain
-                // polygonOffset prevents Z-fighting with the curtain mesh
                 const textMat = new THREE.MeshBasicMaterial({ 
                     color: 0xffffff,
                     side: THREE.FrontSide, 
@@ -293,28 +292,25 @@ export const FlownPath3D = {
                 });
 
                 const mesh = new THREE.Mesh(textGeo, textMat);
-                
-                // Position at the midpoint of the curtain height
                 mesh.position.set(pos.x, pos.y, centeredZ);
                 
-                // Apply horizontal offset to sit on the specific face
+                // Add tiny offset based on side direction
                 const horizontalOffset = side.clone().multiplyScalar(direction * offsetDist);
                 mesh.position.add(horizontalOffset);
 
-                // Orientation:
-                // Ensure the 'up' of the text is the world 'Z' (vertical)
+                // Set orientation
                 mesh.up.copy(up);
                 
-                // The target the text "looks at" is the direction perpendicular to the wall
+                // Point the FRONT of the mesh away from the curtain
+                // Since TextGeometry faces +Z by default, we look at the point away from side
                 const lookTarget = mesh.position.clone().add(side.clone().multiplyScalar(direction));
                 mesh.lookAt(lookTarget);
 
                 layerObj.labelGroup.add(mesh);
             };
 
-            // Create a label for the Left Face (-1) and Right Face (1)
-            createLabel(-1);
-            createLabel(1);
+            createLabel(-1); // Left side
+            createLabel(1);  // Right side
         });
     },
     
