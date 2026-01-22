@@ -728,33 +728,45 @@ export const LandingUI = {
             }
 
             .search-results-dropdown {
-                position: absolute;
-                top: 42px; /* Overlaps bottom border of search blade precisely */
-                left: -1px;
-                right: -1px;
-                background: #0f0f11;
-                backdrop-filter: blur(25px);
-                border: 1px solid #38bdf8;
-                border-top: none; /* Look connected */
-                border-bottom-left-radius: 20px;
-                border-bottom-right-radius: 20px;
-                max-height: 420px;
-                overflow-y: auto;
-                display: none;
-                box-shadow: 0 30px 60px rgba(0,0,0,0.8);
-                z-index: 1001;
-                padding: 8px 0;
-            }
+    position: absolute;
+    top: 100%; /* Positions it exactly at the bottom of the blade */
+    left: 0;
+    width: 100%; /* This is the key: it will follow the blade's 240px -> 380px transition */
+    background: #0f0f11;
+    backdrop-filter: blur(25px);
+    border: 1px solid #38bdf8;
+    border-top: none;
+    border-bottom-left-radius: 20px;
+    border-bottom-right-radius: 20px;
+    max-height: 420px;
+    overflow-y: auto;
+    display: none;
+    box-shadow: 0 30px 60px rgba(0,0,0,0.8);
+    z-index: 1001;
+    padding: 8px 0;
+    box-sizing: border-box; /* Prevents border from adding to width */
+}
             .search-results-dropdown.visible {
-                display: block;
-            }
+    display: block;
+}
             .search-result-item {
-                padding: 14px 22px;
-                cursor: pointer;
-                border-bottom: 1px solid rgba(255, 255, 255, 0.03);
-                transition: all 0.2s;
-                border-left: 3px solid transparent;
-            }
+    padding: 14px 22px;
+    cursor: pointer;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.03);
+    transition: all 0.2s;
+    border-left: 3px solid transparent;
+    display: flex; /* Using flex for the item itself */
+    flex-direction: column;
+    gap: 4px;
+}
+
+/* Ensure inner rows spread to fill the dynamic width */
+.res-main, .res-sub {
+    display: flex;
+    justify-content: space-between; /* This pushes info to the edges */
+    align-items: center;
+    width: 100%;
+}
             .search-result-item:hover, .search-result-item.selected {
                 background: rgba(56, 189, 248, 0.12);
                 border-left-color: #38bdf8;
