@@ -15,7 +15,12 @@ export const FlownPath3D = {
         }
 
         // Convert trail coordinates to include altitude for 3D rendering
-        const coordinates = trailData.map(p => [p.longitude, p.latitude, p.altitude * 0.3048]); // Meters
+        // Convert trail coordinates to include altitude for 3D rendering
+const coordinates = trailData.map(p => [
+    p.longitude || p.lon, 
+    p.latitude || p.lat, 
+    (p.altitude || p.alt || 0) * 0.3048
+]);
 
         const geojson = {
             type: 'Feature',
