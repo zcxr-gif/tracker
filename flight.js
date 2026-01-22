@@ -5,6 +5,7 @@ import { initPlaneSizeSlider } from './planeSizeController.js';
 import { GroupFlightManager } from './groupFlightManager.js';
 import { updateActiveSectors } from './atcHighlights.js';
 import { NatTracksLayer } from './natTracksLayer.js';
+import { FlownPath3D } from './flownPath3D.js'
 
 document.addEventListener('DOMContentLoaded', async () => {
 
@@ -87,6 +88,7 @@ window.currentAirportTraffic = { in: [], out: [] }; // Stores IDs for the curren
     // --- NEW: To cache flight data when switching to stats view ---
     let cachedFlightDataForStatsView = { flightProps: null, plan: null };
     let mapFilters = {
+        show3DPath: false, // New: Toggle for 3D flight trails
         showNatTracks: true,  // New: Toggle for the tracks themselves
         showNatLabels: true,
         showVaOnly: false,
@@ -5544,7 +5546,15 @@ function handleSocketFlightUpdate(data) {
                         source.setData(newRouteData);
                     }
                 }
-            }
+
+                if (isMapReady) {
+    FlownPath3D.updatePath(
+        sectorOpsMap, 
+        flightId, 
+        localTrail, 
+        mapFilters.show3DPath
+    );
+}
 
             // 9. Update Planned Route Line
             if (cachedFlightDataForStatsView.plan && mapFilters.planDisplayMode !== 'none' && isMapReady) {
@@ -7781,7 +7791,7 @@ function formatDataForSimpleWindow(flightProps, plan, routePoints, communityData
                         </div>
 
                         <div class="settings-section">
-            <label class="config-header">Map & Assets</label>
+            <label class="config-header"></label>
             <div class="settings-row">
                 <div class="row-label"><i class="fa-solid fa-route"></i> North Atlantic Tracks</div>
                 <label class="toggle-switch">
@@ -7789,6 +7799,16 @@ function formatDataForSimpleWindow(flightProps, plan, routePoints, communityData
                     <span class="toggle-slider"></span>
                 </label>
             </div>
+
+            <div class="settings-section">
+        <label class="config-header">Flight Visualization</label>
+        <div class="settings-row">
+            <div class="row-label"><i class="fa-solid fa-cube"></i> Enable 3D Flown Path</div>
+            <label class="toggle-switch">
+                <input type="checkbox" id="set-3d-path" ${mapFilters.show3DPath ? 'checked' : ''}>
+                <span class="toggle-slider"></span>
+            </label>
+        </div>
 
             <div class="settings-row">
                 <div class="row-label"><i class="fa-solid fa-font"></i> Track Labels</div>
@@ -7887,6 +7907,7 @@ function formatDataForSimpleWindow(flightProps, plan, routePoints, communityData
         // Mapping settings IDs to mapFilters keys
         const ids = {
             'set-nat-tracks': 'showNatTracks',
+            'set-3d-path': 'show3DPath',
             'set-nat-labels': 'showNatLabels',
             'set-hide-atc': 'hideAtcMarkers',
             'set-show-unstaffed': 'showUnstaffedAirports',
