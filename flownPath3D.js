@@ -29,7 +29,6 @@ export const FlownPath3D = {
         
         const THREE = window.THREE;
         
-        // We use FontLoader to get the font data, then we can use ShapeGeometry (Core)
         if (!THREE.FontLoader) {
             await this._loadScript('https://cdn.jsdelivr.net/npm/three@0.145.0/examples/js/loaders/FontLoader.js');
         }
@@ -169,7 +168,7 @@ export const FlownPath3D = {
         trailData.forEach((p) => {
             const alt = p.altitude || p.alt || 0;
             const altMeters = alt * 0.3048; 
-            const coord = mapboxgl.MercatorCoordinate.fromLngLat([p.longitude || p.lon, p.latitude || p.lat], altMeters);
+            const coord = window.mapboxgl.MercatorCoordinate.fromLngLat([p.longitude || p.lon, p.latitude || p.lat], altMeters);
             points.push(new THREE.Vector3(coord.x, coord.y, coord.z));
             rawAltitudes.push(alt);
         });
@@ -177,7 +176,6 @@ export const FlownPath3D = {
         const curve = new THREE.CatmullRomCurve3(points, false, 'centripetal');
         const tubularSegments = Math.min((points.length - 1) * this.SAMPLES_PER_POINT, this.MAX_POINTS - 1);
         
-        // We still use TubeGeometry for the path itself
         const tempTube = new THREE.TubeGeometry(curve, tubularSegments, this.BASE_THICKNESS, this.RADIAL_SEGMENTS, false);
         
         const posAttr = layerObj.geometry.attributes.position;
@@ -230,20 +228,19 @@ export const FlownPath3D = {
         layerObj.curtainGeometry.setIndex(curtainIndices);
         layerObj.curtainGeometry.setDrawRange(0, curtainIndices.length);
 
-        this._updateLabels(layerObj, curve, trailData);
+        this._updateLabels(layerObj, curve, trailData, flightId);
 
         tempTube.dispose();
     },
 
     /**
-     * Updates 3D labels to be positioned precisely on both sides of the curtain.
-     * FIX: Use ShapeGeometry for 1-sided rendering and enable depth testing.
+     * Updates labels with larger text and additional flight metadata.
      */
-    _updateLabels(layerObj, curve, trailData) {
+    _updateLabels(layerObj, curve, trailData, flightId) {
         const THREE = window.THREE;
         if (!this.font) return;
 
-        // 1. Clear existing labels
+        // Clear existing labels
         while(layerObj.labelGroup.children.length > 0){ 
             const child = layerObj.labelGroup.children[0];
             if (child.geometry) child.geometry.dispose();
@@ -252,27 +249,36 @@ export const FlownPath3D = {
         }
 
         const labelIntervals = [0.2, 0.5, 0.8]; 
-        const offsetDist = 0.000002; // Slightly increased offset to avoid bleed-through
+        const offsetDist = 0.000003; // Distance from the curtain wall
 
         labelIntervals.forEach(t => {
             const pos = curve.getPointAt(t);
             const tangent = curve.getTangentAt(t).normalize();
             
             const rawIdx = Math.floor(t * (trailData.length - 1));
-            const alt = trailData[rawIdx].altitude || 0;
-            const labelText = `${Math.round(alt).toLocaleString()} FT`;
+            const point = trailData[rawIdx];
+            
+            // Additional Data Implementation
+            const alt = point.altitude || point.alt || 0;
+            const speed = point.speed || point.spd || 0;
+            const callsign = flightId || "FLIGHT";
 
-            const labelSize = 0.000012;
+            // Creating multi-line content
+            const lines = [
+                `${callsign}`,
+                `${Math.round(alt).toLocaleString()} FT`,
+                `${Math.round(speed)} KTS`
+            ];
+
+            const labelSize = 0.000025; // DOUBLED SIZE for better visibility
+            const lineHeight = labelSize * 1.5;
 
             const up = new THREE.Vector3(0, 0, 1);
             const side = new THREE.Vector3().crossVectors(tangent, up).normalize();
             const centeredZ = pos.z / 2;
 
-            const createLabel = (direction) => {
-                // BUG FIX: Use ShapeGeometry instead of TextGeometry.
-                // TextGeometry has thickness, so the "back" of the 3D text is visible from behind.
-                // ShapeGeometry is a flat 2D plane in 3D space, which culls perfectly.
-                const shapes = this.font.generateShapes(labelText, labelSize);
+            const createLabelLine = (text, lineOffset, direction) => {
+                const shapes = this.font.generateShapes(text, labelSize);
                 const textGeo = new THREE.ShapeGeometry(shapes);
                 
                 textGeo.computeBoundingBox();
@@ -280,25 +286,20 @@ export const FlownPath3D = {
                 textGeo.boundingBox.getCenter(centerOffset).multiplyScalar(-1);
                 textGeo.translate(centerOffset.x, centerOffset.y, centerOffset.z);
 
-                /**
-                 * CULLING & LEGIBILITY FIX:
-                 * 1. side: THREE.FrontSide ensures the label is invisible when viewed from the back.
-                 * 2. depthTest: true ensures the curtain physically blocks the label on the other side.
-                 * 3. polygonOffset: true prevents Z-fighting (flickering) against the curtain mesh.
-                 */
                 const textMat = new THREE.MeshBasicMaterial({ 
                     color: 0xffffff,
                     side: THREE.FrontSide,
                     depthTest: true, 
                     depthWrite: true,
-                    transparent: false,
                     polygonOffset: true,
-                    polygonOffsetFactor: -1, // Pulls the label slightly towards the camera
+                    polygonOffsetFactor: -1,
                     polygonOffsetUnits: -1
                 });
 
                 const mesh = new THREE.Mesh(textGeo, textMat);
-                mesh.position.set(pos.x, pos.y, centeredZ);
+                
+                // Adjust position based on Z-center and line offset
+                mesh.position.set(pos.x, pos.y, centeredZ - lineOffset);
                 
                 const horizontalOffset = side.clone().multiplyScalar(direction * offsetDist);
                 mesh.position.add(horizontalOffset);
@@ -314,8 +315,12 @@ export const FlownPath3D = {
                 layerObj.labelGroup.add(mesh);
             };
 
-            createLabel(-1); // Side A
-            createLabel(1);  // Side B
+            // Render each line for both sides of the curtain
+            lines.forEach((lineText, index) => {
+                const verticalOffset = (index - (lines.length - 1) / 2) * lineHeight;
+                createLabelLine(lineText, verticalOffset, -1); // Side A
+                createLabelLine(lineText, verticalOffset, 1);  // Side B
+            });
         });
     },
     
