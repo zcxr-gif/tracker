@@ -4558,6 +4558,15 @@ function updateMapFilters() {
         'satellite': 'mapbox://styles/mapbox/satellite-streets-v12'
     };
     const targetStyle = styleUrls[mapFilters.mapStyle || 'dark'];
+
+    if (currentFlightInWindow && liveTrailCache.has(currentFlightInWindow)) {
+        FlownPath3D.updatePath(
+            sectorOpsMap, 
+            currentFlightInWindow, 
+            liveTrailCache.get(currentFlightInWindow), 
+            mapFilters.show3DPath // Pass the current setting state
+        );
+    }
     
     if (currentMapStyle !== targetStyle) {
         currentMapStyle = targetStyle;
@@ -9278,6 +9287,15 @@ async function handleAircraftClick(flightProps, sessionId, event = null) {
 
         if (typeof liveTrailCache !== 'undefined') liveTrailCache.set(flightProps.flightId, sortedRoutePoints);
         cachedFlightDataForStatsView = { flightProps, plan };
+
+        if (typeof FlownPath3D !== 'undefined') {
+    FlownPath3D.updatePath(
+        sectorOpsMap, 
+        flightProps.flightId, 
+        sortedRoutePoints, 
+        mapFilters.show3DPath
+    );
+}
 
         // Render UI
         if (typeof mapFilters !== 'undefined' && mapFilters.useSimpleFlightWindow) {
