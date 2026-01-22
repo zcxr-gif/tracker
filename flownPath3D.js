@@ -261,16 +261,13 @@ export const FlownPath3D = {
             const point = trailData[rawIdx];
             
             const alt = point.altitude || point.alt || 0;
-            const speed = point.speed || point.spd || 0;
 
-            // Removed "KTS" as requested
+            // Removed speed, showing only Altitude
             const lines = [
-                `${Math.round(alt).toLocaleString()} FT`,
-                `${Math.round(speed)}`
+                `${Math.round(alt).toLocaleString()} FT`
             ];
 
             // DYNAMIC LABEL SIZE: Scale based on altitude
-            // Base size of 0.000040, reduced by up to 40% as altitude increases to 40,000ft
             const baseSize = 0.000040;
             const altScaling = Math.max(0.6, 1 - (alt / 40000) * 0.4);
             const labelSize = baseSize * altScaling;
