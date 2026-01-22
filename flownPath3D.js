@@ -29,6 +29,9 @@ export const FlownPath3D = {
             // Update existing geometry
             this._updateGeometry(flightId, trailData);
         }
+
+        // CRITICAL: Force Mapbox to repaint to show the updated line
+        map.triggerRepaint();
     },
 
     /**
@@ -40,24 +43,34 @@ export const FlownPath3D = {
         return {
             id: layerId,
             type: 'custom',
-            renderingMode: '3d',
+            renderingMode: '3d', // Correct for vertical displacement
             onAdd: function (map, gl) {
                 this.camera = new THREE.Camera();
                 this.scene = new THREE.Scene();
 
                 // Create the line geometry
                 const geometry = new THREE.BufferGeometry();
+                
+                // Note: linewidth > 1 is not supported in basic WebGL on most browsers.
+                // It will appear as 1px. For thicker paths, consider THREE.Line2 later.
                 const material = new THREE.LineBasicMaterial({ 
                     color: 0x38bdf8, 
-                    linewidth: 3,
                     transparent: true,
-                    opacity: 0.9 
+                    opacity: 0.9,
+                    depthTest: true // Ensure it respects map depth (buildings/terrain)
                 });
 
                 const line = new THREE.Line(geometry, material);
-                this.scene.add(line);
+                
+                // CRITICAL: Prevent the path from disappearing when looking away/zooming
+                line.frustumCulled = false; 
 
+                this.scene.add(line);
                 this.line = line;
+
+                // Track this layer for updates
+                FlownPath3D.flightObjects[flightId] = this;
+
                 this.renderer = new THREE.WebGLRenderer({
                     canvas: map.getCanvas(),
                     context: gl,
@@ -71,7 +84,7 @@ export const FlownPath3D = {
             render: function (gl, matrix) {
                 const m = new THREE.Matrix4().fromArray(matrix);
                 this.camera.projectionMatrix = m;
-                this.renderer.state.reset();
+                this.renderer.resetState(); // Modern version of state.reset()
                 this.renderer.render(this.scene, this.camera);
             }
         };
@@ -81,23 +94,32 @@ export const FlownPath3D = {
      * Internal: Updates coordinates into Mercator space for Three.js
      */
     _updateGeometry(flightId, trailData, existingLine = null) {
+        if (!trailData) return;
+        
         const THREE = window.THREE;
-        // Mapbox specific coordinates: [0,0] is NW, [1,1] is SE
         const positions = [];
         
         trailData.forEach(p => {
             const lng = p.longitude || p.lon;
             const lat = p.latitude || p.lat;
-            const alt = (p.altitude || p.alt || 0) * 0.3048; // Feet to Meters
+            // alt is meters; coord.z in Mercator space is relative to world size
+            const alt = (p.altitude || p.alt || 0) * 0.3048; 
             
             const coord = mapboxgl.MercatorCoordinate.fromLngLat([lng, lat], alt);
             positions.push(coord.x, coord.y, coord.z);
         });
 
-        const line = existingLine || this.flightObjects[flightId]?.line;
-        if (line) {
+        const layerObj = existingLine ? { line: existingLine } : this.flightObjects[flightId];
+        const line = layerObj?.line;
+
+        if (line && positions.length > 0) {
+            // Update attribute
             line.geometry.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
             line.geometry.attributes.position.needsUpdate = true;
+            
+            // CRITICAL: Re-calculate bounds so Three.js knows the line exists in 3D space
+            line.geometry.computeBoundingSphere();
+            line.geometry.computeBoundingBox();
         }
     },
 
