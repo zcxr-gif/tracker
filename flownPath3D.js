@@ -251,7 +251,6 @@ export const FlownPath3D = {
         }
 
         const labelIntervals = [0.2, 0.5, 0.8]; 
-        // Keep offset distance very low as requested
         const offsetDist = 0.000001; 
 
         labelIntervals.forEach(t => {
@@ -276,32 +275,31 @@ export const FlownPath3D = {
             const createLabel = (direction) => {
                 const textGeo = new THREE.TextGeometry(labelText, textParams);
                 
-                // Center the text geometry
                 textGeo.computeBoundingBox();
                 const centerOffset = new THREE.Vector3();
                 textGeo.boundingBox.getCenter(centerOffset).multiplyScalar(-1);
                 textGeo.translate(centerOffset.x, centerOffset.y, centerOffset.z);
 
+                /**
+                 * CULLING FIX:
+                 * By setting side to FrontSide AND depthTest to false, 
+                 * the labels will not be occluded by the semi-transparent curtain.
+                 * However, since we only render the 'Front', the text on the opposite side
+                 * will be invisible when viewed from the back.
+                 */
                 const textMat = new THREE.MeshBasicMaterial({ 
                     color: 0xffffff,
-                    side: THREE.FrontSide, 
-                    polygonOffset: true,
-                    polygonOffsetFactor: -2,
-                    polygonOffsetUnits: -1
+                    side: THREE.FrontSide,
+                    depthTest: false, // Ensures text is always visible on top of its side
+                    transparent: true 
                 });
 
                 const mesh = new THREE.Mesh(textGeo, textMat);
                 mesh.position.set(pos.x, pos.y, centeredZ);
                 
-                // Position the label slightly off the wall
                 const horizontalOffset = side.clone().multiplyScalar(direction * offsetDist);
                 mesh.position.add(horizontalOffset);
 
-                /**
-                 * ORIENTATION FIX (INVERTED):
-                 * Swapped the direction logic for facing.
-                 * If the user sees the 'back', we flip the forward (zAxis) vector.
-                 */
                 const zAxis = side.clone().multiplyScalar(-direction); 
                 const yAxis = up.clone();
                 const xAxis = new THREE.Vector3().crossVectors(yAxis, zAxis).normalize();
@@ -313,8 +311,8 @@ export const FlownPath3D = {
                 layerObj.labelGroup.add(mesh);
             };
 
-            createLabel(-1); // Left side
-            createLabel(1);  // Right side
+            createLabel(-1); // Side A
+            createLabel(1);  // Side B
         });
     },
     
