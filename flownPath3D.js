@@ -251,8 +251,7 @@ export const FlownPath3D = {
         }
 
         const labelIntervals = [0.2, 0.5, 0.8]; 
-        // Increased slightly from the previous attempt to avoid precision-based burial 
-        // while remaining much closer than the original version.
+        // Keep offset distance very low as requested
         const offsetDist = 0.000001; 
 
         labelIntervals.forEach(t => {
@@ -266,7 +265,7 @@ export const FlownPath3D = {
             const textParams = {
                 font: this.font,
                 size: 0.000012, 
-                height: 0.000001, // Added depth so the front is physically distinct from the back
+                height: 0.000001, 
                 curveSegments: 4
             };
 
@@ -277,7 +276,7 @@ export const FlownPath3D = {
             const createLabel = (direction) => {
                 const textGeo = new THREE.TextGeometry(labelText, textParams);
                 
-                // Center the text geometry on its own local origin
+                // Center the text geometry
                 textGeo.computeBoundingBox();
                 const centerOffset = new THREE.Vector3();
                 textGeo.boundingBox.getCenter(centerOffset).multiplyScalar(-1);
@@ -287,7 +286,7 @@ export const FlownPath3D = {
                     color: 0xffffff,
                     side: THREE.FrontSide, 
                     polygonOffset: true,
-                    polygonOffsetFactor: -2, // Stronger offset to ensure it's on top
+                    polygonOffsetFactor: -2,
                     polygonOffsetUnits: -1
                 });
 
@@ -299,13 +298,11 @@ export const FlownPath3D = {
                 mesh.position.add(horizontalOffset);
 
                 /**
-                 * ORIENTATION FIX:
-                 * We explicitly construct a rotation matrix so that:
-                 * Local Z (Forward) points AWAY from the curtain (normal = side * direction)
-                 * Local Y (Up) points UP (world Z)
-                 * Local X (Right) is perpendicular to both, aligning with the tangent.
+                 * ORIENTATION FIX (INVERTED):
+                 * Swapped the direction logic for facing.
+                 * If the user sees the 'back', we flip the forward (zAxis) vector.
                  */
-                const zAxis = side.clone().multiplyScalar(direction);
+                const zAxis = side.clone().multiplyScalar(-direction); 
                 const yAxis = up.clone();
                 const xAxis = new THREE.Vector3().crossVectors(yAxis, zAxis).normalize();
                 
@@ -316,8 +313,8 @@ export const FlownPath3D = {
                 layerObj.labelGroup.add(mesh);
             };
 
-            createLabel(-1); // Side A
-            createLabel(1);  // Side B
+            createLabel(-1); // Left side
+            createLabel(1);  // Right side
         });
     },
     
