@@ -3,12 +3,12 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>InFlight | Next-Gen Flight Tracking</title>
+    <title>InFlight | Professional Flight Tracking</title>
     
     <!-- Fonts -->
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;800&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
     
     <!-- Icons -->
     <script src="https://unpkg.com/lucide@latest"></script>
@@ -24,38 +24,19 @@
                         mono: ['JetBrains Mono', 'monospace'],
                     },
                     colors: {
-                        background: '#030712', /* Ultra dark blue/black */
+                        background: '#020617', 
                         surface: '#0f172a',
-                        primary: '#6366f1',    /* Indigo 500 */
-                        secondary: '#818cf8',  /* Indigo 400 */
-                        accent: '#38bdf8',     /* Sky 400 */
-                        discord: '#5865F2',    /* Discord Blurple */
+                        primary: '#6366f1',
+                        accent: '#38bdf8',
+                        border: 'rgba(255, 255, 255, 0.1)',
                     },
                     animation: {
-                        'float': 'float 6s ease-in-out infinite',
-                        'blob': 'blob 10s infinite',
-                        'fade-in': 'fadeIn 0.8s ease-out forwards',
-                        'tilt': 'tilt 10s infinite linear',
+                        'fade-in-up': 'fadeInUp 0.6s ease-out forwards',
                     },
                     keyframes: {
-                        float: {
-                            '0%, 100%': { transform: 'translateY(0)' },
-                            '50%': { transform: 'translateY(-20px)' },
-                        },
-                        blob: {
-                            '0%': { transform: 'translate(0px, 0px) scale(1)' },
-                            '33%': { transform: 'translate(30px, -50px) scale(1.1)' },
-                            '66%': { transform: 'translate(-20px, 20px) scale(0.9)' },
-                            '100%': { transform: 'translate(0px, 0px) scale(1)' },
-                        },
-                        fadeIn: {
-                            '0%': { opacity: '0', transform: 'translateY(20px)' },
+                        fadeInUp: {
+                            '0%': { opacity: '0', transform: 'translateY(10px)' },
                             '100%': { opacity: '1', transform: 'translateY(0)' },
-                        },
-                        tilt: {
-                            '0%, 50%, 100%': { transform: 'rotate(0deg)' },
-                            '25%': { transform: 'rotate(0.5deg)' },
-                            '75%': { transform: 'rotate(-0.5deg)' },
                         }
                     }
                 }
@@ -64,386 +45,503 @@
     </script>
 
     <style>
-        /* Custom Utilities */
         body {
-            background-color: #030712;
+            background-color: #020617;
             color: #f8fafc;
             overflow-x: hidden;
         }
 
-        /* Glassmorphism Classes */
-        .glass {
-            background: rgba(255, 255, 255, 0.03);
-            backdrop-filter: blur(10px);
-            -webkit-backdrop-filter: blur(10px);
+        /* Character Animation */
+        .char {
+            display: inline-block;
+            opacity: 0;
+            transform: translateY(30px);
+            transition: all 0.5s cubic-bezier(0.16, 1, 0.3, 1);
+        }
+        .char.visible {
+            opacity: 1;
+            transform: translateY(0);
+        }
+
+        /* Rotating Text Logic */
+        #rotating-text {
+            display: inline-block;
+            min-width: 200px;
+            transition: opacity 0.4s ease, transform 0.4s ease;
+        }
+        .text-out {
+            opacity: 0;
+            transform: translateY(-10px);
+        }
+        .text-in {
+            opacity: 1;
+            transform: translateY(0);
+        }
+
+        /* Card Effects */
+        .glow-card {
+            position: relative;
+            background: rgba(15, 23, 42, 0.4);
             border: 1px solid rgba(255, 255, 255, 0.05);
-        }
-
-        .glass:hover {
-            background: rgba(255, 255, 255, 0.06);
-            border-color: rgba(99, 102, 241, 0.3);
-            box-shadow: 0 0 30px rgba(99, 102, 241, 0.1);
-        }
-
-        .glass-nav {
-            background: rgba(3, 7, 18, 0.7);
+            transition: all 0.4s ease;
+            overflow: hidden;
             backdrop-filter: blur(12px);
+        }
+
+        .glow-card::before {
+            content: "";
+            position: absolute;
+            inset: -1px;
+            background: radial-gradient(circle at var(--x) var(--y), rgba(99, 102, 241, 0.25) 0%, transparent 50%);
+            border-radius: inherit;
+            z-index: 1;
+            opacity: 0;
+            pointer-events: none;
+            transition: opacity 0.3s;
+        }
+
+        .glow-card:hover::before {
+            opacity: 1;
+        }
+
+        .glow-card:hover {
+            border-color: rgba(99, 102, 241, 0.4);
+            background: rgba(15, 23, 42, 0.7);
+            transform: translateY(-4px);
+        }
+
+        .nav-blur {
+            background: rgba(2, 6, 23, 0.75);
+            backdrop-filter: blur(16px);
             border-bottom: 1px solid rgba(255, 255, 255, 0.05);
         }
 
-        /* Perspective 3D for Hero Image */
-        .perspective-container {
-            perspective: 1000px;
-        }
-        
-        .hero-dashboard {
-            transform: rotateX(20deg) rotateY(0deg) scale(0.9);
-            transform-style: preserve-3d;
-            box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.5), 0 0 100px -20px rgba(99, 102, 241, 0.3);
-            transition: transform 0.5s ease-out;
-        }
-        
-        .hero-dashboard:hover {
-            transform: rotateX(0deg) scale(1);
-        }
-
-        /* Text Gradients */
-        .text-gradient-primary {
-            background: linear-gradient(135deg, #818cf8 0%, #38bdf8 100%);
+        .text-gradient {
+            background: linear-gradient(to bottom, #fff 30%, rgba(255, 255, 255, 0.4));
             -webkit-background-clip: text;
             -webkit-text-fill-color: transparent;
         }
 
-        ::-webkit-scrollbar { width: 8px; }
-        ::-webkit-scrollbar-track { background: #030712; }
-        ::-webkit-scrollbar-thumb { background: #1e293b; border-radius: 4px; }
-        ::-webkit-scrollbar-thumb:hover { background: #334155; }
+        canvas#bg-canvas {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            z-index: -1;
+            pointer-events: none;
+        }
+
+        .section-animate {
+            opacity: 0;
+            transform: translateY(20px);
+            transition: all 0.8s ease-out;
+        }
+        .section-animate.visible {
+            opacity: 1;
+            transform: translateY(0);
+        }
+
+        .btn-premium {
+            position: relative;
+            padding: 1px;
+            border-radius: 9999px;
+            background: linear-gradient(180deg, rgba(255,255,255,0.2) 0%, rgba(255,255,255,0) 100%);
+            display: inline-block;
+        }
+        .btn-premium-inner {
+            background: #000;
+            color: #fff;
+            padding: 10px 24px;
+            border-radius: 9999px;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            font-weight: 600;
+            transition: background 0.3s;
+        }
+
+        /* Hero Background Image */
+        .hero-bg-overlay {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100vh;
+            background-image: url('https://images.unsplash.com/photo-1436491865332-7a61a109c0f2?auto=format&fit=crop&q=80&w=2070');
+            background-size: cover;
+            background-position: center;
+            z-index: -2;
+            opacity: 0.12;
+            filter: grayscale(0.8);
+        }
     </style>
 </head>
-<body class="antialiased selection:bg-primary selection:text-white">
+<body class="antialiased selection:bg-primary/30">
 
-    <!-- Background Ambient Effects -->
-    <div class="fixed inset-0 z-0 overflow-hidden pointer-events-none">
-        <div class="absolute top-0 left-1/4 w-96 h-96 bg-primary/20 rounded-full mix-blend-screen filter blur-[128px] opacity-30 animate-blob"></div>
-        <div class="absolute top-0 right-1/4 w-96 h-96 bg-accent/10 rounded-full mix-blend-screen filter blur-[128px] opacity-30 animate-blob animation-delay-2000"></div>
-        <div class="absolute -bottom-32 left-1/3 w-96 h-96 bg-purple-500/10 rounded-full mix-blend-screen filter blur-[128px] opacity-30 animate-blob animation-delay-4000"></div>
-    </div>
+    <canvas id="bg-canvas"></canvas>
+    <div class="hero-bg-overlay"></div>
 
     <!-- Navigation -->
-    <nav class="fixed top-0 w-full z-50 glass-nav transition-all duration-300">
+    <nav class="fixed top-0 w-full z-50 nav-blur">
         <div class="max-w-7xl mx-auto px-6 h-20 flex items-center justify-between">
-            <a href="#" class="flex items-center gap-3 group">
-                <div class="relative h-10 w-auto">
-                    <img src="Images/inflightIcon.ico" alt="InFlight Logo" class="h-10 w-auto object-contain filter brightness-110 drop-shadow-[0_0_10px_rgba(99,102,241,0.3)] transition-all duration-300 group-hover:drop-shadow-[0_0_15px_rgba(99,102,241,0.6)]">
+            <a href="/" class="flex items-center gap-3 group">
+                <div class="size-10 rounded-full bg-primary/20 border border-primary/40 flex items-center justify-center ring-4 ring-primary/5 transition-all group-hover:scale-110">
+                    <span class="text-sm font-bold text-primary italic">IF</span>
                 </div>
-                <div class="flex flex-col">
-                    <span class="text-xl font-bold tracking-tight text-white leading-none">InFlight</span>
-                </div>
+                <span class="text-xl font-bold tracking-tight text-white">InFlight</span>
             </a>
 
-            <div class="hidden md:flex items-center gap-8">
-                <a href="#features" class="text-sm font-medium text-slate-400 hover:text-white transition-colors">Features</a>
+            <div class="hidden md:flex items-center gap-10">
+                <a href="#features" class="text-sm font-medium text-slate-400 hover:text-white transition-colors">Capabilities</a>
                 <a href="#community" class="text-sm font-medium text-slate-400 hover:text-white transition-colors">Community</a>
-                <a href="index.html" class="group relative px-6 py-2.5 rounded-full bg-white/5 border border-white/10 hover:bg-white/10 transition-all duration-300 overflow-hidden">
-                    <div class="absolute inset-0 bg-gradient-to-r from-primary/20 to-accent/20 opacity-0 group-hover:opacity-100 transition-opacity duration-300"></div>
-                    <span class="relative flex items-center gap-2 text-sm font-semibold text-white">
-                        Launch Tracker <i data-lucide="arrow-right" class="w-4 h-4"></i>
-                    </span>
+                <a href="https://discord.gg/cNSkZtdJ" class="text-sm font-medium text-slate-400 hover:text-white transition-colors">Discord</a>
+                <a href="index.html" class="btn-premium">
+                    <div class="btn-premium-inner">
+                        Launch Tracker <i data-lucide="arrow-right" class="size-4"></i>
+                    </div>
                 </a>
             </div>
-            
-            <button class="md:hidden text-white p-2">
-                <i data-lucide="menu" class="w-6 h-6"></i>
-            </button>
         </div>
     </nav>
 
     <!-- Hero Section -->
-    <section class="relative pt-32 pb-20 md:pt-40 md:pb-24 px-6 max-w-7xl mx-auto z-10">
-        <div class="flex flex-col items-center text-center max-w-5xl mx-auto">
-            
-            <div class="animate-fade-in opacity-0 inline-flex items-center gap-2 px-3 py-1 rounded-full bg-primary/10 border border-primary/20 mb-8 backdrop-blur-sm">
-                <span class="flex h-2 w-2 relative">
+    <main class="relative z-10 min-h-screen flex flex-col items-center justify-center px-6 pt-24 text-center">
+        <div class="space-y-10 max-w-5xl">
+            <div class="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-white/5 border border-white/10 backdrop-blur-md">
+                <span class="relative flex h-2 w-2">
                     <span class="animate-ping absolute inline-flex h-full w-full rounded-full bg-primary opacity-75"></span>
                     <span class="relative inline-flex rounded-full h-2 w-2 bg-primary"></span>
                 </span>
-                <span class="text-xs font-semibold text-primary uppercase tracking-wider">Live Global Telemetry</span>
+                <span class="text-[10px] font-bold text-slate-300 uppercase tracking-[0.2em]">Next-Gen Telemetry System</span>
             </div>
 
-            <h1 class="animate-fade-in opacity-0 [animation-delay:200ms] text-5xl md:text-7xl font-bold tracking-tight mb-6 leading-tight">
-                InFlight <br class="hidden md:block">
-                <span class="text-gradient-primary">Tracking Reimagined.</span>
+            <h1 id="hero-title" class="text-6xl md:text-9xl font-black tracking-tighter text-gradient leading-[0.9]">
+                InFlight
             </h1>
 
-            <p class="animate-fade-in opacity-0 [animation-delay:400ms] text-lg md:text-xl text-slate-400 mb-10 max-w-2xl leading-relaxed">
-                Experience flight tracking with a professional edge. Real-time ATC analysis, integrated SimBrief dispatch, and stunning 3D visualization.
+            <div class="h-20 flex items-center justify-center">
+                <p id="hero-subtitle" class="text-2xl md:text-4xl font-light text-slate-400">
+                    Unlock <span id="rotating-text" class="text-white font-semibold ml-2">latest features</span>
+                </p>
+            </div>
+
+            <p class="text-lg text-slate-500 max-w-2xl mx-auto leading-relaxed section-animate">
+                The ultimate Electronic Flight Bag for power users. Experience the sky in high-fidelity with 3D paths, live instrumentation, and community-driven data.
             </p>
 
-            <div class="animate-fade-in opacity-0 [animation-delay:600ms] flex flex-col sm:flex-row gap-4 w-full sm:w-auto mb-20">
-                <a href="index.html" class="px-8 py-4 rounded-xl bg-white text-background font-bold text-lg hover:bg-slate-200 transition-colors shadow-[0_0_40px_-10px_rgba(255,255,255,0.3)] flex items-center justify-center gap-2">
-                    <i data-lucide="radar" class="w-5 h-5"></i> Open Live Map
+            <div class="flex flex-col sm:flex-row gap-5 justify-center items-center section-animate">
+                <a href="index.html" class="px-10 py-4 rounded-2xl bg-white text-background font-bold text-lg transition-all hover:bg-slate-200 hover:scale-105 active:scale-95 shadow-[0_0_50px_-10px_rgba(255,255,255,0.3)]">
+                    Start Tracking
                 </a>
-                <a href="#community" class="px-8 py-4 rounded-xl glass text-white font-medium hover:bg-white/10 transition-colors flex items-center justify-center">
-                    Join Community
+                <a href="#features" class="px-10 py-4 rounded-2xl bg-white/5 border border-white/10 text-white font-medium hover:bg-white/10 transition-all">
+                    Explore Experimental
                 </a>
             </div>
 
-            <!-- HERO IMAGE / DASHBOARD PREVIEW -->
-            <div class="perspective-container w-full animate-fade-in opacity-0 [animation-delay:800ms]">
-                <div class="hero-dashboard relative rounded-xl overflow-hidden border border-white/10 bg-surface">
-                    <!-- Placeholder Image - Replace with your actual product screenshot -->
-                    <!-- Recommended Size: 1200x700px -->
-                    <div class="aspect-[16/9] w-full relative group">
-                        <img src="Images/tracker.webp" 
-                             alt="InFlight Dashboard" 
-                             class="w-full h-full object-cover">
-                        
-                        <!-- Overlay gradient for depth -->
-                        <div class="absolute inset-0 bg-gradient-to-t from-background/80 via-transparent to-transparent pointer-events-none"></div>
-                    </div>
+            <!-- Updated Stats Bar -->
+            <div class="grid grid-cols-1 sm:grid-cols-3 gap-8 pt-20 max-w-3xl mx-auto section-animate">
+                <div class="text-center p-6 rounded-2xl bg-white/5 border border-white/10 backdrop-blur-sm">
+                    <div class="text-3xl font-bold text-white mb-1">1,200+</div>
+                    <div class="text-[10px] uppercase tracking-widest text-slate-500 font-bold">Global Data Nodes</div>
+                </div>
+                <div class="text-center p-6 rounded-2xl bg-white/5 border border-white/10 backdrop-blur-sm">
+                    <div class="text-3xl font-bold text-white mb-1">99.9%</div>
+                    <div class="text-[10px] uppercase tracking-widest text-slate-500 font-bold">Live Uptime</div>
+                </div>
+                <div class="text-center p-6 rounded-2xl bg-white/5 border border-white/10 backdrop-blur-sm">
+                    <div class="text-3xl font-bold text-white mb-1">150%</div>
+                    <div class="text-[10px] uppercase tracking-widest text-slate-500 font-bold">Community Growth</div>
                 </div>
             </div>
-
         </div>
-    </section>
+    </main>
 
-    <!-- Visual Features Grid -->
-    <section id="features" class="relative py-20 px-6 max-w-7xl mx-auto z-10">
-        <div class="text-center mb-16">
-            <h2 class="text-3xl md:text-4xl font-bold text-white mb-4">Mission Capabilities</h2>
-            <p class="text-slate-400 max-w-2xl mx-auto">A complete Electronic Flight Bag (EFB) experience, designed visually—among MANY more features.</p>
+    <!-- Capabilities Grid -->
+    <section id="features" class="max-w-7xl mx-auto px-6 py-40">
+        <div class="text-center space-y-4 mb-24 section-animate">
+            <h2 class="text-4xl md:text-6xl font-bold tracking-tight">Mission Capabilities</h2>
+            <p class="text-slate-500 max-w-2xl mx-auto">Pushing the boundaries of simulation tracking with cutting-edge experimental features.</p>
         </div>
 
         <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8">
-            
-            <!-- Feature 1: SimBrief -->
-            <div class="glass rounded-2xl overflow-hidden group hover:border-primary/50 transition-colors duration-300">
-                <div class="h-72 bg-surface relative overflow-hidden">
-                    <img src="Images/simbrief.webp" 
-                         alt="SimBrief Integration" 
-                         class="w-full h-full object-cover opacity-80 group-hover:opacity-100 group-hover:scale-105 transition-all duration-500">
+            <div class="glow-card rounded-3xl p-8 space-y-4 group">
+                <div class="flex items-center gap-3">
+                    <div class="p-2 rounded-lg bg-primary/10 text-primary"><i data-lucide="layers" class="size-5"></i></div>
+                    <h3 class="text-xl font-bold">3D Flight Paths <span class="ml-2 text-[10px] bg-primary/20 text-primary px-2 py-0.5 rounded-full uppercase">Exp</span></h3>
                 </div>
-                <div class="p-8">
-                    <div class="flex items-center gap-3 mb-4">
-                        <div class="p-2 rounded-lg bg-primary/10 text-primary"><i data-lucide="file-text" class="w-5 h-5"></i></div>
-                        <h3 class="text-xl font-semibold text-white">SimBrief Dispatch</h3>
-                    </div>
-                    <p class="text-slate-400 text-sm leading-relaxed mb-4">
-                        Seamless import of Operational Flight Plans. We parse weights, fuel block, and detailed waypoints automatically.
-                    </p>
-                </div>
+                <p class="text-slate-400 text-sm leading-relaxed">
+                    Visualize trajectories in true 3D space. Track altitude changes and vertical profiles with our new experimental rendering engine.
+                </p>
             </div>
 
-            <!-- Feature 2: Terrain -->
-            <div class="glass rounded-2xl overflow-hidden group hover:border-accent/50 transition-colors duration-300">
-                <div class="h-72 bg-surface relative overflow-hidden">
-                    <img src="Images/hovercards.webp" 
-                         alt="Hover Cards" 
-                         class="w-full h-full object-cover opacity-80 group-hover:opacity-100 group-hover:scale-105 transition-all duration-500">
+            <div class="glow-card rounded-3xl p-8 space-y-4">
+                <div class="flex items-center gap-3">
+                    <div class="p-2 rounded-lg bg-accent/10 text-accent"><i data-lucide="filter" class="size-5"></i></div>
+                    <h3 class="text-xl font-bold">Traffic Scrubbing</h3>
                 </div>
-                <div class="p-8">
-                    <div class="flex items-center gap-3 mb-4">
-                        <div class="p-2 rounded-lg bg-accent/10 text-accent"><i data-lucide="map" class="w-5 h-5"></i></div>
-                        <h3 class="text-xl font-semibold text-white">Hover cards</h3>
-                    </div>
-                    <p class="text-slate-400 text-sm leading-relaxed mb-4">
-                        See your flight simpy by hovering over it.(Only available on computers)
-                    </p>
-                </div>
+                <p class="text-slate-400 text-sm leading-relaxed">
+                    New advanced filters allow you to instantly hide unwanted traffic, focusing only on the airspace that matters to your mission.
+                </p>
             </div>
 
-            <!-- Feature 3: Cockpit -->
-            <div class="glass rounded-2xl overflow-hidden group hover:border-purple-500/50 transition-colors duration-300">
-                <div class="h-72 bg-surface relative overflow-hidden">
-                    <img src="Images/pfd.webp" 
-                         alt="Cockpit View" 
-                         class="w-full h-full object-cover opacity-80 group-hover:opacity-100 group-hover:scale-105 transition-all duration-500">
+            <div class="glow-card rounded-3xl p-8 space-y-4">
+                <div class="flex items-center gap-3">
+                    <div class="p-2 rounded-lg bg-emerald-500/10 text-emerald-400"><i data-lucide="camera" class="size-5"></i></div>
+                    <h3 class="text-xl font-bold">Contributor Assets</h3>
                 </div>
-                <div class="p-8">
-                    <div class="flex items-center gap-3 mb-4">
-                        <div class="p-2 rounded-lg bg-purple-500/10 text-purple-400"><i data-lucide="gauge" class="w-5 h-5"></i></div>
-                        <h3 class="text-xl font-semibold text-white">Cockpit Telemetry</h3>
-                    </div>
-                    <p class="text-slate-400 text-sm leading-relaxed mb-4">
-                        Real-time instrumentation streaming from the simulator, formatted like a real Boeing/Airbus ECAM/EICAS display.
-                    </p>
-                </div>
+                <p class="text-slate-400 text-sm leading-relaxed">
+                    Our database for aircraft and airport imagery is constantly updated with the latest high-resolution shots from our community.
+                </p>
             </div>
 
-             <!-- Feature 4: Pilot Dossiers -->
-             <div class="glass rounded-2xl overflow-hidden group hover:border-pink-500/50 transition-colors duration-300">
-                <div class="h-72 bg-surface relative overflow-hidden">
-                    <img src="https://placehold.co/600x400/1e293b/ec4899?text=Pilot+Profile+Cards" 
-                         alt="Pilot Dossiers" 
-                         class="w-full h-full object-cover opacity-80 group-hover:opacity-100 group-hover:scale-105 transition-all duration-500">
+            <div class="glow-card rounded-3xl p-8 space-y-4">
+                <div class="flex items-center gap-3">
+                    <div class="p-2 rounded-lg bg-pink-500/10 text-pink-400"><i data-lucide="file-text" class="size-5"></i></div>
+                    <h3 class="text-xl font-bold">SimBrief Sync</h3>
                 </div>
-                <div class="p-8">
-                    <div class="flex items-center gap-3 mb-4">
-                        <div class="p-2 rounded-lg bg-pink-500/10 text-pink-400"><i data-lucide="users" class="w-5 h-5"></i></div>
-                        <h3 class="text-xl font-semibold text-white">Pilot Dossiers</h3>
-                    </div>
-                    <p class="text-slate-400 text-sm leading-relaxed mb-4">
-                         Click an aircraft to see their grade, violations, and XP stats instantly with our deep-dive history tool.
-                    </p>
-                </div>
+                <p class="text-slate-400 text-sm leading-relaxed">
+                    Import OFPs instantly. Fuel blocks, weights, and waypoint data are parsed and synced directly to your telemetry dashboard.
+                </p>
             </div>
 
-            <!-- Feature 5: ATC & NOTAMs -->
-            <div class="glass rounded-2xl overflow-hidden group hover:border-orange-500/50 transition-colors duration-300">
-                <div class="h-72 bg-surface relative overflow-hidden">
-                    <img src="Images/atc.png" 
-                         alt="ATC Operations" 
-                         class="w-full h-full object-cover opacity-80 group-hover:opacity-100 group-hover:scale-105 transition-all duration-500">
+            <div class="glow-card rounded-3xl p-8 space-y-4">
+                <div class="flex items-center gap-3">
+                    <div class="p-2 rounded-lg bg-orange-500/10 text-orange-400"><i data-lucide="radio-tower" class="size-5"></i></div>
+                    <h3 class="text-xl font-bold">D-ATIS & NOTAMs</h3>
                 </div>
-                <div class="p-8">
-                    <div class="flex items-center gap-3 mb-4">
-                        <div class="p-2 rounded-lg bg-orange-500/10 text-orange-400"><i data-lucide="radio-tower" class="w-5 h-5"></i></div>
-                        <h3 class="text-xl font-semibold text-white">ATC & NOTAMs</h3>
-                    </div>
-                    <p class="text-slate-400 text-sm leading-relaxed mb-4">
-                        Total situational awareness. View active controllers, D-ATIS messages, and <strong>real-time NOTAMs</strong> for every airport.
-                    </p>
-                </div>
+                <p class="text-slate-400 text-sm leading-relaxed">
+                    Total airport situational awareness. View real-time digital ATIS and airport-specific operational notices globally.
+                </p>
             </div>
 
-             <!-- Feature 6: Global Atmospherics (Replaces Smart Analysis) -->
-             <div class="glass rounded-2xl overflow-hidden group hover:border-emerald-500/50 transition-colors duration-300">
-                <div class="h-72 bg-surface relative overflow-hidden">
-                    <img src="Images/weather.webp" 
-                         alt="Global Atmospherics" 
-                         class="w-full h-full object-cover opacity-80 group-hover:opacity-100 group-hover:scale-105 transition-all duration-500">
+            <div class="glow-card rounded-3xl p-8 space-y-4">
+                <div class="flex items-center gap-3">
+                    <div class="p-2 rounded-lg bg-purple-500/10 text-purple-400"><i data-lucide="gauge" class="size-5"></i></div>
+                    <h3 class="text-xl font-bold">EFB Glass Cockpit</h3>
                 </div>
-                <div class="p-8">
-                    <div class="flex items-center gap-3 mb-4">
-                        <div class="p-2 rounded-lg bg-emerald-500/10 text-emerald-400"><i data-lucide="cloud-rain" class="w-5 h-5"></i></div>
-                        <h3 class="text-xl font-semibold text-white">Global Atmospherics</h3>
-                    </div>
-                    <p class="text-slate-400 text-sm leading-relaxed mb-4">
-                        Visualize the skies with live cloud layers, high-altitude wind vectors, and precipitation radar overlays.
-                    </p>
-                </div>
-            </div>
-
-        </div>
-    </section>
-
-    <!-- Community / Discord Showcase Section -->
-    <section id="community" class="py-24 relative overflow-hidden bg-white/5 border-y border-white/5">
-        <div class="max-w-7xl mx-auto px-6 relative z-10">
-            <div class="grid lg:grid-cols-2 gap-16 items-center">
-                <!-- Left: Text Content -->
-                <div class="order-1">
-                     <div class="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-discord/10 border border-discord/20 mb-6">
-                        <span class="text-xs font-semibold text-discord uppercase tracking-wider">Community Hub</span>
-                     </div>
-                    <h2 class="text-3xl md:text-4xl font-bold text-white mb-6">Powered by pilots like you.</h2>
-                    <p class="text-slate-400 text-lg leading-relaxed mb-8">
-                        InFlight is a community-driven platform. We're constantly evolving with feedback from our pilot network.
-                    </p>
-                    <p class="text-slate-400 text-base leading-relaxed mb-8">
-                        Join our Discord to submit your best aviation photography. Featured submissions appear in our main gallery and gain recognition.
-                    </p>
-                    
-                    <div class="flex flex-col sm:flex-row gap-4">
-                        <a href="https://discord.gg/your-invite-link" target="_blank" class="inline-flex items-center justify-center px-8 py-4 text-base font-bold text-white transition-all duration-200 bg-discord rounded-xl hover:bg-[#4752C4] shadow-lg shadow-discord/20 group">
-                            <i data-lucide="message-circle" class="w-5 h-5 mr-2 group-hover:rotate-12 transition-transform"></i>
-                            Join Discord Server
-                        </a>
-                    </div>
-                </div>
-
-                <!-- Right: Gallery Grid -->
-                <div class="order-2 relative">
-                    <!-- Decorative blob behind -->
-                    <div class="absolute inset-0 bg-discord/20 blur-[100px] rounded-full"></div>
-                    
-                    <div class="grid grid-cols-2 gap-4 relative">
-                        <!-- Card 1 -->
-                        <div class="glass p-3 pb-4 rounded-xl transform rotate-[-3deg] hover:rotate-0 transition-all duration-300 hover:z-10 hover:scale-105 shadow-xl">
-                            <div class="aspect-video rounded-lg overflow-hidden mb-3 bg-black/50">
-                                <img src="CommunityPlanes/emirates.webp" alt="Emirates A380" class="w-full h-full object-cover">
-                            </div>
-                            <div class="flex items-center justify-between">
-                                <span class="text-[10px] text-slate-500 font-mono">A380-800</span>
-                                <span class="text-xs text-white font-medium">@Lufty744</span>
-                            </div>
-                        </div>
-
-                        <!-- Card 2 -->
-                        <div class="glass p-3 pb-4 rounded-xl transform rotate-[2deg] translate-y-8 hover:rotate-0 transition-all duration-300 hover:z-10 hover:scale-105 shadow-xl">
-                             <div class="aspect-video rounded-lg overflow-hidden mb-3 bg-black/50">
-                                <img src="CommunityPlanes/a350.webp" alt="A350-900" class="w-full h-full object-cover">
-                            </div>
-                            <div class="flex items-center justify-between">
-                                <span class="text-[10px] text-slate-500 font-mono">A350-900</span>
-                                <span class="text-xs text-white font-medium">@AvioesEJogos</span>
-                            </div>
-                        </div>
-
-                         <!-- Card 3 -->
-                         <div class="glass p-3 pb-4 rounded-xl transform rotate-[-1deg] hover:rotate-0 transition-all duration-300 hover:z-10 hover:scale-105 shadow-xl">
-                            <div class="aspect-video rounded-lg overflow-hidden mb-3 bg-black/50">
-                               <img src="CommunityPlanes/aircalin.webp" class="w-full h-full object-cover">
-                           </div>
-                           <div class="flex items-center justify-between">
-                               <span class="text-[10px] text-slate-500 font-mono">A330-900</span>
-                               <span class="text-xs text-white font-medium">@Arlin</span>
-                           </div>
-                       </div>
-                       
-                       <!-- Card 4 (Join) -->
-                       <div class="glass p-3 pb-4 rounded-xl transform rotate-[3deg] translate-y-8 bg-discord/10 border-discord/30 hover:rotate-0 transition-all duration-300 hover:z-10 hover:scale-105 shadow-xl flex flex-col items-center justify-center text-center">
-                            <div class="w-12 h-12 rounded-full bg-discord text-white flex items-center justify-center mb-3">
-                                <i data-lucide="plus" class="w-6 h-6"></i>
-                            </div>
-                            <h4 class="text-white font-bold text-sm">Submit Yours</h4>
-                            <p class="text-xs text-slate-400 mt-1">Join the server</p>
-                       </div>
-                    </div>
-                </div>
+                <p class="text-slate-400 text-sm leading-relaxed">
+                    Turn any secondary device into a professional-grade instrumentation display with real-time telemetry streaming.
+                </p>
             </div>
         </div>
     </section>
 
-    <!-- Call to Action -->
-    <section class="py-24 px-6 text-center relative z-10">
-        <h2 class="text-3xl font-bold text-white mb-4">Ready for departure?</h2>
-        <p class="text-slate-400 mb-8 max-w-lg mx-auto">
-            Experience the next generation of flight tracking. 
-            <span class="text-white font-semibold">Join thousands of pilots tracking their flights in real-time.</span>
-        </p>
-        <div class="flex flex-col sm:flex-row gap-4 justify-center items-center">
-             <a href="index.html" class="inline-flex items-center justify-center px-8 py-4 text-base font-bold text-background transition-all duration-200 bg-white border border-transparent rounded-full hover:bg-slate-200 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-offset-gray-900 focus:ring-white min-w-[200px]">
-                Launch InFlight
-            </a>
+    <!-- Community Hub -->
+    <section id="community" class="py-40 relative bg-white/[0.02] border-y border-white/5">
+        <div class="max-w-7xl mx-auto px-6">
+            <div class="grid lg:grid-cols-2 gap-20 items-center">
+                <div class="space-y-8 section-animate">
+                    <div class="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-indigo-500/10 border border-indigo-500/20">
+                        <span class="text-[10px] font-bold text-indigo-400 uppercase tracking-widest">Global Network</span>
+                    </div>
+                    <h2 class="text-4xl md:text-5xl font-bold text-white">Always up-to-date.<br>Always community-led.</h2>
+                    <p class="text-slate-400 text-lg leading-relaxed">
+                        InFlight is fueled by many contributors. Our aircraft and airport imagery database is updated daily to ensure you're seeing the latest liveries and terminal changes.
+                    </p>
+                    <a href="https://discord.gg/cNSkZtdJ" class="inline-flex items-center px-8 py-4 rounded-2xl bg-[#5865F2] text-white font-bold hover:bg-[#4752C4] transition-all shadow-xl shadow-indigo-500/20">
+                        <i data-lucide="message-square" class="size-5 mr-3"></i> Join Our Discord
+                    </a>
+                </div>
+
+                <div class="relative grid grid-cols-2 gap-4 section-animate">
+                    <!-- Images remain static placeholders but wrapped in cards -->
+                    <div class="glow-card p-3 rounded-2xl rotate-[-3deg] hover:rotate-0 transition-transform">
+                        <div class="rounded-xl aspect-video bg-slate-800 flex items-center justify-center"><i data-lucide="image" class="text-slate-600"></i></div>
+                        <div class="mt-3 flex justify-between text-[10px] font-bold text-slate-500">
+                            <span>B787-9</span>
+                            <span class="text-white">@Contributor1</span>
+                        </div>
+                    </div>
+                    <div class="glow-card p-3 rounded-2xl rotate-[2deg] translate-y-8 hover:rotate-0 transition-transform">
+                         <div class="rounded-xl aspect-video bg-slate-800 flex items-center justify-center"><i data-lucide="image" class="text-slate-600"></i></div>
+                        <div class="mt-3 flex justify-between text-[10px] font-bold text-slate-500">
+                            <span>A350-1000</span>
+                            <span class="text-white">@SkyPhotos</span>
+                        </div>
+                    </div>
+                    <div class="glow-card p-3 rounded-2xl rotate-[-1deg] hover:rotate-0 transition-transform">
+                         <div class="rounded-xl aspect-video bg-slate-800 flex items-center justify-center"><i data-lucide="image" class="text-slate-600"></i></div>
+                        <div class="mt-3 flex justify-between text-[10px] font-bold text-slate-500">
+                            <span>B747-8i</span>
+                            <span class="text-white">@HeavyMetal</span>
+                        </div>
+                    </div>
+                    <div class="glow-card p-3 rounded-2xl rotate-[3deg] translate-y-8 flex flex-col items-center justify-center text-center bg-indigo-500/10 border-indigo-500/30">
+                        <div class="size-12 rounded-full bg-indigo-500 text-white flex items-center justify-center mb-3">
+                            <i data-lucide="plus" class="size-6"></i>
+                        </div>
+                        <h4 class="font-bold text-white text-sm">Contribute</h4>
+                        <p class="text-[10px] text-slate-500 mt-1">Join Discord</p>
+                    </div>
+                </div>
+            </div>
         </div>
     </section>
 
     <!-- Footer -->
-    <footer class="border-t border-white/5 bg-black/40 pt-16 pb-8">
-        <div class="max-w-7xl mx-auto px-6">
-            <div class="flex flex-col md:flex-row justify-between items-center mb-12">
-                <div class="flex items-center gap-3 mb-6 md:mb-0">
-                    <img src="Images/inflightIcon.ico" alt="InFlight" class="h-8 w-auto opacity-70 filter grayscale hover:grayscale-0 transition-all">
-                    <span class="text-lg font-bold text-slate-300">InFlight</span>
+    <footer class="pt-40 pb-20 px-6 border-t border-white/5 bg-background">
+        <div class="max-w-7xl mx-auto grid md:grid-cols-2 gap-20">
+            <div class="space-y-8">
+                <div class="flex items-center gap-3">
+                    <div class="size-10 rounded-full bg-white/5 flex items-center justify-center font-bold italic border border-white/10">IF</div>
+                    <span class="text-2xl font-bold">InFlight</span>
                 </div>
-                <div class="flex gap-8">
-                    <a href="#" class="text-slate-500 hover:text-white transition-colors text-sm">Community</a>
-                    <a href="#" class="text-slate-500 hover:text-white transition-colors text-sm">Privacy</a>
-                    <a href="#" class="text-slate-500 hover:text-white transition-colors text-sm">Terms</a>
-                    <a href="#" class="text-slate-500 hover:text-white transition-colors text-sm">Contact</a>
+                <p class="text-slate-500 text-sm max-w-sm leading-relaxed">
+                    InFlight is a infinite flight tracker built for the virtual aviators. We are driven by a passion for flight simulation and a commitment to delivering the best tracking experience possible to our users.
+                </p>
+            </div>
+            <div class="grid grid-cols-2 sm:grid-cols-3 gap-10">
+                <div class="space-y-4">
+                    <div class="text-[10px] font-bold uppercase tracking-widest text-white">Platform</div>
+                    <ul class="text-sm text-slate-500 space-y-2">
+                        <li><a href="#" class="hover:text-white transition-colors">Tracker</a></li>
+                        <li><a href="#features" class="hover:text-white transition-colors">Capabilities</a></li>
+                    </ul>
+                </div>
+                <div class="space-y-4">
+                    <div class="text-[10px] font-bold uppercase tracking-widest text-white">Connect</div>
+                    <ul class="text-sm text-slate-500 space-y-2">
+                        <li><a href="https://discord.gg/cNSkZtdJ" class="hover:text-white transition-colors">Discord</a></li>
+                        <li><a href="#" class="hover:text-white transition-colors">Email</a></li>
+                    </ul>
+                </div>
+                <div class="space-y-4">
+                    <div class="text-[10px] font-bold uppercase tracking-widest text-white">Legal</div>
+                    <ul class="text-sm text-slate-500 space-y-2">
+                        <li><a href="#" class="hover:text-white transition-colors">Terms</a></li>
+                        <li><a href="#" class="hover:text-white transition-colors">Privacy</a></li>
+                    </ul>
                 </div>
             </div>
-            <div class="text-center text-slate-600 text-xs">
-                <p>&copy; 2025 InFlight Tracker. All rights reserved.</p>
-                <p class="mt-2">Not affiliated with Infinite Flight LLC.</p>
-            </div>
+        </div>
+        <div class="max-w-7xl mx-auto pt-20 mt-20 border-t border-white/5 flex justify-between items-center text-[10px] font-mono text-slate-700 tracking-widest uppercase">
+            <span>© 2025 InFlight Tracker</span>
         </div>
     </footer>
 
-    <!-- Initialize Lucide Icons -->
     <script>
+        // Initialize Lucide Icons
         lucide.createIcons();
+
+        // 1. Hero Text Animation
+        function animateText(id) {
+            const el = document.getElementById(id);
+            if(!el) return;
+            const text = el.innerText;
+            el.innerHTML = '';
+            [...text].forEach((char, i) => {
+                const span = document.createElement('span');
+                span.innerText = char === ' ' ? '\u00A0' : char;
+                span.className = 'char';
+                span.style.transitionDelay = `${i * 40}ms`;
+                el.appendChild(span);
+                setTimeout(() => span.classList.add('visible'), 100);
+            });
+        }
+        animateText('hero-title');
+
+        // 2. Rotating Phrases
+        const phrases = [
+            "latest features",
+            "a large amount of features",
+            "unmatched reliability",
+            "global insights",
+            "next-gen tracking",
+            "unrivaled performance"
+        ];
+        let currentPhraseIndex = 0;
+        const rotatingEl = document.getElementById('rotating-text');
+
+        function rotate() {
+            rotatingEl.classList.add('text-out');
+            setTimeout(() => {
+                currentPhraseIndex = (currentPhraseIndex + 1) % phrases.length;
+                rotatingEl.innerText = phrases[currentPhraseIndex];
+                rotatingEl.classList.remove('text-out');
+                rotatingEl.classList.add('text-in');
+            }, 400);
+        }
+        setInterval(rotate, 3000);
+
+        // 3. Levitating Particles Animation (Less white, subtle drift)
+        const canvas = document.getElementById('bg-canvas');
+        const ctx = canvas.getContext('2d');
+        let particles = [];
+
+        function initCanvas() {
+            canvas.width = window.innerWidth;
+            canvas.height = window.innerHeight;
+        }
+
+        class FloatingParticle {
+            constructor() {
+                this.reset();
+            }
+            reset() {
+                this.x = Math.random() * canvas.width;
+                this.y = Math.random() * canvas.height;
+                this.size = Math.random() * 1.5 + 0.5; // Smaller
+                this.opacity = Math.random() * 0.2 + 0.05; // Very subtle
+                this.vx = Math.random() * 0.2 - 0.1;
+                this.vy = Math.random() * 0.2 - 0.1;
+                this.offset = Math.random() * Math.PI * 2;
+                this.oscillationSpeed = Math.random() * 0.01 + 0.005;
+            }
+            update() {
+                // Floating levitation effect using sine
+                this.offset += this.oscillationSpeed;
+                this.x += this.vx + Math.sin(this.offset) * 0.2;
+                this.y += this.vy + Math.cos(this.offset) * 0.2;
+
+                if (this.x < 0) this.x = canvas.width;
+                if (this.x > canvas.width) this.x = 0;
+                if (this.y < 0) this.y = canvas.height;
+                if (this.y > canvas.height) this.y = 0;
+            }
+            draw() {
+                ctx.fillStyle = `rgba(255, 255, 255, ${this.opacity})`;
+                ctx.beginPath();
+                ctx.arc(this.x, this.y, this.size, 0, Math.PI * 2);
+                ctx.fill();
+            }
+        }
+
+        function animate() {
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+            particles.forEach(p => {
+                p.update();
+                p.draw();
+            });
+            requestAnimationFrame(animate);
+        }
+
+        window.addEventListener('resize', initCanvas);
+        initCanvas();
+        for (let i = 0; i < 100; i++) particles.push(new FloatingParticle());
+        animate();
+
+        // 4. Mouse Interactive Glow
+        document.addEventListener('mousemove', e => {
+            document.querySelectorAll('.glow-card').forEach(card => {
+                const rect = card.getBoundingClientRect();
+                const x = e.clientX - rect.left;
+                const y = e.clientY - rect.top;
+                card.style.setProperty('--x', `${x}px`);
+                card.style.setProperty('--y', `${y}px`);
+            });
+        });
+
+        // 5. Intersection Observer for Scroll Animations
+        const observer = new IntersectionObserver((entries) => {
+            entries.forEach(entry => {
+                if (entry.isIntersecting) {
+                    entry.target.classList.add('visible');
+                }
+            });
+        }, { threshold: 0.1 });
+
+        document.querySelectorAll('.section-animate').forEach(el => observer.observe(el));
     </script>
 </body>
 </html>
