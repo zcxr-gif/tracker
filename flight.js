@@ -6851,9 +6851,12 @@ function initializeLiveMap() {
             minZoom: 0,
             projection: 'globe',
             // --- PERFORMANCE & CACHING CONFIG ---
-            fadeDuration: 0,           // [OPTIMIZED] Instant tile appearance from cache
-            maxTileCacheSize: 500,     // [OPTIMIZED] Larger RAM cache for tiles
-            crossSourceCollisions: false,
+            fadeDuration: 0,            // Removes the "fade-in" tile flicker
+    maxTileCacheSize: 1000,     // Doubled cache size to keep tiles in memory longer
+    prefetchZoomDelta: 2,       // CRITICAL: Pre-loads tiles for smooth zooming
+    crossSourceCollisions: false, // Prevents planes from checking against map labels
+    trackResize: true,
+    performanceMetrics: false,
             localIdeographFontFamily: "'Inter', 'sans-serif'",
             preserveDrawingBuffer: true // Required for high-res captures
         });
@@ -8480,7 +8483,14 @@ sectorOpsMap.addLayer({
     'layout': {
         'icon-image': getIconImageExpression(mapFilters.iconColorMode),
         // FIX: Wrap mapFilters.planeIconSize in parseFloat()
-        'icon-size': parseFloat(mapFilters.planeIconSize) || 0.05, 
+        'icon-size': [
+        'interpolate', 
+        ['linear'], 
+        ['zoom'],
+        2, 0.02,  // Tiny at zoom 2
+        10, 0.05, // Large at zoom 10
+        15, 0.15  // Very large when zoomed into airports
+    ],
         'icon-allow-overlap': true,
         'icon-ignore-placement': true,
         'icon-rotation-alignment': 'map',
