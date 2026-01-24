@@ -92,7 +92,7 @@ window.currentAirportTraffic = { in: [], out: [] }; // Stores IDs for the curren
     let mapFilters = {
         show3DPath: false,
         showNatTracks: true,  // New: Toggle for the tracks themselves
-        showNatLabels: true,
+        showNatLabels: false,
         showVaOnly: false,
         showGroupFlights: false,
         showUnstaffedAirports: false,

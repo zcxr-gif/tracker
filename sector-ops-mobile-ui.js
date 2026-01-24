@@ -63,58 +63,285 @@ const MobileUIHandler = {
         this.boundHudTouchEnd = this.handleHudTouchEnd.bind(this);
         this.boundLegacyTouchMove = this.handleLegacyTouchMove.bind(this);
         this.boundLegacyTouchEnd = this.handleLegacyTouchEnd.bind(this);
+        
 
-        nukeManagementControls();
-    },    
-    
-    /**
- * Permanently removes and disables management, server, search, and settings UI.
- * This makes them unusable for the remainder of the session.
- */
-function nukeManagementControls() {
-    // 1. List of selectors for elements to destroy
-    const selectorsToNuke = [
-        '#mobile-server-pill',          // Server Pill
-        '.mobile-action-stack',         // Action Stack (Settings, Weather, etc)
-        '#sector-ops-search-container', // Search Bar
-        '#server-sheet-overlay',        // Server Switcher Overlay
-        '.mobile-server-sheet',         // Server Switcher Sheet
-        '#mobile-sidebar-toggle',       // Burger/Sidebar menu
-        '#server-selector-container',   // Desktop Server Selector
-        '.dashboard-toolbar'            // General Toolbars
-    ];
-
-    // 2. Remove elements from the DOM
-    selectorsToNuke.forEach(selector => {
-        const elements = document.querySelectorAll(selector);
-        elements.forEach(el => el.remove());
-    });
-
-    // 3. Inject "Scorch Earth" CSS
-    // This ensures that even if another script tries to recreate them, 
-    // they will remain invisible and non-interactive.
-    const styleId = 'nuke-ui-overrides';
-    if (!document.getElementById(styleId)) {
-        const style = document.createElement('style');
-        style.id = styleId;
-        style.innerHTML = `
-            ${selectorsToNuke.join(', ')} {
-                display: none !important;
-                visibility: hidden !important;
-                pointer-events: none !important;
-                opacity: 0 !important;
-                height: 0 !important;
-                width: 0 !important;
-                margin: 0 !important;
-                padding: 0 !important;
-                overflow: hidden !important;
+window.addEventListener('resize', () => {
+    if (this.isMobile()) {
+        // Keep this empty or only handle logic NOT related to the HUD buttons
+    } else {
+        if (this.activeWindow) {
+            this.closeActiveWindow(true); 
+        }
+        this.restoreMapControls();
+    }
+});
+        
+        // Listen for clicks outside search to close it (if active)
+        document.addEventListener('click', (e) => {
+            if (this.isMobile()) {
+                const searchContainer = document.getElementById('sector-ops-search-container');
+                const searchBtn = document.getElementById('mobile-btn-search');
+                const mapContainer = document.getElementById('sector-ops-map-fullscreen');
+                
+                // If search is open
+                if (mapContainer && mapContainer.classList.contains('mobile-search-open')) {
+                    // If click is NOT inside search container AND NOT on the search button
+                    if (searchContainer && !searchContainer.contains(e.target) && (!searchBtn || !searchBtn.contains(e.target))) {
+                        this.toggleMobileSearch(false);
+                    }
+                }
             }
-        `;
-        document.head.appendChild(style);
+        });
+
+        console.log("Mobile UI Handler (HUD Rehaul v9.8 - Airport Fixes) Initialized.");
+    },
+
+    /**
+ * Completely disables and removes all Mobile HUD controls.
+ * This prevents the Server Pill, Search, Weather, and Filter buttons from appearing.
+ */
+disableHudControls() {
+    // 1. Remove the container from DOM if it exists
+    const hud = document.getElementById('mobile-hud-controls');
+    if (hud) hud.remove();
+
+    // 2. Clear out the injection function so it can't be called again
+    this.injectMobileHudControls = () => {
+        console.log("Mobile UI: HUD Controls are disabled and will not be injected.");
+    };
+
+    // 3. Ensure map container classes are cleaned up
+    const mapContainer = document.getElementById('sector-ops-map-fullscreen');
+    if (mapContainer) {
+        mapContainer.classList.remove('mobile-search-open');
     }
 
-    console.log("Management UI Nuked: Server, Search, and Settings have been permanently disabled.");
-}
+    // 4. Re-enable Desktop Server Pill (optional: only if you want it back on mobile)
+    const desktopServerPill = document.getElementById('server-selector-container');
+    if (desktopServerPill) desktopServerPill.style.display = '';
+},
+
+    /**
+     * [NEW] Injects the floating Server Pill (Top-Left) and Action Stack (Top-Right)
+     */
+    injectMobileHudControls() {
+        const mapContainer = document.getElementById('sector-ops-map-fullscreen');
+        if (!mapContainer || document.getElementById('mobile-hud-controls')) return;
+
+        // Hide Desktop Controls specifically
+        const desktopServerPill = document.getElementById('server-selector-container');
+        if (desktopServerPill) desktopServerPill.style.display = 'none';
+
+        // --- 1. Create Container ---
+        const controlsContainer = document.createElement('div');
+        controlsContainer.id = 'mobile-hud-controls';
+        
+        // --- 2. Top Left: Server Status Pill ---
+        // Reads current server from local storage or defaults
+        const currentServer = localStorage.getItem('preferredServer') || 'Expert Server';
+        const shortServerName = currentServer.split(' ')[0]; // "Expert"
+
+        const serverPillHTML = `
+            <div id="mobile-server-pill" class="mobile-glass-pill">
+                <div class="status-dot"></div>
+                <span id="mobile-server-name">${shortServerName}</span>
+                <i class="fa-solid fa-chevron-down" style="font-size: 0.7rem; opacity: 0.7;"></i>
+            </div>
+        `;
+
+        // --- 3. Top Right: Action Stack (Search, Weather, Filters) ---
+        // [UPDATED] Added Search Button here
+        const actionStackHTML = `
+            <div class="mobile-action-stack">
+                <button id="mobile-btn-search" class="mobile-glass-sq-btn">
+                    <i class="fa-solid fa-magnifying-glass"></i>
+                </button>
+                <button id="mobile-btn-weather" class="mobile-glass-sq-btn">
+                    <i class="fa-solid fa-cloud-sun"></i>
+                </button>
+                <button id="mobile-btn-filters" class="mobile-glass-sq-btn">
+                    <i class="fa-solid fa-layer-group"></i>
+                </button>
+            </div>
+        `;
+
+        controlsContainer.innerHTML = serverPillHTML + actionStackHTML;
+        mapContainer.appendChild(controlsContainer);
+
+        // --- 4. Wire Events ---
+        
+        // Server Switcher
+        document.getElementById('mobile-server-pill').addEventListener('click', () => {
+            this.openServerSheet();
+        });
+
+        // [NEW] Mobile Search Toggle
+        document.getElementById('mobile-btn-search').addEventListener('click', (e) => {
+            e.stopPropagation(); // Prevent document click from closing it immediately
+            this.toggleMobileSearch(true);
+        });
+
+        // Weather
+        document.getElementById('mobile-btn-weather').addEventListener('click', () => {
+            const btn = document.getElementById('open-weather-settings-btn'); // Trigger desktop logic
+            if (btn) btn.click();
+        });
+
+        // Filters
+        document.getElementById('mobile-btn-filters').addEventListener('click', () => {
+            const btn = document.getElementById('open-filter-settings-btn'); // Trigger desktop logic
+            if (btn) btn.click();
+        });
+    },
+
+    /**
+     * [NEW] Toggles the visibility of the search bar on mobile
+     */
+    toggleMobileSearch(show) {
+        const mapContainer = document.getElementById('sector-ops-map-fullscreen');
+        const searchInput = document.getElementById('sector-ops-search-input');
+        
+        if (!mapContainer) return;
+
+        if (show) {
+            mapContainer.classList.add('mobile-search-open');
+            // Focus the input automatically
+            if (searchInput) setTimeout(() => searchInput.focus(), 100);
+        } else {
+            mapContainer.classList.remove('mobile-search-open');
+            if (searchInput) searchInput.blur();
+        }
+    },
+
+    /**
+     * [UPDATED] Opens a bottom sheet to select the server
+     * Now fetches and displays live user counts instead of static text.
+     */
+    openServerSheet() {
+        const mapContainer = document.getElementById('sector-ops-map-fullscreen');
+        
+        // Remove existing if any
+        const existing = document.getElementById('mobile-server-sheet');
+        if (existing) existing.remove();
+
+        const sheet = document.createElement('div');
+        sheet.id = 'mobile-server-sheet';
+        sheet.className = 'mobile-server-sheet';
+        
+        const current = localStorage.getItem('preferredServer') || 'Expert Server';
+
+        // Helper to generate the loading state HTML
+        const loadingState = `<span class="s-desc" style="color: var(--hud-accent);"><i class="fa-solid fa-circle-notch fa-spin"></i> Loading...</span>`;
+
+        sheet.innerHTML = `
+            <div class="sheet-header">
+                <span>Select Server</span>
+                <button id="close-server-sheet"><i class="fa-solid fa-xmark"></i></button>
+            </div>
+            <div class="server-options-list">
+                
+                <button class="server-opt-btn ${current === 'Expert Server' ? 'active' : ''}" data-server="Expert Server">
+                    <div class="server-icon expert"><i class="fa-solid fa-trophy"></i></div>
+                    <div class="server-info">
+                        <span class="s-name">Expert Server</span>
+                        <span class="s-desc" id="cnt-expert">${loadingState}</span>
+                    </div>
+                    ${current === 'Expert Server' ? '<i class="fa-solid fa-check"></i>' : ''}
+                </button>
+
+                <button class="server-opt-btn ${current === 'Training Server' ? 'active' : ''}" data-server="Training Server">
+                    <div class="server-icon training"><i class="fa-solid fa-graduation-cap"></i></div>
+                    <div class="server-info">
+                        <span class="s-name">Training Server</span>
+                        <span class="s-desc" id="cnt-training">${loadingState}</span>
+                    </div>
+                    ${current === 'Training Server' ? '<i class="fa-solid fa-check"></i>' : ''}
+                </button>
+
+                <button class="server-opt-btn ${current === 'Casual Server' ? 'active' : ''}" data-server="Casual Server">
+                    <div class="server-icon casual"><i class="fa-solid fa-plane-arrival"></i></div>
+                    <div class="server-info">
+                        <span class="s-name">Casual Server</span>
+                        <span class="s-desc" id="cnt-casual">${loadingState}</span>
+                    </div>
+                    ${current === 'Casual Server' ? '<i class="fa-solid fa-check"></i>' : ''}
+                </button>
+            </div>
+        `;
+
+        // Overlay
+        const overlay = document.createElement('div');
+        overlay.id = 'server-sheet-overlay';
+        overlay.addEventListener('click', () => {
+            sheet.classList.remove('visible');
+            overlay.classList.remove('visible');
+            setTimeout(() => { sheet.remove(); overlay.remove(); }, 300);
+        });
+
+        mapContainer.appendChild(overlay);
+        mapContainer.appendChild(sheet);
+
+        // Animate In
+        requestAnimationFrame(() => {
+            overlay.classList.add('visible');
+            sheet.classList.add('visible');
+        });
+
+        // Close Event
+        sheet.querySelector('#close-server-sheet').addEventListener('click', () => overlay.click());
+
+        // Selection Event
+        sheet.querySelectorAll('.server-opt-btn').forEach(btn => {
+            btn.addEventListener('click', () => {
+                const newServer = btn.dataset.server;
+                
+                // Update Pill Text
+                const pillText = document.getElementById('mobile-server-name');
+                if (pillText) pillText.textContent = newServer.split(' ')[0];
+
+                // Trigger Desktop Logic
+                const desktopBtn = document.querySelector(`.server-btn[data-server="${newServer}"]`);
+                if (desktopBtn) desktopBtn.click();
+
+                overlay.click(); // Close
+            });
+        });
+
+        // --- NEW: Fetch Live User Counts ---
+        fetch('https://site--acars-backend--6dmjph8ltlhv.code.run/if-sessions')
+            .then(res => res.json())
+            .then(data => {
+                if (data && Array.isArray(data.sessions)) {
+                    
+                    const updateCount = (elementId, serverNamePart) => {
+                        const el = document.getElementById(elementId);
+                        if (!el) return;
+
+                        // Find session by partial name match
+                        const session = data.sessions.find(s => s.name.toLowerCase().includes(serverNamePart));
+                        
+                        if (session) {
+                            el.innerHTML = `<i class="fa-solid fa-users" style="margin-right: 6px;"></i> ${session.userCount.toLocaleString()} Online`;
+                            el.style.color = "#94a3b8"; // Reset color
+                        } else {
+                            el.textContent = "Offline";
+                        }
+                    };
+
+                    updateCount('cnt-expert', 'expert');
+                    updateCount('cnt-training', 'training');
+                    updateCount('cnt-casual', 'casual');
+                }
+            })
+            .catch(err => {
+                console.warn("Failed to load server counts:", err);
+                // Fallback text on error
+                ['cnt-expert', 'cnt-training', 'cnt-casual'].forEach(id => {
+                    const el = document.getElementById(id);
+                    if (el) el.textContent = "Status Unknown";
+                });
+            });
+    },
 
     /**
      * [MODIFIED] Injects all the CSS for the new HUD-themed floating islands.
