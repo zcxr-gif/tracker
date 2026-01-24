@@ -1293,145 +1293,137 @@ export const LandingUI = {
 applyMobileOptimizations() {
     const mobileStyles = `
     @media (max-width: 768px) {
-        /* 1. THE MODAL: Full-screen "Tactical Sheet" */
-        .filter-modal {
-            width: 100% !important;
-            height: 100% !important;
-            max-height: 100vh !important;
-            border-radius: 0 !important;
-            border: none !important;
-            display: flex;
-            flex-direction: column;
-        }
-
-        .modal-body {
-            flex-direction: column !important;
-            overflow-y: auto !important;
-            -webkit-overflow-scrolling: touch;
-        }
-
-        /* Stacked Panes: Selection flows into Config */
-        .filter-selection-pane {
-            width: 100% !important;
-            height: auto !important;
-            border-right: none !important;
-            border-bottom: 1px solid rgba(255, 255, 255, 0.1) !important;
-            padding: 20px !important;
-            background: #111 !important;
-        }
-
-        .filter-options-list {
-            display: grid;
-            grid-template-columns: repeat(2, 1fr); /* Two columns for easier thumb tapping */
-            gap: 10px;
-        }
-
-        .nexus-item {
-            margin-bottom: 0 !important;
-            padding: 12px !important;
-            background: rgba(255,255,255,0.03) !important;
-        }
-
-        .filter-config-pane {
-            padding: 20px !important;
-            min-height: 400px;
-        }
-
-        /* 2. TOP BAR: Intelligent Real Estate */
-        .top-branding.dropdown {
-            left: 15px !important;
-            top: 15px !important;
-            padding: 6px 12px !important;
-            max-width: 140px;
-        }
-        #landing-server-name { font-size: 0.7rem !important; }
-
-        .top-right-actions {
-            right: 15px !important;
-            top: 15px !important;
-        }
-
-        /* SEARCH: Full-screen expansion on focus */
+        /* 1. NATIVE SEARCH INTERSTITIAL */
         .search-blade {
-            width: 42px !important;
-            justify-content: center;
+            width: 44px !important;
+            height: 44px !important;
+            padding: 0 !important;
+            justify-content: center !important;
+            border-radius: 50% !important;
         }
 
         .search-blade:focus-within {
             position: fixed !important;
-            top: 0 !important;
-            left: 0 !important;
+            inset: 0 !important;
             width: 100vw !important;
-            height: 60px !important;
+            height: 100vh !important;
             border-radius: 0 !important;
-            z-index: 9999;
             background: #000 !important;
-            padding: 0 20px !important;
+            flex-direction: column !important;
+            padding-top: env(safe-area-inset-top, 20px) !important;
+            z-index: 9999 !important;
         }
 
-        #blade-search-input { font-size: 16px !important; } /* Prevents iOS zoom on focus */
+        .search-blade:focus-within .search-icon {
+            position: absolute;
+            top: 25px;
+            left: 20px;
+        }
+
+        #blade-search-input {
+            width: 100% !important;
+            margin-top: 15px !important;
+            padding: 12px 12px 12px 45px !important;
+            font-size: 18px !important; /* Prevents iOS auto-zoom */
+            border-bottom: 1px solid #333 !important;
+        }
 
         .search-results-dropdown {
-            position: fixed !important;
-            top: 60px !important;
-            left: 0 !important;
-            width: 100vw !important;
-            height: calc(100vh - 60px) !important;
-            max-height: none !important;
-            border-radius: 0 !important;
-            background: #0a0a0b !important;
-        }
-
-        /* 3. UTILITY DOCK: Native app feel */
-        .utility-nexus {
-            bottom: 0 !important;
-            right: 0 !important;
-            left: 0 !important;
-            background: linear-gradient(to top, rgba(0,0,0,0.9), transparent);
-            padding: 20px 0 30px 0 !important;
-        }
-
-        .orb-row {
-            justify-content: space-evenly !important;
-            width: 100%;
-        }
-
-        .orb-btn {
-            width: 60px !important; /* Larger touch target */
-            height: 60px !important;
-            background: rgba(30, 30, 30, 0.9) !important;
-            border: 1px solid rgba(255,255,255,0.1) !important;
-        }
-
-        /* 4. WEATHER MENU: Mobile Radial/List Style */
-        .weather-spread {
-            left: 50% !important;
-            width: 90vw !important;
-        }
-        
-        .spread-opt {
-            padding: 16px !important;
-            width: 100%;
-            justify-content: center;
-        }
-
-        /* 5. INPUT OPTIMIZATION */
-        .range-pill-container {
-            flex-direction: column;
-            gap: 10px;
+            position: relative !important;
+            top: 0 !important;
+            height: calc(100vh - 80px) !important;
+            display: block !important;
             background: transparent !important;
             border: none !important;
         }
-        .range-half {
-            background: #1c1c1f;
-            border-radius: 12px;
-            border: 1px solid #2d2d30;
+
+        /* 2. TABBED FILTER MODAL (iOS-STYLE) */
+        .filter-modal {
+            width: 100vw !important;
+            height: 100vh !important;
+            border-radius: 0 !important;
+            background: #000 !important;
         }
-        .range-divider { display: none; }
+
+        .modal-body {
+            flex-direction: column !important;
+        }
+
+        /* Sidebar turns into a horizontal 'Segmented Control' */
+        .filter-selection-pane {
+            width: 100% !important;
+            height: auto !important;
+            padding: 10px !important;
+            display: flex !important;
+            overflow-x: auto !important;
+            white-space: nowrap !important;
+            background: #111 !important;
+            border-bottom: 1px solid #222 !important;
+            -webkit-overflow-scrolling: touch;
+        }
+
+        .filter-group-header { display: none; } /* Hide headers in horizontal scroll */
+        
+        .filter-options-list {
+            display: flex !important;
+            gap: 8px !important;
+        }
+
+        .nexus-item {
+            display: inline-flex !important;
+            width: auto !important;
+            padding: 8px 16px !important;
+            background: #222 !important;
+            border-radius: 20px !important;
+            font-size: 13px !important;
+        }
+
+        .nexus-add { display: none; }
+
+        .filter-config-pane {
+            padding: 20px !important;
+            flex: 1 !important;
+        }
+
+        /* 3. FLOATING ACTION DOCK */
+        .utility-nexus {
+            bottom: 30px !important;
+            left: 50% !important;
+            right: auto !important;
+            transform: translateX(-50%);
+            width: 90% !important;
+        }
+
+        .orb-row {
+            background: rgba(20, 20, 20, 0.95);
+            backdrop-filter: blur(20px);
+            padding: 10px 20px;
+            border-radius: 100px;
+            border: 1px solid rgba(255,255,255,0.1);
+            justify-content: space-between !important;
+            box-shadow: 0 10px 40px rgba(0,0,0,0.5);
+        }
+
+        .orb-btn {
+            background: transparent !important;
+            border: none !important;
+            box-shadow: none !important;
+            width: 48px !important;
+            height: 48px !important;
+        }
+
+        /* 4. SERVER SELECTOR (MINIMAL) */
+        .top-branding.dropdown {
+            left: 50% !important;
+            transform: translateX(-50%) !important;
+            top: env(safe-area-inset-top, 20px) !important;
+            background: rgba(255,255,255,0.05) !important;
+            border: none !important;
+        }
     }
     `;
 
-    const styleId = 'landing-ui-mobile-css';
+    const styleId = 'landing-ui-native-mobile-css';
     if (!document.getElementById(styleId)) {
         const style = document.createElement('style');
         style.id = styleId;
