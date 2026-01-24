@@ -9168,49 +9168,36 @@ function generateAltitudeColoredRoute(history, currentPos, flightPlan = null) {
  */
 function closeAircraftWindow() {
     if (!aircraftInfoWindow) return;
+    
+    // Clear 3D paths if active
+    if (typeof FlownPath3D !== 'undefined') {
+        FlownPath3D.updatePath(sectorOpsMap, currentFlightInWindow, [], false);
+    }
 
-    FlownPath3D.updatePath(sectorOpsMap, currentFlightInWindow, [], false);
-
-    // 1. Hide UI
     aircraftInfoWindow.classList.remove('visible');
     if (window.MobileUIHandler) window.MobileUIHandler.closeActiveWindow();
-    if (aircraftInfoWindowRecallBtn) aircraftInfoWindowRecallBtn.classList.remove('visible');
-
-    // 2. Clear Map Elements
-    clearLiveFlightPath(currentFlightInWindow); 
-
-    // 3. Clear ALL Intervals (Critical for performance)
-    if (activePfdUpdateInterval) {
-        clearInterval(activePfdUpdateInterval);
-        activePfdUpdateInterval = null;
-    }
-    if (activeGeocodeUpdateInterval) {
-        clearInterval(activeGeocodeUpdateInterval);
-        activeGeocodeUpdateInterval = null;
-    }
-    if (activeWeatherUpdateInterval) {
-        clearInterval(activeWeatherUpdateInterval);
-        activeWeatherUpdateInterval = null;
-    }
-
-    // 4. Reset State
-    currentAircraftPositionForGeocode = null;
-    liveTrailCache.delete(currentFlightInWindow);
-    currentFlightInWindow = null;
-    cachedFlightDataForStatsView = { flightProps: null, plan: null };
-    if (!currentAirportInWindow) {
-        const landingData = { 
-            server: currentServerName, 
-            flights: Object.keys(currentMapFeatures).length, 
-            atc: activeAtcFacilities.length 
-        };
-        LandingUI.update(true, landingData);
-        localStorage.setItem('landingUI_visible', 'true');
-        localStorage.setItem('landingUI_data', JSON.stringify(landingData));
-    }
     
-    // 5. Reset PFD visual state
+    // Clear the map layers using the ID tracker
+    clearLiveFlightPath(currentFlightInWindow);
+
+    // Reset intervals
+    if (activePfdUpdateInterval) clearInterval(activePfdUpdateInterval);
+    if (activeGeocodeUpdateInterval) clearInterval(activeGeocodeUpdateInterval);
+    if (activeWeatherUpdateInterval) clearInterval(activeWeatherUpdateInterval);
+
+    // CRITICAL FIX: Reset state
+    currentFlightInWindow = null; 
+    currentAircraftPositionForGeocode = null;
     resetPfdState();
+
+    // Trigger Landing UI only if airport window is also closed
+    if (!currentAirportInWindow) {
+        LandingUI.update(true, {
+            server: currentServerName,
+            flights: Object.keys(currentMapFeatures).length,
+            atc: activeAtcFacilities.length
+        });
+    }
 }
 
 /**
@@ -9357,8 +9344,12 @@ async function handleAircraftClick(flightProps, sessionId, event = null) {
                 }
             }, 'sector-ops-live-flights-layer');
             if (typeof sectorOpsLiveFlightPathLayers !== 'undefined') {
-                sectorOpsLiveFlightPathLayers[flightProps.flightId] = { flown: flownLayerId };
-            }
+    // FIX: Use assignment that preserves other keys in the object
+    if (!sectorOpsLiveFlightPathLayers[flightProps.flightId]) {
+        sectorOpsLiveFlightPathLayers[flightProps.flightId] = {};
+    }
+    sectorOpsLiveFlightPathLayers[flightProps.flightId].flown = flownLayerId;
+}
         }
         
         if (plan && typeof updateFlightPlanLayer === 'function') {
@@ -9376,38 +9367,65 @@ async function handleAircraftClick(flightProps, sessionId, event = null) {
  * Closes the airport information window and cleans up associated map layers/states.
  * This is called whenever an aircraft is selected or the airport window is closed manually.
  */
+// In flight.js - Update this function to include the null reset
 function closeAirportWindow() {
     if (!airportInfoWindow) return;
 
-    // 1. Hide UI elements
     airportInfoWindow.classList.remove('visible');
     if (window.MobileUIHandler) window.MobileUIHandler.closeActiveWindow();
-    
-    // Hide the "recall" button (the small tab that appears when minimized)
-    if (typeof airportInfoWindowRecallBtn !== 'undefined' && airportInfoWindowRecallBtn) {
-        airportInfoWindowRecallBtn.classList.remove('visible');
-    }
+    if (airportInfoWindowRecallBtn) airportInfoWindowRecallBtn.classList.remove('visible');
 
-    // 2. Cleanup Map Overlays
     isTrafficHighlightActive = false;
-    if (typeof applyTrafficHighlighting === 'function') applyTrafficHighlighting();
-    if (typeof clearRouteLayers === 'function') clearRouteLayers();
-    
-    // 3. Remove Taxiway/Layout layers
-    if (typeof AirportLayoutManager !== 'undefined' && sectorOpsMap) {
-        AirportLayoutManager.clearAll(sectorOpsMap);
-    }
+    applyTrafficHighlighting();
+    clearRouteLayers();
+    if (typeof AirportLayoutManager !== 'undefined' && sectorOpsMap) AirportLayoutManager.clearAll(sectorOpsMap);
 
-    // 4. Reset Global State
+    // CRITICAL FIX: Reset the state variable
+    currentAirportInWindow = null; 
+
+    // Now LandingUI can safely trigger
     if (!currentFlightInWindow) {
-        const landingData = { 
-            server: currentServerName, 
-            flights: Object.keys(currentMapFeatures).length, 
-            atc: activeAtcFacilities.length 
+        const landingData = {
+            server: currentServerName,
+            flights: Object.keys(currentMapFeatures).length,
+            atc: activeAtcFacilities.length
         };
         LandingUI.update(true, landingData);
-        localStorage.setItem('landingUI_visible', 'true');
-        localStorage.setItem('landingUI_data', JSON.stringify(landingData));
+    }
+}
+
+// In flight.js - Ensure the Aircraft close also checks for nulled states
+function closeAircraftWindow() {
+    if (!aircraftInfoWindow) return;
+    
+    // Clear 3D paths if active
+    if (typeof FlownPath3D !== 'undefined') {
+        FlownPath3D.updatePath(sectorOpsMap, currentFlightInWindow, [], false);
+    }
+
+    aircraftInfoWindow.classList.remove('visible');
+    if (window.MobileUIHandler) window.MobileUIHandler.closeActiveWindow();
+    
+    // Clear the map layers using the ID tracker
+    clearLiveFlightPath(currentFlightInWindow);
+
+    // Reset intervals
+    if (activePfdUpdateInterval) clearInterval(activePfdUpdateInterval);
+    if (activeGeocodeUpdateInterval) clearInterval(activeGeocodeUpdateInterval);
+    if (activeWeatherUpdateInterval) clearInterval(activeWeatherUpdateInterval);
+
+    // CRITICAL FIX: Reset state
+    currentFlightInWindow = null; 
+    currentAircraftPositionForGeocode = null;
+    resetPfdState();
+
+    // Trigger Landing UI only if airport window is also closed
+    if (!currentAirportInWindow) {
+        LandingUI.update(true, {
+            server: currentServerName,
+            flights: Object.keys(currentMapFeatures).length,
+            atc: activeAtcFacilities.length
+        });
     }
 }
 
