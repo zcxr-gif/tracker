@@ -11370,7 +11370,7 @@ function setupFlightHoverPopups() {
     });
 
     sectorOpsMap.on('mouseenter', 'sector-ops-live-flights-layer', (e) => {
-        if (window.isMouseOverAirportTag) return;
+        if (e.originalEvent.pointerType === 'touch') return;
         // Change cursor to indicate interactability
         sectorOpsMap.getCanvas().style.cursor = 'pointer';
         
