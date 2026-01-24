@@ -12391,7 +12391,7 @@ async function initializeApp() {
         MobileSettingsUI.init();
         
         // Default to true if not explicitly set to 'false'
-const isVisible = localStorage.getItem('landingUI_visible') !== 'false'; 
+const isVisible = localStorage.getItem('landingUI_visible') !== 'true'; 
 
 if (isVisible) {
     LandingUI.update(true, {
