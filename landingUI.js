@@ -1,17 +1,10 @@
-/**
- * LandingUI.js
- * REDESIGN: Tactical Modal - Advanced Centralized Filter Engine
- * UPDATED: Seamless Search Connectivity, Keyboard Navigation & Text Highlighting
- * FULL EXPANSION: No condensation of styles or logic.
- */
-
 export const LandingUI = {
     _isVisible: false,
     _modalOpen: false,
     _weatherMenuOpen: false,
     _activeFilters: {}, 
-    _currentServer: 'Expert', // Default server
-    _searchCursorIndex: -1, // Track keyboard navigation
+    _currentServer: 'Expert', 
+    _searchCursorIndex: -1, 
     _currentMatches: [],
 
     filterGroups: {
@@ -54,14 +47,12 @@ export const LandingUI = {
     },
 
     applyMobileOptimizations() {
-    // Check if the screen width is mobile-sized (768px or less)
-    if (window.innerWidth <= 768) {
-        // This assumes MobileLandingUI.js is in the same folder
-        import('./MobileLandingUI.js').then(m => {
-            m.MobileLandingUI.init(this);
-        }).catch(err => console.error("Failed to load Mobile UI:", err));
-    }
-},
+        if (window.innerWidth <= 768) {
+            import('./MobileLandingUI.js').then(m => {
+                m.MobileLandingUI.init(this);
+            }).catch(err => console.error("Failed to load Mobile UI:", err));
+        }
+    },
 
     async loadPrefixData() {
         try {
@@ -79,10 +70,6 @@ export const LandingUI = {
         }
     },
 
-    /**
-     * LOCAL SEARCH ENGINE
-     * Filter through live flight data and render the panel-style results
-     */
     handleLocalSearch(query) {
         const resultsContainer = document.getElementById('blade-search-results');
         const searchBlade = document.querySelector('.search-blade');
@@ -93,9 +80,7 @@ export const LandingUI = {
             if (resultsContainer) {
                 resultsContainer.innerHTML = '';
                 resultsContainer.classList.remove('visible');
-                if (searchBlade) {
-                    searchBlade.classList.remove('has-results');
-                }
+                if (searchBlade) searchBlade.classList.remove('has-results');
             }
             return;
         }
@@ -105,13 +90,12 @@ export const LandingUI = {
 
         this._currentMatches = flights.filter(f => {
             const p = f.properties;
-            const callsignMatch = p.callsign?.toUpperCase().includes(upperQuery);
-            const userMatch = p.username?.toUpperCase().includes(upperQuery);
-            const aircraftMatch = p.aircraftName?.toUpperCase().includes(upperQuery);
-            return callsignMatch || userMatch || aircraftMatch;
+            return p.callsign?.toUpperCase().includes(upperQuery) || 
+                   p.username?.toUpperCase().includes(upperQuery) || 
+                   p.aircraftName?.toUpperCase().includes(upperQuery);
         }).slice(0, 15);
 
-        this._searchCursorIndex = -1; // Reset selection on new search
+        this._searchCursorIndex = -1;
 
         if (this._currentMatches.length > 0 && searchBlade) {
             searchBlade.classList.add('has-results');
@@ -122,38 +106,24 @@ export const LandingUI = {
         this.renderSearchResults(query);
     },
 
-    /**
-     * Updated Highlight: Elegant semi-transparent background.
-     */
     highlightText(text, query) {
         if (!query || !text) return text;
         const regex = new RegExp(`(${query})`, 'gi');
         return text.replace(regex, '<span class="premium-highlight">$1</span>');
     },
 
-    /**
-     * Updated Search Results: Clean, multi-column dashboard style.
-     */
     renderSearchResults(query) {
         const container = document.getElementById('blade-search-results');
         if (!container) return;
         
         if (this._currentMatches.length === 0) {
-            container.innerHTML = `
-                <div class="premium-empty-state">
-                    <p>No matches found</p>
-                </div>
-            `;
+            container.innerHTML = `<div class="premium-empty-state"><p>No matches found</p></div>`;
         } else {
             container.innerHTML = this._currentMatches.map((f, idx) => `
                 <div class="premium-result-item ${this._searchCursorIndex === idx ? 'selected' : ''}" 
                      data-index="${idx}"
                      onclick="LandingUI.executeSearchClick('${f.properties.flightId}', ${f.geometry.coordinates[1]}, ${f.geometry.coordinates[0]})">
-                    
-                    <div class="res-meta-icon">
-                        <i class="fa-solid fa-circle"></i>
-                    </div>
-
+                    <div class="res-meta-icon"><i class="fa-solid fa-circle"></i></div>
                     <div class="res-info-main">
                         <div class="res-primary-row">
                             <span class="res-callsign">${this.highlightText(f.properties.callsign || 'N/A', query)}</span>
@@ -163,31 +133,22 @@ export const LandingUI = {
                             <span class="res-pilot">${this.highlightText(f.properties.username || 'Anonymous', query)}</span>
                         </div>
                     </div>
-
                     <div class="res-stats">
                         <span class="res-altitude">${Math.round(f.properties.altitude || 0).toLocaleString()}<span>ft</span></span>
                     </div>
                 </div>
             `).join('');
         }
-        
         container.classList.add('visible');
     },
 
     executeSearchClick(id, lat, lon) {
         if (window.handleSearchResultClick) {
             window.handleSearchResultClick(id, lat, lon);
-        } else {
-            console.log('Search Execution:', id, lat, lon);
         }
-        // Cleanup after click
         const searchResults = document.getElementById('blade-search-results');
-        const searchBlade = document.querySelector('.search-blade');
         const searchInput = document.getElementById('blade-search-input');
-        
         if (searchResults) searchResults.classList.remove('visible');
-        if (searchBlade) {
-        }
         if (searchInput) searchInput.blur();
     },
 
@@ -200,7 +161,6 @@ export const LandingUI = {
 
         const html = `
             <div id="inflight-tactical-ui" class="tactical-ui-root">
-                <!-- SERVER SELECTOR -->
                 <div class="top-branding dropdown" id="server-selector">
                     <div class="status-dot"></div>
                     <div class="branding-content">
@@ -214,18 +174,15 @@ export const LandingUI = {
                     </div>
                 </div>
 
-                <!-- SEARCH BAR -->
                 <div class="top-right-actions">
                     <div class="search-blade">
                         <i class="fa-solid fa-magnifying-glass search-icon"></i>
                         <input type="text" id="blade-search-input" placeholder="Quick search..." autocomplete="off">
                         <div class="search-shortcut">⌘K</div>
-                        <!-- Search Results Dropdown -->
                         <div id="blade-search-results" class="search-results-dropdown custom-scroll"></div>
                     </div>
                 </div>
 
-                <!-- FILTER MODAL -->
                 <div id="filter-modal-overlay" class="modal-overlay">
                     <div class="filter-modal">
                         <div class="modal-header">
@@ -238,7 +195,6 @@ export const LandingUI = {
                             </div>
                             <button class="close-modal" id="close-filter-modal">&times;</button>
                         </div>
-                        
                         <div class="modal-body">
                             <div class="filter-selection-pane custom-scroll">
                                 ${Object.entries(this.filterGroups).map(([key, group]) => `
@@ -256,7 +212,6 @@ export const LandingUI = {
                                     </div>
                                 `).join('')}
                             </div>
-
                             <div class="filter-config-pane">
                                 <div class="config-header">
                                     <label>Active Rules</label>
@@ -264,9 +219,7 @@ export const LandingUI = {
                                 </div>
                                 <div id="modal-active-filters" class="modal-active-list custom-scroll">
                                     <div class="empty-state">
-                                        <div class="empty-icon-circle">
-                                            <i class="fa-solid fa-filter"></i>
-                                        </div>
+                                        <div class="empty-icon-circle"><i class="fa-solid fa-filter"></i></div>
                                         <p>No active filters</p>
                                         <span>Select parameters from the left sidebar to configure rules.</span>
                                     </div>
@@ -280,35 +233,18 @@ export const LandingUI = {
                     </div>
                 </div>
 
-                <!-- BOTTOM UTILITY NEXUS -->
                 <div class="utility-nexus">
                     <div class="orb-row">
-                        <!-- WEATHER NEXUS -->
                         <div class="weather-nexus-container" id="weather-menu-wrapper">
                             <div class="weather-spread">
-                                <button class="spread-opt" data-weather="precip">
-                                    <i class="fa-solid fa-satellite-dish"></i>
-                                    <span class="spread-label">Radar (Precip)</span>
-                                </button>
-                                <button class="spread-opt" data-weather="sigmets">
-                                    <i class="fa-solid fa-triangle-exclamation"></i>
-                                    <span class="spread-label">SIGMETs</span>
-                                </button>
-                                <button class="spread-opt" data-weather="clouds">
-                                    <i class="fa-solid fa-cloud"></i>
-                                    <span class="spread-label">Cloud Cover</span>
-                                </button>
-                                <button class="spread-opt" data-weather="wind">
-                                    <i class="fa-solid fa-wind"></i>
-                                    <span class="spread-label">Wind Speed</span>
-                                </button>
+                                <button class="spread-opt" data-weather="precip"><i class="fa-solid fa-satellite-dish"></i><span class="spread-label">Radar</span></button>
+                                <button class="spread-opt" data-weather="sigmets"><i class="fa-solid fa-triangle-exclamation"></i><span class="spread-label">SIGMETs</span></button>
+                                <button class="spread-opt" data-weather="clouds"><i class="fa-solid fa-cloud"></i><span class="spread-label">Clouds</span></button>
+                                <button class="spread-opt" data-weather="wind"><i class="fa-solid fa-wind"></i><span class="spread-label">Wind</span></button>
                             </div>
-                            <button class="orb-btn" id="tile-weather" aria-label="Weather">
-                                <i class="fa-solid fa-cloud-sun-rain"></i>
-                            </button>
+                            <button class="orb-btn" id="tile-weather" aria-label="Weather"><i class="fa-solid fa-cloud-sun-rain"></i></button>
                         </div>
 
-                        <!-- FILTER ORB -->
                         <div class="nexus-orb-wrapper">
                             <div class="nexus-preview-tooltip" id="filters-preview-tooltip"></div>
                             <button class="orb-btn nexus-trigger" id="toggle-filter-modal" aria-label="Filters">
@@ -317,7 +253,6 @@ export const LandingUI = {
                             </button>
                         </div>
 
-                        <!-- SETTINGS ORB -->
                         <div class="nexus-orb-wrapper">
                             <div class="nexus-preview-tooltip" id="settings-preview-tooltip"></div>
                             <button class="orb-btn" id="tile-settings" aria-label="Settings">
@@ -330,9 +265,7 @@ export const LandingUI = {
         `;
 
         const container = document.getElementById('sector-ops-map-fullscreen');
-        if (container) {
-            container.insertAdjacentHTML('beforeend', html);
-        }
+        if (container) container.insertAdjacentHTML('beforeend', html);
     },
 
     attachListeners() {
@@ -341,19 +274,42 @@ export const LandingUI = {
         const settingsBtn = document.getElementById('tile-settings');
         const searchInput = document.getElementById('blade-search-input');
         const searchResults = document.getElementById('blade-search-results');
-        const searchBlade = document.querySelector('.search-blade');
         const serverSelector = document.getElementById('server-selector');
         const weatherTrigger = document.getElementById('tile-weather');
         const weatherWrapper = document.getElementById('weather-menu-wrapper');
         
-        // Global Keyboard Shortcut
+        const toggleModal = (state) => {
+            this._modalOpen = state;
+            modalOverlay?.classList.toggle('open', state);
+            if (state) {
+                this.refreshUI();
+                document.body.style.overflow = 'hidden';
+            } else {
+                document.body.style.overflow = '';
+            }
+        };
+
+        // --- FILTER BUTTON LOGIC ---
+        filterBtn?.addEventListener('click', () => {
+            if (window.innerWidth <= 768) {
+                window.dispatchEvent(new CustomEvent('openMobileUI'));
+            } else {
+                toggleModal(true);
+            }
+        });
+
+        // --- SETTINGS BUTTON LOGIC ("JUST WORK") ---
+        settingsBtn?.addEventListener('click', () => {
+            window.dispatchEvent(new CustomEvent('openSettings'));
+            console.log("Settings triggered via Orb");
+        });
+
+        // Search Shortcuts & Nav
         window.addEventListener('keydown', (e) => {
             if ((e.metaKey || e.ctrlKey) && e.key === 'k') {
                 e.preventDefault();
                 searchInput?.focus();
             }
-
-            // Keyboard Navigation Logic
             if (searchResults?.classList.contains('visible')) {
                 if (e.key === 'ArrowDown') {
                     e.preventDefault();
@@ -370,38 +326,15 @@ export const LandingUI = {
             }
         });
 
-        // Search Input Engine
-        searchInput?.addEventListener('input', (e) => {
-            this.handleLocalSearch(e.target.value);
-        });
+        searchInput?.addEventListener('input', (e) => this.handleLocalSearch(e.target.value));
 
-        // Close Search on Outside Click
-        document.addEventListener('click', (e) => {
-            if (searchResults && !searchBlade?.contains(e.target)) {
-                searchResults.classList.remove('visible');
-                if (searchBlade) {
-                    searchBlade.style.borderBottomLeftRadius = '100px';
-                    searchBlade.style.borderBottomRightRadius = '100px';
-                }
-            }
-        });
-
-        // Hover Tooltips
-        // Locate this inside attachListeners()
-filterBtn?.addEventListener('click', () => {
-    if (window.innerWidth <= 768) {
-        // Trigger the mobile bottom sheet instead of the desktop modal
-        window.dispatchEvent(new CustomEvent('openMobileUI'));
-    } else {
-        // Fallback to your original desktop modal logic
-        toggleModal(true);
-    }
-});
+        // Tooltips
+        filterBtn?.addEventListener('mouseenter', () => this.showPreview('filters'));
         filterBtn?.addEventListener('mouseleave', () => this.hidePreview('filters'));
         settingsBtn?.addEventListener('mouseenter', () => this.showPreview('settings'));
         settingsBtn?.addEventListener('mouseleave', () => this.hidePreview('settings'));
 
-        // Weather Menu
+        // Weather & Server
         weatherTrigger?.addEventListener('click', (e) => {
             e.stopPropagation();
             this._weatherMenuOpen = !this._weatherMenuOpen;
@@ -412,23 +345,13 @@ filterBtn?.addEventListener('click', () => {
             btn.addEventListener('click', (e) => {
                 e.stopPropagation();
                 const isActive = btn.classList.toggle('active');
-                const weatherType = btn.dataset.weather;
-                window.dispatchEvent(new CustomEvent('weatherToggle', { 
-                    detail: { type: weatherType, isActive: isActive } 
-                }));
+                window.dispatchEvent(new CustomEvent('weatherToggle', { detail: { type: btn.dataset.weather, isActive } }));
             });
         });
 
-        // Server Dropdown
         serverSelector?.addEventListener('click', (e) => {
             e.stopPropagation();
             serverSelector.classList.toggle('open');
-        });
-
-        document.addEventListener('click', () => {
-            serverSelector?.classList.remove('open');
-            weatherWrapper?.classList.remove('expanded');
-            this._weatherMenuOpen = false;
         });
 
         document.querySelectorAll('.server-option').forEach(opt => {
@@ -440,35 +363,24 @@ filterBtn?.addEventListener('click', () => {
             });
         });
 
-        // Filter Modal Controls
-        const toggleModal = (state) => {
-            this._modalOpen = state;
-            modalOverlay?.classList.toggle('open', state);
-            if (state) {
-                this.refreshUI();
-                document.body.style.overflow = 'hidden';
-            } else {
-                document.body.style.overflow = '';
-            }
-        };
+        document.addEventListener('click', () => {
+            serverSelector?.classList.remove('open');
+            weatherWrapper?.classList.remove('expanded');
+            this._weatherMenuOpen = false;
+        });
 
-        filterBtn?.addEventListener('click', () => toggleModal(true));
         document.getElementById('close-filter-modal')?.addEventListener('click', () => toggleModal(false));
         document.getElementById('apply-filters-btn')?.addEventListener('click', () => {
             this.dispatchFilterUpdate();
             toggleModal(false);
         });
-        
         document.getElementById('clear-filters-btn')?.addEventListener('click', () => {
             this._activeFilters = {};
             this.refreshUI();
             this.dispatchFilterUpdate();
         });
 
-        modalOverlay?.addEventListener('click', (e) => {
-            if (e.target === modalOverlay) toggleModal(false);
-        });
-
+        modalOverlay?.addEventListener('click', (e) => { if (e.target === modalOverlay) toggleModal(false); });
         document.querySelectorAll('.nexus-item').forEach(item => {
             item.addEventListener('click', () => this.activateFilter(item.dataset.filterId));
         });
@@ -481,85 +393,38 @@ filterBtn?.addEventListener('click', () => {
         let content = '';
         if (type === 'filters') {
             const activeKeys = Object.keys(this._activeFilters);
-            if (activeKeys.length === 0) {
-                content = `<div class="preview-empty">No active filters</div>`;
-            } else {
-                content = activeKeys.map(id => {
-                    const def = this.allFilters.find(f => f.id === id);
-                    const val = this._activeFilters[id];
-                    let displayVal = '';
-                    
-                    if (def.type === 'range') {
-                        displayVal = `${val.min || 0} - ${val.max || 'Max'}`;
-                    } else if (def.type === 'boolean') {
-                        displayVal = 'ON';
-                    } else {
-                        displayVal = val || 'Any';
-                    }
-
-                    return `
-                        <div class="preview-line">
-                            <i class="fa-solid ${def.icon}"></i>
-                            <span class="preview-label">${def.label}:</span>
-                            <span class="preview-value">${displayVal}</span>
-                        </div>
-                    `;
-                }).join('');
-            }
+            content = activeKeys.length === 0 ? `<div class="preview-empty">No active filters</div>` : activeKeys.map(id => {
+                const def = this.allFilters.find(f => f.id === id);
+                const val = this._activeFilters[id];
+                let displayVal = def.type === 'range' ? `${val.min || 0} - ${val.max || 'Max'}` : (def.type === 'boolean' ? 'ON' : (val || 'Any'));
+                return `<div class="preview-line"><i class="fa-solid ${def.icon}"></i><span class="preview-label">${def.label}:</span><span class="preview-value">${displayVal}</span></div>`;
+            }).join('');
         } else {
-            content = `
-                <div class="preview-line">
-                    <i class="fa-solid fa-server"></i>
-                    <span class="preview-label">Server:</span>
-                    <span class="preview-value">${this._currentServer}</span>
-                </div>
-                <div class="preview-line">
-                    <i class="fa-solid fa-earth-americas"></i>
-                    <span class="preview-label">Region:</span>
-                    <span class="preview-value">Global Airspace</span>
-                </div>
-            `;
+            content = `<div class="preview-line"><i class="fa-solid fa-server"></i><span class="preview-label">Server:</span><span class="preview-value">${this._currentServer}</span></div>`;
         }
 
-        tooltip.innerHTML = `
-            <div class="preview-header">${type.toUpperCase()} STATUS</div>
-            <div class="preview-body">${content}</div>
-            <div class="preview-footer">Click icon to manage full settings</div>
-        `;
+        tooltip.innerHTML = `<div class="preview-header">${type.toUpperCase()} STATUS</div><div class="preview-body">${content}</div><div class="preview-footer">Click icon to manage full settings</div>`;
         tooltip.classList.add('visible');
     },
 
-    hidePreview(type) {
-        document.getElementById(`${type}-preview-tooltip`)?.classList.remove('visible');
-    },
+    hidePreview(type) { document.getElementById(`${type}-preview-tooltip`)?.classList.remove('visible'); },
 
     activateFilter(id) {
         if (!this._activeFilters[id]) {
             const def = this.allFilters.find(f => f.id === id);
-            if (def.type === 'range') {
-                this._activeFilters[id] = { min: '', max: '' };
-            } else if (def.type === 'boolean') {
-                this._activeFilters[id] = true;
-            } else if (def.type === 'select') {
-                this._activeFilters[id] = def.options[0];
-            } else {
-                this._activeFilters[id] = '';
-            }
+            if (def.type === 'range') this._activeFilters[id] = { min: '', max: '' };
+            else if (def.type === 'boolean') this._activeFilters[id] = true;
+            else if (def.type === 'select') this._activeFilters[id] = def.options[0];
+            else this._activeFilters[id] = '';
         }
         this.refreshUI();
     },
 
-    removeFilter(id) {
-        delete this._activeFilters[id];
-        this.refreshUI();
-    },
+    removeFilter(id) { delete this._activeFilters[id]; this.refreshUI(); },
 
     updateFilterValue(id, value, subKey = null) {
-        if (subKey) {
-            this._activeFilters[id] = { ...this._activeFilters[id], [subKey]: value };
-        } else {
-            this._activeFilters[id] = value;
-        }
+        if (subKey) this._activeFilters[id] = { ...this._activeFilters[id], [subKey]: value };
+        else this._activeFilters[id] = value;
     },
 
     refreshUI() {
@@ -572,19 +437,10 @@ filterBtn?.addEventListener('click', () => {
         if (badge) badge.textContent = `${activeEntries.length} Active Rule${activeEntries.length !== 1 ? 's' : ''}`;
         if (activeDot) activeDot.style.opacity = activeEntries.length > 0 ? '1' : '0';
 
-        document.querySelectorAll('.nexus-item').forEach(item => {
-            const id = item.dataset.filterId;
-            item.classList.toggle('active', !!this._activeFilters[id]);
-        });
+        document.querySelectorAll('.nexus-item').forEach(item => item.classList.toggle('active', !!this._activeFilters[item.dataset.filterId]));
 
         if (activeEntries.length === 0) {
-            container.innerHTML = `
-                <div class="empty-state">
-                    <div class="empty-icon-circle"><i class="fa-solid fa-filter"></i></div>
-                    <p>No active filters</p>
-                    <span>Select parameters from the left sidebar to configure rules.</span>
-                </div>
-            `;
+            container.innerHTML = `<div class="empty-state"><div class="empty-icon-circle"><i class="fa-solid fa-filter"></i></div><p>No active filters</p><span>Select parameters from the left sidebar to configure rules.</span></div>`;
             return;
         }
 
@@ -595,13 +451,8 @@ filterBtn?.addEventListener('click', () => {
                     <div class="card-left-strip"></div>
                     <div class="card-content">
                         <div class="row-header" style="display:flex; justify-content:space-between; align-items:center;">
-                            <div class="row-label">
-                                <i class="fa-solid ${def.icon}"></i>
-                                <span>${def.label}</span>
-                            </div>
-                            <button class="row-remove js-remove-filter" data-id="${id}" title="Remove Filter" style="background:none; border:none; color:#ef4444; cursor:pointer; padding:5px;">
-                                <i class="fa-solid fa-trash-can"></i>
-                            </button>
+                            <div class="row-label"><i class="fa-solid ${def.icon}"></i><span>${def.label}</span></div>
+                            <button class="row-remove js-remove-filter" data-id="${id}" style="background:none; border:none; color:#ef4444; cursor:pointer;"><i class="fa-solid fa-trash-can"></i></button>
                         </div>
                         <div class="row-control">${this.renderInputControl(id, value)}</div>
                     </div>
@@ -609,73 +460,28 @@ filterBtn?.addEventListener('click', () => {
             `;
         }).join('');
 
-        // Re-attach local listeners
-        container.querySelectorAll('.js-remove-filter').forEach(btn => {
-            btn.addEventListener('click', (e) => this.removeFilter(e.currentTarget.dataset.id));
-        });
-        container.querySelectorAll('.data-input').forEach(input => {
-            input.addEventListener('input', (e) => this.updateFilterValue(e.target.dataset.id, e.target.value));
-        });
-        container.querySelectorAll('.data-input-min').forEach(input => {
-            input.addEventListener('input', (e) => this.updateFilterValue(e.target.dataset.id, e.target.value, 'min'));
-        });
-        container.querySelectorAll('.data-input-max').forEach(input => {
-            input.addEventListener('input', (e) => this.updateFilterValue(e.target.dataset.id, e.target.value, 'max'));
-        });
+        container.querySelectorAll('.js-remove-filter').forEach(btn => btn.addEventListener('click', (e) => this.removeFilter(e.currentTarget.dataset.id)));
+        container.querySelectorAll('.data-input').forEach(input => input.addEventListener('input', (e) => this.updateFilterValue(e.target.dataset.id, e.target.value)));
+        container.querySelectorAll('.data-input-min').forEach(input => input.addEventListener('input', (e) => this.updateFilterValue(e.target.dataset.id, e.target.value, 'min')));
+        container.querySelectorAll('.data-input-max').forEach(input => input.addEventListener('input', (e) => this.updateFilterValue(e.target.dataset.id, e.target.value, 'max')));
     },
 
     renderInputControl(id, value) {
         const def = this.allFilters.find(f => f.id === id);
-        
-        if (def.type === 'select') {
-            return `
-                <div class="input-wrapper select-wrapper">
-                    <select class="row-input-select data-input" data-id="${id}">
-                        ${def.options.map(opt => `<option value="${opt}" ${value === opt ? 'selected' : ''}>${opt}</option>`).join('')}
-                    </select>
-                </div>
-            `;
-        } 
-        
-        if (def.type === 'range') {
-            return `
-                <div class="range-pill-container">
-                    <div class="range-half">
-                        <span class="range-label">MIN</span>
-                        <input type="number" class="range-input data-input-min" data-id="${id}" placeholder="0" value="${value.min || ''}">
-                    </div>
-                    <div class="range-divider"></div>
-                    <div class="range-half">
-                        <span class="range-label">MAX</span>
-                        <input type="number" class="range-input data-input-max" data-id="${id}" placeholder="Max" value="${value.max || ''}">
-                    </div>
-                </div>
-            `;
-        }
-        
-        if (def.type === 'boolean') {
-            return `<div class="bool-indicator" style="font-size:0.8rem; color:#10b981; font-weight:600;"><i class="fa-solid fa-check"></i> Active Policy Enabled</div>`;
-        }
-        
-        return `
-            <div class="input-wrapper">
-                <input type="text" class="row-input data-input" data-id="${id}" placeholder="${def.placeholder || 'Search value...'}" value="${value}">
-            </div>
-        `;
+        if (def.type === 'select') return `<div class="input-wrapper select-wrapper"><select class="row-input-select data-input" data-id="${id}">${def.options.map(opt => `<option value="${opt}" ${value === opt ? 'selected' : ''}>${opt}</option>`).join('')}</select></div>`;
+        if (def.type === 'range') return `<div class="range-pill-container"><div class="range-half"><span class="range-label">MIN</span><input type="number" class="range-input data-input-min" data-id="${id}" placeholder="0" value="${value.min || ''}"></div><div class="range-divider"></div><div class="range-half"><span class="range-label">MAX</span><input type="number" class="range-input data-input-max" data-id="${id}" placeholder="Max" value="${value.max || ''}"></div></div>`;
+        if (def.type === 'boolean') return `<div class="bool-indicator" style="font-size:0.8rem; color:#10b981; font-weight:600;"><i class="fa-solid fa-check"></i> Active Policy Enabled</div>`;
+        return `<div class="input-wrapper"><input type="text" class="row-input data-input" data-id="${id}" placeholder="${def.placeholder || 'Search value...'}" value="${value}"></div>`;
     },
 
     dispatchFilterUpdate() {
         const quickSearch = document.getElementById('blade-search-input')?.value || '';
-        window.dispatchEvent(new CustomEvent('filterUpdate', { 
-            detail: { filters: { ...this._activeFilters }, quickSearch } 
-        }));
+        window.dispatchEvent(new CustomEvent('filterUpdate', { detail: { filters: { ...this._activeFilters }, quickSearch } }));
     },
 
-    update(isActive, stats = {}) {
+    update(isActive) {
         const el = document.getElementById('inflight-tactical-ui');
-        if (el) {
-            isActive ? el.classList.add('active') : el.classList.remove('active');
-        }
+        if (el) isActive ? el.classList.add('active') : el.classList.remove('active');
     },
     
 
