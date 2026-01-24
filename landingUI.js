@@ -1293,137 +1293,122 @@ export const LandingUI = {
 applyMobileOptimizations() {
     const mobileStyles = `
     @media (max-width: 768px) {
-        /* 1. NATIVE SEARCH INTERSTITIAL */
-        .search-blade {
-            width: 44px !important;
-            height: 44px !important;
-            padding: 0 !important;
-            justify-content: center !important;
-            border-radius: 50% !important;
-        }
-
-        .search-blade:focus-within {
-            position: fixed !important;
-            inset: 0 !important;
-            width: 100vw !important;
-            height: 100vh !important;
-            border-radius: 0 !important;
-            background: #000 !important;
-            flex-direction: column !important;
-            padding-top: env(safe-area-inset-top, 20px) !important;
-            z-index: 9999 !important;
-        }
-
-        .search-blade:focus-within .search-icon {
-            position: absolute;
-            top: 25px;
-            left: 20px;
-        }
-
-        #blade-search-input {
-            width: 100% !important;
-            margin-top: 15px !important;
-            padding: 12px 12px 12px 45px !important;
-            font-size: 18px !important; /* Prevents iOS auto-zoom */
-            border-bottom: 1px solid #333 !important;
-        }
-
-        .search-results-dropdown {
-            position: relative !important;
-            top: 0 !important;
-            height: calc(100vh - 80px) !important;
-            display: block !important;
-            background: transparent !important;
-            border: none !important;
-        }
-
-        /* 2. TABBED FILTER MODAL (iOS-STYLE) */
+        /* 1. THE TRAY: Slide-up Bottom Sheet */
         .filter-modal {
             width: 100vw !important;
-            height: 100vh !important;
-            border-radius: 0 !important;
-            background: #000 !important;
+            height: 85vh !important; /* Leaves a gap at the top to show the map context */
+            max-height: 85vh !important;
+            border-radius: 24px 24px 0 0 !important;
+            position: fixed !important;
+            bottom: 0 !important;
+            top: auto !important;
+            transform: translateY(100%);
+            transition: transform 0.4s cubic-bezier(0.33, 1, 0.68, 1) !important;
+            border: 1px solid rgba(255, 255, 255, 0.1) !important;
+            border-bottom: none !important;
         }
 
+        .modal-overlay.open .filter-modal {
+            transform: translateY(0) !important;
+        }
+
+        /* Handle Indicator (Native Feel) */
+        .filter-modal::before {
+            content: '';
+            position: absolute;
+            top: 12px;
+            left: 50%;
+            transform: translateX(-50%);
+            width: 40px;
+            height: 4px;
+            background: rgba(255, 255, 255, 0.2);
+            border-radius: 10px;
+        }
+
+        .modal-header {
+            height: 70px !important;
+            padding-top: 15px !important;
+            background: transparent !important;
+            border-bottom: none !important;
+        }
+
+        .header-icon-box { display: none; } /* Simplify for mobile */
+        .header-text h2 { font-size: 1.1rem !important; }
+
+        /* 2. TABBED NAVIGATION (Native Segmented Control) */
         .modal-body {
             flex-direction: column !important;
+            overflow: hidden !important;
         }
 
-        /* Sidebar turns into a horizontal 'Segmented Control' */
         .filter-selection-pane {
             width: 100% !important;
             height: auto !important;
-            padding: 10px !important;
+            padding: 0 15px !important;
+            background: #0a0a0b !important;
+            border-right: none !important;
             display: flex !important;
             overflow-x: auto !important;
-            white-space: nowrap !important;
-            background: #111 !important;
-            border-bottom: 1px solid #222 !important;
-            -webkit-overflow-scrolling: touch;
+            gap: 12px;
+            border-bottom: 1px solid rgba(255,255,255,0.05);
         }
 
-        .filter-group-header { display: none; } /* Hide headers in horizontal scroll */
-        
+        .filter-group-wrapper { margin: 0 !important; padding: 10px 0; }
+        .filter-group-header { display: none; } /* Use icons/labels in tabs instead */
+
         .filter-options-list {
             display: flex !important;
-            gap: 8px !important;
+            flex-direction: row !important;
+            gap: 8px;
         }
 
         .nexus-item {
-            display: inline-flex !important;
+            flex-shrink: 0;
             width: auto !important;
             padding: 8px 16px !important;
-            background: #222 !important;
-            border-radius: 20px !important;
-            font-size: 13px !important;
+            background: rgba(255,255,255,0.05) !important;
+            border-radius: 100px !important;
+            font-size: 12px !important;
         }
 
+        .nexus-item .nexus-icon { font-size: 0.8rem; }
         .nexus-add { display: none; }
 
+        /* 3. ACTIVE CONFIG AREA */
         .filter-config-pane {
-            padding: 20px !important;
             flex: 1 !important;
+            padding: 20px !important;
+            background: #0a0a0b !important;
         }
 
-        /* 3. FLOATING ACTION DOCK */
-        .utility-nexus {
-            bottom: 30px !important;
-            left: 50% !important;
-            right: auto !important;
-            transform: translateX(-50%);
-            width: 90% !important;
-        }
+        .config-header label { font-size: 0.7rem !important; }
 
-        .orb-row {
-            background: rgba(20, 20, 20, 0.95);
-            backdrop-filter: blur(20px);
-            padding: 10px 20px;
-            border-radius: 100px;
-            border: 1px solid rgba(255,255,255,0.1);
-            justify-content: space-between !important;
-            box-shadow: 0 10px 40px rgba(0,0,0,0.5);
-        }
-
-        .orb-btn {
+        /* 4. RANGE INPUTS: Finger-Friendly Stack */
+        .range-pill-container {
+            flex-direction: column;
             background: transparent !important;
             border: none !important;
-            box-shadow: none !important;
-            width: 48px !important;
-            height: 48px !important;
+            gap: 8px;
         }
+        .range-half {
+            background: #18181b !important;
+            border: 1px solid #27272a !important;
+            border-radius: 12px !important;
+            height: 50px;
+        }
+        .range-divider { display: none; }
 
-        /* 4. SERVER SELECTOR (MINIMAL) */
-        .top-branding.dropdown {
-            left: 50% !important;
-            transform: translateX(-50%) !important;
-            top: env(safe-area-inset-top, 20px) !important;
-            background: rgba(255,255,255,0.05) !important;
-            border: none !important;
+        /* 5. STICKY FOOTER */
+        .modal-footer-embedded {
+            padding: 15px 20px 30px 20px !important;
+            position: relative !important;
+            background: #0a0a0b !important;
         }
+        .modal-btn { flex: 1; padding: 16px !important; }
     }
     `;
 
-    const styleId = 'landing-ui-native-mobile-css';
+    const styleId = 'landing-ui-tray-mobile-css';
     if (!document.getElementById(styleId)) {
         const style = document.createElement('style');
         style.id = styleId;
