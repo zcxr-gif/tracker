@@ -12095,6 +12095,53 @@ function startSectorOpsLiveLoop() {
     }
 }
 
+/**
+ * Global bridge for LandingUI search results.
+ * Flys to the aircraft and opens the info window.
+ */
+window.handleSearchResultClick = (flightId, lat, lon) => {
+    // 1. Locate the flight data in our current cache
+    const feature = currentMapFeatures[flightId];
+    if (!feature) {
+        console.warn("handleSearchResultClick: Flight ID not found in cache", flightId);
+        return;
+    }
+
+    // 2. Move the map to the aircraft coordinates
+    if (sectorOpsMap) {
+        sectorOpsMap.flyTo({
+            center: [lon, lat], // Longitude, Latitude
+            zoom: 9,
+            essential: true
+        });
+    }
+
+    // 3. Prepare the flight properties for handleAircraftClick
+    const props = feature.properties;
+    let flightProps;
+    try {
+        flightProps = {
+            ...props,
+            position: typeof props.position === 'string' ? JSON.parse(props.position) : props.position,
+            aircraft: typeof props.aircraft === 'string' ? JSON.parse(props.aircraft) : props.aircraft
+        };
+    } catch (e) {
+        console.error("handleSearchResultClick: Failed to parse flight data", e);
+        return;
+    }
+
+    // 4. Fetch session data and open the info window
+    fetch('https://site--acars-backend--6dmjph8ltlhv.code.run/if-sessions')
+        .then(res => res.json())
+        .then(data => {
+            const sessionId = getCurrentSessionId(data);
+            if (sessionId && typeof handleAircraftClick === 'function') {
+                handleAircraftClick(flightProps, sessionId);
+            }
+        })
+        .catch(err => console.error("handleSearchResultClick: Session fetch failed", err));
+};
+
 // Stops the data polling AND the animation loop.
 function stopSectorOpsLiveLoop() {
     // 1. Clear the data-fetching interval for ATC/NOTAMs

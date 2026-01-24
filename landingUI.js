@@ -179,7 +179,7 @@ export const LandingUI = {
                         <div class="search-blade">
                             <i class="fa-solid fa-magnifying-glass search-icon"></i>
                             <input type="text" id="blade-search-input" placeholder="Quick search..." autocomplete="off">
-                            <div class="search-shortcut">⌘K</div>
+                            <div class="search-shortcut"></div>
                             <div id="blade-search-results" class="search-results-dropdown custom-scroll"></div>
                         </div>
                     </div>
