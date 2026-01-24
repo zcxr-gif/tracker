@@ -378,21 +378,25 @@ disableHudControls() {
             /* --- [CRITICAL FIX] Hide Clutter when Mobile Window (or Search) is Open --- */
             /* This effectively clears the "other icons" the user complained about */
             
-            #sector-ops-map-fullscreen.mobile-window-open .mapboxgl-control-container,
-            #sector-ops-map-fullscreen.mobile-window-open .mobile-action-stack,
-            #sector-ops-map-fullscreen.mobile-window-open #mobile-server-pill,
-            #sector-ops-map-fullscreen.mobile-window-open #mobile-sidebar-toggle,
-            #sector-ops-map-fullscreen.mobile-window-open #server-selector-container {
+            /* Update this block in your injectMobileStyles function */
+#sector-ops-map-fullscreen.mobile-window-open > *:not(.landing-ui-container):not(.mobile-aircraft-view):not(.mobile-island-bottom) {
+    /* Only hide things that aren't the window or your landing UI */
+}
                 display: none !important;
                 opacity: 0 !important;
                 pointer-events: none !important;
             }
 
             /* Also hide controls when SEARCH is open */
-            #sector-ops-map-fullscreen.mobile-search-open .mobile-action-stack,
-            #sector-ops-map-fullscreen.mobile-search-open #mobile-server-pill,
-            #sector-ops-map-fullscreen.mobile-search-open #mobile-sidebar-toggle,
-            #sector-ops-map-fullscreen.mobile-search-open .mapboxgl-control-container {
+            /* Update this block in your injectMobileStyles function */
+#sector-ops-map-fullscreen.mobile-window-open > *:not(.la/* Find this in your code and ensure your UI class isn't targeted */
+#sector-ops-map-fullscreen.mobile-search-open .your-landing-ui-class {
+    display: flex !important; /* Force visibility */
+    opacity: 1 !important;
+    pointer-events: auto !important;
+}nding-ui-container):not(.mobile-aircraft-view):not(.mobile-island-bottom) {
+    /* Only hide things that aren't the window or your landing UI */
+}
                 display: none !important;
             }
 
