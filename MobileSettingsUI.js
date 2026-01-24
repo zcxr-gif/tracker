@@ -40,8 +40,31 @@ export const MobileSettingsUI = {
                             ${this.renderToggle('showAircraftLabels', 'Aircraft Labels', 'fa-tag')}
                             ${this.renderToggle('show3DPath', '3D Flown Path', 'fa-cube')}
                             ${this.renderToggle('showNatTracks', 'NAT Tracks', 'fa-route')}
+                            ${this.renderToggle('showNatLabels', 'NAT Labels', 'fa-font')}
                             ${this.renderToggle('useFlatMap', 'Flat Map Projection', 'fa-map')}
                             ${this.renderToggle('useSimpleFlightWindow', 'Simple Flight Info', 'fa-window-maximize')}
+                        </div>
+
+                        <div class="mobile-section-header">Aircraft Filters</div>
+                        <div class="m-settings-list">
+                            ${this.renderToggle('showStaffOnly', 'Staff Pilots Only', 'fa-shield-check')}
+                            ${this.renderToggle('showVaOnly', 'VA Members Only', 'fa-star')}
+                            ${this.renderToggle('showGroupFlights', 'Show Group Flights', 'fa-users')}
+                            ${this.renderToggle('hideAllAircraft', 'Hide All Aircraft', 'fa-eye-slash')}
+                        </div>
+
+                        <div class="mobile-section-header">ATC & Airport Filters</div>
+                        <div class="m-settings-list">
+                            ${this.renderToggle('showUnstaffedAirports', 'Show Unstaffed', 'fa-circle-dot')}
+                            ${this.renderToggle('hideNoAtcMarkers', 'Hide No-ATC Dots', 'fa-location-dot')}
+                            ${this.renderToggle('hideAtcMarkers', 'Hide ATC Markers', 'fa-headset')}
+                        </div>
+
+                        <div class="mobile-section-header">Flight Plan Display</div>
+                        <div class="settings-mobile-grid">
+                            <button class="m-setting-pill" data-setting="planDisplayMode" data-value="none">None</button>
+                            <button class="m-setting-pill" data-setting="planDisplayMode" data-value="direct">Direct</button>
+                            <button class="m-setting-pill" data-setting="planDisplayMode" data-value="full">Full Plan</button>
                         </div>
 
                         <div class="mobile-section-header">Icon Configuration</div>
@@ -90,7 +113,6 @@ export const MobileSettingsUI = {
         const sheet = document.querySelector('#mobile-settings-nexus .mobile-bottom-sheet');
         const overlay = document.getElementById('mobile-settings-overlay');
 
-        // Event to open from external buttons
         window.addEventListener('openMobileSettings', () => {
             this._isOpen = true;
             this.syncUIWithState();
@@ -108,7 +130,6 @@ export const MobileSettingsUI = {
         overlay.addEventListener('click', closeUI);
         document.getElementById('mobile-settings-close').addEventListener('click', closeUI);
 
-        // Handle Toggles
         sheet.querySelectorAll('input[type="checkbox"]').forEach(input => {
             input.addEventListener('change', (e) => {
                 const setting = e.target.dataset.setting;
@@ -117,7 +138,6 @@ export const MobileSettingsUI = {
             });
         });
 
-        // Handle Sliders
         sheet.querySelectorAll('.m-range-input').forEach(input => {
             input.addEventListener('input', (e) => {
                 const setting = e.target.dataset.setting;
@@ -128,17 +148,13 @@ export const MobileSettingsUI = {
             });
         });
 
-        // Handle Pill Buttons (Map Style / Colors)
         sheet.querySelectorAll('.m-setting-pill').forEach(btn => {
             btn.addEventListener('click', () => {
                 const setting = btn.dataset.setting;
                 const value = btn.dataset.value;
                 window.mapFilters[setting] = value;
-                
-                // Update UI selection
                 btn.parentElement.querySelectorAll('.m-setting-pill').forEach(b => b.classList.remove('active'));
                 btn.classList.add('active');
-
                 window.updateMapFilters();
             });
         });
@@ -147,24 +163,23 @@ export const MobileSettingsUI = {
     syncUIWithState() {
         const filters = window.mapFilters;
         if (!filters) return;
-
         const container = document.getElementById('mobile-settings-nexus');
 
-        // Sync Toggles
         container.querySelectorAll('input[type="checkbox"]').forEach(input => {
             input.checked = !!filters[input.dataset.setting];
         });
 
-        // Sync Sliders
         container.querySelectorAll('.m-range-input').forEach(input => {
             const val = filters[input.dataset.setting];
             input.value = val;
-            document.getElementById(`m-val-${input.dataset.setting}`).textContent = val;
+            const label = document.getElementById(`m-val-${input.dataset.setting}`);
+            if (label) label.textContent = val;
         });
 
-        // Sync Pill Buttons
         container.querySelectorAll('.m-setting-pill').forEach(btn => {
-            if (filters[btn.dataset.setting] === btn.dataset.value) {
+            const setting = btn.dataset.setting;
+            const value = btn.dataset.value;
+            if (filters[setting] === value) {
                 btn.classList.add('active');
             } else {
                 btn.classList.remove('active');
