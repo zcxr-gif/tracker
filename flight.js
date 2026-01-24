@@ -9,6 +9,7 @@ import { FlownPath3D } from './flownPath3D.js';
 import { MobileSettingsUI } from './MobileSettingsUI.js';
 
 document.addEventListener('DOMContentLoaded', async () => {
+    window.loadingStartTime = Date.now();
 
     // Register Service Worker for Instant Map Loading
 if ('serviceWorker' in navigator) {
@@ -3252,6 +3253,70 @@ function injectCustomStyles() {
 }
 .atc-supervisor .hero-rank-tag { color: #fbbf24; }
 .atc-supervisor .grade-badge { background: #fbbf24; }
+
+/* Loading Screen Styling */
+#main-content-loader {
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    background-color: #0a0c1a; /* Matches your dark theme */
+    z-index: 10000;
+    display: none;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 25px;
+}
+
+#main-content-loader.active {
+    display: flex;
+}
+
+.loader-logo-container {
+    position: relative;
+    width: 220px; /* Adjust based on your logo's dimensions */
+    overflow: hidden;
+}
+
+.loader-logo {
+    width: 100%;
+    height: auto;
+    display: block;
+}
+
+/* Shine Animation Effect */
+.loader-logo-container::after {
+    content: "";
+    position: absolute;
+    top: 0;
+    left: -150%;
+    width: 100%;
+    height: 100%;
+    background: linear-gradient(
+        to right,
+        rgba(255, 255, 255, 0) 0%,
+        rgba(255, 255, 255, 0.4) 50%,
+        rgba(255, 255, 255, 0) 100%
+    );
+    transform: skewX(-20deg);
+    animation: logo-shine 2s infinite;
+}
+
+@keyframes logo-shine {
+    0% { left: -150%; }
+    100% { left: 150%; }
+}
+
+.loader-text {
+    color: #ffffff;
+    font-family: 'Inter', sans-serif;
+    font-size: 1.2rem;
+    font-weight: 500;
+    letter-spacing: 0.5px;
+    opacity: 0.8;
+}
 
     `;
 
@@ -8388,7 +8453,15 @@ window.globalNatTracks = natTracks;
             panelContentWrapper.innerHTML = `<p class="error-text" style="padding: 20px;">${error.message}</p>`;
         }
     } finally {
-        mainContentLoader.classList.remove('active');
+        // Ensure the loading screen lasts for at least 6 seconds (6000ms)
+        const minLoadingTime = 6000;
+        const timeElapsed = Date.now() - window.loadingStartTime;
+        const remainingTime = Math.max(0, minLoadingTime - timeElapsed);
+
+        setTimeout(() => {
+            mainContentLoader.classList.remove('active');
+            console.log("Loading complete after 6 seconds.");
+        }, remainingTime);
     }
 }
 
