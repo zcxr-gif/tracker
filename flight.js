@@ -8518,39 +8518,6 @@ sectorOpsMap.addLayer({
                 }
             });
         });
-
-// [FIX] More robust hover-capable device detection
-const isHoverCapable = window.matchMedia("(hover: hover)").matches;
-const isMobileDevice = /Android|iPhone|iPad|iPod/i.test(navigator.userAgent);
-
-if (isHoverCapable && !isMobileDevice && !(window.MobileUIHandler && window.MobileUIHandler.isMobile())) {
-    const hoverPopup = new mapboxgl.Popup({ 
-        closeButton: false, 
-        closeOnClick: false, 
-        offset: 20,
-        className: 'hover-card-popup' // Add a class for easy targeting
-    });
-
-    sectorOpsMap.on('mouseenter', 'sector-ops-live-flights-layer', (e) => {
-        if (e.originalEvent && e.originalEvent.pointerType === 'touch') {
-        return;
-    }
-        
-        sectorOpsMap.getCanvas().style.cursor = 'pointer';
-        const coordinates = e.features[0].geometry.coordinates.slice();
-        const props = e.features[0].properties;
-
-        if (typeof generateHoverCardHTML !== 'undefined') {
-            const cardHTML = generateHoverCardHTML(props);
-            hoverPopup.setLngLat(coordinates).setHTML(cardHTML).addTo(sectorOpsMap);
-        }
-    });
-
-    sectorOpsMap.on('mouseleave', 'sector-ops-live-flights-layer', () => {
-        sectorOpsMap.getCanvas().style.cursor = '';
-        hoverPopup.remove();
-    });
-}
     }
     
     // 5. Add the LABEL layer
