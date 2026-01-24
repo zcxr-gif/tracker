@@ -48,6 +48,7 @@ export const LandingUI = {
     async init() {
         await this.loadPrefixData(); 
         this.injectStyles();
+        this.applyMobileOptimizations();
         this.render();
         this.attachListeners();
     },
@@ -657,6 +658,7 @@ export const LandingUI = {
             isActive ? el.classList.add('active') : el.classList.remove('active');
         }
     },
+    
 
     injectStyles() {
         const css = `
@@ -1286,5 +1288,101 @@ export const LandingUI = {
             style.textContent = css;
             document.head.appendChild(style);
         }
+    },
+
+    // Add this to your LandingUI object
+applyMobileOptimizations() {
+    const mobileStyles = `
+    @media (max-width: 768px) {
+        /* 1. Modal Adjustments */
+        .filter-modal {
+            width: 98vw !important;
+            height: 98vh !important;
+            max-height: 100vh !important;
+            border-radius: 0 !important;
+            flex-direction: column !important;
+        }
+
+        .modal-body {
+            flex-direction: column !important;
+            overflow-y: auto !important;
+        }
+
+        .filter-selection-pane {
+            width: 100% !important;
+            border-right: none !important;
+            border-bottom: 1px solid rgba(255, 255, 255, 0.08) !important;
+            height: 250px !important; /* Limit height so config pane is visible */
+            flex-shrink: 0 !important;
+        }
+
+        .modal-header {
+            padding: 0 20px !important;
+            height: 70px !important;
+        }
+
+        /* 2. Top Bar (Server & Search) */
+        .top-branding.dropdown {
+            left: 10px !important;
+            top: 15px !important;
+            padding: 8px 16px !important;
+        }
+
+        .top-right-actions {
+            right: 10px !important;
+            top: 15px !important;
+            left: auto !important;
+        }
+
+        .search-blade {
+            width: 44px !important; /* Icon only by default on mobile */
+            transition: width 0.3s ease !important;
+        }
+
+        .search-blade:focus-within {
+            width: calc(100vw - 120px) !important; /* Expand but leave room for server name */
+            position: absolute !important;
+            right: 0 !important;
+        }
+
+        .search-shortcut { display: none !important; }
+
+        /* 3. Utility Nexus (Bottom Orbs) */
+        .utility-nexus {
+            bottom: 20px !important;
+            right: 0 !important;
+            left: 0 !important;
+            display: flex !important;
+            justify-content: center !important;
+        }
+
+        .orb-row {
+            gap: 25px !important; /* Wider gap for thumb reach */
+        }
+
+        /* 4. Disable Hover Tooltips on Mobile */
+        .nexus-preview-tooltip {
+            display: none !important; 
+        }
+
+        /* 5. Results Dropdown */
+        .search-results-dropdown {
+            width: calc(100vw - 40px) !important;
+            left: auto !important;
+            right: 0 !important;
+            position: fixed !important;
+            top: 70px !important;
+        }
     }
+    `;
+
+    const styleId = 'landing-ui-mobile-css';
+    if (!document.getElementById(styleId)) {
+        const style = document.createElement('style');
+        style.id = styleId;
+        style.textContent = mobileStyles;
+        document.head.appendChild(style);
+    }
+}
+    
 };
