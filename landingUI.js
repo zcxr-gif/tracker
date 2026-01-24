@@ -53,6 +53,12 @@ export const LandingUI = {
         this.attachListeners();
     },
 
+    applyMobileOptimizations() {
+    if (window.innerWidth <= 768) {
+        import('./MobileLandingUI.js').then(m => m.MobileLandingUI.init(this));
+    }
+}
+
     async loadPrefixData() {
         try {
             const response = await fetch('prefix.json');
@@ -433,7 +439,13 @@ export const LandingUI = {
             }
         };
 
-        filterBtn?.addEventListener('click', () => toggleModal(true));
+        filterBtn?.addEventListener('click', () => {
+    if (window.innerWidth <= 768) {
+        window.dispatchEvent(new CustomEvent('openMobileUI'));
+    } else {
+        toggleModal(true);
+    }
+});
         document.getElementById('close-filter-modal')?.addEventListener('click', () => toggleModal(false));
         document.getElementById('apply-filters-btn')?.addEventListener('click', () => {
             this.dispatchFilterUpdate();
@@ -1288,133 +1300,6 @@ export const LandingUI = {
             style.textContent = css;
             document.head.appendChild(style);
         }
-    },
-
-applyMobileOptimizations() {
-    const mobileStyles = `
-    @media (max-width: 768px) {
-        /* 1. THE TRAY: Slide-up Bottom Sheet */
-        .filter-modal {
-            width: 100vw !important;
-            height: 85vh !important; /* Leaves a gap at the top to show the map context */
-            max-height: 85vh !important;
-            border-radius: 24px 24px 0 0 !important;
-            position: fixed !important;
-            bottom: 0 !important;
-            top: auto !important;
-            transform: translateY(100%);
-            transition: transform 0.4s cubic-bezier(0.33, 1, 0.68, 1) !important;
-            border: 1px solid rgba(255, 255, 255, 0.1) !important;
-            border-bottom: none !important;
-        }
-
-        .modal-overlay.open .filter-modal {
-            transform: translateY(0) !important;
-        }
-
-        /* Handle Indicator (Native Feel) */
-        .filter-modal::before {
-            content: '';
-            position: absolute;
-            top: 12px;
-            left: 50%;
-            transform: translateX(-50%);
-            width: 40px;
-            height: 4px;
-            background: rgba(255, 255, 255, 0.2);
-            border-radius: 10px;
-        }
-
-        .modal-header {
-            height: 70px !important;
-            padding-top: 15px !important;
-            background: transparent !important;
-            border-bottom: none !important;
-        }
-
-        .header-icon-box { display: none; } /* Simplify for mobile */
-        .header-text h2 { font-size: 1.1rem !important; }
-
-        /* 2. TABBED NAVIGATION (Native Segmented Control) */
-        .modal-body {
-            flex-direction: column !important;
-            overflow: hidden !important;
-        }
-
-        .filter-selection-pane {
-            width: 100% !important;
-            height: auto !important;
-            padding: 0 15px !important;
-            background: #0a0a0b !important;
-            border-right: none !important;
-            display: flex !important;
-            overflow-x: auto !important;
-            gap: 12px;
-            border-bottom: 1px solid rgba(255,255,255,0.05);
-        }
-
-        .filter-group-wrapper { margin: 0 !important; padding: 10px 0; }
-        .filter-group-header { display: none; } /* Use icons/labels in tabs instead */
-
-        .filter-options-list {
-            display: flex !important;
-            flex-direction: row !important;
-            gap: 8px;
-        }
-
-        .nexus-item {
-            flex-shrink: 0;
-            width: auto !important;
-            padding: 8px 16px !important;
-            background: rgba(255,255,255,0.05) !important;
-            border-radius: 100px !important;
-            font-size: 12px !important;
-        }
-
-        .nexus-item .nexus-icon { font-size: 0.8rem; }
-        .nexus-add { display: none; }
-
-        /* 3. ACTIVE CONFIG AREA */
-        .filter-config-pane {
-            flex: 1 !important;
-            padding: 20px !important;
-            background: #0a0a0b !important;
-        }
-
-        .config-header label { font-size: 0.7rem !important; }
-
-        /* 4. RANGE INPUTS: Finger-Friendly Stack */
-        .range-pill-container {
-            flex-direction: column;
-            background: transparent !important;
-            border: none !important;
-            gap: 8px;
-        }
-        .range-half {
-            background: #18181b !important;
-            border: 1px solid #27272a !important;
-            border-radius: 12px !important;
-            height: 50px;
-        }
-        .range-divider { display: none; }
-
-        /* 5. STICKY FOOTER */
-        .modal-footer-embedded {
-            padding: 15px 20px 30px 20px !important;
-            position: relative !important;
-            background: #0a0a0b !important;
-        }
-        .modal-btn { flex: 1; padding: 16px !important; }
     }
-    `;
-
-    const styleId = 'landing-ui-tray-mobile-css';
-    if (!document.getElementById(styleId)) {
-        const style = document.createElement('style');
-        style.id = styleId;
-        style.textContent = mobileStyles;
-        document.head.appendChild(style);
-    }
-}
     
 };
