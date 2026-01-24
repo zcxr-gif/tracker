@@ -6,6 +6,7 @@ import { GroupFlightManager } from './groupFlightManager.js';
 import { updateActiveSectors } from './atcHighlights.js';
 import { NatTracksLayer } from './natTracksLayer.js';
 import { FlownPath3D } from './flownPath3D.js';
+import { MobileSettingsUI } from './MobileSettingsUI.js';
 
 document.addEventListener('DOMContentLoaded', async () => {
 
@@ -3250,6 +3251,15 @@ function injectCustomStyles() {
 }
 .atc-supervisor .hero-rank-tag { color: #fbbf24; }
 .atc-supervisor .grade-badge { background: #fbbf24; }
+
+.m-settings-row {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 12px 0;
+    border-bottom: 1px solid rgba(255,255,255,0.05);
+}
+.m-settings-row:last-child { border-bottom: none; }
     `;
 
     const style = document.createElement('style');
@@ -12280,6 +12290,8 @@ function updateUnstaffedLayer(show, excludeIcaos) {
     }
 }
 
+window.dispatchEvent(new CustomEvent('openMobileSettings'));
+
 
 // --- [UPDATED] Fetches ATC & NOTAMs for the CURRENTLY SELECTED SERVER ---
 async function updateSectorOpsSecondaryData() {
@@ -12351,6 +12363,7 @@ async function initializeApp() {
 
         await LandingUI.init();
         SettingsUI.init();
+        MobileSettingsUI.init();
         
         // Default to true if not explicitly set to 'false'
 const isVisible = localStorage.getItem('landingUI_visible') !== 'false'; 
