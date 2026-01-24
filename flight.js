@@ -6847,7 +6847,7 @@ function initializeLiveMap() {
             container: 'live-flights-map-container',
             style: currentMapStyle, // [SYNCED] Uses global style state
             center: [78.9629, 22.5937],
-            zoom: 3,
+            zoom: 2,
             minZoom: 0,
             projection: 'globe',
             // --- PERFORMANCE & CACHING CONFIG ---
@@ -8603,7 +8603,7 @@ function initializeSectorOpsMap(centerICAO) {
         container: 'sector-ops-map-fullscreen',
         style: currentMapStyle,
         center: centerCoords,
-        zoom: 3,
+        zoom: 2,
         minZoom: 0,
         interactive: true,
         projection: mapFilters.useFlatMap ? 'mercator' : 'globe',
