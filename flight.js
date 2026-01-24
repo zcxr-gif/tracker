@@ -11323,13 +11323,12 @@ function setupSectorOpsEventListeners() {
 }
 
 /**
- * --- [NEW] Logic for Flight Hover Popups (FR24 Style) ---
- * Attaches mouse listeners to the aircraft layer to show info cards.
+ * --- [REFINED] Logic for Flight Hover Popups (FR24 Style) ---
+ * Handles hover effects but excludes touch-based "hover" emulation.
  */
 function setupFlightHoverPopups() {
     if (!sectorOpsMap) return;
 
-    // Create a single shared popup instance for hovering
     const hoverPopup = new mapboxgl.Popup({
         closeButton: false,
         closeOnClick: false,
@@ -11339,17 +11338,22 @@ function setupFlightHoverPopups() {
     });
 
     sectorOpsMap.on('mouseenter', 'sector-ops-live-flights-layer', (e) => {
-        if (e.originalEvent.pointerType === 'touch') return;
-        // Change cursor to indicate interactability
+        // 1. BLOCK MOBILE TAPS: 
+        // Only proceed if the device supports a hover state (mouse) 
+        // and the event isn't coming from a touch pointer.
+        const isHoverDevice = window.matchMedia('(hover: hover)').matches;
+        if (!isHoverDevice || (e.originalEvent && e.originalEvent.pointerType === 'touch')) {
+            return;
+        }
+
+        // Change cursor
         sectorOpsMap.getCanvas().style.cursor = 'pointer';
         
         const feature = e.features[0];
         const props = feature.properties;
 
-        // Parse JSON strings from properties (set in handleSocketFlightUpdate)
+        // Data Parsing
         const acData = props.aircraft ? JSON.parse(props.aircraft) : {};
-        
-        // Prepare display data
         const callsign = props.callsign || '---';
         const acType = (acData.aircraftName || 'AC').split(' ')[0].substring(0, 4).toUpperCase();
         const imgUrl = props.communityImageUrl || '/CommunityPlanes/default.png';
@@ -11357,14 +11361,13 @@ function setupFlightHoverPopups() {
         const alt = Math.round(props.altitude || 0).toLocaleString();
         const gs = Math.round(props.speed || 0);
         
-        // Generate Airline Logo Path
+        // Logo Generation
         const livName = acData.liveryName || '';
         const words = livName.trim().split(/\s+/);
         let logoName = words.length > 1 && /[^a-zA-Z0-9]/.test(words[1]) ? words[0] : (words[0] + (words[1] ? ' ' + words[1] : ''));
         const sanitizedLogoName = logoName.toLowerCase().replace(/[^a-z0-9\s]/g, '').replace(/\s+/g, '_');
         const logoPath = `Images/airline_logos/${sanitizedLogoName}.png`;
 
-        // Build the HTML structure matching your CSS
         const html = `
             <div class="fr24-card-container">
                 <div class="fr24-image-box" style="background-image: url('${imgUrl}')">
@@ -11386,19 +11389,17 @@ function setupFlightHoverPopups() {
             </div>
         `;
 
-        // Show the popup at the aircraft's current location
         hoverPopup.setLngLat(feature.geometry.coordinates).setHTML(html).addTo(sectorOpsMap);
     });
 
-    // Remove popup and reset cursor when mouse leaves
     sectorOpsMap.on('mouseleave', 'sector-ops-live-flights-layer', () => {
         sectorOpsMap.getCanvas().style.cursor = '';
         hoverPopup.remove();
     });
 
-    // Optional: Follow mouse movement for smoother tracking
     sectorOpsMap.on('mousemove', 'sector-ops-live-flights-layer', (e) => {
-        if (hoverPopup.isOpen()) {
+        // Only follow mouse if the device actually supports hover
+        if (hoverPopup.isOpen() && window.matchMedia('(hover: hover)').matches) {
             hoverPopup.setLngLat(e.lngLat);
         }
     });
