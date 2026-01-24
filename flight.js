@@ -8519,21 +8519,24 @@ sectorOpsMap.addLayer({
             });
         });
 
-        // Locate the Hover Listener block inside setupMapLayersAndFog
-const isTouchDevice = 'ontouchstart' in window || navigator.maxTouchPoints > 0;
+// [FIX] More robust hover-capable device detection
+const isHoverCapable = window.matchMedia("(hover: hover)").matches;
 
-if (!isTouchDevice && (typeof window.MobileUIHandler === 'undefined' || !window.MobileUIHandler.isMobile())) {
-    const hoverPopup = new mapboxgl.Popup({ closeButton: false, closeOnClick: false, offset: 20 });
+if (isHoverCapable && !(window.MobileUIHandler && window.MobileUIHandler.isMobile())) {
+    const hoverPopup = new mapboxgl.Popup({ 
+        closeButton: false, 
+        closeOnClick: false, 
+        offset: 20,
+        className: 'hover-card-popup' // Add a class for easy targeting
+    });
 
     sectorOpsMap.on('mouseenter', 'sector-ops-live-flights-layer', (e) => {
+        // Double-check pointer type to ensure it wasn't a tap
+        if (e.originalEvent.pointerType === 'touch') return;
+        
         sectorOpsMap.getCanvas().style.cursor = 'pointer';
         const coordinates = e.features[0].geometry.coordinates.slice();
         const props = e.features[0].properties;
-
-        // Ensure popup doesn't display over the same spot twice if map wraps
-        while (Math.abs(e.lngLat.lng - coordinates[0]) > 180) {
-            coordinates[0] += e.lngLat.lng > coordinates[0] ? 360 : -360;
-        }
 
         if (typeof generateHoverCardHTML !== 'undefined') {
             const cardHTML = generateHoverCardHTML(props);
