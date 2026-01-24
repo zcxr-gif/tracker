@@ -8454,13 +8454,13 @@ window.globalNatTracks = natTracks;
         }
     } finally {
         // Ensure the loading screen lasts for at least 6 seconds (6000ms)
-        const minLoadingTime = 6000;
+        const minLoadingTime = 8000;
         const timeElapsed = Date.now() - window.loadingStartTime;
         const remainingTime = Math.max(0, minLoadingTime - timeElapsed);
 
         setTimeout(() => {
             mainContentLoader.classList.remove('active');
-            console.log("Loading complete after 6 seconds.");
+            console.log("Loading complete after 8 seconds.");
         }, remainingTime);
     }
 }
