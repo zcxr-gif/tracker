@@ -7678,22 +7678,31 @@ function formatDataForSimpleWindow(flightProps, plan, routePoints, communityData
     this.render();
     this.attachListeners();
 
-    // This helper function decides which UI to open based on screen width
-    const handleSettingsOpen = () => {
+    // The logic to decide which UI to show
+    const handleSettingsOpen = (e) => {
+        // Prevent the button from keeping focus state during the transition
+        e.currentTarget.blur(); 
+
         if (window.innerWidth <= 768) {
-            // It's a mobile device: trigger the Bottom Sheet
+            // Trigger the Mobile Bottom Sheet
             window.dispatchEvent(new CustomEvent('openMobileSettings'));
         } else {
-            // It's a desktop: open the standard settings box
+            // Open the Desktop Modal
             this.toggle(true);
         }
     };
 
-    // Hook into the LandingUI 'Settings' button
-    document.getElementById('tile-settings')?.addEventListener('click', handleSettingsOpen);
-    
-    // Hook into the old toolbar button if it exists
-    document.getElementById('open-filter-settings-btn')?.addEventListener('click', handleSettingsOpen);
+    // 1. Hook into the LandingUI 'Settings' Tile
+    const tileSettings = document.getElementById('tile-settings');
+    if (tileSettings) {
+        tileSettings.addEventListener('click', handleSettingsOpen);
+    }
+
+    // 2. Hook into the standard toolbar button
+    const toolbarSettings = document.getElementById('open-filter-settings-btn');
+    if (toolbarSettings) {
+        toolbarSettings.addEventListener('click', handleSettingsOpen);
+    }
 },
 
     toggle(state) {
