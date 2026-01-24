@@ -1,7 +1,5 @@
 /**
- * MobileLandingUI.js
- * REDESIGN: Pure Tactical Filter Bottom-Sheet.
- * Removed Settings tabs to maintain decoupled logic.
+ * MobileLandingUI.js - Optimized for State Persistence & Responsive Inputs
  */
 
 export const MobileLandingUI = {
@@ -69,6 +67,7 @@ export const MobileLandingUI = {
     attachMobileListeners() {
         const sheet = document.querySelector('.mobile-bottom-sheet');
         const overlay = document.getElementById('mobile-overlay');
+        const container = document.getElementById('mobile-active-rules-container');
 
         window.addEventListener('openMobileUI', () => {
             this._isOpen = true;
@@ -85,11 +84,26 @@ export const MobileLandingUI = {
 
         overlay.addEventListener('click', closeUI);
 
+        // Grid selection for adding new filters
         document.querySelectorAll('.m-grid-item').forEach(btn => {
             btn.addEventListener('click', () => {
                 this.parent.activateFilter(btn.dataset.id);
                 this.syncActiveRules();
             });
+        });
+
+        // CRITICAL: Listen for typing/inputs within the mobile container
+        container?.addEventListener('input', (e) => {
+            const target = e.target;
+            const id = target.dataset.id;
+            
+            if (target.classList.contains('data-input-min')) {
+                this.parent.updateFilterValue(id, target.value, 'min');
+            } else if (target.classList.contains('data-input-max')) {
+                this.parent.updateFilterValue(id, target.value, 'max');
+            } else if (target.classList.contains('data-input')) {
+                this.parent.updateFilterValue(id, target.value);
+            }
         });
 
         document.getElementById('mobile-apply-btn').addEventListener('click', () => {
@@ -122,11 +136,11 @@ export const MobileLandingUI = {
                         <i class="fa-solid ${def.icon}"></i>
                         <span>${def.label}</span>
                     </div>
-                    <div class="m-card-input">
+                    <div class="m-card-input-wrapper">
                         ${this.parent.renderInputControl(id, value)}
                     </div>
                     <button class="m-card-remove" onclick="MobileLandingUI.removeRule('${id}')">
-                        <i class="fa-solid fa-xmark"></i>
+                        <i class="fa-solid fa-trash-can"></i>
                     </button>
                 </div>
             `;
@@ -143,50 +157,70 @@ export const MobileLandingUI = {
             @media (min-width: 769px) { .mobile-only-ui { display: none; } }
             @media (max-width: 768px) {
                 .mobile-sheet-overlay {
-                    position: fixed; inset: 0; background: rgba(0,0,0,0.6); 
-                    opacity: 0; visibility: hidden; transition: 0.3s; z-index: 5000;
+                    position: fixed; inset: 0; background: rgba(0,0,0,0.7); 
+                    backdrop-filter: blur(4px); opacity: 0; visibility: hidden; transition: 0.3s; z-index: 5000;
                 }
                 .mobile-sheet-overlay.visible { opacity: 1; visibility: visible; }
 
                 .mobile-bottom-sheet {
                     position: fixed; bottom: 0; left: 0; right: 0;
-                    background: #0f0f11; border-top: 1px solid rgba(255,255,255,0.1);
+                    background: #0a0a0b; border-top: 1px solid rgba(255,255,255,0.1);
                     border-radius: 24px 24px 0 0; z-index: 5001;
-                    height: 75vh; transform: translateY(100%); transition: transform 0.4s cubic-bezier(0.16, 1, 0.3, 1);
+                    height: 85vh; transform: translateY(100%); transition: transform 0.4s cubic-bezier(0.16, 1, 0.3, 1);
                     display: flex; flex-direction: column; color: #fff;
+                    box-shadow: 0 -10px 40px rgba(0,0,0,0.5);
                 }
                 .mobile-bottom-sheet.open { transform: translateY(0); }
 
-                .sheet-handle { width: 40px; height: 4px; background: rgba(255,255,255,0.2); border-radius: 2px; margin: 12px auto; }
+                .sheet-handle { width: 40px; height: 5px; background: rgba(255,255,255,0.2); border-radius: 10px; margin: 12px auto; }
                 
                 .mobile-title { 
-                    padding: 10px 20px 20px; text-align: center; font-weight: 800; color: #38bdf8; 
+                    padding: 5px 20px 15px; text-align: center; font-weight: 800; color: #38bdf8; 
                     display: flex; align-items: center; justify-content: center; gap: 10px; font-size: 1.1rem;
+                    text-transform: uppercase; letter-spacing: 1px;
                 }
 
-                .sheet-content { flex: 1; overflow-y: auto; padding: 0 20px 20px; }
-                .mobile-section-header { font-size: 0.65rem; font-weight: 900; color: #3f3f46; text-transform: uppercase; letter-spacing: 1.5px; margin: 20px 0 12px; }
+                .sheet-content { flex: 1; overflow-y: auto; padding: 0 20px 100px; }
+                .mobile-section-header { font-size: 0.7rem; font-weight: 900; color: #52525b; text-transform: uppercase; letter-spacing: 1.5px; margin: 25px 0 12px; }
                 
                 .mobile-filter-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; }
                 .m-grid-item { 
                     background: rgba(255,255,255,0.03); border: 1px solid rgba(255,255,255,0.08); 
-                    border-radius: 12px; padding: 12px 8px; color: #a1a1aa; display: flex; flex-direction: column; align-items: center; gap: 8px; font-size: 0.7rem;
+                    border-radius: 16px; padding: 15px 5px; color: #a1a1aa; display: flex; flex-direction: column; align-items: center; gap: 8px; font-size: 0.7rem;
+                    transition: all 0.2s;
                 }
+                .m-grid-item:active { background: rgba(56, 189, 248, 0.2); color: #38bdf8; border-color: #38bdf8; }
 
+                /* FIXED CARD STYLING */
                 .m-active-card { 
-                    background: #18181b; border: 1px solid #38bdf8; border-radius: 14px; 
-                    padding: 15px; margin-bottom: 10px; position: relative;
+                    background: #141416; border: 1px solid rgba(255,255,255,0.08); border-radius: 18px; 
+                    padding: 20px; margin-bottom: 12px; position: relative;
                 }
-                .m-card-info { display: flex; align-items: center; gap: 10px; font-weight: 700; margin-bottom: 12px; }
-                .m-card-info i { color: #38bdf8; }
-                .m-card-remove { position: absolute; top: 12px; right: 12px; background: none; border: none; color: #ef4444; font-size: 1.2rem; }
+                .m-card-info { display: flex; align-items: center; gap: 12px; font-weight: 700; margin-bottom: 15px; font-size: 0.95rem; }
+                .m-card-info i { color: #38bdf8; font-size: 1rem; }
+                .m-card-remove { position: absolute; top: 18px; right: 18px; background: none; border: none; color: #ef4444; font-size: 1.1rem; opacity: 0.8; }
 
-                .sheet-footer { padding: 20px; border-top: 1px solid rgba(255,255,255,0.05); display: flex; gap: 12px; }
-                .m-btn { flex: 1; padding: 14px; border-radius: 12px; font-weight: 700; border: none; }
+                /* FORCE INPUTS TO BE ACCESSIBLE ON MOBILE */
+                .m-card-input-wrapper .row-input, 
+                .m-card-input-wrapper .row-input-select,
+                .m-card-input-wrapper .range-pill-container {
+                    width: 100% !important;
+                    background: #1c1c1f !important;
+                    font-size: 16px !important; /* Prevents iOS zoom-on-focus */
+                }
+                .m-card-input-wrapper .range-input {
+                    font-size: 16px !important;
+                }
+
+                .sheet-footer { 
+                    padding: 20px; background: #0a0a0b; border-top: 1px solid rgba(255,255,255,0.05); 
+                    display: flex; gap: 12px; position: sticky; bottom: 0;
+                }
+                .m-btn { flex: 1; padding: 16px; border-radius: 14px; font-weight: 700; border: none; font-size: 1rem; }
                 .m-primary { background: #38bdf8; color: #000; }
-                .m-secondary { background: rgba(255,255,255,0.05); color: #fff; }
+                .m-secondary { background: rgba(255,255,255,0.08); color: #fff; }
                 
-                .m-empty-text { color: #3f3f46; font-size: 0.85rem; text-align: center; margin: 20px 0; }
+                .m-empty-text { color: #3f3f46; font-size: 0.9rem; text-align: center; margin: 30px 0; font-style: italic; }
             }
         `;
         const style = document.createElement('style');
