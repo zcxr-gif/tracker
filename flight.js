@@ -8521,8 +8521,9 @@ sectorOpsMap.addLayer({
 
 // [FIX] More robust hover-capable device detection
 const isHoverCapable = window.matchMedia("(hover: hover)").matches;
+const isMobileDevice = /Android|iPhone|iPad|iPod/i.test(navigator.userAgent);
 
-if (isHoverCapable && !(window.MobileUIHandler && window.MobileUIHandler.isMobile())) {
+if (isHoverCapable && !isMobileDevice && !(window.MobileUIHandler && window.MobileUIHandler.isMobile())) {
     const hoverPopup = new mapboxgl.Popup({ 
         closeButton: false, 
         closeOnClick: false, 
@@ -8531,8 +8532,9 @@ if (isHoverCapable && !(window.MobileUIHandler && window.MobileUIHandler.isMobil
     });
 
     sectorOpsMap.on('mouseenter', 'sector-ops-live-flights-layer', (e) => {
-        // Double-check pointer type to ensure it wasn't a tap
-        if (e.originalEvent.pointerType === 'touch') return;
+        if (e.originalEvent && e.originalEvent.pointerType === 'touch') {
+        return;
+    }
         
         sectorOpsMap.getCanvas().style.cursor = 'pointer';
         const coordinates = e.features[0].geometry.coordinates.slice();
