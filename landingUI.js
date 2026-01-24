@@ -161,27 +161,32 @@ export const LandingUI = {
 
         const html = `
             <div id="inflight-tactical-ui" class="tactical-ui-root">
-                <div class="top-branding dropdown" id="server-selector">
-                    <div class="status-dot"></div>
-                    <div class="branding-content">
-                        <span id="landing-server-name">${this._currentServer.toUpperCase()} SERVER</span>
-                        <i class="fa-solid fa-chevron-down dropdown-arrow"></i>
-                    </div>
-                    <div class="server-menu">
-                        <div class="server-option" data-val="Expert">Expert</div>
-                        <div class="server-option" data-val="Training">Training</div>
-                        <div class="server-option" data-val="Casual">Casual</div>
+            <header class="tactical-header">
+                <div class="header-left-section">
+                    <div class="top-branding dropdown" id="server-selector">
+                        <div class="status-dot"></div>
+                        <div class="branding-content">
+                            <i class="fa-solid fa-server mobile-server-icon"></i>
+                            <span id="landing-server-name">${this._currentServer.toUpperCase()} SERVER</span>
+                            <i class="fa-solid fa-chevron-down dropdown-arrow"></i>
+                        </div>
+                        <div class="server-menu">
+                            <div class="server-option" data-val="Expert">Expert</div>
+                            <div class="server-option" data-val="Training">Training</div>
+                            <div class="server-option" data-val="Casual">Casual</div>
+                        </div>
                     </div>
                 </div>
 
-                <div class="top-right-actions">
+                <div class="header-right-section">
                     <div class="search-blade">
                         <i class="fa-solid fa-magnifying-glass search-icon"></i>
-                        <input type="text" id="blade-search-input" placeholder="Quick search..." autocomplete="off">
+                        <input type="text" id="blade-search-input" placeholder="Search flights..." autocomplete="off">
                         <div class="search-shortcut">⌘K</div>
                         <div id="blade-search-results" class="search-results-dropdown custom-scroll"></div>
                     </div>
                 </div>
+            </header>
 
                 <div id="filter-modal-overlay" class="modal-overlay">
                     <div class="filter-modal">
@@ -488,6 +493,85 @@ export const LandingUI = {
     injectStyles() {
         const css = `
             @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap');
+
+            /* --- HEADER LAYOUT --- */
+.tactical-header {
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    height: 80px;
+    padding: 0 40px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    pointer-events: none;
+    z-index: 1005;
+}
+
+.header-left-section, .header-right-section {
+    pointer-events: auto;
+    display: flex;
+    align-items: center;
+    transition: all 0.4s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.header-right-section {
+    flex: 1;
+    justify-content: flex-end;
+}
+
+/* --- SERVER SELECTOR ADJUSTMENTS --- */
+.mobile-server-icon {
+    display: none; /* Hidden by default on desktop */
+}
+
+/* --- SEARCH BLADE EXPANSION --- */
+.search-blade {
+    width: 280px;
+    /* ... keep your existing background/border styles ... */
+}
+
+/* --- MOBILE SPECIFIC LOGIC --- */
+@media (max-width: 768px) {
+    .tactical-header {
+        padding: 0 15px;
+        height: 70px;
+    }
+
+    /* Hide text, show icon on mobile */
+    #landing-server-name { display: none; }
+    .mobile-server-icon { display: block; font-size: 1.2rem; }
+    
+    .top-branding.dropdown {
+        padding: 10px 15px;
+    }
+
+    /* WHEN SEARCH IS ACTIVE */
+    .tactical-header:has(.search-blade:focus-within) .header-left-section {
+        width: 0;
+        opacity: 0;
+        margin-right: 0;
+        pointer-events: none;
+        transform: translateX(-20px);
+    }
+
+    .tactical-header:has(.search-blade:focus-within) .header-right-section {
+        width: 100%;
+    }
+
+    .search-blade:focus-within {
+        width: 100% !important;
+        margin-left: 0;
+    }
+    
+    /* Make results full width on mobile */
+    .search-results-dropdown {
+        width: 100vw;
+        left: -15px; /* Offset the header padding */
+        border-radius: 0 0 20px 20px;
+    }
+}
 
             .tactical-ui-root {
                 position: absolute;
