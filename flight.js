@@ -12292,6 +12292,25 @@ function updateUnstaffedLayer(show, excludeIcaos) {
 
 window.dispatchEvent(new CustomEvent('openMobileSettings'));
 
+function checkAndTriggerMobileUI() {
+    // Define your mobile breakpoint (e.g., 768px)
+    const isSmallScreen = window.innerWidth <= 768;
+    
+    // Check if the UI is already open to avoid redundant triggers
+    const mobileUI = document.getElementById('mobile-settings-nexus');
+    const isAlreadyVisible = mobileUI && mobileUI.classList.contains('active');
+
+    if (isSmallScreen && !isAlreadyVisible) {
+        window.dispatchEvent(new CustomEvent('openMobileSettings'));
+    }
+}
+
+// Trigger on initial load
+checkAndTriggerMobileUI();
+
+// Trigger whenever the window is resized
+window.addEventListener('resize', checkAndTriggerMobileUI);
+
 
 // --- [UPDATED] Fetches ATC & NOTAMs for the CURRENTLY SELECTED SERVER ---
 async function updateSectorOpsSecondaryData() {

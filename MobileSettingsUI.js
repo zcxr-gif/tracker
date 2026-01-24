@@ -89,12 +89,18 @@ export const MobileSettingsUI = {
         const sheet = document.querySelector('#mobile-settings-nexus .mobile-bottom-sheet');
         const overlay = document.getElementById('mobile-settings-overlay');
 
-        window.addEventListener('openMobileSettings', () => {
-            this.syncSettingsUI();
-            this._isOpen = true;
-            sheet.classList.add('open');
-            overlay.classList.add('visible');
-        });
+        // Add inside MobileSettingsUI.attachMobileListeners()
+window.addEventListener('openMobileSettings', () => {
+    this._isOpen = true;
+    const sheet = document.querySelector('#mobile-settings-nexus .mobile-bottom-sheet');
+    const overlay = document.getElementById('mobile-settings-overlay');
+    
+    if (sheet && overlay) {
+        sheet.classList.add('open');
+        overlay.classList.add('visible');
+        this.syncSettingsUI(); // Matches UI to current map state
+    }
+});
 
         const closeUI = () => {
             this._isOpen = false;
