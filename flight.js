@@ -8519,33 +8519,33 @@ sectorOpsMap.addLayer({
             });
         });
 
-        // Hover Listener
-        if (typeof window.MobileUIHandler === 'undefined' || !window.MobileUIHandler.isMobile()) {
-            const hoverPopup = new mapboxgl.Popup({
-                closeButton: false,
-                closeOnClick: false,
-                offset: 20
-            });
+        // Locate the Hover Listener block inside setupMapLayersAndFog
+const isTouchDevice = 'ontouchstart' in window || navigator.maxTouchPoints > 0;
 
-            sectorOpsMap.on('mouseenter', 'sector-ops-live-flights-layer', (e) => {
-                sectorOpsMap.getCanvas().style.cursor = 'pointer';
-                const coordinates = e.features[0].geometry.coordinates.slice();
-                const props = e.features[0].properties;
-                while (Math.abs(e.lngLat.lng - coordinates[0]) > 180) {
-                    coordinates[0] += e.lngLat.lng > coordinates[0] ? 360 : -360;
-                }
-                if (typeof generateHoverCardHTML !== 'undefined') {
-                    const cardHTML = generateHoverCardHTML(props);
-                    hoverPopup.setLngLat(coordinates).setHTML(cardHTML).addTo(sectorOpsMap);
-                }
-            });
+if (!isTouchDevice && (typeof window.MobileUIHandler === 'undefined' || !window.MobileUIHandler.isMobile())) {
+    const hoverPopup = new mapboxgl.Popup({ closeButton: false, closeOnClick: false, offset: 20 });
 
-            sectorOpsMap.on('mouseleave', 'sector-ops-live-flights-layer', () => {
-                sectorOpsMap.getCanvas().style.cursor = '';
-                hoverPopup.remove();
-            });
+    sectorOpsMap.on('mouseenter', 'sector-ops-live-flights-layer', (e) => {
+        sectorOpsMap.getCanvas().style.cursor = 'pointer';
+        const coordinates = e.features[0].geometry.coordinates.slice();
+        const props = e.features[0].properties;
+
+        // Ensure popup doesn't display over the same spot twice if map wraps
+        while (Math.abs(e.lngLat.lng - coordinates[0]) > 180) {
+            coordinates[0] += e.lngLat.lng > coordinates[0] ? 360 : -360;
         }
-    }
+
+        if (typeof generateHoverCardHTML !== 'undefined') {
+            const cardHTML = generateHoverCardHTML(props);
+            hoverPopup.setLngLat(coordinates).setHTML(cardHTML).addTo(sectorOpsMap);
+        }
+    });
+
+    sectorOpsMap.on('mouseleave', 'sector-ops-live-flights-layer', () => {
+        sectorOpsMap.getCanvas().style.cursor = '';
+        hoverPopup.remove();
+    });
+}
     
     // 5. Add the LABEL layer
     if (!sectorOpsMap.getLayer('sector-ops-live-flights-labels')) {
