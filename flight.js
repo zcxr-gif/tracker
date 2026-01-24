@@ -12099,7 +12099,7 @@ function startSectorOpsLiveLoop() {
  * Global Bridge: Handles selection from LandingUI search.
  * Synchronizes the search bar with the Sector Ops map engine.
  */
-window.handleSearchResultClick = async (flightId, lat, lon) => {
+window.handleSearchResultClick = function(id, lat, lon) {
     // 1. Fly the map to the aircraft coordinates
     if (window.sectorOpsMap) {
         sectorOpsMap.flyTo({

@@ -39,6 +39,8 @@ export const LandingUI = {
     },
 
     async init() {
+        window.LandingUI = this;
+
         await this.loadPrefixData(); 
         this.injectStyles();
         this.applyMobileOptimizations();
@@ -143,12 +145,21 @@ export const LandingUI = {
     },
 
     executeSearchClick(id, lat, lon) {
-        // 1. Trigger the map navigation and info panel logic in flight.js
+        console.log(`Navigating to flight: ${id} at ${lat}, ${lon}`);
+
+        // 1. Trigger the map navigation and info panel logic
+        // We use a small timeout to ensure the UI cleanup doesn't interrupt the event
         if (typeof window.handleSearchResultClick === 'function') {
             window.handleSearchResultClick(id, lat, lon);
+        } else {
+            console.warn("window.handleSearchResultClick is not defined. Check your flight logic file.");
         }
 
-        // 2. UI Cleanup: Clear the search bar and hide results
+        // 2. UI Cleanup
+        this.closeSearch();
+    },
+
+    closeSearch() {
         const searchInput = document.getElementById('blade-search-input');
         const resultsDropdown = document.getElementById('blade-search-results');
         const searchBlade = document.querySelector('.search-blade');
