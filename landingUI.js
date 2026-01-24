@@ -161,25 +161,27 @@ export const LandingUI = {
 
         const html = `
             <div id="inflight-tactical-ui" class="tactical-ui-root">
-                <div class="top-branding dropdown" id="server-selector">
-                    <div class="status-dot"></div>
-                    <div class="branding-content">
-                        <span id="landing-server-name">${this._currentServer.toUpperCase()} SERVER</span>
-                        <i class="fa-solid fa-chevron-down dropdown-arrow"></i>
+                <div class="top-nav-container">
+                    <div class="top-branding dropdown" id="server-selector">
+                        <div class="status-dot"></div>
+                        <div class="branding-content">
+                            <span id="landing-server-name">${this._currentServer.toUpperCase()} SERVER</span>
+                            <i class="fa-solid fa-chevron-down dropdown-arrow"></i>
+                        </div>
+                        <div class="server-menu">
+                            <div class="server-option" data-val="Expert">Expert</div>
+                            <div class="server-option" data-val="Training">Training</div>
+                            <div class="server-option" data-val="Casual">Casual</div>
+                        </div>
                     </div>
-                    <div class="server-menu">
-                        <div class="server-option" data-val="Expert">Expert</div>
-                        <div class="server-option" data-val="Training">Training</div>
-                        <div class="server-option" data-val="Casual">Casual</div>
-                    </div>
-                </div>
 
-                <div class="top-right-actions">
-                    <div class="search-blade">
-                        <i class="fa-solid fa-magnifying-glass search-icon"></i>
-                        <input type="text" id="blade-search-input" placeholder="Quick search..." autocomplete="off">
-                        <div class="search-shortcut">⌘K</div>
-                        <div id="blade-search-results" class="search-results-dropdown custom-scroll"></div>
+                    <div class="top-right-actions">
+                        <div class="search-blade">
+                            <i class="fa-solid fa-magnifying-glass search-icon"></i>
+                            <input type="text" id="blade-search-input" placeholder="Quick search..." autocomplete="off">
+                            <div class="search-shortcut">⌘K</div>
+                            <div id="blade-search-results" class="search-results-dropdown custom-scroll"></div>
+                        </div>
                     </div>
                 </div>
 
@@ -289,7 +291,6 @@ export const LandingUI = {
             }
         };
 
-        // --- FILTER BUTTON LOGIC ---
         filterBtn?.addEventListener('click', () => {
             if (window.innerWidth <= 768) {
                 window.dispatchEvent(new CustomEvent('openMobileUI'));
@@ -298,13 +299,10 @@ export const LandingUI = {
             }
         });
 
-        // --- SETTINGS BUTTON LOGIC ("JUST WORK") ---
         settingsBtn?.addEventListener('click', () => {
             window.dispatchEvent(new CustomEvent('openSettings'));
-            console.log("Settings triggered via Orb");
         });
 
-        // Search Shortcuts & Nav
         window.addEventListener('keydown', (e) => {
             if ((e.metaKey || e.ctrlKey) && e.key === 'k') {
                 e.preventDefault();
@@ -328,13 +326,11 @@ export const LandingUI = {
 
         searchInput?.addEventListener('input', (e) => this.handleLocalSearch(e.target.value));
 
-        // Tooltips
         filterBtn?.addEventListener('mouseenter', () => this.showPreview('filters'));
         filterBtn?.addEventListener('mouseleave', () => this.hidePreview('filters'));
         settingsBtn?.addEventListener('mouseenter', () => this.showPreview('settings'));
         settingsBtn?.addEventListener('mouseleave', () => this.hidePreview('settings'));
 
-        // Weather & Server
         weatherTrigger?.addEventListener('click', (e) => {
             e.stopPropagation();
             this._weatherMenuOpen = !this._weatherMenuOpen;
@@ -483,7 +479,6 @@ export const LandingUI = {
         const el = document.getElementById('inflight-tactical-ui');
         if (el) isActive ? el.classList.add('active') : el.classList.remove('active');
     },
-    
 
     injectStyles() {
         const css = `
