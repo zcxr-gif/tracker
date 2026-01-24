@@ -1104,6 +1104,65 @@ export const LandingUI = {
                 to { opacity: 1; transform: translateY(0); }
             }
             .slide-in { animation: slideIn 0.35s forwards; }
+            /* MOBILE OVERRIDES FOR COEXISTENCE & ICON SCALING */
+            @media (max-width: 768px) {
+                /* Shrink the Server Selector */
+                .top-branding.dropdown {
+                    top: 15px !important;
+                    left: 15px !important;
+                    padding: 8px 14px !important;
+                    gap: 8px !important;
+                }
+                #landing-server-name {
+                    font-size: 0.7rem !important; /* Smaller text */
+                }
+                .status-dot {
+                    width: 6px !important;
+                    height: 6px !important;
+                }
+
+                /* Shrink and Reposition Search Blade */
+                .top-right-actions {
+                    top: 15px !important;
+                    right: 15px !important;
+                }
+                .search-blade {
+                    width: 150px !important; /* Narrower starting width */
+                    height: 38px !important;
+                    padding: 0 12px !important;
+                }
+                .search-blade:focus-within {
+                    width: 180px !important; /* Limited expansion on mobile */
+                }
+                #blade-search-input {
+                    font-size: 13px !important;
+                }
+                .search-shortcut {
+                    display: none; /* Hide shortcut key on mobile */
+                }
+
+                /* Shrink the Utility Orbs */
+                .utility-nexus {
+                    bottom: 20px !important;
+                    right: 20px !important;
+                }
+                .orb-row {
+                    gap: 10px !important;
+                }
+                .orb-btn {
+                    width: 42px !important;
+                    height: 42px !important;
+                    font-size: 0.9rem !important; /* Smaller icons */
+                }
+
+                /* Weather expansion sizing */
+                .spread-opt {
+                    padding: 8px 15px !important;
+                }
+                .spread-opt i {
+                    font-size: 0.8rem !important;
+                }
+            }
         `;
         
         const styleId = 'landing-ui-integrated-css';

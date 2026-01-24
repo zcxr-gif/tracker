@@ -156,6 +156,25 @@ export const MobileLandingUI = {
     const css = `
         @media (min-width: 769px) { .mobile-only-ui { display: none; } }
         @media (max-width: 768px) {
+
+        /* Shrink Grid Icons */
+            .m-grid-item {
+                padding: 12px 4px !important; /* Tighter padding */
+                gap: 5px !important;
+            }
+
+            .m-grid-item i {
+                font-size: 0.85rem !important; /* Smaller icon size */
+            }
+
+            .m-grid-item span {
+                font-size: 0.65rem !important; /* Smaller label text */
+            }
+
+            /* Ensure Active Card icons are also slightly smaller */
+            .m-card-info i {
+                font-size: 0.9rem !important;
+            }
             /* 1. FORCE BOX-SIZING GLOBALLY FOR MOBILE UI */
             .mobile-only-ui, .mobile-only-ui * {
                 box-sizing: border-box !important;
