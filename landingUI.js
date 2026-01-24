@@ -1290,89 +1290,144 @@ export const LandingUI = {
         }
     },
 
-    // Add this to your LandingUI object
 applyMobileOptimizations() {
     const mobileStyles = `
     @media (max-width: 768px) {
-        /* 1. Modal Adjustments */
+        /* 1. THE MODAL: Full-screen "Tactical Sheet" */
         .filter-modal {
-            width: 98vw !important;
-            height: 98vh !important;
+            width: 100% !important;
+            height: 100% !important;
             max-height: 100vh !important;
             border-radius: 0 !important;
-            flex-direction: column !important;
+            border: none !important;
+            display: flex;
+            flex-direction: column;
         }
 
         .modal-body {
             flex-direction: column !important;
             overflow-y: auto !important;
+            -webkit-overflow-scrolling: touch;
         }
 
+        /* Stacked Panes: Selection flows into Config */
         .filter-selection-pane {
             width: 100% !important;
+            height: auto !important;
             border-right: none !important;
-            border-bottom: 1px solid rgba(255, 255, 255, 0.08) !important;
-            height: 250px !important; /* Limit height so config pane is visible */
-            flex-shrink: 0 !important;
+            border-bottom: 1px solid rgba(255, 255, 255, 0.1) !important;
+            padding: 20px !important;
+            background: #111 !important;
         }
 
-        .modal-header {
-            padding: 0 20px !important;
-            height: 70px !important;
+        .filter-options-list {
+            display: grid;
+            grid-template-columns: repeat(2, 1fr); /* Two columns for easier thumb tapping */
+            gap: 10px;
         }
 
-        /* 2. Top Bar (Server & Search) */
+        .nexus-item {
+            margin-bottom: 0 !important;
+            padding: 12px !important;
+            background: rgba(255,255,255,0.03) !important;
+        }
+
+        .filter-config-pane {
+            padding: 20px !important;
+            min-height: 400px;
+        }
+
+        /* 2. TOP BAR: Intelligent Real Estate */
         .top-branding.dropdown {
-            left: 10px !important;
+            left: 15px !important;
             top: 15px !important;
-            padding: 8px 16px !important;
+            padding: 6px 12px !important;
+            max-width: 140px;
         }
+        #landing-server-name { font-size: 0.7rem !important; }
 
         .top-right-actions {
-            right: 10px !important;
+            right: 15px !important;
             top: 15px !important;
-            left: auto !important;
         }
 
+        /* SEARCH: Full-screen expansion on focus */
         .search-blade {
-            width: 44px !important; /* Icon only by default on mobile */
-            transition: width 0.3s ease !important;
+            width: 42px !important;
+            justify-content: center;
         }
 
         .search-blade:focus-within {
-            width: calc(100vw - 120px) !important; /* Expand but leave room for server name */
-            position: absolute !important;
-            right: 0 !important;
+            position: fixed !important;
+            top: 0 !important;
+            left: 0 !important;
+            width: 100vw !important;
+            height: 60px !important;
+            border-radius: 0 !important;
+            z-index: 9999;
+            background: #000 !important;
+            padding: 0 20px !important;
         }
 
-        .search-shortcut { display: none !important; }
+        #blade-search-input { font-size: 16px !important; } /* Prevents iOS zoom on focus */
 
-        /* 3. Utility Nexus (Bottom Orbs) */
+        .search-results-dropdown {
+            position: fixed !important;
+            top: 60px !important;
+            left: 0 !important;
+            width: 100vw !important;
+            height: calc(100vh - 60px) !important;
+            max-height: none !important;
+            border-radius: 0 !important;
+            background: #0a0a0b !important;
+        }
+
+        /* 3. UTILITY DOCK: Native app feel */
         .utility-nexus {
-            bottom: 20px !important;
+            bottom: 0 !important;
             right: 0 !important;
             left: 0 !important;
-            display: flex !important;
-            justify-content: center !important;
+            background: linear-gradient(to top, rgba(0,0,0,0.9), transparent);
+            padding: 20px 0 30px 0 !important;
         }
 
         .orb-row {
-            gap: 25px !important; /* Wider gap for thumb reach */
+            justify-content: space-evenly !important;
+            width: 100%;
         }
 
-        /* 4. Disable Hover Tooltips on Mobile */
-        .nexus-preview-tooltip {
-            display: none !important; 
+        .orb-btn {
+            width: 60px !important; /* Larger touch target */
+            height: 60px !important;
+            background: rgba(30, 30, 30, 0.9) !important;
+            border: 1px solid rgba(255,255,255,0.1) !important;
         }
 
-        /* 5. Results Dropdown */
-        .search-results-dropdown {
-            width: calc(100vw - 40px) !important;
-            left: auto !important;
-            right: 0 !important;
-            position: fixed !important;
-            top: 70px !important;
+        /* 4. WEATHER MENU: Mobile Radial/List Style */
+        .weather-spread {
+            left: 50% !important;
+            width: 90vw !important;
         }
+        
+        .spread-opt {
+            padding: 16px !important;
+            width: 100%;
+            justify-content: center;
+        }
+
+        /* 5. INPUT OPTIMIZATION */
+        .range-pill-container {
+            flex-direction: column;
+            gap: 10px;
+            background: transparent !important;
+            border: none !important;
+        }
+        .range-half {
+            background: #1c1c1f;
+            border-radius: 12px;
+            border: 1px solid #2d2d30;
+        }
+        .range-divider { display: none; }
     }
     `;
 
