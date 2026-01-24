@@ -54,10 +54,14 @@ export const LandingUI = {
     },
 
     applyMobileOptimizations() {
+    // Check if the screen width is mobile-sized (768px or less)
     if (window.innerWidth <= 768) {
-        import('./MobileLandingUI.js').then(m => m.MobileLandingUI.init(this));
+        // This assumes MobileLandingUI.js is in the same folder
+        import('./MobileLandingUI.js').then(m => {
+            m.MobileLandingUI.init(this);
+        }).catch(err => console.error("Failed to load Mobile UI:", err));
     }
-}
+},
 
     async loadPrefixData() {
         try {
@@ -383,7 +387,16 @@ export const LandingUI = {
         });
 
         // Hover Tooltips
-        filterBtn?.addEventListener('mouseenter', () => this.showPreview('filters'));
+        // Locate this inside attachListeners()
+filterBtn?.addEventListener('click', () => {
+    if (window.innerWidth <= 768) {
+        // Trigger the mobile bottom sheet instead of the desktop modal
+        window.dispatchEvent(new CustomEvent('openMobileUI'));
+    } else {
+        // Fallback to your original desktop modal logic
+        toggleModal(true);
+    }
+});
         filterBtn?.addEventListener('mouseleave', () => this.hidePreview('filters'));
         settingsBtn?.addEventListener('mouseenter', () => this.showPreview('settings'));
         settingsBtn?.addEventListener('mouseleave', () => this.hidePreview('settings'));
@@ -439,13 +452,7 @@ export const LandingUI = {
             }
         };
 
-        filterBtn?.addEventListener('click', () => {
-    if (window.innerWidth <= 768) {
-        window.dispatchEvent(new CustomEvent('openMobileUI'));
-    } else {
-        toggleModal(true);
-    }
-});
+        filterBtn?.addEventListener('click', () => toggleModal(true));
         document.getElementById('close-filter-modal')?.addEventListener('click', () => toggleModal(false));
         document.getElementById('apply-filters-btn')?.addEventListener('click', () => {
             this.dispatchFilterUpdate();
