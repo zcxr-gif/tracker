@@ -1252,18 +1252,27 @@ export const LandingUI = {
                 }
 
                 /* Shrink and Reposition Search Blade */
-                .top-right-actions {
-                    top: 15px !important;
-                    right: 15px !important;
-                }
-                .search-blade {
-                    width: 150px !important; /* Narrower starting width */
-                    height: 38px !important;
-                    padding: 0 12px !important;
-                }
-                .search-blade:focus-within {
-                    width: 180px !important; /* Limited expansion on mobile */
-                }
+                ..top-right-actions {
+        position: static !important;
+        flex: 1;
+        display: flex;
+        justify-content: flex-end; /* This keeps the search bar anchored to the right */
+        pointer-events: auto;
+    }
+
+    .search-blade {
+        width: 150px !important; 
+        height: 38px !important;
+        transition: width 0.3s cubic-bezier(0.4, 0, 0.2, 1); /* Smooth expansion */
+        position: relative !important; /* Keep it relative to its container */
+    }
+
+    .search-blade:focus-within {
+        /* Instead of absolute positioning, we just expand the width */
+        /* calc(100vw - 120px) leaves room for the branding/server selector on the left */
+        width: calc(100vw - 120px) !important; 
+        z-index: 100 !important;
+    }
                 #blade-search-input {
                     font-size: 13px !important;
                 }
