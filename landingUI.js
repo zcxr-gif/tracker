@@ -161,7 +161,7 @@ export const LandingUI = {
 
         const html = `
             <div id="inflight-tactical-ui" class="tactical-ui-root">
-                <div class="top-nav-container">
+                <header class="tactical-header">
                     <div class="top-branding dropdown" id="server-selector">
                         <div class="status-dot"></div>
                         <div class="branding-content">
@@ -183,7 +183,7 @@ export const LandingUI = {
                             <div id="blade-search-results" class="search-results-dropdown custom-scroll"></div>
                         </div>
                     </div>
-                </div>
+                </header>
 
                 <div id="filter-modal-overlay" class="modal-overlay">
                     <div class="filter-modal">
@@ -506,6 +506,59 @@ export const LandingUI = {
                 right: 40px;
                 pointer-events: auto;
             }
+
+            /* --- DESKTOP HEADER (FLOATERS) --- */
+            .tactical-header {
+                position: absolute;
+                top: 0;
+                left: 0;
+                width: 100%;
+                pointer-events: none;
+                z-index: 2001;
+            }
+
+            .top-branding.dropdown {
+                position: absolute;
+                top: 30px;
+                left: 40px;
+                pointer-events: auto;
+                background: rgba(0, 0, 0, 0.7);
+                padding: 10px 24px;
+                border-radius: 100px;
+                backdrop-filter: blur(15px);
+                border: 1px solid rgba(255, 255, 255, 0.1);
+                cursor: pointer;
+                color: #fff;
+                display: flex;
+                align-items: center;
+                gap: 12px;
+                box-shadow: 0 10px 20px rgba(0,0,0,0.3);
+                transition: all 0.3s;
+                white-space: nowrap;
+            }
+
+            .top-right-actions {
+                position: absolute;
+                top: 30px;
+                right: 40px;
+                pointer-events: auto;
+            }
+
+            /* --- SEARCH BLADE --- */
+            .search-blade {
+                background: rgba(10, 10, 10, 0.85);
+                backdrop-filter: blur(20px);
+                border: 1px solid rgba(255, 255, 255, 0.15);
+                border-radius: 100px;
+                height: 44px;
+                width: 240px;
+                display: flex;
+                align-items: center;
+                padding: 0 18px;
+                transition: width 0.25s ease, background 0.3s ease;
+                position: relative;
+                box-shadow: 0 10px 30px rgba(0,0,0,0.4);
+            }
             .search-blade {
     background: rgba(10, 10, 10, 0.85);
     backdrop-filter: blur(20px);
@@ -562,6 +615,88 @@ export const LandingUI = {
                 color: rgba(255, 255, 255, 0.4);
                 font-weight: 800;
                 margin-left: 10px;
+            }
+
+            @media (max-width: 768px) {
+                .tactical-header {
+                    position: fixed;
+                    top: 0;
+                    height: 60px;
+                    background: #000;
+                    backdrop-filter: blur(20px);
+                    border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+                    display: flex !important;
+                    align-items: center !important;
+                    justify-content: space-between !important;
+                    padding: 0 15px !important;
+                    pointer-events: auto !important;
+                }
+
+                /* Kill all floating absolute positioning on mobile */
+                .top-branding.dropdown, 
+                .top-right-actions {
+                    position: static !important;
+                    transform: none !important;
+                    box-shadow: none !important;
+                    padding: 0 !important;
+                    margin: 0 !important;
+                    background: transparent !important;
+                    border: none !important;
+                    backdrop-filter: none !important;
+                }
+
+                .top-branding.dropdown {
+                    flex-shrink: 0;
+                    margin-right: 15px !important;
+                }
+
+                #landing-server-name {
+                    font-size: 0.7rem !important;
+                    font-weight: 800;
+                }
+
+                .top-right-actions {
+                    flex: 1;
+                    max-width: 200px; /* Constrain search so it doesn't hit branding */
+                    display: flex;
+                    justify-content: flex-end;
+                }
+
+                .search-blade {
+                    width: 100% !important;
+                    height: 36px !important;
+                    padding: 0 12px !important;
+                    background: rgba(255,255,255,0.08) !important;
+                    border-radius: 8px !important;
+                }
+
+                /* Mobile Focus Expansion */
+                .search-blade:focus-within {
+                    position: absolute !important;
+                    left: 10px !important;
+                    right: 10px !important;
+                    top: 10px !important;
+                    width: calc(100% - 20px) !important;
+                    height: 40px !important;
+                    z-index: 100 !important;
+                    max-width: none !important;
+                    background: #111 !important;
+                }
+
+                .search-shortcut { display: none !important; }
+
+                .utility-nexus { bottom: 20px !important; right: 20px !important; }
+                .orb-btn { width: 44px !important; height: 44px !important; }
+                
+                .search-results-dropdown {
+                    position: fixed !important;
+                    top: 60px !important;
+                    left: 0 !important;
+                    width: 100vw !important;
+                    height: calc(100vh - 60px) !important;
+                    max-height: none !important;
+                    border-radius: 0 !important;
+                }
             }
 /* --- PREMIUM MINIMALIST SEARCH --- */
 
