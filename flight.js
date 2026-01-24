@@ -6,7 +6,7 @@ import { GroupFlightManager } from './groupFlightManager.js';
 import { updateActiveSectors } from './atcHighlights.js';
 import { NatTracksLayer } from './natTracksLayer.js';
 import { FlownPath3D } from './flownPath3D.js';
-import { MobileSettingsUI } from './MobileLandingUI.js';
+import { MobileSettingsUI } from './MobileSettingsUI.js';
 
 document.addEventListener('DOMContentLoaded', async () => {
 
