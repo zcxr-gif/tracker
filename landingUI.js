@@ -143,13 +143,26 @@ export const LandingUI = {
     },
 
     executeSearchClick(id, lat, lon) {
-        if (window.handleSearchResultClick) {
+        // 1. Trigger the map navigation and info panel logic in flight.js
+        if (typeof window.handleSearchResultClick === 'function') {
             window.handleSearchResultClick(id, lat, lon);
         }
-        const searchResults = document.getElementById('blade-search-results');
+
+        // 2. UI Cleanup: Clear the search bar and hide results
         const searchInput = document.getElementById('blade-search-input');
-        if (searchResults) searchResults.classList.remove('visible');
-        if (searchInput) searchInput.blur();
+        const resultsDropdown = document.getElementById('blade-search-results');
+        const searchBlade = document.querySelector('.search-blade');
+
+        if (searchInput) {
+            searchInput.value = ''; 
+            searchInput.blur();
+        }
+        if (resultsDropdown) resultsDropdown.classList.remove('visible');
+        if (searchBlade) searchBlade.classList.remove('has-results');
+
+        // Reset search internal state
+        this._currentMatches = [];
+        this._searchCursorIndex = -1;
     },
 
     render() {

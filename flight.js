@@ -12096,50 +12096,49 @@ function startSectorOpsLiveLoop() {
 }
 
 /**
- * Global bridge for LandingUI search results.
- * Flys to the aircraft and opens the info window.
+ * Global Bridge: Handles selection from LandingUI search.
+ * Synchronizes the search bar with the Sector Ops map engine.
  */
-window.handleSearchResultClick = (flightId, lat, lon) => {
-    // 1. Locate the flight data in our current cache
-    const feature = currentMapFeatures[flightId];
-    if (!feature) {
-        console.warn("handleSearchResultClick: Flight ID not found in cache", flightId);
-        return;
-    }
-
-    // 2. Move the map to the aircraft coordinates
-    if (sectorOpsMap) {
+window.handleSearchResultClick = async (flightId, lat, lon) => {
+    // 1. Fly the map to the aircraft coordinates
+    if (window.sectorOpsMap) {
         sectorOpsMap.flyTo({
-            center: [lon, lat], // Longitude, Latitude
+            center: [lon, lat],
             zoom: 9,
             essential: true
         });
     }
 
-    // 3. Prepare the flight properties for handleAircraftClick
-    const props = feature.properties;
-    let flightProps;
-    try {
-        flightProps = {
-            ...props,
-            position: typeof props.position === 'string' ? JSON.parse(props.position) : props.position,
-            aircraft: typeof props.aircraft === 'string' ? JSON.parse(props.aircraft) : props.aircraft
-        };
-    } catch (e) {
-        console.error("handleSearchResultClick: Failed to parse flight data", e);
+    // 2. Open the Aircraft Info Window
+    const feature = currentMapFeatures[flightId];
+    if (!feature) {
+        console.warn("Search selection not found in map cache.");
         return;
     }
 
-    // 4. Fetch session data and open the info window
-    fetch('https://site--acars-backend--6dmjph8ltlhv.code.run/if-sessions')
-        .then(res => res.json())
-        .then(data => {
-            const sessionId = getCurrentSessionId(data);
-            if (sessionId && typeof handleAircraftClick === 'function') {
-                handleAircraftClick(flightProps, sessionId);
-            }
-        })
-        .catch(err => console.error("handleSearchResultClick: Session fetch failed", err));
+    try {
+        const response = await fetch('https://site--acars-backend--6dmjph8ltlhv.code.run/if-sessions');
+        const data = await response.json();
+        const sessionId = getCurrentSessionId(data);
+
+        if (sessionId) {
+            // Parse nested properties to ensure handleAircraftClick gets objects
+            const flightProps = {
+                ...feature.properties,
+                position: typeof feature.properties.position === 'string' 
+                    ? JSON.parse(feature.properties.position) 
+                    : feature.properties.position,
+                aircraft: typeof feature.properties.aircraft === 'string' 
+                    ? JSON.parse(feature.properties.aircraft) 
+                    : feature.properties.aircraft
+            };
+
+            // Call existing handler in flight.js to open the panel
+            handleAircraftClick(flightProps, sessionId);
+        }
+    } catch (error) {
+        console.error("Failed to open aircraft window from search:", error);
+    }
 };
 
 // Stops the data polling AND the animation loop.
