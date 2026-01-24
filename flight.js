@@ -6,7 +6,6 @@ import { GroupFlightManager } from './groupFlightManager.js';
 import { updateActiveSectors } from './atcHighlights.js';
 import { NatTracksLayer } from './natTracksLayer.js';
 import { FlownPath3D } from './flownPath3D.js';
-import { MobileSettingsUI } from './MobileSettingsUI.js';
 
 document.addEventListener('DOMContentLoaded', async () => {
 
@@ -115,6 +114,7 @@ window.currentAirportTraffic = { in: [], out: [] }; // Stores IDs for the curren
     window.saveFiltersToLocalStorage = saveFiltersToLocalStorage;
     window.updateMapFilters = updateMapFilters;
     window.initializeSectorOpsMap = initializeSectorOpsMap;
+    window.mapFilters = mapFilters;
 
     const departureHubs = []; // Empty array
     let ALL_AVAILABLE_ROUTES = []; // Empty array
@@ -3252,14 +3252,6 @@ function injectCustomStyles() {
 .atc-supervisor .hero-rank-tag { color: #fbbf24; }
 .atc-supervisor .grade-badge { background: #fbbf24; }
 
-.m-settings-row {
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-    padding: 12px 0;
-    border-bottom: 1px solid rgba(255,255,255,0.05);
-}
-.m-settings-row:last-child { border-bottom: none; }
     `;
 
     const style = document.createElement('style');
@@ -7683,13 +7675,26 @@ function formatDataForSimpleWindow(flightProps, plan, routePoints, communityData
     },
 
     init() {
-        this.render();
-        this.attachListeners();
-        // Hook into the LandingUI 'Settings' button
-        document.getElementById('tile-settings')?.addEventListener('click', () => this.toggle(true));
-        // Hook into the old toolbar button if it exists
-        document.getElementById('open-filter-settings-btn')?.addEventListener('click', () => this.toggle(true));
-    },
+    this.render();
+    this.attachListeners();
+
+    // This helper function decides which UI to open based on screen width
+    const handleSettingsOpen = () => {
+        if (window.innerWidth <= 768) {
+            // It's a mobile device: trigger the Bottom Sheet
+            window.dispatchEvent(new CustomEvent('openMobileSettings'));
+        } else {
+            // It's a desktop: open the standard settings box
+            this.toggle(true);
+        }
+    };
+
+    // Hook into the LandingUI 'Settings' button
+    document.getElementById('tile-settings')?.addEventListener('click', handleSettingsOpen);
+    
+    // Hook into the old toolbar button if it exists
+    document.getElementById('open-filter-settings-btn')?.addEventListener('click', handleSettingsOpen);
+},
 
     toggle(state) {
         this._isVisible = state;
@@ -12290,27 +12295,6 @@ function updateUnstaffedLayer(show, excludeIcaos) {
     }
 }
 
-window.dispatchEvent(new CustomEvent('openMobileSettings'));
-
-function checkAndTriggerMobileUI() {
-    // Define your mobile breakpoint (e.g., 768px)
-    const isSmallScreen = window.innerWidth <= 768;
-    
-    // Check if the UI is already open to avoid redundant triggers
-    const mobileUI = document.getElementById('mobile-settings-nexus');
-    const isAlreadyVisible = mobileUI && mobileUI.classList.contains('active');
-
-    if (isSmallScreen && !isAlreadyVisible) {
-        window.dispatchEvent(new CustomEvent('openMobileSettings'));
-    }
-}
-
-// Trigger on initial load
-checkAndTriggerMobileUI();
-
-// Trigger whenever the window is resized
-window.addEventListener('resize', checkAndTriggerMobileUI);
-
 
 // --- [UPDATED] Fetches ATC & NOTAMs for the CURRENTLY SELECTED SERVER ---
 async function updateSectorOpsSecondaryData() {
@@ -12382,6 +12366,7 @@ async function initializeApp() {
 
         await LandingUI.init();
         SettingsUI.init();
+
         MobileSettingsUI.init();
         
         // Default to true if not explicitly set to 'false'
