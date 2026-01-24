@@ -8546,6 +8546,7 @@ if (!isTouchDevice && (typeof window.MobileUIHandler === 'undefined' || !window.
         hoverPopup.remove();
     });
 }
+    }
     
     // 5. Add the LABEL layer
     if (!sectorOpsMap.getLayer('sector-ops-live-flights-labels')) {
