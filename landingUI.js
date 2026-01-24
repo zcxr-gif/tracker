@@ -163,12 +163,12 @@ export const LandingUI = {
             <div id="inflight-tactical-ui" class="tactical-ui-root">
             <header class="tactical-header">
     <div class="header-container">
-        <div class="header-branding" id="server-selector">
-            <div class="top-branding dropdown">
+        <div class="header-branding">
+            <div class="top-branding dropdown" id="server-selector">
                 <div class="status-dot"></div>
                 <div class="branding-content">
                     <i class="fa-solid fa-server mobile-server-icon"></i>
-                    <span id="landing-server-name">${this._currentServer.toUpperCase()}</span>
+                    <span id="landing-server-name">${this._currentServer.toUpperCase()} SERVER</span>
                     <i class="fa-solid fa-chevron-down dropdown-arrow"></i>
                 </div>
                 <div class="server-menu">
@@ -182,8 +182,8 @@ export const LandingUI = {
         <div class="header-search-area">
             <div class="search-blade">
                 <i class="fa-solid fa-magnifying-glass search-icon"></i>
-                <input type="text" id="blade-search-input" placeholder="Search flights, pilots, or aircraft..." autocomplete="off">
-                <div class="search-shortcut">⌘K</div>
+                <input type="text" id="blade-search-input" placeholder="Search flight" autocomplete="off">
+                <div class="search-shortcut"></div>
                 <div id="blade-search-results" class="search-results-dropdown custom-scroll"></div>
             </div>
         </div>
@@ -497,14 +497,14 @@ export const LandingUI = {
             @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap');
 
             /* --- HEADER LAYOUT --- */
-/* --- FULL WIDTH HEADER SYSTEM --- */
+/* --- THE INTEGRATED HEADER SYSTEM --- */
 .tactical-header {
     position: absolute;
     top: 0;
     left: 0;
     right: 0;
     height: 100px;
-    padding: 0 40px;
+    padding: 0 30px;
     display: flex;
     align-items: center;
     pointer-events: none;
@@ -515,91 +515,73 @@ export const LandingUI = {
     width: 100%;
     display: flex;
     align-items: center;
-    gap: 20px;
+    gap: 15px;
     pointer-events: auto;
 }
 
-/* --- BRANDING (LEFT SIDE) --- */
+/* --- BRANDING (Left Side) --- */
 .header-branding {
+    transition: all 0.6s cubic-bezier(0.16, 1, 0.3, 1);
+    opacity: 1;
     display: flex;
     align-items: center;
-    transition: all 0.5s cubic-bezier(0.16, 1, 0.3, 1);
-    opacity: 1;
-    transform: translateX(0);
     flex-shrink: 0;
 }
 
-/* --- SEARCH AREA (RIGHT SIDE / EXPANDING) --- */
+/* Reset individual absolute positions from previous code */
+.top-branding.dropdown {
+    position: relative !important;
+    top: auto !important;
+    left: auto !important;
+    margin: 0 !important;
+}
+
+/* --- SEARCH AREA (Right Side) --- */
 .header-search-area {
-    flex: 0 0 300px; /* Starting width */
+    flex: 0 0 300px; /* Initial compact width */
     margin-left: auto;
-    transition: all 0.5s cubic-bezier(0.16, 1, 0.3, 1);
-    position: relative;
+    transition: all 0.6s cubic-bezier(0.16, 1, 0.3, 1);
 }
 
 .search-blade {
-    background: rgba(15, 15, 15, 0.7);
-    backdrop-filter: blur(20px);
+    width: 100%;
+    background: rgba(15, 15, 15, 0.8);
+    backdrop-filter: blur(25px);
     border: 1px solid rgba(255, 255, 255, 0.1);
     border-radius: 100px;
-    height: 48px;
+    height: 52px;
     display: flex;
     align-items: center;
     padding: 0 20px;
-    transition: all 0.5s cubic-bezier(0.16, 1, 0.3, 1);
-    width: 100%;
+    transition: all 0.6s cubic-bezier(0.16, 1, 0.3, 1);
 }
 
-/* --- THE EXPANSION MAGIC --- */
+/* --- CORNER-TO-CORNER EXPANSION TRIGGER --- */
 .header-container:has(#blade-search-input:focus) .header-branding {
     opacity: 0;
     width: 0;
-    margin-right: -20px;
+    margin-right: -15px; /* Collapse gap */
+    transform: translateX(-30px);
     pointer-events: none;
-    transform: translateX(-20px);
 }
 
 .header-container:has(#blade-search-input:focus) .header-search-area {
-    flex: 1; /* Forces expansion to fill the container */
+    flex: 1; /* Forces takeover of all available space */
 }
 
 .header-container:has(#blade-search-input:focus) .search-blade {
     background: #000;
     border-color: #38bdf8;
-    box-shadow: 0 0 0 4px rgba(56, 189, 248, 0.1);
+    box-shadow: 0 20px 40px rgba(0,0,0,0.4);
 }
 
-/* --- ADJUST SEARCH RESULTS FOR FULL WIDTH --- */
+/* Ensure results expand with the bar */
 .search-results-dropdown {
-    position: absolute;
-    top: calc(100% + 10px);
     left: 0;
-    right: 0; /* Align to the expanded edges */
-    background: #0a0a0b;
-    border: 1px solid rgba(255, 255, 255, 0.1);
-    border-radius: 20px;
-    max-height: 500px;
-    overflow-y: auto;
-    display: none;
-    z-index: 1001;
-    box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.5);
-}
-
-.search-results-dropdown.visible {
-    display: block;
-    animation: slideUp 0.3s ease-out;
-}
-
-@keyframes slideUp {
-    from { opacity: 0; transform: translateY(10px); }
-    to { opacity: 1; transform: translateY(0); }
-}
-
-/* Mobile Tweaks */
-@media (max-width: 768px) {
-    .tactical-header { padding: 0 15px; height: 80px; }
-    .header-search-area { flex: 0 0 50px; } /* Only show icon/small pill initially */
-    .search-shortcut { display: none; }
+    right: 0;
+    width: auto;
+    border-radius: 24px;
+    margin-top: 10px;
 }
 
             .tactical-ui-root {
