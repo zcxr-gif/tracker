@@ -182,7 +182,7 @@ window.currentAirportTraffic = { in: [], out: [] }; // Stores IDs for the curren
         try {
             const parsedFilters = JSON.parse(savedFilters);
             // Merge saved filters with defaults to ensure new properties are not lost
-            mapFilters = { ...mapFilters, ...parsedFilters };
+            Object.assign(mapFilters, parsedFilters);
             
             // [FIXED] Explicitly set the global currentMapStyle based on the saved string
             if (mapFilters.mapStyle) {
