@@ -1,6 +1,7 @@
 /**
  * natTracksLayer.js (Mapbox GL JS Version)
- * Updated: Added support for toggling labels and full track visibility.
+ * Updated: Added support for toggling labels, full track visibility, 
+ * and persistent rendering across map style changes.
  */
 
 const ACARS_SOCKET_URL = 'https://site--acars-backend--6dmjph8ltlhv.code.run';
@@ -33,10 +34,23 @@ export class NatTracksLayer {
         this.showTracks = true;
         this.showLabels = true;
         
+        // Listen for style changes to re-inject layers and sources
+        this.map.on('style.load', () => {
+            this.initSource();
+        });
+
+        // Initial setup
         this.initSource();
+        this.setupInteractions();
+        this.fetchTracks();
     }
 
+    /**
+     * Re-initializes the GeoJSON source and all associated layers.
+     * This is called on construction and every time the map style changes.
+     */
     initSource() {
+        // Prevent duplicate source errors if called multiple times within one style life-cycle
         if (this.map.getSource(this.sourceId)) return;
 
         this.map.addSource(this.sourceId, {
@@ -47,7 +61,7 @@ export class NatTracksLayer {
 
         const beforeId = this.map.getLayer(this.airplaneLayerId) ? this.airplaneLayerId : undefined;
 
-        // 1. Line Layer
+        // 1. Line Layer (The track paths)
         this.map.addLayer({
             id: this.lineLayerId,
             type: 'line',
@@ -65,7 +79,7 @@ export class NatTracksLayer {
             }
         }, beforeId);
 
-        // 2. Circle Background
+        // 2. Circle Background (The markers at start/end points)
         this.map.addLayer({
             id: this.bgLayerId,
             type: 'circle',
@@ -83,7 +97,7 @@ export class NatTracksLayer {
             }
         }, beforeId);
 
-        // 3. Label Layer
+        // 3. Label Layer (The text identifying the track)
         this.map.addLayer({
             id: this.labelLayerId,
             type: 'symbol',
@@ -103,26 +117,14 @@ export class NatTracksLayer {
             }
         }, beforeId);
 
+        // If we already have tracks in memory (e.g., after a style change), render them immediately
         if (this.tracks.length > 0) {
-        this.renderTracks();
-    } else {
-        this.fetchTracks(); // Or fetch if empty
+            this.render();
+        }
     }
-
-        this.setupInteractions();
-        if (this.tracks && this.tracks.length > 0) {
-        this.render();
-    }
-
-    if (this.tracks.length > 0) {
-        this.render();
-    }
-}
-
-
 
     /**
-     * New method to be called from your Settings UI
+     * Updates visibility and settings from external UI components.
      * @param {Object} options - { showTracks: boolean, showLabels: boolean }
      */
     setOptions(options) {
@@ -131,6 +133,9 @@ export class NatTracksLayer {
         this.updateVisibility();
     }
 
+    /**
+     * Applies visibility state to the Mapbox layers based on internal class state.
+     */
     updateVisibility() {
         const trackVisibility = this.showTracks ? 'visible' : 'none';
         const labelVisibility = (this.showTracks && this.showLabels) ? 'visible' : 'none';
@@ -146,8 +151,9 @@ export class NatTracksLayer {
         }
     }
 
-    // ... (rest of the methods: fetchTracks, render, parsePath, etc. remain unchanged)
-
+    /**
+     * Fetches current NAT tracks from the ACARS API.
+     */
     async fetchTracks() {
         try {
             const response = await fetch(`${ACARS_SOCKET_URL}/api/live/tracks`);
@@ -161,6 +167,9 @@ export class NatTracksLayer {
         }
     }
 
+    /**
+     * Converts track data into GeoJSON Features and updates the map source.
+     */
     render() {
         const features = [];
         this.tracks.forEach(track => {
@@ -175,12 +184,14 @@ export class NatTracksLayer {
                 pathString: track.path.join(' → ')
             };
 
+            // Add the track line
             features.push({
                 type: 'Feature',
                 properties: commonProps,
                 geometry: { type: 'LineString', coordinates }
             });
 
+            // Add point markers at start and end
             features.push({
                 type: 'Feature',
                 properties: commonProps,
@@ -195,9 +206,14 @@ export class NatTracksLayer {
         });
 
         const source = this.map.getSource(this.sourceId);
-        if (source) source.setData({ type: 'FeatureCollection', features });
+        if (source) {
+            source.setData({ type: 'FeatureCollection', features });
+        }
     }
 
+    /**
+     * Parses various coordinate formats into [lon, lat] arrays.
+     */
     parsePath(path) {
         return path.map(point => {
             if (point.includes('/')) {
@@ -215,6 +231,9 @@ export class NatTracksLayer {
         }).filter(c => c !== null);
     }
 
+    /**
+     * Configures mouse events for highlighting tracks and showing popups.
+     */
     setupInteractions() {
         const popup = new mapboxgl.Popup({ closeButton: false, closeOnClick: false, offset: 15 });
 
@@ -250,15 +269,27 @@ export class NatTracksLayer {
         });
     }
 
+    /**
+     * Starts the automated data polling loop.
+     */
     startAutoRefresh(ms = 300000) {
         this.fetchTracks();
         this.refreshInterval = setInterval(() => this.fetchTracks(), ms);
     }
 
+    /**
+     * Stops the automated data polling loop.
+     */
     stopAutoRefresh() {
-        if (this.refreshInterval) clearInterval(this.refreshInterval);
+        if (this.refreshInterval) {
+            clearInterval(this.refreshInterval);
+            this.refreshInterval = null;
+        }
     }
 
+    /**
+     * Public helper to toggle track visibility.
+     */
     toggle(show) {
         this.showTracks = show;
         this.updateVisibility();
