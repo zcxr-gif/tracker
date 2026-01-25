@@ -18,15 +18,16 @@ export const LandingUI = {
             ]
         },
         aircraft: {
-            label: "Aircraft Info",
-            filters: [
-                { id: 'category', label: 'Category', icon: 'fa-shapes', type: 'select', options: ['Heavy', 'Widebody', 'Narrowbody', 'Regional', 'GA', 'Military', 'Fighter'] },
-                { id: 'type', label: 'Aircraft Type', icon: 'fa-plane', type: 'text', placeholder: 'e.g. B737, A320' },
-                { id: 'livery', label: 'Livery', icon: 'fa-paint-roller', type: 'text', placeholder: 'e.g. United, FedEx' },
-                { id: 'country', label: 'Country Registry', icon: 'fa-globe', type: 'select', options: [] },
-                { id: 'airline', label: 'Airline Code', icon: 'fa-building', type: 'text', placeholder: 'e.g. UAL, BAW' }
-            ]
-        },
+    label: "Aircraft Info",
+    filters: [
+        { id: 'category', label: 'Category', icon: 'fa-shapes', type: 'select', options: ['Heavy', 'Widebody', 'Narrowbody', 'Regional', 'GA', 'Military', 'Fighter'] },
+        // Changed type to 'autocomplete'
+        { id: 'type', label: 'Aircraft Type', icon: 'fa-plane', type: 'autocomplete', placeholder: 'e.g. B737, A320' },
+        { id: 'livery', label: 'Livery', icon: 'fa-paint-roller', type: 'autocomplete', placeholder: 'e.g. United, FedEx' },
+        { id: 'country', label: 'Country Registry', icon: 'fa-globe', type: 'select', options: [] },
+        { id: 'airline', label: 'Airline Code', icon: 'fa-building', type: 'text', placeholder: 'e.g. UAL, BAW' }
+    ]
+},
         route: {
             label: "Route & Network",
             filters: [
@@ -483,11 +484,87 @@ export const LandingUI = {
         container.querySelectorAll('.data-input-max').forEach(input => input.addEventListener('input', (e) => this.updateFilterValue(e.target.dataset.id, e.target.value, 'max')));
     },
 
+    // Add these methods to the LandingUI object in landingUI.js
+
+/**
+ * Gets unique values for a property from the live flight data
+ */
+getUniqueValues(property) {
+    const flights = window.getLiveFlightData ? window.getLiveFlightData() : [];
+    const values = new Set();
+    
+    flights.forEach(f => {
+        const val = f.properties[property];
+        if (val) values.add(val);
+    });
+    
+    return Array.from(values).sort();
+},
+
+/**
+ * Handles the logic of showing/filtering suggestions
+ */
+handleAutocomplete(id, query) {
+    const suggestionsContainer = document.getElementById(`suggestions-${id}`);
+    if (!suggestionsContainer) return;
+
+    if (!query || query.length < 1) {
+        suggestionsContainer.innerHTML = '';
+        suggestionsContainer.style.display = 'none';
+        return;
+    }
+
+    // Map UI filter ID to flight property names
+    const propMap = { 'type': 'aircraftName', 'livery': 'liveryName' };
+    const allOptions = this.getUniqueValues(propMap[id]);
+    
+    const matches = allOptions.filter(opt => 
+        opt.toUpperCase().includes(query.toUpperCase())
+    ).slice(0, 8); // Limit to top 8 matches
+
+    if (matches.length > 0) {
+        suggestionsContainer.innerHTML = matches.map(match => `
+            <div class="autocomplete-item" onclick="LandingUI.applySuggestion('${id}', '${match.replace(/'/g, "\\'")}')">
+                ${this.highlightText(match, query)}
+            </div>
+        `).join('');
+        suggestionsContainer.style.display = 'block';
+    } else {
+        suggestionsContainer.style.display = 'none';
+    }
+},
+
+/**
+ * Applies a clicked suggestion to the filter
+ */
+applySuggestion(id, value) {
+    const input = document.querySelector(`input[data-id="${id}"]`);
+    if (input) {
+        input.value = value;
+        this.updateFilterValue(id, value);
+        // Hide the dropdown
+        const suggestionsContainer = document.getElementById(`suggestions-${id}`);
+        if (suggestionsContainer) suggestionsContainer.style.display = 'none';
+    }
+}
+
     renderInputControl(id, value) {
         const def = this.allFilters.find(f => f.id === id);
         if (def.type === 'select') return `<div class="input-wrapper select-wrapper"><select class="row-input-select data-input" data-id="${id}">${def.options.map(opt => `<option value="${opt}" ${value === opt ? 'selected' : ''}>${opt}</option>`).join('')}</select></div>`;
         if (def.type === 'range') return `<div class="range-pill-container"><div class="range-half"><span class="range-label">MIN</span><input type="number" class="range-input data-input-min" data-id="${id}" placeholder="0" value="${value.min || ''}"></div><div class="range-divider"></div><div class="range-half"><span class="range-label">MAX</span><input type="number" class="range-input data-input-max" data-id="${id}" placeholder="Max" value="${value.max || ''}"></div></div>`;
         if (def.type === 'boolean') return `<div class="bool-indicator" style="font-size:0.8rem; color:#10b981; font-weight:600;"><i class="fa-solid fa-check"></i> Active Policy Enabled</div>`;
+        if (def.type === 'autocomplete') {
+        return `
+            <div class="input-wrapper autocomplete-wrapper">
+                <input type="text" class="row-input data-input autocomplete-input" 
+                       data-id="${id}" 
+                       placeholder="${def.placeholder || 'Search...'}" 
+                       value="${value}"
+                       oninput="LandingUI.handleAutocomplete('${id}', this.value)"
+                       onblur="setTimeout(() => document.getElementById('suggestions-${id}').style.display='none', 200)">
+                <div id="suggestions-${id}" class="autocomplete-suggestions custom-scroll"></div>
+            </div>`;
+    }
         return `<div class="input-wrapper"><input type="text" class="row-input data-input" data-id="${id}" placeholder="${def.placeholder || 'Search value...'}" value="${value}"></div>`;
     },
 
@@ -505,6 +582,47 @@ export const LandingUI = {
         const css = `
             @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap');
 
+            /* Autocomplete Styles */
+.autocomplete-wrapper {
+    position: relative;
+    width: 100%;
+}
+
+.autocomplete-suggestions {
+    position: absolute;
+    top: 100%;
+    left: 0;
+    right: 0;
+    background: rgba(20, 20, 22, 0.98);
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    border-top: none;
+    border-radius: 0 0 12px 12px;
+    z-index: 1000;
+    max-height: 200px;
+    overflow-y: auto;
+    display: none;
+    box-shadow: 0 10px 25px rgba(0,0,0,0.5);
+}
+
+.autocomplete-item {
+    padding: 10px 16px;
+    cursor: pointer;
+    font-size: 0.85rem;
+    color: #a1a1aa;
+    transition: all 0.2s;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.03);
+}
+
+.autocomplete-item:hover {
+    background: rgba(56, 189, 248, 0.1);
+    color: #fff;
+}
+
+.premium-highlight {
+    color: #38bdf8;
+    font-weight: 700;
+}
+            
             .tactical-ui-root {
                 position: absolute;
                 inset: 0;
