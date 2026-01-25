@@ -516,15 +516,16 @@ handleAutocomplete(id, query) {
 
     // Map UI filter ID to flight property names
     const propMap = { 'type': 'aircraftName', 'livery': 'liveryName' };
-    const allOptions = this.getUniqueValues(propMap[id]);
+    const allOptions = this.getUniqueValues(propMap[id] || id);
     
     const matches = allOptions.filter(opt => 
         opt.toUpperCase().includes(query.toUpperCase())
-    ).slice(0, 8); // Limit to top 8 matches
+    ).slice(0, 8);
 
     if (matches.length > 0) {
         suggestionsContainer.innerHTML = matches.map(match => `
-            <div class="autocomplete-item" onclick="LandingUI.applySuggestion('${id}', '${match.replace(/'/g, "\\'")}')">
+            <div class="autocomplete-item" 
+                 onmousedown="LandingUI.applySuggestion('${id}', '${match.replace(/'/g, "\\'")}')">
                 ${this.highlightText(match, query)}
             </div>
         `).join('');
@@ -554,17 +555,18 @@ applySuggestion(id, value) {
         if (def.type === 'range') return `<div class="range-pill-container"><div class="range-half"><span class="range-label">MIN</span><input type="number" class="range-input data-input-min" data-id="${id}" placeholder="0" value="${value.min || ''}"></div><div class="range-divider"></div><div class="range-half"><span class="range-label">MAX</span><input type="number" class="range-input data-input-max" data-id="${id}" placeholder="Max" value="${value.max || ''}"></div></div>`;
         if (def.type === 'boolean') return `<div class="bool-indicator" style="font-size:0.8rem; color:#10b981; font-weight:600;"><i class="fa-solid fa-check"></i> Active Policy Enabled</div>`;
         if (def.type === 'autocomplete') {
-        return `
-            <div class="input-wrapper autocomplete-wrapper">
-                <input type="text" class="row-input data-input autocomplete-input" 
-                       data-id="${id}" 
-                       placeholder="${def.placeholder || 'Search...'}" 
-                       value="${value}"
-                       oninput="LandingUI.handleAutocomplete('${id}', this.value)"
-                       onblur="setTimeout(() => document.getElementById('suggestions-${id}').style.display='none', 200)">
-                <div id="suggestions-${id}" class="autocomplete-suggestions custom-scroll"></div>
-            </div>`;
-    }
+    return `
+        <div class="input-wrapper autocomplete-wrapper">
+            <input type="text" class="row-input data-input autocomplete-input" 
+                   data-id="${id}" 
+                   placeholder="${def.placeholder || 'Search...'}" 
+                   value="${value}"
+                   oninput="LandingUI.handleAutocomplete('${id}', this.value)"
+                   onfocus="LandingUI.handleAutocomplete('${id}', this.value)"
+                   onblur="setTimeout(() => { document.getElementById('suggestions-${id}').style.display='none'; }, 200)">
+            <div id="suggestions-${id}" class="autocomplete-suggestions custom-scroll"></div>
+        </div>`;
+}
         return `<div class="input-wrapper"><input type="text" class="row-input data-input" data-id="${id}" placeholder="${def.placeholder || 'Search value...'}" value="${value}"></div>`;
     },
 
@@ -581,6 +583,63 @@ applySuggestion(id, value) {
     injectStyles() {
         const css = `
             @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap');
+
+            /* --- Fix for Autocomplete Visibility --- */
+.modal-filter-card {
+    background: #141416;
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    border-radius: 20px;
+    display: flex;
+    /* Changed from overflow: hidden to visible */
+    overflow: visible !important; 
+    box-shadow: 0 8px 30px rgba(0,0,0,0.3);
+    position: relative;
+}
+
+/* Ensure the card being edited is on top of others */
+.modal-filter-card:focus-within {
+    z-index: 10;
+    border-color: rgba(56, 189, 248, 0.5);
+}
+
+.card-content {
+    flex: 1;
+    padding: 24px;
+    overflow: visible !important;
+}
+
+.autocomplete-wrapper {
+    position: relative;
+    width: 100%;
+}
+
+.autocomplete-suggestions {
+    position: absolute;
+    top: calc(100% + 5px);
+    left: 0;
+    right: 0;
+    background: #1c1c1f; /* Matches input background */
+    border: 1px solid #38bdf8;
+    border-radius: 12px;
+    z-index: 9999; /* Ensure it stays above everything */
+    max-height: 200px;
+    overflow-y: auto;
+    display: none;
+    box-shadow: 0 10px 25px rgba(0,0,0,0.5);
+}
+
+.autocomplete-item {
+    padding: 12px 16px;
+    cursor: pointer;
+    font-size: 0.9rem;
+    color: #fff;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+}
+
+.autocomplete-item:hover {
+    background: #38bdf8;
+    color: #000;
+}
 
             /* Autocomplete Styles */
 .autocomplete-wrapper {
