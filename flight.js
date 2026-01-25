@@ -3359,8 +3359,8 @@ async function initializeMapBoundaries(map) {
         }
 
         const styleMode = mapFilters.mapStyle || 'dark';
-        const borderColor = (styleMode === 'light') ? '#475569' : '#ffffff';
-        const borderOpacity = (styleMode === 'light') ? 0.4 : 0.2;
+    const borderColor = (styleMode === 'light') ? '#0f172a' : '#ffffff'; // Match the slate color
+    const borderOpacity = (styleMode === 'light') ? 0.3 : 0.2;
 
         // FIX: Check if the plane layer exists before trying to place boundaries under it
         const beforeId = map.getLayer('sector-ops-live-flights-layer') 

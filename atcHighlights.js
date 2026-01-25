@@ -76,47 +76,36 @@ export function updateActiveSectors(map, layerId, atcData) {
     // --- STYLING: BRIGHT WHITE OUTLINE ---
 
     // Set fill to transparent (as we only want the outline highlighted)
+    const isLightMode = window.mapFilters?.mapStyle === 'light';
+    
+    // Use dark slate for light mode, white for dark/satellite modes
+    const activeBorderColor = isLightMode ? '#0f172a' : '#ffffff';
+    const inactiveBorderColor = isLightMode ? 'rgba(15, 23, 42, 0.15)' : 'rgba(255, 255, 255, 0.1)';
+
+    // Set fill to transparent
     map.setPaintProperty(layerId, 'fill-color', 'rgba(0, 0, 0, 0)');
     map.setPaintProperty(layerId, 'fill-opacity', 0);
 
     if (map.getLayer('fir-borders')) {
-    // 1. Position the layer: Move the borders below aircraft labels/icons
-    // 'airplane-layer-id' should be the ID of your aircraft symbols layer
-    if (map.getLayer('airplane-layer-id')) {
-        map.moveLayer('fir-borders', 'airplane-layer-id');
+        // Move borders below aircraft but above terrain
+        if (map.getLayer('sector-ops-live-flights-layer')) {
+            map.moveLayer('fir-borders', 'sector-ops-live-flights-layer');
+        }
+
+        // Apply dynamic colors
+        map.setPaintProperty('fir-borders', 'line-color', [
+            "case",
+            matchExpression,
+            activeBorderColor,   // High-intensity color for active
+            inactiveBorderColor  // Dimmed color for contrast
+        ]);
+
+        map.setPaintProperty('fir-borders', 'line-width', [
+            "case",
+            matchExpression,
+            1.5, // Thicker for active
+            0.5  // Hairline for inactive
+        ]);
     }
-
-    // 2. High-intensity color: Pure white at 100% opacity for the active sector
-    map.setPaintProperty('fir-borders', 'line-color', [
-        "case",
-        matchExpression,
-        '#ffffff', 
-        'rgba(255, 255, 255, 0.1)' // Dimmer inactive lines for contrast
-    ]);
-
-    // 3. Keep it thin: Reverted to a thin, sharp line to avoid "bloat"
-    map.setPaintProperty('fir-borders', 'line-width', [
-        "case",
-        matchExpression,
-        1.5, // Thin but distinct
-        0.5 
-    ]);
-
-    // 4. Tight Glow: Use a very small blur to create "luminance" without fuzziness
-    map.setPaintProperty('fir-borders', 'line-blur', [
-        "case",
-        matchExpression,
-        0.5, 
-        0
-    ]);
-    
-    // 5. Opacity: Ensure the active line is fully opaque
-    map.setPaintProperty('fir-borders', 'line-opacity', [
-        "case",
-        matchExpression,
-        1.0,
-        0.3
-    ]);
-}
 }
 
