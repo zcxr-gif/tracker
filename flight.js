@@ -8502,15 +8502,7 @@ sectorOpsMap.addLayer({
     'source': 'sector-ops-live-flights-source',
     'layout': {
         'icon-image': getIconImageExpression(mapFilters.iconColorMode),
-        // FIX: Wrap mapFilters.planeIconSize in parseFloat()
-        'icon-size': [
-        'interpolate', 
-        ['linear'], 
-        ['zoom'],
-        2, 0.02,  // Tiny at zoom 2
-        10, 0.05, // Large at zoom 10
-        15, 0.15  // Very large when zoomed into airports
-    ],
+        'icon-size': mapFilters.planeIconSize,
         'icon-allow-overlap': true,
         'icon-ignore-placement': true,
         'icon-rotation-alignment': 'map',
