@@ -92,7 +92,7 @@ window.currentAirportTraffic = { in: [], out: [] }; // Stores IDs for the curren
     let mapFilters = {
         show3DPath: false,
         showNatTracks: true,  // New: Toggle for the tracks themselves
-        showNatLabels: true,
+        showNatLabels: false,
         showVaOnly: false,
         showGroupFlights: false,
         showUnstaffedAirports: false,
@@ -8518,34 +8518,6 @@ sectorOpsMap.addLayer({
                 }
             });
         });
-
-        // Locate the Hover Listener block inside setupMapLayersAndFog
-const isTouchDevice = 'ontouchstart' in window || navigator.maxTouchPoints > 0;
-
-if (!isTouchDevice && (typeof window.MobileUIHandler === 'undefined' || !window.MobileUIHandler.isMobile())) {
-    const hoverPopup = new mapboxgl.Popup({ closeButton: false, closeOnClick: false, offset: 20 });
-
-    sectorOpsMap.on('mouseenter', 'sector-ops-live-flights-layer', (e) => {
-        sectorOpsMap.getCanvas().style.cursor = 'pointer';
-        const coordinates = e.features[0].geometry.coordinates.slice();
-        const props = e.features[0].properties;
-
-        // Ensure popup doesn't display over the same spot twice if map wraps
-        while (Math.abs(e.lngLat.lng - coordinates[0]) > 180) {
-            coordinates[0] += e.lngLat.lng > coordinates[0] ? 360 : -360;
-        }
-
-        if (typeof generateHoverCardHTML !== 'undefined') {
-            const cardHTML = generateHoverCardHTML(props);
-            hoverPopup.setLngLat(coordinates).setHTML(cardHTML).addTo(sectorOpsMap);
-        }
-    });
-
-    sectorOpsMap.on('mouseleave', 'sector-ops-live-flights-layer', () => {
-        sectorOpsMap.getCanvas().style.cursor = '';
-        hoverPopup.remove();
-    });
-}
     }
     
     // 5. Add the LABEL layer
@@ -9196,49 +9168,36 @@ function generateAltitudeColoredRoute(history, currentPos, flightPlan = null) {
  */
 function closeAircraftWindow() {
     if (!aircraftInfoWindow) return;
+    
+    // Clear 3D paths if active
+    if (typeof FlownPath3D !== 'undefined') {
+        FlownPath3D.updatePath(sectorOpsMap, currentFlightInWindow, [], false);
+    }
 
-    FlownPath3D.updatePath(sectorOpsMap, currentFlightInWindow, [], false);
-
-    // 1. Hide UI
     aircraftInfoWindow.classList.remove('visible');
     if (window.MobileUIHandler) window.MobileUIHandler.closeActiveWindow();
-    if (aircraftInfoWindowRecallBtn) aircraftInfoWindowRecallBtn.classList.remove('visible');
-
-    // 2. Clear Map Elements
-    clearLiveFlightPath(currentFlightInWindow); 
-
-    // 3. Clear ALL Intervals (Critical for performance)
-    if (activePfdUpdateInterval) {
-        clearInterval(activePfdUpdateInterval);
-        activePfdUpdateInterval = null;
-    }
-    if (activeGeocodeUpdateInterval) {
-        clearInterval(activeGeocodeUpdateInterval);
-        activeGeocodeUpdateInterval = null;
-    }
-    if (activeWeatherUpdateInterval) {
-        clearInterval(activeWeatherUpdateInterval);
-        activeWeatherUpdateInterval = null;
-    }
-
-    // 4. Reset State
-    currentAircraftPositionForGeocode = null;
-    liveTrailCache.delete(currentFlightInWindow);
-    currentFlightInWindow = null;
-    cachedFlightDataForStatsView = { flightProps: null, plan: null };
-    if (!currentAirportInWindow) {
-        const landingData = { 
-            server: currentServerName, 
-            flights: Object.keys(currentMapFeatures).length, 
-            atc: activeAtcFacilities.length 
-        };
-        LandingUI.update(true, landingData);
-        localStorage.setItem('landingUI_visible', 'true');
-        localStorage.setItem('landingUI_data', JSON.stringify(landingData));
-    }
     
-    // 5. Reset PFD visual state
+    // Clear the map layers using the ID tracker
+    clearLiveFlightPath(currentFlightInWindow);
+
+    // Reset intervals
+    if (activePfdUpdateInterval) clearInterval(activePfdUpdateInterval);
+    if (activeGeocodeUpdateInterval) clearInterval(activeGeocodeUpdateInterval);
+    if (activeWeatherUpdateInterval) clearInterval(activeWeatherUpdateInterval);
+
+    // CRITICAL FIX: Reset state
+    currentFlightInWindow = null; 
+    currentAircraftPositionForGeocode = null;
     resetPfdState();
+
+    // Trigger Landing UI only if airport window is also closed
+    if (!currentAirportInWindow) {
+        LandingUI.update(true, {
+            server: currentServerName,
+            flights: Object.keys(currentMapFeatures).length,
+            atc: activeAtcFacilities.length
+        });
+    }
 }
 
 /**
@@ -9385,8 +9344,12 @@ async function handleAircraftClick(flightProps, sessionId, event = null) {
                 }
             }, 'sector-ops-live-flights-layer');
             if (typeof sectorOpsLiveFlightPathLayers !== 'undefined') {
-                sectorOpsLiveFlightPathLayers[flightProps.flightId] = { flown: flownLayerId };
-            }
+    // FIX: Use assignment that preserves other keys in the object
+    if (!sectorOpsLiveFlightPathLayers[flightProps.flightId]) {
+        sectorOpsLiveFlightPathLayers[flightProps.flightId] = {};
+    }
+    sectorOpsLiveFlightPathLayers[flightProps.flightId].flown = flownLayerId;
+}
         }
         
         if (plan && typeof updateFlightPlanLayer === 'function') {
@@ -9404,38 +9367,65 @@ async function handleAircraftClick(flightProps, sessionId, event = null) {
  * Closes the airport information window and cleans up associated map layers/states.
  * This is called whenever an aircraft is selected or the airport window is closed manually.
  */
+// In flight.js - Update this function to include the null reset
 function closeAirportWindow() {
     if (!airportInfoWindow) return;
 
-    // 1. Hide UI elements
     airportInfoWindow.classList.remove('visible');
     if (window.MobileUIHandler) window.MobileUIHandler.closeActiveWindow();
-    
-    // Hide the "recall" button (the small tab that appears when minimized)
-    if (typeof airportInfoWindowRecallBtn !== 'undefined' && airportInfoWindowRecallBtn) {
-        airportInfoWindowRecallBtn.classList.remove('visible');
-    }
+    if (airportInfoWindowRecallBtn) airportInfoWindowRecallBtn.classList.remove('visible');
 
-    // 2. Cleanup Map Overlays
     isTrafficHighlightActive = false;
-    if (typeof applyTrafficHighlighting === 'function') applyTrafficHighlighting();
-    if (typeof clearRouteLayers === 'function') clearRouteLayers();
-    
-    // 3. Remove Taxiway/Layout layers
-    if (typeof AirportLayoutManager !== 'undefined' && sectorOpsMap) {
-        AirportLayoutManager.clearAll(sectorOpsMap);
-    }
+    applyTrafficHighlighting();
+    clearRouteLayers();
+    if (typeof AirportLayoutManager !== 'undefined' && sectorOpsMap) AirportLayoutManager.clearAll(sectorOpsMap);
 
-    // 4. Reset Global State
+    // CRITICAL FIX: Reset the state variable
+    currentAirportInWindow = null; 
+
+    // Now LandingUI can safely trigger
     if (!currentFlightInWindow) {
-        const landingData = { 
-            server: currentServerName, 
-            flights: Object.keys(currentMapFeatures).length, 
-            atc: activeAtcFacilities.length 
+        const landingData = {
+            server: currentServerName,
+            flights: Object.keys(currentMapFeatures).length,
+            atc: activeAtcFacilities.length
         };
         LandingUI.update(true, landingData);
-        localStorage.setItem('landingUI_visible', 'true');
-        localStorage.setItem('landingUI_data', JSON.stringify(landingData));
+    }
+}
+
+// In flight.js - Ensure the Aircraft close also checks for nulled states
+function closeAircraftWindow() {
+    if (!aircraftInfoWindow) return;
+    
+    // Clear 3D paths if active
+    if (typeof FlownPath3D !== 'undefined') {
+        FlownPath3D.updatePath(sectorOpsMap, currentFlightInWindow, [], false);
+    }
+
+    aircraftInfoWindow.classList.remove('visible');
+    if (window.MobileUIHandler) window.MobileUIHandler.closeActiveWindow();
+    
+    // Clear the map layers using the ID tracker
+    clearLiveFlightPath(currentFlightInWindow);
+
+    // Reset intervals
+    if (activePfdUpdateInterval) clearInterval(activePfdUpdateInterval);
+    if (activeGeocodeUpdateInterval) clearInterval(activeGeocodeUpdateInterval);
+    if (activeWeatherUpdateInterval) clearInterval(activeWeatherUpdateInterval);
+
+    // CRITICAL FIX: Reset state
+    currentFlightInWindow = null; 
+    currentAircraftPositionForGeocode = null;
+    resetPfdState();
+
+    // Trigger Landing UI only if airport window is also closed
+    if (!currentAirportInWindow) {
+        LandingUI.update(true, {
+            server: currentServerName,
+            flights: Object.keys(currentMapFeatures).length,
+            atc: activeAtcFacilities.length
+        });
     }
 }
 
@@ -11351,13 +11341,12 @@ function setupSectorOpsEventListeners() {
 }
 
 /**
- * --- [NEW] Logic for Flight Hover Popups (FR24 Style) ---
- * Attaches mouse listeners to the aircraft layer to show info cards.
+ * --- [REFINED] Logic for Flight Hover Popups (FR24 Style) ---
+ * Handles hover effects but excludes touch-based "hover" emulation.
  */
 function setupFlightHoverPopups() {
     if (!sectorOpsMap) return;
 
-    // Create a single shared popup instance for hovering
     const hoverPopup = new mapboxgl.Popup({
         closeButton: false,
         closeOnClick: false,
@@ -11367,17 +11356,22 @@ function setupFlightHoverPopups() {
     });
 
     sectorOpsMap.on('mouseenter', 'sector-ops-live-flights-layer', (e) => {
-        if (window.isMouseOverAirportTag) return;
-        // Change cursor to indicate interactability
+        // 1. BLOCK MOBILE TAPS: 
+        // Only proceed if the device supports a hover state (mouse) 
+        // and the event isn't coming from a touch pointer.
+        const isHoverDevice = window.matchMedia('(hover: hover)').matches;
+        if (!isHoverDevice || (e.originalEvent && e.originalEvent.pointerType === 'touch')) {
+            return;
+        }
+
+        // Change cursor
         sectorOpsMap.getCanvas().style.cursor = 'pointer';
         
         const feature = e.features[0];
         const props = feature.properties;
 
-        // Parse JSON strings from properties (set in handleSocketFlightUpdate)
+        // Data Parsing
         const acData = props.aircraft ? JSON.parse(props.aircraft) : {};
-        
-        // Prepare display data
         const callsign = props.callsign || '---';
         const acType = (acData.aircraftName || 'AC').split(' ')[0].substring(0, 4).toUpperCase();
         const imgUrl = props.communityImageUrl || '/CommunityPlanes/default.png';
@@ -11385,14 +11379,13 @@ function setupFlightHoverPopups() {
         const alt = Math.round(props.altitude || 0).toLocaleString();
         const gs = Math.round(props.speed || 0);
         
-        // Generate Airline Logo Path
+        // Logo Generation
         const livName = acData.liveryName || '';
         const words = livName.trim().split(/\s+/);
         let logoName = words.length > 1 && /[^a-zA-Z0-9]/.test(words[1]) ? words[0] : (words[0] + (words[1] ? ' ' + words[1] : ''));
         const sanitizedLogoName = logoName.toLowerCase().replace(/[^a-z0-9\s]/g, '').replace(/\s+/g, '_');
         const logoPath = `Images/airline_logos/${sanitizedLogoName}.png`;
 
-        // Build the HTML structure matching your CSS
         const html = `
             <div class="fr24-card-container">
                 <div class="fr24-image-box" style="background-image: url('${imgUrl}')">
@@ -11414,19 +11407,17 @@ function setupFlightHoverPopups() {
             </div>
         `;
 
-        // Show the popup at the aircraft's current location
         hoverPopup.setLngLat(feature.geometry.coordinates).setHTML(html).addTo(sectorOpsMap);
     });
 
-    // Remove popup and reset cursor when mouse leaves
     sectorOpsMap.on('mouseleave', 'sector-ops-live-flights-layer', () => {
         sectorOpsMap.getCanvas().style.cursor = '';
         hoverPopup.remove();
     });
 
-    // Optional: Follow mouse movement for smoother tracking
     sectorOpsMap.on('mousemove', 'sector-ops-live-flights-layer', (e) => {
-        if (hoverPopup.isOpen()) {
+        // Only follow mouse if the device actually supports hover
+        if (hoverPopup.isOpen() && window.matchMedia('(hover: hover)').matches) {
             hoverPopup.setLngLat(e.lngLat);
         }
     });
@@ -12400,7 +12391,7 @@ async function initializeApp() {
         MobileSettingsUI.init();
         
         // Default to true if not explicitly set to 'false'
-const isVisible = localStorage.getItem('landingUI_visible') !== 'false'; 
+const isVisible = localStorage.getItem('landingUI_visible') !== 'true'; 
 
 if (isVisible) {
     LandingUI.update(true, {
