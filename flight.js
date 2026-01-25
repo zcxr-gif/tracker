@@ -3253,12 +3253,6 @@ function injectCustomStyles() {
 }
 .atc-supervisor .hero-rank-tag { color: #fbbf24; }
 .atc-supervisor .grade-badge { background: #fbbf24; }
-
-.infowindow-container:hover {
-    z-index: 3000 !important; /* Jump above the Landing UI */
-    pointer-events: auto;
-}
-
     `;
 
     const style = document.createElement('style');
