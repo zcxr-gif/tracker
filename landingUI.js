@@ -145,9 +145,14 @@ export const LandingUI = {
     },
 
     executeSearchClick(id, lat, lon) {
+        // LOGGING: Confirm the search click is firing and has data
+        console.log(`[LandingUI] Executing Search Click. ID: ${id}, Lat: ${lat}, Lon: ${lon}`);
+
         // 1. Trigger the map navigation and info panel logic in flight.js
         if (typeof window.onSearchResultClick === 'function') {
             window.onSearchResultClick(id, lat, lon);
+        } else {
+            console.error("[LandingUI] Global onSearchResultClick not found! Ensure flight.js is loaded correctly.");
         }
 
         // 2. UI Cleanup: Clear the search bar and hide results

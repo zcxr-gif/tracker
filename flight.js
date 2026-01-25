@@ -4291,79 +4291,84 @@ function renderSearchResultsDropdown(matches) {
 
 
     /**
-     * --- [FIXED] Handles the click on a search result item.
-     * Now reads all data directly from the clicked element's data attributes
-     * *before* clearing the dropdown, fixing the race condition.
-     * @param {HTMLElement} itemElement - The clicked <div> element.
+     * Handles flight selection from search. 
+     * Supports element-based clicks (Sector Ops) and direct data (Landing UI).
      */
-    function onSearchResultClick(itemElement) {
-        // --- [START OF FIX] ---
-        // 1. Get data directly from the element's dataset FIRST.
-        // This must happen before we clear the dropdown, which destroys the element.
+    function onSearchResultClick(arg1, arg2, arg3) {
         let coordinates;
         let props;
-        try {
-            coordinates = JSON.parse(itemElement.dataset.coordinates);
-            props = JSON.parse(itemElement.dataset.properties);
-            
-            if (!coordinates || !props || !props.flightId) {
-                 throw new Error('Search item is missing required data.');
-            }
-        } catch (e) {
-            console.error(`onSearchResultClick: Failed to parse data from clicked search item.`, e, itemElement.dataset);
-            return; // Abort if data is bad
-        }
-        // --- [END OF FIX] ---
 
-        // 2. Get UI elements
+        // LOGGING: See what reached the function
+        console.log("[Flight] onSearchResultClick received:", arg1);
+
+        // Check if we got an Element (Sector Ops Search) or ID/Lat/Lon (Landing UI)
+        if (arg1 instanceof HTMLElement) {
+            try {
+                coordinates = JSON.parse(arg1.dataset.coordinates);
+                props = JSON.parse(arg1.dataset.properties);
+            } catch (e) {
+                console.error("onSearchResultClick: Failed to parse element data.", e);
+                return;
+            }
+        } else {
+            // It's a direct call from Landing UI: arg1=id, arg2=lat, arg3=lon
+            const flightId = arg1;
+            coordinates = [arg3, arg2]; // Mapbox expects [longitude, latitude]
+            
+            // Retrieve properties from the global cache
+            const feature = currentMapFeatures[flightId];
+            if (feature) {
+                props = feature.properties;
+            } else {
+                console.error(`onSearchResultClick: Flight ${flightId} not found in map cache.`);
+                return;
+            }
+        }
+
+        // Proceed with UI logic
         const dropdown = document.getElementById('search-results-dropdown');
         const searchInput = document.getElementById('sector-ops-search-input');
         
-        // 3. Hide dropdown and clear input NOW
         if (dropdown) dropdown.innerHTML = '';
         if (searchInput) {
             searchInput.value = '';
-            searchInput.blur(); // Remove focus
+            searchInput.blur();
         }
         
-        // 4. Fly to the aircraft
+        // Navigate map to the coordinates
         sectorOpsMap.flyTo({
-            center: coordinates, // <-- Use data from element
+            center: coordinates,
             zoom: 9,
             essential: true
         });
 
-        // 5. Open the info window
+        // Parse nested properties and open the aircraft window
         let flightProps;
-
-        // Safely parse the *nested* JSON strings (position, aircraft)
         try {
             flightProps = {
                 ...props,
-                position: props.position ? JSON.parse(props.position) : null,
-                aircraft: props.aircraft ? JSON.parse(props.aircraft) : null
+                position: typeof props.position === 'string' ? JSON.parse(props.position) : props.position,
+                aircraft: typeof props.aircraft === 'string' ? JSON.parse(props.aircraft) : props.aircraft
             };
-        } catch (parseError) {
-            console.error('onSearchResultClick: Failed to parse *nested* flight properties:', parseError, props);
-            flightProps = { ...props }; // Fallback
+        } catch (err) {
+            console.error('onSearchResultClick: Nested property parse failed:', err);
+            flightProps = { ...props };
         }
         
-        // Check if parsing failed fatally
-        if (!flightProps || !flightProps.position) {
-            console.error('onSearchResultClick: Aborting, flight has no valid position data after parsing.');
-            return;
-        }
+        if (!flightProps || !flightProps.position) return;
         
         fetch('https://site--acars-backend--6dmjph8ltlhv.code.run/if-sessions')
             .then(res => res.json())
             .then(data => {
-                // [UPDATED] Use helper
                 const sessionId = getCurrentSessionId(data);
                 if (sessionId) {
                     handleAircraftClick(flightProps, sessionId);
                 }
             });
     }
+
+    // CRITICAL: Make function globally available to landingUI.js
+    window.onSearchResultClick = onSearchResultClick;
 
 /**
  * --- [NEW FUNCTION] ---
