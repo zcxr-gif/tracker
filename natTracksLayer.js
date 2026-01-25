@@ -113,7 +113,12 @@ export class NatTracksLayer {
         if (this.tracks && this.tracks.length > 0) {
         this.render();
     }
+
+    if (this.tracks.length > 0) {
+        this.render();
+    }
 }
+
 
 
     /**
