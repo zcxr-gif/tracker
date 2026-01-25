@@ -546,7 +546,7 @@ applySuggestion(id, value) {
         const suggestionsContainer = document.getElementById(`suggestions-${id}`);
         if (suggestionsContainer) suggestionsContainer.style.display = 'none';
     }
-}
+},
 
     renderInputControl(id, value) {
         const def = this.allFilters.find(f => f.id === id);
