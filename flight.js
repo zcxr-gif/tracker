@@ -8405,6 +8405,10 @@ window.globalNatTracks = natTracks;
  * --- [RESTORED] Sets up base layers, icons, and fog.
  * Called on initial load AND on every style change.
  */
+/**
+ * --- [RESTORED] Sets up base layers, icons, and fog.
+ * Called on initial load AND on every style change.
+ */
 async function setupMapLayersAndFog() {
     if (!sectorOpsMap) return;
 
@@ -8506,6 +8510,47 @@ sectorOpsMap.addLayer({
         'icon-rotate': ['get', 'heading']
     }
 });
+
+        // Click Listener
+        sectorOpsMap.on('click', 'sector-ops-live-flights-layer', (e) => {
+            const props = e.features[0].properties;
+            const flightProps = { ...props, position: JSON.parse(props.position), aircraft: JSON.parse(props.aircraft) };
+            fetch('https://site--acars-backend--6dmjph8ltlhv.code.run/if-sessions').then(res => res.json()).then(data => {
+                const sessionId = getCurrentSessionId(data);
+                if (sessionId) {
+                    handleAircraftClick(flightProps, sessionId);
+                }
+            });
+        });
+
+        // Locate the Hover Listener block inside setupMapLayersAndFog
+const isTouchDevice = 'ontouchstart' in window || navigator.maxTouchPoints > 0;
+
+if (!isTouchDevice && (typeof window.MobileUIHandler === 'undefined' || !window.MobileUIHandler.isMobile())) {
+    const hoverPopup = new mapboxgl.Popup({ closeButton: false, closeOnClick: false, offset: 20 });
+
+    sectorOpsMap.on('mouseenter', 'sector-ops-live-flights-layer', (e) => {
+        sectorOpsMap.getCanvas().style.cursor = 'pointer';
+        const coordinates = e.features[0].geometry.coordinates.slice();
+        const props = e.features[0].properties;
+
+        // Ensure popup doesn't display over the same spot twice if map wraps
+        while (Math.abs(e.lngLat.lng - coordinates[0]) > 180) {
+            coordinates[0] += e.lngLat.lng > coordinates[0] ? 360 : -360;
+        }
+
+        if (typeof generateHoverCardHTML !== 'undefined') {
+            const cardHTML = generateHoverCardHTML(props);
+            hoverPopup.setLngLat(coordinates).setHTML(cardHTML).addTo(sectorOpsMap);
+        }
+    });
+
+    sectorOpsMap.on('mouseleave', 'sector-ops-live-flights-layer', () => {
+        sectorOpsMap.getCanvas().style.cursor = '';
+        hoverPopup.remove();
+    });
+}
+    }
 
 /**
  * [UPDATED] Initializes the Sector Ops map with high-performance configurations.
