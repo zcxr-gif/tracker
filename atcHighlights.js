@@ -26,32 +26,37 @@ function isPointInPolygon(point, polygon) {
 }
 
 /**
+ * Helper to determine if the current map style is likely "Light Mode"
+ */
+function isLightMode(map) {
+    const style = map.getStyle();
+    if (!style || !style.name) return false;
+    const name = style.name.toLowerCase();
+    // Common keywords for light maps
+    return name.includes('light') || name.includes('street') || name.includes('outdoor');
+}
+
+/**
  * Updates the Mapbox layer style based on active ATC.
  * @param {object} map - Your Mapbox map instance
  * @param {string} layerId - The ID of the fill layer (e.g., 'fir-fills')
  * @param {Array} atcData - The array of online Center controllers
  */
+
 export function updateActiveSectors(map, layerId, atcData) {
     if (!map || !map.getLayer(layerId)) return;
 
-    // 1. Build the list of active IDs from data first to prevent flickering.
-    // By using atcData as the source of truth, the highlight stays even if 
-    // the region is currently off-screen.
     const activeIdsSet = new Set();
     const lookupPoints = [];
 
     atcData.forEach(controller => {
         if (controller.fir_id) {
-            // Priority 1: Use the explicit ID from the API
             activeIdsSet.add(controller.fir_id);
         } else if (controller.latitude && controller.longitude) {
-            // Priority 2: Queue for spatial lookup if ID is missing
             lookupPoints.push([controller.longitude, controller.latitude]);
         }
     });
 
-    // 2. Supplemental lookup for coordinates if needed.
-    // Note: querySourceFeatures only sees tiles currently in view.
     if (lookupPoints.length > 0) {
         const firFeatures = map.querySourceFeatures('fir-boundaries');
         lookupPoints.forEach(point => {
@@ -63,8 +68,14 @@ export function updateActiveSectors(map, layerId, atcData) {
     }
 
     const activeIds = Array.from(activeIdsSet);
-    
-    // 3. Create a prefix-matching expression (e.g., 'KZLA' matches 'KZLA-CTR')
+    const isLight = isLightMode(map);
+
+    // Define colors based on theme
+    const activeColor = isLight ? '#0055ff' : '#ffffff'; // Vivid Blue for light, White for dark
+    const inactiveColor = isLight ? 'rgba(0, 0, 0, 0.2)' : 'rgba(255, 255, 255, 0.1)';
+    const activeOpacity = 1.0;
+    const inactiveOpacity = isLight ? 0.4 : 0.2;
+
     const matchExpression = [
         "match",
         ["slice", ["get", "id"], 0, ["index-of", "-", ["concat", ["get", "id"], "-"]]],
@@ -73,49 +84,42 @@ export function updateActiveSectors(map, layerId, atcData) {
         false
     ];
 
-    // --- STYLING: BRIGHT WHITE OUTLINE ---
-
-    // Set fill to transparent (as we only want the outline highlighted)
-    map.setPaintProperty(layerId, 'fill-color', 'rgba(0, 0, 0, 0)');
-    map.setPaintProperty(layerId, 'fill-opacity', 0);
-
     if (map.getLayer('fir-borders')) {
-    // 1. Position the layer: Move the borders below aircraft labels/icons
-    // 'airplane-layer-id' should be the ID of your aircraft symbols layer
-    if (map.getLayer('airplane-layer-id')) {
-        map.moveLayer('fir-borders', 'airplane-layer-id');
+        // Move borders below aircraft but above terrain
+        if (map.getLayer('airplane-layer-id')) {
+            map.moveLayer('fir-borders', 'airplane-layer-id');
+        }
+
+        // Apply Dynamic Color
+        map.setPaintProperty('fir-borders', 'line-color', [
+            "case",
+            matchExpression,
+            activeColor,
+            inactiveColor
+        ]);
+
+        // Apply Dynamic Width
+        map.setPaintProperty('fir-borders', 'line-width', [
+            "case",
+            matchExpression,
+            isLight ? 2.0 : 1.5, // Slightly thicker on light mode for definition
+            0.5
+        ]);
+
+        // Apply Dynamic Opacity
+        map.setPaintProperty('fir-borders', 'line-opacity', [
+            "case",
+            matchExpression,
+            activeOpacity,
+            inactiveOpacity
+        ]);
+
+        // Remove blur on light mode to keep lines crisp
+        map.setPaintProperty('fir-borders', 'line-blur', [
+            "case",
+            matchExpression,
+            isLight ? 0 : 0.5,
+            0
+        ]);
     }
-
-    // 2. High-intensity color: Pure white at 100% opacity for the active sector
-    map.setPaintProperty('fir-borders', 'line-color', [
-        "case",
-        matchExpression,
-        '#ffffff', 
-        'rgba(255, 255, 255, 0.1)' // Dimmer inactive lines for contrast
-    ]);
-
-    // 3. Keep it thin: Reverted to a thin, sharp line to avoid "bloat"
-    map.setPaintProperty('fir-borders', 'line-width', [
-        "case",
-        matchExpression,
-        1.5, // Thin but distinct
-        0.5 
-    ]);
-
-    // 4. Tight Glow: Use a very small blur to create "luminance" without fuzziness
-    map.setPaintProperty('fir-borders', 'line-blur', [
-        "case",
-        matchExpression,
-        0.5, 
-        0
-    ]);
-    
-    // 5. Opacity: Ensure the active line is fully opaque
-    map.setPaintProperty('fir-borders', 'line-opacity', [
-        "case",
-        matchExpression,
-        1.0,
-        0.3
-    ]);
-}
 }
