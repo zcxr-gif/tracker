@@ -146,8 +146,8 @@ export const LandingUI = {
 
     executeSearchClick(id, lat, lon) {
         // 1. Trigger the map navigation and info panel logic in flight.js
-        if (typeof window.handleSearchResultClick === 'function') {
-            window.handleSearchResultClick(id, lat, lon);
+        if (typeof window.onSearchResultClick === 'function') {
+            window.onSearchResultClick(id, lat, lon);
         }
 
         // 2. UI Cleanup: Clear the search bar and hide results
@@ -303,6 +303,7 @@ export const LandingUI = {
                 document.body.style.overflow = 'hidden';
             } else {
                 document.body.style.overflow = '';
+                document.activeElement?.blur();
             }
         };
 
