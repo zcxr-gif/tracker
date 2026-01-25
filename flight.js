@@ -1,6 +1,23 @@
 import { MapAnimator } from './mapAnimator.js';
+import { AirportLayoutManager } from './airportLayout.js';
+import { LandingUI } from './landingUI.js';
+import { initPlaneSizeSlider } from './planeSizeController.js';
+import { GroupFlightManager } from './groupFlightManager.js';
+import { updateActiveSectors } from './atcHighlights.js';
+import { NatTracksLayer } from './natTracksLayer.js';
+import { FlownPath3D } from './flownPath3D.js';
+import { MobileSettingsUI } from './MobileSettingsUI.js';
 
 document.addEventListener('DOMContentLoaded', async () => {
+    window.loadingStartTime = Date.now();
+
+    // Register Service Worker for Instant Map Loading
+if ('serviceWorker' in navigator) {
+    navigator.serviceWorker.register('/sw.js')
+        .then(() => console.log("Map Tile Cache Service Worker Active"))
+        .catch(err => console.warn("Service Worker registration failed", err));
+}
+
     // --- Global Configuration ---
     const API_BASE_URL = 'https://site--indgo-backend--6dmjph8ltlhv.code.run';
     const LIVE_FLIGHTS_API_URL = 'https://site--acars-backend--6dmjph8ltlhv.code.run/flights';
@@ -12,6 +29,8 @@ document.addEventListener('DOMContentLoaded', async () => {
     // --- State Variables ---
     let OWM_API_KEY = null;
     let isWeatherLayerAdded = false;
+    let isTrafficHighlightActive = false; // Tracks if the airport traffic colorizer is ON
+window.currentAirportTraffic = { in: [], out: [] }; // Stores IDs for the currently inspected airport
     let isCloudLayerAdded = false;   // NEW: For Clouds
     let isWindLayerAdded = false;    // NEW: For Wind
     let MAPBOX_ACCESS_TOKEN = null;
@@ -23,6 +42,9 @@ document.addEventListener('DOMContentLoaded', async () => {
     const DATA_REFRESH_INTERVAL_MS = 50000; // Your current refresh interval
     const ACARS_SOCKET_URL = 'https://site--acars-backend--6dmjph8ltlhv.code.run'; // <-- NEW: For WebSocket
     let isAircraftWindowLoading = false;
+    let activeFirIds = new Set(); // Globally track which FIRs are staffed
+    window.getLiveFlightData = () => Object.values(currentMapFeatures);
+    let natTracksLayerInstance = null;
 
     // --- [NEW] Map Style Constants & State ---
     const MAP_STYLE_DARK = 'mapbox://styles/mapbox/dark-v11';
@@ -68,7 +90,12 @@ document.addEventListener('DOMContentLoaded', async () => {
     // --- NEW: To cache flight data when switching to stats view ---
     let cachedFlightDataForStatsView = { flightProps: null, plan: null };
     let mapFilters = {
+        show3DPath: false,
+        showNatTracks: true,  // New: Toggle for the tracks themselves
+        showNatLabels: false,
         showVaOnly: false,
+        showGroupFlights: false,
+        showUnstaffedAirports: false,
         showStaffOnly: false,
         hideAllAircraft: false,
         showAtcAirportsOnly: false,
@@ -78,11 +105,18 @@ document.addEventListener('DOMContentLoaded', async () => {
         planDisplayMode: 'none',
         iconColorMode: 'default',
         showAircraftLabels: false,
+        useFlatMap: false,
         useSimpleFlightWindow: false,
+        planeIconSize: 0.05,
         themeStartColor: '#18181b', // [UPDATED] Carbon/Zinc-900
         themeEndColor: '#18181b',   // [UPDATED] Carbon/Zinc-900
         themeOpacity: 90            // [UPDATED] Slightly more transparent (90%)
     };
+
+    window.saveFiltersToLocalStorage = saveFiltersToLocalStorage;
+    window.updateMapFilters = updateMapFilters;
+    window.initializeSectorOpsMap = initializeSectorOpsMap;
+    window.mapFilters = mapFilters;
 
     const departureHubs = []; // Empty array
     let ALL_AVAILABLE_ROUTES = []; // Empty array
@@ -143,23 +177,32 @@ document.addEventListener('DOMContentLoaded', async () => {
         }
     }
 
-    /**
-     * --- [NEW] Loads mapFilters from local storage and merges with defaults.
-     */
     function loadFiltersFromLocalStorage() {
-        const savedFilters = localStorage.getItem('mapFilters');
-        if (savedFilters) {
-            try {
-                const parsedFilters = JSON.parse(savedFilters);
-                // Merge saved filters with defaults to ensure new properties are not lost
-                mapFilters = { ...mapFilters, ...parsedFilters };
-                console.log("Loaded map filters from local storage.", mapFilters);
-            } catch (e) {
-                console.warn("Could not parse saved filters from local storage.", e);
-                // On error, just use the defaults
+    const savedFilters = localStorage.getItem('mapFilters');
+    if (savedFilters) {
+        try {
+            const parsedFilters = JSON.parse(savedFilters);
+            // Merge saved filters with defaults to ensure new properties are not lost
+            Object.assign(mapFilters, parsedFilters);
+            
+            // [FIXED] Explicitly set the global currentMapStyle based on the saved string
+            if (mapFilters.mapStyle) {
+                if (mapFilters.mapStyle === 'light') {
+                    currentMapStyle = MAP_STYLE_LIGHT;
+                } else if (mapFilters.mapStyle === 'satellite') {
+                    currentMapStyle = MAP_STYLE_SATELLITE;
+                } else {
+                    currentMapStyle = MAP_STYLE_DARK;
+                }
             }
+            
+            console.log("Loaded map filters from local storage.", mapFilters);
+        } catch (e) {
+            console.warn("Could not parse saved filters from local storage.", e);
+            // On error, just use the defaults
         }
     }
+}
 
     async function fetchAndRenderRosters(hubIcao) {
         // This feature is disabled
@@ -528,54 +571,486 @@ function injectCustomStyles() {
     if (document.getElementById(styleId)) return;
 
     const css = `
-        /* --- IMPORT FONTS (Inter & JetBrains Mono) --- */
+
+    /* --- COMPACT REDESIGNED TRIP CARD --- */
+#trip-card-takeover {
+    position: fixed;
+    bottom: 12px; /* Moved down from 30px for a smaller gap */
+    left: 50%;
+    transform: translateX(-50%) translateY(20px);
+    z-index: 9999;
+    pointer-events: none;
+    display: none;
+    width: 440px; /* Expanded from 380px */
+    max-width: 92vw;
+    font-family: 'Inter', sans-serif;
+    background: rgba(10, 10, 12, 0.9);
+    backdrop-filter: blur(25px) saturate(180%);
+    border: 1px solid rgba(255, 255, 255, 0.12);
+    border-radius: 20px;
+    padding: 0;
+    box-shadow: 0 20px 50px rgba(0, 0, 0, 0.9);
+    transition: all 0.4s cubic-bezier(0.16, 1, 0.3, 1);
+    opacity: 0;
+    overflow: hidden;
+}
+
+#trip-card-takeover.active { 
+    display: block; 
+    pointer-events: auto;
+    transform: translateX(-50%) translateY(0);
+    opacity: 1;
+}
+
+.tc-ac-image-container {
+    width: 100%;
+    height: 110px; /* Decreased height from 140px */
+    position: relative;
+    background: #000;
+}
+.tc-ac-image {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    opacity: 0.85;
+}
+.tc-image-overlay {
+    position: absolute;
+    inset: 0;
+    background: linear-gradient(to top, rgba(10,10,12,1) 0%, transparent 50%);
+}
+
+.tc-inner { 
+    padding: 12px; /* Tightened padding from 16px */
+    display: flex; 
+    flex-direction: column; 
+    gap: 10px; /* Tightened gap from 14px to reduce overall card height */
+}
+
+/* Compact Header */
+.tc-header { display: flex; justify-content: space-between; align-items: flex-start; }
+.tc-airline-info { display: flex; align-items: center; gap: 10px; }
+.tc-logo { height: 22px; width: auto; max-width: 70px; object-fit: contain; }
+.tc-callsign { font-family: 'JetBrains Mono', monospace; font-size: 1.1rem; font-weight: 800; color: #fff; }
+.tc-pilot { font-size: 0.65rem; color: #38bdf8; font-weight: 700; letter-spacing: 0.5px; }
+
+/* Compact Route row */
+.tc-route-row { display: flex; align-items: center; justify-content: center; gap: 15px; padding: 5px 0; }
+.tc-icao { font-family: 'JetBrains Mono', monospace; font-size: 1.8rem; font-weight: 800; color: #fff; }
+.tc-path-icon { color: #38bdf8; font-size: 0.9rem; }
+.tc-path-line { height: 2px; width: 30px; background: rgba(56, 189, 248, 0.4); }
+
+/* Compact Stats */
+.tc-stats-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
+.tc-stat-box { background: rgba(255, 255, 255, 0.04); border-radius: 12px; padding: 8px; text-align: center; }
+.tc-label { display: block; font-size: 0.55rem; font-weight: 800; color: #71717a; text-transform: uppercase; margin-bottom: 2px; }
+.tc-val { color: #fff; font-size: 0.9rem; font-weight: 700; font-family: 'JetBrains Mono', monospace; }
+
+    .settings-section { display: flex; flex-direction: column; gap: 16px; }
+.settings-row { 
+    display: flex; 
+    justify-content: space-between; 
+    align-items: center; 
+    background: rgba(255,255,255,0.03); 
+    padding: 12px 16px; 
+    border-radius: 10px; 
+    border: 1px solid rgba(255,255,255,0.05);
+}
+.row-label { color: #e4e4e7; font-size: 0.85rem; font-weight: 500; display: flex; align-items: center; gap: 10px; }
+.row-label i { color: #52525b; width: 16px; text-align: center; }
+.settings-color-input { background: none; border: none; width: 40px; height: 30px; cursor: pointer; padding: 0; }
+.settings-modal .filter-config-pane { 
+        background: #121214 !important; 
+        max-height: 500px; /* Limits height to trigger scrollbar */
+        overflow-y: auto !important; /* Enables vertical scrolling */
+    }
+    
+    /* Ensure the list pane also scrolls if it gets too long */
+    .filter-selection-pane.custom-scroll {
+        overflow-y: auto;
+    }    
+
+        /* --- REDESFIGNED TACTICAL FLIGHT CARDS --- */
+.route-card-reborn {
+    position: relative;
+    height: 115px;
+    flex-shrink: 0; /* Add this line to prevent squeezing */
+    border-radius: 12px;
+    overflow: hidden;
+    background-size: 101% 101%;
+    background-position: center;
+    margin-bottom: 12px;
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    transition: all 0.3s cubic-bezier(0.16, 1, 0.3, 1);
+    box-shadow: 0 8px 32px rgba(0,0,0,0.4);
+    cursor: pointer;
+}
+
+        .route-card-reborn:hover {
+            transform: translateY(-2px) scale(1.01);
+            border-color: rgba(255, 255, 255, 0.2);
+            box-shadow: 0 12px 40px rgba(0,0,0,0.6);
+        }
+
+        .card-overlay {
+    position: absolute;
+    inset: -2px; /* Slightly larger than the card */
+    background: linear-gradient(180deg, 
+        rgba(10, 12, 26, 0.4) 0%, 
+        rgba(10, 12, 26, 0.8) 60%, 
+        rgba(10, 12, 26, 1) 100%
+    );
+    z-index: 1;
+    /* This "spreads" the color slightly to fill gaps */
+    box-shadow: inset 0 0 0 1px rgba(10, 12, 26, 1); 
+}
+
+        .card-content {
+            position: relative;
+            z-index: 2;
+            height: 100%;
+            display: flex;
+            flex-direction: column;
+            justify-content: space-between;
+            padding: 14px 18px;
+            box-sizing: border-box;
+        }
+
+        /* Header Zone: Metadata */
+        .card-header-zone {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .card-header-zone .callsign-meta {
+            display: flex;
+            align-items: center;
+            font-family: 'JetBrains Mono', monospace;
+            font-weight: 800;
+            font-size: 0.9rem;
+            color: #fff;
+            letter-spacing: -0.5px;
+        }
+
+        .card-header-zone .aircraft-meta {
+            font-size: 0.6rem;
+            font-weight: 900;
+            color: #71717a; /* Muted grey */
+            text-transform: uppercase;
+            letter-spacing: 1.5px;
+            font-family: 'Inter', sans-serif;
+        }
+
+        /* Center Zone: High-Impact Route */
+        .card-center-zone {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            flex-grow: 1;
+            margin-top: -5px;
+        }
+
+        .route-display {
+            display: flex;
+            align-items: center;
+            gap: 15px;
+        }
+
+        .icao-code {
+            font-family: 'Inter', sans-serif;
+            font-weight: 900;
+            font-size: 2.6rem;
+            color: rgba(255, 255, 255, 0.2); /* Muted origin */
+            letter-spacing: -3px;
+            line-height: 1;
+        }
+
+        .icao-code.destination-focus {
+            color: #ffffff; /* Ultra-bold white focal point */
+            text-shadow: 0 0 30px rgba(255,255,255,0.15);
+        }
+
+        .route-path-arrow {
+            color: rgba(255, 255, 255, 0.1);
+            font-size: 1.2rem;
+        }
+
+        /* Footer Zone: Details */
+        .card-footer-zone {
+            display: flex;
+            justify-content: space-between;
+            align-items: flex-end;
+        }
+
+        .operated-by-meta {
+            font-size: 0.55rem;
+            font-weight: 800;
+            color: #52525b; /* Muted grey */
+            text-transform: uppercase;
+            letter-spacing: 1px;
+            font-family: 'Inter', sans-serif;
+        }
+
+        .time-status-meta {
+            font-size: 0.75rem;
+            font-weight: 900;
+            font-family: 'JetBrains Mono', monospace;
+            color: #00ff41; /* Vibrant Neon Green */
+            letter-spacing: 0.5px;
+            text-shadow: 0 0 12px rgba(0, 255, 65, 0.4);
+        }
+
+        /* --- DYNAMIC & LOCKED AIRPORT TAG STYLES --- */
+        :root {
+            --apt-tag-scale: 1; 
+        }
+
+        .apt-live-tag, .destination-marker {
+            display: flex;
+            flex-direction: column-reverse;
+            align-items: center;
+            background: rgba(10, 15, 25, 0.9); /* Class 1 / Default */
+            backdrop-filter: blur(8px);
+            border: 1px solid rgba(255, 255, 255, 0.2);
+            border-radius: 6px;
+            padding: 2px;
+            cursor: pointer;
+            pointer-events: auto;
+            white-space: nowrap;
+            transform: scale(var(--apt-tag-scale));
+            transform-origin: bottom center;
+            min-height: 22px; 
+            box-sizing: border-box;
+            user-select: none;
+            box-shadow: 0 4px 12px rgba(0,0,0,0.5);
+        }
+
+        /* Class 2: Dark Green */
+        .apt-class-2 {
+            background: rgba(6, 78, 59, 0.9) !important;
+            border-color: #10b981 !important;
+        }
+
+        /* Class 3: Dark Orange */
+        .apt-class-3 {
+            background: rgba(120, 53, 15, 0.9) !important;
+            border-color: #f59e0b !important;
+        }
+
+        .destination-marker {
+            padding: 2px 6px;
+            font-family: 'JetBrains Mono', monospace;
+            font-weight: 800;
+            font-size: 11px;
+            color: #fff;
+        }
+
+        .apt-live-tag .apt-tag-extra {
+            max-height: 0;
+            opacity: 0;
+            overflow: hidden;
+            width: 100%;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            border-bottom: 0px solid rgba(255,255,255,0.1);
+        }
+
+        @media (hover: hover) {
+            .apt-live-tag:hover {
+                background: #0f172a;
+                border-color: #38bdf8;
+                z-index: 9999 !important;
+                padding-bottom: 4px;
+            }
+
+            .apt-live-tag:hover .apt-tag-extra {
+                max-height: 50px; 
+                opacity: 1;
+                padding-bottom: 4px;
+                margin-bottom: 4px;
+                border-bottom-width: 1px;
+            }
+        }
+
+        .apt-tag-base {
+            display: flex;
+            align-items: center;
+            width: 100%;
+            height: 18px;
+        }
+
+        .apt-tag-ident {
+            font-family: 'JetBrains Mono', monospace;
+            font-weight: 800;
+            font-size: 11px;
+            color: #fff;
+            padding: 0 4px;
+        }
+
+        .apt-tag-freqs {
+            display: flex;
+            gap: 2px;
+            margin-left: 2px;
+            border-left: 1px solid rgba(255, 255, 255, 0.1);
+            padding-left: 4px;
+        }
+
+        .freq-mini-badge {
+            width: 14px;
+            height: 14px;
+            border-radius: 2px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-family: 'Inter', sans-serif;
+            font-size: 8px;
+            font-weight: 900;
+            color: #fff;
+        }
+
+        .f-gnd { background: #475569; }
+        .f-twr { background: #2563eb; }
+        .f-app { background: #7c3aed; }
+        .f-atis { background: #fbbf24; color: #000; }
+
+        .tag-pulse-aura {
+            position: absolute;
+            inset: -1px;
+            border-radius: 4px;
+            border: 1px solid rgba(124, 58, 237, 0.6);
+            pointer-events: none;
+        }
+
+        /* --- IMPORT FONTS --- */
         @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;700&display=swap');
 
         /* --- THEME VARIABLES --- */
         :root {
-            /* Palette - Carbon/Zinc Theme */
-            --bg-glass: rgba(24, 24, 27, 0.95);      /* Zinc-900 base */
-            --bg-panel: rgba(63, 63, 70, 0.35);      /* Zinc-700 lighter gray */
-            --bg-subtle: rgba(255, 255, 255, 0.03);  /* Very subtle highlight */
-            
-            /* Borders */
+            --bg-glass: rgba(24, 24, 27, 0.95);
+            --bg-panel: rgba(63, 63, 70, 0.35);
+            --bg-subtle: rgba(255, 255, 255, 0.03);
             --border-glass: rgba(255, 255, 255, 0.08);
             --border-highlight: rgba(255, 255, 255, 0.12);
-            
-            /* Typography */
-            --text-primary: #fafafa;    /* Zinc-50 */
-            --text-secondary: #a1a1aa;  /* Zinc-400 */
-            --text-dim: #52525b;        /* Zinc-600 */
-            
-            /* Functional Colors */
-            --color-accent: #e4e4e7;    /* Zinc-200 */
-            --color-brand: #38bdf8;     /* Sky Blue (Primary Brand) */
-            --color-success: #10b981;   /* Emerald */
-            --color-warning: #f59e0b;   /* Amber */
-            --color-danger: #ef4444;    /* Red */
-            --color-purple: #c084fc;    /* Purple */
-
-            /* Dimensions */
+            --text-primary: #fafafa;
+            --text-secondary: #a1a1aa;
+            --text-dim: #52525b;
+            --color-accent: #e4e4e7;
+            --color-brand: #38bdf8;
+            --color-success: #10b981;
+            --color-warning: #f59e0b;
+            --color-danger: #ef4444;
+            --color-purple: #c084fc;
             --radius-sm: 8px;
             --radius-md: 12px;
             --radius-lg: 16px;
-            
-            /* Fonts */
             --font-ui: 'Inter', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
             --font-data: 'JetBrains Mono', 'Consolas', monospace;
-
-            /* Legacy compatibility vars */
             --iw-bg-start: var(--bg-glass);
             --iw-bg-end: var(--bg-glass);
         }
 
-        /* --- GLOBAL OVERRIDES --- */
+        /* --- [MODIFIED] MODAL STYLES --- */
+        #sector-ops-floating-panel {
+            /* Position Center */
+            position: fixed !important;
+            top: 50% !important;
+            left: 50% !important;
+            transform: translate(-50%, -50%) !important;
+            
+            /* Dimensions */
+            width: 900px !important;
+            max-width: 95vw !important;
+            height: 85vh !important;
+            max-height: 800px !important;
+            
+            /* Visual Style */
+            background: var(--bg-glass) !important;
+            backdrop-filter: blur(20px) !important;
+            -webkit-backdrop-filter: blur(20px) !important;
+            border: 1px solid var(--border-glass) !important;
+            border-radius: var(--radius-lg) !important;
+            box-shadow: 0 0 0 100vmax rgba(0, 0, 0, 0.6), 0 25px 50px rgba(0, 0, 0, 0.5) !important;
+            
+            /* [FIXED] HIDDEN BY DEFAULT */
+            display: none; 
+            flex-direction: column !important;
+            z-index: 5000 !important;
+            overflow: hidden !important;
+            
+            /* Reset Sidebar specific props */
+            right: auto !important;
+            bottom: auto !important;
+            margin: 0 !important;
+        }
+
+        /* [NEW] Class to show the modal */
+        #sector-ops-floating-panel.visible {
+            display: flex !important;
+            animation: modalFadeIn 0.3s ease-out forwards;
+        }
+
+        @keyframes modalFadeIn {
+            from { opacity: 0; transform: translate(-50%, -48%) scale(0.96); }
+            to { opacity: 1; transform: translate(-50%, -50%) scale(1); }
+        }
+
+        #sector-ops-floating-panel .panel-content {
+            flex: 1;
+            overflow-y: auto !important;
+            height: auto !important;
+            padding-bottom: 20px;
+        }
+
+        /* Close Button Styling */
+        .panel-close-btn {
+            position: absolute !important;
+            top: 15px !important;
+            right: 15px !important;
+            z-index: 5010 !important;
+            background: rgba(255, 255, 255, 0.1) !important;
+            border: 1px solid rgba(255, 255, 255, 0.1) !important;
+            color: #fff !important;
+            width: 32px !important;
+            height: 32px !important;
+            border-radius: 50% !important;
+            cursor: pointer !important;
+            display: flex !important;
+            align-items: center !important;
+            justify-content: center !important;
+            transition: all 0.2s ease !important;
+        }
+        .panel-close-btn:hover {
+            background: var(--color-danger) !important;
+            transform: rotate(90deg);
+        }
+
+        /* Mobile Adjustment */
+        @media (max-width: 768px) {
+            #sector-ops-floating-panel {
+                width: 100% !important;
+                height: 100% !important;
+                max-width: 100% !important;
+                max-height: 100% !important;
+                border-radius: 0 !important;
+                top: 0 !important;
+                left: 0 !important;
+                transform: none !important;
+            }
+        }
+
+        /* --- ORIGINAL GLOBAL STYLES CONTINUED BELOW --- */
         body, .mapboxgl-popup {
             font-family: var(--font-ui);
             color: var(--text-primary);
         }
 
         /* --- TOOLBAR STYLES --- */
+
+        .dashboard-toolbar {
+    display: none !important;
+}
         .toolbar-btn {
             background: var(--bg-glass) !important;
             border: 1px solid var(--border-glass) !important;
@@ -596,7 +1071,7 @@ function injectCustomStyles() {
             position: absolute;
             top: 20px; 
             right: 20px;
-            width: 600px; 
+            width: 460px;
             max-width: 95vw;
             max-height: calc(100vh - 40px);
             background: linear-gradient(135deg, var(--iw-bg-start), var(--iw-bg-end));
@@ -612,7 +1087,7 @@ function injectCustomStyles() {
             transition: opacity 0.3s ease, transform 0.3s ease;
             opacity: 0;
             transform: translateX(20px);
-            pointer-events: none; 
+            pointer-events: none;
         }
         .info-window.visible { 
             opacity: 1;
@@ -629,7 +1104,7 @@ function injectCustomStyles() {
             flex-shrink: 0;
         }
         .info-window-header h3 {
-            margin: 0; 
+            margin: 0;
             font-size: 1.1rem; 
             color: var(--text-primary);
             font-weight: 700;
@@ -644,7 +1119,7 @@ function injectCustomStyles() {
             width: 28px; height: 28px;
             border-radius: 50%;
             margin-left: 8px;
-            line-height: 1; 
+            line-height: 1;
             display: grid;
             place-items: center;
             transition: all 0.2s ease-in-out;
@@ -655,7 +1130,7 @@ function injectCustomStyles() {
             border-color: var(--text-secondary);
         }
         .info-window-content { 
-            overflow-y: auto; 
+            overflow-y: auto;
             flex-grow: 1; 
             padding: 0;
             background: transparent; 
@@ -663,7 +1138,7 @@ function injectCustomStyles() {
 
         /* --- VIRTUAL COCKPIT SEAT SENSOR --- */
         .seat-sensor-wrapper {
-            background: var(--bg-glass); 
+            background: var(--bg-glass);
             border: 1px solid var(--border-glass); 
             border-radius: var(--radius-sm); 
             display: flex;
@@ -693,7 +1168,7 @@ function injectCustomStyles() {
             flex-direction: column;
             align-items: center;
             position: relative;
-            background: transparent; 
+            background: transparent;
         }
 
         .cockpit-view {
@@ -765,21 +1240,33 @@ function injectCustomStyles() {
             transform: translate(-50%, -50%) scale(1);
         }
 
-        .icon-parking { color: var(--color-danger); border: 3px solid var(--color-danger); border-radius: 50%; width: 45px; height: 45px; display: flex; align-items: center; justify-content: center; font-weight: bold; background: rgba(0,0,0,0.6); font-family: sans-serif; }
-        .icon-coffee { color: var(--color-warning); }
-        .icon-cloud { color: var(--color-brand); }
+        .icon-parking { color: var(--color-danger); border: 3px solid var(--color-danger);
+            border-radius: 50%; width: 45px; height: 45px; display: flex; align-items: center; justify-content: center; font-weight: bold; background: rgba(0,0,0,0.6); font-family: sans-serif;
+        }
+        .icon-coffee { color: var(--color-warning);
+        }
+        .icon-cloud { color: var(--color-brand);
+        }
 
-        .seat.active-green { background: rgba(16, 185, 129, 0.1); border-color: var(--color-success); box-shadow: 0 0 15px rgba(16, 185, 129, 0.2); }
-        .seat.active-green::before { border-color: var(--color-success); background: #064e3b; }
+        .seat.active-green { background: rgba(16, 185, 129, 0.1); border-color: var(--color-success);
+            box-shadow: 0 0 15px rgba(16, 185, 129, 0.2); }
+        .seat.active-green::before { border-color: var(--color-success);
+            background: #064e3b; }
 
-        .seat.active-amber { background: rgba(245, 158, 11, 0.1); border-color: var(--color-warning); box-shadow: 0 0 15px rgba(245, 158, 11, 0.2); }
-        .seat.active-amber::before { border-color: var(--color-warning); background: #78350f; }
+        .seat.active-amber { background: rgba(245, 158, 11, 0.1); border-color: var(--color-warning);
+            box-shadow: 0 0 15px rgba(245, 158, 11, 0.2); }
+        .seat.active-amber::before { border-color: var(--color-warning);
+            background: #78350f; }
 
-        .seat.active-blue { background: rgba(56, 189, 248, 0.1); border-color: var(--color-brand); box-shadow: 0 0 15px rgba(56, 189, 248, 0.2); }
-        .seat.active-blue::before { border-color: var(--color-brand); background: #0c4a6e; }
+        .seat.active-blue { background: rgba(56, 189, 248, 0.1); border-color: var(--color-brand);
+            box-shadow: 0 0 15px rgba(56, 189, 248, 0.2); }
+        .seat.active-blue::before { border-color: var(--color-brand);
+            background: #0c4a6e; }
 
-        .seat::after { content: attr(data-role); font-size: 0.6rem; font-weight: bold; color: var(--text-dim); margin-top: 2px; }
-        .seat.active-green::after, .seat.active-amber::after, .seat.active-blue::after { color: #fff; text-shadow: 0 0 5px currentColor; }
+        .seat::after { content: attr(data-role); font-size: 0.6rem; font-weight: bold; color: var(--text-dim);
+            margin-top: 2px; }
+        .seat.active-green::after, .seat.active-amber::after, .seat.active-blue::after { color: #fff;
+            text-shadow: 0 0 5px currentColor; }
 
         .seat-status-display {
             margin-top: 8px;
@@ -792,11 +1279,18 @@ function injectCustomStyles() {
             color: var(--text-secondary);
         }
 
-        .status-pill { padding: 2px 8px; border-radius: 4px; background: rgba(255,255,255,0.05); border: 1px solid var(--border-glass); }
-        .status-pill.green { color: var(--color-success); border-color: rgba(16, 185, 129, 0.3); background: rgba(16, 185, 129, 0.1); }
-        .status-pill.amber { color: var(--color-warning); border-color: rgba(245, 158, 11, 0.3); background: rgba(245, 158, 11, 0.1); }
-        .status-pill.blue { color: var(--color-brand); border-color: rgba(56, 189, 248, 0.3); background: rgba(56, 189, 248, 0.1); }
-        .status-pill.red { color: var(--color-danger); border-color: rgba(239, 68, 68, 0.3); background: rgba(239, 68, 68, 0.1); }
+        .status-pill { padding: 2px 8px; border-radius: 4px; background: rgba(255,255,255,0.05);
+            border: 1px solid var(--border-glass); }
+        .status-pill.green { color: var(--color-success);
+            border-color: rgba(16, 185, 129, 0.3); background: rgba(16, 185, 129, 0.1);
+        }
+        .status-pill.amber { color: var(--color-warning); border-color: rgba(245, 158, 11, 0.3);
+            background: rgba(245, 158, 11, 0.1); }
+        .status-pill.blue { color: var(--color-brand);
+            border-color: rgba(56, 189, 248, 0.3); background: rgba(56, 189, 248, 0.1);
+        }
+        .status-pill.red { color: var(--color-danger); border-color: rgba(239, 68, 68, 0.3);
+            background: rgba(239, 68, 68, 0.1); }
 
         #seat-narrative-text {
             font-family: var(--font-ui);
@@ -826,26 +1320,29 @@ function injectCustomStyles() {
             grid-row: 1 / -1;
         }
         .main-content:has(#view-rosters.active) {
-            padding: 0; 
+            padding: 0;
             height: 100dvh; 
             overflow: hidden; 
         }
 
         .pfd-and-location-grid { 
-            display: grid; 
-            grid-template-columns: 2fr 1fr; 
-            gap: 8px;
-        }
+    display: grid;
+    grid-template-columns: 1fr 150px; /* Fixed width for right column  */
+    gap: 6px;
+    align-items: stretch; /* Forces children to match height of the tallest item (PFD) */
+}
 
         .info-right-col {
-            display: flex;
-            flex-direction: column;
-            gap: 8px;
-        }
+    display: flex;
+    flex-direction: column;
+    gap: 6px; /* Reduced gap to keep it within PFD bounds  */
+    height: 100%; /* Stretch to fill the grid cell */
+    overflow: hidden; /* Prevents accidental overflow */
+}
         
         /* --- FMS & MODULE STYLES --- */
         .fms-module-container {
-            height: 380px; 
+            height: 380px;
             max-height: 380px;
             background: var(--bg-glass);
             color: var(--color-success); 
@@ -856,7 +1353,7 @@ function injectCustomStyles() {
             border-radius: var(--radius-sm);
             box-shadow: inset 0 0 20px rgba(0,0,0,0.5);
             box-sizing: border-box;
-            overflow: hidden; 
+            overflow: hidden;
         }
         .fms-header {
             background: var(--bg-panel);
@@ -885,9 +1382,12 @@ function injectCustomStyles() {
             scrollbar-width: thin;
             scrollbar-color: var(--border-glass) transparent;
         }
-        .fms-list-scrollarea::-webkit-scrollbar { width: 4px; }
-        .fms-list-scrollarea::-webkit-scrollbar-track { background: transparent; }
-        .fms-list-scrollarea::-webkit-scrollbar-thumb { background-color: var(--border-glass); border-radius: 2px; }
+        .fms-list-scrollarea::-webkit-scrollbar { width: 4px;
+        }
+        .fms-list-scrollarea::-webkit-scrollbar-track { background: transparent;
+        }
+        .fms-list-scrollarea::-webkit-scrollbar-thumb { background-color: var(--border-glass); border-radius: 2px;
+        }
         
         .fms-row {
             display: grid;
@@ -902,7 +1402,8 @@ function injectCustomStyles() {
             color: var(--color-purple);
             font-weight: bold;
         }
-        .fms-row.passed-leg { color: var(--text-dim); }
+        .fms-row.passed-leg { color: var(--text-dim);
+        }
         .fms-proc-header {
             padding: 4px 10px;
             background: rgba(255,255,255,0.02);
@@ -922,9 +1423,12 @@ function injectCustomStyles() {
             background: rgba(255,255,255,0.05);
             color: var(--text-secondary);
         }
-        .proc-tag.sid { background: rgba(16, 185, 129, 0.1); color: var(--color-success); }
-        .proc-tag.star { background: rgba(245, 158, 11, 0.1); color: var(--color-warning); }
-        .fms-row.is-child { padding-left: 20px; }
+        .proc-tag.sid { background: rgba(16, 185, 129, 0.1);
+            color: var(--color-success); }
+        .proc-tag.star { background: rgba(245, 158, 11, 0.1); color: var(--color-warning);
+        }
+        .fms-row.is-child { padding-left: 20px;
+        }
         .fms-footer {
             background: var(--bg-panel);
             padding: 6px 10px;
@@ -933,10 +1437,14 @@ function injectCustomStyles() {
             justify-content: space-between;
             flex-shrink: 0;
         }
-        .fms-stat { display: flex; gap: 8px; font-size: 0.8rem; }
-        .stat-label { color: var(--text-dim); }
-        .stat-value { color: var(--text-primary); font-weight: bold; }
-        .fms-empty-state { text-align: center; padding: 20px; color: var(--text-dim); font-style: italic; }
+        .fms-stat { display: flex; gap: 8px; font-size: 0.8rem;
+        }
+        .stat-label { color: var(--text-dim);
+        }
+        .stat-value { color: var(--text-primary); font-weight: bold;
+        }
+        .fms-empty-state { text-align: center; padding: 20px; color: var(--text-dim); font-style: italic;
+        }
 
         /* --- LOCATION DATA PANEL --- */
         #location-data-panel {
@@ -947,7 +1455,7 @@ function injectCustomStyles() {
             width: 100%;
             display: flex;
             flex-direction: column;
-            overflow: visible; 
+            overflow: visible;
         }
         .nav-header {
             background: var(--bg-panel);
@@ -958,23 +1466,26 @@ function injectCustomStyles() {
             align-items: center;
         }
         .nav-title { 
-            font-size: 0.7rem; 
+            font-size: 0.7rem;
             font-weight: 700; 
             color: var(--text-dim); 
             letter-spacing: 1px; 
             font-family: var(--font-ui);
         }
         .nav-status-indicator {
-            display: flex; align-items: center; gap: 6px;
+            display: flex;
+            align-items: center; gap: 6px;
             font-size: 0.65rem; font-weight: 700; letter-spacing: 0.5px;
             color: var(--color-success); text-transform: uppercase;
         }
         .nav-blink {
-            width: 6px; height: 6px; border-radius: 50%; background: var(--color-success);
+            width: 6px;
+            height: 6px; border-radius: 50%; background: var(--color-success);
             box-shadow: 0 0 6px var(--color-success);
             animation: navPulse 2s infinite;
         }
-        @keyframes navPulse { 0% { opacity: 1; } 50% { opacity: 0.4; } 100% { opacity: 1; } }
+        @keyframes navPulse { 0% { opacity: 1; } 50% { opacity: 0.4;
+        } 100% { opacity: 1; } }
         
         .nav-grid-container {
             padding: 10px;
@@ -999,8 +1510,10 @@ function injectCustomStyles() {
             background: rgba(255, 255, 255, 0.06);
             border-color: var(--border-highlight);
         }
-        .nav-span-2 { grid-column: span 2; }
-        .nav-span-4 { grid-column: span 4; }
+        .nav-span-2 { grid-column: span 2;
+        }
+        .nav-span-4 { grid-column: span 4;
+        }
         .nav-label {
             font-size: 0.6rem;
             color: var(--color-brand);
@@ -1011,9 +1524,10 @@ function injectCustomStyles() {
             display: flex;
             align-items: center;
             gap: 6px;
-            white-space: nowrap; 
+            white-space: nowrap;
         }
-        .nav-label i { opacity: 0.7; font-size: 0.7rem; }
+        .nav-label i { opacity: 0.7; font-size: 0.7rem;
+        }
         
         .nav-value {
             font-family: var(--font-data);
@@ -1024,13 +1538,17 @@ function injectCustomStyles() {
             overflow: visible;    
             text-overflow: clip;  
             word-wrap: break-word; 
-            line-height: 1.2;     
+            line-height: 1.2;
         }
         
-        .nav-value.large { font-size: 1.2rem; }
-        .nav-value.small { font-size: 0.85rem; color: var(--text-secondary); }
-        .nav-value.highlight { color: var(--color-success); text-shadow: 0 0 5px rgba(16, 185, 129, 0.2); }
-        .nav-value.accent { color: var(--color-warning); }
+        .nav-value.large { font-size: 1.2rem;
+        }
+        .nav-value.small { font-size: 0.85rem; color: var(--text-secondary);
+        }
+        .nav-value.highlight { color: var(--color-success); text-shadow: 0 0 5px rgba(16, 185, 129, 0.2);
+        }
+        .nav-value.accent { color: var(--color-warning);
+        }
         
         .nav-row {
             display: flex;
@@ -1038,7 +1556,7 @@ function injectCustomStyles() {
             align-items: baseline;
             width: 100%;
             flex-wrap: wrap; 
-            gap: 4px; 
+            gap: 4px;
         }
         
         .nav-unit {
@@ -1051,16 +1569,23 @@ function injectCustomStyles() {
         }
 
         @media (max-width: 992px) {
-            .info-window { width: 95vw; top: 10px; right: 2.5vw; left: 2.5vw; max-height: calc(100vh - 20px); }
-            .pfd-and-location-grid { grid-template-columns: 1fr; } 
-            #fms-legs-module { display: none; }
-            #location-data-panel { min-height: auto; }
-            .nav-grid-container { grid-template-columns: repeat(2, 1fr); }
-            .nav-span-2 { grid-column: span 2; }
+            .info-window { width: 95vw;
+                top: 10px; right: 2.5vw; left: 2.5vw; max-height: calc(100vh - 20px);
+            }
+            .pfd-and-location-grid { grid-template-columns: 1fr;
+            } 
+            #fms-legs-module { display: none;
+            }
+            #location-data-panel { min-height: auto;
+            }
+            .nav-grid-container { grid-template-columns: repeat(2, 1fr);
+            }
+            .nav-span-2 { grid-column: span 2;
+            }
         }
         
         .aircraft-overview-panel { 
-            position: relative; 
+            position: relative;
             height: 200px; 
             background-size: cover; 
             background-position: center; 
@@ -1070,11 +1595,11 @@ function injectCustomStyles() {
             display: flex; 
             flex-direction: column; 
             justify-content: space-between; 
-            margin-bottom: -40px; 
+            margin-bottom: -40px;
         }
         
         .aircraft-overview-panel::before { 
-            content: ''; 
+            content: '';
             position: absolute; 
             inset: 0; 
             z-index: 1; 
@@ -1084,72 +1609,106 @@ function injectCustomStyles() {
                 rgba(0, 0, 0, 0) 35%, 
                 rgba(0, 0, 0, 0.2) 80%, 
                 rgba(24, 24, 27, 1) 100%
-            ); 
+            );
         }
         
-        .overview-content { position: relative; z-index: 2; padding: 16px 20px 0 20px; display: flex; justify-content: space-between; align-items: flex-start; }
-        .overview-col-left h3 { margin: 0; font-size: 1.6rem; font-weight: 700; text-shadow: 0 4px 10px rgba(0, 0, 0, 0.7); display: flex; align-items: center; gap: 12px; }
-        .ac-header-logo { height: 1.8rem; width: auto; max-width: 100px; object-fit: contain; filter: drop-shadow(0 2px 4px rgba(0,0,0,0.7)); }
-        .overview-col-left p { position: relative; margin: 0; font-size: 1.0rem; color: #e8eaf6; font-weight: 400; text-shadow: 0 2px 5px rgba(0, 0, 0, 0.6); min-height: 1.2em; margin-top: 4px; }
+        .overview-content { position: relative;
+            z-index: 2; padding: 16px 20px 0 20px; display: flex; justify-content: space-between; align-items: flex-start;
+        }
+        .overview-col-left h3 { margin: 0; font-size: 1.6rem; font-weight: 700;
+            text-shadow: 0 4px 10px rgba(0, 0, 0, 0.7); display: flex; align-items: center; gap: 12px;
+        }
+        .ac-header-logo { height: 1.8rem; width: auto; max-width: 100px; object-fit: contain;
+            filter: drop-shadow(0 2px 4px rgba(0,0,0,0.7)); }
+        .overview-col-left p { position: relative; margin: 0;
+            font-size: 1.0rem; color: #e8eaf6; font-weight: 400; text-shadow: 0 2px 5px rgba(0, 0, 0, 0.6); min-height: 1.2em; margin-top: 4px;
+        }
         
         .ac-header-subtext { 
-            position: absolute; 
+            position: absolute;
             top: 0; 
             left: 0; 
             width: 100%; 
             opacity: 0; 
-            white-space: normal; 
+            white-space: normal;
         }
         
-        @keyframes primarySubtextAnimation { 0% { opacity: 1; transform: translateY(0); } 40% { opacity: 1; transform: translateY(0); } 50% { opacity: 0; transform: translateY(10px); } 51% { opacity: 0; transform: translateY(-10px); } 90% { opacity: 0; transform: translateY(-10px); } 100% { opacity: 1; transform: translateY(0); } }
-        @keyframes secondarySubtextAnimation { 0% { opacity: 0; transform: translateY(-10px); } 40% { opacity: 0; transform: translateY(-10px); } 50% { opacity: 1; transform: translateY(0); } 90% { opacity: 1; transform: translateY(0); } 100% { opacity: 0; transform: translateY(10px); } }
-        #ac-header-livery { animation: primarySubtextAnimation 8s infinite ease-in-out; }
-        #ac-header-actype { animation: secondarySubtextAnimation 8s infinite ease-in-out; }
-        .overview-actions { position: absolute; top: 16px; right: 16px; z-index: 3; display: flex; gap: 8px; }
+        @keyframes primarySubtextAnimation { 0% { opacity: 1;
+            transform: translateY(0); } 40% { opacity: 1; transform: translateY(0); } 50% { opacity: 0; transform: translateY(10px);
+            } 51% { opacity: 0; transform: translateY(-10px); } 90% { opacity: 0; transform: translateY(-10px); } 100% { opacity: 1;
+            transform: translateY(0); } }
+        @keyframes secondarySubtextAnimation { 0% { opacity: 0; transform: translateY(-10px);
+            } 40% { opacity: 0; transform: translateY(-10px); } 50% { opacity: 1; transform: translateY(0); } 90% { opacity: 1;
+            transform: translateY(0); } 100% { opacity: 0; transform: translateY(10px); } }
+        #ac-header-livery { animation: primarySubtextAnimation 8s infinite ease-in-out;
+        }
+        #ac-header-actype { animation: secondarySubtextAnimation 8s infinite ease-in-out;
+        }
+        .overview-actions { position: absolute; top: 16px; right: 16px; z-index: 3; display: flex;
+            gap: 8px; }
         
         .route-summary-overlay { 
-            position: relative; 
+            position: relative;
             padding: 15px 20px 12px 20px; 
             background: linear-gradient(180deg, 
                 transparent 0%, 
                 rgba(0, 0, 0, 0.2) 40%, 
                 rgba(24, 24, 27, 1) 100%
-            ); 
+            );
             display: grid; 
             grid-template-columns: auto 1fr auto; 
             align-items: center; 
             gap: 16px; 
-            width: 100%; 
+            width: 100%;
         }
         
-        .route-summary-airport { display: flex; flex-direction: column; }
-        #route-summary-dep { text-align: left; align-items: center; }
-        #route-summary-arr { text-align: right; align-items: center; }
-        .route-summary-airport .airport-line { display: flex; align-items: center; gap: 8px; }
-        .route-summary-airport .icao { font-family: var(--font-data); font-size: 1.2rem; font-weight: 700; color: #fff; text-shadow: 0 1px 3px rgba(0,0,0,0.5); }
-        .route-summary-airport .time { font-size: 0.85rem; font-weight: 600; color: var(--text-secondary); margin-top: 4px; text-align: center; }
-        .country-flag { width: 20px; height: auto; border-radius: 3px; border: 1px solid rgba(255, 255, 255, 0.2); display: none; }
-        .route-progress-container { display: grid; grid-template-columns: 1fr; grid-template-rows: 1fr; align-items: center; justify-items: center; position: relative; min-height: 28px; }
-        .route-progress-bar-container { width: 100%; height: 6px; background: var(--bg-panel); border-radius: 3px; overflow: hidden; grid-row: 1; grid-column: 1; z-index: 1; }
-        .progress-bar-fill { height: 100%; width: 0%; background: var(--color-brand); transition: width 0.5s ease-out; border-radius: 3px; }
-        .flight-phase-indicator { padding: 4px 12px; border-radius: 20px; font-size: 0.75rem; font-weight: 700; color: #fff; border: 1px solid var(--border-glass); grid-row: 1; grid-column: 1; z-index: 2; box-shadow: 0 4px 15px rgba(0, 0, 0, 0.5); }
-        .phase-climb { background: var(--color-success); opacity: 0.9; } .phase-cruise { background: var(--color-brand); opacity: 0.9; } .phase-descent { background: var(--color-warning); opacity: 0.9; } .phase-approach { background: var(--color-purple); opacity: 0.9; } .phase-enroute { background: var(--text-dim); opacity: 0.9; }
+        .route-summary-airport { display: flex;
+            flex-direction: column; }
+        #route-summary-dep { text-align: left; align-items: center;
+        }
+        #route-summary-arr { text-align: right; align-items: center;
+        }
+        .route-summary-airport .airport-line { display: flex; align-items: center; gap: 8px;
+        }
+        .route-summary-airport .icao { font-family: var(--font-data); font-size: 1.2rem; font-weight: 700; color: #fff;
+            text-shadow: 0 1px 3px rgba(0,0,0,0.5); }
+        .route-summary-airport .time { font-size: 0.85rem; font-weight: 600;
+            color: var(--text-secondary); margin-top: 4px; text-align: center; }
+        .country-flag { width: 20px; height: auto;
+            border-radius: 3px; border: 1px solid rgba(255, 255, 255, 0.2); display: none;
+        }
+        .route-progress-container { display: grid; grid-template-columns: 1fr; grid-template-rows: 1fr; align-items: center; justify-items: center;
+            position: relative; min-height: 28px; }
+        .route-progress-bar-container { width: 100%; height: 6px; background: var(--bg-panel);
+            border-radius: 3px; overflow: hidden; grid-row: 1; grid-column: 1; z-index: 1;
+        }
+        .progress-bar-fill { height: 100%; width: 0%; background: var(--color-brand); transition: width 0.5s ease-out;
+            border-radius: 3px; }
+        .flight-phase-indicator { padding: 4px 12px; border-radius: 20px; font-size: 0.75rem;
+            font-weight: 700; color: #fff; border: 1px solid var(--border-glass); grid-row: 1; grid-column: 1; z-index: 2;
+            box-shadow: 0 4px 15px rgba(0, 0, 0, 0.5); }
+        .phase-climb { background: var(--color-success);
+            opacity: 0.9; } .phase-cruise { background: var(--color-brand); opacity: 0.9; } .phase-descent { background: var(--color-warning); opacity: 0.9;
+        } .phase-approach { background: var(--color-purple); opacity: 0.9; } .phase-enroute { background: var(--text-dim); opacity: 0.9;
+        }
         
         .unified-display-main-content { 
-            padding: 16px; 
+            padding: 10px;
             flex-grow: 1; 
             display: flex; 
             flex-direction: column; 
-            gap: 16px; 
+            gap: 10px; 
             background: linear-gradient(180deg, var(--bg-glass), var(--bg-glass));
             border-top: 1px solid var(--border-glass);
         }
 
-        .ac-tab-pane { display: none; flex-direction: column; gap: 16px; animation: fadeIn 0.4s; }
-        .ac-tab-pane.active { display: flex; }
+        .ac-tab-pane { display: none; flex-direction: column; gap: 16px; animation: fadeIn 0.4s;
+        }
+        .ac-tab-pane.active { display: flex;
+        }
         
         .pfd-main-panel { 
-            display: flex; 
+            display: flex;
             flex-direction: column; 
             width: 100%; 
             align-items: center; 
@@ -1157,12 +1716,12 @@ function injectCustomStyles() {
         }
 
         .display-bezel { 
-            position: relative; 
+            position: relative;
             background-color: #1f2937; 
             border: 4px solid #374151; 
             padding: 12px; 
             border-radius: var(--radius-md); 
-            box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.5); 
+            box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.5);
             width: 100%; 
             box-sizing: border-box; 
             display: flex;
@@ -1170,46 +1729,51 @@ function injectCustomStyles() {
         }
         
         .screw { 
-            position: absolute; 
+            position: absolute;
             width: 0.5rem; 
             height: 0.5rem; 
             background-color: #4b5563; 
             border-radius: 50%; 
             box-shadow: inset 1px 1px 2px rgba(0,0,0,0.5); 
-            z-index: 5; 
+            z-index: 5;
         }
-        .screw.tl { top: 0.35rem; left: 0.35rem; } 
-        .screw.tr { top: 0.35rem; right: 0.35rem; } 
-        .screw.bl { bottom: 0.35rem; left: 0.35rem; } 
-        .screw.br { bottom: 0.35rem; right: 0.35rem; }
+        .screw.tl { top: 0.35rem; left: 0.35rem;
+        } 
+        .screw.tr { top: 0.35rem; right: 0.35rem;
+        } 
+        .screw.bl { bottom: 0.35rem; left: 0.35rem;
+        } 
+        .screw.br { bottom: 0.35rem; right: 0.35rem;
+        }
         
         .crt-container { 
-            width: 100%; 
+            width: 100%;
             position: relative; 
             border: 2px solid #111827; 
             background: #000; 
             border-radius: 12px; 
             overflow: hidden; 
             box-shadow: inset 0 0 20px rgba(0,0,0,0.8); 
-            display: flex; 
+            display: flex;
         }
         
         .scanlines::before { 
-            content: " "; 
+            content: " ";
             display: block; 
             position: absolute; 
-            top: 0; left: 0; bottom: 0; right: 0; 
+            top: 0; left: 0; bottom: 0; right: 0;
             background: linear-gradient(rgba(18, 16, 16, 0) 50%, rgba(0, 0, 0, 0.25) 50%), 
-                        linear-gradient(90deg, rgba(255, 0, 0, 0.06), rgba(0, 255, 0, 0.02), rgba(0, 0, 255, 0.06)); 
+                        linear-gradient(90deg, rgba(255, 0, 0, 0.06), rgba(0, 255, 0, 0.02), rgba(0, 0, 255, 0.06));
             z-index: 10; 
             background-size: 100% 2px, 3px 100%; 
             pointer-events: none; 
         }
         
-        #pfd-container { width: 100%; }
+        #pfd-container { width: 100%;
+        }
         
         #pfd-container svg { 
-            width: 100%; 
+            width: 100%;
             height: auto; 
             display: block;
             margin: 0; 
@@ -1217,8 +1781,8 @@ function injectCustomStyles() {
             aspect-ratio: 787 / 800; 
             background-color: #1a1a1a; 
             overflow: hidden; 
-            border-radius: 0; 
-            filter: brightness(1.3) contrast(1.2) drop-shadow(0 0 2px rgba(255, 255, 255, 0.3)); 
+            border-radius: 0;
+            filter: brightness(1.3) contrast(1.2) drop-shadow(0 0 2px rgba(255, 255, 255, 0.3));
         }
         
         #nd-container { 
@@ -1228,11 +1792,11 @@ function injectCustomStyles() {
             overflow: hidden; 
             display: flex; 
             justify-content: center; 
-            height: auto; 
+            height: auto;
         }
         
         #nav-display-frame {
-            width: 100%; 
+            width: 100%;
             height: 100%; 
             border: none;
             display: block;
@@ -1304,7 +1868,7 @@ function injectCustomStyles() {
         }
         
         .vsd-module-container {
-            height: 260px; 
+            height: 260px;
             max-height: 260px;
             background: var(--bg-glass);
             border: 1px solid var(--border-glass);
@@ -1318,22 +1882,22 @@ function injectCustomStyles() {
         }
 
         .vsd-panel { 
-            display: flex; 
+            display: flex;
             flex-direction: column; 
             background: transparent; 
             flex-grow: 1;
             position: relative;
             overflow: hidden; 
-            width: 100%; 
+            width: 100%;
         }
 
         .vsd-graph-window { 
-            position: relative; 
+            position: relative;
             width: 100%; 
             height: 100%; 
             overflow: hidden; 
             padding-left: 35px; 
-            box-sizing: border-box; 
+            box-sizing: border-box;
         }
 
         #vsd-y-axis {
@@ -1429,9 +1993,12 @@ function injectCustomStyles() {
             color: var(--text-dim);
             flex-shrink: 0;
         }
-        .vsd-legend-item { display: flex; align-items: center; gap: 5px; }
-        .dot-plan { width: 6px; height: 6px; background: #444; border-radius: 50%; }
-        .dot-flown { width: 6px; height: 6px; background: var(--color-success); border-radius: 50%; box-shadow: 0 0 4px var(--color-success); }
+        .vsd-legend-item { display: flex; align-items: center; gap: 5px;
+        }
+        .dot-plan { width: 6px; height: 6px; background: #444; border-radius: 50%;
+        }
+        .dot-flown { width: 6px; height: 6px; background: var(--color-success); border-radius: 50%;
+            box-shadow: 0 0 4px var(--color-success); }
         
         .ac-info-window-tabs {
             display: flex;
@@ -1450,7 +2017,7 @@ function injectCustomStyles() {
         }
 
         .ac-info-tab-logo {
-            height: 32px; 
+            height: 32px;
             width: auto;
             object-fit: contain;
             opacity: 0.8;
@@ -1493,7 +2060,7 @@ function injectCustomStyles() {
             letter-spacing: 0.5px;
         }
         .ac-info-tab-btn.pilot-tab-btn i {
-            color: var(--color-warning); 
+            color: var(--color-warning);
         }
         .ac-info-tab-btn.pilot-tab-btn.active {
             color: #fff;
@@ -1516,7 +2083,9 @@ function injectCustomStyles() {
             }
         }
 
-        .vsd-disclaimer { background: rgba(10, 12, 26, 0.5); border: 1px solid var(--border-glass); border-radius: var(--radius-sm); padding: 10px 14px; margin-top: 0; }
+        .vsd-disclaimer { background: rgba(10, 12, 26, 0.5);
+            border: 1px solid var(--border-glass); border-radius: var(--radius-sm); padding: 10px 14px; margin-top: 0;
+        }
 
         /* --- MAPBOX POPUP OVERRIDES (FIXED) --- */
         .mapboxgl-popup-content {
@@ -1524,7 +2093,7 @@ function injectCustomStyles() {
             box-shadow: none !important;
             padding: 0 !important;
             border: none !important;
-            pointer-events: none !important; 
+            pointer-events: none !important;
         }
         .mapboxgl-popup-tip {
             display: none !important;
@@ -1537,7 +2106,7 @@ function injectCustomStyles() {
             flex-direction: column;
             gap: 3px;
             font-family: var(--font-ui);
-            pointer-events: none; 
+            pointer-events: none;
         }
 
         /* --- TOP IMAGE BUBBLE --- */
@@ -1652,34 +2221,54 @@ function injectCustomStyles() {
             margin-top: 1px;
         }
 
+        .mapboxgl-popup {
+    z-index: 3000 !important; 
+    pointer-events: none; /* Prevents the popup from blocking clicks to aircraft behind it */
+}
+
+.mapboxgl-popup-content {
+    background: transparent !important;
+    box-shadow: none !important;
+    padding: 0 !important;
+    border: none !important;
+    pointer-events: none !important;
+}
+
         /* --- AIRPORT WINDOW SPECIFIC STYLES --- */
 
         .airport-hero {
-            background: linear-gradient(135deg, rgba(30, 41, 59, 0.8) 0%, rgba(15, 23, 42, 0.9) 100%);
-            border-bottom: 1px solid var(--border-glass);
-            padding: 20px;
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-            position: relative;
-            overflow: hidden;
-        }
+    /* Set the background size and position */
+    background-size: 101% 101%;
+    background-position: center;
+    min-height: 160px; /* Increased height to better showcase the airport image */
+    border-bottom: 1px solid var(--border-glass);
+    padding: 20px;
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-end; /* Align data to the bottom of the image */
+    position: relative;
+    overflow: hidden;
+}
 
-        .airport-hero::before {
-            content: '';
-            position: absolute;
-            top: 0; right: 0; bottom: 0; left: 0;
-            background-image: radial-gradient(#ffffff 1px, transparent 1px);
-            background-size: 20px 20px;
-            opacity: 0.05;
-            pointer-events: none;
-        }
+/* Add this new overlay class */
+.airport-hero-overlay {
+    position: absolute;
+    inset: -1px;
+    /* Dark gradient to make white text pop */
+    background: linear-gradient(180deg, 
+        rgba(10, 12, 26, 0.2) 0%, 
+        rgba(10, 12, 26, 0.5) 50%, 
+        rgba(10, 12, 26, 0.9) 100%
+    );
+    z-index: 1;
+}
 
-        .apt-ident-group {
-            display: flex;
-            flex-direction: column;
-            z-index: 2;
-        }
+/* Ensure the ident group stays above the overlay */
+.apt-ident-group {
+    display: flex;
+    flex-direction: column;
+    z-index: 2; /* Sits above the overlay */
+}
 
         .apt-icao {
             font-family: var(--font-data);
@@ -1763,10 +2352,14 @@ function injectCustomStyles() {
         }
 
         /* Dynamic colors for flight rules */
-        .wx-vfr { background: rgba(34, 197, 94, 0.1); color: #4ade80; border-color: rgba(34, 197, 94, 0.3); }
-        .wx-mvfr { background: rgba(59, 130, 246, 0.1); color: #60a5fa; border-color: rgba(59, 130, 246, 0.3); }
-        .wx-ifr { background: rgba(239, 68, 68, 0.1); color: #f87171; border-color: rgba(239, 68, 68, 0.3); }
-        .wx-lifr { background: rgba(168, 85, 247, 0.1); color: #c084fc; border-color: rgba(168, 85, 247, 0.3); }
+        .wx-vfr { background: rgba(34, 197, 94, 0.1);
+            color: #4ade80; border-color: rgba(34, 197, 94, 0.3); }
+        .wx-mvfr { background: rgba(59, 130, 246, 0.1);
+            color: #60a5fa; border-color: rgba(59, 130, 246, 0.3); }
+        .wx-ifr { background: rgba(239, 68, 68, 0.1);
+            color: #f87171; border-color: rgba(239, 68, 68, 0.3); }
+        .wx-lifr { background: rgba(168, 85, 247, 0.1);
+            color: #c084fc; border-color: rgba(168, 85, 247, 0.3); }
 
         /* Route Cards (Flight Strips) */
         .route-card {
@@ -1860,10 +2453,14 @@ function injectCustomStyles() {
             width: 80px;
             text-align: center;
         }
-        .atc-type-gnd { background: #0f172a; color: #94a3b8; border: 1px solid #334155; }
-        .atc-type-twr { background: #1e3a8a; color: #60a5fa; border: 1px solid #2563eb; }
-        .atc-type-app { background: #312e81; color: #818cf8; border: 1px solid #4f46e5; }
-        .atc-type-obs { background: #3f3f46; color: #a1a1aa; border: 1px solid #52525b; }
+        .atc-type-gnd { background: #0f172a; color: #94a3b8; border: 1px solid #334155;
+        }
+        .atc-type-twr { background: #1e3a8a; color: #60a5fa; border: 1px solid #2563eb;
+        }
+        .atc-type-app { background: #312e81; color: #818cf8; border: 1px solid #4f46e5;
+        }
+        .atc-type-obs { background: #3f3f46; color: #a1a1aa; border: 1px solid #52525b;
+        }
 
         .atc-controller {
             font-weight: 600;
@@ -1953,8 +2550,10 @@ function injectCustomStyles() {
         }
 
         @keyframes fadeIn {
-            from { opacity: 0; transform: translateY(5px); }
-            to { opacity: 1; transform: translateY(0); }
+            from { opacity: 0;
+            transform: translateY(5px); }
+            to { opacity: 1; transform: translateY(0);
+            }
         }
 
         /* --- RUNWAY DROPDOWN STYLES --- */
@@ -1966,12 +2565,12 @@ function injectCustomStyles() {
             background: rgba(255, 255, 255, 0.05);
         }
         .runway-dropdown-content {
-            display: none; 
+            display: none;
             padding: 8px;
             border-top: 1px solid var(--border-glass);
         }
         .runway-dropdown-content.open {
-            display: grid; 
+            display: grid;
             grid-template-columns: 1fr 1fr; 
             gap: 8px;
             animation: slideDown 0.3s ease-out;
@@ -1985,8 +2584,10 @@ function injectCustomStyles() {
         }
         
         @keyframes slideDown {
-            from { opacity: 0; transform: translateY(-5px); }
-            to { opacity: 1; transform: translateY(0); }
+            from { opacity: 0;
+            transform: translateY(-5px); }
+            to { opacity: 1; transform: translateY(0);
+            }
         }
 
         /* --- SERVER SELECTOR PILL --- */
@@ -1998,7 +2599,8 @@ function injectCustomStyles() {
             background: rgba(15, 23, 42, 0.9);
             backdrop-filter: blur(10px);
             border: 1px solid var(--border-glass);
-            border-radius: 999px; /* Pill shape */
+            border-radius: 999px;
+            /* Pill shape */
             padding: 4px;
             display: flex;
             gap: 4px;
@@ -2026,7 +2628,7 @@ function injectCustomStyles() {
         }
 
         .server-btn.active {
-            background: #3b82f6; 
+            background: #3b82f6;
             color: #fff;
             box-shadow: 0 2px 10px rgba(59, 130, 246, 0.4);
         }
@@ -2124,8 +2726,10 @@ function injectCustomStyles() {
             border-radius: 4px;
             padding: 4px;
         }
-        .compact-label { font-size: 0.6rem; color: #64748b; display: block; }
-        .compact-value { font-family: var(--font-data); font-size: 0.9rem; color: #e2e8f0; font-weight: 600; }
+        .compact-label { font-size: 0.6rem;
+            color: #64748b; display: block; }
+        .compact-value { font-family: var(--font-data); font-size: 0.9rem; color: #e2e8f0;
+            font-weight: 600; }
 
         .metar-strip {
             background: rgba(0, 0, 0, 0.3);
@@ -2178,7 +2782,7 @@ function injectCustomStyles() {
 
         /* --- Tech Card Specifics --- */
         .tech-card {
-            background: var(--bg-glass); 
+            background: var(--bg-glass);
             border: 1px solid var(--border-glass);
             border-radius: var(--radius-md); 
             overflow: hidden;
@@ -2188,7 +2792,7 @@ function injectCustomStyles() {
             margin-bottom: 12px; 
         }
         .tech-card-header {
-            padding: 12px 16px 4px; 
+            padding: 12px 16px 4px;
             display: flex;
             justify-content: space-between;
             align-items: flex-start;
@@ -2228,7 +2832,8 @@ function injectCustomStyles() {
             opacity: 0.75;
         }
         @keyframes ping {
-            75%, 100% { transform: scale(2); opacity: 0; }
+            75%, 100% { transform: scale(2);
+            opacity: 0; }
         }
         .tech-model {
             font-size: 1.1rem;
@@ -2374,7 +2979,7 @@ function injectCustomStyles() {
         }
 
         #simple-flight-window-frame {
-            border-radius: var(--radius-md); 
+            border-radius: var(--radius-md);
             background: var(--bg-glass); 
         }
 
@@ -2407,7 +3012,8 @@ function injectCustomStyles() {
             padding: 10px;
             font-family: 'JetBrains Mono', 'Consolas', monospace;
             font-size: 0.7rem;
-            color: #86efac; /* Terminal Green */
+            color: #86efac;
+            /* Terminal Green */
             line-height: 1.5;
             white-space: pre-wrap;
             box-shadow: inset 0 0 10px rgba(0,0,0,0.5);
@@ -2417,19 +3023,26 @@ function injectCustomStyles() {
         }
 
         /* Scrollbar for terminal */
-        .terminal-text-box::-webkit-scrollbar { width: 4px; }
-        .terminal-text-box::-webkit-scrollbar-thumb { background: #334155; border-radius: 2px; }
+        .terminal-text-box::-webkit-scrollbar { width: 4px;
+        }
+        .terminal-text-box::-webkit-scrollbar-thumb { background: #334155; border-radius: 2px;
+        }
 
         /* Fallback / Calculated Mode Styles */
         .atis-runway-row {
-            display: flex; align-items: center; justify-content: space-between;
+            display: flex;
+            align-items: center; justify-content: space-between;
             background: rgba(255, 255, 255, 0.02); padding: 6px 8px;
             border-radius: 4px; border: 1px solid var(--border-glass); margin-bottom: 4px;
         }
-        .atis-label { font-size: 0.65rem; font-weight: 700; color: #94a3b8; min-width: 40px; }
-        .atis-pill { font-family: var(--font-data); font-size: 0.75rem; font-weight: 700; padding: 2px 6px; border-radius: 3px; border: 1px solid; margin-left: 4px; }
-        .pill-arr { background: rgba(16, 185, 129, 0.1); color: #4ade80; border-color: rgba(16, 185, 129, 0.3); }
-        .pill-dep { background: rgba(56, 189, 248, 0.1); color: #38bdf8; border-color: rgba(56, 189, 248, 0.3); }
+        .atis-label { font-size: 0.65rem; font-weight: 700; color: #94a3b8; min-width: 40px;
+        }
+        .atis-pill { font-family: var(--font-data); font-size: 0.75rem; font-weight: 700; padding: 2px 6px;
+            border-radius: 3px; border: 1px solid; margin-left: 4px; }
+        .pill-arr { background: rgba(16, 185, 129, 0.1);
+            color: #4ade80; border-color: rgba(16, 185, 129, 0.3); }
+        .pill-dep { background: rgba(56, 189, 248, 0.1);
+            color: #38bdf8; border-color: rgba(56, 189, 248, 0.3); }
         
         /* Mini Module Footer (For ATIS Remarks) */
         .apt-mini-footer {
@@ -2445,229 +3058,217 @@ function injectCustomStyles() {
             overflow: hidden;
             text-overflow: ellipsis;
         }
-        .apt-mini-footer i { margin-right: 6px; color: #fbbf24; } /* Amber icon for remarks */
+        .apt-mini-footer i { margin-right: 6px;
+            color: #fbbf24; } /* Amber icon for remarks */
 
 
-        .search-badge-ac {
-            font-size: 0.6rem;
-            background: rgba(255,255,255,0.1);
-            border: 1px solid rgba(255,255,255,0.1);
-            color: #cbd5e1;
-            padding: 1px 6px;
-            border-radius: 4px;
-            font-weight: 600;
-            letter-spacing: 0.5px;
-        }
 
-        .search-sub-text {
-            color: #94a3b8;
-            font-size: 0.75rem;
-            white-space: nowrap;
-            overflow: hidden;
-            text-overflow: ellipsis;
-            font-weight: 500;
-        }
+        .stat-alt { color: #38bdf8;
+        } /* Sky Blue */
+        .stat-gs { color: #fbbf24; font-size: 0.75rem; font-weight: 600;
+        } /* Amber */
 
-        /* Column 3: Stats (Alt/Speed) */
-        .search-result-stats {
-            display: flex;
-            flex-direction: column;
-            align-items: flex-end;
-            justify-content: center;
-            gap: 3px;
-        }
+        /* --- NEW: TRAFFIC DROPDOWN STYLES --- */
+.traffic-dropdown {
+    background: rgba(15, 23, 42, 0.4);
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    border-radius: 8px;
+    overflow: hidden;
+    margin-bottom: 8px;
+    transition: all 0.3s ease;
+}
 
-        .search-stat-pill {
-            font-family: var(--font-data);
-            font-size: 0.85rem;
-            font-weight: 700;
-            text-shadow: 0 0 10px rgba(0,0,0,0.5);
-        }
+.traffic-dropdown[open] {
+    background: rgba(15, 23, 42, 0.6);
+    border-color: rgba(56, 189, 248, 0.3);
+}
 
-        .stat-alt { color: #38bdf8; } /* Sky Blue */
-        .stat-gs { color: #fbbf24; font-size: 0.75rem; font-weight: 600; } /* Amber */
+.traffic-dropdown-header {
+    padding: 12px 16px;
+    cursor: pointer;
+    list-style: none; /* Hide default browser arrow */
+    display: flex;
+    align-items: center;
+    font-size: 0.75rem;
+    font-weight: 800;
+    color: #94a3b8;
+    text-transform: uppercase;
+    letter-spacing: 1px;
+    user-select: none;
+}
 
-        /* --- [FIXED] RE-DESIGNED SEARCH BAR --- */
+.traffic-dropdown-header::-webkit-details-marker {
+    display: none; /* Hide Safari arrow */
+}
 
-        /* 1. Container Positioning */
-        #sector-ops-search-container {
-            position: absolute;
-            top: 20px;
-            right: 20px;
-            z-index: 2000;
-            display: flex;
-            flex-direction: column;
-            align-items: flex-end;
-            pointer-events: none; /* Let background clicks pass */
-        }
+.traffic-dropdown-header:hover {
+    color: #fff;
+    background: rgba(255, 255, 255, 0.05);
+}
 
-        /* 2. The Main Capsule */
-        .search-bar-container {
-            pointer-events: auto; /* Re-enable clicks */
-            position: relative;
-            display: flex;
-            align-items: center;
-            
-            height: 44px;
-            width: 44px; /* Collapsed Width */
-            
-            /* Dark Glass Background */
-            background: rgba(24, 24, 27, 0.85) !important;
-            border: 1px solid var(--border-glass) !important;
-            border-radius: 22px; 
-            
-            backdrop-filter: blur(20px) !important;
-            -webkit-backdrop-filter: blur(20px) !important;
-            box-shadow: 0 4px 20px rgba(0,0,0,0.4) !important;
-            
-            transition: width 0.4s cubic-bezier(0.16, 1, 0.3, 1), border-radius 0.2s ease;
-            overflow: hidden; /* Important for hiding the input text when collapsed */
-        }
+.traffic-dropdown-header i.chevron {
+    font-size: 0.8rem;
+    transition: transform 0.3s ease;
+    opacity: 0.6;
+    margin-left: 10px;
+}
 
-        /* Hover or Focus: Expand Width */
-        .search-bar-container:hover,
-        .search-bar-container:focus-within,
-        .search-bar-container.has-results {
-            width: 260px; /* Expanded Width */
-        }
+.traffic-dropdown[open] .traffic-dropdown-header i.chevron {
+    transform: rotate(180deg);
+}
 
-        /* Flatten bottom when dropdown is open */
-        .search-bar-container.has-results {
-            border-bottom-left-radius: 0;
-            border-bottom-right-radius: 0;
-            border-bottom-color: transparent !important;
-        }
+.traffic-count-badge {
+    background: rgba(56, 189, 248, 0.15);
+    color: #38bdf8;
+    padding: 2px 8px;
+    border-radius: 99px;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 0.7rem;
+    margin-left: auto;
+}
 
-        /* 3. The Search Icon (Right Side) */
-        .search-icon-label {
-            position: absolute;
-            right: 0;
-            top: 0;
-            width: 44px;
-            height: 100%;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            color: var(--text-secondary);
-            font-size: 1.1rem;
-            z-index: 10;
-            cursor: pointer;
-        }
+.traffic-dropdown-content {
+    padding: 10px;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    max-height: 350px; /* Limits height to prevent excessive scrolling */
+    overflow-y: auto;
+    border-top: 1px solid rgba(255, 255, 255, 0.05);
+}
+    /* --- UNIVERSAL MODERN SCROLLBAR --- */
+/* Target all scrollable elements */
+*::-webkit-scrollbar {
+    width: 6px;     /* Thin enough to be sleek, thick enough to grab */
+    height: 6px;    /* For horizontal bars */
+}
 
-        .search-bar-container:hover .search-icon-label {
-            color: #fff;
-        }
+*::-webkit-scrollbar-track {
+    background: transparent; /* Keep background clean */
+}
 
-        /* 4. The Input Field [FIXED] */
-        .search-bar-container input {
-            /* Position absolutely to fill the container */
-            position: absolute !important;
-            top: 0;
-            left: 0;
-            
-            /* FORCE FULL WIDTH: Prevents text from being crushed when collapsed */
-            width: 260px !important; 
-            height: 100% !important;
-            
-            z-index: 20 !important; /* Above icon */
-            
-            /* Include padding in calculations */
-            box-sizing: border-box !important;
-            
-            /* Padding to avoid text hitting the icon */
-            padding-left: 20px !important;
-            padding-right: 44px !important; 
-            
-            /* Reset browser default styles */
-            background: transparent !important;
-            border: none !important;
-            outline: none !important;
-            -webkit-appearance: none; /* Fix for iOS/Safari */
-            appearance: none;
-            
-            /* Force Text Color & Alignment */
-            color: #ffffff !important; 
-            font-family: var(--font-ui);
-            font-size: 0.9rem;
-            font-weight: 500;
-            text-align: left !important;
-            line-height: 44px !important; /* Vertically center text */
-            
-            /* Ensure visibility */
-            opacity: 1 !important; 
-            cursor: text;
-        }
+*::-webkit-scrollbar-thumb {
+    background-color: rgba(255, 255, 255, 0.1); /* Subtle white tint */
+    border-radius: 10px;
+    border: 1px solid transparent; /* Padding effect */
+}
 
-        /* Fix Placeholder Color */
-        .search-bar-container input::placeholder {
-            color: #a1a1aa !important;
-            opacity: 1; 
-        }
+*::-webkit-scrollbar-thumb:hover {
+    background-color: var(--color-brand, #38bdf8); /* High-tech blue highlight on hover */
+}
 
-        /* 5. Clear 'X' Button */
-        .search-clear-btn {
-            position: absolute;
-            right: 40px; 
-            top: 50%;
-            transform: translateY(-50%);
-            width: 20px;
-            height: 20px;
-            background: rgba(255,255,255,0.1);
-            border-radius: 50%;
-            border: none;
-            color: #fff;
-            display: none; /* JS toggles flex */
-            align-items: center;
-            justify-content: center;
-            font-size: 0.6rem;
-            cursor: pointer;
-            z-index: 30; /* Topmost */
-        }
-        
-        .search-clear-btn:hover {
-            background: rgba(255,255,255,0.3);
-        }
+/* Firefox Support */
+* {
+    scrollbar-width: thin;
+    scrollbar-color: rgba(255, 255, 255, 0.1) transparent;
+}
 
-        /* 6. The Dropdown Results */
-        .search-results-dropdown {
-            display: none;
-            width: 260px; /* Matches expanded bar width */
-            margin-top: 0;
-            
-            background: var(--bg-glass);
-            backdrop-filter: blur(20px);
-            -webkit-backdrop-filter: blur(20px);
-            border: 1px solid var(--border-glass);
-            border-top: none;
-            
-            border-bottom-left-radius: 12px;
-            border-bottom-right-radius: 12px;
-            
-            max-height: 450px;
-            overflow-y: auto;
-            pointer-events: auto;
-            
-            scrollbar-width: thin;
-            scrollbar-color: var(--border-glass) transparent;
-        }
-        
-        /* Result Item Styling */
-        .search-result-item {
-            display: grid;
-            grid-template-columns: 40px 1fr auto;
-            gap: 12px;
-            padding: 10px 14px;
-            border-bottom: 1px solid var(--border-glass);
-            cursor: pointer;
-            transition: background 0.15s ease;
-            align-items: center;
-        }
-        .search-result-item:hover {
-            background: var(--bg-panel);
-        }
-        .search-result-item:last-child {
-            border-bottom: none;
-        }
+/* Example: Hiding the server selection buttons */
+.server-selection-container {
+    display: none !important;
+}
+
+/* --- SPICED PILOT REPORT STYLES --- */
+.stats-rehaul-container {
+    padding: 20px;
+    font-family: 'Inter', sans-serif;
+}
+
+.stats-hero {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 24px;
+    padding: 20px;
+    background: rgba(255, 255, 255, 0.03);
+    border-radius: 16px;
+    border: 1px solid rgba(255, 255, 255, 0.05);
+}
+
+.hero-username {
+    font-size: 2.2rem; /* Big Typography */
+    font-weight: 800;
+    margin: 4px 0;
+    letter-spacing: -1px;
+    color: #fff;
+}
+
+.hero-rank-tag {
+    font-size: 0.7rem;
+    font-weight: 900;
+    color: #38bdf8;
+    text-transform: uppercase;
+    letter-spacing: 1.5px;
+}
+
+.grade-badge {
+    text-align: center;
+    background: #38bdf8;
+    color: #000;
+    padding: 10px 18px;
+    border-radius: 12px;
+    display: flex;
+    flex-direction: column;
+}
+
+.grade-label { font-size: 0.6rem; font-weight: 900; }
+.grade-val { font-size: 1.8rem; font-weight: 800; line-height: 1; }
+
+.spiced-kpi-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 12px;
+    margin-bottom: 20px;
+}
+
+.kpi-card {
+    background: rgba(10, 10, 12, 0.4);
+    padding: 16px;
+    border-radius: 12px;
+    border: 1px solid rgba(255, 255, 255, 0.05);
+}
+
+.kpi-label {
+    display: block;
+    font-size: 0.65rem;
+    color: #71717a;
+    font-weight: 800;
+    margin-bottom: 4px;
+}
+
+.kpi-value {
+    font-size: 1.4rem;
+    font-weight: 700;
+    color: #fff;
+    font-family: 'JetBrains Mono', monospace;
+}
+
+.kpi-value.warn { color: #ef4444; }
+.kpi-value small { font-size: 0.8rem; color: #52525b; }
+
+/* --- CONTROLLER SPICE THEMES --- */
+
+/* Specialist (Blue Glow) */
+.atc-specialist .stats-hero {
+    border-left: 5px solid #38bdf8;
+    box-shadow: -10px 0 20px -10px rgba(56, 189, 248, 0.3);
+}
+
+/* Officer (Cyan / High Tech) */
+.atc-officer .stats-hero {
+    border-left: 5px solid #22d3ee;
+    background: linear-gradient(90deg, rgba(34, 211, 238, 0.05) 0%, rgba(255,255,255,0.03) 100%);
+}
+.atc-officer .hero-rank-tag { color: #22d3ee; }
+
+/* Supervisor (Gold / Elite) */
+.atc-supervisor .stats-hero {
+    border-left: 5px solid #fbbf24;
+    background: linear-gradient(90deg, rgba(251, 191, 36, 0.1) 0%, rgba(255,255,255,0.03) 100%);
+}
+.atc-supervisor .hero-rank-tag { color: #fbbf24; }
+.atc-supervisor .grade-badge { background: #fbbf24; }
+
     `;
 
     const style = document.createElement('style');
@@ -2676,6 +3277,175 @@ function injectCustomStyles() {
     style.appendChild(document.createTextNode(css));
     document.head.appendChild(style);
 }
+
+function createFlightMarker(flight) {
+    if (!map) return null;
+
+    const el = document.createElement('div');
+    el.className = 'flight-icon';
+
+    // Rotate icon based on heading
+    const heading = flight.position.heading_deg || 0;
+    
+    // Choose icon color/image based on state
+    let iconUrl = 'https://raw.githubusercontent.com/massun-sky/massun-sky-flight-icons/master/img/plane_b738.svg'; 
+    if (flight.isVAMember) {
+        // Gold icon for VA members? Or keep standard.
+        // You can customize this if you want specific styling for VA members
+    }
+
+    el.style.backgroundImage = `url('${iconUrl}')`;
+    el.style.transform = `rotate(${heading}deg)`;
+    el.style.width = '30px';
+    el.style.height = '30px';
+    el.style.backgroundSize = 'contain';
+    el.style.backgroundRepeat = 'no-repeat';
+
+    // Create Leaflet Marker
+    const marker = L.marker([flight.position.lat, flight.position.lon], {
+        icon: L.divIcon({
+            html: el,
+            className: 'css-icon',
+            iconSize: [30, 30],
+            iconAnchor: [15, 15]
+        })
+    });
+
+    // --- CLICK LISTENER ---
+    marker.on('click', () => {
+        selectedFlight = flight;
+        updatePopupContent(flight, true); // Update & Open Popup
+        updateSidebar(flight);            // Update Sidebar details
+        drawTrail(flight.userId, flight.flightId); // Fetch Trail
+
+        // <--- NEW: TRACK THIS VIEW FOR LEADERBOARD --->
+        trackPilotView(flight);
+    });
+
+    marker.addTo(map);
+    return marker;
+}
+
+async function trackPilotView(flight) {
+    // Safety check: ensure we have a valid user to track
+    if (!flight || !flight.userId || !flight.username) return;
+
+    // Direct link to your backend database
+    const BACKEND = "https://site--indgo-backend--6dmjph8ltlhv.code.run";
+
+    try {
+        await fetch(`${BACKEND}/api/leaderboard/track`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                pilotUserId: flight.userId,
+                pilotName: flight.username
+            })
+        });
+    } catch (e) {
+        console.warn("❌ Leaderboard tracking failed:", e);
+    }
+}
+
+
+async function initializeMapBoundaries(map) {
+    if (!map) return;
+
+    try {
+        // 1. Switched to local GeoJSON as requested
+        if (!map.getSource('fir-boundaries')) {
+            map.addSource('fir-boundaries', {
+                type: 'geojson',
+                data: './Boundaries.geojson' 
+            });
+        }
+
+        const styleMode = mapFilters.mapStyle || 'dark';
+    const borderColor = (styleMode === 'light') ? '#0f172a' : '#ffffff'; // Match the slate color
+    const borderOpacity = (styleMode === 'light') ? 0.3 : 0.2;
+
+        // FIX: Check if the plane layer exists before trying to place boundaries under it
+        const beforeId = map.getLayer('sector-ops-live-flights-layer') 
+            ? 'sector-ops-live-flights-layer' 
+            : undefined;
+
+        // 2. fir-fills Layer
+        if (!map.getLayer('fir-fills')) {
+            map.addLayer({
+                id: 'fir-fills',
+                type: 'fill',
+                source: 'fir-boundaries',
+                paint: {
+                    'fill-color': '#22c55e',
+                    'fill-opacity': 0 
+                }
+            }, beforeId); // Use safe reference
+        }
+
+        // 3. fir-borders Layer
+        if (!map.getLayer('fir-borders')) {
+            map.addLayer({
+                id: 'fir-borders',
+                type: 'line',
+                source: 'fir-boundaries',
+                paint: {
+                    'line-color': borderColor,
+                    'line-width': 0.8,
+                    'line-opacity': borderOpacity
+                }
+            }, beforeId); // Use safe reference
+        }
+
+    } catch (err) {
+        console.error("Error loading local map boundaries:", err);
+    }
+}
+
+// 2. Fetch and display the Top 3 Pilots (Call this once on load, or on an interval)
+async function updateLeaderboard() {
+    const container = document.getElementById('leaderboard-list'); // Ensure you have this ID in your HTML
+    if (!container) return; // specific safety check if element is missing
+
+    try {
+        const response = await fetch(`${API_BASE_URL}/api/leaderboard/top`);
+        if (!response.ok) throw new Error('Network response was not ok');
+        
+        const topPilots = await response.json();
+
+        container.innerHTML = ''; // Clear previous list
+
+        if (topPilots.length === 0) {
+            container.innerHTML = '<div class="leaderboard-empty">No flights tracked yet today</div>';
+            return;
+        }
+
+        topPilots.forEach((pilot, index) => {
+            const item = document.createElement('div');
+            item.className = 'leaderboard-item';
+            
+            // Add medal emojis for top 3
+            let rankDisplay = `#${index + 1}`;
+            if (index === 0) rankDisplay = '🥇';
+            if (index === 1) rankDisplay = '🥈';
+            if (index === 2) rankDisplay = '🥉';
+
+            item.innerHTML = `
+                <div class="lb-rank">${rankDisplay}</div>
+                <div class="lb-name">${pilot.pilotName}</div>
+                <div class="lb-views">${pilot.viewCount} views</div>
+            `;
+            container.appendChild(item);
+        });
+
+    } catch (error) {
+        console.error("Failed to update leaderboard:", error);
+    }
+}
+
+// Optional: Auto-refresh leaderboard every 60 seconds
+setInterval(updateLeaderboard, 60000);
+// Run immediately on load
+document.addEventListener('DOMContentLoaded', updateLeaderboard);
 
 /**
  * Deciphers Infinite Flight ATIS text into a structured object.
@@ -2721,265 +3491,6 @@ function parseAtis(text) {
     if (remarks && remarks.toLowerCase().includes('no pattern work')) remarks = 'NO PATTERN WORK';
 
     return { info, time, landing, departing, approach, remarks };
-}
-
-async function createAirportInfoWindowHTML(icao) {
-    // 1. Get Static Data
-    const staticData = airportsData[icao] || {};
-    
-    // 2. Fetch Live Airport Details
-    let liveData = null;
-    try {
-        const response = await fetch(`${ACARS_SOCKET_URL}/api/airport/${icao}`);
-        if (response.ok) {
-            const json = await response.json();
-            if (json.ok && json.airport) liveData = json.airport;
-        }
-    } catch (e) { console.warn(`Could not fetch live data for ${icao}`, e); }
-
-    // 3. Fetch Live Traffic & ATIS
-    let inbounds = [];
-    let outbounds = [];
-    let rawAtisText = null; 
-    let trafficFetchSuccess = false;
-
-    try {
-        const sessionsRes = await fetch(`${ACARS_SOCKET_URL}/if-sessions`);
-        const sessionsData = await sessionsRes.json();
-        const sessionId = getCurrentSessionId(sessionsData);
-
-        if (sessionId) {
-            const [statusRes, atisRes] = await Promise.all([
-                fetch(`${ACARS_SOCKET_URL}/api/live/airport/${sessionId}/${icao}/status`),
-                fetch(`${ACARS_SOCKET_URL}/api/live/airport/${sessionId}/${icao}/atis`)
-            ]);
-
-            if (statusRes.ok) {
-                const statusJson = await statusRes.json();
-                if (statusJson.ok && statusJson.status) {
-                    inbounds = statusJson.status.inboundFlights || [];
-                    outbounds = statusJson.status.outboundFlights || [];
-                    trafficFetchSuccess = true;
-                }
-            }
-
-            if (atisRes.ok) {
-                const atisJson = await atisRes.json();
-                if (atisJson.ok && atisJson.atis) {
-                    rawAtisText = atisJson.atis;
-                }
-            }
-        }
-    } catch (e) { console.error("Error fetching live stats:", e); }
-
-    // 4. Merge Data
-    const airportName = liveData?.name || staticData.name || 'Unknown Airport';
-    const city = liveData?.city || staticData.city;
-    const state = liveData?.state || staticData.state;
-    const cityState = [city, state].filter(Boolean).join(', ') || 'Location N/A';
-    const countryCode = (liveData?.country?.isoCode || staticData.country || '').toLowerCase();
-    const flagSrc = countryCode ? `https://flagcdn.com/w40/${countryCode}.png` : '';
-    const elevation = liveData?.elevation ?? staticData.elevation_ft ?? 0;
-    const coords = { lat: liveData?.latitude ?? staticData.lat, lon: liveData?.longitude ?? staticData.lon };
-    const badge3DHtml = liveData?.has3dBuildings ? `<span style="background: linear-gradient(135deg, #e2e8f0 0%, #94a3b8 100%); color: #0f172a; font-size: 0.65rem; font-weight: 800; padding: 2px 6px; border-radius: 4px; margin-left: 10px;">3D</span>` : '';
-
-    // Filter Derived Data
-    const atcForAirport = activeAtcFacilities.filter(f => f.airportName === icao);
-    const notamsForAirport = activeNotams.filter(n => n.airportIcao === icao);
-    const airportRunways = runwaysData[icao] || [];
-
-    // --- Weather & ATIS Logic ---
-    let weatherModuleHtml = '';
-    let atisModuleHtml = '';
-    let metarString = '';
-    let runwayRecHtml = ''; 
-    
-    try {
-        if (window.WeatherService) {
-            const w = await window.WeatherService.fetchAndParseMetar(icao);
-            let flightCategory = 'VFR'; 
-            let catColor = '#4ade80';
-            if (w.raw.includes('LIFR')) { flightCategory = 'LIFR'; catColor = '#c084fc'; }
-            else if (w.raw.includes('IFR') || w.raw.includes('VV')) { flightCategory = 'IFR'; catColor = '#f87171'; }
-            else if (w.raw.includes('MVFR')) { flightCategory = 'MVFR'; catColor = '#60a5fa'; }
-            metarString = w.raw;
-
-            // --- BUILD ATIS DISPLAY ---
-            if (rawAtisText) {
-                // 1. DECIPHERED REAL ATIS
-                const atis = parseAtis(rawAtisText);
-                const infoPill = `<span style="color: #fbbf24; border: 1px solid #fbbf24; padding: 0 4px; border-radius: 3px; font-size: 0.6rem;">INFO ${atis.info}</span>`;
-                
-                // Remarks Footer (Only if remarks exist)
-                const remarksHtml = atis.remarks ? 
-                    `<div class="apt-mini-footer" title="${atis.remarks}"><i class="fa-solid fa-circle-info"></i> ${atis.remarks}</div>` : '';
-
-                atisModuleHtml = `
-                <div class="apt-mini-module">
-                    <div class="apt-mini-header">
-                        <span><i class="fa-solid fa-tower-broadcast"></i> ATIS</span>
-                        ${infoPill}
-                    </div>
-                    <div class="apt-mini-body" style="padding-bottom: ${atis.remarks ? '0' : '10px'};">
-                        <div class="stat-grid-compact">
-                            <div class="compact-stat-box"><span class="compact-label">ARR RWY</span><span class="compact-value" style="color: #4ade80;">${atis.landing}</span></div>
-                            <div class="compact-stat-box"><span class="compact-label">DEP RWY</span><span class="compact-value" style="color: #38bdf8;">${atis.departing}</span></div>
-                            <div class="compact-stat-box"><span class="compact-label">APPR</span><span class="compact-value">${atis.approach}</span></div>
-                            <div class="compact-stat-box"><span class="compact-label">TIME</span><span class="compact-value">${atis.time}</span></div>
-                        </div>
-                    </div>
-                    ${remarksHtml}
-                </div>`;
-
-            } else {
-                // 2. FALLBACK: ESTIMATED RUNWAYS (If ATIS Offline)
-                const recs = getRunwayRecommendations(airportRunways, w.wind);
-                const activeRunways = recs.slice(0, 2).map(r => r.ident).join('/');
-                const activeHtml = activeRunways || '---';
-
-                atisModuleHtml = `
-                <div class="apt-mini-module">
-                    <div class="apt-mini-header">
-                        <span><i class="fa-solid fa-calculator"></i> EST. OPS</span>
-                        <span style="color: #94a3b8; border: 1px solid #475569; padding: 0 4px; border-radius: 3px; font-size: 0.6rem;">NO ATIS</span>
-                    </div>
-                    <div class="apt-mini-body">
-                        <div class="stat-grid-compact">
-                            <div class="compact-stat-box"><span class="compact-label">EST ARR</span><span class="compact-value" style="color: #4ade80;">${activeHtml}</span></div>
-                            <div class="compact-stat-box"><span class="compact-label">EST DEP</span><span class="compact-value" style="color: #38bdf8;">${activeHtml}</span></div>
-                            <div class="compact-stat-box"><span class="compact-label">WIND</span><span class="compact-value">${w.wind}</span></div>
-                            <div class="compact-stat-box"><span class="compact-label">STATUS</span><span class="compact-value">CALC</span></div>
-                        </div>
-                    </div>
-                </div>`;
-            }
-
-            // Weather Module (Standard)
-            weatherModuleHtml = `
-            <div class="apt-mini-module">
-                <div class="apt-mini-header">
-                    <span><i class="fa-solid fa-cloud-sun"></i> METAR</span>
-                    <span style="color: ${catColor}; border: 1px solid ${catColor}; padding: 0 4px; border-radius: 3px; font-size: 0.6rem;">${flightCategory}</span>
-                </div>
-                <div class="apt-mini-body">
-                    <div class="stat-grid-compact">
-                        <div class="compact-stat-box"><span class="compact-label">WIND</span><span class="compact-value" style="color: #38bdf8;">${w.wind}</span></div>
-                        <div class="compact-stat-box"><span class="compact-label">VIS</span><span class="compact-value">${w.visibility || '10KM'}</span></div>
-                        <div class="compact-stat-box"><span class="compact-label">TEMP</span><span class="compact-value" style="color: #fbbf24;">${w.temp}</span></div>
-                        <div class="compact-stat-box"><span class="compact-label">QNH</span><span class="compact-value">${w.qnh || '1013'}</span></div>
-                    </div>
-                </div>
-            </div>`;
-            
-            // Detailed Wind Analysis (Accordion) - Kept as extra info
-            const recs = getRunwayRecommendations(airportRunways, w.wind);
-            if (recs.length > 0) {
-                runwayRecHtml = `
-                <div class="tech-module" style="margin: 0 16px 8px 16px;">
-                    <div class="tech-module-header runway-dropdown-header" id="runway-accordion-toggle">
-                        <span class="tech-module-title"><i class="fa-solid fa-wind"></i> WIND ANALYSIS</span>
-                        <i class="fa-solid fa-chevron-down runway-toggle-icon"></i>
-                    </div>
-                    <div class="tech-module-body runway-dropdown-content" id="runway-accordion-content" style="background: rgba(15, 23, 42, 0.4);">
-                        ${recs.map(r => `
-                            <div style="display: flex; justify-content: space-between; align-items: center; padding: 6px 0; border-bottom: 1px solid rgba(255,255,255,0.05);">
-                                <div><span style="font-weight: 700; color: #fff;">RWY ${r.ident}</span> <span style="font-size: 0.65rem; color: ${r.color === 'green' ? '#86efac' : r.color === 'orange' ? '#fcd34d' : '#fca5a5'}; margin-left: 6px;">${r.reason}</span></div>
-                                <div style="font-size: 0.75rem; font-family: monospace; color: #94a3b8;"><i class="fa-solid ${r.headwind >= 0 ? 'fa-arrow-down' : 'fa-arrow-up'}"></i> ${Math.abs(r.headwind)}kt</div>
-                            </div>
-                        `).join('')}
-                    </div>
-                </div>`;
-            }
-
-        } else {
-            weatherModuleHtml = `<div class="apt-mini-module"><div class="apt-mini-body"><p class="muted-text">Weather Unavailable</p></div></div>`;
-            atisModuleHtml = `<div class="apt-mini-module"><div class="apt-mini-body"><p class="muted-text">ATIS Offline</p></div></div>`;
-        }
-    } catch (err) { 
-        weatherModuleHtml = `<div class="apt-mini-module"><div class="apt-mini-body"><p class="muted-text">Offline</p></div></div>`; 
-        atisModuleHtml = `<div class="apt-mini-module"><div class="apt-mini-body"><p class="muted-text">Offline</p></div></div>`;
-    }
-
-    // --- Feature Strip ---
-    let featureStripHtml = '';
-    if (liveData) {
-        const features = [
-            { key: 'hasJetbridges', label: 'Jetbridges', icon: 'fa-person-walking-luggage' },
-            { key: 'hasSafedockUnits', label: 'Safedock', icon: 'fa-square-parking' },
-            { key: 'hasTaxiwayRouting', label: 'Drag & Taxi', icon: 'fa-route' }
-        ];
-        const aptClass = liveData.class ? `Class ${liveData.class}` : 'N/A';
-        const timezone = liveData.timezone ? liveData.timezone.split(' ')[0] : 'UTC';
-        featureStripHtml = `
-            <div class="apt-quick-info-strip">
-                <div class="apt-feature-pill"><i class="fa-solid fa-earth-americas"></i> ${timezone}</div>
-                <div class="apt-feature-pill"><i class="fa-solid fa-ranking-star"></i> ${aptClass}</div>
-                ${features.map(f => liveData[f.key] ? `<div class="apt-feature-pill" style="color: #cbd5e1; border-color: rgba(74, 222, 128, 0.3); background: rgba(74, 222, 128, 0.05);"><i class="fa-solid ${f.icon}" style="color: #4ade80;"></i> ${f.label}</div>` : '').join('')}
-            </div>`;
-    }
-
-    // --- Tab Contents (Traffic, ATC, NOTAMs) ---
-    const renderFlightCard = (fid, type) => {
-        const f = currentMapFeatures[fid];
-        let cs = 'Unknown', usr = 'Pilot', ac = '---', al = 'UNKNOWN';
-        if (f && f.properties) {
-            const p = f.properties; cs = p.callsign||cs; usr = p.username||usr;
-            const acn = (typeof p.aircraft==='string'?JSON.parse(p.aircraft):p.aircraft)?.aircraftName||'';
-            ac = acn.split(' ')[0].substring(0,4).toUpperCase();
-            if(acn.includes('777')) ac='B777'; else if(acn.includes('320')) ac='A320';
-            al = extractAirlineCode(cs);
-        }
-        const color = type === 'in' ? '#4ade80' : '#38bdf8';
-        return `<div class="route-card" style="border-left: 3px solid ${color}; padding: 8px 12px;"><div class="route-info"><div class="route-callsign" style="font-size: 0.95rem;"><img src="Images/vas/${al}.png" style="height: 14px; width: auto; max-width: 30px;" onerror="this.style.display='none'"> ${cs}</div><div class="route-details" style="font-size: 0.7rem;"><span class="route-ac-badge" style="font-size: 0.65rem;">${ac}</span><span>${usr}</span></div></div><div style="font-size: 0.7rem; font-weight: bold; color: ${color};"><i class="fa-solid ${type==='in'?'fa-plane-arrival':'fa-plane-departure'}"></i></div></div>`;
-    };
-
-    let trafficHtml = (!trafficFetchSuccess) ? '<div style="padding: 20px; text-align: center; color: #64748b;">Data unavailable.</div>' :
-        (inbounds.length===0 && outbounds.length===0) ? '<div style="padding: 20px; text-align: center; color: #64748b;">No live traffic.</div>' :
-        `<div style="padding: 12px; display: flex; flex-direction: column; gap: 4px;">${inbounds.length>0 ? `<div style="margin-bottom:8px;"><div style="font-size:0.7rem;color:#94a3b8;font-weight:700;margin-bottom:4px;padding-left:4px;">INBOUND (${inbounds.length})</div>${inbounds.map(id=>renderFlightCard(id,'in')).join('')}</div>` : ''}${outbounds.length>0 ? `<div><div style="font-size:0.7rem;color:#94a3b8;font-weight:700;margin-bottom:4px;padding-left:4px;">OUTBOUND (${outbounds.length})</div>${outbounds.map(id=>renderFlightCard(id,'out')).join('')}</div>` : ''}</div>`;
-
-    let atcHtml = atcForAirport.length === 0 ? '<div style="padding: 20px; text-align: center; color: #64748b;">No active frequencies.</div>' :
-        `<div style="padding: 12px;">${atcForAirport.map(f => `<div class="atc-grid-card" style="padding: 8px;"><div style="display: flex; align-items: center; gap: 12px;"><span class="atc-type-badge ${f.type===1?'atc-type-twr':f.type===0?'atc-type-gnd':(f.type===4||f.type===5)?'atc-type-app':'atc-type-obs'}" style="width: 60px; font-size: 0.65rem;">${atcTypeToString(f.type)}</span><span class="atc-controller" style="font-size: 0.85rem;">${f.username||'Unknown'}</span></div><span class="atc-duration" style="font-size: 0.75rem;"><i class="fa-regular fa-clock"></i> ${formatAtcDuration(f.startTime)}</span></div>`).join('')}</div>`;
-
-    let notamsHtml = notamsForAirport.length === 0 ? '<div style="padding: 20px; text-align: center; color: #64748b;">No active NOTAMs.</div>' :
-        `<div style="padding: 12px; display: flex; flex-direction: column; gap: 8px;">${notamsForAirport.map(n => `<div style="background: rgba(234, 179, 8, 0.1); border-left: 3px solid #eab308; padding: 8px; border-radius: 4px; color: #fef08a; font-family: monospace; font-size: 0.75rem;"><i class="fa-solid fa-triangle-exclamation"></i> ${n.message}</div>`).join('')}</div>`;
-
-    // --- Final Render ---
-    return `
-        <div class="airport-hero">
-            <div class="hero-actions">
-                <button id="airport-window-hide-btn" class="hero-btn" title="Hide Window"><i class="fa-solid fa-compress"></i></button>
-                <button id="airport-window-close-btn" class="hero-btn" title="Close Window"><i class="fa-solid fa-xmark"></i></button>
-            </div>
-            <div class="apt-ident-group">
-                <div class="apt-icao">${icao}${flagSrc ? `<img src="${flagSrc}" style="height: 24px; border-radius: 2px; margin-left: 10px;">` : ''}${badge3DHtml}</div>
-                <div class="apt-name">${airportName}</div>
-                <div style="font-size: 0.8rem; color: #64748b; margin-top: 2px;">${cityState}</div>
-                <div style="margin-top: 8px; display: flex; gap: 8px;">
-                     <span class="apt-meta-badge"><i class="fa-solid fa-location-crosshairs"></i> ${coords.lat?.toFixed(3)}, ${coords.lon?.toFixed(3)}</span>
-                     <span class="apt-meta-badge"><i class="fa-solid fa-arrows-up-down"></i> ${elevation} ft</span>
-                </div>
-            </div>
-            <i class="fa-solid fa-plane-departure" style="font-size: 6rem; color: rgba(255,255,255,0.03); position: absolute; right: -10px; bottom: -20px; transform: rotate(-15deg);"></i>
-        </div>
-        ${featureStripHtml}
-        <div style="flex-grow: 1; overflow-y: auto; padding-top: 12px;">
-            <div class="apt-dashboard-grid">
-                ${weatherModuleHtml}
-                ${atisModuleHtml} </div>
-            ${metarString ? `<div class="metar-strip">${metarString}</div>` : ''}
-            <div style="margin-top: 12px;">${runwayRecHtml}</div>
-            <div class="tech-module" style="min-height: 300px; display: flex; flex-direction: column; margin: 0 16px 16px 16px; border: 1px solid rgba(255,255,255,0.05);">
-                <div class="apt-tabs-header">
-                    <button class="apt-tab-btn active" data-target="apt-traffic"><i class="fa-solid fa-plane-circle-check"></i> TRAFFIC</button>
-                    <button class="apt-tab-btn" data-target="apt-atc"><i class="fa-solid fa-headset"></i> ATC</button>
-                    <button class="apt-tab-btn" data-target="apt-notams"><i class="fa-solid fa-triangle-exclamation"></i> NOTAMs</button>
-                </div>
-                <div id="apt-traffic" class="apt-tab-content active" style="padding: 0;">${trafficHtml}</div>
-                <div id="apt-atc" class="apt-tab-content" style="padding: 0;">${atcHtml}</div>
-                <div id="apt-notams" class="apt-tab-content" style="padding: 0;">${notamsHtml}</div>
-            </div>
-        </div>
-    `;
 }
 
 /**
@@ -3084,6 +3595,7 @@ function generateTrafficForecastHTML(congestion) {
     `;
 }
 
+
 /**
      * --- [NEW] Helper to find the session ID for the currently selected server ---
      */
@@ -3173,6 +3685,12 @@ function generateTrafficForecastHTML(congestion) {
                 btn.classList.remove('active');
             }
         });
+
+        const shortName = newServerName.split(' ')[0]; // Converts "Expert Server" to "Expert"
+    const landingServerLabel = document.getElementById('landing-server-name');
+    if (landingServerLabel) {
+        landingServerLabel.textContent = `${shortName.toUpperCase()} SERVER`;
+    }
 
         // 5. Show Notification
         showNotification(`Switching to ${currentServerName}...`, 'info');
@@ -3394,10 +3912,9 @@ function findSimbriefAircraftValue(aircraftName) {
     return null; // No match found
 }
 
+window.handleSearchInput = handleSearchInput;
 
-    /**
- * render the flight list on load.
- */
+
 async function loadExternalPanelContent() {
     const panel = document.getElementById('sector-ops-floating-panel');
     if (!panel) {
@@ -3405,136 +3922,99 @@ async function loadExternalPanelContent() {
         return;
     }
 
-    // 1. Find and remove the old UI tabs
+    // 1. Clean up old tabs if present
     const oldTabs = panel.querySelector('.panel-tabs');
-    if (oldTabs) {
-        oldTabs.remove();
-    }
+    if (oldTabs) oldTabs.remove();
 
-    // 2. Find the main content container (which we will REUSE)
+    // 2. Find/Prepare content container
     const mainContentContainer = panel.querySelector('.panel-content');
     if (!mainContentContainer) {
         console.error('Could not find .panel-content to inject content into.');
         return;
     }
     
-    // 3. Clear this container and show a loading spinner
+    // 3. Show loading state
     mainContentContainer.innerHTML = '<div class="spinner-small" style="margin: 2rem auto;"></div>';
-
-    // 4. [CRITICAL FIX] Modify the container to be scrollable
-    // The original CSS in index.html has 'overflow: hidden', which we must override.
     mainContentContainer.style.overflow = 'auto'; 
-    
-    // 5. Fetch and inject the new content
+
+    // --- [NEW] INJECT CLOSE BUTTON ---
+    // Remove existing button if it exists to avoid duplicates
+    const existingBtn = panel.querySelector('.panel-close-btn');
+    if (existingBtn) existingBtn.remove();
+
+    const closeBtn = document.createElement('button');
+    closeBtn.className = 'panel-close-btn';
+    closeBtn.innerHTML = '<i class="fa-solid fa-times"></i>';
+    closeBtn.title = "Close Window";
+    panel.appendChild(closeBtn); // Add it directly to the panel frame
+
+    // Add Close Logic
+    closeBtn.addEventListener('click', () => {
+        panel.classList.remove('visible'); // Hides the modal
+    });
+
+    // 4. Fetch content
     try {
         const response = await fetch('panel-content.html');
-        if (!response.ok) {
-            throw new Error(`Failed to fetch panel-content.html (Status: ${response.status})`);
-        }
-        const htmlContent = await response.text();
+        if (!response.ok) throw new Error(`Failed to fetch panel-content.html (Status: ${response.status})`);
         
-        // Inject the new content directly into the existing .panel-content div
+        const htmlContent = await response.text();
         mainContentContainer.innerHTML = htmlContent;
 
-        // ===================================================================
-        // START: Logic from panel-tabs.js
-        // We run this logic *after* mainContentContainer.innerHTML is set.
-        // ===================================================================
-        
-        // Note: We query *inside* the mainContentContainer to be specific
+        // 5. Initialize Tabs
         const tabButtons = mainContentContainer.querySelectorAll('.panel-tab-btn');
         const tabContents = mainContentContainer.querySelectorAll('.tab-content');
 
-        // Function to switch to a specific tab
         function activateTab(tabId) {
             tabButtons.forEach(btn => {
-                if (btn.dataset.tab === tabId) {
-                    btn.classList.add('active');
-                } else {
-                    btn.classList.remove('active');
-                }
+                if (btn.dataset.tab === tabId) btn.classList.add('active');
+                else btn.classList.remove('active');
             });
-
             tabContents.forEach(content => {
-                if (content.id === tabId) {
-                    content.classList.add('active');
-                } else {
-                    content.classList.remove('active');
-                }
+                if (content.id === tabId) content.classList.add('active');
+                else content.classList.remove('active');
             });
         }
 
-        // Add click event listener to each tab button
         tabButtons.forEach(button => {
             button.addEventListener('click', () => {
-                const tabId = button.dataset.tab;
-                activateTab(tabId);
+                activateTab(button.dataset.tab);
             });
         });
 
-        // --- SimBrief Integration Logic ---
+        // 6. Handle Auto-Open based on URL
         const urlParams = new URLSearchParams(window.location.search);
         if (urlParams.get('view') === 'view-flight-plan' || urlParams.has('ofp_id')) {
             activateTab('tab-flightplan');
+            panel.classList.add('visible'); // ONLY open if URL requests it
         } else {
-            // Show the default active tab (Welcome)
-            // The 'active' class is already on the HTML, but this confirms it.
             activateTab('tab-welcome');
+            // Do NOT add .visible here, so it stays closed on load
         }
 
+        // 7. Populate Aircraft Select
         const aircraftSelect = mainContentContainer.querySelector('#fp-aircraft');
-        
         if (aircraftSelect && AIRCRAFT_SELECTION_LIST.length > 0) {
-            // Loop through the constant and create <option> elements
             AIRCRAFT_SELECTION_LIST.forEach(aircraft => {
                 const option = document.createElement('option');
-                option.value = aircraft.value; // e.g., "A320"
-                option.textContent = aircraft.name; // e.g., "Airbus A320-200"
+                option.value = aircraft.value;
+                option.textContent = aircraft.name;
                 aircraftSelect.appendChild(option);
             });
-        } else {
-            console.warn("Could not find #fp-aircraft select or AIRCRAFT_SELECTION_LIST is empty.");
         }
 
-        // Check if SimbriefIntegration object (from sb.js) exists
+        // 8. Initialize SimBrief
         if (typeof SimbriefIntegration !== 'undefined') {
-            
-            // Initialize the module, passing in the helpers it needs
             SimbriefIntegration.init({
-                // netlifySimbriefUrl is already set in sb.js
-
-                // Pass the main showNotification function from flight.js
                 showNotification: showNotification,
-
-                // Pass the populateDispatchPass function we just added
                 populateDispatchPass: populateDispatchPass,
-
-                // Pass the onFlightSaved callback we just added
                 onFlightSaved: refreshSavedFlightList,
-
-                // (Optional) Max number of flights to save.
                 maxFlights: 2
             });
-            
-            console.log("SimbriefIntegration module initialized successfully.");
-
-            // --- [NEW CODE TO ADD START] ---
-            
-            // 1. Add the master click listener for the saved flights list
-            // We attach it to mainContentContainer for event delegation
             mainContentContainer.addEventListener('click', handleSavedFlightListClick);
-
-            // 2. Render the saved flights list on initial load
             renderSavedFlightList();
-
-            // --- [NEW CODE TO ADD END] ---
-            
-        } else {
-            console.error("SimbriefIntegration (sb.js) is not loaded. SimBrief features will not work.");
-            // We can use the main notification function to tell the user
-            showNotification("SimBrief integration script (sb.js) failed to load.", "error");
         }
-        
+
     } catch (error) {
         console.error('Error loading external panel content:', error);
         mainContentContainer.innerHTML = `
@@ -3545,78 +4025,169 @@ async function loadExternalPanelContent() {
     }
 }
 
-    /**
-     * --- [ENHANCED] Handles the search input event.
-     * Searches Callsign, Username, Aircraft Type, Livery, and Altitude.
-     */
-    function handleSearchInput(searchText) {
-        const dropdown = document.getElementById('search-results-dropdown');
-        if (!dropdown) return;
 
-        // Require at least 2 characters to start searching
-        if (!searchText || searchText.length < 2) {
-            dropdown.innerHTML = '';
-            dropdown.style.display = 'none';
-            return;
-        }
+function toggleTripCardMode(active) {
+    const takeoverUI = document.getElementById('trip-card-takeover');
+    if (!takeoverUI) return;
 
-        const upperSearchText = searchText.toUpperCase();
-        const matches = [];
+    if (active && currentFlightInWindow) {
+        takeoverUI.innerHTML = `
+            <div class="tc-ac-image-container">
+                <img class="tc-ac-image" src="" onerror="this.src='/CommunityPlanes/default.png'">
+                <div class="tc-image-overlay"></div>
+                <div style="position: absolute; top: 12px; right: 12px;">
+                    <button class="tc-exit-btn" onclick="toggleTripCardMode(false)" style="background: rgba(0,0,0,0.5); border: none; color: #fff; width: 28px; height: 28px; border-radius: 50%; cursor: pointer;">
+                        <i class="fa-solid fa-xmark"></i>
+                    </button>
+                </div>
+            </div>
+            <div class="tc-inner">
+                <div class="tc-header">
+                    <div class="tc-airline-info">
+                        <img class="tc-logo" src="" onerror="this.style.display='none'">
+                        <div class="tc-id-group">
+                            <span class="tc-callsign">---</span>
+                            <span class="tc-pilot">---</span>
+                        </div>
+                    </div>
+                </div>
+                <div class="tc-route-row">
+                    <span class="tc-icao origin">---</span>
+                    <div class="tc-path-icon">
+                        <div class="tc-path-line"></div>
+                        <i class="fa-solid fa-plane"></i>
+                        <div class="tc-path-line" style="background: linear-gradient(90deg, #38bdf8 0%, rgba(56, 189, 248, 0) 100%);"></div>
+                    </div>
+                    <span class="tc-icao destination">---</span>
+                </div>
+                <div class="tc-stats-grid">
+                    <div class="tc-stat-box">
+                        <span class="tc-label">Altitude</span>
+                        <span class="tc-val tc-alt">---</span>
+                    </div>
+                    <div class="tc-stat-box">
+                        <span class="tc-label">Groundspeed</span>
+                        <span class="tc-val tc-spd">---</span>
+                    </div>
+                    <div class="tc-stat-box">
+                        <span class="tc-label">Aircraft</span>
+                        <span class="tc-val tc-ac">---</span>
+                    </div>
+                </div>
+            </div>
+        `;
 
-        // Search through the live flight data cache
-        for (const flightId in currentMapFeatures) {
-            try {
-                const feature = currentMapFeatures[flightId];
-                if (!feature || !feature.properties) continue;
-
-                const props = feature.properties;
-                
-                // 1. Get Basic Strings
-                const callsign = (props.callsign || '').toUpperCase();
-                const username = (props.username || '').toUpperCase();
-                
-                // 2. Get Aircraft/Livery Data safely
-                let acName = '';
-                let livName = '';
-                if (props.aircraft) {
-                    const acObj = (typeof props.aircraft === 'string') ? JSON.parse(props.aircraft) : props.aircraft;
-                    acName = (acObj.aircraftName || '').toUpperCase();
-                    livName = (acObj.liveryName || '').toUpperCase();
-                }
-
-                // 3. Get Altitude as String
-                const altStr = props.altitude ? Math.round(props.altitude).toString() : '';
-
-                // 4. Perform Matching
-                const isMatch = 
-                    callsign.includes(upperSearchText) ||
-                    username.includes(upperSearchText) ||
-                    acName.includes(upperSearchText) ||
-                    livName.includes(upperSearchText) ||
-                    altStr.startsWith(upperSearchText); // Altitude usually searched by start (e.g. "350" for 35000)
-
-                if (isMatch) {
-                    matches.push(feature);
-                }
-            } catch (error) {
-                console.error('Error searching feature:', error);
-            }
-        }
-        
-        // Sort results: Exact callsign matches first, then others
-        matches.sort((a, b) => {
-            const aCall = (a.properties.callsign || '').toUpperCase();
-            const bCall = (b.properties.callsign || '').toUpperCase();
-            const aExact = aCall === upperSearchText;
-            const bExact = bCall === upperSearchText;
-            if (aExact && !bExact) return -1;
-            if (!aExact && bExact) return 1;
-            return 0;
+        takeoverUI.querySelector('.tc-exit-btn')?.addEventListener('click', () => {
+    toggleTripCardMode(false);
         });
 
-        renderSearchResultsDropdown(matches);
+        takeoverUI.classList.add('active');
+        
+        
+        if (sectorOpsMap && sectorOpsMap.getLayer('sector-ops-live-flights-layer')) {
+            sectorOpsMap.setFilter('sector-ops-live-flights-layer', ['==', 'flightId', currentFlightInWindow]);
+        }
+
+        document.getElementById('sector-ops-floating-panel')?.classList.remove('visible');
+        aircraftInfoWindow?.classList.remove('visible');
+        
+        updateTripCardRealtime();
+        
+        const feature = currentMapFeatures[currentFlightInWindow];
+        if (feature) {
+            sectorOpsMap.flyTo({ center: feature.geometry.coordinates, zoom: 7, speed: 0.8, pitch: 0 });
+        }
+    } else {
+        takeoverUI.classList.remove('active');
+        if (typeof updateAircraftLayerFilter === 'function') updateAircraftLayerFilter(); 
+        aircraftInfoWindow?.classList.add('visible');
+    }
+    
+}
+
+window.toggleTripCardMode = toggleTripCardMode;
+
+function updateTripCardRealtime() {
+    if (!currentFlightInWindow || !currentMapFeatures[currentFlightInWindow]) return;
+
+    const feature = currentMapFeatures[currentFlightInWindow];
+    const props = feature.properties;
+    const pos = JSON.parse(props.position || '{}');
+    const ui = document.getElementById('trip-card-takeover');
+    if (!ui) return;
+
+    // Basic Info & Stats
+    ui.querySelector('.tc-callsign').textContent = props.callsign || 'N/A';
+    ui.querySelector('.tc-pilot').textContent = (props.username || 'Unknown').toUpperCase();
+    ui.querySelector('.tc-alt').textContent = Math.round(pos.alt_ft || 0).toLocaleString() + ' FT';
+    ui.querySelector('.tc-spd').textContent = Math.round(pos.gs_kt || 0) + ' KTS';
+    ui.querySelector('.tc-ac').textContent = (props.aircraftName || '---').split(' ')[0].toUpperCase();
+
+    // Route
+    ui.querySelector('.tc-icao.origin').textContent = props.departureIcao || '???';
+    ui.querySelector('.tc-icao.destination').textContent = props.arrivalIcao || '???';
+
+    // Aircraft Community Image
+    const acImg = ui.querySelector('.tc-ac-image');
+    if (acImg && props.communityImageUrl) {
+        acImg.src = props.communityImageUrl;
     }
 
+    // Airline Logo
+    const livery = props.liveryName || '';
+    const words = livery.trim().split(/\s+/);
+    let logoName = words.length > 1 && /[^a-zA-Z0-9]/.test(words[1]) ? words[0] : (words[0] + (words[1] ? ' ' + words[1] : ''));
+    const sanitizedLogoName = logoName.toLowerCase().replace(/[^a-z0-9\s]/g, '').replace(/\s+/g, '_');
+    const logoImg = ui.querySelector('.tc-logo');
+    if (logoImg) {
+        logoImg.src = `Images/airline_logos/${sanitizedLogoName}.png`;
+        logoImg.style.display = 'block';
+    }
+}
+    
+/**
+ * Fixes the search input handler to correctly show the results list
+ */
+function handleSearchInput(searchText) {
+    // FIX: Define the dropdown reference at the start of the function
+    const dropdown = document.getElementById('search-results-dropdown'); 
+    if (!dropdown) return;
+
+    // Require at least 2 characters to start searching
+    if (!searchText || searchText.length < 2) {
+        dropdown.innerHTML = '';
+        dropdown.style.display = 'none';
+        
+        // Also ensure the search bar container loses its "active" class
+        const searchBar = document.querySelector('#sector-ops-search-container .search-bar-container');
+        if (searchBar) searchBar.classList.remove('has-results');
+        return;
+    }
+
+    const upperSearchText = searchText.toUpperCase();
+    const matches = [];
+
+    // Search through the live flight data cache
+    for (const flightId in currentMapFeatures) {
+        const feature = currentMapFeatures[flightId];
+        const props = feature.properties;
+        
+        const callsign = (props.callsign || '').toUpperCase();
+        const username = (props.username || '').toUpperCase();
+        const acName = (props.aircraftName || '').toUpperCase();
+        const livName = (props.liveryName || '').toUpperCase();
+
+        if (callsign.includes(upperSearchText) || 
+            username.includes(upperSearchText) || 
+            acName.includes(upperSearchText) || 
+            livName.includes(upperSearchText)) {
+            matches.push(feature);
+        }
+    }
+    
+    // Render the list
+    renderSearchResultsDropdown(matches);
+}
 
  /**
  * --- [RE-DONE] Renders detailed search results.
@@ -3678,41 +4249,42 @@ function renderSearchResultsDropdown(matches) {
 
         // Escape quotes for data attributes
         const propsString = JSON.stringify(props).replace(/'/g, "&apos;").replace(/"/g, "&quot;");
-        const coordsString = JSON.stringify(coords);
+    const coordsString = JSON.stringify(coords);
 
-        return `
-        <div class="search-result-item" 
-             data-flight-id="${props.flightId}"
-             data-coordinates='${coordsString}'
-             data-properties='${propsString}'>
-            
-            <div class="search-result-img-box">
-                <img src="${logoPath}" class="search-result-logo" onerror="this.style.display='none';this.parentElement.innerHTML='<i class=\'fa-solid fa-plane\' style=\'color:#52525b;\'></i>'">
+    return `
+    <div class="search-result-item" 
+         onclick="onSearchResultClick(this)" 
+         data-flight-id="${props.flightId}"
+         data-coordinates='${coordsString}'
+         data-properties='${propsString}'>
+        
+        <div class="search-result-img-box">
+            <img src="${logoPath}" class="search-result-logo" onerror="this.style.display='none';this.parentElement.innerHTML='<i class=\'fa-solid fa-plane\' style=\'color:#52525b;\'></i>'">
+        </div>
+
+        <div class="search-result-info">
+            <div class="search-main-text">
+                <span class="callsign-text">${props.callsign}</span>
+                <span class="search-badge-ac">${shortType}</span>
             </div>
-
-            <div class="search-result-info">
-                <div class="search-main-text">
-                    <span class="callsign-text">${props.callsign}</span>
-                    <span class="search-badge-ac">${shortType}</span>
-                </div>
-                <div class="search-sub-text">
-                    <span class="username-text">${props.username}</span>
-                    <span class="separator">•</span>
-                    <span class="livery-text">${livName}</span>
-                </div>
-            </div>
-
-            <div class="search-result-stats">
-                <div class="stat-row">
-                    <span class="stat-val alt">${altDisplay}</span> <span class="stat-unit">ft</span>
-                </div>
-                <div class="stat-row">
-                    <span class="stat-val gs">${gsDisplay}</span> <span class="stat-unit">kts</span>
-                </div>
+            <div class="search-sub-text">
+                <span class="username-text">${props.username}</span>
+                <span class="separator">•</span>
+                <span class="livery-text">${livName}</span>
             </div>
         </div>
-        `;
-    }).join('');
+
+        <div class="search-result-stats">
+            <div class="stat-row">
+                <span class="stat-val alt">${altDisplay}</span> <span class="stat-unit">ft</span>
+            </div>
+            <div class="stat-row">
+                <span class="stat-val gs">${gsDisplay}</span> <span class="stat-unit">kts</span>
+            </div>
+        </div>
+    </div>
+    `;
+}).join('');
     
     // Show Dropdown & Merge Corners
     dropdown.style.display = 'block';
@@ -3721,79 +4293,84 @@ function renderSearchResultsDropdown(matches) {
 
 
     /**
-     * --- [FIXED] Handles the click on a search result item.
-     * Now reads all data directly from the clicked element's data attributes
-     * *before* clearing the dropdown, fixing the race condition.
-     * @param {HTMLElement} itemElement - The clicked <div> element.
+     * Handles flight selection from search. 
+     * Supports element-based clicks (Sector Ops) and direct data (Landing UI).
      */
-    function onSearchResultClick(itemElement) {
-        // --- [START OF FIX] ---
-        // 1. Get data directly from the element's dataset FIRST.
-        // This must happen before we clear the dropdown, which destroys the element.
+    function onSearchResultClick(arg1, arg2, arg3) {
         let coordinates;
         let props;
-        try {
-            coordinates = JSON.parse(itemElement.dataset.coordinates);
-            props = JSON.parse(itemElement.dataset.properties);
-            
-            if (!coordinates || !props || !props.flightId) {
-                 throw new Error('Search item is missing required data.');
-            }
-        } catch (e) {
-            console.error(`onSearchResultClick: Failed to parse data from clicked search item.`, e, itemElement.dataset);
-            return; // Abort if data is bad
-        }
-        // --- [END OF FIX] ---
 
-        // 2. Get UI elements
+        // LOGGING: See what reached the function
+        console.log("[Flight] onSearchResultClick received:", arg1);
+
+        // Check if we got an Element (Sector Ops Search) or ID/Lat/Lon (Landing UI)
+        if (arg1 instanceof HTMLElement) {
+            try {
+                coordinates = JSON.parse(arg1.dataset.coordinates);
+                props = JSON.parse(arg1.dataset.properties);
+            } catch (e) {
+                console.error("onSearchResultClick: Failed to parse element data.", e);
+                return;
+            }
+        } else {
+            // It's a direct call from Landing UI: arg1=id, arg2=lat, arg3=lon
+            const flightId = arg1;
+            coordinates = [arg3, arg2]; // Mapbox expects [longitude, latitude]
+            
+            // Retrieve properties from the global cache
+            const feature = currentMapFeatures[flightId];
+            if (feature) {
+                props = feature.properties;
+            } else {
+                console.error(`onSearchResultClick: Flight ${flightId} not found in map cache.`);
+                return;
+            }
+        }
+
+        // Proceed with UI logic
         const dropdown = document.getElementById('search-results-dropdown');
         const searchInput = document.getElementById('sector-ops-search-input');
         
-        // 3. Hide dropdown and clear input NOW
         if (dropdown) dropdown.innerHTML = '';
         if (searchInput) {
             searchInput.value = '';
-            searchInput.blur(); // Remove focus
+            searchInput.blur();
         }
         
-        // 4. Fly to the aircraft
+        // Navigate map to the coordinates
         sectorOpsMap.flyTo({
-            center: coordinates, // <-- Use data from element
+            center: coordinates,
             zoom: 9,
             essential: true
         });
 
-        // 5. Open the info window
+        // Parse nested properties and open the aircraft window
         let flightProps;
-
-        // Safely parse the *nested* JSON strings (position, aircraft)
         try {
             flightProps = {
                 ...props,
-                position: props.position ? JSON.parse(props.position) : null,
-                aircraft: props.aircraft ? JSON.parse(props.aircraft) : null
+                position: typeof props.position === 'string' ? JSON.parse(props.position) : props.position,
+                aircraft: typeof props.aircraft === 'string' ? JSON.parse(props.aircraft) : props.aircraft
             };
-        } catch (parseError) {
-            console.error('onSearchResultClick: Failed to parse *nested* flight properties:', parseError, props);
-            flightProps = { ...props }; // Fallback
+        } catch (err) {
+            console.error('onSearchResultClick: Nested property parse failed:', err);
+            flightProps = { ...props };
         }
         
-        // Check if parsing failed fatally
-        if (!flightProps || !flightProps.position) {
-            console.error('onSearchResultClick: Aborting, flight has no valid position data after parsing.');
-            return;
-        }
+        if (!flightProps || !flightProps.position) return;
         
         fetch('https://site--acars-backend--6dmjph8ltlhv.code.run/if-sessions')
             .then(res => res.json())
             .then(data => {
-                // [UPDATED] Use helper
                 const sessionId = getCurrentSessionId(data);
                 if (sessionId) {
                     handleAircraftClick(flightProps, sessionId);
                 }
             });
     }
+
+    // CRITICAL: Make function globally available to landingUI.js
+    window.onSearchResultClick = onSearchResultClick;
 
 /**
  * --- [NEW FUNCTION] ---
@@ -3971,61 +4548,185 @@ async function toggleSigmetLayer(show) {
         if (sectorOpsMap.getLayer(LINE_LAYER_ID)) sectorOpsMap.setLayoutProperty(LINE_LAYER_ID, 'visibility', vis);
     }
 }
+
+// Add this inside the document.addEventListener('DOMContentLoaded', async () => { ... }) block
+window.addEventListener('serverChange', (e) => {
+    const serverMapping = {
+        'Expert': 'Expert Server',
+        'Training': 'Training Server',
+        'Casual': 'Casual Server'
+    };
+    const fullServerName = serverMapping[e.detail.server] || e.detail.server;
+    
+    // Call the existing switchServer function defined in flight.js
+    if (typeof switchServer === 'function') {
+        switchServer(fullServerName);
+    }
+});
 /**
-     * --- [NEW] Applies all active map filters.
-     * This function calls the specific sub-functions to update
-     * aircraft layers and airport markers based on the mapFilters state.
-     */
-    function updateMapFilters() {
-        if (!sectorOpsMap) return;
+ * --- [FIXED] Applies all active map filters and visual settings instantly. ---
+ */
+function updateMapFilters() {
+    if (!sectorOpsMap) return;
 
-        // 1. Update Aircraft Filter (using Mapbox setFilter)
-        updateAircraftLayerFilter();
-
-        // 2. Update Aircraft Label Filter
-        updateAircraftLabelVisibility();
-
-        // 3. Update Airport Filter (by re-rendering markers)
-        renderAirportMarkers();
-        
-        // 4. Update Toolbar Button States (Weather + Filters)
-        updateToolbarButtonStates();
+    // 1. Handle Map Projection (Globe vs Flat)
+    const currentProjection = sectorOpsMap.getProjection().name;
+    const targetProjection = mapFilters.useFlatMap ? 'mercator' : 'globe';
+    if (currentProjection !== targetProjection) {
+        sectorOpsMap.setProjection(targetProjection);
     }
 
-    /**
-     * --- [MODIFIED] Builds and applies a Mapbox filter expression to the live aircraft layer.
-     * This function now ONLY applies the filter toggles (mapFilters state).
-     * The search bar logic has been removed and moved to its own handler.
-     */
-    function updateAircraftLayerFilter() {
-        if (!sectorOpsMap || !sectorOpsMap.getLayer('sector-ops-live-flights-layer')) return;
+    // 2. Handle Map Style Changes (Dark/Light/Satellite)
+    const styleUrls = {
+        'dark': 'mapbox://styles/mapbox/dark-v11',
+        'light': 'mapbox://styles/servernoob/cmg3wq7an002p01s17kbx7lqk',
+        'satellite': 'mapbox://styles/mapbox/satellite-streets-v12'
+    };
+    const targetStyle = styleUrls[mapFilters.mapStyle || 'dark'];
 
-        let filter = ['all']; // Start with a base 'all' filter
-
-        // --- 1. Apply Toggle Filters (from mapFilters state) ---
-        if (mapFilters.hideAllAircraft) {
-            // Use a filter that matches nothing
-            filter = ['==', 'flightId', '']; 
-            
-            // Apply the filter and exit early
-            sectorOpsMap.setFilter('sector-ops-live-flights-layer', filter);
-            return; 
-
-        } else if (mapFilters.showStaffOnly) {
-            // Show only features where isStaff is true
-            filter.push(['==', 'isStaff', true]);
-        } else if (mapFilters.showVaOnly) {
-            // Show only features where isVAMember is true
-            filter.push(['==', 'isVAMember', true]);
-        }
-        
-        // --- 2. [REMOVED] ---
-        // The entire "Apply Search Filter" block has been deleted.
-        // This function no longer reads from the search input.
-
-        // --- 3. Apply the combined filter to the map ---
-        sectorOpsMap.setFilter('sector-ops-live-flights-layer', filter);
+    if (currentFlightInWindow && liveTrailCache.has(currentFlightInWindow)) {
+        FlownPath3D.updatePath(
+            sectorOpsMap, 
+            currentFlightInWindow, 
+            liveTrailCache.get(currentFlightInWindow), 
+            mapFilters.show3DPath // Pass the current setting state
+        );
     }
+    
+    if (currentMapStyle !== targetStyle) {
+        currentMapStyle = targetStyle;
+        sectorOpsMap.setStyle(targetStyle);
+    }
+
+    if (window.globalNatTracks) {
+        window.globalNatTracks.setOptions({
+            showTracks: mapFilters.showNatTracks,
+            showLabels: mapFilters.showNatLabels
+        });
+    }
+
+    // 3. Apply Aircraft Icon Visuals (Color & Size)
+    if (sectorOpsMap.getLayer('sector-ops-live-flights-layer')) {
+        // Update Color
+        sectorOpsMap.setLayoutProperty(
+            'sector-ops-live-flights-layer', 
+            'icon-image', 
+            getIconImageExpression(mapFilters.iconColorMode)
+        );
+        const iconSize = parseFloat(mapFilters.planeIconSize) || 0.05;
+        sectorOpsMap.setLayoutProperty(
+            'sector-ops-live-flights-layer', 
+            'icon-size',
+            iconSize
+        );
+    }
+
+    // 4. Existing Logic
+    GroupFlightManager.toggle(mapFilters.showGroupFlights);
+    GroupFlightManager.update(currentMapFeatures);
+
+    updateAircraftLayerFilter();
+    updateAircraftLabelVisibility();
+    renderAirportMarkers();
+    updateToolbarButtonStates();
+}
+
+function updateAircraftLayerFilter() {
+    if (!sectorOpsMap || !sectorOpsMap.getLayer('sector-ops-live-flights-layer')) return;
+
+    let filter = ['all']; 
+
+    // 1. Global Toggles (Existing)
+    if (mapFilters.hideAllAircraft) {
+        sectorOpsMap.setFilter('sector-ops-live-flights-layer', ['==', 'flightId', '']);
+        return;
+    }
+    if (mapFilters.showStaffOnly) filter.push(['==', 'isStaff', true]);
+    if (mapFilters.showVaOnly) filter.push(['==', 'isVAMember', true]);
+
+    // 2. Tactical Filters (Injected from landingUI.js)
+    const tactical = mapFilters.tactical || {};
+
+    // --- Intelligent Aircraft Type Matching ---
+    // Matches if user types "A38" and the aircraft is "Airbus A380-800"
+    if (tactical.type && tactical.type.trim() !== '') {
+        filter.push(['in', tactical.type.toUpperCase(), ['upcase', ['get', 'aircraftName']]]);
+    }
+
+
+    // --- Intelligent Livery Matching ---
+    // Matches if user types "Delta" and livery is "Delta Air Lines"
+    if (tactical.livery && tactical.livery.trim() !== '') {
+        filter.push(['in', tactical.livery.toUpperCase(), ['upcase', ['get', 'liveryName']]]);
+    }
+
+    // --- Airline Code Matching ---
+    // Matches the start of the callsign (e.g., "DAL" matches "DAL123")
+    if (tactical.airline && tactical.airline.trim() !== '') {
+        const code = tactical.airline.toUpperCase();
+        filter.push(['==', ['slice', ['upcase', ['get', 'callsign']], 0, code.length], code]);
+    }
+
+    // --- Category Filtering (Using your existing icon/category system) ---
+    if (tactical.category) {
+        const catMap = { 
+            'Heavy': 'jumbo', // Maps UI "Heavy" to your 'jumbo' logic (A380/747)
+            'Widebody': 'widebody', 
+            'Narrowbody': 'narrowbody', 
+            'GA': 'cessna' 
+        };
+        const internalCat = catMap[tactical.category] || tactical.category.toLowerCase();
+        filter.push(['==', ['get', 'category'], internalCat]);
+    }
+
+    if (tactical.phase) {
+        filter.push(['==', ['get', 'phase'], tactical.phase]);
+    }
+
+    // Altitude Range (Min/Max)
+    if (tactical.altitude) {
+        if (tactical.altitude.min !== '') filter.push(['>=', ['get', 'altitude'], parseFloat(tactical.altitude.min)]);
+        if (tactical.altitude.max !== '') filter.push(['<=', ['get', 'altitude'], parseFloat(tactical.altitude.max)]);
+    }
+
+    // Speed Range (Min/Max)
+    if (tactical.speed) {
+        if (tactical.speed.min !== '') filter.push(['>=', ['get', 'speed'], parseFloat(tactical.speed.min)]);
+        if (tactical.speed.max !== '') filter.push(['<=', ['get', 'speed'], parseFloat(tactical.speed.max)]);
+    }
+
+    // Callsign (Partial Text Search - Case Insensitive)
+    if (tactical.callsign) {
+        filter.push(['in', tactical.callsign.toUpperCase(), ['upcase', ['get', 'callsign']]]);
+    }
+
+    // 3. Quick Search Blade
+    if (mapFilters.quickSearch) {
+        filter.push(['in', mapFilters.quickSearch.toUpperCase(), ['upcase', ['get', 'callsign']]]);
+    }
+
+    if (tactical.country && tactical.country !== 'All Countries') {
+    // Extract prefix from UI string "United States (N)" -> "N"
+    const prefix = tactical.country.match(/\((.*?)\)/)[1];
+    
+    // FIX: Prioritize the community 'tailNumber' over the system 'registration'
+    filter.push([
+        '==', 
+        ['slice', ['coalesce', ['get', 'tailNumber'], ['get', 'registration'], ''], 0, prefix.length], 
+        prefix
+    ]);
+}
+
+    // Existing Filters (Departure/Arrival/Phase/etc.)
+    if (tactical.departureIcao) filter.push(['==', ['upcase', ['get', 'departureIcao']], tactical.departureIcao.toUpperCase()]);
+    if (tactical.arrivalIcao) filter.push(['==', ['upcase', ['get', 'arrivalIcao']], tactical.arrivalIcao.toUpperCase()]);
+    if (tactical.phase) filter.push(['==', ['get', 'phase'], tactical.phase]);
+    
+    // Altitude and Speed Range logic...
+    // [Keep your existing range check logic here]
+
+    sectorOpsMap.setFilter('sector-ops-live-flights-layer', filter);
+}
 
     /**
      * --- [RENAMED & MODIFIED] Updates the main toolbar buttons to show if any layers are active.
@@ -4471,6 +5172,7 @@ function unwrapLineCoordinates(coords) {
     return newCoords;
 }
 
+
     /**
  * Calculates True Airspeed (TAS) in knots based on Pressure Altitude and OAT.
  * Uses the approximate TAS formula derived from the speed of sound ratio.
@@ -4713,6 +5415,11 @@ function handleSocketFlightUpdate(data) {
             verticalSpeed: flight.position.vs_fpm || 0,
             position: JSON.stringify(flight.position),
             aircraft: JSON.stringify(aircraftData),
+            aircraftName: acName, // ADD THIS: For direct filtering
+            liveryName: livName,   // ADD THIS: For direct filtering
+            registration: aircraftData?.registration || '',
+            arrivalIcao: flight.arrivalIcao || null,   // Map new backend field
+            departureIcao: flight.departureIcao || null, // Map new backend field
             userId: flight.userId,
             category: getAircraftCategory(acName),
             heading: flight.position.heading_deg, 
@@ -4722,6 +5429,13 @@ function handleSocketFlightUpdate(data) {
             pilotState: flight.pilotState,
             last_update: newTimestampRaw, // Store the specific time used for the check
             // Preserve existing cached data (Images + TAIL NUMBER)
+            trafficType: (() => {
+        if (isTrafficHighlightActive && window.currentAirportTraffic) {
+            if (window.currentAirportTraffic.in.includes(flightId)) return 'inbound';
+            if (window.currentAirportTraffic.out.includes(flightId)) return 'outbound';
+        }
+        return 'none';
+    })(),
             communityImageUrl: existingProps.communityImageUrl || null, 
             contributorName: existingProps.contributorName || null,
             tailNumber: existingProps.tailNumber || null 
@@ -4799,6 +5513,8 @@ function handleSocketFlightUpdate(data) {
             const localTrail = liveTrailCache.get(flightId);
             const fullFlightProps = { ...newProperties, position: flight.position, aircraft: aircraftData };
 
+            FlownPath3D.updatePath(sectorOpsMap, flightId, localTrail, mapFilters.show3DPath);
+
             if (localTrail) {
                 const newRoutePoint = {
                     latitude: flight.position.lat,
@@ -4864,7 +5580,11 @@ function handleSocketFlightUpdate(data) {
             if (cachedFlightDataForStatsView.plan && mapFilters.planDisplayMode !== 'none' && isMapReady) {
                 updateFlightPlanLayer(flightId, cachedFlightDataForStatsView.plan, flight.position);
             }
-        }
+
+            if (document.getElementById('trip-card-takeover')?.classList.contains('active')) {
+        updateTripCardRealtime();
+    }
+}
 
         // Only update the Map Animation/Icons if the map is actually ready.
         if (isMapReady) {
@@ -4880,6 +5600,14 @@ function handleSocketFlightUpdate(data) {
             }
             delete currentMapFeatures[flightId]; 
         }
+    }
+    const landingVisible = localStorage.getItem('landingUI_visible') !== 'false';
+    if (landingVisible && !currentFlightInWindow && !currentAirportInWindow) {
+        LandingUI.update(true, {
+            server: currentServerName,
+            flights: Object.keys(currentMapFeatures).length,
+            atc: activeAtcFacilities.length
+        });
     }
 }
 
@@ -4920,23 +5648,20 @@ function initializeSectorOpsSocket() {
     // Listen for the broadcasted flight data
     sectorOpsSocket.on('all_flights_update', handleSocketFlightUpdate);
 
-    // --- [NEW FIX] Listen for ATC/NOTAM updates (Secondary Data) ---
-    // This catches the immediate packet sent after joining the room
-    sectorOpsSocket.on('secondary_data_update', (data) => {
-        // Validation: Ensure packet belongs to current server
-        if (!data || !data.server || data.server.toLowerCase() !== currentServerName.toLowerCase()) {
-            return;
-        }
+// Inside initializeSectorOpsSocket() in flight.js
+sectorOpsSocket.on('secondary_data_update', (data) => {
+    if (!data || data.server.toLowerCase() !== currentServerName.toLowerCase()) return;
 
-        console.log(`Socket: Received secondary update (ATC/NOTAMs) for ${data.server}`);
+    activeAtcFacilities = data.atc || [];
+    
+    // Filter for Center controllers (Type 6)
+    const centerControllers = activeAtcFacilities.filter(f => f.type === 6);
 
-        // Update State
-        activeAtcFacilities = (data.atc && Array.isArray(data.atc)) ? data.atc : [];
-        activeNotams = (data.notams && Array.isArray(data.notams)) ? data.notams : [];
-
-        // Redraw Map Markers Immediately
-        renderAirportMarkers();
-    });
+    // This now uses coordinates to find the right FIR polygon on the map
+    updateActiveSectors(sectorOpsMap, 'fir-fills', centerControllers);
+    
+    renderAirportMarkers();
+});
 
     sectorOpsSocket.on('disconnect', (reason) => {
         console.warn(`Socket: Disconnected. Reason: ${reason}`);
@@ -5750,13 +6475,28 @@ function updatePfdDisplay(pfdData) {
         if (headingTapeGroup) headingTapeGroup.setAttribute('transform', 'translate(0, 0)');
     }
 
+// Add this helper to flight.js
+async function fetchAirportData(icao) {
+    try {
+        const response = await fetch(`${API_BASE_URL}/api/airports/${icao}`);
+        if (!response.ok) throw new Error('Airport data not found');
+        return await response.ok ? await response.json() : null;
+    } catch (error) {
+        console.error("Error fetching dynamic airport image:", error);
+        return null;
+    }
+}
+
 
 
 async function createAirportInfoWindowHTML(icao) {
     // 1. Get Static Data
     const staticData = airportsData[icao] || {};
-    
-    // 2. Fetch Live Airport Details (Jetbridges, etc.)
+    const airportMetadata = await fetchAirportData(icao);
+    // Use the dynamic image if available, otherwise fall back to a default
+    const dynamicImageUrl = airportMetadata?.imageUrl || 'Images/default_airport.webp';
+
+    // 2. Fetch Live Airport Details (Jetbridges, city, state, etc.)
     let liveData = null;
     try {
         const response = await fetch(`${ACARS_SOCKET_URL}/api/airport/${icao}`);
@@ -5769,23 +6509,20 @@ async function createAirportInfoWindowHTML(icao) {
     // 3. Fetch Live Traffic & ATIS
     let inbounds = [];
     let outbounds = [];
-    let rawAtisText = null; // Store real ATIS here
+    let rawAtisText = null; 
     let trafficFetchSuccess = false;
 
     try {
-        // A. Get Session ID
         const sessionsRes = await fetch(`${ACARS_SOCKET_URL}/if-sessions`);
         const sessionsData = await sessionsRes.json();
         const sessionId = getCurrentSessionId(sessionsData);
 
         if (sessionId) {
-            // B. Parallel Fetch: Status (Traffic) AND ATIS
             const [statusRes, atisRes] = await Promise.all([
                 fetch(`${ACARS_SOCKET_URL}/api/live/airport/${sessionId}/${icao}/status`),
                 fetch(`${ACARS_SOCKET_URL}/api/live/airport/${sessionId}/${icao}/atis`)
             ]);
 
-            // Process Traffic
             if (statusRes.ok) {
                 const statusJson = await statusRes.json();
                 if (statusJson.ok && statusJson.status) {
@@ -5794,18 +6531,18 @@ async function createAirportInfoWindowHTML(icao) {
                     trafficFetchSuccess = true;
                 }
             }
-
-            // Process ATIS
             if (atisRes.ok) {
                 const atisJson = await atisRes.json();
-                if (atisJson.ok && atisJson.atis) {
-                    rawAtisText = atisJson.atis; // This is the raw string from IF API
-                }
+                if (atisJson.ok && atisJson.atis) rawAtisText = atisJson.atis;
             }
         }
-    } catch (e) { console.error("Error fetching live stats/atis:", e); }
+    } catch (e) { console.error("Error fetching live stats:", e); }
 
-    // 4. Merge Basic Data
+    // Update Global Traffic State for Highlighting
+    window.currentAirportTraffic = { in: inbounds, out: outbounds };
+    if (isTrafficHighlightActive) applyTrafficHighlighting();
+
+    // 4. Merge Data
     const airportName = liveData?.name || staticData.name || 'Unknown Airport';
     const city = liveData?.city || staticData.city;
     const state = liveData?.state || staticData.state;
@@ -5815,115 +6552,67 @@ async function createAirportInfoWindowHTML(icao) {
     const elevation = liveData?.elevation ?? staticData.elevation_ft ?? 0;
     const coords = { lat: liveData?.latitude ?? staticData.lat, lon: liveData?.longitude ?? staticData.lon };
     const badge3DHtml = liveData?.has3dBuildings ? `<span style="background: linear-gradient(135deg, #e2e8f0 0%, #94a3b8 100%); color: #0f172a; font-size: 0.65rem; font-weight: 800; padding: 2px 6px; border-radius: 4px; margin-left: 10px;">3D</span>` : '';
-
-    // Filter Derived Data
-    const atcForAirport = activeAtcFacilities.filter(f => f.airportName === icao);
-    const notamsForAirport = activeNotams.filter(n => n.airportIcao === icao);
     const airportRunways = runwaysData[icao] || [];
 
-    // --- LOGIC: ATIS / WEATHER MODULE ---
+    // --- Weather & ATIS Logic ---
     let weatherModuleHtml = '';
-    let atisModuleHtml = ''; 
+    let atisModuleHtml = '';
     let metarString = '';
     
     try {
-        // Fetch Weather
         if (window.WeatherService) {
             const w = await window.WeatherService.fetchAndParseMetar(icao);
-            let flightCategory = 'VFR'; 
-            let catColor = '#4ade80';
+            let flightCategory = 'VFR', catColor = '#4ade80';
             if (w.raw.includes('LIFR')) { flightCategory = 'LIFR'; catColor = '#c084fc'; }
             else if (w.raw.includes('IFR') || w.raw.includes('VV')) { flightCategory = 'IFR'; catColor = '#f87171'; }
             else if (w.raw.includes('MVFR')) { flightCategory = 'MVFR'; catColor = '#60a5fa'; }
             metarString = w.raw;
 
-            // --- BUILD ATIS DISPLAY ---
             if (rawAtisText) {
-                // 1. REAL ATIS IS ONLINE
-                
-                // Extract Info Letter (e.g., "Airport Info A" or "Information A")
-                const infoMatch = rawAtisText.match(/Info(?:rmation)?\s+([A-Z])/i);
-                const infoLetter = infoMatch ? `INFO ${infoMatch[1].toUpperCase()}` : 'D-ATIS';
-                
-                // Extract Time (e.g., "2000Z")
-                const timeMatch = rawAtisText.match(/(\d{4}Z)/);
-                const atisTime = timeMatch ? timeMatch[1] : 'LIVE';
-
-                atisModuleHtml = `
-                <div class="apt-mini-module" style="border-color: rgba(251, 191, 36, 0.3);">
-                    <div class="apt-mini-header" style="background: rgba(251, 191, 36, 0.1);">
-                        <span style="color: #fbbf24;"><i class="fa-solid fa-tower-broadcast"></i> ACTIVE ATIS</span>
-                        <span style="color: #fbbf24; font-weight:700;">ONLINE</span>
-                    </div>
-                    <div class="apt-mini-body">
-                        <div class="atis-status-row">
-                            <span class="atis-code-large">${infoLetter}</span>
-                            <span class="atis-timestamp"><i class="fa-regular fa-clock"></i> ${atisTime}</span>
-                        </div>
-                        <div class="terminal-text-box">${rawAtisText}</div>
-                    </div>
-                </div>`;
-
-            } else {
-                // 2. ATIS IS OFFLINE -> Use Calculation Fallback
-                // We assume active runways based on wind recommendations
-                const recs = getRunwayRecommendations(airportRunways, w.wind);
-                
-                // Take top 2 runways
-                const activeRunways = recs.slice(0, 2).map(r => r.ident); 
-                const activeArrHtml = activeRunways.length ? activeRunways.map(r => `<span class="atis-pill pill-arr">${r}</span>`).join('') : '<span style="color:#666;">---</span>';
-                const activeDepHtml = activeRunways.length ? activeRunways.map(r => `<span class="atis-pill pill-dep">${r}</span>`).join('') : '<span style="color:#666;">---</span>';
-
+                const atis = parseAtis(rawAtisText);
+                const infoPill = `<span style="color: #fbbf24; border: 1px solid #fbbf24; padding: 0 4px; border-radius: 3px; font-size: 0.6rem;">INFO ${atis.info}</span>`;
+                const remarksHtml = atis.remarks ? `<div class="apt-mini-footer" title="${atis.remarks}"><i class="fa-solid fa-circle-info"></i> ${atis.remarks}</div>` : '';
                 atisModuleHtml = `
                 <div class="apt-mini-module">
-                    <div class="apt-mini-header">
-                        <span><i class="fa-solid fa-calculator"></i> EST. RUNWAYS</span>
-                        <span style="color: #94a3b8; border: 1px solid #475569; padding: 0 4px; border-radius: 3px; font-size: 0.6rem;">NO ATIS</span>
+                    <div class="apt-mini-header"><span><i class="fa-solid fa-tower-broadcast"></i> ATIS</span>${infoPill}</div>
+                    <div class="apt-mini-body" style="padding-bottom: ${atis.remarks ? '0' : '10px'};">
+                        <div class="stat-grid-compact">
+                            <div class="compact-stat-box"><span class="compact-label">ARR RWY</span><span class="compact-value" style="color: #4ade80;">${atis.landing}</span></div>
+                            <div class="compact-stat-box"><span class="compact-label">DEP RWY</span><span class="compact-value" style="color: #38bdf8;">${atis.departing}</span></div>
+                            <div class="compact-stat-box"><span class="compact-label">APPR</span><span class="compact-value">${atis.approach}</span></div>
+                            <div class="compact-stat-box"><span class="compact-label">TIME</span><span class="compact-value">${atis.time}</span></div>
+                        </div>
                     </div>
+                    ${remarksHtml}
+                </div>`;
+            } else {
+                const recs = getRunwayRecommendations(airportRunways, w.wind);
+                const activeRunways = recs.slice(0, 2).map(r => r.ident).join('/');
+                atisModuleHtml = `
+                <div class="apt-mini-module">
+                    <div class="apt-mini-header"><span><i class="fa-solid fa-calculator"></i> EST. OPS</span><span style="color: #94a3b8; border: 1px solid #475569; padding: 0 4px; border-radius: 3px; font-size: 0.6rem;">NO ATIS</span></div>
                     <div class="apt-mini-body">
-                        <div style="display: flex; flex-direction: column; gap: 6px;">
-                            <div class="atis-runway-row">
-                                <span class="atis-label">ARR</span>
-                                <div style="display:flex;">${activeArrHtml}</div>
-                            </div>
-                            <div class="atis-runway-row">
-                                <span class="atis-label">DEP</span>
-                                <div style="display:flex;">${activeDepHtml}</div>
-                            </div>
-                            <div style="font-size: 0.65rem; color: #64748b; text-align: center; margin-top: 4px;">
-                                <i class="fa-solid fa-wind"></i> Calculated based on wind
-                            </div>
+                        <div class="stat-grid-compact">
+                            <div class="compact-stat-box"><span class="compact-label">EST ARR</span><span class="compact-value" style="color: #4ade80;">${activeRunways || '---'}</span></div>
+                            <div class="compact-stat-box"><span class="compact-label">EST DEP</span><span class="compact-value" style="color: #38bdf8;">${activeRunways || '---'}</span></div>
+                            <div class="compact-stat-box"><span class="compact-label">WIND</span><span class="compact-value">${w.wind}</span></div>
+                            <div class="compact-stat-box"><span class="compact-label">STATUS</span><span class="compact-value">CALC</span></div>
                         </div>
                     </div>
                 </div>`;
             }
-
-            // Weather Module (Standard)
             weatherModuleHtml = `
             <div class="apt-mini-module">
-                <div class="apt-mini-header">
-                    <span><i class="fa-solid fa-cloud-sun"></i> METAR</span>
-                    <span style="color: ${catColor}; border: 1px solid ${catColor}; padding: 0 4px; border-radius: 3px; font-size: 0.6rem;">${flightCategory}</span>
-                </div>
-                <div class="apt-mini-body">
-                    <div class="stat-grid-compact">
-                        <div class="compact-stat-box"><span class="compact-label">WIND</span><span class="compact-value" style="color: #38bdf8;">${w.wind}</span></div>
-                        <div class="compact-stat-box"><span class="compact-label">VIS</span><span class="compact-value">${w.visibility || '10KM'}</span></div>
-                        <div class="compact-stat-box"><span class="compact-label">TEMP</span><span class="compact-value" style="color: #fbbf24;">${w.temp}</span></div>
-                        <div class="compact-stat-box"><span class="compact-label">QNH</span><span class="compact-value">${w.qnh || '1013'}</span></div>
-                    </div>
-                </div>
+                <div class="apt-mini-header"><span><i class="fa-solid fa-cloud-sun"></i> METAR</span><span style="color: ${catColor}; border: 1px solid ${catColor}; padding: 0 4px; border-radius: 3px; font-size: 0.6rem;">${flightCategory}</span></div>
+                <div class="apt-mini-body"><div class="stat-grid-compact">
+                    <div class="compact-stat-box"><span class="compact-label">WIND</span><span class="compact-value" style="color: #38bdf8;">${w.wind}</span></div>
+                    <div class="compact-stat-box"><span class="compact-label">VIS</span><span class="compact-value">${w.visibility || '10KM'}</span></div>
+                    <div class="compact-stat-box"><span class="compact-label">TEMP</span><span class="compact-value" style="color: #fbbf24;">${w.temp}</span></div>
+                    <div class="compact-stat-box"><span class="compact-label">QNH</span><span class="compact-value">${w.qnh || '1013'}</span></div>
+                </div></div>
             </div>`;
-
-        } else {
-            // Fallback if WeatherService is down
-            weatherModuleHtml = `<div class="apt-mini-module"><div class="apt-mini-body"><p class="muted-text">Weather Unavailable</p></div></div>`;
-            atisModuleHtml = `<div class="apt-mini-module"><div class="apt-mini-body"><p class="muted-text">Data Unavailable</p></div></div>`;
         }
-    } catch (err) { 
-        weatherModuleHtml = `<div class="apt-mini-module"><div class="apt-mini-body"><p class="muted-text">Offline</p></div></div>`;
-        atisModuleHtml = `<div class="apt-mini-module"><div class="apt-mini-body"><p class="muted-text">Offline</p></div></div>`;
-    }
+    } catch (err) { weatherModuleHtml = `<div class="apt-mini-module"><div class="apt-mini-body"><p class="muted-text">Offline</p></div></div>`; }
 
     // --- Feature Strip ---
     let featureStripHtml = '';
@@ -5936,71 +6625,150 @@ async function createAirportInfoWindowHTML(icao) {
         const aptClass = liveData.class ? `Class ${liveData.class}` : 'N/A';
         const timezone = liveData.timezone ? liveData.timezone.split(' ')[0] : 'UTC';
         featureStripHtml = `
-            <div class="apt-quick-info-strip">
-                <div class="apt-feature-pill"><i class="fa-solid fa-earth-americas"></i> ${timezone}</div>
-                <div class="apt-feature-pill"><i class="fa-solid fa-ranking-star"></i> ${aptClass}</div>
-                ${features.map(f => liveData[f.key] ? `<div class="apt-feature-pill" style="color: #cbd5e1; border-color: rgba(74, 222, 128, 0.3); background: rgba(74, 222, 128, 0.05);"><i class="fa-solid ${f.icon}" style="color: #4ade80;"></i> ${f.label}</div>` : '').join('')}
-            </div>`;
+        <div class="apt-quick-info-strip">
+            <div class="apt-feature-pill"><i class="fa-solid fa-earth-americas"></i> ${timezone}</div>
+            <div class="apt-feature-pill"><i class="fa-solid fa-ranking-star"></i> ${aptClass}</div>
+            ${features.map(f => liveData[f.key] ? `<div class="apt-feature-pill" style="color: #cbd5e1; border-color: rgba(74, 222, 128, 0.3); background: rgba(74, 222, 128, 0.05);"><i class="fa-solid ${f.icon}" style="color: #4ade80;"></i> ${f.label}</div>` : '').join('')}
+        </div>`;
     }
 
-    // --- Tab Contents (Traffic, ATC, NOTAMs) ---
-    // (Kept compact for brevity, logic matches original)
+    // --- Traffic Visualizer Header & Legend ---
+    const visualizerControlsHtml = `
+        <div style="display: flex; align-items: center; justify-content: space-between; padding: 10px 16px; background: rgba(0,0,0,0.2); border-bottom: 1px solid var(--border-glass);">
+            <div style="display: flex; flex-direction: column; gap: 2px;">
+                <span style="font-size: 0.75rem; font-weight: 700; color: #fff;">TRAFFIC VISUALIZER</span>
+                <span style="font-size: 0.6rem; color: #94a3b8; text-transform: uppercase;">Colorize Radar Map</span>
+            </div>
+            <label class="toggle-switch">
+                <input type="checkbox" id="traffic-highlight-toggle" ${isTrafficHighlightActive ? 'checked' : ''}>
+                <span class="toggle-slider"></span>
+            </label>
+        </div>
+        <div id="traffic-visualizer-legend" style="display: flex; gap: 12px; padding: 8px 16px; background: rgba(255,255,255,0.02); font-size: 0.65rem; font-weight: 700; border-bottom: 1px solid var(--border-glass);">
+            </div>
+    `;
+
     const renderFlightCard = (fid, type) => {
         const f = currentMapFeatures[fid];
-        let cs = 'Unknown', usr = 'Pilot', ac = '---', al = 'UNKNOWN';
-        if (f && f.properties) {
-            const p = f.properties; cs = p.callsign||cs; usr = p.username||usr;
-            const acn = (typeof p.aircraft==='string'?JSON.parse(p.aircraft):p.aircraft)?.aircraftName||'';
-            ac = acn.split(' ')[0].substring(0,4).toUpperCase();
-            if(acn.includes('777')) ac='B777'; else if(acn.includes('320')) ac='A320';
-            al = extractAirlineCode(cs);
-        }
-        const color = type === 'in' ? '#4ade80' : '#38bdf8';
-        return `<div class="route-card" style="border-left: 3px solid ${color}; padding: 8px 12px;"><div class="route-info"><div class="route-callsign" style="font-size: 0.95rem;"><img src="Images/vas/${al}.png" style="height: 14px; width: auto; max-width: 30px;" onerror="this.style.display='none'"> ${cs}</div><div class="route-details" style="font-size: 0.7rem;"><span class="route-ac-badge" style="font-size: 0.65rem;">${ac}</span><span>${usr}</span></div></div><div style="font-size: 0.7rem; font-weight: bold; color: ${color};"><i class="fa-solid ${type==='in'?'fa-plane-arrival':'fa-plane-departure'}"></i></div></div>`;
+        if (!f || !f.properties) return '';
+
+        const p = f.properties;
+        const callsign = p.callsign || 'Unknown';
+        const pilot = p.username || 'Pilot';
+        
+        // Parse aircraft data
+        const acData = (typeof p.aircraft === 'string') ? JSON.parse(p.aircraft) : (p.aircraft || {});
+        const acName = acData.aircraftName || '---';
+        const shortAc = acName.split(' ')[0].toUpperCase();
+        
+        // Route Logic
+        const dep = p.departureIcao || '???';
+        const arr = p.arrivalIcao || '???';
+        
+        // Background Image & Logo
+        const imgUrl = p.communityImageUrl || 'Images/default_ac.png'; 
+        const al = extractAirlineCode(callsign);
+        const logoHtml = `<img src="Images/vas/${al}.png" style="height: 12px; width: auto; max-width: 30px; margin-right: 8px; filter: drop-shadow(0 2px 4px rgba(0,0,0,0.5));" onerror="this.style.display='none'">`;
+
+        return `
+            <div class="route-card-reborn" style="background-image: url('${imgUrl}')">
+                <div class="card-overlay"></div>
+                <div class="card-content">
+                    <div class="card-header-zone">
+                        <div class="callsign-meta">${logoHtml} ${callsign}</div>
+                        <div class="aircraft-meta">${shortAc}</div>
+                    </div>
+                    
+                    <div class="card-center-zone">
+                        <div class="route-display">
+                            <span class="icao-code">${dep}</span>
+                            <div class="route-path-arrow">
+                                <i class="fa-solid fa-chevron-right" style="opacity: 0.3;"></i>
+                            </div>
+                            <span class="icao-code destination-focus">${arr}</span>
+                        </div>
+                    </div>
+                    
+                    <div class="card-footer-zone">
+                        <div class="operated-by-meta">OPERATED BY ${pilot.toUpperCase()}</div>
+                        <div class="time-status-meta">ON TIME</div>
+                    </div>
+                </div>
+            </div>
+        `;
     };
 
-    let trafficHtml = (!trafficFetchSuccess) ? '<div style="padding: 20px; text-align: center; color: #64748b;">Data unavailable.</div>' :
-        (inbounds.length===0 && outbounds.length===0) ? '<div style="padding: 20px; text-align: center; color: #64748b;">No live traffic.</div>' :
-        `<div style="padding: 12px; display: flex; flex-direction: column; gap: 4px;">${inbounds.length>0 ? `<div style="margin-bottom:8px;"><div style="font-size:0.7rem;color:#94a3b8;font-weight:700;margin-bottom:4px;padding-left:4px;">INBOUND (${inbounds.length})</div>${inbounds.map(id=>renderFlightCard(id,'in')).join('')}</div>` : ''}${outbounds.length>0 ? `<div><div style="font-size:0.7rem;color:#94a3b8;font-weight:700;margin-bottom:4px;padding-left:4px;">OUTBOUND (${outbounds.length})</div>${outbounds.map(id=>renderFlightCard(id,'out')).join('')}</div>` : ''}</div>`;
+    // --- UPDATED TRAFFIC HTML WITH DROPDOWNS ---
+let trafficHtml = (!trafficFetchSuccess) 
+    ? '<div style="padding: 20px; text-align: center; color: #64748b;">Data unavailable.</div>' 
+    : (inbounds.length === 0 && outbounds.length === 0) 
+        ? '<div style="padding: 20px; text-align: center; color: #64748b;">No live traffic.</div>' 
+        : `
+<div style="padding: 12px; display: flex; flex-direction: column; gap: 4px;">
+    ${inbounds.length > 0 ? `
+        <details class="traffic-dropdown" open>
+            <summary class="traffic-dropdown-header">
+                <i class="fa-solid fa-plane-arrival" style="margin-right: 10px; color: #4ade80;"></i>
+                <span>Inbounds</span>
+                <span class="traffic-count-badge">${inbounds.length}</span>
+                <i class="fa-solid fa-chevron-down chevron"></i>
+            </summary>
+            <div class="traffic-dropdown-content">
+                ${inbounds.map(id => renderFlightCard(id, 'in')).join('')}
+            </div>
+        </details>
+    ` : ''}
 
-    let atcHtml = atcForAirport.length === 0 ? '<div style="padding: 20px; text-align: center; color: #64748b;">No active frequencies.</div>' :
-        `<div style="padding: 12px;">${atcForAirport.map(f => `<div class="atc-grid-card" style="padding: 8px;"><div style="display: flex; align-items: center; gap: 12px;"><span class="atc-type-badge ${f.type===1?'atc-type-twr':f.type===0?'atc-type-gnd':(f.type===4||f.type===5)?'atc-type-app':'atc-type-obs'}" style="width: 60px; font-size: 0.65rem;">${atcTypeToString(f.type)}</span><span class="atc-controller" style="font-size: 0.85rem;">${f.username||'Unknown'}</span></div><span class="atc-duration" style="font-size: 0.75rem;"><i class="fa-regular fa-clock"></i> ${formatAtcDuration(f.startTime)}</span></div>`).join('')}</div>`;
+    ${outbounds.length > 0 ? `
+        <details class="traffic-dropdown" ${inbounds.length === 0 ? 'open' : ''}>
+            <summary class="traffic-dropdown-header">
+                <i class="fa-solid fa-plane-departure" style="margin-right: 10px; color: #38bdf8;"></i>
+                <span>Outbounds</span>
+                <span class="traffic-count-badge">${outbounds.length}</span>
+                <i class="fa-solid fa-chevron-down chevron"></i>
+            </summary>
+            <div class="traffic-dropdown-content">
+                ${outbounds.map(id => renderFlightCard(id, 'out')).join('')}
+            </div>
+        </details>
+    ` : ''}
+</div>`;
 
-    let notamsHtml = notamsForAirport.length === 0 ? '<div style="padding: 20px; text-align: center; color: #64748b;">No active NOTAMs.</div>' :
-        `<div style="padding: 12px; display: flex; flex-direction: column; gap: 8px;">${notamsForAirport.map(n => `<div style="background: rgba(234, 179, 8, 0.1); border-left: 3px solid #eab308; padding: 8px; border-radius: 4px; color: #fef08a; font-family: monospace; font-size: 0.75rem;"><i class="fa-solid fa-triangle-exclamation"></i> ${n.message}</div>`).join('')}</div>`;
+    let atcHtml = activeAtcFacilities.filter(f => f.airportName === icao).length === 0 ? '<div style="padding: 20px; text-align: center; color: #64748b;">No active frequencies.</div>' : `<div style="padding: 12px;">${activeAtcFacilities.filter(f => f.airportName === icao).map(f => `<div class="atc-grid-card" style="padding: 8px;"><div style="display: flex; align-items: center; gap: 12px;"><span class="atc-type-badge ${f.type===1?'atc-type-twr':f.type===0?'atc-type-gnd':(f.type===4||f.type===5)?'atc-type-app':'atc-type-obs'}" style="width: 60px; font-size: 0.65rem;">${atcTypeToString(f.type)}</span><span class="atc-controller" style="font-size: 0.85rem;">${f.username||'Unknown'}</span></div><span class="atc-duration" style="font-size: 0.75rem;"><i class="fa-regular fa-clock"></i> ${formatAtcDuration(f.startTime)}</span></div>`).join('')}</div>`;
+    let notamsHtml = activeNotams.filter(n => n.airportIcao === icao).length === 0 ? '<div style="padding: 20px; text-align: center; color: #64748b;">No active NOTAMs.</div>' : `<div style="padding: 12px; display: flex; flex-direction: column; gap: 8px;">${activeNotams.filter(n => n.airportIcao === icao).map(n => `<div style="background: rgba(234, 179, 8, 0.1); border-left: 3px solid #eab308; padding: 8px; border-radius: 4px; color: #fef08a; font-family: monospace; font-size: 0.75rem;"><i class="fa-solid fa-triangle-exclamation"></i> ${n.message}</div>`).join('')}</div>`;
 
-    // --- Final Render ---
+    // Trigger Legend Update immediately after render
+    setTimeout(updateTrafficLegendUI, 0);
+
     return `
-        <div class="airport-hero">
-            <div class="hero-actions">
-                <button id="airport-window-hide-btn" class="hero-btn" title="Hide Window"><i class="fa-solid fa-compress"></i></button>
+        <div class="airport-hero" style="background-image: url('${dynamicImageUrl}')">
+        <div class="airport-hero-overlay"></div>
+        <div class="hero-actions">
                 <button id="airport-window-close-btn" class="hero-btn" title="Close Window"><i class="fa-solid fa-xmark"></i></button>
             </div>
             <div class="apt-ident-group">
                 <div class="apt-icao">${icao}${flagSrc ? `<img src="${flagSrc}" style="height: 24px; border-radius: 2px; margin-left: 10px;">` : ''}${badge3DHtml}</div>
                 <div class="apt-name">${airportName}</div>
-                <div style="font-size: 0.8rem; color: #64748b; margin-top: 2px;">${cityState}</div>
+                <div style="font-size: 0.8rem; color: #fff; margin-top: 2px; text-shadow: 0 1px 3px rgba(0,0,0,0.8);">${cityState}</div>
                 <div style="margin-top: 8px; display: flex; gap: 8px;">
-                     <span class="apt-meta-badge"><i class="fa-solid fa-location-crosshairs"></i> ${coords.lat?.toFixed(3)}, ${coords.lon?.toFixed(3)}</span>
-                     <span class="apt-meta-badge"><i class="fa-solid fa-arrows-up-down"></i> ${elevation} ft</span>
+                    <span class="apt-meta-badge"><i class="fa-solid fa-location-crosshairs"></i> ${coords.lat?.toFixed(3)}, ${coords.lon?.toFixed(3)}</span>
+                    <span class="apt-meta-badge"><i class="fa-solid fa-arrows-up-down"></i> ${elevation} ft</span>
                 </div>
             </div>
-            <i class="fa-solid fa-plane-departure" style="font-size: 6rem; color: rgba(255,255,255,0.03); position: absolute; right: -10px; bottom: -20px; transform: rotate(-15deg);"></i>
         </div>
         ${featureStripHtml}
-        <div style="flex-grow: 1; overflow-y: auto; padding-top: 12px;">
-            <div class="apt-dashboard-grid">
-                ${weatherModuleHtml}
-                ${atisModuleHtml}
-            </div>
-            ${metarString ? `<div class="metar-strip">${metarString}</div>` : ''}
-            <div class="tech-module" style="min-height: 300px; display: flex; flex-direction: column; margin: 16px 16px 16px 16px; border: 1px solid rgba(255,255,255,0.05);">
+        <div style="flex-grow: 1; overflow-y: auto;">
+            <div class="apt-dashboard-grid">${weatherModuleHtml}${atisModuleHtml}</div>
+            <div class="tech-module" style="margin: 16px; border: 1px solid rgba(255,255,255,0.05);">
                 <div class="apt-tabs-header">
                     <button class="apt-tab-btn active" data-target="apt-traffic"><i class="fa-solid fa-plane-circle-check"></i> TRAFFIC</button>
                     <button class="apt-tab-btn" data-target="apt-atc"><i class="fa-solid fa-headset"></i> ATC</button>
                     <button class="apt-tab-btn" data-target="apt-notams"><i class="fa-solid fa-triangle-exclamation"></i> NOTAMs</button>
                 </div>
-                <div id="apt-traffic" class="apt-tab-content active" style="padding: 0;">${trafficHtml}</div>
+                <div id="apt-traffic" class="apt-tab-content active" style="padding: 0;">
+                    ${visualizerControlsHtml}
+                    ${trafficHtml}
+                </div>
                 <div id="apt-atc" class="apt-tab-content" style="padding: 0;">${atcHtml}</div>
                 <div id="apt-notams" class="apt-tab-content" style="padding: 0;">${notamsHtml}</div>
             </div>
@@ -6081,23 +6849,37 @@ async function createAirportInfoWindowHTML(icao) {
 
  
     /**
-     * Initializes the live operations map.
-     */
-    function initializeLiveMap() {
-        if (!MAPBOX_ACCESS_TOKEN) return;
-        if (document.getElementById('live-flights-map-container') && !liveFlightsMap) {
-            liveFlightsMap = new mapboxgl.Map({
-                container: 'live-flights-map-container',
-                style: 'mapbox://styles/mapbox/dark-v11',
-                center: [78.9629, 22.5937],
-                zoom: 4,
-                minZoom: 2
-            });
-            liveFlightsMap.on('load', startLiveLoop);
-        } else {
-            startLiveLoop();
-        }
+ * [UPDATED] Initializes the live flights map with synchronized performance and caching settings.
+ * Now matches the optimized configuration of the Sector Ops map.
+ */
+function initializeLiveMap() {
+    if (!MAPBOX_ACCESS_TOKEN) return;
+
+    // Check if the container exists and the map hasn't been initialized yet
+    if (document.getElementById('live-flights-map-container') && !liveFlightsMap) {
+        liveFlightsMap = new mapboxgl.Map({
+            container: 'live-flights-map-container',
+            style: currentMapStyle, // [SYNCED] Uses global style state
+            center: [78.9629, 22.5937],
+            zoom: 2,
+            minZoom: 0,
+            projection: 'globe',
+            // --- PERFORMANCE & CACHING CONFIG ---
+            fadeDuration: 0,            // Removes the "fade-in" tile flicker
+    maxTileCacheSize: 1000,     // Doubled cache size to keep tiles in memory longer
+    prefetchZoomDelta: 2,       // CRITICAL: Pre-loads tiles for smooth zooming
+    crossSourceCollisions: false, // Prevents planes from checking against map labels
+    trackResize: true,
+    performanceMetrics: false,
+            localIdeographFontFamily: "'Inter', 'sans-serif'",
+            preserveDrawingBuffer: true // Required for high-res captures
+        });
+
+        liveFlightsMap.on('load', startLiveLoop);
+    } else {
+        startLiveLoop();
     }
+}
 
     /**
      * Starts or restarts the live flight update interval.
@@ -6217,54 +6999,149 @@ async function updateLiveFlights() {
     }
 }
 
+/**
+ * --- [NEW] Applies traffic highlighting to map features ---
+ */
+function applyTrafficHighlighting() {
+    const { in: inbounds, out: outbounds } = window.currentAirportTraffic || { in: [], out: [] };
+    const inSet = new Set(inbounds);
+    const outSet = new Set(outbounds);
+
+    // Update feature properties in the cache
+    Object.values(currentMapFeatures).forEach(f => {
+        const fid = f.properties.flightId;
+        if (isTrafficHighlightActive) {
+            if (inSet.has(fid)) f.properties.trafficType = 'inbound';
+            else if (outSet.has(fid)) f.properties.trafficType = 'outbound';
+            else f.properties.trafficType = 'none';
+        } else {
+            f.properties.trafficType = 'none';
+        }
+    });
+
+    // 1. Update the layer's icon-image expression
+    if (sectorOpsMap && sectorOpsMap.getLayer('sector-ops-live-flights-layer')) {
+        sectorOpsMap.setLayoutProperty(
+            'sector-ops-live-flights-layer', 
+            'icon-image', 
+            getIconImageExpression(mapFilters.iconColorMode)
+        );
+    }
+
+    // 2. Sync the updated data to the Mapbox source
+    if (sectorOpsMap && sectorOpsMap.getSource('sector-ops-live-flights-source')) {
+        sectorOpsMap.getSource('sector-ops-live-flights-source').setData({
+            type: 'FeatureCollection',
+            features: Object.values(currentMapFeatures)
+        });
+    }
+}
+
+function updateTrafficLegendUI() {
+    const legendEl = document.getElementById('traffic-visualizer-legend');
+    if (!legendEl) return;
+
+    const currentMode = mapFilters.iconColorMode || 'default';
+    let inColor = '#fff', outColor = '#fff', inLabel = 'AIRCRAFT', outLabel = 'AIRCRAFT';
+
+    if (isTrafficHighlightActive) {
+        // Logic: Use the "opposite" color relative to the user's current selection
+        if (currentMode === 'default') { inColor = '#38bdf8'; outColor = '#f59e0b'; }
+        else if (currentMode === 'blue') { inColor = '#fff'; outColor = '#f59e0b'; }
+        else if (currentMode === 'orange') { inColor = '#38bdf8'; outColor = '#fff'; }
+        inLabel = 'INBOUND'; outLabel = 'OUTBOUND';
+    } else {
+        inColor = (currentMode === 'blue') ? '#38bdf8' : (currentMode === 'orange') ? '#f59e0b' : '#fff';
+        inLabel = 'ALL TRAFFIC';
+    }
+
+    legendEl.innerHTML = `
+        <div style="display: flex; align-items: center; gap: 6px;">
+            <div style="width: 8px; height: 8px; border-radius: 50%; background: ${inColor}; box-shadow: 0 0 5px ${inColor}80;"></div>
+            <span style="color: ${inColor}; opacity: 0.9;">${inLabel}</span>
+        </div>
+        ${isTrafficHighlightActive ? `
+        <div style="display: flex; align-items: center; gap: 6px;">
+            <div style="width: 8px; height: 8px; border-radius: 50%; background: ${outColor}; box-shadow: 0 0 5px ${outColor}80;"></div>
+            <span style="color: ${outColor}; opacity: 0.9;">${outLabel}</span>
+        </div>` : ''}
+    `;
+}
+
 
     function setupAirportWindowEvents() {
-        if (!airportInfoWindow || airportInfoWindow.dataset.eventsAttached === 'true') return;
+    if (!airportInfoWindow || airportInfoWindow.dataset.eventsAttached === 'true') return;
 
-        // Use Event Delegation on the main container
-        airportInfoWindow.addEventListener('click', (e) => {
-            const closeBtn = e.target.closest('#airport-window-close-btn');
-            const hideBtn = e.target.closest('#airport-window-hide-btn');
-            
-            // --- [NEW] Accordion Toggle Logic ---
-            const toggleBtn = e.target.closest('#runway-accordion-toggle');
-            if (toggleBtn) {
-                const content = document.getElementById('runway-accordion-content');
-                if (content) {
-                    toggleBtn.classList.toggle('open');
-                    content.classList.toggle('open');
-                }
-            }
+    airportInfoWindow.addEventListener('click', (e) => {
+        const closeBtn = e.target.closest('#airport-window-close-btn');
+        const hideBtn = e.target.closest('#airport-window-hide-btn');
+        const trafficToggle = e.target.closest('#traffic-highlight-toggle');
 
-            if (closeBtn) {
-                airportInfoWindow.classList.remove('visible');
-                if (window.MobileUIHandler) MobileUIHandler.closeActiveWindow();
-                airportInfoWindowRecallBtn.classList.remove('visible');
-                clearRouteLayers(); 
-                currentAirportInWindow = null;
-            }
+        // [NEW] Traffic Visualizer Toggle Handler
+        if (trafficToggle) {
+            isTrafficHighlightActive = trafficToggle.checked;
+            applyTrafficHighlighting();
+            updateTrafficLegendUI();
+        }
 
-            if (hideBtn) {
-                airportInfoWindow.classList.remove('visible');
-                if (currentAirportInWindow) {
-                    airportInfoWindowRecallBtn.classList.add('visible');
-                    airportInfoWindowRecallBtn.classList.add('palpitate');
-                    setTimeout(() => {
-                        airportInfoWindowRecallBtn.classList.remove('palpitate');
-                    }, 1000);
-                }
-            }
-        });
-
-        airportInfoWindowRecallBtn.addEventListener('click', () => {
-            if (currentAirportInWindow) {
-                airportInfoWindow.classList.add('visible');
-                airportInfoWindowRecallBtn.classList.remove('visible');
-            }
-        });
-
-        airportInfoWindow.dataset.eventsAttached = 'true';
+        if (closeBtn) {
+            // Cleanup: Turn visualizer OFF when closing the window
+            isTrafficHighlightActive = false;
+            applyTrafficHighlighting();
+            airportInfoWindow.classList.remove('visible');
+            if (window.MobileUIHandler) MobileUIHandler.closeActiveWindow();
+            airportInfoWindowRecallBtn.classList.remove('visible');
+            clearRouteLayers();
+            if (typeof AirportLayoutManager !== 'undefined' && sectorOpsMap) AirportLayoutManager.clearAll(sectorOpsMap);
+            currentAirportInWindow = null;
+            if (!currentFlightInWindow) {
+        const landingData = {
+            server: currentServerName,
+            flights: Object.keys(currentMapFeatures).length,
+            atc: activeAtcFacilities.length
+        };
+        LandingUI.update(true, landingData);
+        localStorage.setItem('landingUI_visible', 'true');
+        localStorage.setItem('landingUI_data', JSON.stringify(landingData));
     }
+        }
+
+        if (hideBtn) {
+            airportInfoWindow.classList.remove('visible');
+            if (currentAirportInWindow) airportInfoWindowRecallBtn.classList.add('visible');
+        }
+    });
+
+    airportInfoWindow.addEventListener('change', (e) => {
+        const typeSelect = e.target.closest('#traffic-type-select');
+        if (typeSelect) {
+            const val = typeSelect.value;
+            const inList = airportInfoWindow.querySelector('#inbound-list');
+            const outList = airportInfoWindow.querySelector('#outbound-list');
+            
+            if (val === 'inbound') {
+                if(inList) inList.style.display = 'block';
+                if(outList) outList.style.display = 'none';
+            } else if (val === 'outbound') {
+                if(inList) inList.style.display = 'none';
+                if(outList) outList.style.display = 'block';
+            } else {
+                // Show All
+                if(inList) inList.style.display = 'block';
+                if(outList) outList.style.display = 'block';
+            }
+        }
+    });
+
+    airportInfoWindowRecallBtn.addEventListener('click', () => {
+        if (currentAirportInWindow) {
+            airportInfoWindow.classList.add('visible');
+            airportInfoWindowRecallBtn.classList.remove('visible');
+        }
+    });
+
+    airportInfoWindow.dataset.eventsAttached = 'true';
+}
     
 
 function setupAircraftWindowEvents() {
@@ -6273,9 +7150,17 @@ function setupAircraftWindowEvents() {
     aircraftInfoWindow.addEventListener('click', async (e) => {
         const closeBtn = e.target.closest('.aircraft-window-close-btn');
         const hideBtn = e.target.closest('.aircraft-window-hide-btn');
+        const shareBtn = e.target.closest('.aircraft-window-share-btn'); // <--- NEW
         const tabBtn = e.target.closest('.ac-info-tab-btn');
         const planBtn = e.target.closest('#plan-this-flight-btn');
         const profileToggleBtn = e.target.closest('.profile-toggle-btn');
+
+        // 0. Handle Screenshot (Share)
+        if (shareBtn) {
+            e.preventDefault();
+            toggleTripCardMode(true);
+            return;
+        }
 
         // 1. Handle VSD/SSD Toggle
         if (profileToggleBtn) {
@@ -6371,25 +7256,6 @@ function setupAircraftWindowEvents() {
             closeAircraftWindow(); 
         }
 
-        // 5. Handle Hide Logic
-        if (hideBtn) {
-            aircraftInfoWindow.classList.remove('visible');
-            clearLiveFlightPath(currentFlightInWindow);
-
-            // Clear intervals (pause updates while hidden)
-            if (activePfdUpdateInterval) clearInterval(activePfdUpdateInterval);
-            if (activeGeocodeUpdateInterval) clearInterval(activeGeocodeUpdateInterval);
-            if (activeWeatherUpdateInterval) clearInterval(activeWeatherUpdateInterval); 
-            
-            activePfdUpdateInterval = null;
-            activeGeocodeUpdateInterval = null;
-            activeWeatherUpdateInterval = null;
-            
-            if (currentFlightInWindow) {
-                aircraftInfoWindowRecallBtn.classList.add('visible', 'palpitate');
-                setTimeout(() => aircraftInfoWindowRecallBtn.classList.remove('palpitate'), 1000);
-            }
-        }
     });
 
     // Recall Button Logic
@@ -6419,31 +7285,48 @@ function setupAircraftWindowEvents() {
 }
 
 /**
- * --- [NEW] Helper function to build the icon-image expression based on the filter state
- * @param {string} colorMode - 'default', 'blue', or 'orange'
- * @returns {Array} A Mapbox 'match' expression
+ * --- [UPDATED] Builds the icon-image expression ---
+ * Now includes logic for Inbound/Outbound traffic highlighting.
  */
 function getIconImageExpression(colorMode = 'default') {
-    let suffix = '';
-    if (colorMode === 'orange') {
-        suffix = '-orange';
-    } else if (colorMode === 'blue') {
-        suffix = '-blue';
-    }
-    // 'default' mode (white) has no suffix
+    const getSuffix = (mode) => {
+        if (mode === 'orange') return '-orange';
+        if (mode === 'blue') return '-blue';
+        return ''; // Default (White)
+    };
+
+    // [NEW] Logic to pick the "opposite" color for roles
+    const getRoleSuffix = (role, globalMode) => {
+        if (role === 'inbound') {
+            // Inbounds turn Blue (unless already blue, then White)
+            return globalMode === 'blue' ? '' : '-blue';
+        }
+        if (role === 'outbound') {
+            // Outbounds turn Orange (unless already orange, then White)
+            return globalMode === 'orange' ? '' : '-orange';
+        }
+        return getSuffix(globalMode);
+    };
+
+    // Helper to build the nested match for categories
+    const buildCategoryMatch = (roleSuffix) => [
+        'match', ['get', 'category'],
+        'jumbo', `icon-jumbo${roleSuffix}`,
+        'widebody', `icon-widebody${roleSuffix}`,
+        'narrowbody', `icon-narrowbody${roleSuffix}`,
+        'regional', `icon-regional${roleSuffix}`,
+        'private', `icon-private${roleSuffix}`,
+        'fighter', `icon-fighter${roleSuffix}`,
+        'military', `icon-military${roleSuffix}`,
+        'cessna', `icon-cessna${roleSuffix}`,
+        `icon-default${roleSuffix}`
+    ];
 
     return [
-        'match',
-        ['get', 'category'],
-        'jumbo', `icon-jumbo${suffix}`,
-        'widebody', `icon-widebody${suffix}`,
-        'narrowbody', `icon-narrowbody${suffix}`,
-        'regional', `icon-regional${suffix}`,
-        'private', `icon-private${suffix}`,
-        'fighter', `icon-fighter${suffix}`,
-        'military', `icon-military${suffix}`,
-        'cessna', `icon-cessna${suffix}`,
-        `icon-default${suffix}` // Fallback
+        'match', ['get', 'trafficType'],
+        'inbound', buildCategoryMatch(getRoleSuffix('inbound', colorMode)),
+        'outbound', buildCategoryMatch(getRoleSuffix('outbound', colorMode)),
+        buildCategoryMatch(getSuffix(colorMode)) // Fallback to global setting
     ];
 }
 
@@ -6798,639 +7681,977 @@ function formatDataForSimpleWindow(flightProps, plan, routePoints, communityData
         }
     }
 
-    async function initializeSectorOpsView() {
-        const mapContainer = document.getElementById('sector-ops-map-fullscreen');
-        const viewContainer = document.getElementById('standalone-map-view'); 
-        
-        if (!viewContainer || !mapContainer) return;
-        
-        mainContentLoader.classList.add('active');
+    const SettingsUI = {
+    _isVisible: false,
+    _currentCategory: 'airspace',
 
-        try {
-            // --- [MOVED UP] 1. Initialize Map FIRST ---
-            // We do this first so the map canvas is created at the bottom of the stack.
-            // Any HTML injected afterwards will correctly sit ON TOP of the map.
-            const selectedHub = "VIDP"; 
-            await initializeSectorOpsMap(selectedHub);
+    categories: {
+        airspace: { label: "Filters", icon: "fa-tower-broadcast" },
+        visuals: { label: "Map & more", icon: "fa-eye" },
+        interface: { label: "Interface", icon: "fa-tablet-screen-button" },
+        theme: { label: "Window Theme", icon: "fa-palette" }
+    },
 
-            // --- 2. Inject Server Selector Pill ---
-            if (!document.getElementById('server-selector-container')) {
-                const selectorHtml = `
-                    <div id="server-selector-container">
-                        <button class="server-btn ${currentServerName === 'Expert Server' ? 'active' : ''}" data-server="Expert Server">Expert</button>
-                        <button class="server-btn ${currentServerName === 'Training Server' ? 'active' : ''}" data-server="Training Server">Training</button>
-                        <button class="server-btn ${currentServerName === 'Casual Server' ? 'active' : ''}" data-server="Casual Server">Casual</button>
-                    </div>
-                `;
-                mapContainer.insertAdjacentHTML('beforeend', selectorHtml);
-            }
+    init() {
+    this.render();
+    this.attachListeners();
 
-            // --- 3. Inject the Search Bar ---
-            if (!document.getElementById('sector-ops-search-container')) {
-                const searchHtml = `
-                    <div id="sector-ops-search-container">
-                        <div class="search-bar-container">
-                            <input type="text" id="sector-ops-search-input" placeholder="Search callsign..." autocomplete="off">
-                            
-                            <button id="sector-ops-search-clear" class="search-clear-btn" title="Clear">
-                                <i class="fa-solid fa-xmark"></i>
-                            </button>
-                            
-                            <div class="search-icon-label">
-                                <i class="fa-solid fa-magnifying-glass"></i>
-                            </div>
-                        </div>
-                        
-                        <div id="search-results-dropdown" class="search-results-dropdown"></div>
-                    </div>
-                `;
-                mapContainer.insertAdjacentHTML('beforeend', searchHtml);
-            }
+    // The logic to decide which UI to show
+    const handleSettingsOpen = (e) => {
+        // Prevent the button from keeping focus state during the transition
+        e.currentTarget.blur(); 
 
-            // --- 4. Inject Airport Info Window ---
-            if (!document.getElementById('airport-info-window')) {
-                 const windowHtml = `
-                    <div id="airport-info-window" class="info-window">
-                        <div id="airport-window-content" class="info-window-content"></div>
-                    </div>
-                `;
-                mapContainer.insertAdjacentHTML('beforeend', windowHtml);
-            }
-
-            // --- 5. Inject Aircraft Info Window ---
-            if (!document.getElementById('aircraft-info-window')) {
-                 const windowHtml = `
-                    <div id="aircraft-info-window" class="info-window">
-                        
-                    </div>
-                `;
-                mapContainer.insertAdjacentHTML('beforeend', windowHtml);
-            }
-
-            // --- 6. Inject Weather Settings Window ---
-            if (!document.getElementById('weather-settings-window')) {
-                const windowHtml = `
-                    <div id="weather-settings-window" class="info-window">
-                        <div class="info-window-header">
-                            <h3><i class="fa-solid fa-cloud-sun" style="margin-right: 10px;"></i> Weather Settings</h3>
-                            <div class="info-window-actions">
-                                <button class="weather-window-hide-btn" title="Hide"><i class="fa-solid fa-compress"></i></button>
-                                <button class="weather-window-close-btn" title="Close"><i class="fa-solid fa-xmark"></i></button>
-                            </div>
-                        </div>
-                        <div id="weather-window-content" class="info-window-content">
-                            <ul class="weather-toggle-list">
-                                <li class="weather-toggle-item">
-                                    <span class="weather-toggle-label"><i class="fa-solid fa-cloud-rain"></i> Radar (Precip)</span>
-                                    <label class="toggle-switch">
-                                        <input type="checkbox" id="weather-toggle-precip">
-                                        <span class="toggle-slider"></span>
-                                    </label>
-                                </li>
-                                <li class="weather-toggle-item">
-                                    <span class="weather-toggle-label"><i class="fa-solid fa-triangle-exclamation"></i> SIGMETs</span>
-                                    <label class="toggle-switch">
-                                        <input type="checkbox" id="weather-toggle-sigmets">
-                                        <span class="toggle-slider"></span>
-                                    </label>
-                                </li>
-                                <li class="weather-toggle-item">
-                                    <span class="weather-toggle-label"><i class="fa-solid fa-cloud"></i> Cloud Cover</span>
-                                    <label class="toggle-switch">
-                                        <input type="checkbox" id="weather-toggle-clouds">
-                                        <span class="toggle-slider"></span>
-                                    </label>
-                                </li>
-                                <li class="weather-toggle-item">
-                                    <span class="weather-toggle-label"><i class="fa-solid fa-wind"></i> Wind Speed</span>
-                                    <label class="toggle-switch">
-                                        <input type="checkbox" id="weather-toggle-wind">
-                                        <span class="toggle-slider"></span>
-                                    </label>
-                                </li>
-                            </ul>
-                            <div class="weather-disclaimer-note">
-                                <i class="fa-solid fa-server"></i>
-                                <strong>Note:</strong> ONLY rain radar is provided. Other radars (sigmets, clouds, wind) are not available.
-                            </div>
-                        </div>
-                    </div>
-                `;
-                mapContainer.insertAdjacentHTML('beforeend', windowHtml);
-            }
-
-            // --- 7. Inject Settings Window ---
-            if (!document.getElementById('filter-settings-window')) {
-                const windowHtml = `
-                    <div id="filter-settings-window" class="info-window">
-                        <div class="info-window-header">
-                            <h3><i class="fa-solid fa-gear" style="margin-right: 10px;"></i> Settings</h3>
-                            <div class="info-window-actions">
-                                <button class="filter-window-hide-btn" title="Hide"><i class="fa-solid fa-compress"></i></button>
-                                <button class="filter-window-close-btn" title="Close"><i class="fa-solid fa-xmark"></i></button>
-                            </div>
-                        </div>
-                        <div id="filter-window-content" class="info-window-content">
-                            <ul class="filter-toggle-list">
-                                <li class="filter-toggle-item">
-                                    <span class="filter-toggle-label"><i class="fa-solid fa-tower-broadcast"></i> Hide Staffed Airports</span>
-                                    <label class="toggle-switch">
-                                        <input type="checkbox" id="filter-toggle-atc">
-                                        <span class="toggle-slider"></span>
-                                    </label>
-                                </li>
-
-                                <li class="filter-toggle-item">
-                                    <span class="filter-toggle-label"><i class="fa-solid fa-satellite"></i> Satellite Mode</span>
-                                    <label class="toggle-switch">
-                                        <input type="checkbox" id="filter-toggle-satellite-mode">
-                                        <span class="toggle-slider"></span>
-                                    </label>
-                                </li>
-                                
-                                <li class="filter-toggle-item">
-                                    <span class="filter-toggle-label"><i class="fa-solid fa-tags"></i> Show Aircraft Labels</span>
-                                    <label class="toggle-switch">
-                                        <input type="checkbox" id="filter-toggle-aircraft-labels">
-                                        <span class="toggle-slider"></span>
-                                    </label>
-                                </li>
-                            </ul>
-
-                            <div class="filter-section-divider">
-                                <span class="filter-section-title">Interface Style</span>
-                            </div>
-                            <ul class="filter-toggle-list" style="padding-top: 8px;">
-                                <li class="filter-toggle-item">
-                                    <span class="filter-toggle-label"><i class="fa-solid fa-tablet-screen-button"></i> Simple Flight Window</span>
-                                    <label class="toggle-switch">
-                                        <input type="checkbox" id="filter-toggle-simple-window">
-                                        <span class="toggle-slider"></span>
-                                    </label>
-                                </li>
-                            </ul>
-
-                            <div class="filter-section-divider">
-                                <span class="filter-section-title">Aircraft Icon Color</span>
-                            </div>
-                            <ul class="filter-toggle-list" id="icon-color-filter-group" style="padding-top: 8px;">
-                                <li class="filter-radio-item">
-                                    <input type="radio" id="icon-color-default" name="icon-color-mode" value="default" checked>
-                                    <label for="icon-color-default"><i class="fa-solid fa-plane" style="color: #fff;"></i> Default (White)</label>
-                                </li>
-                                <li class="filter-radio-item">
-                                    <input type="radio" id="icon-color-blue" name="icon-color-mode" value="blue">
-                                    <label for="icon-color-blue"><i class="fa-solid fa-plane" style="color: #00a8ff;"></i> Blue</label>
-                                </li>
-                                <li class="filter-radio-item">
-                                    <input type="radio" id="icon-color-orange" name="icon-color-mode" value="orange">
-                                    <label for="icon-color-orange"><i class="fa-solid fa-plane" style="color: #ff9900;"></i> Orange</label>
-                                </li>
-                            </ul>
-                            
-                            <div class="filter-section-divider">
-                                <span class="filter-section-title">Active Flight Plan Display</span>
-                            </div>
-                            <ul class="filter-toggle-list" id="plan-filter-group" style="padding-top: 8px;">
-                                <li class="filter-radio-item">
-                                    <input type="radio" id="plan-filter-none" name="plan-display-mode" value="none" checked>
-                                    <label for="plan-filter-none"><i class="fa-solid fa-eye-slash"></i> Hide Plan</label>
-                                </li>
-                                <li class="filter-radio-item">
-                                    <input type="radio" id="plan-filter-direct" name="plan-display-mode" value="direct">
-                                    <label for="plan-filter-direct"><i class="fa-solid fa-route"></i> Direct to Destination</label>
-                                </li>
-                                <li class="filter-radio-item">
-                                    <input type="radio" id="plan-filter-full" name="plan-display-mode" value="full">
-                                    <label for="plan-filter-full"><i class="fa-solid fa-diagram-project"></i> Full Filed Plan</label>
-                                </li>
-                            </ul>
-
-                            <div class="mobile-only-filter-section">
-                                <div class="filter-section-divider">
-                                    <span class="filter-section-title">Mobile Display Mode</span>
-                                </div>
-                                <ul class="filter-toggle-list" id="mobile-mode-filter-group" style="padding-top: 8px;">
-                                    <li class="filter-radio-item">
-                                        <input type="radio" id="mobile-mode-hud" name="mobile-display-mode" value="hud" checked>
-                                        <label for="mobile-mode-hud"><i class="fa-solid fa-rocket"></i> HUD View</label>
-                                    </li>
-                                    <li class="filter-radio-item">
-                                        <input type="radio" id="mobile-mode-legacy" name="mobile-display-mode" value="legacy">
-                                        <label for="mobile-mode-legacy"><i class="fa-solid fa-layer-group"></i> Legacy Sheet</label>
-                                    </li>
-                                </ul>
-                            </div>
-
-                            <div class="filter-section-divider">
-                                <span class="filter-section-title">Window Appearance</span>
-                            </div>
-                            <div class="filter-appearance-controls" style="padding: 10px; display: flex; flex-direction: column; gap: 10px;">
-                                <div style="display: flex; justify-content: space-between; align-items: center;">
-                                    <span style="color: #ccc; font-size: 0.9rem;">Gradient Start Color</span>
-                                    <input type="color" id="theme-color-start" value="#121426" style="background: none; border: none; width: 50px; height: 30px; cursor: pointer;">
-                                </div>
-                                <div style="display: flex; justify-content: space-between; align-items: center;">
-                                    <span style="color: #ccc; font-size: 0.9rem;">Gradient End Color</span>
-                                    <input type="color" id="theme-color-end" value="#121426" style="background: none; border: none; width: 50px; height: 30px; cursor: pointer;">
-                                </div>
-                                <div style="display: flex; gap: 10px;">
-                                     <button id="theme-reset-btn" class="cta-button" style="width: 100%; padding: 8px; font-size: 0.85rem; border-radius: 4px; background: rgba(255,255,255,0.1); border: 1px solid #444; color: #fff; cursor: pointer;">Reset Default Theme</button>
-                                </div>
-                            </div>
-                        </div>
-                    </div>
-                `;
-                mapContainer.insertAdjacentHTML('beforeend', windowHtml);
-            }
-            
-            // --- 8. Inject Toolbar Buttons (if missing) ---
-            const toolbarToggleBtn = document.getElementById('toolbar-toggle-panel-btn');
-            if (toolbarToggleBtn) {
-                 if (!document.getElementById('airport-recall-btn')) {
-                    toolbarToggleBtn.parentElement.insertAdjacentHTML('beforeend', `
-                        <button id="airport-recall-btn" class="toolbar-btn" title="Show Airport Info">
-                            <i class="fa-solid fa-location-dot"></i>
-                        </button>
-                    `);
-                 }
-                 if (!document.getElementById('aircraft-recall-btn')) {
-                      toolbarToggleBtn.parentElement.insertAdjacentHTML('beforeend', `
-                        <button id="aircraft-recall-btn" class="toolbar-btn" title="Show Aircraft Info">
-                            <i class="fa-solid fa-plane-up"></i>
-                        </button>
-                    `);
-                 }
-                 if (!document.getElementById('open-weather-settings-btn')) {
-                    toolbarToggleBtn.parentElement.insertAdjacentHTML('beforeend', `
-                        <button id="open-weather-settings-btn" class="toolbar-btn" title="Weather Settings">
-                            <i class="fa-solid fa-cloud-sun"></i>
-                        </button>
-                    `);
-                 }
-                 if (!document.getElementById('open-filter-settings-btn')) {
-                    toolbarToggleBtn.parentElement.insertAdjacentHTML('beforeend', `
-                        <button id="open-filter-settings-btn" class="toolbar-btn" title="Settings">
-                            <i class="fa-solid fa-gear"></i>
-                        </button>
-                    `);
-                 }
-            }
-            
-            // --- 9. Assign Global Variables ---
-            airportInfoWindow = document.getElementById('airport-info-window');
-            airportInfoWindowRecallBtn = document.getElementById('airport-recall-btn');
-            aircraftInfoWindow = document.getElementById('aircraft-info-window');
-            aircraftInfoWindowRecallBtn = document.getElementById('aircraft-recall-btn');
-            weatherSettingsWindow = document.getElementById('weather-settings-window');
-            filterSettingsWindow = document.getElementById('filter-settings-window');
-
-            // --- 10. Load Content and Setup Listeners ---
-            await loadExternalPanelContent();
-
-            setupSectorOpsEventListeners();
-            setupAirportWindowEvents();
-            setupAircraftWindowEvents();
-            setupWeatherSettingsWindowEvents();
-            setupFilterSettingsWindowEvents(); 
-            
-            // --- 11. Setup Search Listeners (Now that elements exist) ---
-            setupSearchEventListeners();
-
-            // --- [NEW] Initialize Smart Map Click ---
-            setupSmartMapBackgroundClick(); 
-
-            // --- 12. Listen for ND_READY signal ---
-            window.addEventListener('message', (event) => {
-                if (event.data && event.data.type === 'ND_READY') {
-                    refreshNavDisplayFromCache();
-                }
-            });
-
-            // --- 13. Start Live Loop ---
-            startSectorOpsLiveLoop();
-
-        } catch (error) {
-            console.error("Error initializing Sector Ops view:", error);
-            showNotification(error.message, 'error');
-            const panelContentWrapper = document.querySelector('#sector-ops-floating-panel .panel-content-wrapper');
-            if (panelContentWrapper) {
-                panelContentWrapper.innerHTML = `<p class="error-text" style="padding: 20px;">${error.message}</p>`;
-            }
-        } finally {
-            mainContentLoader.classList.remove('active');
+        if (window.innerWidth <= 768) {
+            // Trigger the Mobile Bottom Sheet
+            window.dispatchEvent(new CustomEvent('openMobileSettings'));
+        } else {
+            // Open the Desktop Modal
+            this.toggle(true);
         }
+    };
+
+    // 1. Hook into the LandingUI 'Settings' Tile
+    const tileSettings = document.getElementById('tile-settings');
+    if (tileSettings) {
+        tileSettings.addEventListener('click', handleSettingsOpen);
     }
 
+    // 2. Hook into the standard toolbar button
+    const toolbarSettings = document.getElementById('open-filter-settings-btn');
+    if (toolbarSettings) {
+        toolbarSettings.addEventListener('click', handleSettingsOpen);
+    }
+},
 
+    toggle(state) {
+        this._isVisible = state;
+        const modal = document.getElementById('global-settings-modal-overlay');
+        if (modal) {
+            modal.classList.toggle('open', state);
+            if (state) this.renderCategory(this._currentCategory);
+        }
+    },
+
+    render() {
+        const html = `
+            <div id="global-settings-modal-overlay" class="modal-overlay">
+                <div class="filter-modal settings-modal">
+                    <div class="modal-header">
+                        <div class="header-main">
+                            <div class="header-icon-box"><i class="fa-solid fa-gear"></i></div>
+                            <div class="header-text">
+                                <h2>Global Settings</h2>
+                                <span>Configure your airspace experience</span>
+                            </div>
+                        </div>
+                        <button class="close-modal" id="close-settings-modal">&times;</button>
+                    </div>
+                    
+                    <div class="modal-body">
+                        <div class="filter-selection-pane custom-scroll">
+                            <div class="filter-group-wrapper">
+                                <div class="filter-group-header">Configuration</div>
+                                <div class="filter-options-list">
+                                    ${Object.entries(this.categories).map(([key, cat]) => `
+                                        <button class="nexus-item ${this._currentCategory === key ? 'active' : ''}" data-cat-id="${key}">
+                                            <div class="nexus-icon"><i class="fa-solid ${cat.icon}"></i></div>
+                                            <span class="nexus-label">${cat.label}</span>
+                                        </button>
+                                    `).join('')}
+                                </div>
+                            </div>
+                        </div>
+
+                        <div class="filter-config-pane custom-scroll">
+                            <div id="settings-category-content" class="settings-content-wrapper">
+                                </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        `;
+
+        const container = document.getElementById('sector-ops-map-fullscreen');
+        if (container) container.insertAdjacentHTML('beforeend', html);
+    },
+
+    attachListeners() {
+        const modal = document.getElementById('global-settings-modal-overlay');
+        
+        modal?.addEventListener('click', (e) => {
+            if (e.target === modal || e.target.id === 'close-settings-modal') this.toggle(false);
+        });
+
+        document.querySelectorAll('.settings-modal .nexus-item').forEach(item => {
+            item.addEventListener('click', () => {
+                this._currentCategory = item.dataset.catId;
+                document.querySelectorAll('.settings-modal .nexus-item').forEach(i => i.classList.remove('active'));
+                item.classList.add('active');
+                this.renderCategory(this._currentCategory);
+            });
+        });
+    },
+
+    renderCategory(catId) {
+        const container = document.getElementById('settings-category-content');
+        if (!container) return;
+
+        let html = '';
+
+        switch(catId) {
+            case 'airspace':
+                html = `
+                    <div class="settings-section">
+                        <label class="config-header">Network Visibility</label>
+                        <div class="settings-row">
+                            <div class="row-label"><i class="fa-solid fa-tower-broadcast"></i> Hide Staffed Airports</div>
+                            <label class="toggle-switch"><input type="checkbox" id="set-hide-atc" ${mapFilters.hideAtcMarkers ? 'checked' : ''}><span class="toggle-slider"></span></label>
+                        </div>
+                        <div class="settings-row">
+                            <div class="row-label"><i class="fa-solid fa-map-marked-alt"></i> Show Unstaffed Airports</div>
+                            <label class="toggle-switch"><input type="checkbox" id="set-show-unstaffed" ${mapFilters.showUnstaffedAirports ? 'checked' : ''}><span class="toggle-slider"></span></label>
+                        </div>
+                        <div class="settings-row">
+                            <div class="row-label"><i class="fa-solid fa-user-shield"></i> Show Staff Only</div>
+                            <label class="toggle-switch"><input type="checkbox" id="set-staff-only" ${mapFilters.showStaffOnly ? 'checked' : ''}><span class="toggle-slider"></span></label>
+                        </div>
+                        <div class="settings-row">
+                            <div class="row-label"><i class="fa-solid fa-medal"></i> Show VA Only</div>
+                            <label class="toggle-switch"><input type="checkbox" id="set-va-only" ${mapFilters.showVaOnly ? 'checked' : ''}><span class="toggle-slider"></span></label>
+                        </div>
+                    </div>
+                `;
+                break;
+            case 'visuals':
+                html = `
+                    <div class="settings-section">
+                        <label class="config-header">Map & Assets</label>
+                        <div class="settings-row">
+                            <div class="row-label"><i class="fa-solid fa-tags"></i> Aircraft Labels</div>
+                            <label class="toggle-switch"><input type="checkbox" id="set-labels" ${mapFilters.showAircraftLabels ? 'checked' : ''}><span class="toggle-slider"></span></label>
+                        </div>
+                        <div class="settings-row">
+                            <div class="row-label"><i class="fa-solid fa-map"></i> Flat Map Projection</div>
+                            <label class="toggle-switch"><input type="checkbox" id="set-flat-map" ${mapFilters.useFlatMap ? 'checked' : ''}><span class="toggle-slider"></span></label>
+                        </div>
+
+                        <div class="settings-section">
+            <label class="config-header">Map & Assets</label>
+            <div class="settings-row">
+                <div class="row-label"><i class="fa-solid fa-route"></i> North Atlantic Tracks</div>
+                <label class="toggle-switch">
+                    <input type="checkbox" id="set-nat-tracks" ${mapFilters.showNatTracks ? 'checked' : ''}>
+                    <span class="toggle-slider"></span>
+                </label>
+            </div>
+
+            <div class="settings-row">
+                <div class="row-label"><i class="fa-solid fa-font"></i> Track Labels</div>
+                <label class="toggle-switch">
+                    <input type="checkbox" id="set-nat-labels" ${mapFilters.showNatLabels ? 'checked' : ''}>
+                    <span class="toggle-slider"></span>
+                </label>
+            </div>
+
+            <div class="settings-row" style="margin-bottom: 4px;">
+                <div class="row-label">
+                    <i class="fa-solid fa-cube"></i> 
+                    3D Path Trail
+                    <span style="background: #f59e0b; color: #000; font-size: 0.6rem; padding: 2px 6px; border-radius: 4px; margin-left: 10px; font-weight: 800; letter-spacing: 0.5px;">EXPERIMENTAL</span>
+                </div>
+                <label class="toggle-switch">
+                    <input type="checkbox" id="setting-toggle-3dpath" ${mapFilters.show3DPath ? 'checked' : ''}>
+                    <span class="toggle-slider"></span>
+                </label>
+            </div>
+            <p style="font-size: 0.7rem; color: #71717a; margin: 0 0 12px 16px; line-height: 1.4;">
+                <i class="fa-solid fa-circle-info" style="font-size: 0.6rem; margin-right: 4px;"></i>
+                Note: This feature is experimental and may be broken at times.
+            </p>
+
+                        <div class="settings-row">
+                            <div class="row-label">Map Style</div>
+                            <div class="input-wrapper select-wrapper">
+                                <select id="set-map-style" class="row-input-select">
+                                    <option value="dark" ${mapFilters.mapStyle === 'dark' ? 'selected' : ''}>Dark (Default)</option>
+                                    <option value="light" ${mapFilters.mapStyle === 'light' ? 'selected' : ''}>Light</option>
+                                    <option value="satellite" ${mapFilters.mapStyle === 'satellite' ? 'selected' : ''}>Satellite</option>
+                                </select>
+                            </div>
+                        </div>
+                        <div class="settings-row" style="flex-direction: column; align-items: flex-start; gap: 8px;">
+                <div style="display: flex; justify-content: space-between; width: 100%; align-items: center;">
+                    <div class="row-label"><i class="fa-solid fa-plane-up"></i> Aircraft Scale</div>
+                    <span id="plane-size-display" style="font-family: 'JetBrains Mono', monospace; color: #38bdf8; font-weight: 800; font-size: 0.9rem;">
+                        ${Math.round(mapFilters.planeIconSize * 100)}%
+                    </span>
+                </div>
+                <input type="range" id="set-plane-size" min="0.02" max="0.15" step="0.01" value="${mapFilters.planeIconSize}" style="width: 100%;">
+            </div>
+                        <div class="settings-row">
+                            <div class="row-label">Icon Color</div>
+                            <div class="input-wrapper select-wrapper">
+                                <select id="set-icon-color" class="row-input-select">
+                                    <option value="default" ${mapFilters.iconColorMode === 'default' ? 'selected' : ''}>Default (White)</option>
+                                    <option value="blue" ${mapFilters.iconColorMode === 'blue' ? 'selected' : ''}>Blue</option>
+                                    <option value="orange" ${mapFilters.iconColorMode === 'orange' ? 'selected' : ''}>Orange</option>
+                                </select>
+                            </div>
+                        </div>
+                    </div>
+                `;
+                break;
+            case 'interface':
+                html = `
+                    <div class="settings-section">
+                        <label class="config-header">User Interface</label>
+                        <div class="settings-row">
+                            <div class="row-label"><i class="fa-solid fa-tablet-button"></i> Simple Flight Window</div>
+                            <label class="toggle-switch"><input type="checkbox" id="set-simple-win" ${mapFilters.useSimpleFlightWindow ? 'checked' : ''}><span class="toggle-slider"></span></label>
+                        </div>
+                        <div class="settings-row">
+                            <div class="row-label">Flight Plan Mode</div>
+                            <div class="input-wrapper select-wrapper">
+                                <select id="set-plan-mode" class="row-input-select">
+                                    <option value="none" ${mapFilters.planDisplayMode === 'none' ? 'selected' : ''}>Hide Plan</option>
+                                    <option value="direct" ${mapFilters.planDisplayMode === 'direct' ? 'selected' : ''}>Direct to Destination</option>
+                                    <option value="full" ${mapFilters.planDisplayMode === 'full' ? 'selected' : ''}>Full Filed Plan</option>
+                                </select>
+                            </div>
+                        </div>
+                    </div>
+                `;
+                break;
+            case 'theme':
+                html = `
+                    <div class="settings-section">
+                        <label class="config-header">Window Appearance</label>
+                        <div class="settings-row">
+                            <div class="row-label">Gradient Start Color</div>
+                            <input type="color" id="set-theme-start" class="settings-color-input" value="${mapFilters.themeStartColor || '#18181b'}">
+                        </div>
+                        <div class="settings-row">
+                            <div class="row-label">Gradient End Color</div>
+                            <input type="color" id="set-theme-end" class="settings-color-input" value="${mapFilters.themeEndColor || '#18181b'}">
+                        </div>
+                        <div class="settings-row">
+                            <div class="row-label">Theme Opacity (%)</div>
+                            <input type="number" id="set-theme-opacity" class="row-input" style="width: 80px;" value="${mapFilters.themeOpacity || 90}">
+                        </div>
+                        <button id="set-theme-reset" class="modal-btn secondary" style="width: 100%; margin-top: 20px;">Reset Default Theme</button>
+                    </div>
+                `;
+                break;
+        }
+
+        container.innerHTML = html;
+        this.attachConfigListeners();
+    },
+
+    attachConfigListeners() {
+        const update = (key, val) => {
+            mapFilters[key] = val;
+            saveFiltersToLocalStorage();
+            updateMapFilters();
+        };
+
+        // Mapping settings IDs to mapFilters keys
+        const ids = {
+            'set-nat-tracks': 'showNatTracks',
+            'set-nat-labels': 'showNatLabels',
+            'setting-toggle-3dpath': 'show3DPath',
+            'set-hide-atc': 'hideAtcMarkers',
+            'set-show-unstaffed': 'showUnstaffedAirports',
+            'set-plane-size': 'planeIconSize',
+            'set-staff-only': 'showStaffOnly',
+            'set-va-only': 'showVaOnly',
+            'set-labels': 'showAircraftLabels',
+            'set-flat-map': 'useFlatMap',
+            'set-simple-win': 'useSimpleFlightWindow',
+            'set-map-style': 'mapStyle',
+            'set-icon-color': 'iconColorMode',
+            'set-plan-mode': 'planDisplayMode',
+            'set-theme-start': 'themeStartColor',
+            'set-theme-end': 'themeEndColor',
+            'set-theme-opacity': 'themeOpacity'
+        };
+
+        const sizeSlider = document.getElementById('set-plane-size');
+const sizeDisplay = document.getElementById('plane-size-display');
+
+if (sizeSlider && sizeDisplay) {
+    sizeSlider.addEventListener('input', (e) => {
+        const val = parseFloat(e.target.value);
+        sizeDisplay.textContent = `${Math.round(val * 100)}%`;
+        
+        // Update global filter and save
+        mapFilters.planeIconSize = val;
+        saveFiltersToLocalStorage();
+        updateMapFilters(); // Instantly applies icon-size to the Mapbox layer
+    });
+}
+
+        // Inside SettingsUI.attachConfigListeners
+Object.entries(ids).forEach(([id, key]) => {
+    const el = document.getElementById(id);
+    if (!el) return;
+    el.addEventListener(el.type === 'checkbox' ? 'change' : 'input', (e) => {
+        let val = el.type === 'checkbox' ? e.target.checked : e.target.value;
+        
+        // FIX: Ensure numeric inputs are converted to numbers
+        if (el.type === 'range' || el.type === 'number') {
+            val = parseFloat(val);
+        }
+
+        update(key, val);
+    });
+});
+
+        document.getElementById('set-theme-reset')?.addEventListener('click', () => {
+            mapFilters.themeStartColor = '#18181b';
+            mapFilters.themeEndColor = '#18181b';
+            mapFilters.themeOpacity = 90;
+            saveFiltersToLocalStorage();
+            this.renderCategory('theme');
+            updateMapFilters();
+        });
+    }
+};
+
+    async function initializeSectorOpsView() {
+    // [FIX] 1. Load saved preferences FIRST
+    // This updates the global 'currentMapStyle' before the map creates itself.
+    loadFiltersFromLocalStorage(); 
+
+    const mapContainer = document.getElementById('sector-ops-map-fullscreen');
+    const viewContainer = document.getElementById('standalone-map-view');
+    
+    if (!viewContainer || !mapContainer) return;
+    
+    mainContentLoader.classList.add('active');
+
+    try {
+        // --- 2. Initialize Map ---
+        // Now that filters are loaded, this will use the correct currentMapStyle
+        const selectedHub = "KJFK"; 
+        await initializeSectorOpsMap(selectedHub);
+
+        /*
+        // --- 3. Inject Server Selector Pill ---
+        if (!document.getElementById('server-selector-container')) {
+            const selectorHtml = `
+                <div id="server-selector-container">
+                    <button class="server-btn ${currentServerName === 'Expert Server' ? 'active' : ''}" data-server="Expert Server">Expert</button>
+                    <button class="server-btn ${currentServerName === 'Training Server' ? 'active' : ''}" data-server="Training Server">Training</button>
+                    <button class="server-btn ${currentServerName === 'Casual Server' ? 'active' : ''}" data-server="Casual Server">Casual</button>
+                </div>
+            `;
+            mapContainer.insertAdjacentHTML('beforeend', selectorHtml);
+        }
+        */
+
+        // --- 5. Inject Airport Info Window ---
+        if (!document.getElementById('airport-info-window')) {
+                const windowHtml = `
+                <div id="airport-info-window" class="info-window">
+                    <div id="airport-window-content" class="info-window-content"></div>
+                </div>
+            `;
+            mapContainer.insertAdjacentHTML('beforeend', windowHtml);
+        }
+
+        // --- 6. Inject Aircraft Info Window ---
+        if (!document.getElementById('aircraft-info-window')) {
+                const windowHtml = `
+                <div id="aircraft-info-window" class="info-window">
+                </div>
+            `;
+            mapContainer.insertAdjacentHTML('beforeend', windowHtml);
+        }
+
+        // --- 7. Inject Weather Settings Window ---
+        if (!document.getElementById('weather-settings-window')) {
+            const windowHtml = `
+                <div id="weather-settings-window" class="info-window">
+                    <div class="info-window-header">
+                        <h3><i class="fa-solid fa-cloud-sun" style="margin-right: 10px;"></i> Weather Settings</h3>
+                        <div class="info-window-actions">
+                            <button class="weather-window-hide-btn" title="Hide"><i class="fa-solid fa-compress"></i></button>
+                            <button class="weather-window-close-btn" title="Close"><i class="fa-solid fa-xmark"></i></button>
+                        </div>
+                    </div>
+        
+                    <div id="weather-window-content" class="info-window-content">
+                        <ul class="weather-toggle-list">
+                            <li class="weather-toggle-item">
+                                <span class="weather-toggle-label"><i class="fa-solid fa-cloud-rain"></i> Radar (Precip)</span>
+                                <label class="toggle-switch">
+                                    <input type="checkbox" id="weather-toggle-precip">
+                                    <span class="toggle-slider"></span>
+                                </label>
+                            </li>
+                            <li class="weather-toggle-item">
+                                <span class="weather-toggle-label"><i class="fa-solid fa-triangle-exclamation"></i> SIGMETs</span>
+                                <label class="toggle-switch">
+                                    <input type="checkbox" id="weather-toggle-sigmets">
+                                    <span class="toggle-slider"></span>
+                                </label>
+                            </li>
+                            <li class="weather-toggle-item">
+                                <span class="weather-toggle-label"><i class="fa-solid fa-cloud"></i> Cloud Cover</span>
+                                <label class="toggle-switch">
+                                    <input type="checkbox" id="weather-toggle-clouds">
+                                    <span class="toggle-slider"></span>
+                                </label>
+                            </li>
+                            <li class="weather-toggle-item">
+                                <span class="weather-toggle-label"><i class="fa-solid fa-wind"></i> Wind Speed</span>
+                                <label class="toggle-switch">
+                                    <input type="checkbox" id="weather-toggle-wind">
+                                    <span class="toggle-slider"></span>
+                                </label>
+                            </li>
+                        </ul>
+                        <div class="weather-disclaimer-note">
+                            <i class="fa-solid fa-server"></i>
+                            <strong>Note:</strong> ONLY rain radar is provided.
+                            Other radars (sigmets, clouds, wind) are not available.
+                        </div>
+                    </div>
+                </div>
+            `;
+            mapContainer.insertAdjacentHTML('beforeend', windowHtml);
+        }
+
+        // --- 8. Inject Settings Window ---
+        if (!document.getElementById('filter-settings-window')) {
+            const windowHtml = `
+                <div id="filter-settings-window" class="info-window">
+                    <div class="info-window-header">
+                        <h3><i class="fa-solid fa-gear" style="margin-right: 10px;"></i> Settings</h3>
+                        <div class="info-window-actions">
+                            <button class="filter-window-hide-btn" title="Hide"><i class="fa-solid fa-compress"></i></button>
+                            <button class="filter-window-close-btn" title="Close"><i class="fa-solid fa-xmark"></i></button>
+                        </div>
+                    </div>
+          
+                    <div id="filter-window-content" class="info-window-content">
+                        <ul class="filter-toggle-list">
+                            <li class="filter-toggle-item">
+                                <span class="filter-toggle-label"><i class="fa-solid fa-tower-broadcast"></i> Hide Staffed Airports</span>
+                                <label class="toggle-switch">
+                                    <input type="checkbox" id="filter-toggle-atc">
+                                    <span class="toggle-slider"></span>
+                                </label>
+                            </li>
+                            <li class="filter-toggle-item">
+                                <span class="filter-toggle-label"><i class="fa-solid fa-map-marked-alt"></i> Show Unstaffed Airports</span>
+                                <label class="toggle-switch">
+                                    <input type="checkbox" id="filter-toggle-unstaffed" ${mapFilters.showUnstaffedAirports ? 'checked' : ''}>
+                                    <span class="toggle-slider"></span>
+                                </label>
+                            </li>
+                            
+                            <li class="filter-toggle-item">
+                                <span class="filter-toggle-label"><i class="fa-solid fa-tags"></i> Show Aircraft Labels</span>
+                                <label class="toggle-switch">
+                                    <input type="checkbox" id="filter-toggle-aircraft-labels">
+                                    <span class="toggle-slider"></span>
+                                </label>
+                            </li>
+                        </ul>
+
+                        <div class="filter-section-divider">
+                            <span class="filter-section-title">Map Style</span>
+                        </div>
+                        <ul class="filter-toggle-list" style="padding-top: 8px;">
+                             <li class="filter-radio-item">
+                                <input type="radio" id="map-style-dark" name="map-style-mode" value="dark" checked>
+                                <label for="map-style-dark"><i class="fa-solid fa-moon"></i> Dark (Default)</label>
+                            </li>
+                            <li class="filter-toggle-item">
+    <span class="filter-toggle-label"><i class="fa-solid fa-map"></i> Flat Map Projection</span>
+    <label class="toggle-switch">
+        <input type="checkbox" id="filter-toggle-flat-map" ${mapFilters.useFlatMap ? 'checked' : ''}>
+        <span class="toggle-slider"></span>
+    </label>
+</li>
+                            <li class="filter-radio-item">
+                                <input type="radio" id="map-style-light" name="map-style-mode" value="light">
+                                <label for="map-style-light"><i class="fa-solid fa-sun"></i> Light</label>
+                            </li>
+                            <li class="filter-radio-item">
+                                <input type="radio" id="map-style-satellite" name="map-style-mode" value="satellite">
+                                <label for="map-style-satellite"><i class="fa-solid fa-satellite"></i> Satellite</label>
+                            </li>
+                        </ul>
+
+                        <div class="filter-section-divider">
+                            <span class="filter-section-title">Interface Style</span>
+                        </div>
+                
+                        <ul class="filter-toggle-list" style="padding-top: 8px;">
+                            <li class="filter-toggle-item">
+                                <span class="filter-toggle-label"><i class="fa-solid fa-tablet-screen-button"></i> Simple Flight Window</span>
+                                <label class="toggle-switch">
+                                    <input type="checkbox" id="filter-toggle-simple-window">
+                                    <span class="toggle-slider"></span>
+                                </label>
+                            </li>
+                        </ul>
+
+                        <div class="filter-section-divider">
+                            <span class="filter-section-title">Aircraft Icon Color</span>
+                        </div>
+  
+                        <ul class="filter-toggle-list" id="icon-color-filter-group" style="padding-top: 8px;">
+                            <li class="filter-radio-item">
+                                <input type="radio" id="icon-color-default" name="icon-color-mode" value="default" checked>
+                                <label for="icon-color-default"><i class="fa-solid fa-plane" style="color: #fff;"></i> Default (White)</label>
+                            </li>
+                     
+                            <li class="filter-radio-item">
+                                <input type="radio" id="icon-color-blue" name="icon-color-mode" value="blue">
+                                <label for="icon-color-blue"><i class="fa-solid fa-plane" style="color: #00a8ff;"></i> Blue</label>
+                            </li>
+                            <li class="filter-radio-item">
+                                <input type="radio" id="icon-color-orange" name="icon-color-mode" value="orange">
+                                <label for="icon-color-orange"><i class="fa-solid fa-plane" style="color: #ff9900;"></i> Orange</label>
+                            </li>
+                        </ul>
+                        
+                        <div class="filter-section-divider">
+                            <span class="filter-section-title">Active Flight Plan Display</span>
+                        </div>
+                        <ul class="filter-toggle-list" id="plan-filter-group" style="padding-top: 8px;">
+                            <li class="filter-radio-item">
+                                <input type="radio" id="plan-filter-none" name="plan-display-mode" value="none" checked>
+                                <label for="plan-filter-none"><i class="fa-solid fa-eye-slash"></i> Hide Plan</label>
+                            </li>
+                            <li class="filter-radio-item">
+                                <input type="radio" id="plan-filter-direct" name="plan-display-mode" value="direct">
+                                <label for="plan-filter-direct"><i class="fa-solid fa-route"></i> Direct to Destination</label>
+                            </li>
+                            <li class="filter-radio-item">
+                                <input type="radio" id="plan-filter-full" name="plan-display-mode" value="full">
+                                <label for="plan-filter-full"><i class="fa-solid fa-diagram-project"></i> Full Filed Plan</label>
+                            </li>
+                        </ul>
+
+                        <div class="mobile-only-filter-section">
+                            <div class="filter-section-divider">
+                                <span class="filter-section-title">Mobile Display Mode</span>
+                            </div>
+                            <ul class="filter-toggle-list" id="mobile-mode-filter-group" style="padding-top: 8px;">
+        
+                                <li class="filter-radio-item">
+                                    <input type="radio" id="mobile-mode-hud" name="mobile-display-mode" value="hud" checked>
+                                    <label for="mobile-mode-hud"><i class="fa-solid fa-rocket"></i> HUD View</label>
+                                </li>
+                                <li class="filter-radio-item">
+                                    <input type="radio" id="mobile-mode-legacy" name="mobile-display-mode" value="legacy">
+                                    <label for="mobile-mode-legacy"><i class="fa-solid fa-layer-group"></i> Legacy Sheet</label>
+                                </li>
+                            </ul>
+                        </div>
+
+                       
+                        <div class="filter-section-divider">
+                            <span class="filter-section-title">Window Appearance</span>
+                        </div>
+                        <div class="filter-appearance-controls" style="padding: 10px; display: flex; flex-direction: column; gap: 10px;">
+                            <div style="display: flex; justify-content: space-between; align-items: center;">
+                                <span style="color: #ccc; font-size: 0.9rem;">Gradient Start Color</span>
+                                <input type="color" id="theme-color-start" value="#121426" style="background: none; border: none; width: 50px; height: 30px; cursor: pointer;">
+                            </div>
+                            <div style="display: flex; justify-content: space-between; align-items: center;">
+                                <span style="color: #ccc; font-size: 0.9rem;">Gradient End Color</span>
+                                <input type="color" id="theme-color-end" value="#121426" style="background: none; border: none; width: 50px; height: 30px; cursor: pointer;">
+                            </div>
+                            <div style="display: flex; gap: 10px;">
+                                 <button id="theme-reset-btn" class="cta-button" style="width: 100%; padding: 8px; font-size: 0.85rem; border-radius: 4px; background: rgba(255,255,255,0.1); border: 1px solid #444; color: #fff; cursor: pointer;">Reset Default Theme</button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            `;
+            mapContainer.insertAdjacentHTML('beforeend', windowHtml);
+        }
+
+        // Inject into initializeSectorOpsView
+if (!document.getElementById('trip-card-takeover')) {
+const takeoverHtml = `
+    <div id="trip-card-takeover">
+        <div class="tc-modal-header">
+            <span class="tc-callsign">---</span>
+            <button class="takeover-exit-btn" onclick="toggleTripCardMode(false)">
+                <i class="fa-solid fa-xmark"></i>
+            </button>
+        </div>
+        <div class="tc-data-row">
+            <div class="tc-stat-box">
+                <span class="tc-label">Altitude</span>
+                <div><span class="tc-alt tc-value">0</span><span class="tc-unit">FT</span></div>
+            </div>
+            <div class="tc-stat-box">
+                <span class="tc-label">Ground Speed</span>
+                <div><span class="tc-spd tc-value">0</span><span class="tc-unit">KTS</span></div>
+            </div>
+        </div>
+        <div class="tc-modal-footer">
+            <div class="tc-route">---</div>
+            <div class="tc-pilot">---</div>
+        </div>
+    </div>
+`;
+    mapContainer.insertAdjacentHTML('beforeend', takeoverHtml);
+}
+        
+        // --- 9. Inject Toolbar Buttons (if missing) ---
+        const toolbarToggleBtn = document.getElementById('toolbar-toggle-panel-btn');
+
+        if (toolbarToggleBtn) {
+             if (!document.getElementById('airport-recall-btn')) {
+                toolbarToggleBtn.parentElement.insertAdjacentHTML('beforeend', `
+                    <button id="airport-recall-btn" class="toolbar-btn" title="Show Airport Info">
+                        <i class="fa-solid fa-location-dot"></i>
+                    </button>
+                `);
+             }
+             if (!document.getElementById('aircraft-recall-btn')) {
+                toolbarToggleBtn.parentElement.insertAdjacentHTML('beforeend', `
+                    <button id="aircraft-recall-btn" class="toolbar-btn" title="Show Aircraft Info">
+                        <i class="fa-solid fa-plane-up"></i>
+                    </button>
+                `);
+             }
+             if (!document.getElementById('open-weather-settings-btn')) {
+                toolbarToggleBtn.parentElement.insertAdjacentHTML('beforeend', `
+                    <button id="open-weather-settings-btn" class="toolbar-btn" title="Weather Settings">
+                        <i class="fa-solid fa-cloud-sun"></i>
+                    </button>
+                `);
+             }
+             if (!document.getElementById('open-filter-settings-btn')) {
+                toolbarToggleBtn.parentElement.insertAdjacentHTML('beforeend', `
+                    <button id="open-filter-settings-btn" class="toolbar-btn" title="Settings">
+                        <i class="fa-solid fa-gear"></i>
+                     </button>
+                `);
+             }
+        }
+        
+        // --- 10. Assign Global Variables ---
+        airportInfoWindow = document.getElementById('airport-info-window');
+        airportInfoWindowRecallBtn = document.getElementById('airport-recall-btn');
+        aircraftInfoWindow = document.getElementById('aircraft-info-window');
+        aircraftInfoWindowRecallBtn = document.getElementById('aircraft-recall-btn');
+        weatherSettingsWindow = document.getElementById('weather-settings-window');
+        filterSettingsWindow = document.getElementById('filter-settings-window');
+
+        LandingUI.init();
+        
+        // 3. Set Initial Visibility
+        LandingUI.update(true, {
+            server: currentServerName,
+            flights: Object.keys(currentMapFeatures).length,
+            atc: activeAtcFacilities.length
+        });
+
+        const natTracks = new NatTracksLayer(sectorOpsMap);
+        natTracks.setOptions({
+    showTracks: mapFilters.showNatTracks,
+    showLabels: mapFilters.showNatLabels
+});
+
+natTracks.fetchTracks();
+window.globalNatTracks = natTracks;
+        
+        // (Optional) Store it globally if you need to reference it later
+        window.globalNatTracks = natTracks;
+
+        // --- 11. Load Content and Setup Listeners ---
+        await loadExternalPanelContent();
+        setupSectorOpsEventListeners();
+        setupAirportWindowEvents();
+        setupAircraftWindowEvents();
+        setupWeatherSettingsWindowEvents();
+        setupFilterSettingsWindowEvents();
+        initPlaneSizeSlider(sectorOpsMap, mapFilters);
+        
+        // --- 12. Setup Search Listeners (Now that elements exist) ---
+        setupSearchEventListeners();
+
+        // --- 13. Initialize Smart Map Click ---
+        setupSmartMapBackgroundClick();
+
+        // --- 14. Listen for ND_READY signal ---
+        window.addEventListener('message', (event) => {
+            if (event.data && event.data.type === 'ND_READY') {
+                refreshNavDisplayFromCache();
+            }
+        });
+
+        // --- 15. Start Live Loop ---
+        startSectorOpsLiveLoop();
+    } catch (error) {
+        console.error("Error initializing Sector Ops view:", error);
+        showNotification(error.message, 'error');
+        const panelContentWrapper = document.querySelector('#sector-ops-floating-panel .panel-content-wrapper');
+        if (panelContentWrapper) {
+            panelContentWrapper.innerHTML = `<p class="error-text" style="padding: 20px;">${error.message}</p>`;
+        }
+    } finally {
+        // Ensure the loading screen lasts for at least 6 seconds (6000ms)
+        const minLoadingTime = 8000;
+        const timeElapsed = Date.now() - window.loadingStartTime;
+        const remainingTime = Math.max(0, minLoadingTime - timeElapsed);
+
+        setTimeout(() => {
+            mainContentLoader.classList.remove('active');
+            console.log("Loading complete after 8 seconds.");
+        }, remainingTime);
+    }
+}
+
+/**
+ * --- [RESTORED] Sets up base layers, icons, and fog.
+ * Called on initial load AND on every style change.
+ */
+async function setupMapLayersAndFog() {
+    if (!sectorOpsMap) return;
+
+    // 1. Set globe fog
+    sectorOpsMap.setFog({
+        color: 'rgb(186, 210, 235)', // Lower atmosphere
+        'high-color': 'rgb(36, 92, 223)', // Upper atmosphere
+        'horizon-blend': 0.02, // Smooth blend
+        'space-color': 'rgb(27, 27, 54)', // Space color
+        'star-intensity': 0.3 // Adjust star intensity
+    });
+
+    // 2. Load all aircraft icons
+    const iconsToLoad = [
+        { id: 'icon-jumbo', path: '/Images/map_icons/jumbo.png' },
+        { id: 'icon-widebody', path: '/Images/map_icons/widebody.png' },
+        { id: 'icon-narrowbody', path: '/Images/map_icons/narrowbody.png' },
+        { id: 'icon-regional', path: '/Images/map_icons/regional.png' },
+        { id: 'icon-private', path: '/Images/map_icons/private.png' },
+        { id: 'icon-fighter', path: '/Images/map_icons/fighter.png' },
+        { id: 'icon-default', path: '/Images/map_icons/default.png' },
+        { id: 'icon-military', path: '/Images/map_icons/military.png' },
+        { id: 'icon-cessna', path: '/Images/map_icons/cessna.png' },
+        { id: 'icon-jumbo-orange', path: '/Images/map_icons/orange/jumbo.png' },
+        { id: 'icon-widebody-orange', path: '/Images/map_icons/orange/widebody.png' },
+        { id: 'icon-narrowbody-orange', path: '/Images/map_icons/orange/narrowbody.png' },
+        { id: 'icon-regional-orange', path: '/Images/map_icons/orange/regional.png' },
+        { id: 'icon-private-orange', path: '/Images/map_icons/orange/private.png' },
+        { id: 'icon-fighter-orange', path: '/Images/map_icons/orange/fighter.png' },
+        { id: 'icon-default-orange', path: '/Images/map_icons/orange/default.png' },
+        { id: 'icon-military-orange', path: '/Images/map_icons/orange/military.png' },
+        { id: 'icon-cessna-orange', path: '/Images/map_icons/orange/cessna.png' },
+        { id: 'icon-jumbo-blue', path: '/Images/map_icons/blue/jumbo.png' },
+        { id: 'icon-widebody-blue', path: '/Images/map_icons/blue/widebody.png' },
+        { id: 'icon-narrowbody-blue', path: '/Images/map_icons/blue/narrowbody.png' },
+        { id: 'icon-regional-blue', path: '/Images/map_icons/blue/regional.png' },
+        { id: 'icon-private-blue', path: '/Images/map_icons/blue/private.png' },
+        { id: 'icon-fighter-blue', path: '/Images/map_icons/blue/fighter.png' },
+        { id: 'icon-default-blue', path: '/Images/map_icons/blue/default.png' },
+        { id: 'icon-military-blue', path: '/Images/map_icons/blue/military.png' },
+        { id: 'icon-cessna-blue', path: '/Images/map_icons/blue/cessna.png' }
+    ];
+
+    const imagePromises = iconsToLoad.map(icon =>
+        new Promise((res, rej) => {
+            if (sectorOpsMap.hasImage(icon.id)) {
+                res();
+                return;
+            }
+            sectorOpsMap.loadImage(icon.path, (error, image) => {
+                if (error) {
+                    console.warn(`Could not load icon: ${icon.path}`);
+                    // Don't reject, just resolve so others can proceed
+                    res();
+                } else {
+                    sectorOpsMap.addImage(icon.id, image);
+                    res();
+                }
+            });
+        })
+    );
+    
+    await Promise.all(imagePromises).catch(err => console.error("Error loading map icons", err));
+
+    // 3. Add base flight data source
+    if (!sectorOpsMap.getSource('sector-ops-live-flights-source')) {
+        sectorOpsMap.addSource('sector-ops-live-flights-source', {
+            type: 'geojson',
+            data: { type: 'FeatureCollection', features: Object.values(currentMapFeatures) }
+        });
+    }
+
+    // Initialize Animator if class exists
+    if (typeof MapAnimator !== 'undefined') {
+        mapAnimator = new MapAnimator(sectorOpsMap, 'sector-ops-live-flights-source', currentMapFeatures);
+    }
+
+    // 4. Add the ICON layer
+    if (!sectorOpsMap.getLayer('sector-ops-live-flights-layer')) {
+        // Inside setupMapLayersAndFog
+sectorOpsMap.addLayer({
+    'id': 'sector-ops-live-flights-layer',
+    'type': 'symbol',
+    'source': 'sector-ops-live-flights-source',
+    'layout': {
+        'icon-image': getIconImageExpression(mapFilters.iconColorMode),
+        'icon-size': mapFilters.planeIconSize,
+        'icon-allow-overlap': true,
+        'icon-ignore-placement': true,
+        'icon-rotation-alignment': 'map',
+        'icon-rotate': ['get', 'heading']
+    }
+});
+
+        // Click Listener
+        sectorOpsMap.on('click', 'sector-ops-live-flights-layer', (e) => {
+            const props = e.features[0].properties;
+            const flightProps = { ...props, position: JSON.parse(props.position), aircraft: JSON.parse(props.aircraft) };
+            fetch('https://site--acars-backend--6dmjph8ltlhv.code.run/if-sessions').then(res => res.json()).then(data => {
+                const sessionId = getCurrentSessionId(data);
+                if (sessionId) {
+                    handleAircraftClick(flightProps, sessionId);
+                }
+            });
+        });
+
+        // Locate the Hover Listener block inside setupMapLayersAndFog
+const isTouchDevice = 'ontouchstart' in window || navigator.maxTouchPoints > 0;
+
+if (!isTouchDevice && (typeof window.MobileUIHandler === 'undefined' || !window.MobileUIHandler.isMobile())) {
+    const hoverPopup = new mapboxgl.Popup({ closeButton: false, closeOnClick: false, offset: 20 });
+
+    sectorOpsMap.on('mouseenter', 'sector-ops-live-flights-layer', (e) => {
+        sectorOpsMap.getCanvas().style.cursor = 'pointer';
+        const coordinates = e.features[0].geometry.coordinates.slice();
+        const props = e.features[0].properties;
+
+        // Ensure popup doesn't display over the same spot twice if map wraps
+        while (Math.abs(e.lngLat.lng - coordinates[0]) > 180) {
+            coordinates[0] += e.lngLat.lng > coordinates[0] ? 360 : -360;
+        }
+
+        if (typeof generateHoverCardHTML !== 'undefined') {
+            const cardHTML = generateHoverCardHTML(props);
+            hoverPopup.setLngLat(coordinates).setHTML(cardHTML).addTo(sectorOpsMap);
+        }
+    });
+
+    sectorOpsMap.on('mouseleave', 'sector-ops-live-flights-layer', () => {
+        sectorOpsMap.getCanvas().style.cursor = '';
+        hoverPopup.remove();
+    });
+}
+    }
+    
+    // 5. Add the LABEL layer
+    if (!sectorOpsMap.getLayer('sector-ops-live-flights-labels')) {
+        sectorOpsMap.addLayer({
+            id: 'sector-ops-live-flights-labels',
+            type: 'symbol',
+            source: 'sector-ops-live-flights-source', 
+            minzoom: 6.5,
+            layout: {
+                'visibility': (mapFilters && mapFilters.showAircraftLabels) ? 'visible' : 'none',
+                'text-field': [
+                    'format',
+                    ['get', 'callsign'], { 'text-color': '#FFFFFF' }, 
+                    '\n', {},                  
+                    ['get', 'phase'],    
+                    { 
+                        'text-color': [ 
+                            'match',
+                            ['get', 'phase'],
+                            'Climb', '#28a745',
+                            'Cruise', '#007bff',
+                            'Descent', '#ff9900',
+                            'Approach', '#a33ea3',
+                            'Ground', '#9fa8da',
+                            '#e8eaf6'
+                        ]
+                    }
+                ],
+                'text-font': ['Mapbox Txt Regular', 'Arial Unicode MS Regular'],
+                'text-size': 10,
+                'text-offset': [0, 2.5],
+                'text-anchor': 'top',
+                'text-allow-overlap': false,
+                'text-ignore-placement': false,
+                'text-padding': 3,
+            },
+            paint: {
+                'text-halo-color': 'rgba(10, 12, 26, 0.85)',
+                'text-halo-width': 2,
+                'text-halo-blur': 0
+            }
+        });
+    }
+}
+
+/**
+ * [UPDATED] Initializes the Sector Ops map with high-performance configurations.
+ */
 function initializeSectorOpsMap(centerICAO) {
     if (!MAPBOX_ACCESS_TOKEN) {
         document.getElementById('sector-ops-map-fullscreen').innerHTML = '<p class="map-error-msg">Map service not available.</p>';
         return;
     }
-    if (sectorOpsMap) sectorOpsMap.remove();
+
+    if (sectorOpsMap) {
+        sectorOpsMap.remove();
+        sectorOpsMap = null;
+    }
 
     const centerCoords = airportsData[centerICAO] ? [airportsData[centerICAO].lon, airportsData[centerICAO].lat] : [77.2, 28.6];
 
+    // --- ENHANCED PERFORMANCE CONFIGURATION ---
     sectorOpsMap = new mapboxgl.Map({
         container: 'sector-ops-map-fullscreen',
-        style: currentMapStyle, // Use the global state variable
+        style: currentMapStyle,
         center: centerCoords,
-        zoom: 4.5,
+        zoom: 2,
+        minZoom: 0,
         interactive: true,
-        projection: 'globe'
+        projection: mapFilters.useFlatMap ? 'mercator' : 'globe',
+        // --- PERFORMANCE & CACHING CONFIG ---
+        fadeDuration: 0,           // Instant rendering
+        maxTileCacheSize: 500,     // Broad tile caching
+        crossSourceCollisions: false,
+        localIdeographFontFamily: "'Inter', 'sans-serif'",
+        preserveDrawingBuffer: true 
     });
 
-
-    /**
-     * --- [FIXED] Generates the HTML for the Hover Card (FR24 Style) ---
-     * Reads pre-cached image/contributor data from props.
-     */
-    function generateHoverCardHTML(props) {
-        // 1. Data Parsing & Cached Lookup
-        const aircraftData = typeof props.aircraft === 'string' ? JSON.parse(props.aircraft || '{}') : (props.aircraft || {});
-        
-        // --- READ CACHED BACKEND DATA ---
-        const imagePath = props.communityImageUrl || '/CommunityPlanes/default.png'; // Use cached S3 URL
-        const contributor = props.contributorName || 'IF Community'; // Use cached contributor
-        
-        // 2. Image Logic (Now simplified as it relies on the cached URL)
-        const fallbackPath = '/CommunityPlanes/default.png';
-
-        // 3. Airline Logo Logic (Unchanged)
-        const livName = aircraftData.liveryName || '';
-        const words = livName.trim().split(/\s+/);
-        let logoName = words.length > 1 && /[^a-zA-Z0-9]/.test(words[1]) ? words[0] : (words[0] + (words[1] ? ' ' + words[1] : ''));
-        const sanitizedLogoName = logoName.toLowerCase().replace(/[^a-z0-9\s]/g, '').replace(/\s+/g, '_');
-        const logoPath = `Images/airline_logos/${sanitizedLogoName}.png`;
-
-        // 4. Formatting Data
-        const callsign = props.callsign || 'N/A';
-        const altitude = props.altitude ? Math.round(props.altitude).toLocaleString() : '0';
-        const speed = props.speed ? Math.round(props.speed) : '0';
-        
-        // Create a short aircraft code 
-        const acName = aircraftData.aircraftName || 'Unknown';
-        let shortType = "JET";
-        if(acName.includes("777")) shortType = "B77W";
-        else if(acName.includes("737")) shortType = "B737";
-        else if(acName.includes("320")) shortType = "A320";
-        else if(acName.includes("321")) shortType = "A321";
-        else if(acName.includes("350")) shortType = "A350";
-        else if(acName.includes("380")) shortType = "A380";
-        else if(acName.includes("787")) shortType = "B787";
-        else shortType = acName.split(' ')[0].substring(0, 4).toUpperCase();
-
-        // 5. Route Logic
-        let routeText = "Enroute";
-        if (props.origin && props.destination) {
-            routeText = `${props.origin} to ${props.destination}`;
-        } else if (aircraftData.origin && aircraftData.destination) {
-             routeText = `${aircraftData.origin} to ${aircraftData.destination}`;
-        }
-        
-        // 6. Progress Logic (Mocked or Real)
-        const progressPercent = props.progress || 50; 
-
-        // 7. HTML Construction
-        return `
-            <div class="fr24-card-container">
-                <div class="fr24-image-box" style="background-image: url('${imagePath}'), url('${fallbackPath}');">
-                    <div class="fr24-image-overlay"></div>
-                    <span class="fr24-copyright">© ${contributor}</span>
-                </div>
-
-                <div class="fr24-info-box">
-                    <div class="fr24-header-row">
-                        <img src="${logoPath}" class="fr24-airline-logo" onerror="this.style.display='none'" alt="Logo">
-                        <div style="display: flex; flex-direction: column; gap: 2px;">
-                            <div class="fr24-ident-group">
-                                <span class="fr24-callsign">${callsign}</span>
-                                <span class="fr24-ac-badge">${shortType}</span>
-                            </div>
-                             <div class="fr24-route">${routeText}</div>
-                        </div>
-                    </div>
-                   
-                    <div class="fr24-progress-track">
-                        <div class="fr24-progress-fill" style="width: ${progressPercent}%;"></div>
-                    </div>
-
-                    <div class="fr24-stats-row">
-                        ${altitude} ft • ${speed} kts
-                    </div>
-                </div>
-            </div>
-        `;
-    }
-
-    /**
-     * --- [NEW] Extracted function to set up base layers.
-     * This is called on initial load AND on every style change.
-     */
-    async function setupMapLayersAndFog() {
-        // 1. Set globe fog
-        sectorOpsMap.setFog({
-            color: 'rgb(186, 210, 235)', // Lower atmosphere
-            'high-color': 'rgb(36, 92, 223)', // Upper atmosphere
-            'horizon-blend': 0.02, // Smooth blend
-            'space-color': 'rgb(11, 11, 25)', // Space color
-            'star-intensity': 0.6 // Adjust star intensity
-        });
-
-        // 2. Load all aircraft icons
-        const iconsToLoad = [
-            { id: 'icon-jumbo', path: '/Images/map_icons/jumbo.png' },
-            { id: 'icon-widebody', path: '/Images/map_icons/widebody.png' },
-            { id: 'icon-narrowbody', path: '/Images/map_icons/narrowbody.png' },
-            { id: 'icon-regional', path: '/Images/map_icons/regional.png' },
-            { id: 'icon-private', path: '/Images/map_icons/private.png' },
-            { id: 'icon-fighter', path: '/Images/map_icons/fighter.png' },
-            { id: 'icon-default', path: '/Images/map_icons/default.png' },
-            { id: 'icon-military', path: '/Images/map_icons/military.png' },
-            { id: 'icon-cessna', path: '/Images/map_icons/cessna.png' },
-            { id: 'icon-jumbo-orange', path: '/Images/map_icons/orange/jumbo.png' },
-            { id: 'icon-widebody-orange', path: '/Images/map_icons/orange/widebody.png' },
-            { id: 'icon-narrowbody-orange', path: '/Images/map_icons/orange/narrowbody.png' },
-            { id: 'icon-regional-orange', path: '/Images/map_icons/orange/regional.png' },
-            { id: 'icon-private-orange', path: '/Images/map_icons/orange/private.png' },
-            { id: 'icon-fighter-orange', path: '/Images/map_icons/orange/fighter.png' },
-            { id: 'icon-default-orange', path: '/Images/map_icons/orange/default.png' },
-            { id: 'icon-military-orange', path: '/Images/map_icons/orange/military.png' },
-            { id: 'icon-cessna-orange', path: '/Images/map_icons/orange/cessna.png' },
-            { id: 'icon-jumbo-blue', path: '/Images/map_icons/blue/jumbo.png' },
-            { id: 'icon-widebody-blue', path: '/Images/map_icons/blue/widebody.png' },
-            { id: 'icon-narrowbody-blue', path: '/Images/map_icons/blue/narrowbody.png' },
-            { id: 'icon-regional-blue', path: '/Images/map_icons/blue/regional.png' },
-            { id: 'icon-private-blue', path: '/Images/map_icons/blue/private.png' },
-            { id: 'icon-fighter-blue', path: '/Images/map_icons/blue/fighter.png' },
-            { id: 'icon-default-blue', path: '/Images/map_icons/blue/default.png' },
-            { id: 'icon-military-blue', path: '/Images/map_icons/blue/military.png' },
-            { id: 'icon-cessna-blue', path: '/Images/map_icons/blue/cessna.png' }
-        ];
-
-        const imagePromises = iconsToLoad.map(icon =>
-            new Promise((res, rej) => {
-                if (sectorOpsMap.hasImage(icon.id)) {
-                    res();
-                    return;
-                }
-                sectorOpsMap.loadImage(icon.path, (error, image) => {
-                    if (error) {
-                        console.warn(`Could not load icon: ${icon.path}`);
-                        rej(error);
-                    } else {
-                        sectorOpsMap.addImage(icon.id, image);
-                        res();
-                    }
-                });
-            })
-        );
-        
-        await Promise.all(imagePromises).catch(err => console.error("Error loading map icons", err));
-
-        // 3. Add base flight data source
-        if (!sectorOpsMap.getSource('sector-ops-live-flights-source')) {
-            sectorOpsMap.addSource('sector-ops-live-flights-source', {
-                type: 'geojson',
-                data: { type: 'FeatureCollection', features: Object.values(currentMapFeatures) }
-            });
-        }
-
-        mapAnimator = new MapAnimator(sectorOpsMap, 'sector-ops-live-flights-source', currentMapFeatures);
-
-        // 4. Add the ICON layer
-        if (!sectorOpsMap.getLayer('sector-ops-live-flights-layer')) {
-            sectorOpsMap.addLayer({
-                id: 'sector-ops-live-flights-layer',
-                type: 'symbol',
-                source: 'sector-ops-live-flights-source',
-                layout: {
-                    'icon-image': getIconImageExpression(mapFilters.iconColorMode),
-                    'icon-size': 0.08,
-                    'icon-rotate': ['get', 'heading'],
-                    'icon-rotation-alignment': 'map',
-                    'icon-allow-overlap': true,
-                    'icon-ignore-placement': true,
-                }
-            });
-
-            sectorOpsMap.on('click', 'sector-ops-live-flights-layer', (e) => {
-                const props = e.features[0].properties;
-                const flightProps = { ...props, position: JSON.parse(props.position), aircraft: JSON.parse(props.aircraft) };
-                fetch('https://site--acars-backend--6dmjph8ltlhv.code.run/if-sessions').then(res => res.json()).then(data => {
-                    // [UPDATED] Use helper
-                    const sessionId = getCurrentSessionId(data);
-                    if (sessionId) {
-                        handleAircraftClick(flightProps, sessionId);
-                    }
-                });
-            });
-
-            // -------------------------------------------------------------
-            // --- NEW: HOVER POPUP LOGIC ---
-            // -------------------------------------------------------------
-            
-            // ✅ FIX: Only attach hover listeners on non-mobile/tablet devices
-            if (typeof window.MobileUIHandler === 'undefined' || !window.MobileUIHandler.isMobile()) {
-                
-                const hoverPopup = new mapboxgl.Popup({
-                    closeButton: false,
-                    closeOnClick: false,
-                    offset: 20 // Distance from the aircraft icon
-                });
-
-                sectorOpsMap.on('mouseenter', 'sector-ops-live-flights-layer', (e) => {
-                    // Change cursor
-                    sectorOpsMap.getCanvas().style.cursor = 'pointer';
-
-                    // Get properties
-                    const coordinates = e.features[0].geometry.coordinates.slice();
-                    const props = e.features[0].properties;
-
-                    // Handle map wrapping
-                    while (Math.abs(e.lngLat.lng - coordinates[0]) > 180) {
-                        coordinates[0] += e.lngLat.lng > coordinates[0] ? 360 : -360;
-                    }
-
-                    // Generate Custom "Widget" HTML
-                    const cardHTML = generateHoverCardHTML(props);
-
-                    // Set HTML and Show
-                    hoverPopup.setLngLat(coordinates)
-                              .setHTML(cardHTML)
-                              .addTo(sectorOpsMap);
-                });
-
-                sectorOpsMap.on('mouseleave', 'sector-ops-live-flights-layer', () => {
-                    sectorOpsMap.getCanvas().style.cursor = '';
-                    hoverPopup.remove(); // Hide the card immediately on exit
-                });
-            } else {
-                 console.log("Hover popup disabled for mobile device.");
-            }
-            // -------------------------------------------------------------
-        }
-        
-        // 5. Add the LABEL layer
-        if (!sectorOpsMap.getLayer('sector-ops-live-flights-labels')) {
-            sectorOpsMap.addLayer({
-                id: 'sector-ops-live-flights-labels',
-                type: 'symbol',
-                source: 'sector-ops-live-flights-source', 
-                minzoom: 6.5,
-                layout: {
-                    'visibility': mapFilters.showAircraftLabels ? 'visible' : 'none',
-                    'text-field': [
-                        'format',
-                        ['get', 'callsign'], { 'text-color': '#FFFFFF' }, 
-                        '\n', {},                  
-                        ['get', 'phase'],    
-                        { 
-                            'text-color': [ 
-                                'match',
-                                ['get', 'phase'],
-                                'Climb', '#28a745',
-                                'Cruise', '#007bff',
-                                'Descent', '#ff9900',
-                                'Approach', '#a33ea3',
-                                'Ground', '#9fa8da',
-                                '#e8eaf6'
-                            ]
-                        }
-                    ],
-                    'text-font': ['Mapbox Txt Regular', 'Arial Unicode MS Regular'],
-                    'text-size': 10,
-                    'text-offset': [0, 2.5],
-                    'text-anchor': 'top',
-                    'text-allow-overlap': false,
-                    'text-ignore-placement': false,
-                    'text-padding': 3,
-                },
-                paint: {
-                    'text-halo-color': 'rgba(10, 12, 26, 0.85)',
-                    'text-halo-width': 2,
-                    'text-halo-blur': 0
-                }
-            });
-        }
-    }
-    
     sectorOpsMap.on('style.load', async () => {
         console.log("Map style reloading. Rebuilding layers...");
         await setupMapLayersAndFog();
-        rebuildDynamicLayers();
+        if (typeof rebuildDynamicLayers !== 'undefined') rebuildDynamicLayers();
     });
 
     return new Promise(resolve => {
         sectorOpsMap.on('load', async () => {
+            GroupFlightManager.init(sectorOpsMap);
             await setupMapLayersAndFog();
+            setTimeout(() => initializeMapBoundaries(sectorOpsMap), 2000);
+            await initializeMapBoundaries(sectorOpsMap);
             resolve();
         });
     });
 }
 
-
+// Call this function whenever you fetch new ATC data
+function onAtcDataReceived(newAtcData) {
+    // Import and use the function from atcHighlights.js
+    updateActiveSectors(sectorOpsMap, 'fir-fills', newAtcData);
+}
 
     /**
      * (REFACTORED) Clears only the route line layers from the map.
@@ -7472,54 +8693,70 @@ function initializeSectorOpsMap(centerICAO) {
     }
 
     
-
- /**
+/**
      * --- [UPDATED] Rebuilds all dynamic layers after a map style change.
-     * Ensures Volanta-style Radar and SIGMETs are restored correctly.
+     * Ensures Volanta-style Radar, SIGMETs, and NAT Tracks are restored correctly.
      */
     function rebuildDynamicLayers() {
         console.log("Rebuilding dynamic layers...");
 
-        // 1. Re-apply SIGMETS (Volanta Style)
+        // 1. Re-apply FIR Boundaries (Boundaries usually wipe on style change)
+        if (typeof initializeMapBoundaries === 'function') {
+            initializeMapBoundaries(sectorOpsMap);
+        }
+
+        // 2. Re-apply NAT Tracks
+        if (window.globalNatTracks) {
+            // Re-initialize the source and layers for the new style
+            window.globalNatTracks.initSource();
+            
+            // Sync visibility and labels with current mapFilters state
+            window.globalNatTracks.setOptions({
+                showTracks: mapFilters.showNatTracks,
+                showLabels: mapFilters.showNatLabels
+            });
+
+            // Trigger the render to add them to the map
+            window.globalNatTracks.render();
+            console.log("NAT Tracks restored.");
+        }
+
+        // 3. Re-apply SIGMETS (Volanta Style)
         if (document.getElementById('weather-toggle-sigmets')?.checked) {
             isSigmetLayerAdded = false; // Force re-fetch/re-add
             toggleSigmetLayer(true);
         }
 
-        // 2. Re-apply Radar (Precip - RainViewer)
-        // We set isWeatherLayerAdded = false to force it to re-fetch the dynamic RainViewer path
+        // 4. Re-apply Radar (Precip - RainViewer)
         if (document.getElementById('weather-toggle-precip')?.checked) {
             isWeatherLayerAdded = false; 
             toggleWeatherLayer(true);
         }
 
-        // 3. Re-apply Clouds
+        // 5. Re-apply Clouds
         if (document.getElementById('weather-toggle-clouds')?.checked) {
             isCloudLayerAdded = false; // Force re-creation
             toggleCloudLayer(true);
         }
 
-        // 4. Re-apply Wind
+        // 6. Re-apply Wind
         if (document.getElementById('weather-toggle-wind')?.checked) {
             isWindLayerAdded = false; // Force re-creation
             toggleWindLayer(true);
         }
 
-        // 5. Re-apply airport routes
+        // 7. Re-apply airport routes
         if (currentAirportInWindow) {
-            // This function already clears old layers and re-adds new ones
             plotRoutesFromAirport(currentAirportInWindow);
         }
 
-        // 6. Re-apply active flight trail
+        // 8. Re-apply active flight trail
         if (currentFlightInWindow) {
             const flightId = currentFlightInWindow;
             
-            // Clear any stray map state
             clearLiveFlightPath(flightId); 
             delete sectorOpsLiveFlightPathLayers[flightId]; 
 
-            // Get cached data from when the window was opened
             const { flightProps, plan } = cachedFlightDataForStatsView;
             if (flightProps) {
                 const localTrail = liveTrailCache.get(flightId) || [];
@@ -7527,13 +8764,11 @@ function initializeSectorOpsMap(centerICAO) {
                 
                 const routeFeatureCollection = generateAltitudeColoredRoute(localTrail, currentPosition, plan);
 
-                // Re-add source
                 sectorOpsMap.addSource(`flown-path-${flightId}`, {
                     type: 'geojson',
                     data: routeFeatureCollection
                 });
                 
-                // Re-add layer
                 sectorOpsMap.addLayer({
                     id: `flown-path-${flightId}`,
                     type: 'line',
@@ -7565,12 +8800,11 @@ function initializeSectorOpsMap(centerICAO) {
                         'line-translate': [0, -2],
                         'line-translate-anchor': 'viewport'
                     }
-                }, 'sector-ops-live-flights-layer'); // Draw below aircraft
+                }, 'sector-ops-live-flights-layer'); 
                 
                 sectorOpsLiveFlightPathLayers[flightId] = { flown: `flown-path-${flightId}` };
                 console.log(`Rebuilt active trail for ${flightId}`);
 
-                // Re-draw the planned route line based on filter state
                 if (plan) {
                     const position = currentAircraftPositionForGeocode || flightProps.position;
                     updateFlightPlanLayer(flightId, plan, position);
@@ -7578,10 +8812,10 @@ function initializeSectorOpsMap(centerICAO) {
             }
         }
         
-        // 7. Re-apply aircraft filters
+        // 9. Re-apply aircraft filters
         updateAircraftLayerFilter();
 
-        // 8. Re-render airport markers
+        // 10. Re-render airport markers
         renderAirportMarkers();
     }
 
@@ -7699,6 +8933,8 @@ function updateFlightPlanLayer(flightId, plan, currentPosition) {
                 id: layerIdFull,
                 type: 'line',
                 source: layerIdFull,
+                tolerance: 0,      // <--- ADD THIS
+                buffer: 0,         // <--- ADD THIS
                 'filter': ['==', '$type', 'LineString'], 
                 paint: {
                     'line-color': '#aaaaaa',
@@ -7739,75 +8975,96 @@ function updateFlightPlanLayer(flightId, plan, currentPosition) {
 }
 
 
-    async function handleAirportClick(icao) {
-        if (currentAirportInWindow && currentAirportInWindow !== icao) {
-            airportInfoWindow.classList.remove('visible');
+    /**
+ * Handles clicks on airport markers/tags. 
+ * High priority: This will always close the aircraft window if it is open.
+ */
+async function handleAirportClick(icao, event = null) {
+    if (!icao) return;
+
+    LandingUI.update(false);
+    localStorage.setItem('landingUI_visible', 'false');
+
+    // --- MUTUAL EXCLUSION ---
+    // If the aircraft window is open, close it immediately
+    if (currentFlightInWindow) {
+        closeAircraftWindow();
+    }
+
+    // 1. Cleanup existing airport state if switching to a different airport
+    if (currentAirportInWindow && currentAirportInWindow !== icao) {
+        airportInfoWindow.classList.remove('visible');
+        if (typeof airportInfoWindowRecallBtn !== 'undefined' && airportInfoWindowRecallBtn) {
             airportInfoWindowRecallBtn.classList.remove('visible');
-            clearRouteLayers();
         }
-
-        plotRoutesFromAirport(icao);
-
-        const airport = airportsData[icao];
-        if (!airport) return;
-
-        const contentEl = document.getElementById('airport-window-content');
-        contentEl.innerHTML = `<div class="spinner-small" style="margin: 2rem auto;"></div>`; // Loading state
-        
-        // --- MOVED UP: Trigger Mobile UI immediately to show the sheet ---
-        if (window.MobileUIHandler && window.MobileUIHandler.isMobile()) {
-            window.MobileUIHandler.openWindow(airportInfoWindow);
-        } else {
-            airportInfoWindow.classList.add('visible');
+        if (typeof clearRouteLayers === 'function') clearRouteLayers();
+        if (typeof AirportLayoutManager !== 'undefined' && sectorOpsMap) {
+            AirportLayoutManager.clearAll(sectorOpsMap);
         }
+    }
 
+    // 2. Initialize Map Visuals for the Airport
+    if (typeof plotRoutesFromAirport === 'function') plotRoutesFromAirport(icao);
+    
+    const airport = airportsData ? airportsData[icao] : null;
+    if (airport && typeof AirportLayoutManager !== 'undefined' && sectorOpsMap) {
+        AirportLayoutManager.plotTaxiways(sectorOpsMap, icao, airport.lat, airport.lon);
+    }
+
+    // 3. Prepare UI Container
+    const contentEl = document.getElementById('airport-window-content');
+    if (contentEl) {
+        contentEl.innerHTML = `<div class="spinner-small" style="margin: 2rem auto;"></div>`;
+    }
+
+    // 4. Show Window
+    if (window.MobileUIHandler && window.MobileUIHandler.isMobile()) {
+        window.MobileUIHandler.openWindow(airportInfoWindow);
+    } else {
+        airportInfoWindow.classList.add('visible');
+    }
+
+    if (typeof airportInfoWindowRecallBtn !== 'undefined' && airportInfoWindowRecallBtn) {
         airportInfoWindowRecallBtn.classList.remove('visible');
-        currentAirportInWindow = icao;
+    }
+    
+    currentAirportInWindow = icao;
 
+    // 5. Fetch and Render Data
+    try {
         const windowContentHTML = await createAirportInfoWindowHTML(icao);
-
-        if (windowContentHTML) {
+        if (windowContentHTML && contentEl) {
             contentEl.innerHTML = windowContentHTML;
             contentEl.scrollTop = 0;
 
-            // --- REDESIGNED TAB SWITCHING LOGIC ---
+            // Re-attach tab listeners for the new content
             const tabContainer = contentEl.querySelector('.apt-tabs-header');
             if (tabContainer) {
                 tabContainer.addEventListener('click', (e) => {
                     const btn = e.target.closest('.apt-tab-btn');
                     if (!btn) return;
-
                     const allBtns = tabContainer.querySelectorAll('.apt-tab-btn');
                     allBtns.forEach(b => b.classList.remove('active'));
-
                     btn.classList.add('active');
-
                     const allContent = contentEl.querySelectorAll('.apt-tab-content');
                     allContent.forEach(content => content.classList.remove('active'));
-
                     const targetId = btn.dataset.target;
                     const targetContent = contentEl.querySelector(`#${targetId}`);
-                    if (targetContent) {
-                        targetContent.classList.add('active');
-                    }
+                    if (targetContent) targetContent.classList.add('active');
                 });
             }
-        } else {
-             airportInfoWindow.classList.remove('visible');
-             // Also close mobile window if fetch failed
-             if (window.MobileUIHandler && window.MobileUIHandler.isMobile()) {
-                 window.MobileUIHandler.closeActiveWindow();
-             }
-             currentAirportInWindow = null;
+        } else if (!windowContentHTML) {
+            closeAirportWindow();
         }
+    } catch (err) {
+        console.error("Failed to load airport info:", err);
+        closeAirportWindow();
     }
+}
 
-    /**
- * --- [NEW HELPER FUNCTION FOR WAYPOINT FIX] ---
+/**
  * Recursively flattens the nested flightPlanItems from the SimBrief API plan
- * into a single, clean array of the full waypoint *objects*.
- * @param {Array} items - The flightPlanItems array from the API response.
- * @returns {Array<object>} A flat array of waypoint objects.
+ * into a single, clean array of the full waypoint objects.
  */
 function getFlatWaypointObjects(items) {
     const waypoints = [];
@@ -7815,14 +9072,10 @@ function getFlatWaypointObjects(items) {
 
     const extract = (planItems) => {
         for (const item of planItems) {
-            // If an item is a container for a procedure (like a SID/STAR),
-            // ignore its own object and process its children instead.
             if (Array.isArray(item.children) && item.children.length > 0) {
                 extract(item.children);
-            } 
-            // Otherwise, if it's a simple waypoint, add its object.
-            else if (item.location && typeof item.location.longitude === 'number' && typeof item.location.latitude === 'number' && (item.location.latitude !== 0 || item.location.longitude !== 0)) {
-                waypoints.push(item); // Push the whole object
+            } else if (item.location && typeof item.location.longitude === 'number' && typeof item.location.latitude === 'number' && (item.location.latitude !== 0 || item.location.longitude !== 0)) {
+                waypoints.push(item);
             }
         }
     };
@@ -7830,371 +9083,219 @@ function getFlatWaypointObjects(items) {
     extract(items);
     return waypoints;
 }
-    
-    /**
-     * --- [FIXED HELPER] ---
-     * Recursively flattens the nested flightPlanItems from the SimBrief API plan
-     * into a single, clean array of [longitude, latitude] coordinates.
-     * This version correctly handles nested procedures like SIDs and STARs.
-     * @param {Array} items - The flightPlanItems array from the API response.
-     * @returns {Array<[number, number]>} A flat array of coordinates.
-     */
-    function flattenWaypointsFromPlan(items) {
-        const waypoints = [];
-        if (!Array.isArray(items)) return waypoints;
-
-        const extract = (planItems) => {
-            for (const item of planItems) {
-                // If an item is a container for a procedure (like a SID/STAR),
-                // ignore its own coordinates and process its children instead.
-                if (Array.isArray(item.children) && item.children.length > 0) {
-                    extract(item.children);
-                } 
-                // Otherwise, if it's a simple waypoint, add its coordinates.
-                else if (item.location && typeof item.location.longitude === 'number' && typeof item.location.latitude === 'number' && (item.location.latitude !== 0 || item.location.longitude !== 0)) {
-                    waypoints.push([item.location.longitude, item.location.latitude]);
-                }
-            }
-        };
-
-        extract(items);
-        return waypoints;
-    }
-
-
-function calculateTurnAngle(p1, p2, p3) {
-    // Vectors
-    const v1 = { x: p2.longitude - p1.longitude, y: p2.latitude - p1.latitude };
-    const v2 = { x: p3.longitude - p2.longitude, y: p3.latitude - p2.latitude };
-
-    // Dot product & Magnitudes
-    const dot = (v1.x * v2.x) + (v1.y * v2.y);
-    const mag1 = Math.sqrt(v1.x * v1.x + v1.y * v1.y);
-    const mag2 = Math.sqrt(v2.x * v2.x + v2.y * v2.y);
-
-    if (mag1 === 0 || mag2 === 0) return 0;
-
-    // Angle in radians
-    const angleRad = Math.acos(Math.max(-1, Math.min(1, dot / (mag1 * mag2))));
-    return angleRad * (180 / Math.PI); // Convert to degrees
-}
 
 /**
- * --- [HELPER] Generates a smoothed coordinate array using Cubic Hermite Splines ---
+ * Recursively flattens the nested flightPlanItems into a single array of [lon, lat].
  */
-function generateSmoothPath(points) {
-    if (points.length < 3) return points;
+function flattenWaypointsFromPlan(items) {
+    const waypoints = [];
+    if (!Array.isArray(items)) return waypoints;
 
-    const smoothPoints = [];
-    const mathPoints = points.map(p => ({ x: p.unwrappedLongitude, y: p.latitude, alt: p.altitude }));
-
-    // Add phantom points for spline continuity
-    mathPoints.unshift(mathPoints[0]);
-    mathPoints.push(mathPoints[mathPoints.length - 1]);
-
-    for (let i = 0; i < mathPoints.length - 3; i++) {
-        const p0 = mathPoints[i];
-        const p1 = mathPoints[i + 1];
-        const p2 = mathPoints[i + 2];
-        const p3 = mathPoints[i + 3];
-
-        const dist = Math.sqrt(Math.pow(p2.x - p1.x, 2) + Math.pow(p2.y - p1.y, 2));
-        // Dynamic resolution: more segments for longer lines to keep curvature smooth
-        const segments = Math.max(2, Math.floor(dist * 8)); 
-
-        if (i === 0) {
-            smoothPoints.push({ unwrappedLongitude: p1.x, latitude: p1.y, altitude: p1.alt });
-        }
-
-        for (let j = 1; j <= segments; j++) {
-            const t = j / segments;
-            const t2 = t * t, t3 = t2 * t;
-
-            // Cardinal Spline / Catmull-Rom Simplified
-            const x = 0.5 * ((2 * p1.x) + (-p0.x + p2.x) * t + (2 * p0.x - 5 * p1.x + 4 * p2.x - p3.x) * t2 + (-p0.x + 3 * p1.x - 3 * p2.x + p3.x) * t3);
-            const y = 0.5 * ((2 * p1.y) + (-p0.y + p2.y) * t + (2 * p0.y - 5 * p1.y + 4 * p2.y - p3.y) * t2 + (-p0.y + 3 * p1.y - 3 * p2.y + p3.y) * t3);
-            const alt = p1.alt + (p2.alt - p1.alt) * t;
-
-            smoothPoints.push({ unwrappedLongitude: x, latitude: y, altitude: alt });
-        }
-    }
-    return smoothPoints;
-}
-
-/**
- * --- [FIXED v5] Smart Route Generator ---
- * Fixes:
- * 1. Intelligent Plan Backfill (Simulated History).
- * 2. Gap Filling.
- * 3. Date Line Safety.
- * 4. 3D Great Circle Densification.
- * 5. [NEW] Disables Spline Smoothing for sparse/simulated paths to prevent "bowing".
- */
-function generateAltitudeColoredRoute(sortedPoints, currentPosition, flightPlan = null) {
-    const features = [];
-    const GAP_THRESHOLD_KM = 20; 
-    const MIN_DIST_FROM_NOSE_KM = 0.2; 
-    
-    // Maximum segment length for 3D rendering. 
-    const MAX_RENDER_SEGMENT_KM = 50; 
-
-    // --- 1. PREPARE FLIGHT PLAN WAYPOINTS ---
-    let flatPlan = [];
-    if (flightPlan && flightPlan.flightPlanItems) {
-        const extract = (items) => {
-            let res = [];
-            items.forEach(item => {
-                if (item.children && item.children.length) res = res.concat(extract(item.children));
-                else if (item.location) res.push({ lat: item.location.latitude, lon: item.location.longitude, alt: item.altitude || 0 });
-            });
-            return res;
-        };
-        flatPlan = extract(flightPlan.flightPlanItems);
-    }
-
-    // Helper: Find closest waypoint index in plan
-    const getPlanIndex = (lat, lon) => {
-        let bestIdx = -1, minD = Infinity;
-        for(let i=0; i<flatPlan.length; i++) {
-            const d = getDistanceKm(lat, lon, flatPlan[i].lat, flatPlan[i].lon);
-            if (d < minD && d < 500) { 
-                minD = d;
-                bestIdx = i;
+    const extract = (planItems) => {
+        for (const item of planItems) {
+            if (Array.isArray(item.children) && item.children.length > 0) {
+                extract(item.children);
+            } else if (item.location && typeof item.location.longitude === 'number' && typeof item.location.latitude === 'number' && (item.location.latitude !== 0 || item.location.longitude !== 0)) {
+                waypoints.push([item.location.longitude, item.location.latitude]);
             }
         }
-        return bestIdx;
     };
 
-    // --- 2. SANITIZATION ---
-    const cleanHistory = sortedPoints.filter((p, i) => {
-        if (!p.latitude || !p.longitude) return false;
-        if (getDistanceKm(p.latitude, p.longitude, currentPosition.lat, currentPosition.lon) < MIN_DIST_FROM_NOSE_KM) return false;
-        if (i > 0) {
-            const prev = sortedPoints[i-1];
-            if (getDistanceKm(p.latitude, p.longitude, prev.latitude, prev.longitude) < 0.2) return false;
-        }
-        return true;
-    });
+    extract(items);
+    return waypoints;
+}
+/**
+ * --- REMADE: FLIGHT PATH GENERATION ENGINE ---
+ * Re-coded from scratch to handle high-fidelity trails, 
+ * altitude gradients, and globe-aware densification.
+ */
 
-    // --- 3. SPIKE REMOVAL ---
-    let deSpikedHistory = [];
-    if (cleanHistory.length > 0) deSpikedHistory.push(cleanHistory[0]);
+/**
+ * Normalizes coordinates to ensure a continuous line when crossing the Date Line.
+ * Prevents the "snap back" effect across the world map.
+ */
+function unwrapLineCoordinates(coords) {
+    if (!coords || coords.length < 2) return coords;
 
-    for (let i = 1; i < cleanHistory.length - 1; i++) {
-        const prev = deSpikedHistory[deSpikedHistory.length - 1];
-        const curr = cleanHistory[i];
-        const next = cleanHistory[i+1];
-        const turnAngle = calculateTurnAngle(prev, curr, next); 
-        if (Math.abs(turnAngle) < 130) { 
-            deSpikedHistory.push(curr);
-        }
+    const unwrapped = [coords[0]];
+    let referenceLon = coords[0][0];
+
+    for (let i = 1; i < coords.length; i++) {
+        let currentLon = coords[i][0];
+        const lat = coords[i][1];
+
+        // Find the shortest path around the circle (360 degrees)
+        let delta = currentLon - referenceLon;
+        while (delta > 180) delta -= 360;
+        while (delta < -180) delta += 360;
+
+        const newLon = referenceLon + delta;
+        unwrapped.push([newLon, lat]);
+        referenceLon = newLon;
     }
-    if (cleanHistory.length > 1) deSpikedHistory.push(cleanHistory[cleanHistory.length - 1]);
+    return unwrapped;
+}
 
-    // --- 4. INTELLIGENT PLAN BACKFILL ---
-    let effectiveHistory = [...deSpikedHistory];
+/**
+ * Injects intermediate points along a great-circle path.
+ * Required for Mapbox Globe to prevent lines from cutting through the Earth.
+ */
+function densifyRoute(coordinates, maxSegmentLengthKm = 100) {
+    if (!coordinates || coordinates.length < 2) return coordinates;
 
-    if (flatPlan.length > 0) {
-        const currentPlanIdx = getPlanIndex(currentPosition.lat, currentPosition.lon);
-        
-        if (effectiveHistory.length < 5 && currentPlanIdx > 0) {
-            // Case A: Missing history -> Simulate from plan
-            const simulated = flatPlan.slice(0, currentPlanIdx + 1).map(wp => ({
-                latitude: wp.lat,
-                longitude: wp.lon,
-                altitude: wp.alt,
-                groundSpeed: 0
-            }));
-            effectiveHistory = simulated;
-        } 
-        else if (effectiveHistory.length >= 5) {
-            // Case B: Partial history -> Prepend plan
-            const firstHist = effectiveHistory[0];
-            const startPlanIdx = getPlanIndex(firstHist.latitude, firstHist.longitude);
-            
-            if (startPlanIdx > 2) {
-                const prefix = flatPlan.slice(0, startPlanIdx).map(wp => ({
-                    latitude: wp.lat,
-                    longitude: wp.lon,
-                    altitude: wp.alt
-                }));
-                effectiveHistory = [...prefix, ...effectiveHistory];
+    const densified = [coordinates[0]];
+
+    for (let i = 0; i < coordinates.length - 1; i++) {
+        const start = coordinates[i];
+        const end = coordinates[i + 1];
+
+        const dist = getDistanceKm(start[1], start[0], end[1], end[0]);
+
+        if (dist > maxSegmentLengthKm) {
+            const steps = Math.ceil(dist / maxSegmentLengthKm);
+            for (let j = 1; j < steps; j++) {
+                const fraction = j / steps;
+                const intermediate = getIntermediatePoint(start[1], start[0], end[1], end[0], fraction);
+                
+                // Maintain the 'unwrapped' longitude continuity
+                let lon = intermediate.lon;
+                let prevLon = densified[densified.length - 1][0];
+                let delta = lon - (prevLon % 360);
+                while (delta > 180) delta -= 360;
+                while (delta < -180) delta += 360;
+                
+                densified.push([prevLon + delta, intermediate.lat]);
             }
         }
+        densified.push(end);
     }
+    return densified;
+}
 
-    // --- 5. CONSTRUCT FINAL ARRAY (With Gap Filling) ---
-    const finalPoints = [];
-    let prevPoint = null;
+/**
+ * Smoothes a path using Catmull-Rom Splines for a more "organic" flight look.
+ * Automatically bypassed at extreme latitudes or for long jumps.
+ */
+function generateSmoothPath(points) {
+    if (points.length < 4) return points;
 
-    effectiveHistory.forEach((p) => {
-        const point = { ...p, unwrappedLongitude: p.longitude };
-        
-        if (prevPoint) {
-            const dist = getDistanceKm(prevPoint.latitude, prevPoint.longitude, point.latitude, point.longitude);
-            if (dist > GAP_THRESHOLD_KM && flatPlan.length > 0) {
-                const startIdx = getPlanIndex(prevPoint.latitude, prevPoint.longitude);
-                const endIdx = getPlanIndex(point.latitude, point.longitude);
-
-                if (startIdx !== -1 && endIdx !== -1 && endIdx > startIdx) {
-                    for (let k = startIdx + 1; k < endIdx; k++) {
-                        const wp = flatPlan[k];
-                        const injectedAlt = wp.alt > 100 ? wp.alt : (prevPoint.altitude + point.altitude) / 2;
-                        finalPoints.push({
-                            latitude: wp.lat,
-                            longitude: wp.lon,
-                            unwrappedLongitude: wp.lon, 
-                            altitude: injectedAlt
-                        });
-                    }
-                }
-            }
-        }
-        finalPoints.push(point);
-        prevPoint = point;
-    });
-
-    // Add Nose
-    finalPoints.push({
-        latitude: currentPosition.lat,
-        longitude: currentPosition.lon,
-        unwrappedLongitude: currentPosition.lon,
-        altitude: currentPosition.alt_ft
-    });
-
-    if (finalPoints.length < 2) return { type: 'FeatureCollection', features: [] };
-
-    // --- 6. UNWRAP LONGITUDES ---
-    let lastUnwrappedLon = finalPoints[0].longitude; 
-    finalPoints[0].unwrappedLongitude = lastUnwrappedLon;
-    let maxLatitude = 0; // Track max lat for safety
-
-    for (let i = 1; i < finalPoints.length; i++) {
-        let currentRawLon = finalPoints[i].longitude;
-        let delta = currentRawLon - (lastUnwrappedLon % 360);
-        if (delta > 180) delta -= 360;
-        if (delta < -180) delta += 360;
-        let newUnwrappedLon = lastUnwrappedLon + delta;
-        finalPoints[i].unwrappedLongitude = newUnwrappedLon;
-        lastUnwrappedLon = newUnwrappedLon;
-        
-        const absLat = Math.abs(finalPoints[i].latitude);
-        if (absLat > maxLatitude) maxLatitude = absLat;
-    }
-
-    // --- 7. NORMALIZE STRIP ---
-    const headLon = finalPoints[finalPoints.length - 1].unwrappedLongitude;
-    const shift = Math.round(headLon / 360) * 360;
-    if (shift !== 0) {
-        for (let i = 0; i < finalPoints.length; i++) {
-            finalPoints[i].unwrappedLongitude -= shift;
-        }
-    }
-
-    // --- 8. SMOOTHING (WITH SAFETY CHECK) ---
-    // [FIX] Calculate average segment distance.
-    // If points are far apart (e.g. > 20km), it means this is a simulated plan (not live breadcrumbs).
-    // Applying spline smoothing to points 500km apart creates massive distortions (the "bowing" issue).
-    let totalPathDist = 0;
-    for(let i=0; i<finalPoints.length-1; i++) {
-        totalPathDist += getDistanceKm(
-            finalPoints[i].latitude, finalPoints[i].unwrappedLongitude, 
-            finalPoints[i+1].latitude, finalPoints[i+1].unwrappedLongitude
+    const result = [];
+    // Helper to interpolate between 4 points
+    const interpolate = (p0, p1, p2, p3, t) => {
+        const t2 = t * t;
+        const t3 = t2 * t;
+        return 0.5 * (
+            (2 * p1) +
+            (-p0 + p2) * t +
+            (2 * p0 - 5 * p1 + 4 * p2 - p3) * t2 +
+            (-p0 + 3 * p1 - 3 * p2 + p3) * t3
         );
+    };
+
+    for (let i = 0; i < points.length - 1; i++) {
+        const p0 = points[i === 0 ? i : i - 1];
+        const p1 = points[i];
+        const p2 = points[i + 1];
+        const p3 = points[i + 2 >= points.length ? i + 1 : i + 2];
+
+        // Determine segments based on distance
+        const d = Math.sqrt(Math.pow(p2.unwrappedLon - p1.unwrappedLon, 2) + Math.pow(p2.lat - p1.lat, 2));
+        const steps = Math.max(1, Math.floor(d * 5));
+
+        for (let t = 0; t < 1; t += 1 / steps) {
+            result.push({
+                unwrappedLon: interpolate(p0.unwrappedLon, p1.unwrappedLon, p2.unwrappedLon, p3.unwrappedLon, t),
+                lat: interpolate(p0.lat, p1.lat, p2.lat, p3.lat, t),
+                alt: p1.alt + (p2.alt - p1.alt) * t
+            });
+        }
     }
-    const avgSegmentDist = totalPathDist / (finalPoints.length - 1);
-    
-    // Disable smoothing if:
-    // 1. We are at high latitudes (> 60 deg) where Mercator distortion breaks splines.
-    // 2. The data is sparse (> 20km gaps), meaning we should rely on Great Circle densification (Step 9) instead.
-    const shouldDisableSmoothing = (maxLatitude > 60) || (avgSegmentDist > 20);
+    result.push(points[points.length - 1]);
+    return result;
+}
 
-    let smoothPoints;
-    if (shouldDisableSmoothing) {
-        smoothPoints = finalPoints.map(p => ({
-            unwrappedLongitude: p.unwrappedLongitude,
-            latitude: p.latitude,
-            altitude: p.altitude
-        }));
-    } else {
-        smoothPoints = generateSmoothPath(finalPoints);
+/**
+ * CORE FUNCTION: Transforms flight history into a colored GeoJSON collection.
+ * 1. Sanitizes inputs
+ * 2. Unwraps and densifies for map stability
+ * 3. Segments the line for altitude-based styling
+ */
+function generateAltitudeColoredRoute(history, currentPos, flightPlan = null) {
+    if (!history || history.length === 0) return { type: 'FeatureCollection', features: [] };
+
+    // --- 1. Sanitization & Point Preparation ---
+    let points = history.map(p => ({
+        lat: parseFloat(p.latitude.toFixed(6)),
+        lon: parseFloat(p.longitude.toFixed(6)),
+        alt: p.altitude || 0
+    }));
+
+    // Append current position as the latest point (the 'nose')
+    points.push({
+        lat: parseFloat(currentPos.lat.toFixed(6)),
+        lon: parseFloat(currentPos.lon.toFixed(6)),
+        alt: currentPos.alt_ft || 0
+    });
+
+    // Remove micro-duplicates (less than 1 meter) which crash Mapbox renders
+    points = points.filter((p, i) => i === 0 || getDistanceKm(p.lat, p.lon, points[i-1].lat, points[i-1].lon) > 0.001);
+
+    // --- 2. Continuity & Unwrapping ---
+    let refLon = points[0].lon;
+    points[0].unwrappedLon = refLon;
+    for (let i = 1; i < points.length; i++) {
+        let delta = points[i].lon - (refLon % 360);
+        while (delta > 180) delta -= 360;
+        while (delta < -180) delta += 360;
+        points[i].unwrappedLon = refLon + delta;
+        refLon = points[i].unwrappedLon;
     }
 
-    // Lock Nose
-    const trueEnd = finalPoints[finalPoints.length - 1];
-    const smoothEnd = smoothPoints[smoothPoints.length - 1];
-    smoothEnd.latitude = trueEnd.latitude;
-    smoothEnd.unwrappedLongitude = trueEnd.unwrappedLongitude;
-    smoothEnd.altitude = trueEnd.altitude;
+    // --- 3. Smoothing (Optional) ---
+    // We only smooth if points are relatively close and not at extreme poles
+    const isPolar = points.some(p => Math.abs(p.lat) > 70);
+    const finalPoints = (points.length > 5 && !isPolar) ? generateSmoothPath(points) : points;
 
-    // --- 9. BUILD GEOJSON (WITH 3D DENSIFICATION) ---
-    for (let i = 0; i < smoothPoints.length - 1; i++) {
-        const p1 = smoothPoints[i];
-        const p2 = smoothPoints[i+1];
+    // --- 4. Segmentation & Densification ---
+    const features = [];
+    const MAX_SEG_KM = 300; // Max distance before we force a point for the globe curve
 
-        // Basic Sanity Check
-        if (Math.abs(p1.latitude - p2.latitude) > 40 || Math.abs(p1.unwrappedLongitude - p2.unwrappedLongitude) > 100) continue;
+    for (let i = 0; i < finalPoints.length - 1; i++) {
+        const start = finalPoints[i];
+        const end = finalPoints[i + 1];
 
-        const distKm = getDistanceKm(p1.latitude, p1.unwrappedLongitude, p2.latitude, p2.unwrappedLongitude);
+        // Densify this specific segment if it's long
+        const segDist = getDistanceKm(start.lat, start.unwrappedLon, end.lat, end.unwrappedLon);
+        const steps = Math.ceil(segDist / MAX_SEG_KM);
 
-        if (distKm > MAX_RENDER_SEGMENT_KM) {
-            const steps = Math.ceil(distKm / MAX_RENDER_SEGMENT_KM);
-            
-            for (let j = 0; j < steps; j++) {
-                const fractionStart = j / steps;
-                const fractionEnd = (j + 1) / steps;
+        for (let j = 0; j < steps; j++) {
+            const f1 = j / steps;
+            const f2 = (j + 1) / steps;
 
-                // Interpolate Coordinates (Great Circle)
-                const startCoord = getIntermediatePoint(p1.latitude, p1.unwrappedLongitude, p2.latitude, p2.unwrappedLongitude, fractionStart);
-                const endCoord = getIntermediatePoint(p1.latitude, p1.unwrappedLongitude, p2.latitude, p2.unwrappedLongitude, fractionEnd);
+            const p1 = getIntermediatePoint(start.lat, start.unwrappedLon, end.lat, end.unwrappedLon, f1);
+            const p2 = getIntermediatePoint(start.lat, start.unwrappedLon, end.lat, end.unwrappedLon, f2);
 
-                // Interpolate Altitude (Linear)
-                const startAlt = p1.altitude + (p2.altitude - p1.altitude) * fractionStart;
-                const endAlt = p1.altitude + (p2.altitude - p1.altitude) * fractionEnd;
-                const avgChunkAlt = (startAlt + endAlt) / 2;
+            // Interpolate longitude to maintain unwrapped continuity
+            const lon1 = start.unwrappedLon + (end.unwrappedLon - start.unwrappedLon) * f1;
+            const lon2 = start.unwrappedLon + (end.unwrappedLon - start.unwrappedLon) * f2;
 
-                const normalizeLon = (lon, ref) => {
-                    let d = lon - (ref % 360);
-                    if (d > 180) d -= 360;
-                    if (d < -180) d += 360;
-                    return ref + d;
-                };
-
-                features.push({
-                    type: 'Feature',
-                    geometry: {
-                        type: 'LineString',
-                        coordinates: [
-                            [normalizeLon(startCoord.lon, p1.unwrappedLongitude), startCoord.lat],
-                            [normalizeLon(endCoord.lon, p1.unwrappedLongitude), endCoord.lat]
-                        ]
-                    },
-                    properties: {
-                        avgAltitude: avgChunkAlt,
-                        simulated: false 
-                    }
-                });
-            }
-        } else {
-            const avgAlt = (p1.altitude + p2.altitude) / 2;
             features.push({
                 type: 'Feature',
                 geometry: {
                     type: 'LineString',
-                    coordinates: [
-                        [p1.unwrappedLongitude, p1.latitude],
-                        [p2.unwrappedLongitude, p2.latitude]
-                    ]
+                    coordinates: [[lon1, p1.lat], [lon2, p2.lat]]
                 },
                 properties: {
-                    avgAltitude: avgAlt,
-                    simulated: false 
+                    avgAltitude: (start.alt + end.alt) / 2
                 }
             });
         }
     }
 
-    return { type: 'FeatureCollection', features: features };
+    return {
+        type: 'FeatureCollection',
+        features: features
+    };
 }
 
 /**
@@ -8202,378 +9303,267 @@ function generateAltitudeColoredRoute(sortedPoints, currentPosition, flightPlan 
  */
 function closeAircraftWindow() {
     if (!aircraftInfoWindow) return;
+    
+    // Clear 3D paths if active
+    if (typeof FlownPath3D !== 'undefined') {
+        FlownPath3D.updatePath(sectorOpsMap, currentFlightInWindow, [], false);
+    }
 
-    // 1. Hide UI
     aircraftInfoWindow.classList.remove('visible');
     if (window.MobileUIHandler) window.MobileUIHandler.closeActiveWindow();
-    if (aircraftInfoWindowRecallBtn) aircraftInfoWindowRecallBtn.classList.remove('visible');
-
-    // 2. Clear Map Elements
-    clearLiveFlightPath(currentFlightInWindow); 
-
-    // 3. Clear ALL Intervals (Critical for performance)
-    if (activePfdUpdateInterval) {
-        clearInterval(activePfdUpdateInterval);
-        activePfdUpdateInterval = null;
-    }
-    if (activeGeocodeUpdateInterval) {
-        clearInterval(activeGeocodeUpdateInterval);
-        activeGeocodeUpdateInterval = null;
-    }
-    if (activeWeatherUpdateInterval) {
-        clearInterval(activeWeatherUpdateInterval);
-        activeWeatherUpdateInterval = null;
-    }
-
-    // 4. Reset State
-    currentAircraftPositionForGeocode = null;
-    liveTrailCache.delete(currentFlightInWindow);
-    currentFlightInWindow = null;
-    cachedFlightDataForStatsView = { flightProps: null, plan: null };
     
-    // 5. Reset PFD visual state
+    // Clear the map layers using the ID tracker
+    clearLiveFlightPath(currentFlightInWindow);
+
+    // Reset intervals
+    if (activePfdUpdateInterval) clearInterval(activePfdUpdateInterval);
+    if (activeGeocodeUpdateInterval) clearInterval(activeGeocodeUpdateInterval);
+    if (activeWeatherUpdateInterval) clearInterval(activeWeatherUpdateInterval);
+
+    // CRITICAL FIX: Reset state
+    currentFlightInWindow = null; 
+    currentAircraftPositionForGeocode = null;
     resetPfdState();
+
+    // Trigger Landing UI only if airport window is also closed
+    if (!currentAirportInWindow) {
+        LandingUI.update(true, {
+            server: currentServerName,
+            flights: Object.keys(currentMapFeatures).length,
+            atc: activeAtcFacilities.length
+        });
+    }
 }
 
-async function handleAircraftClick(flightProps, sessionId) {
+/**
+ * Handles clicks on aircraft markers.
+ * Includes a hit-test to prioritize airports if they overlap.
+ */
+async function handleAircraftClick(flightProps, sessionId, event = null) {
     if (!flightProps || !flightProps.flightId) return;
 
-    // [RESILIENCE] Prevent new clicks if one is already loading
-    if (isAircraftWindowLoading) {
-        console.warn("Aircraft click ignored: window is already loading.");
-        return;
+    LandingUI.update(false);
+    localStorage.setItem('landingUI_visible', 'false');
+
+    // --- BALANCE LOGIC: Prioritize Airport ---
+    // If there is an event, check if an airport marker is also at this location
+    if (event && sectorOpsMap) {
+        const airportFeatures = sectorOpsMap.queryRenderedFeatures(event.point, {
+            // Adjust 'airport-symbols-layer' to match your specific airport layer ID
+            layers: ['airport-symbols-layer', 'airport-label-layer'] 
+        });
+
+        if (airportFeatures.length > 0) {
+            // An airport is here! Yield to the airport click handler and stop aircraft logic.
+            console.log("Airport detected at click point, prioritizing airport over aircraft.");
+            return; 
+        }
     }
 
-    // [ORIGINAL] Prevent re-opening an already open window for the same flight
+    // --- MUTUAL EXCLUSION ---
+    // If the airport window is open, close it before proceeding
+    if (currentAirportInWindow) {
+        closeAirportWindow();
+    }
+
+    // Standard Aircraft Window Logic Starts Here
+    if (typeof trackPilotView === 'function') trackPilotView(flightProps);
+
+    if (isAircraftWindowLoading) return;
     if (currentFlightInWindow === flightProps.flightId && aircraftInfoWindow.classList.contains('visible')) {
         return;
     }
 
-    // [RESILIENCE] Set loading flag
     isAircraftWindowLoading = true;
 
-    // --- [CRITICAL] Clear ALL existing intervals first ---
-    if (activePfdUpdateInterval) {
-        clearInterval(activePfdUpdateInterval);
-        activePfdUpdateInterval = null;
-    }
-    if (activeGeocodeUpdateInterval) {
-        clearInterval(activeGeocodeUpdateInterval);
-        activeGeocodeUpdateInterval = null;
-    }
+    // Reset Intervals and State
+    if (activePfdUpdateInterval) { clearInterval(activePfdUpdateInterval); activePfdUpdateInterval = null; }
+    if (activeGeocodeUpdateInterval) { clearInterval(activeGeocodeUpdateInterval); activeGeocodeUpdateInterval = null; }
+    if (typeof resetPfdState === 'function') resetPfdState();
 
-    resetPfdState();
-
-    // [ORIGINAL] Clear previous flight's path/cache
     if (currentFlightInWindow && currentFlightInWindow !== flightProps.flightId) {
-        clearLiveFlightPath(currentFlightInWindow);
-        liveTrailCache.delete(currentFlightInWindow);
+        if (typeof clearLiveFlightPath === 'function') clearLiveFlightPath(currentFlightInWindow);
+        if (typeof liveTrailCache !== 'undefined') liveTrailCache.delete(currentFlightInWindow);
     }
 
-    // --- Set State ---
-    currentFlightInWindow = flightProps.flightId; 
-    currentAircraftPositionForGeocode = flightProps.position; 
-    lastGeocodeCoords = { lat: 0, lon: 0 }; 
-    cachedFlightDataForStatsView = { flightProps: null, plan: null };
+    currentFlightInWindow = flightProps.flightId;
+    currentAircraftPositionForGeocode = flightProps.position;
 
-    // [UI] Show Window
+    // UI: Show Aircraft Window
     if (window.MobileUIHandler && window.MobileUIHandler.isMobile()) {
         window.MobileUIHandler.openWindow(aircraftInfoWindow);
     } else {
         aircraftInfoWindow.classList.add('visible');
     }
-    aircraftInfoWindowRecallBtn.classList.remove('visible');
-    
-    // [UI] Loading State (Center spinner)
+    if (typeof aircraftInfoWindowRecallBtn !== 'undefined' && aircraftInfoWindowRecallBtn) {
+        aircraftInfoWindowRecallBtn.classList.remove('visible');
+    }
+
     const windowEl = document.getElementById('aircraft-info-window');
-    windowEl.innerHTML = `
-        <div style="display: flex; flex-direction: column; align-items: center; justify-content: center; height: 300px; color: #fff;">
-            <div class="spinner-small" style="margin-bottom: 1rem;"></div>
-            <p style="font-family: 'Inter', sans-serif; font-size: 0.9rem; color: #94a3b8;">Acquiring Flight & Aircraft Data...</p>
-        </div>
-    `;
+    if (windowEl) {
+        windowEl.innerHTML = `
+            <div style="display: flex; flex-direction: column; align-items: center; justify-content: center; height: 300px; color: #fff;">
+                <div class="spinner-small" style="margin-bottom: 1rem;"></div>
+                <p style="font-family: 'Inter', sans-serif; font-size: 0.9rem; color: #94a3b8;">Acquiring Flight Data...</p>
+            </div>
+        `;
+    }
 
     try {
-        // Define layer ID for flown path
-        const flownLayerId = `flown-path-${flightProps.flightId}`;
-        
-        // --- PREPARE DATA FOR LOOKUP ---
         const acName = flightProps.aircraft?.aircraftName || '';
         const livName = flightProps.aircraft?.liveryName || '';
-
-        // --- FETCH DATA (Parallel: Plan, Route, AND Aircraft Details) ---
+        
         const [planRes, routeRes, aircraftLookupRes] = await Promise.all([
             fetch(`${LIVE_FLIGHTS_API_URL}/${sessionId}/${flightProps.flightId}/plan`),
             fetch(`${LIVE_FLIGHTS_API_URL}/${sessionId}/${flightProps.flightId}/route`),
             fetch(`${API_BASE_URL}/api/aircraft/lookup?type=${encodeURIComponent(acName)}&livery=${encodeURIComponent(livName)}`)
         ]);
-        
+
         const planData = planRes.ok ? await planRes.json() : null;
         const plan = (planData && planData.ok) ? planData.plan : null;
         const routeData = routeRes.ok ? await routeRes.json() : null;
+        let communityAircraftData = aircraftLookupRes.ok ? await aircraftLookupRes.json() : null;
 
-        // Process Aircraft Lookup Result
-        let communityAircraftData = null;
-        if (aircraftLookupRes.ok) {
-            communityAircraftData = await aircraftLookupRes.json();
-        } else {
-            console.warn(`Aircraft lookup failed or no match found for ${acName} / ${livName}`);
-        }
-        
-        // --- Process Route History ---
         let sortedRoutePoints = [];
-        if (routeData && routeData.ok && Array.isArray(routeData.route) && routeData.route.length > 0) {
-            sortedRoutePoints = routeData.route.sort((a, b) => {
-                const timeA = a.date ? new Date(a.date).getTime() : 0;
-                const timeB = b.date ? new Date(b.date).getTime() : 0;
-                return timeA - timeB;
-            });
+        if (routeData && routeData.ok && Array.isArray(routeData.route)) {
+            sortedRoutePoints = routeData.route.sort((a, b) => new Date(a.date) - new Date(b.date));
         }
-        
-        // Seed the cache
-        liveTrailCache.set(flightProps.flightId, sortedRoutePoints);
-        // Cache data for stats view
+
+        if (typeof liveTrailCache !== 'undefined') liveTrailCache.set(flightProps.flightId, sortedRoutePoints);
         cachedFlightDataForStatsView = { flightProps, plan };
-        
-        // --- [MODIFIED] Choose View Mode ---
-        if (mapFilters.useSimpleFlightWindow) {
-            // A. SIMPLE VIEW (IFRAME)
-            
-            // [WIDTH ADJUSTMENT] 420px
-            windowEl.style.width = '420px'; 
-            
-            // [HEIGHT ADJUSTMENT] Full height minus top margin (20px) + bottom margin (20px)
-            windowEl.style.height = 'calc(100vh - 40px)';
 
-            windowEl.innerHTML = `
-                <div style="width: 100%; height: 100%; overflow: hidden; background: transparent; display: flex; flex-direction: column;">
-                    <iframe id="simple-flight-window-frame" src="flightinfo.html" 
-                            style="width:100%; flex-grow: 1; border:none; display: block;" 
-                            scrolling="no"></iframe>
-                </div>
-            `;
-            
-            // Format initial data
+        if (typeof FlownPath3D !== 'undefined') {
+    FlownPath3D.updatePath(
+        sectorOpsMap, 
+        flightProps.flightId, 
+        sortedRoutePoints, 
+        mapFilters.show3DPath
+    );
+}
+
+        // Render UI
+        if (typeof mapFilters !== 'undefined' && mapFilters.useSimpleFlightWindow) {
+            windowEl.style.width = '420px';
+            windowEl.innerHTML = `<iframe id="simple-flight-window-frame" src="flightinfo.html" style="width:100%; flex-grow: 1; border:none;" scrolling="no"></iframe>`;
             const simpleData = formatDataForSimpleWindow(flightProps, plan, sortedRoutePoints, communityAircraftData);
-            
-            // Send data once Iframe loads
             const iframe = document.getElementById('simple-flight-window-frame');
-            iframe.onload = () => {
-                iframe.contentWindow.postMessage({
-                    type: 'FLIGHT_DATA_UPDATE',
-                    payload: simpleData
-                }, '*');
-            };
-            
-            // Also try sending immediately in case it's cached/fast
-            setTimeout(() => {
-                if(iframe && iframe.contentWindow) {
-                    iframe.contentWindow.postMessage({
-                        type: 'FLIGHT_DATA_UPDATE',
-                        payload: simpleData
-                    }, '*');
-                }
-            }, 500);
-
-        } else {
-            // B. STANDARD VIEW (Your existing function)
-            
-            // [RESET STYLE] Remove inline width/height so CSS defaults take over
-            windowEl.style.width = ''; 
-            windowEl.style.height = ''; 
-
+            iframe.onload = () => iframe.contentWindow.postMessage({ type: 'FLIGHT_DATA_UPDATE', payload: simpleData }, '*');
+        } else if (typeof populateAircraftInfoWindow === 'function') {
             populateAircraftInfoWindow(flightProps, plan, sortedRoutePoints, communityAircraftData);
         }
+
+        // Additional data updates
+        if (typeof fetchAndDisplayGeocode === 'function') {
+            fetchAndDisplayGeocode(flightProps.position.lat, flightProps.position.lon);
+        }
         
-        // --- [GEOCODE] Initial Fetch ---
-        fetchAndDisplayGeocode(flightProps.position.lat, flightProps.position.lon);
-
-        // --- [NAV PANEL] Initial Update ---
-        updateNavPanelData(
-            flightProps.position.lat,
-            flightProps.position.lon,
-            flightProps.position.heading_deg,
-            flightProps.position.oat_c || 15,
-            flightProps.position.wind_dir || 0,
-            flightProps.position.wind_spd_kts || 0
-        );
-
-        // --- [MAP] Generate Altitude Colored Route (WITH SIMULATION) ---
-        // Pass 'plan' to enable gap filling
-        const routeFeatureCollection = generateAltitudeColoredRoute(sortedRoutePoints, flightProps.position, plan);
-
-        if (!sectorOpsMap.getSource(flownLayerId)) {
-            sectorOpsMap.addSource(flownLayerId, {
-                type: 'geojson',
-                data: routeFeatureCollection
-            });
+        // Map path plotting
+        const flownLayerId = `flown-path-${flightProps.flightId}`;
+        if (typeof generateAltitudeColoredRoute === 'function' && !sectorOpsMap.getSource(flownLayerId)) {
+            const routeFeatureCollection = generateAltitudeColoredRoute(sortedRoutePoints, flightProps.position, plan);
+            sectorOpsMap.addSource(flownLayerId, { type: 'geojson', data: routeFeatureCollection });
             sectorOpsMap.addLayer({
                 id: flownLayerId,
                 type: 'line',
                 source: flownLayerId,
+                tolerance: 0,
+                buffer: 0,
                 paint: {
-                    'line-color': [
-                        'interpolate',
-                        ['linear'],
-                        ['get', 'avgAltitude'],
-                        0,     '#e6e600', 
-                        10000, '#ff9900', 
-                        20000, '#ff3300', 
-                        29000, '#00BFFF', 
-                        38000, '#9400D3'  
-                    ],
-                    'line-width': 4,
-                    'line-opacity': 0.9, 
-                    'line-dasharray': [1, 0],
-                    'line-translate': [0, -2], 
-                    'line-translate-anchor': 'viewport'
+                    'line-color': ['interpolate', ['linear'], ['get', 'avgAltitude'], 0, '#e6e600', 10000, '#ff9900', 20000, '#ff3300', 29000, '#00BFFF', 38000, '#9400D3'],
+                    'line-width': [
+        'interpolate', ['linear'], ['zoom'],
+        2, 2,   // At zoom 2, line is 2px wide
+        10, 4   // At zoom 10, line is 4px wide
+    ],
+                    'line-opacity': 0.9
                 }
             }, 'sector-ops-live-flights-layer');
-        } else {
-             sectorOpsMap.getSource(flownLayerId).setData(routeFeatureCollection);
+            if (typeof sectorOpsLiveFlightPathLayers !== 'undefined') {
+    // FIX: Use assignment that preserves other keys in the object
+    if (!sectorOpsLiveFlightPathLayers[flightProps.flightId]) {
+        sectorOpsLiveFlightPathLayers[flightProps.flightId] = {};
+    }
+    sectorOpsLiveFlightPathLayers[flightProps.flightId].flown = flownLayerId;
+}
         }
-
-        // Store layer ID for cleanup
-        sectorOpsLiveFlightPathLayers[flightProps.flightId] = {
-            flown: flownLayerId
-        };
         
-        // --- [MAP] Draw Planned Route (if exists) ---
-        if (plan) {
+        if (plan && typeof updateFlightPlanLayer === 'function') {
             updateFlightPlanLayer(flightProps.flightId, plan, flightProps.position);
         }
-        
-        // --- [INTERVALS] Start Updates ---
-        const FIVE_MINUTES_MS = 300000; 
-        activeGeocodeUpdateInterval = setInterval(() => {
-            if (currentAircraftPositionForGeocode) {
-                fetchAndDisplayGeocode(
-                    currentAircraftPositionForGeocode.lat,
-                    currentAircraftPositionForGeocode.lon
-                );
-            }
-        }, FIVE_MINUTES_MS);
-        
-        // Initial Weather Fetch
-        fetchAndDisplayWeather();
-        if (activeWeatherUpdateInterval) clearInterval(activeWeatherUpdateInterval);
-        activeWeatherUpdateInterval = setInterval(() => {
-             fetchAndDisplayWeather();
-        }, FIVE_MINUTES_MS);
 
         isAircraftWindowLoading = false;
-
     } catch (error) {
-        console.error("Error fetching or plotting aircraft details:", error);
-        windowEl.innerHTML = `<p class="error-text" style="padding: 2rem; color: #ef4444;">Could not retrieve complete flight details. The aircraft may have landed or disconnected.</p>`;
-        
-        isAircraftWindowLoading = false; 
-        currentFlightInWindow = null; 
-        cachedFlightDataForStatsView = { flightProps: null, plan: null };
-        liveTrailCache.delete(flightProps.flightId);
+        console.error("Error fetching aircraft details:", error);
+        closeAircraftWindow();
     }
 }
 
 /**
- * --- [NEW] Rebuilds all dynamic layers after a map style change.
- * This includes weather, airport routes, and the active aircraft trail.
+ * Closes the airport information window and cleans up associated map layers/states.
+ * This is called whenever an aircraft is selected or the airport window is closed manually.
  */
-function rebuildDynamicLayers() {
-    console.log("Rebuilding dynamic layers...");
+// In flight.js - Update this function to include the null reset
+function closeAirportWindow() {
+    if (!airportInfoWindow) return;
 
-    // 1. Re-apply weather layers
-    if (document.getElementById('weather-toggle-precip')?.checked) {
-        isWeatherLayerAdded = false; // Force re-creation
-        toggleWeatherLayer(true);
+    airportInfoWindow.classList.remove('visible');
+    if (window.MobileUIHandler) window.MobileUIHandler.closeActiveWindow();
+    if (airportInfoWindowRecallBtn) airportInfoWindowRecallBtn.classList.remove('visible');
+
+    isTrafficHighlightActive = false;
+    applyTrafficHighlighting();
+    clearRouteLayers();
+    if (typeof AirportLayoutManager !== 'undefined' && sectorOpsMap) AirportLayoutManager.clearAll(sectorOpsMap);
+
+    // CRITICAL FIX: Reset the state variable
+    currentAirportInWindow = null; 
+
+    // Now LandingUI can safely trigger
+    if (!currentFlightInWindow) {
+        const landingData = {
+            server: currentServerName,
+            flights: Object.keys(currentMapFeatures).length,
+            atc: activeAtcFacilities.length
+        };
+        LandingUI.update(true, landingData);
     }
-    if (document.getElementById('weather-toggle-clouds')?.checked) {
-        isCloudLayerAdded = false; // Force re-creation
-        toggleCloudLayer(true);
-    }
-    if (document.getElementById('weather-toggle-wind')?.checked) {
-        isWindLayerAdded = false; // Force re-creation
-        toggleWindLayer(true);
-    }
+}
 
-    // 2. Re-apply airport routes
-    if (currentAirportInWindow) {
-        // This function already clears old layers and re-adds new ones
-        plotRoutesFromAirport(currentAirportInWindow);
-    }
-
-    // 3. Re-apply active flight trail
-    if (currentFlightInWindow) {
-        const flightId = currentFlightInWindow;
-        
-        // Clear any stray map state
-        clearLiveFlightPath(flightId); 
-        delete sectorOpsLiveFlightPathLayers[flightId]; 
-
-        // Get cached data from when the window was opened
-        const { flightProps, plan } = cachedFlightDataForStatsView; // <-- Add 'plan'
-        if (flightProps) {
-            const localTrail = liveTrailCache.get(flightId) || [];
-            const currentPosition = currentAircraftPositionForGeocode || flightProps.position;
-            const routeFeatureCollection = generateAltitudeColoredRoute(localTrail, currentPosition);
-
-            // Re-add source
-            sectorOpsMap.addSource(`flown-path-${flightId}`, { // Use base ID
-                type: 'geojson',
-                data: routeFeatureCollection
-            });
-            
-            // Re-add layer (copying paint properties from handleAircraftClick)
-            sectorOpsMap.addLayer({
-                id: `flown-path-${flightId}`, // Use base ID
-                type: 'line',
-                source: `flown-path-${flightId}`, // Use base ID
-                paint: {
-                    'line-color': [
-                        'interpolate',
-                        ['linear'],
-                        ['get', 'avgAltitude'],
-                        0,     '#e6e600',
-                        10000, '#ff9900',
-                        20000, '#ff3300',
-                        29000, '#00BFFF',
-                        38000, '#9400D3'
-                    ],
-                    'line-width': 4,
-                    // --- [MODIFIED] Uniform Opacity ---
-                    'line-opacity': 0.9,
-                    // --- [MODIFIED] Solid Line Only ---
-                    'line-dasharray': [1, 0],
-
-                    'line-translate': [0, -2],
-                    'line-translate-anchor': 'viewport'
-                }
-            }, 'sector-ops-live-flights-layer'); // Draw below aircraft
-            
-            sectorOpsLiveFlightPathLayers[flightId] = { flown: `flown-path-${flightId}` };
-            console.log(`Rebuilt active trail for ${flightId}`);
-
-            // --- [START NEW] ---
-            // Re-draw the planned route line based on filter state
-            if (plan) {
-                const position = currentAircraftPositionForGeocode || flightProps.position;
-                updateFlightPlanLayer(flightId, plan, position);
-            }
-            // --- [END NEW] ---
-        }
-    }
+// In flight.js - Ensure the Aircraft close also checks for nulled states
+function closeAircraftWindow() {
+    if (!aircraftInfoWindow) return;
     
-    // 4. Re-apply aircraft filters
-    updateAircraftLayerFilter();
+    // Clear 3D paths if active
+    if (typeof FlownPath3D !== 'undefined') {
+        FlownPath3D.updatePath(sectorOpsMap, currentFlightInWindow, [], false);
+    }
 
-    // 5. Re-render airport markers
-    renderAirportMarkers();
+    aircraftInfoWindow.classList.remove('visible');
+    if (window.MobileUIHandler) window.MobileUIHandler.closeActiveWindow();
+    
+    // Clear the map layers using the ID tracker
+    clearLiveFlightPath(currentFlightInWindow);
+
+    // Reset intervals
+    if (activePfdUpdateInterval) clearInterval(activePfdUpdateInterval);
+    if (activeGeocodeUpdateInterval) clearInterval(activeGeocodeUpdateInterval);
+    if (activeWeatherUpdateInterval) clearInterval(activeWeatherUpdateInterval);
+
+    // CRITICAL FIX: Reset state
+    currentFlightInWindow = null; 
+    currentAircraftPositionForGeocode = null;
+    resetPfdState();
+
+    // Trigger Landing UI only if airport window is also closed
+    if (!currentAirportInWindow) {
+        LandingUI.update(true, {
+            server: currentServerName,
+            flights: Object.keys(currentMapFeatures).length,
+            atc: activeAtcFacilities.length
+        });
+    }
 }
 
-
-
-/**
- * --- [UPDATED] Populates the aircraft info window with data from backend lookup.
- */
 function populateAircraftInfoWindow(baseProps, plan, sortedRoutePoints, communityAircraftData) {
     // --- Helper function to update all elements matching a selector ---
     const updateAll = (selector, value, isHTML = false) => {
@@ -8586,7 +9576,7 @@ function populateAircraftInfoWindow(baseProps, plan, sortedRoutePoints, communit
             }
         });
     };
-    
+
     // --- Helper for styling ---
     const styleAll = (selector, property, value) => {
         const elements = document.querySelectorAll(selector);
@@ -8601,24 +9591,33 @@ function populateAircraftInfoWindow(baseProps, plan, sortedRoutePoints, communit
     const hasPlan = originalFlatWaypoints.length >= 2;
     const windowEl = document.getElementById('aircraft-info-window');
 
-    // Aircraft Info
+    // --- State Persistence Logic ---
+    // Check which tab was active before we wipe the innerHTML
+    const currentActiveTab = windowEl.querySelector('.ac-info-tab-btn.active')?.dataset.tab || 'ac-tab-flight-data';
+    const currentViewTarget = windowEl.querySelector('.display-toggle-btn.active')?.dataset.target || 'nd-view';
+
+    // --- Aircraft Info ---
     const aircraftName = baseProps.aircraft?.aircraftName || 'Unknown Type';
-    const airlineName = baseProps.aircraft?.liveryName || 'Generic Livery';
+    const airlineName = baseProps.aircraft?.liveryName ||
+        'Generic Livery';
     const liveryName = baseProps.aircraft?.liveryName || '';
     const reg = baseProps.aircraft?.registration || 'N/A';
-    
-    // Logo Logic (Client-side logic for Airline Logo remains useful)
+    // --- Logo Logic ---
     const words = liveryName.trim().split(/\s+/);
     let logoName = words.length > 1 && /[^a-zA-Z0-9]/.test(words[1]) ? words[0] : (words[0] + (words[1] ? ' ' + words[1] : ''));
     const sanitizedLogoName = logoName.toLowerCase().replace(/[^a-z0-9\s]/g, '').replace(/\s+/g, '_');
     const logoPath = sanitizedLogoName ? `Images/airline_logos/${sanitizedLogoName}.png` : '';
-    const logoHtml = logoPath ? `<img src="${logoPath}" alt="${liveryName}" class="ac-header-logo" onerror="this.style.display='none'">` : '';
+    const logoHtml = logoPath ?
+        `<img src="${logoPath}" alt="${liveryName}" class="ac-header-logo" onerror="this.style.display='none'">` : '';
 
-    // Times & Flags
-    const atdTimestamp = (sortedRoutePoints && sortedRoutePoints.length > 0) ? sortedRoutePoints[0].date : null;
+    // --- Times & Flags ---
+    const atdTimestamp = (sortedRoutePoints && sortedRoutePoints.length > 0) ?
+        sortedRoutePoints[0].date : null;
     const atdTime = atdTimestamp ? formatTimeFromTimestamp(atdTimestamp) : '--:--';
-    const etaTime = '--:--'; 
-    const departureIcao = hasPlan ? originalFlatWaypointObjects[0]?.identifier || originalFlatWaypointObjects[0]?.name : 'N/A';
+    const etaTime = '--:--';
+
+    const departureIcao = hasPlan ?
+        originalFlatWaypointObjects[0]?.identifier || originalFlatWaypointObjects[0]?.name : 'N/A';
     const arrivalIcao = hasPlan ? originalFlatWaypointObjects[originalFlatWaypointObjects.length - 1]?.identifier || originalFlatWaypointObjects[originalFlatWaypointObjects.length - 1]?.name : 'N/A';
     const depCountryCode = airportsData[departureIcao]?.country ? airportsData[departureIcao].country.toLowerCase() : '';
     const arrCountryCode = airportsData[arrivalIcao]?.country ? airportsData[arrivalIcao].country.toLowerCase() : '';
@@ -8626,436 +9625,122 @@ function populateAircraftInfoWindow(baseProps, plan, sortedRoutePoints, communit
     const arrFlagSrc = arrCountryCode ? `https://flagcdn.com/w20/${arrCountryCode}.png` : '';
     const depFlagDisplay = depCountryCode ? 'block' : 'none';
     const arrFlagDisplay = arrCountryCode ? 'block' : 'none';
-
-    // Plan Button
+    // --- Plan Button ---
     const simbriefAircraftValue = findSimbriefAircraftValue(aircraftName);
     let planButtonHtml = '';
     if (hasPlan && simbriefAircraftValue) {
         planButtonHtml = `
-        <button id="plan-this-flight-btn" class="pilot-stats-toggle-btn" 
+            <button id="plan-this-flight-btn" class="pilot-stats-toggle-btn" 
                 data-departure="${departureIcao}" 
                 data-arrival="${arrivalIcao}" 
                 data-aircraft="${simbriefAircraftValue}"
                 style="width: 100%; margin-top: 16px;">
-            <i class="fa-solid fa-file-invoice"></i> Plan This Flight
-        </button>`;
+                <i class="fa-solid fa-file-invoice"></i> Plan This Flight
+            </button>`;
     }
 
     const pilotUsername = baseProps.username || 'N/A';
-    const pilotReportTabText = (pilotUsername !== 'N/A' && pilotUsername) ? pilotUsername : 'Pilot Report';
+    const pilotReportTabText = (pilotUsername !== 'N/A' && pilotUsername) ?
+        pilotUsername : 'Pilot Report';
 
     // --- DYNAMIC IMAGE & CONTRIBUTOR LOGIC ---
-    // Default Fallback
     let techCardImagePath = '/CommunityPlanes/default.png';
     let photographerName = 'IF Community';
-    let techCardTail = reg; // Default to live registration
+    let techCardTail = reg;
 
-    // [FIX START] Handle if data comes as an array (common with DB lookups)
     if (Array.isArray(communityAircraftData)) {
-        communityAircraftData = communityAircraftData.length > 0 ? communityAircraftData[0] : null;
+        communityAircraftData = communityAircraftData.length > 0 ?
+            communityAircraftData[0] : null;
     }
-
-    // If backend returned data, use it
     if (communityAircraftData && communityAircraftData.imageUrl) {
         techCardImagePath = communityAircraftData.imageUrl;
         photographerName = communityAircraftData.contributorName || 'IF Community';
-        // [FIX] Uncommented this to show the tail number from your DB
         if (communityAircraftData.tailNumber) {
-            techCardTail = communityAircraftData.tailNumber; 
-        }
-    }
-    // [FIX END]
-
-    // --- Distance Calc for TOD Logic ---
-    let distanceToDestNM = 0;
-    if (hasPlan) {
-        let totalDistanceKm = 0;
-        for (let i = 0; i < originalFlatWaypoints.length - 1; i++) {
-            const [lon1, lat1] = originalFlatWaypoints[i];
-            const [lon2, lat2] = originalFlatWaypoints[i + 1];
-            totalDistanceKm += getDistanceKm(lat1, lon1, lat2, lon2);
-        }
-        const totalDistanceNM = totalDistanceKm / 1.852;
-        if (totalDistanceNM > 0) {
-            const [destLon, destLat] = originalFlatWaypoints[originalFlatWaypoints.length - 1];
-            const remainingDistanceKm = getDistanceKm(baseProps.position.lat, baseProps.position.lon, destLat, destLon);
-            distanceToDestNM = remainingDistanceKm / 1.852;
+            techCardTail = communityAircraftData.tailNumber;
         }
     }
 
-    // --- TOD Calculator Logic ---
-    let todHtml = '';
-    
-    // We need a destination and valid physics to calculate TOD
-    if (hasPlan && baseProps.position.alt_ft > 5000 && distanceToDestNM > 20) {
-        // 1. Get Altitudes
-        const currentAlt = baseProps.position.alt_ft;
-        // Try to get destination elevation from plan, default to 0 (Sea Level) if missing
-        const destElev = (plan.destination && plan.destination.elevation_ft) ? parseInt(plan.destination.elevation_ft) : 0;
-        
-        // 2. Calculate Descent
-        const altToLose = currentAlt - destElev;
-        // 3:1 Rule: 3nm distance for every 1000ft height
-        const descentDistanceNM = (altToLose / 1000) * 3;
-        
-        // 3. Calculate TOD location relative to us
-        const distToTodNM = distanceToDestNM - descentDistanceNM;
-        
-        // 4. Calculate Time to TOD (based on current GS)
-        let timeToTodStr = '--:--';
-        if (baseProps.position.gs_kt > 50) {
-            const timeHours = distToTodNM / baseProps.position.gs_kt;
-            const minutes = Math.floor(timeHours * 60);
-            const seconds = Math.floor((timeHours * 60 - minutes) * 60);
-            
-            // Format nicely
-            if (distToTodNM > 0) {
-                 timeToTodStr = `${String(minutes).padStart(2, '0')}:${String(seconds).padStart(2, '0')}`;
-            } else {
-                 timeToTodStr = 'NOW';
+    // --- REAL-TIME COCKPIT STATE LOGIC ---
+    const pilotStateValue = (typeof baseProps.pilotState !== 'undefined') ?
+        Number(baseProps.pilotState) : 0;
+
+    let psTitle = "ACTIVE";
+    let psIcon = "fa-user-check";
+    let psColor = "#4ade80"; 
+    let psDesc = "Pilot is active";
+    let psBg = "rgba(74, 222, 128, 0.08)"; 
+
+    switch (pilotStateValue) {
+        case 1: 
+            psTitle = "AWAY";
+            psIcon = "fa-plane-slash";
+            psColor = "#facc15"; 
+            psDesc = "Online (No Input)";
+            psBg = "rgba(250, 204, 21, 0.08)";
+            break;
+        case 2: 
+            psTitle = "PARKED";
+            psIcon = "fa-square-parking";
+            psColor = "#94a3b8"; 
+            psDesc = "Away (On Ground)";
+            psBg = "rgba(148, 163, 184, 0.08)";
+            break;
+        case 3: 
+            psTitle = "AUTO-PILOT+";
+            psIcon = "fa-cloud-arrow-up";
+            psColor = "#60a5fa"; 
+            psDesc = "Cloud Session";
+            psBg = "rgba(96, 165, 250, 0.08)";
+            break;
+    }
+
+    // --- GENERATE FMS LEGS HTML ---
+    let fmsLegsHtml = '';
+    if (originalFlatWaypointObjects.length > 0) {
+        originalFlatWaypointObjects.forEach((wp, index) => {
+            const ident = wp.identifier || wp.name || `WP${index + 1}`;
+            let distDisplay = '----';
+            if (index > 0) {
+                const prev = originalFlatWaypointObjects[index - 1];
+
+                if (prev.location && wp.location) {
+                    const d = getDistanceKm(prev.location.latitude, prev.location.longitude, wp.location.latitude, wp.location.longitude);
+                    distDisplay = (d / 1.852).toFixed(0);
+                }
             }
-        }
 
-        // 5. Determine State (Cruise vs Descent)
-        const isPastTod = distToTodNM <= 0;
-        const statusColor = isPastTod ? '#ef4444' : '#34d399'; // Red if past, Green if pending
-        const statusText = isPastTod ? 'DESCEND NOW' : 'CRUISING';
-        const distDisplay = isPastTod ? `+${Math.abs(distToTodNM).toFixed(1)} NM` : `${distToTodNM.toFixed(1)} NM`;
-
-        // 6. Build the HTML Module
-        todHtml = `
-        <div class="tech-module" id="tod-calculator-module">
-            <div class="tech-module-header">
-                <span class="tech-module-title"><i class="fa-solid fa-calculator"></i> DESCENT (3:1)</span>
-                <span class="tech-badge" style="background: rgba(16, 185, 129, 0.1); color: ${statusColor}; border-color: ${statusColor};">
-                    ${statusText}
-                </span>
-            </div>
-            <div class="tech-module-body" style="padding: 8px; display: flex; gap: 8px; align-items: center;">
-                
-                <div style="flex: 1; display: flex; flex-direction: column; align-items: center; background: rgba(255,255,255,0.03); border-radius: 6px; padding: 6px;">
-                    <span class="tech-stat-label" style="font-size: 8px; color: #94a3b8; margin-bottom: 2px;">DIST TO TOD</span>
-                    <span class="tech-stat-value" style="font-size: 1.0rem;">${distDisplay}</span>
-                </div>
-
-                <div style="flex: 1; display: flex; flex-direction: column; align-items: center; background: rgba(255,255,255,0.03); border-radius: 6px; padding: 6px;">
-                    <span class="tech-stat-label" style="font-size: 8px; color: #94a3b8; margin-bottom: 2px;">TIME TO TOD</span>
-                    <span class="tech-stat-value" style="font-size: 1.0rem; color: #38bdf8;">${timeToTodStr}</span>
-                </div>
-
-                <div style="flex: 1; display: flex; flex-direction: column; align-items: center; background: rgba(255,255,255,0.03); border-radius: 6px; padding: 6px;">
-                    <span class="tech-stat-label" style="font-size: 8px; color: #94a3b8; margin-bottom: 2px;">REQ. RATE</span>
-                    <span class="tech-stat-value" style="font-size: 1.0rem; color: #fbbf24;">-${Math.round(baseProps.position.gs_kt * 5)}</span>
-                </div>
-
-            </div>
-        </div>
-        `;
-    } else if (hasPlan && baseProps.position.alt_ft <= 5000) {
-         todHtml = `
-        <div class="tech-module">
-            <div class="tech-module-header">
-                <span class="tech-module-title"><i class="fa-solid fa-calculator"></i> DESCENT PHASE</span>
-                <span class="tech-badge" style="color: #38bdf8; border-color: #38bdf8;">ACTIVE</span>
-            </div>
-            <div class="tech-module-body" style="padding: 12px; text-align: center; color: #94a3b8; font-size: 0.8rem;">
-                Aircraft is in terminal phase.
-            </div>
-        </div>`;
+            let procTag = '';
+            if (index <= 1 && hasPlan) procTag = `<span class="proc-tag sid">SID</span>`;
+            else if (index >= originalFlatWaypointObjects.length - 2 && hasPlan) procTag = `<span class="proc-tag star">STAR</span>`;
+            
+            fmsLegsHtml += `
+            <div class="fms-row ${index === 0 ? 'active-leg' : ''}" style="display: flex; justify-content: space-between; padding: 10px 14px; border-bottom: 1px solid rgba(255,255,255,0.03);">
+                 <span style="display:flex; align-items:center; gap:8px; flex: 2; text-align: left; font-weight: 500; font-family: 'JetBrains Mono', monospace;">
+                    <i class="fa-solid fa-diamond" style="font-size: 6px; color: ${index === 0 ? '#4ade80' : '#475569'};"></i> ${ident} ${procTag}
+                 </span>
+                 <span class="text-center" style="color:#94a3b8; flex: 1; font-size: 11px;">---°</span>
+                 <span class="text-right" style="flex: 1; color: #fff; font-weight: 600;">${distDisplay} <small style="font-size: 8px; color: #64748b;">NM</small></span>
+            </div>`;
+        });
+    } else {
+        fmsLegsHtml = `<div class="fms-empty-state" style="padding: 40px; text-align: center; color: #475569; font-size: 12px; font-weight: 600; letter-spacing: 1px;">NO ROUTE DATA AVAILABLE</div>`;
     }
+
+    // Determine initial active classes for rendering
+    const flightDataActiveClass = currentActiveTab === 'ac-tab-flight-data' ? 'active' : '';
+    const pilotReportActiveClass = currentActiveTab === 'ac-tab-pilot-report' ? 'active' : '';
+    const flightDataDisplay = currentActiveTab === 'ac-tab-flight-data' ? 'flex' : 'none';
+    const pilotReportDisplay = currentActiveTab === 'ac-tab-pilot-report' ? 'block' : 'none';
+    
+    // Switcher Highlight Position
+    const highlightX = currentActiveTab === 'ac-tab-pilot-report' ? '100%' : '0%';
 
     // --- HTML Construction ---
     windowEl.innerHTML = `
-    <style>
-        /* --- Shared Tech Style --- */
-        .tech-module {
-            background: #0f172a; /* Solid Dark Slate */
-            border: 1px solid rgba(255, 255, 255, 0.1);
-            border-radius: 12px;
-            overflow: hidden;
-            box-shadow: 0 4px 15px rgba(0, 0, 0, 0.5);
-            margin-bottom: 8px; 
-            display: flex;
-            flex-direction: column;
-        }
-
-        .tech-module-header {
-            background: rgba(30, 41, 59, 0.5); /* Slightly lighter header */
-            padding: 8px 12px;
-            border-bottom: 1px solid rgba(255, 255, 255, 0.05);
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-        }
-        
-        .tech-module-title {
-            font-size: 0.75rem;
-            font-weight: 700;
-            color: #94a3b8; /* Muted text */
-            text-transform: uppercase;
-            letter-spacing: 0.05em;
-            display: flex;
-            align-items: center;
-            gap: 8px;
-        }
-
-        .tech-module-body {
-            padding: 12px;
-            background: #0f172a;
-            position: relative;
-        }
-
-        /* --- Tech Card Specifics --- */
-        .tech-card {
-            background: #0f172a; 
-            border: 1px solid rgba(255, 255, 255, 0.1);
-            border-radius: 12px; 
-            overflow: hidden;
-            box-shadow: 0 4px 15px rgba(0, 0, 0, 0.5);
-            position: relative;
-            font-family: 'Inter', sans-serif;
-            margin-bottom: 12px; 
-        }
-        .tech-card-header {
-            padding: 12px 16px 4px; 
-            display: flex;
-            justify-content: space-between;
-            align-items: flex-start;
-            position: relative;
-            z-index: 10;
-        }
-        .tech-badge {
-            display: inline-flex;
-            align-items: center;
-            gap: 4px;
-            padding: 1px 6px;
-            border-radius: 999px;
-            background: rgba(16, 185, 129, 0.1);
-            border: 1px solid rgba(16, 185, 129, 0.2);
-            font-size: 9px;
-            font-weight: 700;
-            color: #34d399;
-            text-transform: uppercase;
-            letter-spacing: 0.05em;
-        }
-        .tech-ping {
-            position: relative;
-            display: flex;
-            height: 5px;
-            width: 5px;
-        }
-        .tech-ping span {
-            position: absolute;
-            display: inline-flex;
-            height: 100%;
-            width: 100%;
-            border-radius: 50%;
-            background-color: #34d399;
-        }
-        .tech-ping .animate {
-            animation: ping 1s cubic-bezier(0, 0, 0.2, 1) infinite;
-            opacity: 0.75;
-        }
-        @keyframes ping {
-            75%, 100% { transform: scale(2); opacity: 0; }
-        }
-        .tech-model {
-            font-size: 1.1rem;
-            font-weight: 700;
-            color: #fff;
-            letter-spacing: -0.025em;
-            margin: 0;
-            line-height: 1.2;
-        }
-        .tech-airline {
-            font-size: 0.75rem;
-            font-weight: 500;
-            color: rgba(56, 189, 248, 0.9);
-            margin-top: 0px;
-            display: flex;
-            align-items: center;
-            gap: 5px;
-        }
-        .tech-content {
-            padding: 12px;
-            position: relative;
-            z-index: 10;
-        }
-        .tech-image-container {
-            position: relative;
-            width: 100%;
-            aspect-ratio: 21 / 9;
-            border-radius: 8px;
-            overflow: hidden;
-            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.2);
-            border: 1px solid rgba(255, 255, 255, 0.05);
-            background: #000;
-        }
-        .tech-image {
-            width: 100%;
-            height: 100%;
-            object-fit: cover;
-            transition: transform 0.7s ease-out;
-        }
-        .tech-image-container:hover .tech-image {
-            transform: scale(1.05);
-        }
-        .tech-image-overlay {
-            position: absolute;
-            inset: 0;
-            background: linear-gradient(to top, rgba(2, 6, 23, 0.9), transparent, transparent);
-            opacity: 0.8;
-        }
-        .tech-image-info {
-            position: absolute;
-            bottom: 8px;
-            left: 10px;
-            right: 10px;
-            display: flex;
-            justify-content: space-between;
-            align-items: flex-end;
-        }
-        .tech-photographer {
-            display: flex;
-            flex-direction: column;
-        }
-        .tech-photo-label {
-            font-size: 9px;
-            color: #cbd5e1;
-            font-weight: 500;
-            margin-bottom: 0px;
-            line-height: 1;
-        }
-        .tech-photo-name {
-            display: flex;
-            align-items: center;
-            gap: 4px;
-            font-size: 10px;
-            font-weight: 600;
-            color: #fff;
-        }
-        .tech-grid {
-            display: grid;
-            grid-template-columns: repeat(2, 1fr);
-            gap: 8px;
-            margin-top: 12px;
-        }
-        .tech-stat-card {
-            background: rgba(30, 41, 59, 0.5);
-            border: 1px solid rgba(255, 255, 255, 0.05);
-            padding: 8px 10px;
-            border-radius: 6px;
-            transition: background 0.2s;
-        }
-        .tech-stat-card:hover {
-            background: rgba(30, 41, 59, 0.8);
-        }
-        .tech-stat-header {
-            display: flex;
-            align-items: center;
-            justify-content: space-between;
-            margin-bottom: 2px;
-        }
-        .tech-stat-label {
-            font-size: 9px;
-            font-weight: 600;
-            color: #94a3b8;
-            text-transform: uppercase;
-            letter-spacing: 0.05em;
-        }
-        .tech-stat-value {
-            font-family: 'Consolas', 'Monaco', monospace;
-            font-size: 0.95rem;
-            color: #fff;
-            font-weight: 600;
-            letter-spacing: -0.025em;
-        }
-        .tech-country-card {
-            grid-column: span 2;
-            background: rgba(30, 41, 59, 0.3);
-            border: 1px solid rgba(255, 255, 255, 0.05);
-            padding: 6px 10px;
-            border-radius: 6px;
-            display: flex;
-            align-items: center;
-            justify-content: space-between;
-        }
-        .tech-country-left {
-            display: flex;
-            align-items: center;
-            gap: 8px;
-        }
-        .tech-country-icon {
-            width: 24px;
-            height: 24px;
-            border-radius: 4px;
-            background: rgba(51, 65, 85, 0.5);
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            color: #94a3b8;
-        }
-        .tech-bottom-bar {
-            height: 3px;
-            width: 100%;
-            background: linear-gradient(to right, #0ea5e9, #2563eb, #4f46e5);
-            opacity: 0.8;
-        }
-
-        /* --- FMS Overrides for Tech Style --- */
-        .fms-columns {
-            border-bottom: 1px solid rgba(255, 255, 255, 0.1);
-            color: #94a3b8;
-        }
-        .fms-row {
-            border-bottom: 1px solid rgba(255, 255, 255, 0.05);
-        }
-        .fms-footer {
-            background: rgba(30, 41, 59, 0.3);
-            border-top: 1px solid rgba(255, 255, 255, 0.1);
-        }
-
-        /* --- Nav Data Overrides --- */
-        .nav-header {
-             display: none; /* We use the tech-module-header now */
-        }
-        #location-data-panel {
-            background: transparent;
-            border: none;
-            box-shadow: none;
-        }
-        .nav-grid-container {
-            padding: 0; /* Remove internal padding as body handles it */
-        }
-        .nav-cell {
-            background: rgba(30, 41, 59, 0.5); /* Match tech-stat-card */
-            border: 1px solid rgba(255, 255, 255, 0.05);
-        }
-
-        /* --- VSD Overrides --- */
-        .vsd-module-container {
-             background: transparent; 
-             border: none;
-             box-shadow: none;
-             margin-bottom: 12px;
-        }
-        .vsd-footer {
-            background: rgba(30, 41, 59, 0.3);
-            border-top: 1px solid rgba(255, 255, 255, 0.1);
-        }
-        .vsd-graph-window {
-            background: #0f172a; /* Match background */
-        }
-        #vsd-y-axis {
-            background: #0f172a;
-            border-right: 1px solid rgba(255, 255, 255, 0.1);
-        }
-    </style>
-
     <div class="info-window-content">
         <div class="aircraft-overview-panel" id="ac-overview-panel">
             <div class="overview-actions">
-                <button class="aircraft-window-hide-btn" title="Hide"><i class="fa-solid fa-compress"></i></button>
+                <button class="aircraft-window-share-btn" title="Generate Trip Card" style="margin-right: auto;"><i class="fa-solid fa-camera"></i></button>
                 <button class="aircraft-window-close-btn" title="Close"><i class="fa-solid fa-xmark"></i></button>
             </div>
             <div class="overview-content">
@@ -9072,12 +9757,12 @@ function populateAircraftInfoWindow(baseProps, plan, sortedRoutePoints, communit
                 </div>
             </div>
         </div>
-
+        
         <div class="route-summary-overlay">
             <div class="route-summary-airport" id="route-summary-dep">
                 <div class="airport-line">
-                    <img src="${depFlagSrc}" class="country-flag" id="ac-bar-dep-flag" alt="${depCountryCode}" style="display: ${depFlagDisplay};">
-                    <span class="icao" id="ac-bar-dep">${departureIcao}</span>
+                     <img src="${depFlagSrc}" class="country-flag" id="ac-bar-dep-flag" alt="${depCountryCode}" style="display: ${depFlagDisplay};">
+                     <span class="icao" id="ac-bar-dep">${departureIcao}</span>
                 </div>
                 <span class="time" id="ac-bar-atd">${atdTime} Z</span>
             </div>
@@ -9087,151 +9772,35 @@ function populateAircraftInfoWindow(baseProps, plan, sortedRoutePoints, communit
                 </div>
                 <div class="flight-phase-indicator" id="ac-phase-indicator">ENROUTE</div>
             </div>
-            <div class="route-summary-airport" id="route-summary-arr">
-                 <div class="airport-line">
-                    <span class="icao" id="ac-bar-arr">${arrivalIcao}</span>
-                    <img src="${arrFlagSrc}" class="country-flag" id="ac-bar-arr-flag" alt="${arrCountryCode}" style="display: ${arrFlagDisplay};">
+             <div class="route-summary-airport" id="route-summary-arr">
+                <div class="airport-line">
+                     <span class="icao" id="ac-bar-arr">${arrivalIcao}</span>
+                     <img src="${arrFlagSrc}" class="country-flag" id="ac-bar-arr-flag" alt="${arrCountryCode}" style="display: ${arrFlagDisplay};">
                 </div>
-                <span class="time" id="ac-bar-eta">${etaTime} Z</span>
-            </div>
+                 <span class="time" id="ac-bar-eta">${etaTime} Z</span>
+             </div>
         </div>
 
-        <div class="ac-info-window-tabs">
-            <div class="ac-tabs-wrapper">
-                <button class="ac-info-tab-btn active" data-tab="ac-tab-flight-data">
+        <div class="ac-info-window-tabs" style="padding: 12px 16px; display: flex; align-items: center; justify-content: space-between; gap: 16px;">
+            <div class="modern-view-switcher" id="main-data-switcher" style="flex: 1; background: rgba(15, 23, 42, 0.4); border-radius: 12px; padding: 4px; display: flex; position: relative; border: 1px solid rgba(255,255,255,0.05); height: 44px;">
+                 <button class="ac-info-tab-btn ${flightDataActiveClass}" data-tab="ac-tab-flight-data" style="flex: 1; border: none; background: transparent; color: #fff; font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: 1.2px; padding: 0 10px; cursor: pointer; z-index: 1; transition: color 0.3s ease; display: flex; align-items: center; justify-content: center; gap: 8px;">
                     <i class="fa-solid fa-gauge-high"></i> Flight Display
-                </button>
-                <button class="ac-info-tab-btn pilot-tab-btn" data-tab="ac-tab-pilot-report" data-user-id="${baseProps.userId}" data-username="${pilotUsername}">
+                 </button>
+                 <button class="ac-info-tab-btn pilot-tab-btn ${pilotReportActiveClass}" data-tab="ac-tab-pilot-report" data-user-id="${baseProps.userId}" data-username="${pilotUsername}" style="flex: 1; border: none; background: transparent; color: #94a3b8; font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: 1.2px; padding: 0 10px; cursor: pointer; z-index: 1; transition: color 0.3s ease; display: flex; align-items: center; justify-content: center; gap: 8px;">
                     <i class="fa-solid fa-chart-simple"></i> ${pilotReportTabText}
-                </button>
+                 </button>
+                 <div class="switcher-highlight" id="main-switcher-highlight" style="position: absolute; top: 4px; left: 4px; width: calc(50% - 4px); height: calc(100% - 8px); background: rgba(255,255,255,0.08); border: 1px solid rgba(255,255,255,0.1); border-radius: 8px; transition: transform 0.3s cubic-bezier(0.4, 0, 0.2, 1); transform: translateX(${highlightX});"></div>
             </div>
-            <img src="Images/inflight.png" alt="Inflight Logo" class="ac-info-tab-logo">
+            <img src="Images/inflight.png" alt="Inflight Logo" class="ac-info-tab-logo" style="height: 24px; width: auto; opacity: 0.8;">
         </div>
 
-        <div class="unified-display-main-content">
-            <div id="ac-tab-flight-data" class="ac-tab-pane active" style="gap: 6px;">
-                
+      <div class="unified-display-main-content">
+            <div id="ac-tab-flight-data" class="ac-tab-pane ${flightDataActiveClass}" style="gap: 6px; display: ${flightDataDisplay};">
                 <div class="pfd-and-location-grid">
-                    <div class="pfd-main-panel">
-                        <div class="display-bezel">
-                            <div class="screw tl"></div><div class="screw tr"></div><div class="screw bl"></div><div class="screw br"></div>
+                     <div class="pfd-main-panel">
+                      <div class="display-bezel" style="background: rgba(15, 23, 42, 0.4); border: 1px solid rgba(255,255,255,0.05); border-radius: 12px; overflow: hidden; box-shadow: 0 4px 24px rgba(0,0,0,0.4);">
                             <div class="crt-container scanlines" id="pfd-container">
                                 <svg width="787" height="800" viewBox="0 0 787 800" fill="none" xmlns="http://www.w3.org/2000/svg">
-                                    <g id="PFD" clip-path="url(#clip0_1_2890)">
-                                    <g transform="translate(0, 100)">
-                                        <g id="attitude_group">
-                                            <rect id="Sky" x="-186" y="-222" width="1121" height="600" fill="#0596FF"/>
-                                            <rect id="Ground" x="-138" y="307" width="1024" height="527" fill="#9A4710"/>
-                                        </g>
-                                        <rect id="Rectangle 1" x="-6" y="5" width="191" height="566" fill="#030309"/>
-                                        <rect id="Rectangle 9" x="609" width="185" height="566" fill="#030309"/>
-                                        <path id="Rectangle 2" d="M273.905 84.9424L180.983 183.181L-23 -9.76114L69.9218 -108L273.905 84.9424Z" fill="#030309"/>
-                                        <path id="Rectangle 8" d="M303.215 77.0814L187.591 147.198L42 -92.8829L157.624 -163L303.215 77.0814Z" fill="#030309"/>
-                                        <path id="Rectangle 7" d="M372.606 54.0171L244.59 97.5721L154.152 -168.242L282.169 -211.796L372.606 54.0171Z" fill="#030309"/>
-                                        <rect id="Rectangle 10" x="25" y="487.905" width="168.696" height="262.947" transform="rotate(-31.8041 25 487.905)" fill="#030309"/>
-                                        <rect id="Rectangle 14" width="67.3639" height="53.5561" transform="matrix(-0.972506 0.23288 0.23288 0.972506 482.512 537)" fill="#030309"/>
-                                        <rect id="Rectangle 19" width="80.8905" height="53.5561" transform="matrix(-0.999899 0.0142423 0.0142423 0.999899 442.882 549.506)" fill="#030309"/>
-                                        <rect id="Rectangle 18" width="46.2297" height="53.5561" transform="matrix(-0.988103 -0.153795 -0.153795 0.988103 369.916 549.11)" fill="#030309"/>
-                                        <rect id="Rectangle 17" width="46.2297" height="53.5561" transform="matrix(-0.940186 -0.340662 -0.340662 0.940186 337.709 546.749)" fill="#030309"/>
-                                        <rect id="Rectangle 16" width="46.2297" height="53.5561" transform="matrix(-0.940186 -0.340662 -0.340662 0.940186 299.709 531.749)" fill="#030309"/>
-                                        <rect id="Rectangle 15" x="387" y="587.269" width="168.696" height="262.947" transform="rotate(-27.6434 387 587.269)" fill="#030309"/>
-                                        <rect id="Rectangle 13" x="86" y="584.104" width="168.696" height="262.947" transform="rotate(-46.8648 86 584.104)" fill="#030309"/>
-                                        <rect id="Rectangle 11" x="527" y="532.777" width="168.696" height="262.947" transform="rotate(-51.9135 527 532.777)" fill="#030309"/>
-                                        <rect id="Rectangle 12" x="503" y="527.247" width="168.696" height="262.947" transform="rotate(-31.9408 503 527.247)" fill="#030309"/>
-                                        <rect id="Rectangle 6" x="456.715" y="60.2651" width="131.991" height="278.153" transform="rotate(-177.303 456.715 60.2651)" fill="#030309"/>
-                                        <rect id="Rectangle 5" x="525.118" y="90.4898" width="131.991" height="274.627" transform="rotate(-158.368 525.118 90.4898)" fill="#030309"/>
-                                        <rect id="Rectangle 4" x="570.695" y="127.633" width="109.94" height="223.222" transform="rotate(-142.051 570.695 127.633)" fill="#030309"/>
-                                        <rect id="Rectangle 3" x="613.292" y="189.098" width="99.2768" height="223.222" transform="rotate(-128.125 613.292 189.098)" fill="#030309"/>
-                                        <path id="Vector 3" d="M609 183V422.5" stroke="#E7E6E8" stroke-width="4"/>
-                                        <path id="Vector 1" d="M185.5 425.5L185 180" stroke="#DBDBDC" stroke-width="4"/>
-                                        <path id="Vector 2" d="M185 181.502C185 181.502 269.8 52.0936 397 56.0907C524.2 60.0879 576.603 135.189 609 184" stroke="#DBDBDC" stroke-width="4"/>
-                                        <path id="Vector 4" d="M608.5 424.5C608.5 424.5 557 548 396 550.5C235 553 185 424.5 185 424.5" stroke="#DBDBDC" stroke-width="4"/>
-                                        <path id="Polygon 1" d="M396.252 65.2333L377.848 35.8138L414.647 35.8079L396.252 65.2333Z" fill="#E7F013"/>
-                                        <path id="Polygon 2" d="M407.919 38.9482L396.431 59.4193L384.446 38.7244L407.919 38.9482Z" fill="#030309"/>
-                                        <path id="Vector 6" d="M307 76L302 64.5L312 60.5L317 71" stroke="#E7E6E8" stroke-width="4"/>
-                                        <path id="Vector 7" d="M279.5 91L268.5 73.5L259 79L269.5 97.5" stroke="#E7E6E8" stroke-width="4"/>
-                                        <path id="Vector 8" d="M225 135L206.5 117" stroke="#E7E6E8" stroke-width="4"/>
-                                        <path id="Vector 9" d="M477.153 71.5794L479.366 59.3018L489.886 61.5697L488.226 73.0218" stroke="#E7E6E8" stroke-width="4"/>
-                                        <path id="Vector 10" d="M347.928 61.4888L346.352 49.0483L357.072 48.0112L358.929 59.4917" stroke="#E7E6E8" stroke-width="4"/>
-                                        <path id="Vector 11" d="M435.153 59.5794L437.366 47.3018L447.886 49.5697L446.226 61.0218" stroke="#E7E6E8" stroke-width="4"/>
-                                        <path id="Vector 12" d="M514.032 86.1754L522.756 72.2658L533.956 78.0405L525.5 93.5" stroke="#E7E6E8" stroke-width="4"/>
-                                        <path id="Vector 13" d="M569.5 131.5L585.5 116" stroke="#E7E6E8" stroke-width="4"/>
-                                        <path id="Vector 15" d="M183.5 193.5L173 187" stroke="#029705" stroke-width="4"/>
-                                        <path id="Vector 16" d="M184 203L173.5 196.5" stroke="#029705" stroke-width="4"/>
-                                        <path id="Vector 17" d="M610 193.5L619 188" stroke="#029705" stroke-width="3"/>
-                                        <path id="Vector 18" d="M610 199.5L619 194" stroke="#029705" stroke-width="3"/>
-                                        <line id="Line 1" x1="184" y1="211" x2="184" y2="184" stroke="#DBDBDC" stroke-width="2"/>
-                                        <line id="Line 2" x1="610" y1="211" x2="610" y2="184" stroke="#DBDBDC" stroke-width="2"/>
-                                        <rect id="altitude_bg" x="675" y="73" width="72" height="476" fill="#76767A"/>
-                                        <g clip-path="url(#altTapeClip)">
-                                            <svg x="675" y="73" width="72" height="476"><g id="altitude_tape_group"></g></svg>
-                                        </g>
-                                        <g id="altitude_indicator_static">
-                                            <rect id="altitude_1" x="675" y="280" width="73" height="49" fill="#030309"/>
-                                            <text id="altitude_readout_hundreds" x="740" y="316" fill="#00FF00" font-size="32" text-anchor="end" font-weight="bold">0</text>
-                                            <g id="altitude_tens_reel_container" clip-path="url(#tensReelClip)"><g id="altitude_tens_reel_group"></g></g>
-                                            <line id="Line 8" x1="669" y1="307" x2="618" y2="307" stroke="#DDDF07" stroke-width="8"/>
-                                        </g>
-                                        <path id="limit" d="M636 336.08L621.413 307.511L650.858 307.651L636 336.08Z" fill="#C477C6"/>
-                                        <path id="limit2" d="M636 279L650.722 307.5H621.278L636 279Z" fill="#C477C6"/>
-                                        <path id="limit3" d="M636 285L643.794 303H628.206L636 285Z" fill="#100010"/>
-                                        <path id="limit4" d="M636.191 329.14L628.276 311.242L643.534 310.999L636.191 329.14Z" fill="#030309"/>
-                                        <line id="Line 6" x1="746.5" y1="263" x2="746.5" y2="281" stroke="#ECED06" stroke-width="3"/>
-                                        <line id="Line 4" x1="746.5" y1="329" x2="746.5" y2="347" stroke="#ECED06" stroke-width="3"/>
-                                        <path id="Ellipse 1" d="M636 481C636 484.866 632.866 488 629 488C625.134 488 622 484.866 622 481C622 477.134 625.134 474 629 474C632.866 474 636 477.134 636 481Z" fill="#D9D9D9"/>
-                                        <path id="Ellipse 4" d="M636 147C636 150.866 632.866 154 629 154C625.134 154 622 150.866 622 147C622 143.134 625.134 140 629 140C632.866 140 636 143.134 636 147Z" fill="#D9D9D9"/>
-                                        <g id="Ellipse 3">
-                                            <path d="M636 229C636 232.866 632.866 236 629 236C625.134 236 622 232.866 622 229C622 225.134 625.134 222 629 222C632.866 222 636 225.134 636 229Z" fill="#D9D9D9"/>
-                                            <path d="M636 395C636 398.866 632.866 402 629 402C625.134 402 622 398.866 622 395C622 391.134 625.134 388 629 388C632.866 388 636 391.134 636 395Z" fill="#D9D9D9"/>
-                                        </g>
-                                        <rect id="speed" x="28" y="73" width="97" height="477" fill="#76767A"/>
-                                        <g clip-path="url(#speedTapeClip)">
-                                            <svg x="28" y="73" width="97" height="477"><g id="speed_tape_group"></g></svg>
-                                        </g>
-                                        <g id="speed_indicator_static">
-                                            <path id="Polygon 9" d="M128.036 311.591L150.451 301.561L150.513 321.482L128.036 311.591Z" fill="#FDFD03"/>
-                                            <path id="Vector 20" d="M137 311H96.5" stroke="#FDFD03" stroke-width="4"/>
-                                            <rect x="50" y="296" width="45" height="30" fill="black" stroke="#999" stroke-width="1"/>
-                                            <text id="speed_readout" x="72.5" y="318" fill="#00FF00" font-size="20" text-anchor="middle" font-weight="bold">0</text>
-                                        </g>
-                                        <path id="Vector 19" d="M19.5 311H31" stroke="#FDFD03" stroke-width="4"/>
-                                        <path id="Vector 21" d="M29 73H151.5" stroke="#E7E6E8" stroke-width="4"/>
-                                        <path id="Vector 22" d="M28 549H151.5" stroke="#E7E6E8" stroke-width="4"/>
-                                        <path id="Vector 23" d="M672.5 73H774" stroke="#E7E6E8" stroke-width="4"/>
-                                        <path id="Vector 24" d="M672 548.5H773" stroke="#E7E6E8" stroke-width="4"/>
-                                        <path id="Vector 25" d="M745 549.5L746 347" stroke="#E7E6E8" stroke-width="3"/>
-                                        <path id="Vector 26" d="M745 73V265" stroke="#E7E6E8" stroke-width="3"/>
-                                        <g id="wings">
-                                            <rect id="Rectangle 21" x="280" y="315" width="11" height="25" fill="#030309"/>
-                                            <rect id="Rectangle 23" x="522" y="304" width="71" height="12" fill="#030309"/>
-                                            <rect id="Rectangle 22" x="512" y="305" width="13" height="35" fill="#030309"/>
-                                            <rect id="Rectangle 20" x="208" y="304" width="83" height="13" fill="#030309"/>
-                                            <g id="wing">
-                                                <path d="M278.591 316.857H208V304H291.608V340H278.591V316.857Z" stroke="#FEFE03" stroke-width="3"/>
-                                                <path d="M511.392 340V304H595V316.857H524.409V340H511.392Z" stroke="#FEFE03" stroke-width="3"/>
-                                            </g>
-                                        </g>
-                                        <g id="middle">
-                                            <rect id="middle_2" x="393" y="304" width="17" height="17" fill="#0CC704"/>
-                                            <rect id="Rectangle 24" x="395" y="307" width="13" height="11" fill="#030309"/>
-                                        </g>
-                                        <rect id="Rectangle 25" y="571" width="787" height="140" fill="#030309"/>
-                                        <rect id="header" x="243" y="599" width="326" height="66" fill="#76767A"/>
-                                        <g id="heading_indicator">
-                                            <g id="heading_tape_container" clip-path="url(#headingClip)"><g id="heading_tape_group"></g></g>
-                                            <g id="heading_static_elements">
-                                                <line x1="406" y1="620" x2="406" y2="635" stroke="#FDFD03" stroke-width="3"/>
-                                                <rect x="381" y="599" width="50" height="20" fill="black" stroke="#FFFFFF" stroke-width="1"/>
-                                                <text id="heading_readout" x="406" y="615" fill="#00FF00" font-size="16" text-anchor="middle" font-weight="bold">000</text>
-                                            </g>
-                                        </g>
-                                        <path id="Vector 27" d="M243 599V667" stroke="#FCFCFF" stroke-width="4"/>
-                                        <g id="Line 5"><line id="Line 5_2" x1="745" y1="264.5" x2="787" y2="264.5" stroke="#ECED06" stroke-width="3"/></g>
-                                        <line id="Line 6_2" x1="671" y1="279.5" x2="748" y2="279.5" stroke="#ECED06" stroke-width="3"/>
-                                        <line id="Line 7" x1="671" y1="329.5" x2="748" y2="329.5" stroke="#ECED06" stroke-width="3"/>
-                                        <line id="Line 3" x1="746" y1="345.5" x2="786" y2="345.5" stroke="#ECED06" stroke-width="3"/>
-                                    </g> 
-                                    </g>
                                     <defs>
                                         <clipPath id="clip0_1_2890"><rect width="787" height="800" fill="white"/></clipPath>
                                         <clipPath id="tensReelClip"><rect x="732" y="269" width="50" height="75"/></clipPath>
@@ -9239,214 +9808,373 @@ function populateAircraftInfoWindow(baseProps, plan, sortedRoutePoints, communit
                                         <clipPath id="speedTapeClip"><rect x="28" y="73" width="97" height="477"/></clipPath>
                                         <clipPath id="altTapeClip"><rect x="675" y="73" width="72" height="476"/></clipPath>
                                     </defs>
+                                    <g id="PFD" clip-path="url(#clip0_1_2890)">
+                                        <g transform="translate(0, 100)">
+                                            <g id="attitude_group">
+                                                <rect id="Sky" x="-186" y="-222" width="1121" height="600" fill="#0596FF"/>
+                                                <rect id="Ground" x="-138" y="307" width="1024" height="527" fill="#9A4710"/>
+                                            </g>
+                                            <rect id="Rectangle 1" x="-6" y="5" width="191" height="566" fill="#030309"/>
+                                            <rect id="Rectangle 9" x="609" width="185" height="566" fill="#030309"/>
+                                            <path id="Rectangle 2" d="M273.905 84.9424L180.983 183.181L-23 -9.76114L69.9218 -108L273.905 84.9424Z" fill="#030309"/>
+                                            <path id="Rectangle 8" d="M303.215 77.0814L187.591 147.198L42 -92.8829L157.624 -163L303.215 77.0814Z" fill="#030309"/>
+                                            <path id="Rectangle 7" d="M372.606 54.0171L244.59 97.5721L154.152 -168.242L282.169 -211.796L372.606 54.0171Z" fill="#030309"/>
+                                            <rect id="Rectangle 10" x="25" y="487.905" width="168.696" height="262.947" transform="rotate(-31.8041 25 487.905)" fill="#030309"/>
+                                            <rect id="Rectangle 14" width="67.3639" height="53.5561" transform="matrix(-0.972506 0.23288 0.23288 0.972506 482.512 537)" fill="#030309"/>
+                                            <rect id="Rectangle 19" width="80.8905" height="53.5561" transform="matrix(-0.999899 0.0142423 0.0142423 0.999899 442.882 549.506)" fill="#030309"/>
+                                            <rect id="Rectangle 18" width="46.2297" height="53.5561" transform="matrix(-0.988103 -0.153795 -0.153795 0.988103 369.916 549.11)" fill="#030309"/>
+                                            <rect id="Rectangle 17" width="46.2297" height="53.5561" transform="matrix(-0.940186 -0.340662 -0.340662 0.940186 337.709 546.749)" fill="#030309"/>
+                                            <rect id="Rectangle 16" width="46.2297" height="53.5561" transform="matrix(-0.940186 -0.340662 -0.340662 0.940186 299.709 531.749)" fill="#030309"/>
+                                            <rect id="Rectangle 15" x="387" y="587.269" width="168.696" height="262.947" transform="rotate(-27.6434 387 587.269)" fill="#030309"/>
+                                            <rect id="Rectangle 13" x="86" y="584.104" width="168.696" height="262.947" transform="rotate(-46.8648 86 584.104)" fill="#030309"/>
+                                            <rect id="Rectangle 11" x="527" y="532.777" width="168.696" height="262.947" transform="rotate(-51.9135 527 532.777)" fill="#030309"/>
+                                            <rect id="Rectangle 12" x="503" y="527.247" width="168.696" height="262.947" transform="rotate(-31.9408 503 527.247)" fill="#030309"/>
+                                            <rect id="Rectangle 6" x="456.715" y="60.2651" width="131.991" height="278.153" transform="rotate(-177.303 456.715 60.2651)" fill="#030309"/>
+                                            <rect id="Rectangle 5" x="525.118" y="90.4898" width="131.991" height="274.627" transform="rotate(-158.368 525.118 90.4898)" fill="#030309"/>
+                                            <rect id="Rectangle 4" x="570.695" y="127.633" width="109.94" height="223.222" transform="rotate(-142.051 570.695 127.633)" fill="#030309"/>
+                                            <rect id="Rectangle 3" x="613.292" y="189.098" width="99.2768" height="223.222" transform="rotate(-128.125 613.292 189.098)" fill="#030309"/>
+                                            <path id="Vector 3" d="M609 183V422.5" stroke="#E7E6E8" stroke-width="4"/>
+                                            <path id="Vector 1" d="M185.5 425.5L185 180" stroke="#DBDBDC" stroke-width="4"/>
+                                            <path id="Vector 2" d="M185 181.502C185 181.502 269.8 52.0936 397 56.0907C524.2 60.0879 576.603 135.189 609 184" stroke="#DBDBDC" stroke-width="4"/>
+                                            <path id="Vector 4" d="M608.5 424.5C608.5 424.5 557 548 396 550.5C235 553 185 424.5 185 424.5" stroke="#DBDBDC" stroke-width="4"/>
+                                            <path id="Polygon 1" d="M396.252 65.2333L377.848 35.8138L414.647 35.8079L396.252 65.2333Z" fill="#E7F013"/>
+                                            <path id="Polygon 2" d="M407.919 38.9482L396.431 59.4193L384.446 38.7244L407.919 38.9482Z" fill="#030309"/>
+                                            <path id="Vector 6" d="M307 76L302 64.5L312 60.5L317 71" stroke="#E7E6E8" stroke-width="4"/>
+                                            <path id="Vector 7" d="M279.5 91L268.5 73.5L259 79L269.5 97.5" stroke="#E7E6E8" stroke-width="4"/>
+                                            <path id="Vector 8" d="M225 135L206.5 117" stroke="#E7E6E8" stroke-width="4"/>
+                                            <path id="Vector 9" d="M477.153 71.5794L479.366 59.3018L489.886 61.5697L488.226 73.0218" stroke="#E7E6E8" stroke-width="4"/>
+                                            <path id="Vector 10" d="M347.928 61.4888L346.352 49.0483L357.072 48.0112L358.929 59.4917" stroke="#E7E6E8" stroke-width="4"/>
+                                            <path id="Vector 11" d="M435.153 59.5794L437.366 47.3018L447.886 49.5697L446.226 61.0218" stroke="#E7E6E8" stroke-width="4"/>
+                                            <path id="Vector 12" d="M514.032 86.1754L522.756 72.2658L533.956 78.0405L525.5 93.5" stroke="#E7E6E8" stroke-width="4"/>
+                                            <path id="Vector 13" d="M569.5 131.5L585.5 116" stroke="#E7E6E8" stroke-width="4"/>
+                                            <path id="Vector 15" d="M183.5 193.5L173 187" stroke="#029705" stroke-width="4"/>
+                                            <path id="Vector 16" d="M184 203L173.5 196.5" stroke="#029705" stroke-width="4"/>
+                                            <path id="Vector 17" d="M610 193.5L619 188" stroke="#029705" stroke-width="3"/>
+                                            <path id="Vector 18" d="M610 199.5L619 194" stroke="#029705" stroke-width="3"/>
+                                            <line id="Line 1" x1="184" y1="211" x2="184" y2="184" stroke="#DBDBDC" stroke-width="2"/>
+                                            <line id="Line 2" x1="610" y1="211" x2="610" y2="184" stroke="#DBDBDC" stroke-width="2"/>
+                                            <rect id="altitude_bg" x="675" y="73" width="72" height="476" fill="#76767A"/>
+                                            <g clip-path="url(#altTapeClip)">
+                                                 <svg x="675" y="73" width="72" height="476"><g id="altitude_tape_group"></g></svg>
+                                            </g>
+                                            <g id="altitude_indicator_static">
+                                                <rect id="altitude_1" x="675" y="280" width="73" height="49" fill="#030309"/>
+                                                <text id="altitude_readout_hundreds" x="740" y="316" fill="#00FF00" font-size="32" text-anchor="end" font-weight="bold">0</text>
+                                                <g id="altitude_tens_reel_container" clip-path="url(#tensReelClip)"><g id="altitude_tens_reel_group"></g></g>
+                                                <line id="Line 8" x1="669" y1="307" x2="618" y2="307" stroke="#DDDF07" stroke-width="8"/>
+                                            </g>
+                                            <path id="limit" d="M636 336.08L621.413 307.511L650.858 307.651L636 336.08Z" fill="#C477C6"/>
+                                            <path id="limit2" d="M636 279L650.722 307.5H621.278L636 279Z" fill="#C477C6"/>
+                                            <path id="limit3" d="M636 285L643.794 303H628.206L636 285Z" fill="#100010"/>
+                                            <path id="limit4" d="M636.191 329.14L628.276 311.242L643.534 310.999L636.191 329.14Z" fill="#030309"/>
+                                            <line id="Line 6" x1="746.5" y1="263" x2="746.5" y2="281" stroke="#ECED06" stroke-width="3"/>
+                                            <line id="Line 4" x1="746.5" y1="329" x2="746.5" y2="347" stroke="#ECED06" stroke-width="3"/>
+                                            <path id="Ellipse 1" d="M636 481C636 484.866 632.866 488 629 488C625.134 488 622 484.866 622 481C622 477.134 625.134 474 629 474C632.866 474 636 477.134 636 481Z" fill="#D9D9D9"/>
+                                            <path id="Ellipse 4" d="M636 147C636 150.866 632.866 154 629 154C625.134 154 622 150.866 622 147C622 143.134 625.134 140 629 140C632.866 140 636 147Z" fill="#D9D9D9"/>
+                                            <g id="Ellipse 3">
+                                                <path d="M636 229C636 232.866 632.866 236 629 236C625.134 236 622 232.866 622 229C622 225.134 625.134 222 629 222C632.866 222 636 225.134 636 229Z" fill="#D9D9D9"/>
+                                                <path d="M636 395C636 398.866 632.866 402 629 402C625.134 402 622 398.866 622 395C622 391.134 625.134 388 629 388C632.866 388 636 391.134 636 395Z" fill="#D9D9D9"/>
+                                            </g>
+                                            <rect id="speed" x="28" y="73" width="97" height="477" fill="#76767A"/>
+                                            <g clip-path="url(#speedTapeClip)">
+                                                <svg x="28" y="73" width="97" height="477"><g id="speed_tape_group"></g></svg>
+                                            </g>
+                                            <g id="speed_indicator_static">
+                                                <path id="Polygon 9" d="M128.036 311.591L150.451 301.561L150.513 321.482L128.036 311.591Z" fill="#FDFD03"/>
+                                                <path id="Vector 20" d="M137 311H96.5" stroke="#FDFD03" stroke-width="4"/>
+                                                <rect x="50" y="296" width="45" height="30" fill="black" stroke="#999" stroke-width="1"/>
+                                                <text id="speed_readout" x="72.5" y="318" fill="#00FF00" font-size="20" text-anchor="middle" font-weight="bold">0</text>
+                                            </g>
+                                            <path id="Vector 19" d="M19.5 311H31" stroke="#FDFD03" stroke-width="4"/>
+                                            <path id="Vector 21" d="M29 73H151.5" stroke="#E7E6E8" stroke-width="4"/>
+                                            <path id="Vector 22" d="M28 549H151.5" stroke="#E7E6E8" stroke-width="4"/>
+                                            <path id="Vector 23" d="M672.5 73H774" stroke="#E7E6E8" stroke-width="4"/>
+                                            <path id="Vector 24" d="M672 548.5H773" stroke="#E7E6E8" stroke-width="4"/>
+                                            <path id="Vector 25" d="M745 549.5L746 347" stroke="#E7E6E8" stroke-width="3"/>
+                                            <path id="Vector 26" d="M745 73V265" stroke="#E7E6E8" stroke-width="3"/>
+                                            <g id="wings">
+                                                <rect id="Rectangle 21" x="280" y="315" width="11" height="25" fill="#030309"/>
+                                                <rect id="Rectangle 23" x="522" y="304" width="71" height="12" fill="#030309"/>
+                                                <rect id="Rectangle 22" x="512" y="305" width="13" height="35" fill="#030309"/>
+                                                <rect id="Rectangle 20" x="208" y="304" width="83" height="13" fill="#030309"/>
+                                                <g id="wing">
+                                                    <path d="M278.591 316.857H208V304H291.608V340H278.591V316.857Z" stroke="#FEFE03" stroke-width="3"/>
+                                                    <path d="M511.392 340V304H595V316.857H524.409V340H511.392Z" stroke="#FEFE03" stroke-width="3"/>
+                                                </g>
+                                            </g>
+                                            <g id="middle">
+                                                <rect id="middle_2" x="393" y="304" width="17" height="17" fill="#0CC704"/>
+                                                <rect id="Rectangle 24" x="395" y="307" width="13" height="11" fill="#030309"/>
+                                            </g>
+                                            <rect id="Rectangle 25" y="571" width="787" height="140" fill="#030309"/>
+                                            <rect id="header" x="243" y="599" width="326" height="66" fill="#76767A"/>
+                                            <g id="heading_indicator">
+                                                <g id="heading_tape_container" clip-path="url(#headingClip)"><g id="heading_tape_group"></g></g>
+                                                <g id="heading_static_elements">
+                                                    <line x1="406" y1="620" x2="406" y2="635" stroke="#FDFD03" stroke-width="3"/>
+                                                    <rect x="381" y="599" width="50" height="20" fill="black" stroke="#FFFFFF" stroke-width="1"/>
+                                                    <text id="heading_readout" x="406" y="615" fill="#00FF00" font-size="16" text-anchor="middle" font-weight="bold">000</text>
+                                                </g>
+                                            </g>
+                                            <path id="Vector 27" d="M243 599V667" stroke="#FCFCFF" stroke-width="4"/>
+                                            <g id="Line 5"><line id="Line 5_2" x1="745" y1="264.5" x2="787" y2="264.5" stroke="#ECED06" stroke-width="3"/></g>
+                                            <line id="Line 6_2" x1="671" y1="279.5" x2="748" y2="279.5" stroke="#ECED06" stroke-width="3"/>
+                                            <line id="Line 7" x1="671" y1="329.5" x2="748" y2="329.5" stroke="#ECED06" stroke-width="3"/>
+                                            <line id="Line 3" x1="746" y1="345.5" x2="786" y2="345.5" stroke="#ECED06" stroke-width="3"/>
+                                        </g>
+                                    </g>
                                 </svg>
                             </div>
-                        </div>
-                        
-                        <div class="display-bezel">
-                            <div class="screw tl"></div><div class="screw tr"></div><div class="screw bl"></div><div class="screw br"></div>
-                            <div class="crt-container scanlines">
+                     </div>
+                    </div> 
+                    
+             <div class="info-right-col" style="gap: 6px; display: flex; flex-direction: column; height: 100%; justify-content: space-between;">
+    <div class="modern-status-card" style="background: linear-gradient(165deg, rgba(255,255,255,0.08) 0%, rgba(255,255,255,0.01) 100%);
+        border: 1px solid rgba(255,255,255,0.1); border-radius: 12px; padding: 10px 12px; position: relative; overflow: hidden;
+        backdrop-filter: blur(12px); flex: 1; display: flex; flex-direction: column; justify-content: center;">
+        <div class="status-glow" style="position: absolute; top: -20px; right: -20px; width: 60px; height: 60px; background: ${psColor}; filter: blur(35px); opacity: 0.2;"></div>
+        
+        <div style="display: flex; flex-direction: column; gap: 8px; position: relative; z-index: 2;">
+            <div style="display: flex; align-items: center; justify-content: space-between;">
+                <div style="width: 30px; height: 30px; border-radius: 8px; background: rgba(0,0,0,0.2); display: flex; align-items: center; justify-content: center; color: ${psColor}; border: 1px solid ${psColor}40;">
+                     <i class="fa-solid ${psIcon}" style="font-size: 14px; filter: drop-shadow(0 0 8px ${psColor}60);"></i>
+                </div>
+                <div class="tech-ping" style="width: 6px; height: 6px; position: relative;">
+                    <span class="animate" style="background: ${psColor}; position: absolute; inset: 0; border-radius: 50%; opacity: 0.6;"></span>
+                    <span style="background: ${psColor}; position: absolute; inset: 0; border-radius: 50%;"></span>
+                </div>
+            </div>
+            <div>
+                <span style="display: block; font-size: 8px; color: #94a3b8; font-weight: 800; text-transform: uppercase; letter-spacing: 1px; margin-bottom: 1px;">Pilot Status</span>
+                <span style="display: block; font-size: 14px; color: #fff; font-weight: 800; letter-spacing: 0.5px;">${psTitle}</span>
+                <span style="display: block; font-size: 9px; color: #64748b; font-weight: 500; margin-top: 1px;">${psDesc}</span>
+            </div>
+        </div>
+    </div>
+
+    <div class="modern-timer-stack" style="display: flex; flex-direction: column; gap: 4px;">
+        <div class="timer-node" style="background: rgba(15, 23, 42, 0.4); border-left: 3px solid #64748b; padding: 8px 10px; border-radius: 4px 10px 10px 4px; border-top: 1px solid rgba(255,255,255,0.03);">
+            <div style="display: flex; align-items: center; gap: 4px; margin-bottom: 2px;">
+                <i class="fa-solid fa-stopwatch" style="color: #64748b; font-size: 8px;"></i>
+                <span style="display: block; font-size: 7px; color: #64748b; text-transform: uppercase; font-weight: 700; letter-spacing: 1px;">Elapsed</span>
+            </div>
+            <span id="ac-sensor-elapsed" style="display: block; font-family: 'JetBrains Mono', monospace; font-size: 16px; color: #fff; font-weight: 500;">--:--</span>
+        </div>
+
+        <div class="timer-node" style="background: rgba(15, 23, 42, 0.4); border-left: 3px solid #38bdf8; padding: 8px 10px; border-radius: 4px 10px 10px 4px; border-top: 1px solid rgba(255,255,255,0.03);">
+            <div style="display: flex; align-items: center; gap: 4px; margin-bottom: 2px;">
+                <i class="fa-solid fa-hourglass-half" style="color: #38bdf8; font-size: 8px;"></i>
+                <span style="display: block; font-size: 7px; color: #38bdf8; text-transform: uppercase; font-weight: 700; letter-spacing: 1px;">Remaining</span>
+            </div>
+            <span id="ac-sensor-ete" style="display: block; font-family: 'JetBrains Mono', monospace; font-size: 16px; color: #38bdf8; font-weight: 700;">--:--</span>
+        </div>
+
+        <div class="timer-node" style="background: transparent; padding: 4px 10px; display: flex; justify-content: space-between; align-items: center; border-top: 1px solid rgba(255,255,255,0.05);">
+            <span style="font-size: 7px; color: #475569; text-transform: uppercase; font-weight: 700;">Total</span>
+            <span id="ac-sensor-total" style="font-family: 'JetBrains Mono', monospace; font-size: 11px; color: #475569; font-weight: 600;">--:--</span>
+        </div>
+    </div>
+</div>
+                </div> 
+
+                <div class="nd-full-width-section">
+                    <!-- REDESIGNED VIEW SWITCHER -->
+                    <div class="modern-view-switcher" style="margin-bottom: 12px; background: rgba(15, 23, 42, 0.4); border-radius: 12px; padding: 4px; display: flex; position: relative; border: 1px solid rgba(255,255,255,0.05);">
+                         <button class="display-toggle-btn ${currentViewTarget === 'nd-view' ? 'active' : ''}" data-target="nd-view" style="flex: 1; border: none; background: transparent; color: #94a3b8; font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: 1.5px; padding: 10px; cursor: pointer; z-index: 1; transition: color 0.3s ease;">
+                            <i class="fa-solid fa-compass" style="margin-right: 6px;"></i> Navigation
+                         </button>
+                         <button class="display-toggle-btn ${currentViewTarget === 'fmc-view' ? 'active' : ''}" data-target="fmc-view" style="flex: 1; border: none; background: transparent; color: #94a3b8; font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: 1.5px; padding: 10px; cursor: pointer; z-index: 1; transition: color 0.3s ease;">
+                            <i class="fa-solid fa-list-ul" style="margin-right: 6px;"></i> Flight Plan
+                         </button>
+                         <div class="switcher-highlight" style="position: absolute; top: 4px; left: 4px; width: calc(50% - 4px); height: calc(100% - 8px); background: rgba(255,255,255,0.08); border: 1px solid rgba(255,255,255,0.1); border-radius: 8px; transition: transform 0.3s cubic-bezier(0.4, 0, 0.2, 1); transform: translateX(${currentViewTarget === 'fmc-view' ? '100%' : '0%'});"></div>
+                    </div>
+
+                    <div class="display-bezel" style="background: rgba(15, 23, 42, 0.4); border: 1px solid rgba(255,255,255,0.05); border-radius: 12px; overflow: hidden; box-shadow: 0 4px 24px rgba(0,0,0,0.4);">
+                        <div class="crt-container scanlines" style="aspect-ratio: 1/1; display: flex; flex-direction: column; overflow: hidden;">
+                             <div id="nd-view-container" style="width: 100%; height: 100%; display: ${currentViewTarget === 'nd-view' ? 'block' : 'none'};">
                                 <div id="nd-container">
                                     <iframe id="nav-display-frame" src="nav.html" scrolling="no"></iframe>
                                 </div>
                             </div>
-                        </div>
 
-                    </div>
-                    
-                    <div class="info-right-col">
-                        
-                        <div class="tech-module" id="cockpit-seat-sensor">
-                            <div class="tech-module-header">
-                                <span class="tech-module-title"><i class="fa-solid fa-chair"></i> COCKPIT STATE</span>
-                                <span class="fms-page-count"><i class="fa-solid fa-satellite-dish"></i></span>
-                            </div>
-                            <div class="tech-module-body">
-                                <div class="cockpit-view">
-                                    <div id="seat-cpt" class="seat" data-role="CPT"></div>
-                                    <div id="seat-fo" class="seat" data-role="FO"></div>
-                                    
-                                    <div id="icon-parking-overlay" class="cockpit-overlay-icon icon-parking">P</div>
-                                    <div id="icon-coffee-overlay" class="cockpit-overlay-icon icon-coffee"><i class="fa-solid fa-mug-hot"></i></div>
-                                    <div id="icon-cloud-overlay" class="cockpit-overlay-icon icon-cloud"><i class="fa-solid fa-cloud"></i></div>
-                                </div>
-                                <div class="seat-status-display">
-                                    <span id="status-cpt-text" class="status-pill">CMD: ---</span>
-                                    <span id="status-fo-text" class="status-pill">FO: ---</span>
-                                </div>
-                                <div id="seat-narrative-text">
-                                    Initializing...
-                                </div>
-                            </div>
-                        </div>
-
-                        ${todHtml}
-
-                        <div id="fms-legs-module" class="tech-module" style="height: 380px; max-height: 380px; display: flex; flex-direction: column; margin-top: 12px;">
-                            <div class="tech-module-header">
-                                <span class="tech-module-title"><i class="fa-solid fa-route"></i> ACTIVE FLIGHT PLAN</span>
-                                <span class="fms-page-count">1/1</span>
-                            </div>
-                            
-                            <div class="fms-columns">
-                                <span class="col-wpt">LEGS</span>
-                                <span class="col-data text-center">CRS</span>
-                                <span class="col-data text-right">DIST</span>
-                            </div>
-
-                            <div id="fms-legs-list" class="fms-list-scrollarea">
-                                <div class="fms-empty-state">NO ROUTE LOADED</div>
-                            </div>
-                            
-                            <div class="fms-footer">
-                                <div class="fms-stat">
-                                    <span class="stat-label">DTG</span>
-                                    <span id="fms-total-dist" class="stat-value">---- NM</span>
-                                </div>
-                                <div class="fms-stat">
-                                    <span class="stat-label">ETE</span>
-                                    <span id="fms-total-ete" class="stat-value">--:--</span>
+                            <div id="fmc-view-container" style="display: ${currentViewTarget === 'fmc-view' ? 'flex' : 'none'}; width: 100%; height: 100%; background: #000; flex-direction: column;">
+                                <div class="fms-module-container" style="height: 100%; max-height: 100%; width: 100%; border: none; background: transparent; box-shadow: none; border-radius: 0; display: flex; flex-direction: column; overflow: hidden;">
+                                    <div class="fms-header" style="background: rgba(255,255,255,0.05); padding: 14px 18px; border-bottom: 1px solid rgba(255,255,255,0.05); flex-shrink: 0; display: flex; justify-content: space-between; align-items: center;">
+                                        <span class="tech-module-title" style="font-weight: 700; font-size: 11px; letter-spacing: 1px;"><i class="fa-solid fa-route" style="color: #38bdf8;"></i> ROUTE PROFILE</span>
+                                        <span class="fms-page-count" style="font-family: monospace; font-size: 10px; color: #475569;">PAGE 01/01</span>
+                                    </div>
+                                    <div class="fms-columns" style="border-bottom: 1px dashed rgba(255,255,255,0.1); display: flex; justify-content: space-between; padding: 8px 14px; flex-shrink: 0; background: rgba(0,0,0,0.2);">
+                                        <span class="col-wpt" style="flex: 2; text-align: left; font-size: 9px; color: #64748b; text-transform: uppercase;">Waypoint Ident</span>
+                                        <span class="col-data text-center" style="flex: 1; font-size: 9px; color: #64748b; text-transform: uppercase;">CRS</span>
+                                        <span class="col-data text-right" style="flex: 1; font-size: 9px; color: #64748b; text-transform: uppercase;">DIST</span>
+                                    </div>
+                                    <div id="fms-legs-list" class="fms-list-scrollarea" style="flex: 1; overflow-y: auto; min-height: 0; scrollbar-width: none;">
+                                        ${fmsLegsHtml}
+                                    </div>
+                                    <div class="fms-footer" style="background: rgba(15, 23, 42, 0.8); border-top: 1px solid rgba(255,255,255,0.05); flex-shrink: 0; padding: 12px 18px; display: flex; gap: 24px;">
+                                        <div class="fms-stat">
+                                            <span class="stat-label" style="display: block; font-size: 8px; color: #64748b; text-transform: uppercase; margin-bottom: 2px;">Total Distance</span>
+                                            <span id="fms-total-dist" class="stat-value" style="font-size: 16px; color: #fff; font-weight: 700;">---- NM</span>
+                                        </div>
+                                        <div class="fms-stat">
+                                            <span class="stat-label" style="display: block; font-size: 8px; color: #64748b; text-transform: uppercase; margin-bottom: 2px;">Estimated Time</span>
+                                            <span id="fms-total-ete" class="stat-value" style="font-size: 16px; color: #38bdf8; font-weight: 700;">--:--</span>
+                                        </div>
+                                    </div>
                                 </div>
                             </div>
                         </div>
                     </div>
-                </div>
-                
-                <div class="tech-module" id="location-data-panel">
-                    <div class="tech-module-header">
-                        <span class="tech-module-title"><i class="fa-solid fa-location-crosshairs"></i> NAV DATA</span>
-                        <span class="nav-status-indicator"><div class="nav-blink"></div> LIVE</span>
+                 </div>
+
+                <!-- RE-STYLED NAV DATA PANEL - FLUID DESIGN -->
+                <div class="tech-module" id="location-data-panel" style="background: rgba(15, 23, 42, 0.4); border: 1px solid rgba(255,255,255,0.05); border-radius: 12px; overflow: hidden; backdrop-filter: blur(8px);">
+                    <div class="tech-module-header" style="padding: 14px 18px; background: rgba(255,255,255,0.03); display: flex; align-items: center; justify-content: space-between; border-bottom: 1px solid rgba(255,255,255,0.05);">
+                         <span class="tech-module-title" style="font-weight: 700; font-size: 11px; text-transform: uppercase; color: #fff; letter-spacing: 1px;"><i class="fa-solid fa-radar" style="margin-right: 8px; color: #38bdf8;"></i> Navigation Info</span>
+                         <div style="display: flex; align-items: center; gap: 8px;">
+                             <span style="font-size: 9px; color: #4ade80; font-weight: 700; letter-spacing: 0.5px;">SYNC ACTIVE</span>
+                             <div class="nav-status-indicator" style="width: 6px; height: 6px; background: #4ade80; border-radius: 50%; box-shadow: 0 0 8px #4ade80;"></div>
+                         </div>
                     </div>
-                    
-                    <div class="tech-module-body" style="padding: 8px;">
-                        <div class="nav-grid-container">
-                            <div class="nav-cell">
-                                <span class="nav-label"><i class="fa-solid fa-map-location-dot"></i> Region</span>
-                                <span class="nav-value small" id="ac-location">Scanning...</span>
-                            </div>
-                            <div class="nav-cell">
-                                <span class="nav-label"><i class="fa-solid fa-tower-control"></i> Nearest</span>
-                                <div class="nav-row">
-                                    <span class="nav-value highlight" id="ac-nearest-apt">---</span>
-                                    <span class="nav-value" id="ac-nearest-apt-dist">--.- <span class="nav-unit">NM</span></span>
+                    <div class="tech-module-body" style="padding: 18px;">
+                        <!-- Primary Telemetry Row -->
+                        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 24px; margin-bottom: 24px;">
+                             <div class="nav-block">
+                                <span style="font-size: 8px; color: #64748b; text-transform: uppercase; letter-spacing: 1px; display: block; margin-bottom: 6px;">Current Location</span>
+                                <span id="ac-location" style="font-size: 15px; color: #fff; font-weight: 600; font-family: 'Inter', sans-serif;">Scanning...</span>
+                             </div>
+                             <div class="nav-block">
+                                <span style="font-size: 8px; color: #64748b; text-transform: uppercase; letter-spacing: 1px; display: block; margin-bottom: 6px;">Next Sequence</span>
+                                <div style="display: flex; align-items: center; gap: 8px;">
+                                   <span id="ac-next-wp" style="font-size: 16px; color: #facc15; font-weight: 800; font-family: 'JetBrains Mono', monospace;">---</span>
+                                   <span style="font-size: 11px; color: #94a3b8; font-weight: 500;"><span id="ac-next-wp-dist">--.-</span> <small>NM</small></span>
                                 </div>
-                            </div>
-                            <div class="nav-cell">
-                                <span class="nav-label"><i class="fa-solid fa-wind"></i> Wind</span>
-                                <span class="nav-value" id="ac-env-wind">---/--</span>
-                            </div>
-                            <div class="nav-cell">
-                                <span class="nav-label"><i class="fa-solid fa-temperature-half"></i> OAT</span>
-                                <span class="nav-value" id="ac-env-oat">--°C</span>
-                            </div>
+                             </div>
+                        </div>
 
-                            <div class="nav-cell nav-span-2">
-                                <span class="nav-label"><i class="fa-solid fa-location-crosshairs"></i> Position</span>
-                                <div class="nav-row">
-                                    <div><span class="nav-unit">LAT</span> <span class="nav-value" id="ac-lat">---</span></div>
-                                    <div><span class="nav-unit">LON</span> <span class="nav-value" id="ac-lon">---</span></div>
-                                </div>
+                        <!-- Secondary Metrics (No Borders, just spacing/flow) -->
+                        <div style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; margin-bottom: 24px;">
+                            <div class="sub-block">
+                                <span style="font-size: 8px; color: #475569; text-transform: uppercase; display: block; margin-bottom: 4px;">Vertical Spd</span>
+                                <span id="ac-vs" style="font-size: 14px; color: #fff; font-weight: 600;">---</span>
                             </div>
-                            <div class="nav-cell nav-span-2">
-                                 <span class="nav-label"><i class="fa-solid fa-arrow-up-right-dots"></i> Vertical Speed</span>
-                                 <span class="nav-value large highlight" id="ac-vs">--- <span class="nav-unit">fpm</span></span>
+                            <div class="sub-block">
+                                <span style="font-size: 8px; color: #475569; text-transform: uppercase; display: block; margin-bottom: 4px;">Wind Velocity</span>
+                                <span id="ac-env-wind" style="font-size: 14px; color: #fff; font-weight: 600; font-family: monospace;">---/--</span>
                             </div>
+                            <div class="sub-block">
+                                <span style="font-size: 8px; color: #475569; text-transform: uppercase; display: block; margin-bottom: 4px;">Static Temp</span>
+                                <span id="ac-env-oat" style="font-size: 14px; color: #fff; font-weight: 600;">--°C</span>
+                            </div>
+                        </div>
 
-                            <div class="nav-cell nav-span-2">
-                                <span class="nav-label"><i class="fa-solid fa-location-arrow"></i> Next Waypoint</span>
-                                <div class="nav-row">
-                                    <span class="nav-value accent" id="ac-next-wp">---</span>
-                                    <span class="nav-value" id="ac-next-wp-dist">--.- <span class="nav-unit">NM</span></span>
+                        <!-- Progress Section -->
+                        <div style="background: rgba(0,0,0,0.2); padding: 14px; border-radius: 12px; border: 1px solid rgba(255,255,255,0.03);">
+                             <div style="display: flex; justify-content: space-between; align-items: flex-end; margin-bottom: 12px;">
+                                 <div>
+                                    <span style="font-size: 8px; color: #64748b; text-transform: uppercase; display: block; margin-bottom: 2px;">Nearest Facility</span>
+                                    <span id="ac-nearest-apt" style="font-size: 14px; color: #38bdf8; font-weight: 700;">---</span>
+                                 </div>
+                                 <div style="text-align: right;">
+                                    <span style="font-size: 8px; color: #64748b; text-transform: uppercase; display: block; margin-bottom: 2px;">Separation</span>
+                                    <span style="font-size: 14px; color: #fff; font-weight: 600;"><span id="ac-nearest-apt-dist">--.-</span> NM</span>
+                                 </div>
+                             </div>
+                             <div style="height: 2px; background: rgba(255,255,255,0.05); width: 100%; border-radius: 2px; margin-bottom: 12px;">
+                                <div id="facility-proximity-bar" style="height: 100%; width: 0%; background: #38bdf8; border-radius: 2px; transition: width 0.5s ease;"></div>
+                             </div>
+                             <div style="display: flex; justify-content: space-between; font-family: 'JetBrains Mono', monospace; font-size: 10px; color: #475569;">
+                                 <span>LAT <span id="ac-lat" style="color: #94a3b8;">---</span></span>
+                                 <span>LON <span id="ac-lon" style="color: #94a3b8;">---</span></span>
+                             </div>
+                        </div>
+
+                        <!-- Destination Footer -->
+                        <div style="margin-top: 24px; padding-top: 18px; border-top: 1px solid rgba(255,255,255,0.05); display: flex; justify-content: space-between; align-items: center;">
+                            <div style="display: flex; gap: 12px; align-items: center;">
+                                <div style="width: 32px; height: 32px; border-radius: 50%; background: rgba(56, 189, 248, 0.1); display: flex; align-items: center; justify-content: center; color: #38bdf8;">
+                                    <i class="fa-solid fa-flag-checkered"></i>
+                                </div>
+                                <div>
+                                    <span style="font-size: 8px; color: #64748b; text-transform: uppercase; display: block;">Distance to Goal</span>
+                                    <span id="ac-dist" style="font-size: 16px; color: #fff; font-weight: 700;">---</span>
                                 </div>
                             </div>
-                            <div class="nav-cell nav-span-2">
-                                <span class="nav-label"><i class="fa-solid fa-flag-checkered"></i> Destination</span>
-                                <div class="nav-row">
-                                    <div><span class="nav-unit">DIST</span> <span class="nav-value" id="ac-dist">---</span></div>
-                                    <div><span class="nav-unit">ETE</span> <span class="nav-value" id="ac-ete">--:--</span></div>
-                                </div>
+                            <div style="text-align: right;">
+                                <span style="font-size: 8px; color: #64748b; text-transform: uppercase; display: block;">Arrival In</span>
+                                <span id="ac-ete" style="font-size: 16px; color: #38bdf8; font-weight: 700;">--:--</span>
                             </div>
                         </div>
                     </div>
                 </div>
 
-                <div class="tech-card">
-                    <div class="tech-card-header">
-                        <div>
-                            <div style="display: flex; align-items: center; gap: 8px; margin-bottom: 4px;">
-                                <div class="tech-badge">
-                                    <span class="tech-ping">
-                                      <span class="animate"></span>
-                                      <span></span>
-                                    </span>
-                                    Active
-                                </div>
-                                <span style="font-size: 10px; font-weight: 600; color: #94a3b8; text-transform: uppercase; letter-spacing: 0.1em;">Flight Data</span>
+              <!-- RE-STYLED FLIGHT DATA (TECH CARD) -->
+              <div class="tech-card" style="background: rgba(15, 23, 42, 0.6); border: 1px solid rgba(255,255,255,0.1); border-radius: 16px; overflow: hidden; backdrop-filter: blur(12px); box-shadow: 0 10px 30px rgba(0,0,0,0.5);">
+                    <div class="tech-card-header" style="padding: 20px 20px 10px 20px; display: flex; justify-content: space-between; align-items: flex-start;">
+                         <div>
+                            <div style="display: flex; align-items: center; gap: 8px; margin-bottom: 8px;">
+                                <span style="background: rgba(74, 222, 128, 0.15); color: #4ade80; font-size: 9px; font-weight: 700; padding: 2px 8px; border-radius: 4px; text-transform: uppercase; letter-spacing: 0.5px;">Live Feed</span>
+                                <span style="font-size: 10px; font-weight: 600; color: #64748b; text-transform: uppercase; letter-spacing: 1px;">Flight Specifications</span>
                             </div>
-                            <h1 class="tech-model">${aircraftName}</h1>
-                            <p class="tech-airline">
-                                <i class="fa-solid fa-plane" style="font-size: 12px;"></i>
+                            <h1 style="font-size: 22px; font-weight: 800; color: #fff; margin: 0; line-height: 1.1;">${aircraftName}</h1>
+                            <p style="font-size: 12px; color: #94a3b8; margin: 4px 0 0 0; display: flex; align-items: center; gap: 6px;">
+                                <i class="fa-solid fa-plane" style="font-size: 10px; color: #38bdf8;"></i>
                                 <span>${airlineName}</span>
                             </p>
                         </div>
-                        <button style="padding: 8px; color: #94a3b8; background: transparent; border: none; cursor: pointer;">
-                            <i class="fa-solid fa-ellipsis" style="font-size: 16px;"></i>
-                        </button>
+                         <button style="width: 32px; height: 32px; border-radius: 8px; background: rgba(255,255,255,0.05); color: #94a3b8; border: none; cursor: pointer; display: flex; align-items: center; justify-content: center;">
+                            <i class="fa-solid fa-ellipsis-vertical"></i>
+                         </button>
                     </div>
-
-                    <div class="tech-content">
-                        <div class="tech-image-container">
-                            <img src="${techCardImagePath}" onerror="this.src='/CommunityPlanes/default.png'" class="tech-image" alt="Aircraft">
-                            <div class="tech-image-overlay"></div>
-                            
-                            <div class="tech-image-info">
+                
+                    <div class="tech-content" style="padding: 15px 20px 20px 20px; display: flex; flex-direction: column; gap: 20px;">
+                        <div class="tech-image-container" style="position: relative; border-radius: 12px; overflow: hidden; height: 160px; background: #000;">
+                            <img src="${techCardImagePath}" onerror="this.src='/CommunityPlanes/default.png'" class="tech-image" style="width: 100%; height: 100%; object-fit: cover; opacity: 0.8;" alt="Aircraft">
+                            <div class="tech-image-overlay" style="position: absolute; inset: 0; background: linear-gradient(to top, rgba(15,23,42,1) 0%, rgba(15,23,42,0) 60%);"></div>
+                            <div class="tech-image-info" style="position: absolute; bottom: 12px; left: 12px; right: 12px; display: flex; justify-content: space-between; align-items: flex-end;">
                                 <div class="tech-photographer">
-                                    <span class="tech-photo-label">Contributor</span>
-                                    <div class="tech-photo-name">
-                                        <i class="fa-solid fa-camera" style="color: #38bdf8; font-size: 12px;"></i>
-                                        <span>${photographerName}</span>
+                                    <span style="font-size: 8px; color: #64748b; text-transform: uppercase; display: block; margin-bottom: 2px;">Image Credit</span>
+                                    <div style="display: flex; align-items: center; gap: 6px;">
+                                        <i class="fa-solid fa-camera" style="color: #38bdf8; font-size: 10px;"></i>
+                                        <span style="font-size: 11px; color: #fff; font-weight: 500;">${photographerName}</span>
                                     </div>
                                 </div>
-                                <a href="#" style="padding: 8px; background: rgba(255,255,255,0.1); border-radius: 8px; color: #fff; border: 1px solid rgba(255,255,255,0.1); display: flex;">
-                                    <i class="fa-solid fa-arrow-up-right-from-square" style="font-size: 14px;"></i>
+                                <a href="#" style="width: 28px; height: 28px; background: rgba(56, 189, 248, 0.2); border-radius: 6px; color: #38bdf8; display: flex; align-items: center; justify-content: center; border: 1px solid rgba(56, 189, 248, 0.2);">
+                                    <i class="fa-solid fa-expand" style="font-size: 12px;"></i>
                                 </a>
                             </div>
                         </div>
-
-                        <div class="tech-grid">
-                            <div class="tech-stat-card">
-                                <div class="tech-stat-header">
-                                    <span class="tech-stat-label">Registration</span>
-                                    <i class="fa-solid fa-hashtag" style="font-size: 12px; color: #475569;"></i>
+                        <div class="tech-grid" style="display: grid; grid-template-columns: repeat(2, 1fr); gap: 12px;">
+                            <div style="background: rgba(255,255,255,0.03); padding: 12px; border-radius: 10px; border: 1px solid rgba(255,255,255,0.05);">
+                                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px;">
+                                    <span style="font-size: 9px; color: #64748b; text-transform: uppercase; letter-spacing: 0.5px;">Registration</span>
+                                    <i class="fa-solid fa-hashtag" style="font-size: 9px; color: #475569;"></i>
                                 </div>
-                                <span class="tech-stat-value">${techCardTail}</span>
+                                <span style="font-size: 15px; font-weight: 700; color: #fff; font-family: 'JetBrains Mono', monospace;">${techCardTail}</span>
                             </div>
-
-                            <div class="tech-stat-card">
-                                <div class="tech-stat-header">
-                                    <span class="tech-stat-label">Callsign</span>
-                                    <i class="fa-solid fa-tag" style="font-size: 12px; color: #475569;"></i>
+                            <div style="background: rgba(255,255,255,0.03); padding: 12px; border-radius: 10px; border: 1px solid rgba(255,255,255,0.05);">
+                                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px;">
+                                    <span style="font-size: 9px; color: #64748b; text-transform: uppercase; letter-spacing: 0.5px;">Callsign</span>
+                                    <i class="fa-solid fa-tower-broadcast" style="font-size: 9px; color: #475569;"></i>
                                 </div>
-                                <span class="tech-stat-value">${baseProps.callsign}</span>
+                                <span style="font-size: 15px; font-weight: 700; color: #fff; font-family: 'JetBrains Mono', monospace;">${baseProps.callsign}</span>
                             </div>
-
-                            <div class="tech-country-card">
-    <div class="tech-country-left">
-        <div class="tech-country-icon">
-            <i class="fa-solid fa-plane-up" style="font-size: 14px;"></i>
-        </div>
-        <div style="display: flex; flex-direction: column;">
-            <span class="tech-stat-label" style="font-size: 9px; margin-bottom: 2px;">Category</span>
-            <span style="font-size: 13px; font-weight: 600; color: #fff; text-transform: capitalize;">${baseProps.category || 'Standard'}</span>
-        </div>
-    </div>
-    <div style="padding: 4px 8px; background: rgba(51, 65, 85, 0.5); border-radius: 4px; border: 1px solid rgba(255, 255, 255, 0.05);">
-        <span style="font-family: monospace; font-size: 10px; color: #cbd5e1;">CLASS</span>
-    </div>
-</div>
+                            <div style="grid-column: span 2; background: linear-gradient(90deg, rgba(30, 41, 59, 0.4) 0%, rgba(15, 23, 42, 0.4) 100%); padding: 12px; border-radius: 10px; border: 1px solid rgba(255,255,255,0.05); display: flex; justify-content: space-between; align-items: center;">
+                                <div style="display: flex; align-items: center; gap: 10px;">
+                                    <div style="width: 28px; height: 28px; background: rgba(56, 189, 248, 0.1); border-radius: 6px; display: flex; align-items: center; justify-content: center; color: #38bdf8;">
+                                        <i class="fa-solid fa-plane-up" style="font-size: 12px;"></i>
+                                    </div>
+                                    <div style="display: flex; flex-direction: column;">
+                                        <span style="font-size: 8px; color: #64748b; text-transform: uppercase;">Aircraft Class</span>
+                                        <span style="font-size: 13px; font-weight: 600; color: #fff; text-transform: capitalize;">${baseProps.category || 'Commercial'}</span>
+                                    </div>
+                                </div>
+                                <div style="padding: 4px 10px; background: rgba(255,255,255,0.05); border-radius: 4px; border: 1px solid rgba(255, 255, 255, 0.05);">
+                                    <span style="font-family: monospace; font-size: 9px; color: #94a3b8; font-weight: 600;">CLASS-1</span>
+                                </div>
+                            </div>
                         </div>
                     </div>
-                    <div class="tech-bottom-bar"></div>
                 </div>
 
                 <div class="tech-module vsd-module-container">
@@ -9454,56 +10182,155 @@ function populateAircraftInfoWindow(baseProps, plan, sortedRoutePoints, communit
                         <span class="tech-module-title"><i class="fa-solid fa-chart-area"></i> VERTICAL SITUATION DISPLAY</span>
                         <span class="fms-page-count">VSD</span>
                     </div>
-                    
                     <div id="vsd-panel" class="vsd-panel active" data-plan-id="" data-profile-built="false">
                         <div id="vsd-graph-window" class="vsd-graph-window">
-                            <div id="vsd-aircraft-icon"></div>
-                            <div id="vsd-graph-content">
+                             <div id="vsd-aircraft-icon"></div>
+                             <div id="vsd-graph-content">
                                 <svg id="vsd-profile-svg" xmlns="http://www.w3.org/2000/svg">
                                     <path id="vsd-flown-path" d="" />
                                     <path id="vsd-profile-path" d="" />
                                 </svg>
-                                <div id="vsd-waypoint-labels"></div>
-                            </div>
-                        ${planButtonHtml} </div>
+                                 <div id="vsd-waypoint-labels"></div>
+                             </div>
+                             ${planButtonHtml}
+                        </div>
                     </div>
-
                     <div class="vsd-footer">
                         <div class="vsd-legend-item"><div class="dot-plan"></div> PLANNED</div>
                         <div class="vsd-legend-item"><div class="dot-flown"></div> FLOWN</div>
                         <div>ALTITUDE PROFILE</div>
                     </div>
                 </div>
-                </div> 
-            
-            <div id="ac-tab-pilot-report" class="ac-tab-pane">
-                <div id="pilot-stats-display"></div>
             </div>
-        </div> 
+ 
+            <div id="ac-tab-pilot-report" class="ac-tab-pane ${pilotReportActiveClass}" style="display: ${pilotReportDisplay}; padding: 12px;">
+                 <div id="pilot-stats-display" style="width: 100%; min-height: 200px;"></div>
+            </div>
+        </div>
     </div>
     `;
-    
+
     // --- POST-RENDER LOGIC ---
     createPfdDisplay();
     updatePfdDisplay(baseProps.position);
     updateAircraftInfoWindow(baseProps, plan, sortedRoutePoints, communityAircraftData);
     
-    // --- FIX IMPLEMENTATION: SET THE DATA ATTRIBUTE ON THE HEADER HERE ---
-    const imagePath = techCardImagePath; 
+    // Automatically trigger Pilot Report loading if it was the active tab
+    if (currentActiveTab === 'ac-tab-pilot-report' && typeof displayPilotStats === 'function') {
+        displayPilotStats(baseProps.userId, pilotUsername);
+    }
+
+    const imagePath = techCardImagePath;
     const fallbackPath = '/CommunityPlanes/default.png';
-    const newImageUrl = `url('${imagePath}'), url('${fallbackPath}')`; 
+    const newImageUrl = `url('${imagePath}'), url('${fallbackPath}')`;
 
     const overviewPanels = document.querySelectorAll('#ac-overview-panel');
-    
     overviewPanels.forEach(overviewPanel => {
-        // Set the background image
         overviewPanel.style.backgroundImage = newImageUrl;
-        
-        // --- CRITICAL FIX: Set the path to the high-quality image ---
         overviewPanel.dataset.currentPath = imagePath;
-        // --- END CRITICAL FIX ---
     });
 
+    // --- SENSOR TIMER LOGIC ---
+    const updateSensorTimers = () => {
+        const elElapsed = document.getElementById('ac-sensor-elapsed');
+        const elEte = document.getElementById('ac-sensor-ete');
+        const elTotal = document.getElementById('ac-sensor-total');
+        const sourceEte = document.getElementById('ac-ete');
+        if (elElapsed && atdTimestamp) {
+            const now = Date.now();
+            const start = new Date(atdTimestamp).getTime();
+            const diff = now - start;
+            if (diff >= 0) {
+                const h = Math.floor(diff / 3600000);
+                const m = Math.floor((diff % 3600000) / 60000);
+                elElapsed.textContent = `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}`;
+            }
+        }
+
+        if (elEte && sourceEte && elTotal) {
+            const currentEte = sourceEte.textContent;
+            if (currentEte && currentEte.includes(':')) {
+                elEte.textContent = currentEte;
+                if (elElapsed.textContent !== '--:--') {
+                    const [eH, eM] = elElapsed.textContent.split(':').map(Number);
+                    const [rH, rM] = currentEte.split(':').map(Number);
+                    let tM = eM + rM;
+                    let tH = eH + rH + Math.floor(tM / 60);
+                    tM = tM % 60;
+                    elTotal.textContent = `${String(tH).padStart(2, '0')}:${String(tM).padStart(2, '0')}`;
+                }
+            }
+        }
+    };
+    
+    if (window.sensorTimerInterval) clearInterval(window.sensorTimerInterval);
+    updateSensorTimers();
+    window.sensorTimerInterval = setInterval(updateSensorTimers, 1000);
+
+    // --- REDESIGNED DISPLAY TOGGLE LOGIC ---
+    const mainTabBtns = windowEl.querySelectorAll('.ac-info-tab-btn');
+    const mainHighlight = windowEl.querySelector('#main-switcher-highlight');
+    const tabPanes = windowEl.querySelectorAll('.ac-tab-pane');
+
+    mainTabBtns.forEach((btn, index) => {
+        btn.addEventListener('click', (e) => {
+            mainTabBtns.forEach(b => {
+                b.classList.remove('active');
+                b.style.color = '#94a3b8';
+            });
+            e.currentTarget.classList.add('active');
+            e.currentTarget.style.color = '#fff';
+
+            if (mainHighlight) {
+                mainHighlight.style.transform = `translateX(${index * 100}%)`;
+            }
+
+            const targetId = e.currentTarget.dataset.tab;
+            tabPanes.forEach(pane => {
+                pane.classList.remove('active');
+                // Use block for pilot report, flex for flight display
+                const displayType = targetId === 'ac-tab-pilot-report' ? 'block' : 'flex';
+                pane.style.display = pane.id === targetId ? displayType : 'none';
+            });
+            
+            if (e.currentTarget.classList.contains('pilot-tab-btn')) {
+                const uid = e.currentTarget.dataset.userId;
+                const uname = e.currentTarget.dataset.username;
+                if (typeof displayPilotStats === 'function') displayPilotStats(uid, uname);
+            }
+        });
+        if (btn.classList.contains('active')) btn.style.color = '#fff';
+    });
+
+    const toggleBtns = windowEl.querySelectorAll('.display-toggle-btn');
+    const displayHighlight = windowEl.querySelector('.switcher-highlight:not(#main-switcher-highlight)');
+    const ndContainer = windowEl.querySelector('#nd-view-container');
+    const fmcContainer = windowEl.querySelector('#fmc-view-container');
+
+    toggleBtns.forEach((btn, index) => {
+        btn.addEventListener('click', (e) => {
+            toggleBtns.forEach(b => {
+                b.classList.remove('active');
+                b.style.color = '#94a3b8';
+            });
+            e.currentTarget.classList.add('active');
+            e.currentTarget.style.color = '#fff';
+            
+            if (displayHighlight) {
+                displayHighlight.style.transform = `translateX(${index * 100}%)`;
+            }
+
+            const target = e.currentTarget.dataset.target; 
+            if (target === 'nd-view') {
+                ndContainer.style.display = 'block';
+                fmcContainer.style.display = 'none';
+            } else {
+                ndContainer.style.display = 'none';
+                fmcContainer.style.display = 'flex';
+            }
+        });
+        if (btn.classList.contains('active')) btn.style.color = '#fff';
+    });
 }
 
 /**
@@ -9664,111 +10491,101 @@ function updateSeatSensor(flightProps) {
 }
 
 /**
- * --- [REHAULED v2.1] Renders the Pilot Report with collapsible sections and a case-sensitive profile link.
- * --- [MODIFIED v2.2] Removed back button for new tabbed layout
+ * --- [SPICED UP v3.0] Renders the Pilot Report with enhanced typography 
+ * and dynamic styling for high-ranking controllers.
  */
 function renderPilotStatsHTML(stats, username) {
     if (!stats) return '<p class="error-text">Could not load pilot statistics.</p>';
 
-    // --- Data Extraction & Helpers ---
-    const getRuleValue = (rules, ruleName) => {
-        if (!Array.isArray(rules)) return null;
-        const rule = rules.find(r => r.definition?.name === ruleName);
-        return rule ? rule.referenceValue : null;
+    // --- ATC Rank Logic ---
+    const atcRankId = stats.atcRank;
+    const atcRankMap = { 
+        0: 'Observer', 1: 'Trainee', 2: 'Apprentice', 
+        3: 'Specialist', 4: 'Officer', 5: 'Supervisor', 
+        6: 'Recruiter', 7: 'Manager' 
     };
-    const formatViolationDate = (dateString) => {
-        if (!dateString) return 'N/A';
-        return new Date(dateString).toLocaleDateString('en-US', { year: 'numeric', month: 'short', day: 'numeric' });
-    };
+    const atcRankName = atcRankId in atcRankMap ? atcRankMap[atcRankId] : 'N/A';
+    
+    // Determine "Spice" level for Controllers
+    let spiceClass = '';
+    let spiceIcon = '<i class="fa-solid fa-headset"></i>';
+    if (atcRankId === 3) { spiceClass = 'atc-specialist'; spiceIcon = '<i class="fa-solid fa-star-of-life"></i>'; }
+    if (atcRankId === 4) { spiceClass = 'atc-officer'; spiceIcon = '<i class="fa-solid fa-shield-halved"></i>'; }
+    if (atcRankId === 5) { spiceClass = 'atc-supervisor'; spiceIcon = '<i class="fa-solid fa-crown"></i>'; }
 
+    // --- KPI Extraction ---
     const currentGradeIndex = stats.gradeDetails?.gradeIndex;
     const currentGrade = stats.gradeDetails?.grades?.[currentGradeIndex];
     const nextGrade = stats.gradeDetails?.grades?.[currentGradeIndex + 1];
-
-    const atcRankId = stats.atcRank;
-    const atcRankMap = { 0: 'Observer', 1: 'Trainee', 2: 'Apprentice', 3: 'Specialist', 4: 'Officer', 5: 'Supervisor', 6: 'Recruiter', 7: 'Manager' };
-    const atcRankName = atcRankId in atcRankMap ? atcRankMap[atcRankId] : 'N/A';
     
-    // --- Key Performance Indicators (KPIs) ---
     const kpis = {
         grade: currentGrade?.name.replace('Grade ', '') || 'N/A',
         xp: (stats.totalXP || 0).toLocaleString(),
         atcRank: atcRankName,
-        totalViolations: (stats.violationCountByLevel?.level1 || 0) + (stats.violationCountByLevel?.level2 || 0) + (stats.violationCountByLevel?.level3 || 0)
-    };
-    
-    // --- Detailed Stats ---
-    const details = {
-        lvl1Vios: stats.violationCountByLevel?.level1 || 0,
-        lvl2Vios: stats.violationCountByLevel?.level2 || 0,
-        lvl3Vios: stats.violationCountByLevel?.level3 || 0,
-        lastViolation: formatViolationDate(stats.lastLevel1ViolationDate),
-        flightTime90d: getRuleValue(currentGrade?.rules, 'Flight Time (90 days)'),
-        landings90d: getRuleValue(currentGrade?.rules, 'Landings (90 days)')
+        totalViolations: (stats.violationCountByLevel?.level1 || 0) + 
+                         (stats.violationCountByLevel?.level2 || 0) + 
+                         (stats.violationCountByLevel?.level3 || 0)
     };
 
-    // --- Progression Card Generator ---
+    // Helper for progression cards
     const createProgressCard = (title, gradeData) => {
-        if (!gradeData) {
-            return `<div class="progress-card complete"><h4><i class="fa-solid fa-crown"></i> Max Grade Achieved</h4><p>Congratulations, you have reached the highest available grade!</p></div>`;
-        }
-        const reqXp = getRuleValue(gradeData.rules, 'XP');
-        const reqVios = getRuleValue(gradeData.rules, 'All Level 2/3 Violations (1 year)');
+        if (!gradeData) return `<div class="progress-card complete"><h4><i class="fa-solid fa-crown"></i> Max Grade</h4></div>`;
+        const reqXp = gradeData.rules.find(r => r.definition?.name === 'XP')?.referenceValue || 0;
         const xpProgress = reqXp > 0 ? Math.min(100, (stats.totalXP / reqXp) * 100) : 100;
-        const viosMet = stats.total12MonthsViolations <= reqVios;
-        return `<div class="progress-card"><h4>${title}</h4><div class="progress-item"><div class="progress-label"><span><i class="fa-solid fa-star"></i> XP</span><span>${stats.totalXP.toLocaleString()} / ${reqXp.toLocaleString()}</span></div><div class="progress-bar-bg"><div class="progress-bar-fg" style="width: ${xpProgress.toFixed(1)}%;"></div></div></div><div class="progress-item"><div class="progress-label"><span><i class="fa-solid fa-shield-halved"></i> 1-Year Violations</span><span class="${viosMet ? 'req-met' : 'req-not-met'}">${stats.total12MonthsViolations} / ${reqVios} max<i class="fa-solid ${viosMet ? 'fa-check-circle' : 'fa-times-circle'}"></i></span></div></div></div>`;
+        return `
+            <div class="progress-card">
+                <h4>${title}</h4>
+                <div class="progress-item">
+                    <div class="progress-label"><span>XP</span><span>${kpis.xp} / ${reqXp.toLocaleString()}</span></div>
+                    <div class="progress-bar-bg"><div class="progress-bar-fg" style="width: ${xpProgress}%"></div></div>
+                </div>
+            </div>`;
     };
-    
-    // --- Final HTML Assembly with Accordion ---
+
     return `
-        <div class="stats-rehaul-container">
-            <div class="stats-header">
-                <h4>${username}</h4>
-                <a href="https://community.infiniteflight.com/u/${username}/summary" target="_blank" rel="noopener noreferrer" class="community-profile-link" title="View Community Profile">
-                    <i class="fa-solid fa-external-link-alt"></i> View Profile
+    <div class="stats-rehaul-container ${spiceClass}">
+        <div class="stats-hero">
+            <div class="hero-left">
+                <span class="hero-rank-tag">${spiceIcon} ${kpis.atcRank}</span>
+                <h2 class="hero-username">${username}</h2>
+                <a href="https://community.infiniteflight.com/u/${username}/summary" target="_blank" class="hero-profile-link">
+                    COMMUNITY PROFILE <i class="fa-solid fa-external-link"></i>
                 </a>
             </div>
-
-            <div class="kpi-grid">
-                <div class="kpi-card"><div class="kpi-label"><i class="fa-solid fa-user-shield"></i> Grade</div><div class="kpi-value">${kpis.grade}</div></div>
-                <div class="kpi-card"><div class="kpi-label"><i class="fa-solid fa-star"></i> Total XP</div><div class="kpi-value">${kpis.xp}</div></div>
-                <div class="kpi-card"><div class="kpi-label"><i class="fa-solid fa-headset"></i> ATC Rank</div><div class="kpi-value">${kpis.atcRank}</div></div>
-                <div class="kpi-card"><div class="kpi-label"><i class="fa-solid fa-triangle-exclamation"></i> Total Violations</div><div class="kpi-value">${kpis.totalViolations}</div></div>
-            </div>
-
-            <div class="stats-accordion">
-                <div class="accordion-item">
-                    <button class="accordion-header">
-                        <span><i class="fa-solid fa-chart-line"></i> Grade Progression</span>
-                        <i class="fa-solid fa-chevron-down toggle-icon"></i>
-                    </button>
-                    <div class="accordion-content">
-                        <div class="progression-container">
-                            ${createProgressCard(`Current: Grade ${kpis.grade}`, currentGrade)}
-                            ${createProgressCard(`Next: Grade ${nextGrade?.name.replace('Grade ', '') || ''}`, nextGrade)}
-                        </div>
-                    </div>
+            <div class="hero-right">
+                <div class="grade-badge">
+                    <span class="grade-label">GRADE</span>
+                    <span class="grade-val">${kpis.grade}</span>
                 </div>
+            </div>
+        </div>
 
-                <div class="accordion-item">
-                    <button class="accordion-header">
-                        <span><i class="fa-solid fa-list-check"></i> Detailed Statistics</span>
-                        <i class="fa-solid fa-chevron-down toggle-icon"></i>
-                    </button>
-                    <div class="accordion-content">
-                        <div class="details-grid">
-                             <div class="detail-item"><span class="detail-label">Level 1 Violations</span><span class="detail-value">${details.lvl1Vios}</span></div>
-                            <div class="detail-item"><span class="detail-label">Level 2 Violations</span><span class="detail-value">${details.lvl2Vios}</span></div>
-                            <div class="detail-item"><span class="detail-label">Level 3 Violations</span><span class="detail-value">${details.lvl3Vios}</span></div>
-                             <div class="detail-item"><span class="detail-label">Last Violation Date</span><span class="detail-value">${details.lastViolation}</span></div>
-                            <div class="detail-item"><span class="detail-label">Flight Time (90 days)</span><span class="detail-value">${details.flightTime90d ? details.flightTime90d.toFixed(1) + ' hrs' : 'N/A'}</span></div>
-                            <div class="detail-item"><span class="detail-label">Landings (90 days)</span><span class="detail-value">${details.landings90d || 'N/A'}</span></div>
-                        </div>
+        <div class="spiced-kpi-grid">
+            <div class="kpi-card">
+                <span class="kpi-label">TOTAL EXPERIENCE</span>
+                <span class="kpi-value">${kpis.xp} <small>XP</small></span>
+            </div>
+            <div class="kpi-card">
+                <span class="kpi-label">VIOLATIONS</span>
+                <span class="kpi-value ${kpis.totalViolations > 0 ? 'warn' : ''}">${kpis.totalViolations}</span>
+            </div>
+        </div>
+
+        <div class="stats-accordion">
+            <div class="accordion-item active">
+                <button class="accordion-header">
+                    <span><i class="fa-solid fa-chart-line"></i> PROGRESSION</span>
+                    <i class="fa-solid fa-chevron-down toggle-icon"></i>
+                </button>
+                <div class="accordion-content" style="max-height: 500px;">
+                    <div class="progression-container">
+                        ${createProgressCard(`CURRENT: GRADE ${kpis.grade}`, currentGrade)}
+                        ${nextGrade ? createProgressCard(`NEXT: GRADE ${nextGrade.name.replace('Grade ', '')}`, nextGrade) : ''}
                     </div>
                 </div>
             </div>
-            
-            </div>
+        </div>
+    </div>
     `;
 }
 
@@ -10594,94 +11411,151 @@ function updateFmsLegsModule(plan, currentPos) {
         });
     }
 
-
-
 function setupSectorOpsEventListeners() {
     const panel = document.getElementById('sector-ops-floating-panel');
     if (!panel || panel.dataset.listenersAttached === 'true') return;
     panel.dataset.listenersAttached = 'true';
 
-    // --- START: REFACTORED for Toolbar and Panel Toggle ---
+    // Initialize Flight Hover Popups
+    setupFlightHoverPopups();
+
+    // --- Toolbar and Panel Toggle ---
     const internalToggleBtn = document.getElementById('sector-ops-toggle-btn');
     const toolbarToggleBtn = document.getElementById('toolbar-toggle-panel-btn');
-
+    
     const togglePanel = () => {
-        const isNowCollapsed = panel.classList.toggle('panel-collapsed');
-        
-        // Update UI state for both buttons
-        if (internalToggleBtn) {
-            internalToggleBtn.setAttribute('aria-expanded', !isNowCollapsed);
-        }
-        if (toolbarToggleBtn) {
-            toolbarToggleBtn.classList.toggle('active', !isNowCollapsed);
-        }
-
-        // Resize the map
+        const isNowVisible = panel.classList.toggle('visible');
+        if (internalToggleBtn) internalToggleBtn.setAttribute('aria-expanded', isNowVisible);
+        if (toolbarToggleBtn) toolbarToggleBtn.classList.toggle('active', isNowVisible);
         if (sectorOpsMap) {
-            setTimeout(() => {
-                sectorOpsMap.resize();
-            }, 400); // Match CSS transition duration
+            setTimeout(() => { sectorOpsMap.resize(); }, 400);
         }
     };
 
-    if (internalToggleBtn) {
-        internalToggleBtn.addEventListener('click', togglePanel);
-    }
-    if (toolbarToggleBtn) {
-        toolbarToggleBtn.addEventListener('click', togglePanel);
-    }
-    // --- END: REFACTORED for Toolbar and Panel Toggle ---
+    if (internalToggleBtn) internalToggleBtn.addEventListener('click', togglePanel);
+    if (toolbarToggleBtn) toolbarToggleBtn.addEventListener('click', togglePanel);
 
-    // --- [MODIFIED] Add listener for the NEW single weather button ---
+    // --- Weather Settings ---
     const openWeatherBtn = document.getElementById('open-weather-settings-btn');
     if (openWeatherBtn) {
         openWeatherBtn.addEventListener('click', () => {
-            // Toggle visibility of the new window
             if (weatherSettingsWindow) {
                 const isVisible = weatherSettingsWindow.classList.toggle('visible');
-                if (isVisible) {
-                    if (typeof MobileUIHandler !== 'undefined') MobileUIHandler.openWindow(weatherSettingsWindow);
-                } else {
-                    if (typeof MobileUIHandler !== 'undefined') MobileUIHandler.closeActiveWindow();
-                }
+                if (isVisible && typeof MobileUIHandler !== 'undefined') MobileUIHandler.openWindow(weatherSettingsWindow);
             }
         });
     }
 
-    // --- [START NEW FILTER BUTTON LISTENER] ---
+    // --- Filter Settings ---
     const openFilterBtn = document.getElementById('open-filter-settings-btn');
     if (openFilterBtn) {
         openFilterBtn.addEventListener('click', () => {
-            // Toggle visibility of the new window
             if (filterSettingsWindow) {
                 const isVisible = filterSettingsWindow.classList.toggle('visible');
-                if (isVisible) {
-                    if (typeof MobileUIHandler !== 'undefined') MobileUIHandler.openWindow(filterSettingsWindow);
-                } else {
-                    if (typeof MobileUIHandler !== 'undefined') MobileUIHandler.closeActiveWindow();
-                }
-            }
-        });
-    }
-    // --- [END NEW FILTER BUTTON LISTENER] ---
-
-    // --- [NEW] Server Selector Listeners ---
-    const serverContainer = document.getElementById('server-selector-container');
-    if (serverContainer) {
-        serverContainer.addEventListener('click', (e) => {
-            const btn = e.target.closest('.server-btn');
-            if (btn) {
-                const selectedServer = btn.dataset.server;
-                if (selectedServer) {
-                    // Call the global switch logic
-                    switchServer(selectedServer);
-                }
+                if (isVisible && typeof MobileUIHandler !== 'undefined') MobileUIHandler.openWindow(filterSettingsWindow);
             }
         });
     }
 
-    // --- [NEW] Global Message Listener for Iframe Communication ---
-    window.addEventListener('message', handleIframeMessage);
+    const unstaffedToggle = document.getElementById('filter-toggle-unstaffed');
+    if (unstaffedToggle) {
+        unstaffedToggle.addEventListener('change', (e) => {
+            mapFilters.showUnstaffedAirports = e.target.checked;
+            saveFiltersToLocalStorage();
+            renderAirportMarkers(); // Refresh the map immediately
+        });
+    }
+
+    // --- Server Selector ---
+    const serverBtns = document.querySelectorAll('.server-btn');
+    serverBtns.forEach(btn => {
+        btn.addEventListener('click', () => {
+            switchServer(btn.dataset.server);
+        });
+    });
+}
+
+/**
+ * --- [REFINED] Logic for Flight Hover Popups (FR24 Style) ---
+ * Handles hover effects but excludes touch-based "hover" emulation.
+ */
+function setupFlightHoverPopups() {
+    if (!sectorOpsMap) return;
+
+    const hoverPopup = new mapboxgl.Popup({
+        closeButton: false,
+        closeOnClick: false,
+        offset: 15,
+        maxWidth: 'none',
+        className: 'flight-hover-popup'
+    });
+
+    sectorOpsMap.on('mouseenter', 'sector-ops-live-flights-layer', (e) => {
+        // 1. BLOCK MOBILE TAPS: 
+        // Only proceed if the device supports a hover state (mouse) 
+        // and the event isn't coming from a touch pointer.
+        const isHoverDevice = window.matchMedia('(hover: hover)').matches;
+        if (!isHoverDevice || (e.originalEvent && e.originalEvent.pointerType === 'touch')) {
+            return;
+        }
+
+        // Change cursor
+        sectorOpsMap.getCanvas().style.cursor = 'pointer';
+        
+        const feature = e.features[0];
+        const props = feature.properties;
+
+        // Data Parsing
+        const acData = props.aircraft ? JSON.parse(props.aircraft) : {};
+        const callsign = props.callsign || '---';
+        const acType = (acData.aircraftName || 'AC').split(' ')[0].substring(0, 4).toUpperCase();
+        const imgUrl = props.communityImageUrl || '/CommunityPlanes/default.png';
+        const credit = props.contributorName || 'IF Community';
+        const alt = Math.round(props.altitude || 0).toLocaleString();
+        const gs = Math.round(props.speed || 0);
+        
+        // Logo Generation
+        const livName = acData.liveryName || '';
+        const words = livName.trim().split(/\s+/);
+        let logoName = words.length > 1 && /[^a-zA-Z0-9]/.test(words[1]) ? words[0] : (words[0] + (words[1] ? ' ' + words[1] : ''));
+        const sanitizedLogoName = logoName.toLowerCase().replace(/[^a-z0-9\s]/g, '').replace(/\s+/g, '_');
+        const logoPath = `Images/airline_logos/${sanitizedLogoName}.png`;
+
+        const html = `
+            <div class="fr24-card-container">
+                <div class="fr24-image-box" style="background-image: url('${imgUrl}')">
+                    <div class="fr24-image-overlay"></div>
+                    <div class="fr24-copyright">© ${credit}</div>
+                </div>
+                <div class="fr24-info-box">
+                    <div class="fr24-header-row">
+                        <img src="${logoPath}" class="fr24-airline-logo" onerror="this.style.display='none'">
+                        <div class="fr24-ident-group">
+                            <span class="fr24-callsign">${callsign}</span>
+                            <span class="fr24-ac-badge">${acType}</span>
+                        </div>
+                    </div>
+                    <div class="fr24-stats-row">
+                        ${alt} FT · ${gs} KTS
+                    </div>
+                </div>
+            </div>
+        `;
+
+        hoverPopup.setLngLat(feature.geometry.coordinates).setHTML(html).addTo(sectorOpsMap);
+    });
+
+    sectorOpsMap.on('mouseleave', 'sector-ops-live-flights-layer', () => {
+        sectorOpsMap.getCanvas().style.cursor = '';
+        hoverPopup.remove();
+    });
+
+    sectorOpsMap.on('mousemove', 'sector-ops-live-flights-layer', (e) => {
+        // Only follow mouse if the device actually supports hover
+        if (hoverPopup.isOpen() && window.matchMedia('(hover: hover)').matches) {
+            hoverPopup.setLngLat(e.lngLat);
+        }
+    });
 }
 
 /**
@@ -10933,6 +11807,31 @@ function processRawPilotData(gradeInfo) {
         openWeatherBtn.classList.toggle('active', isAnyActive);
     }
 
+    window.addEventListener('weatherToggle', (e) => {
+    const { type, isActive } = e.detail;
+    
+    switch(type) {
+        case 'precip':
+            toggleWeatherLayer(isActive);
+            break;
+        case 'sigmets':
+            toggleSigmetLayer(isActive);
+            break;
+        case 'clouds':
+            // Ensure toggleCloudLayer is defined or show notification
+            if (typeof toggleCloudLayer === 'function') toggleCloudLayer(isActive);
+            else showNotification("Cloud layer currently unavailable", "info");
+            break;
+        case 'wind':
+            if (typeof toggleWindLayer === 'function') toggleWindLayer(isActive);
+            else showNotification("Wind layer currently unavailable", "info");
+            break;
+    }
+    
+    // Optional: Keep the old toolbar button synced if it exists
+    updateWeatherToolbarButtonState(); 
+});
+
     /**
      * Sets up event listeners for the Weather Settings info window.
      */
@@ -10994,6 +11893,22 @@ function setupFilterSettingsWindowEvents() {
         return;
     }
 
+    const flatMapToggle = document.getElementById('filter-toggle-flat-map');
+if (flatMapToggle) {
+    flatMapToggle.addEventListener('change', (e) => {
+        const useFlat = e.target.checked;
+        mapFilters.useFlatMap = useFlat;
+        
+        // Save to local storage so it persists
+        saveFiltersToLocalStorage();
+
+        // Update the Mapbox projection
+        if (sectorOpsMap) {
+            sectorOpsMap.setProjection(useFlat ? 'mercator' : 'globe');
+        }
+    });
+}
+
     // --- Helper: Convert Hex to RGBA ---
     const hexToRgba = (hex, alpha) => {
         const r = parseInt(hex.slice(1, 3), 16);
@@ -11006,7 +11921,6 @@ function setupFilterSettingsWindowEvents() {
     const applyWindowTheme = (startHex, endHex) => {
         const root = document.documentElement;
         const opacity = (mapFilters.themeOpacity || 95) / 100;
-        
         root.style.setProperty('--iw-bg-start', hexToRgba(startHex, opacity));
         root.style.setProperty('--iw-bg-end', hexToRgba(endHex, opacity));
     };
@@ -11015,9 +11929,15 @@ function setupFilterSettingsWindowEvents() {
     const setUIFromState = () => {
         // Toggles
         document.getElementById('filter-toggle-atc').checked = mapFilters.hideAtcMarkers;
-        document.getElementById('filter-toggle-satellite-mode').checked = (currentMapStyle === MAP_STYLE_SATELLITE);
-        document.getElementById('filter-toggle-aircraft-labels').checked = mapFilters.showAircraftLabels;
         
+        // [MODIFIED] Set Map Style Radio
+        // This ensures the correct radio (Dark, Light, or Satellite) is checked on load
+        const styleMode = mapFilters.mapStyle || 'dark'; // Default to dark if undefined
+        const styleRadio = document.querySelector(`input[name="map-style-mode"][value="${styleMode}"]`);
+        if (styleRadio) styleRadio.checked = true;
+
+        document.getElementById('filter-toggle-aircraft-labels').checked = mapFilters.showAircraftLabels;
+
         // Simple Window Toggle
         const simpleWindowToggle = document.getElementById('filter-toggle-simple-window');
         if (simpleWindowToggle) {
@@ -11027,7 +11947,7 @@ function setupFilterSettingsWindowEvents() {
         // Radios
         const colorRadio = document.querySelector(`input[name="icon-color-mode"][value="${mapFilters.iconColorMode}"]`);
         if (colorRadio) colorRadio.checked = true;
-        
+
         const planRadio = document.querySelector(`input[name="plan-display-mode"][value="${mapFilters.planDisplayMode}"]`);
         if (planRadio) planRadio.checked = true;
 
@@ -11039,10 +11959,10 @@ function setupFilterSettingsWindowEvents() {
         applyWindowTheme(mapFilters.themeStartColor, mapFilters.themeEndColor);
 
         // Mobile-specific
-        const currentMobileMode = localStorage.getItem('mobileDisplayMode') || 'legacy'; // Default to legacy
+        const currentMobileMode = localStorage.getItem('mobileDisplayMode') || 'legacy';
+        // Default to legacy
         const mobileModeHud = document.getElementById('mobile-mode-hud');
         const mobileModeLegacy = document.getElementById('mobile-mode-legacy');
-        
         if (mobileModeHud && mobileModeLegacy) {
             // [UPDATED] If Simple Window is active, force UI to reflect Locked Legacy Mode
             if (mapFilters.useSimpleFlightWindow) {
@@ -11052,7 +11972,6 @@ function setupFilterSettingsWindowEvents() {
             } else {
                 mobileModeHud.disabled = false;
                 mobileModeHud.parentElement.style.opacity = '1';
-                
                 if (currentMobileMode === 'legacy') {
                     mobileModeLegacy.checked = true;
                 } else {
@@ -11061,7 +11980,7 @@ function setupFilterSettingsWindowEvents() {
             }
         }
     };
-    
+
     // --- Set the UI when the window is first set up ---
     setUIFromState();
 
@@ -11083,8 +12002,8 @@ function setupFilterSettingsWindowEvents() {
         if (iframe && iframe.contentWindow) {
             iframe.contentWindow.postMessage({
                 type: 'THEME_UPDATE',
-                payload: { 
-                    start: s, 
+                payload: {
+                    start: s,
                     end: e,
                     opacity: mapFilters.themeOpacity || 90
                 }
@@ -11094,16 +12013,15 @@ function setupFilterSettingsWindowEvents() {
 
     if (startPicker) startPicker.addEventListener('input', handleColorChange);
     if (endPicker) endPicker.addEventListener('input', handleColorChange);
-
     if (resetBtn) {
         resetBtn.addEventListener('click', () => {
             const defColor = '#121426';
             startPicker.value = defColor;
             endPicker.value = defColor;
             applyWindowTheme(defColor, defColor);
-            
             mapFilters.themeStartColor = defColor;
             mapFilters.themeEndColor = defColor;
+   
             saveFiltersToLocalStorage();
             showNotification("Window theme reset to default.", "success");
         });
@@ -11114,19 +12032,19 @@ function setupFilterSettingsWindowEvents() {
         const target = e.target;
         if (target.closest('.filter-window-close-btn') || target.closest('.filter-window-hide-btn')) {
             filterSettingsWindow.classList.remove('visible');
-            MobileUIHandler.closeActiveWindow();
+            if (typeof MobileUIHandler !== 'undefined') MobileUIHandler.closeActiveWindow();
         }
     });
 
     // Use a 'change' listener for all toggles and radios
     filterSettingsWindow.addEventListener('change', (e) => {
         const target = e.target;
-        
+
         // [UPDATED] Handle Simple Window Toggle & Interdependency
         if (target.id === 'filter-toggle-simple-window') {
             mapFilters.useSimpleFlightWindow = target.checked;
             saveFiltersToLocalStorage();
-            
+
             const mobileModeHud = document.getElementById('mobile-mode-hud');
             const mobileModeLegacy = document.getElementById('mobile-mode-legacy');
 
@@ -11142,103 +12060,64 @@ function setupFilterSettingsWindowEvents() {
                 // Force save 'legacy' to storage so UI Handler picks it up next time
                 localStorage.setItem('mobileDisplayMode', 'legacy');
             } else {
-                // UNLOCK HUD MODE
+                // RESTORE HUD ACCESS
                 if (mobileModeHud) {
                     mobileModeHud.disabled = false;
                     mobileModeHud.parentElement.style.opacity = '1';
                 }
             }
-            
-            // If a window is currently open, reload it to reflect changes
-            if (currentFlightInWindow) {
-                const closeBtn = document.querySelector('.aircraft-window-close-btn');
-                if (closeBtn) closeBtn.click();
-            }
-            return;
         }
-
-        // Handle Flight Plan Radio Logic
-        if (target.name === 'plan-display-mode') {
-            mapFilters.planDisplayMode = target.value;
-            saveFiltersToLocalStorage(); 
-            if (currentFlightInWindow && cachedFlightDataForStatsView.plan) {
-                const { flightProps, plan } = cachedFlightDataForStatsView;
-                const position = currentAircraftPositionForGeocode || flightProps.position;
-                updateFlightPlanLayer(currentFlightInWindow, plan, position);
-            }
-            return;
-        }
-        
-        // Handle Icon Color Radio Logic
-        if (target.name === 'icon-color-mode') {
-            mapFilters.iconColorMode = target.value;
-            saveFiltersToLocalStorage(); 
-            const newExpression = getIconImageExpression(mapFilters.iconColorMode);
-            if (sectorOpsMap && sectorOpsMap.getLayer('sector-ops-live-flights-layer')) {
-                sectorOpsMap.setLayoutProperty('sector-ops-live-flights-layer', 'icon-image', newExpression);
-            }
-            return; 
-        }
-        
-        // Handle Mobile Display Mode Radio Logic
-        if (target.name === 'mobile-display-mode') {
-            // Prevent changing if locked (double check for safety)
-            if (mapFilters.useSimpleFlightWindow && target.value === 'hud') {
-                target.checked = false;
-                document.getElementById('mobile-mode-legacy').checked = true;
-                return;
-            }
-
-            const newMode = target.value;
-            localStorage.setItem('mobileDisplayMode', newMode);
-            if (!document.getElementById('mobile-mode-note')) {
-                document.getElementById('mobile-mode-filter-group').insertAdjacentHTML(
-                    'beforeend',
-                    '<p id="mobile-mode-note" class="muted-text" style="padding: 10px 0 0 0; text-align: left; font-size: 0.8rem;">Changes will apply the next time you open an aircraft window.</p>'
-                );
-            }
-            return; 
-        }
-
-        if (target.type !== 'checkbox') return;
-
-        // Handle Aircraft Label Toggle
-        if (target.id === 'filter-toggle-aircraft-labels') {
-            mapFilters.showAircraftLabels = target.checked;
-            saveFiltersToLocalStorage(); 
-            updateAircraftLabelVisibility(); 
-            return;
-        }
-
-        // Handle Map Style Logic
-        const satelliteModeToggle = document.getElementById('filter-toggle-satellite-mode');
-        let styleChanged = false;
-        let newMapStyle = currentMapStyle;
-
-        if (target.id === 'filter-toggle-satellite-mode') {
-            if (target.checked) {
-                newMapStyle = MAP_STYLE_SATELLITE;
-            } else {
-                newMapStyle = MAP_STYLE_DARK; 
-            }
-            styleChanged = true;
-        }
-
-        // Update mapFilters state
-        mapFilters.showVaOnly = document.getElementById('filter-toggle-members-only')?.checked || false;
-        mapFilters.hideAtcMarkers = document.getElementById('filter-toggle-atc')?.checked || false;
-        mapFilters.hideNoAtcMarkers = document.getElementById('filter-toggle-no-atc')?.checked || false;
-        
-        if (styleChanged && newMapStyle !== currentMapStyle) {
-            console.log(`Changing map style to: ${newMapStyle}`);
-            currentMapStyle = newMapStyle;
-            sectorOpsMap.setStyle(currentMapStyle);
-        } else if (!styleChanged) {
-            saveFiltersToLocalStorage(); 
+        else if (target.id === 'filter-toggle-atc') {
+            mapFilters.hideAtcMarkers = target.checked;
+            saveFiltersToLocalStorage();
             updateMapFilters();
         }
+        // [MODIFIED] Handle Map Style Radios (Dark, Light, Satellite)
+        else if (target.name === 'map-style-mode') {
+            const mode = target.value;
+            mapFilters.mapStyle = mode;
+            saveFiltersToLocalStorage();
 
-        updateToolbarButtonStates(); 
+            let newStyleUrl = MAP_STYLE_DARK;
+            if (mode === 'light') newStyleUrl = MAP_STYLE_LIGHT;
+            if (mode === 'satellite') newStyleUrl = MAP_STYLE_SATELLITE;
+
+            if (currentMapStyle !== newStyleUrl) {
+                currentMapStyle = newStyleUrl;
+                // Switch style and rebuild layers on load
+                sectorOpsMap.setStyle(newStyleUrl);
+                sectorOpsMap.once('style.load', () => {
+                    rebuildDynamicLayers();
+                });
+            }
+        }
+        else if (target.id === 'filter-toggle-aircraft-labels') {
+            mapFilters.showAircraftLabels = target.checked;
+            saveFiltersToLocalStorage();
+            updateAircraftLabelVisibility(); // Call the specific updater
+        } else if (target.name === 'icon-color-mode') {
+            mapFilters.iconColorMode = target.value;
+            saveFiltersToLocalStorage();
+            // Re-render aircraft icons by updating layer property
+            if (sectorOpsMap && sectorOpsMap.getLayer('sector-ops-live-flights-layer')) {
+                sectorOpsMap.setLayoutProperty('sector-ops-live-flights-layer', 'icon-image', getIconImageExpression(mapFilters.iconColorMode));
+            }
+        } else if (target.name === 'plan-display-mode') {
+            mapFilters.planDisplayMode = target.value;
+            saveFiltersToLocalStorage();
+            // Trigger an update for the currently selected flight
+            if (currentFlightInWindow) {
+                // Just re-run the socket update logic for the single flight to redraw the line
+                // or clear/redraw immediately
+                if (cachedFlightDataForStatsView && cachedFlightDataForStatsView.plan) {
+                     updateFlightPlanLayer(currentFlightInWindow, cachedFlightDataForStatsView.plan, currentAircraftPositionForGeocode);
+                }
+            }
+        } else if (target.name === 'mobile-display-mode') {
+            // Save to local storage for MobileUIHandler to pick up
+            localStorage.setItem('mobileDisplayMode', target.value);
+            showNotification("Mobile display mode updated (Reload to apply).", "info");
+        }
     });
 
     filterSettingsWindow.dataset.eventsAttached = 'true';
@@ -11311,14 +12190,6 @@ function setupSearchEventListeners() {
         searchInput.focus(); 
     });
 
-    // --- 5. Result Selection ---
-    dropdown.addEventListener('click', (e) => {
-        const item = e.target.closest('.search-result-item');
-        if (item) {
-            onSearchResultClick(item); 
-        }
-    });
-
     // Prevent blur when clicking dropdown
     dropdown.addEventListener('mousedown', (e) => e.preventDefault());
 
@@ -11386,82 +12257,199 @@ function stopSectorOpsLiveLoop() {
     }
 }
 
-
 function renderAirportMarkers() {
-        if (!sectorOpsMap || !sectorOpsMap.isStyleLoaded()) return;
+    if (!sectorOpsMap || !sectorOpsMap.isStyleLoaded()) return;
 
-        // --- [FIXED] Read filter state from the global object ---
-        const hideNoAtc = mapFilters.hideNoAtcMarkers;
-        const hideAtc = mapFilters.hideAtcMarkers;
-        // --- [END FIXED] ---
+    const showUnstaffed = mapFilters.showUnstaffedAirports;
+    const hideNoAtc = mapFilters.hideNoAtcMarkers;
+    const hideAtc = mapFilters.hideAtcMarkers;
 
-        // Clear all previously rendered airport markers to ensure a fresh state
-        Object.values(airportAndAtcMarkers).forEach(({ marker }) => marker.remove());
-        airportAndAtcMarkers = {};
+    // Helper: Identify "Major" airports (Class A/B/C) without explicit class data
+    const isMajorAirport = (icao, airport) => {
+        if (!icao || icao.length !== 4) return false;
+        if (/\d/.test(icao)) return false; // Exclude IDs with numbers
+        const name = (airport.name || "").toLowerCase();
+        const junk = ['water', 'seaplane', 'heliport', 'helipad', 'strip', 'field', 'glider'];
+        if (junk.some(k => name.includes(k))) return false;
+        return true;
+    };
 
-        const atcAirportIcaos = new Set(activeAtcFacilities.map(f => f.airportName).filter(Boolean));
-        
-        const allRouteAirports = new Set();
+    // 1. Identify Staffed Airports (ATC + Routes)
+    const atcAirportIcaos = new Set(activeAtcFacilities.map(f => f.airportName).filter(Boolean));
+    const allRouteAirports = new Set();
+    if (typeof ALL_AVAILABLE_ROUTES !== 'undefined') {
         ALL_AVAILABLE_ROUTES.forEach(route => {
             allRouteAirports.add(route.departure);
             allRouteAirports.add(route.arrival);
         });
-
-        const allAirportsToRender = new Set([...allRouteAirports, ...atcAirportIcaos]);
-
-        allAirportsToRender.forEach(icao => {
-            const airport = airportsData[icao];
-            if (!airport || airport.lat == null || airport.lon == null) return;
-
-            const hasAtc = atcAirportIcaos.has(icao);
-
-            // --- [FIXED] Apply filter logic from state ---
-            if (hideNoAtc && !hasAtc) {
-                return; // Skip rendering this marker
-            }
-            if (hideAtc && hasAtc) {
-                return; // Skip rendering this marker
-            }
-            // --- [END FIXED] ---
-
-            let markerClass; // Use 'let' to allow modification
-            let title = `${icao}: ${airport.name || 'Unknown Airport'}`;
-
-            if (hasAtc) {
-                const airportAtc = activeAtcFacilities.filter(f => f.airportName === icao);
-                // Check for Approach (type 4) or Departure (type 5)
-                const hasApproachOrDeparture = airportAtc.some(f => f.type === 4 || f.type === 5);
-
-                // Start with the base class for any staffed airport
-                markerClass = 'atc-active-marker';
-                title += ' (Active ATC)';
-
-                // Add the aura class if Approach/Departure is active
-                if (hasApproachOrDeparture) {
-                    markerClass += ' atc-approach-active';
-                    title += ' - Approach/Departure';
-                }
-
-            } else {
-                markerClass = 'destination-marker'; // For non-ATC airports
-            }
-            
-            const el = document.createElement('div');
-            el.className = markerClass;
-            el.title = title;
-
-            const marker = new mapboxgl.Marker({ element: el })
-                .setLngLat([airport.lon, airport.lat])
-                .addTo(sectorOpsMap);
-
-            el.addEventListener('click', (e) => {
-                e.stopPropagation();
-                handleAirportClick(icao);
-            });
-
-            airportAndAtcMarkers[icao] = { marker: marker, className: markerClass };
-        });
     }
+    const staffedIcaos = new Set([...allRouteAirports, ...atcAirportIcaos]);
+
+    // 2. Manage DOM Markers (Staffed Only)
+    Object.keys(airportAndAtcMarkers).forEach(icao => {
+        const hasAtc = atcAirportIcaos.has(icao);
+        const shouldBeDom = staffedIcaos.has(icao);
+        const isFiltered = (hideNoAtc && !hasAtc) || (hideAtc && hasAtc);
+        if (!shouldBeDom || isFiltered) {
+            airportAndAtcMarkers[icao].marker.remove();
+            delete airportAndAtcMarkers[icao];
+        }
+    });
+
+    staffedIcaos.forEach(icao => {
+        const airport = airportsData[icao];
+        if (!airport || airport.lat == null || airport.lon == null) return;
+
+        const hasAtc = atcAirportIcaos.has(icao);
+        if ((hideNoAtc && !hasAtc) || (hideAtc && hasAtc)) return;
+
+        // Filter unstaffed/minor airports
+        if (!hasAtc && !isMajorAirport(icao, airport)) return;
+
+        if (airportAndAtcMarkers[icao]) {
+            if (airportAndAtcMarkers[icao].hasAtc === hasAtc) return;
+            airportAndAtcMarkers[icao].marker.remove();
+        }
+
+        const el = document.createElement('div');
+        
+        // --- ADDED: Hover Suppression Logic ---
+        el.addEventListener('mouseenter', () => {
+            window.isMouseOverAirportTag = true;
+            // Forcefully remove any aircraft hover card if it appears
+            const activePopups = document.querySelectorAll('.mapboxgl-popup');
+            activePopups.forEach(popup => popup.remove());
+        });
+
+        el.addEventListener('mouseleave', () => {
+            window.isMouseOverAirportTag = false;
+        });
+
+        if (hasAtc) {
+            el.className += ' apt-live-tag';
+            const airportAtc = activeAtcFacilities.filter(f => f.airportName === icao);
+            const earliestStart = airportAtc.reduce((min, f) => {
+                const start = new Date(f.startTime).getTime();
+                return start < min ? start : min;
+            }, Date.now());
+            const diffMins = Math.floor((Date.now() - earliestStart) / 60000);
+            const durationText = diffMins > 60 ? `${Math.floor(diffMins/60)}h ${diffMins%60}m` : `${diffMins}m online`;
+
+            const hasGnd = airportAtc.some(f => f.type === 0);
+            const hasTwr = airportAtc.some(f => f.type === 1);
+            const hasApp = airportAtc.some(f => f.type === 4 || f.type === 5);
+            const hasAtis = airportAtc.some(f => f.type === 7);
+
+            if (hasApp) {
+                const aura = document.createElement('div');
+                aura.className = 'tag-pulse-aura';
+                el.appendChild(aura);
+            }
+
+            const extra = document.createElement('div');
+            extra.className = 'apt-tag-extra';
+            extra.innerHTML = `<div class="apt-tag-extra-item">Oldest Session</div><div class="apt-tag-extra-val">${durationText}</div>`;
+            el.appendChild(extra);
+
+            const base = document.createElement('div');
+            base.className = 'apt-tag-base';
+            base.innerHTML = `<div class="apt-tag-ident">${icao}</div>`;
+
+            const freqs = document.createElement('div');
+            freqs.className = 'apt-tag-freqs';
+            if (hasAtis) freqs.innerHTML += `<div class="freq-mini-badge f-atis">A</div>`;
+            if (hasGnd) freqs.innerHTML += `<div class="freq-mini-badge f-gnd">G</div>`;
+            if (hasTwr) freqs.innerHTML += `<div class="freq-mini-badge f-twr">T</div>`;
+            if (hasApp) freqs.innerHTML += `<div class="freq-mini-badge f-app">R</div>`;
+            
+            base.appendChild(freqs);
+            el.appendChild(base);
+        } else {
+            el.className += ' destination-marker';
+            el.textContent = icao;
+        }
+
+        const marker = new mapboxgl.Marker({ element: el })
+            .setLngLat([airport.lon, airport.lat])
+            .addTo(sectorOpsMap);
+
+        // --- ADDED: Click Priority Logic ---
+        el.addEventListener('click', (e) => {
+            // Stop the click from reaching the Mapbox canvas layers (aircraft icons)
+            e.stopPropagation(); 
+            handleAirportClick(icao);
+        });
+
+        airportAndAtcMarkers[icao] = { marker, hasAtc };
+    });
+
+    // 3. Update the high-performance background layer
+    updateUnstaffedLayer(showUnstaffed, staffedIcaos);
+}
+
+function updateUnstaffedLayer(show, excludeIcaos) {
+    const SOURCE_ID = 'unstaffed-airports-source';
+    const LAYER_ID = 'unstaffed-airports-layer';
+
+    if (!show) {
+        if (sectorOpsMap.getLayer(LAYER_ID)) sectorOpsMap.setLayoutProperty(LAYER_ID, 'visibility', 'none');
+        return;
+    }
+
+    // Heuristic: Filter out non-major airports from the thousands of unstaffed dots
+    const isMajorAirport = (icao, airport) => {
+        if (!icao || icao.length !== 4) return false;
+        if (/\d/.test(icao)) return false;
+        const name = (airport.name || "").toLowerCase();
+        const junk = ['water', 'seaplane', 'heliport', 'helipad', 'strip', 'field', 'glider'];
+        return !junk.some(k => name.includes(k));
+    };
+
+    const features = Object.keys(airportsData)
+        .filter(icao => {
+            // Must NOT be already shown as a DOM marker (staffed)
+            if (excludeIcaos.has(icao)) return false;
+            // NEW: Must meet the "Major Airport" criteria
+            return isMajorAirport(icao, airportsData[icao]);
+        })
+        .map(icao => {
+            const apt = airportsData[icao];
+            return {
+                type: 'Feature',
+                geometry: { type: 'Point', coordinates: [apt.lon, apt.lat] },
+                properties: { icao: icao }
+            };
+        });
+
+    const geojsonData = { type: 'FeatureCollection', features: features };
+
+    if (sectorOpsMap.getSource(SOURCE_ID)) {
+        sectorOpsMap.getSource(SOURCE_ID).setData(geojsonData);
+        sectorOpsMap.setLayoutProperty(LAYER_ID, 'visibility', 'visible');
+    } else {
+        sectorOpsMap.addSource(SOURCE_ID, { type: 'geojson', data: geojsonData });
+        
+        sectorOpsMap.addLayer({
+            id: LAYER_ID,
+            type: 'circle',
+            source: SOURCE_ID,
+            paint: {
+                'circle-radius': 3,
+                'circle-color': '#334155',
+                'circle-stroke-width': 1,
+                'circle-stroke-color': 'rgba(255,255,255,0.1)'
+            }
+        });
+
+        sectorOpsMap.on('click', LAYER_ID, (e) => {
+            const icao = e.features[0].properties.icao;
+            handleAirportClick(icao);
+        });
+
+        sectorOpsMap.on('mouseenter', LAYER_ID, () => { sectorOpsMap.getCanvas().style.cursor = 'pointer'; });
+        sectorOpsMap.on('mouseleave', LAYER_ID, () => { sectorOpsMap.getCanvas().style.cursor = ''; });
+    }
+}
 
 
 // --- [UPDATED] Fetches ATC & NOTAMs for the CURRENTLY SELECTED SERVER ---
@@ -11530,7 +12518,38 @@ async function initializeApp() {
         ]);
         
         // Initialize the Sector Ops view
-        await initializeSectorOpsView(); 
+        await initializeSectorOpsView();
+
+        await LandingUI.init();
+        SettingsUI.init();
+
+        MobileSettingsUI.init();
+        
+        // Default to true if not explicitly set to 'false'
+const isVisible = localStorage.getItem('landingUI_visible') !== 'true'; 
+
+if (isVisible) {
+    LandingUI.update(true, {
+        server: currentServerName,
+        // These will update to real numbers as soon as data arrives
+        flights: Object.keys(currentMapFeatures).length || 0, 
+        atc: activeAtcFacilities.length || 0
+    });
+}
+
+    window.addEventListener('filterUpdate', (e) => {
+    const { filters, quickSearch } = e.detail;
+    
+    // Store incoming tactical filters into global state
+    mapFilters.tactical = filters;
+    mapFilters.quickSearch = quickSearch;
+
+    // Handle boolean group toggle
+    mapFilters.showGroupFlights = !!filters.group;
+    
+    // Run the filter update logic
+    updateMapFilters();
+});
         
         mainContentLoader.classList.remove('active');
     }

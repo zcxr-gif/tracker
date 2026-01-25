@@ -64,27 +64,17 @@ const MobileUIHandler = {
         this.boundLegacyTouchMove = this.handleLegacyTouchMove.bind(this);
         this.boundLegacyTouchEnd = this.handleLegacyTouchEnd.bind(this);
         
-        // [NEW] Inject Mobile Controls if on mobile
-        if (this.isMobile()) {
-            this.injectMobileHudControls();
+
+window.addEventListener('resize', () => {
+    if (this.isMobile()) {
+        // Keep this empty or only handle logic NOT related to the HUD buttons
+    } else {
+        if (this.activeWindow) {
+            this.closeActiveWindow(true); 
         }
-
-        // Listen for resize to toggle controls
-        window.addEventListener('resize', () => {
-            if (this.isMobile()) {
-                if (!document.getElementById('mobile-hud-controls')) this.injectMobileHudControls();
-            } else {
-                // [CRITICAL FIX] Ensure content is returned to original window if we switch to desktop
-                // preventing "empty window" bug on resize/rotation
-                if (this.activeWindow) {
-                    this.closeActiveWindow(true); 
-                }
-
-                const hud = document.getElementById('mobile-hud-controls');
-                if (hud) hud.remove();
-                this.restoreMapControls();
-            }
-        });
+        this.restoreMapControls();
+    }
+});
         
         // Listen for clicks outside search to close it (if active)
         document.addEventListener('click', (e) => {
@@ -105,6 +95,31 @@ const MobileUIHandler = {
 
         console.log("Mobile UI Handler (HUD Rehaul v9.8 - Airport Fixes) Initialized.");
     },
+
+    /**
+ * Completely disables and removes all Mobile HUD controls.
+ * This prevents the Server Pill, Search, Weather, and Filter buttons from appearing.
+ */
+disableHudControls() {
+    // 1. Remove the container from DOM if it exists
+    const hud = document.getElementById('mobile-hud-controls');
+    if (hud) hud.remove();
+
+    // 2. Clear out the injection function so it can't be called again
+    this.injectMobileHudControls = () => {
+        console.log("Mobile UI: HUD Controls are disabled and will not be injected.");
+    };
+
+    // 3. Ensure map container classes are cleaned up
+    const mapContainer = document.getElementById('sector-ops-map-fullscreen');
+    if (mapContainer) {
+        mapContainer.classList.remove('mobile-search-open');
+    }
+
+    // 4. Re-enable Desktop Server Pill (optional: only if you want it back on mobile)
+    const desktopServerPill = document.getElementById('server-selector-container');
+    if (desktopServerPill) desktopServerPill.style.display = '';
+},
 
     /**
      * [NEW] Injects the floating Server Pill (Top-Left) and Action Stack (Top-Right)
@@ -363,21 +378,25 @@ const MobileUIHandler = {
             /* --- [CRITICAL FIX] Hide Clutter when Mobile Window (or Search) is Open --- */
             /* This effectively clears the "other icons" the user complained about */
             
-            #sector-ops-map-fullscreen.mobile-window-open .mapboxgl-control-container,
-            #sector-ops-map-fullscreen.mobile-window-open .mobile-action-stack,
-            #sector-ops-map-fullscreen.mobile-window-open #mobile-server-pill,
-            #sector-ops-map-fullscreen.mobile-window-open #mobile-sidebar-toggle,
-            #sector-ops-map-fullscreen.mobile-window-open #server-selector-container {
+            /* Update this block in your injectMobileStyles function */
+#sector-ops-map-fullscreen.mobile-window-open > *:not(.landing-ui-container):not(.mobile-aircraft-view):not(.mobile-island-bottom) {
+    /* Only hide things that aren't the window or your landing UI */
+}
                 display: none !important;
                 opacity: 0 !important;
                 pointer-events: none !important;
             }
 
             /* Also hide controls when SEARCH is open */
-            #sector-ops-map-fullscreen.mobile-search-open .mobile-action-stack,
-            #sector-ops-map-fullscreen.mobile-search-open #mobile-server-pill,
-            #sector-ops-map-fullscreen.mobile-search-open #mobile-sidebar-toggle,
-            #sector-ops-map-fullscreen.mobile-search-open .mapboxgl-control-container {
+            /* Update this block in your injectMobileStyles function */
+#sector-ops-map-fullscreen.mobile-window-open > *:not(.la/* Find this in your code and ensure your UI class isn't targeted */
+#sector-ops-map-fullscreen.mobile-search-open .your-landing-ui-class {
+    display: flex !important; /* Force visibility */
+    opacity: 1 !important;
+    pointer-events: auto !important;
+}nding-ui-container):not(.mobile-aircraft-view):not(.mobile-island-bottom) {
+    /* Only hide things that aren't the window or your landing UI */
+}
                 display: none !important;
             }
 
