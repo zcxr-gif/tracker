@@ -644,7 +644,7 @@ export const LandingUI = {
                     align-items: center !important;
                     justify-content: space-between !important;
                     padding: 0 15px !important;
-                    pointer-events: auto !important;
+                    pointer-events: none !important;
                 }
 
                 /* Kill all floating absolute positioning on mobile */
