@@ -8405,10 +8405,6 @@ window.globalNatTracks = natTracks;
  * --- [RESTORED] Sets up base layers, icons, and fog.
  * Called on initial load AND on every style change.
  */
-/**
- * --- [RESTORED] Sets up base layers, icons, and fog.
- * Called on initial load AND on every style change.
- */
 async function setupMapLayersAndFog() {
     if (!sectorOpsMap) return;
 
@@ -8551,6 +8547,50 @@ if (!isTouchDevice && (typeof window.MobileUIHandler === 'undefined' || !window.
     });
 }
     }
+    
+    // 5. Add the LABEL layer
+    if (!sectorOpsMap.getLayer('sector-ops-live-flights-labels')) {
+        sectorOpsMap.addLayer({
+            id: 'sector-ops-live-flights-labels',
+            type: 'symbol',
+            source: 'sector-ops-live-flights-source', 
+            minzoom: 6.5,
+            layout: {
+                'visibility': (mapFilters && mapFilters.showAircraftLabels) ? 'visible' : 'none',
+                'text-field': [
+                    'format',
+                    ['get', 'callsign'], { 'text-color': '#FFFFFF' }, 
+                    '\n', {},                  
+                    ['get', 'phase'],    
+                    { 
+                        'text-color': [ 
+                            'match',
+                            ['get', 'phase'],
+                            'Climb', '#28a745',
+                            'Cruise', '#007bff',
+                            'Descent', '#ff9900',
+                            'Approach', '#a33ea3',
+                            'Ground', '#9fa8da',
+                            '#e8eaf6'
+                        ]
+                    }
+                ],
+                'text-font': ['Mapbox Txt Regular', 'Arial Unicode MS Regular'],
+                'text-size': 10,
+                'text-offset': [0, 2.5],
+                'text-anchor': 'top',
+                'text-allow-overlap': false,
+                'text-ignore-placement': false,
+                'text-padding': 3,
+            },
+            paint: {
+                'text-halo-color': 'rgba(10, 12, 26, 0.85)',
+                'text-halo-width': 2,
+                'text-halo-blur': 0
+            }
+        });
+    }
+}
 
 /**
  * [UPDATED] Initializes the Sector Ops map with high-performance configurations.
