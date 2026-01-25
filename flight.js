@@ -677,7 +677,7 @@ function injectCustomStyles() {
     flex-shrink: 0; /* Add this line to prevent squeezing */
     border-radius: 12px;
     overflow: hidden;
-    background-size: cover;
+    background-size: 101% 101%;
     background-position: center;
     margin-bottom: 12px;
     border: 1px solid rgba(255, 255, 255, 0.08);
@@ -694,7 +694,7 @@ function injectCustomStyles() {
 
         .card-overlay {
             position: absolute;
-            inset: 0;
+            inset: -1px;
             background: linear-gradient(180deg, 
                 rgba(10, 12, 26, 0.5) 0%, 
                 rgba(10, 12, 26, 0.85) 60%, 
@@ -2236,7 +2236,7 @@ function injectCustomStyles() {
 
         .airport-hero {
     /* Set the background size and position */
-    background-size: cover;
+    background-size: 101% 101%;
     background-position: center;
     min-height: 160px; /* Increased height to better showcase the airport image */
     border-bottom: 1px solid var(--border-glass);
@@ -2251,7 +2251,7 @@ function injectCustomStyles() {
 /* Add this new overlay class */
 .airport-hero-overlay {
     position: absolute;
-    inset: 0;
+    inset: -1px;
     /* Dark gradient to make white text pop */
     background: linear-gradient(180deg, 
         rgba(10, 12, 26, 0.2) 0%, 
