@@ -693,15 +693,17 @@ function injectCustomStyles() {
         }
 
         .card-overlay {
-            position: absolute;
-            inset: -1px;
-            background: linear-gradient(180deg, 
-                rgba(10, 12, 26, 0.5) 0%, 
-                rgba(10, 12, 26, 0.85) 60%, 
-                rgba(10, 12, 26, 0.98) 100%
-            );
-            z-index: 1;
-        }
+    position: absolute;
+    inset: -2px; /* Slightly larger than the card */
+    background: linear-gradient(180deg, 
+        rgba(10, 12, 26, 0.4) 0%, 
+        rgba(10, 12, 26, 0.8) 60%, 
+        rgba(10, 12, 26, 1) 100%
+    );
+    z-index: 1;
+    /* This "spreads" the color slightly to fill gaps */
+    box-shadow: inset 0 0 0 1px rgba(10, 12, 26, 1); 
+}
 
         .card-content {
             position: relative;
