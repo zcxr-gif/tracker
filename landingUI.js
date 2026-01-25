@@ -502,7 +502,7 @@ export const LandingUI = {
             .tactical-ui-root {
                 position: absolute;
                 inset: 0;
-                z-index: 500;
+                z-index: 3;
                 pointer-events: none;
                 opacity: 0;
                 visibility: hidden;
