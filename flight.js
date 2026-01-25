@@ -8507,63 +8507,6 @@ sectorOpsMap.addLayer({
     }
 });
 
-        // Click Listener
-        sectorOpsMap.on('click', 'sector-ops-live-flights-layer', (e) => {
-            const props = e.features[0].properties;
-            const flightProps = { ...props, position: JSON.parse(props.position), aircraft: JSON.parse(props.aircraft) };
-            fetch('https://site--acars-backend--6dmjph8ltlhv.code.run/if-sessions').then(res => res.json()).then(data => {
-                const sessionId = getCurrentSessionId(data);
-                if (sessionId) {
-                    handleAircraftClick(flightProps, sessionId);
-                }
-            });
-        });
-    }
-    
-    // 5. Add the LABEL layer
-    if (!sectorOpsMap.getLayer('sector-ops-live-flights-labels')) {
-        sectorOpsMap.addLayer({
-            id: 'sector-ops-live-flights-labels',
-            type: 'symbol',
-            source: 'sector-ops-live-flights-source', 
-            minzoom: 6.5,
-            layout: {
-                'visibility': (mapFilters && mapFilters.showAircraftLabels) ? 'visible' : 'none',
-                'text-field': [
-                    'format',
-                    ['get', 'callsign'], { 'text-color': '#FFFFFF' }, 
-                    '\n', {},                  
-                    ['get', 'phase'],    
-                    { 
-                        'text-color': [ 
-                            'match',
-                            ['get', 'phase'],
-                            'Climb', '#28a745',
-                            'Cruise', '#007bff',
-                            'Descent', '#ff9900',
-                            'Approach', '#a33ea3',
-                            'Ground', '#9fa8da',
-                            '#e8eaf6'
-                        ]
-                    }
-                ],
-                'text-font': ['Mapbox Txt Regular', 'Arial Unicode MS Regular'],
-                'text-size': 10,
-                'text-offset': [0, 2.5],
-                'text-anchor': 'top',
-                'text-allow-overlap': false,
-                'text-ignore-placement': false,
-                'text-padding': 3,
-            },
-            paint: {
-                'text-halo-color': 'rgba(10, 12, 26, 0.85)',
-                'text-halo-width': 2,
-                'text-halo-blur': 0
-            }
-        });
-    }
-}
-
 /**
  * [UPDATED] Initializes the Sector Ops map with high-performance configurations.
  */
