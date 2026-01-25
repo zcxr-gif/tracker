@@ -519,7 +519,7 @@ export const LandingUI = {
                 position: absolute;
                 top: 30px;
                 right: 40px;
-                pointer-events: auto;
+                pointer-events: none;
             }
 
             /* --- DESKTOP HEADER (FLOATERS) --- */
