@@ -4594,15 +4594,6 @@ function updateMapFilters() {
     if (currentMapStyle !== targetStyle) {
         currentMapStyle = targetStyle;
         sectorOpsMap.setStyle(targetStyle);
-        // After style loads, we MUST rebuild the custom layers (planes, paths)
-        sectorOpsMap.once('style.load', () => {
-    setupMapLayersAndFog(); 
-    if (window.globalNatTracks) {
-        window.globalNatTracks.initSource();
-        window.globalNatTracks.render(); // Manually push existing data to the new source
-    }
-    updateAircraftLayerFilter();
-});
     }
 
     if (window.globalNatTracks) {
@@ -8709,28 +8700,130 @@ function onAtcDataReceived(newAtcData) {
 
     
 /**
- * --- [UPDATED] Rebuilds all dynamic layers after a map style change. ---
- */
-function rebuildDynamicLayers() {
-    console.log("Rebuilding dynamic layers...");
+     * --- [UPDATED] Rebuilds all dynamic layers after a map style change.
+     * Ensures Volanta-style Radar, SIGMETs, and NAT Tracks are restored correctly.
+     */
+    function rebuildDynamicLayers() {
+        console.log("Rebuilding dynamic layers...");
 
-    // 1. Re-apply FIR Boundaries (NEW)
-    initializeMapBoundaries(sectorOpsMap);
+        // 1. Re-apply FIR Boundaries (Boundaries usually wipe on style change)
+        if (typeof initializeMapBoundaries === 'function') {
+            initializeMapBoundaries(sectorOpsMap);
+        }
 
-    // 2. Re-apply weather layers
-    if (document.getElementById('weather-toggle-precip')?.checked) {
-        isWeatherLayerAdded = false; 
-        toggleWeatherLayer(true);
+        // 2. Re-apply NAT Tracks
+        if (window.globalNatTracks) {
+            // Re-initialize the source and layers for the new style
+            window.globalNatTracks.initSource();
+            
+            // Sync visibility and labels with current mapFilters state
+            window.globalNatTracks.setOptions({
+                showTracks: mapFilters.showNatTracks,
+                showLabels: mapFilters.showNatLabels
+            });
+
+            // Trigger the render to add them to the map
+            window.globalNatTracks.render();
+            console.log("NAT Tracks restored.");
+        }
+
+        // 3. Re-apply SIGMETS (Volanta Style)
+        if (document.getElementById('weather-toggle-sigmets')?.checked) {
+            isSigmetLayerAdded = false; // Force re-fetch/re-add
+            toggleSigmetLayer(true);
+        }
+
+        // 4. Re-apply Radar (Precip - RainViewer)
+        if (document.getElementById('weather-toggle-precip')?.checked) {
+            isWeatherLayerAdded = false; 
+            toggleWeatherLayer(true);
+        }
+
+        // 5. Re-apply Clouds
+        if (document.getElementById('weather-toggle-clouds')?.checked) {
+            isCloudLayerAdded = false; // Force re-creation
+            toggleCloudLayer(true);
+        }
+
+        // 6. Re-apply Wind
+        if (document.getElementById('weather-toggle-wind')?.checked) {
+            isWindLayerAdded = false; // Force re-creation
+            toggleWindLayer(true);
+        }
+
+        // 7. Re-apply airport routes
+        if (currentAirportInWindow) {
+            plotRoutesFromAirport(currentAirportInWindow);
+        }
+
+        // 8. Re-apply active flight trail
+        if (currentFlightInWindow) {
+            const flightId = currentFlightInWindow;
+            
+            clearLiveFlightPath(flightId); 
+            delete sectorOpsLiveFlightPathLayers[flightId]; 
+
+            const { flightProps, plan } = cachedFlightDataForStatsView;
+            if (flightProps) {
+                const localTrail = liveTrailCache.get(flightId) || [];
+                const currentPosition = currentAircraftPositionForGeocode || flightProps.position;
+                
+                const routeFeatureCollection = generateAltitudeColoredRoute(localTrail, currentPosition, plan);
+
+                sectorOpsMap.addSource(`flown-path-${flightId}`, {
+                    type: 'geojson',
+                    data: routeFeatureCollection
+                });
+                
+                sectorOpsMap.addLayer({
+                    id: `flown-path-${flightId}`,
+                    type: 'line',
+                    source: `flown-path-${flightId}`,
+                    paint: {
+                        'line-color': [
+                            'interpolate',
+                            ['linear'],
+                            ['get', 'avgAltitude'],
+                            0,     '#e6e600',
+                            10000, '#ff9900',
+                            20000, '#ff3300',
+                            29000, '#00BFFF',
+                            38000, '#9400D3'
+                        ],
+                        'line-width': 4,
+                        'line-opacity': [
+                            'case',
+                            ['boolean', ['get', 'simulated'], false],
+                            0.6,
+                            0.9
+                        ],
+                        'line-dasharray': [
+                            'case',
+                            ['boolean', ['get', 'simulated'], false],
+                            ['literal', [2, 2]],
+                            ['literal', [1, 0]]
+                        ],
+                        'line-translate': [0, -2],
+                        'line-translate-anchor': 'viewport'
+                    }
+                }, 'sector-ops-live-flights-layer'); 
+                
+                sectorOpsLiveFlightPathLayers[flightId] = { flown: `flown-path-${flightId}` };
+                console.log(`Rebuilt active trail for ${flightId}`);
+
+                if (plan) {
+                    const position = currentAircraftPositionForGeocode || flightProps.position;
+                    updateFlightPlanLayer(flightId, plan, position);
+                }
+            }
+        }
+        
+        // 9. Re-apply aircraft filters
+        updateAircraftLayerFilter();
+
+        // 10. Re-render airport markers
+        renderAirportMarkers();
     }
-    // ... (rest of your existing weather logic)
-
-    // 3. Re-apply airport routes and active trails
-    if (currentAirportInWindow) {
-        plotRoutesFromAirport(currentAirportInWindow);
-    }
-    
-    // ... (rest of the function)
-}
 
 /**
  * --- [MODIFIED] Draws or updates the filed flight plan layers (direct or full)
