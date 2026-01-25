@@ -4289,80 +4289,60 @@ function renderSearchResultsDropdown(matches) {
 }
 
 
-    /**
-     * --- [FIXED] Handles the click on a search result item.
-     * Now reads all data directly from the clicked element's data attributes
-     * *before* clearing the dropdown, fixing the race condition.
-     * @param {HTMLElement} itemElement - The clicked <div> element.
-     */
-    function onSearchResultClick(itemElement) {
-        // --- [START OF FIX] ---
-        // 1. Get data directly from the element's dataset FIRST.
-        // This must happen before we clear the dropdown, which destroys the element.
-        let coordinates;
-        let props;
-        try {
-            coordinates = JSON.parse(itemElement.dataset.coordinates);
-            props = JSON.parse(itemElement.dataset.properties);
-            
-            if (!coordinates || !props || !props.flightId) {
-                 throw new Error('Search item is missing required data.');
-            }
-        } catch (e) {
-            console.error(`onSearchResultClick: Failed to parse data from clicked search item.`, e, itemElement.dataset);
-            return; // Abort if data is bad
-        }
-        // --- [END OF FIX] ---
+function onSearchResultClick(input) {
+    let flightId;
+    let coordinates;
+    let props;
 
-        // 2. Get UI elements
-        const dropdown = document.getElementById('search-results-dropdown');
-        const searchInput = document.getElementById('sector-ops-search-input');
+    // Detect if input is an HTML element or just an ID string
+    if (input instanceof HTMLElement) {
+        flightId = input.dataset.flightId;
+        coordinates = JSON.parse(input.dataset.coordinates);
+        props = JSON.parse(input.dataset.properties);
+    } else {
+        // It's a string ID from the LandingUI search
+        flightId = input;
+        const feature = currentMapFeatures[flightId];
+        if (!feature) return; // Plane not found in cache
         
-        // 3. Hide dropdown and clear input NOW
-        if (dropdown) dropdown.innerHTML = '';
-        if (searchInput) {
-            searchInput.value = '';
-            searchInput.blur(); // Remove focus
-        }
-        
-        // 4. Fly to the aircraft
-        sectorOpsMap.flyTo({
-            center: coordinates, // <-- Use data from element
-            zoom: 9,
-            essential: true
-        });
-
-        // 5. Open the info window
-        let flightProps;
-
-        // Safely parse the *nested* JSON strings (position, aircraft)
-        try {
-            flightProps = {
-                ...props,
-                position: props.position ? JSON.parse(props.position) : null,
-                aircraft: props.aircraft ? JSON.parse(props.aircraft) : null
-            };
-        } catch (parseError) {
-            console.error('onSearchResultClick: Failed to parse *nested* flight properties:', parseError, props);
-            flightProps = { ...props }; // Fallback
-        }
-        
-        // Check if parsing failed fatally
-        if (!flightProps || !flightProps.position) {
-            console.error('onSearchResultClick: Aborting, flight has no valid position data after parsing.');
-            return;
-        }
-        
-        fetch('https://site--acars-backend--6dmjph8ltlhv.code.run/if-sessions')
-            .then(res => res.json())
-            .then(data => {
-                // [UPDATED] Use helper
-                const sessionId = getCurrentSessionId(data);
-                if (sessionId) {
-                    handleAircraftClick(flightProps, sessionId);
-                }
-            });
+        coordinates = feature.geometry.coordinates;
+        props = feature.properties;
     }
+
+    // 1. Clear Search UI
+    const dropdown = document.getElementById('search-results-dropdown');
+    const searchInput = document.getElementById('sector-ops-search-input');
+    if (dropdown) dropdown.innerHTML = '';
+    if (searchInput) { searchInput.value = ''; searchInput.blur(); }
+
+    // 2. Map Navigation
+    sectorOpsMap.flyTo({
+        center: coordinates,
+        zoom: 9,
+        essential: true
+    });
+
+    // 3. Open Aircraft Info Window
+    let flightProps;
+    try {
+        flightProps = {
+            ...props,
+            position: typeof props.position === 'string' ? JSON.parse(props.position) : props.position,
+            aircraft: typeof props.aircraft === 'string' ? JSON.parse(props.aircraft) : props.aircraft
+        };
+    } catch (e) {
+        flightProps = { ...props };
+    }
+
+    fetch('https://site--acars-backend--6dmjph8ltlhv.code.run/if-sessions')
+        .then(res => res.json())
+        .then(data => {
+            const sessionId = getCurrentSessionId(data);
+            if (sessionId) {
+                handleAircraftClick(flightProps, sessionId);
+            }
+        });
+}
 
 /**
  * --- [NEW FUNCTION] ---

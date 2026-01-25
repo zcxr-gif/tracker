@@ -144,28 +144,26 @@ export const LandingUI = {
         container.classList.add('visible');
     },
 
-    executeSearchClick(id, lat, lon) {
-        // 1. Trigger the map navigation and info panel logic in flight.js
-        if (typeof window.onSearchResultClick === 'function') {
-            window.onSearchResultClick(id, lat, lon);
-        }
 
-        // 2. UI Cleanup: Clear the search bar and hide results
-        const searchInput = document.getElementById('blade-search-input');
-        const resultsDropdown = document.getElementById('blade-search-results');
-        const searchBlade = document.querySelector('.search-blade');
+executeSearchClick(id, lat, lon) {
+    // FIX: Change handleSearchResultClick to onSearchResultClick
+    // We only pass the 'id' because the map data updates every few seconds
+    if (typeof window.onSearchResultClick === 'function') {
+        window.onSearchResultClick(id); 
+    }
 
-        if (searchInput) {
-            searchInput.value = ''; 
-            searchInput.blur();
-        }
-        if (resultsDropdown) resultsDropdown.classList.remove('visible');
-        if (searchBlade) searchBlade.classList.remove('has-results');
+    // UI Cleanup (Keep existing)
+    const searchInput = document.getElementById('blade-search-input');
+    const resultsDropdown = document.getElementById('blade-search-results');
+    const searchBlade = document.querySelector('.search-blade');
 
-        // Reset search internal state
-        this._currentMatches = [];
-        this._searchCursorIndex = -1;
-    },
+    if (searchInput) { searchInput.value = ''; searchInput.blur(); }
+    if (resultsDropdown) resultsDropdown.classList.remove('visible');
+    if (searchBlade) searchBlade.classList.remove('has-results');
+
+    this._currentMatches = [];
+    this._searchCursorIndex = -1;
+}
 
     render() {
         const existing = document.getElementById('inflight-tactical-ui');
