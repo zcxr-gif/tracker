@@ -2219,6 +2219,19 @@ function injectCustomStyles() {
             margin-top: 1px;
         }
 
+        .mapboxgl-popup {
+    z-index: 3000 !important; 
+    pointer-events: none; /* Prevents the popup from blocking clicks to aircraft behind it */
+}
+
+.mapboxgl-popup-content {
+    background: transparent !important;
+    box-shadow: none !important;
+    padding: 0 !important;
+    border: none !important;
+    pointer-events: none !important;
+}
+
         /* --- AIRPORT WINDOW SPECIFIC STYLES --- */
 
         .airport-hero {
