@@ -6947,7 +6947,7 @@ async function updateLiveFlights() {
                     try {
                         const [planRes, routeRes] = await Promise.all([
                             fetch(`${LIVE_FLIGHTS_API_URL}/${expertSession.id}/${flightId}/plan`),
-                            fetch(`${LIVE_FLIGHTS_API_URL}/${flightId}/history`)
+                            fetch(`${LIVE_FLIGHTS_API_URL.replace('/flights', '/api/flights')}/${flightProps.flightId}/history`)
                         ]);
                         const planJson = await planRes.json();
                         const routeJson = await routeRes.json();
@@ -9425,7 +9425,7 @@ async function handleAircraftClick(flightProps, sessionId, event = null) {
         
         const [planRes, routeRes, aircraftLookupRes] = await Promise.all([
             fetch(`${LIVE_FLIGHTS_API_URL}/${sessionId}/${flightProps.flightId}/plan`),
-            fetch(`${LIVE_FLIGHTS_API_URL}/${flightProps.flightId}/history`),
+            fetch(`${LIVE_FLIGHTS_API_URL.replace('/flights', '/api/flights')}/${flightProps.flightId}/history`),
             fetch(`${API_BASE_URL}/api/aircraft/lookup?type=${encodeURIComponent(acName)}&livery=${encodeURIComponent(livName)}`)
         ]);
 
