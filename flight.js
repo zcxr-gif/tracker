@@ -6961,8 +6961,8 @@ const flownCoords = (routeRes.ok && routeJson.ok && Array.isArray(historyArray))
     : [];
                         if (flownCoords.length > 1) {
                             allCoordsForBounds.push(...flownCoords);
-                            liveFlightsMap.addSource('flown-path-source', { type: 'geojson', data: { type: 'Feature', geometry: { type: 'LineString', coordinates: flownCoords } } });
-                            liveFlightsMap.addLayer({ id: 'flown-path', type: 'line', source: 'flown-path-source', paint: { 'line-color': '#00b894', 'line-width': 4 } });
+                            liveFlightsMap.addSource('flown-path-source', { type: 'geojson', data: { type: 'Feature', geometry: { type: 'LineString', coordinates: flownCoords } }, tolerance: 0 });
+                            liveFlightsMap.addLayer({ id: 'flown-path', type: 'line', source: 'flown-path-source', paint: { 'line-color': '#00b894', 'line-width': 4 }, tolerance: 0 });
                         }
 
                         // Planned path
@@ -11404,7 +11404,8 @@ function updateFmsLegsModule(plan, currentPos) {
         const routeLinesId = `routes-from-${departureICAO}`;
         sectorOpsMap.addSource(routeLinesId, {
             type: 'geojson',
-            data: { type: 'FeatureCollection', features: routeLineFeatures }
+            data: { type: 'FeatureCollection', features: routeLineFeatures },
+            tolerance: 0
         });
 
         sectorOpsMap.addLayer({
