@@ -6947,14 +6947,18 @@ async function updateLiveFlights() {
                     try {
                         const [planRes, routeRes] = await Promise.all([
                             fetch(`${LIVE_FLIGHTS_API_URL}/${expertSession.id}/${flightId}/plan`),
-                            fetch(`${LIVE_FLIGHTS_API_URL}/${expertSession.id}/${flightId}/route`)
+                            ffetch(`${LIVE_FLIGHTS_API_URL}/${flightId}/history`)
                         ]);
                         const planJson = await planRes.json();
                         const routeJson = await routeRes.json();
-                        let allCoordsForBounds = [];
+let allCoordsForBounds = [];
 
-                        // Flown path
-                        const flownCoords = (routeRes.ok && routeJson.ok && Array.isArray(routeJson.route)) ? routeJson.route.map(p => [p.lon, p.lat]) : [];
+// Support both the new .path key and coordinate fallback (lat/latitude)
+const historyArray = routeJson?.path || routeJson?.route || [];
+
+const flownCoords = (routeRes.ok && routeJson.ok && Array.isArray(historyArray)) 
+    ? historyArray.map(p => [p.lon ?? p.longitude, p.lat ?? p.latitude]) 
+    : [];
                         if (flownCoords.length > 1) {
                             allCoordsForBounds.push(...flownCoords);
                             liveFlightsMap.addSource('flown-path-source', { type: 'geojson', data: { type: 'Feature', geometry: { type: 'LineString', coordinates: flownCoords } } });
@@ -9224,11 +9228,17 @@ function generateAltitudeColoredRoute(history, currentPos, flightPlan = null) {
     if (!history || history.length === 0) return { type: 'FeatureCollection', features: [] };
 
     // --- 1. Sanitization & Point Preparation ---
-    let points = history.map(p => ({
-        lat: parseFloat(p.latitude.toFixed(6)),
-        lon: parseFloat(p.longitude.toFixed(6)),
-        alt: p.altitude || 0
-    }));
+    let points = history.map(p => {
+        // Fallback logic: check for 'lat' or 'latitude'
+        const lat = p.lat ?? p.latitude;
+        const lon = p.lon ?? p.longitude;
+        
+        return {
+            lat: parseFloat(Number(lat).toFixed(6)),
+            lon: parseFloat(Number(lon).toFixed(6)),
+            alt: p.altitude || 0
+        };
+    });
 
     // Append current position as the latest point (the 'nose')
     points.push({
@@ -9415,7 +9425,7 @@ async function handleAircraftClick(flightProps, sessionId, event = null) {
         
         const [planRes, routeRes, aircraftLookupRes] = await Promise.all([
             fetch(`${LIVE_FLIGHTS_API_URL}/${sessionId}/${flightProps.flightId}/plan`),
-            fetch(`${LIVE_FLIGHTS_API_URL}/${sessionId}/${flightProps.flightId}/route`),
+            fetch(`${LIVE_FLIGHTS_API_URL}/${flightProps.flightId}/history`),
             fetch(`${API_BASE_URL}/api/aircraft/lookup?type=${encodeURIComponent(acName)}&livery=${encodeURIComponent(livName)}`)
         ]);
 
@@ -9425,9 +9435,12 @@ async function handleAircraftClick(flightProps, sessionId, event = null) {
         let communityAircraftData = aircraftLookupRes.ok ? await aircraftLookupRes.json() : null;
 
         let sortedRoutePoints = [];
-        if (routeData && routeData.ok && Array.isArray(routeData.route)) {
-            sortedRoutePoints = routeData.route.sort((a, b) => new Date(a.date) - new Date(b.date));
-        }
+// Updated to check for the new .path property from the history endpoint
+const historyArray = routeData?.path || routeData?.route || [];
+
+if (routeData && routeData.ok && Array.isArray(historyArray)) {
+    sortedRoutePoints = historyArray.sort((a, b) => new Date(a.date) - new Date(b.date));
+}
 
         if (typeof liveTrailCache !== 'undefined') liveTrailCache.set(flightProps.flightId, sortedRoutePoints);
         cachedFlightDataForStatsView = { flightProps, plan };
