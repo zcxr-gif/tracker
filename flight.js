@@ -6947,7 +6947,7 @@ async function updateLiveFlights() {
                     try {
                         const [planRes, routeRes] = await Promise.all([
                             fetch(`${LIVE_FLIGHTS_API_URL}/${expertSession.id}/${flightId}/plan`),
-                            ffetch(`${LIVE_FLIGHTS_API_URL}/${flightId}/history`)
+                            fetch(`${LIVE_FLIGHTS_API_URL}/${flightId}/history`)
                         ]);
                         const planJson = await planRes.json();
                         const routeJson = await routeRes.json();
