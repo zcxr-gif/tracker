@@ -9478,21 +9478,22 @@ if (routeData && routeData.ok && Array.isArray(historyArray)) {
         if (typeof generateAltitudeColoredRoute === 'function' && !sectorOpsMap.getSource(flownLayerId)) {
             const routeFeatureCollection = generateAltitudeColoredRoute(sortedRoutePoints, flightProps.position, plan);
             sectorOpsMap.addSource(flownLayerId, { type: 'geojson', data: routeFeatureCollection });
-// Add layout properties to ensure the line ends and joins are rounded:
-sectorOpsMap.addLayer({
-    id: flownLayerId,
-    type: 'line',
-    source: flownLayerId,
-    layout: {
-        'line-join': 'round', // Makes turns look smooth at intersections
-        'line-cap': 'round'   // Rounds the ends of the segments
-    },
-    paint: {
-        'line-color': ['interpolate', ['linear'], ['get', 'avgAltitude'], ...],
-        'line-width': [ 'interpolate', ['linear'], ['zoom'], 2, 2, 10, 4 ],
-        'line-opacity': 0.9
-    }
-}, 'sector-ops-live-flights-layer');
+            sectorOpsMap.addLayer({
+                id: flownLayerId,
+                type: 'line',
+                source: flownLayerId,
+                tolerance: 0,
+                buffer: 0,
+                paint: {
+                    'line-color': ['interpolate', ['linear'], ['get', 'avgAltitude'], 0, '#e6e600', 10000, '#ff9900', 20000, '#ff3300', 29000, '#00BFFF', 38000, '#9400D3'],
+                    'line-width': [
+        'interpolate', ['linear'], ['zoom'],
+        2, 2,   // At zoom 2, line is 2px wide
+        10, 4   // At zoom 10, line is 4px wide
+    ],
+                    'line-opacity': 0.9
+                }
+            }, 'sector-ops-live-flights-layer');
             if (typeof sectorOpsLiveFlightPathLayers !== 'undefined') {
     // FIX: Use assignment that preserves other keys in the object
     if (!sectorOpsLiveFlightPathLayers[flightProps.flightId]) {
