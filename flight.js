@@ -5570,16 +5570,9 @@ function handleSocketFlightUpdate(data) {
                     const layerId = sectorOpsLiveFlightPathLayers[flightId]?.flown;
                     const source = layerId ? sectorOpsMap.getSource(layerId) : null;
                     if (source) {
-    const newRouteData = generateAltitudeColoredRoute(localTrail, flight.position);
-    source.setData(newRouteData);
-    
-    // Dynamically update the gradient colors as the flight progresses
-    sectorOpsMap.setPaintProperty(
-        flownLayerId, 
-        'line-gradient', 
-        ['interpolate', ['linear'], ['line-progress'], ...newRouteData.properties.gradientExpression]
-    );
-}
+                        const newRouteData = generateAltitudeColoredRoute(localTrail, flight.position, cachedFlightDataForStatsView.plan);
+                        source.setData(newRouteData);
+                    }
                 }
             }
 
@@ -6968,8 +6961,8 @@ const flownCoords = (routeRes.ok && routeJson.ok && Array.isArray(historyArray))
     : [];
                         if (flownCoords.length > 1) {
                             allCoordsForBounds.push(...flownCoords);
-                            liveFlightsMap.addSource('flown-path-source', { type: 'geojson', data: { type: 'Feature', geometry: { type: 'LineString', coordinates: flownCoords } }, tolerance: 0 });
-                            liveFlightsMap.addLayer({ id: 'flown-path', type: 'line', source: 'flown-path-source', paint: { 'line-color': '#00b894', 'line-width': 4 }, tolerance: 0 });
+                            liveFlightsMap.addSource('flown-path-source', { type: 'geojson', data: { type: 'Feature', geometry: { type: 'LineString', coordinates: flownCoords } } });
+                            liveFlightsMap.addLayer({ id: 'flown-path', type: 'line', source: 'flown-path-source', paint: { 'line-color': '#00b894', 'line-width': 4 } });
                         }
 
                         // Planned path
@@ -8777,8 +8770,7 @@ function onAtcDataReceived(newAtcData) {
 
                 sectorOpsMap.addSource(`flown-path-${flightId}`, {
                     type: 'geojson',
-                    data: routeFeatureCollection,
-                    tolerance: 0
+                    data: routeFeatureCollection
                 });
                 
                 sectorOpsMap.addLayer({
@@ -8938,7 +8930,7 @@ function updateFlightPlanLayer(flightId, plan, currentPosition) {
             
             const fullLineData = { type: 'FeatureCollection', features: features };
             
-            sectorOpsMap.addSource(layerIdFull, { type: 'geojson', data: fullLineData, tolerance: 0 });
+            sectorOpsMap.addSource(layerIdFull, { type: 'geojson', data: fullLineData });
             
             // Add LINE Layer
             sectorOpsMap.addLayer({
@@ -9230,20 +9222,38 @@ function generateSmoothPath(points, tension = 0.5) {
 }
 
 /**
- * NEW GENERATION ENGINE: Single LineString with Gradient Mapping
+ * CORE FUNCTION: Transforms flight history into a colored GeoJSON collection.
+ * 1. Sanitizes inputs
+ * 2. Unwraps and densifies for map stability
+ * 3. Segments the line for altitude-based styling
  */
-function generateAltitudeColoredRoute(history, currentPos) {
+function generateAltitudeColoredRoute(history, currentPos, flightPlan = null) {
     if (!history || history.length === 0) return { type: 'FeatureCollection', features: [] };
 
-    // 1. Prepare & Unwrap Points (Date Line Safety)
-    let points = history.map(p => ({
-        lat: p.lat ?? p.latitude,
-        lon: p.lon ?? p.longitude,
-        alt: p.altitude || 0
-    }));
-    points.push({ lat: currentPos.lat, lon: currentPos.lon, alt: currentPos.alt_ft || 0 });
+    // --- 1. Sanitization & Point Preparation ---
+    let points = history.map(p => {
+        // Fallback logic: check for 'lat' or 'latitude'
+        const lat = p.lat ?? p.latitude;
+        const lon = p.lon ?? p.longitude;
+        
+        return {
+            lat: parseFloat(Number(lat).toFixed(6)),
+            lon: parseFloat(Number(lon).toFixed(6)),
+            alt: p.altitude || 0
+        };
+    });
 
-    // Use your existing unwrap logic to keep coordinates continuous
+    // Append current position as the latest point (the 'nose')
+    points.push({
+        lat: parseFloat(currentPos.lat.toFixed(6)),
+        lon: parseFloat(currentPos.lon.toFixed(6)),
+        alt: currentPos.alt_ft || 0
+    });
+
+    // Remove micro-duplicates (less than 1 meter) which crash Mapbox renders
+    points = points.filter((p, i) => i === 0 || getDistanceKm(p.lat, p.lon, points[i-1].lat, points[i-1].lon) > 0.001);
+
+    // --- 2. Continuity & Unwrapping ---
     let refLon = points[0].lon;
     points[0].unwrappedLon = refLon;
     for (let i = 1; i < points.length; i++) {
@@ -9254,40 +9264,51 @@ function generateAltitudeColoredRoute(history, currentPos) {
         refLon = points[i].unwrappedLon;
     }
 
-    // 2. High-Fidelity Smoothing (Using your Catmull-Rom logic)
-    const smoothPoints = generateSmoothPath(points);
+    // --- 3. Smoothing (Optional) ---
+    // We only smooth if points are relatively close and not at extreme poles
+    const isPolar = points.some(p => Math.abs(p.lat) > 70);
+    const finalPoints = (points.length > 1 && !isPolar) ? generateSmoothPath(points) : points;
 
-    // 3. Create Gradient Definition
-    // We calculate the color for every point and map it to a 0.0 -> 1.0 progress value
-    const coordinates = [];
-    const gradientStops = [];
-    const totalPoints = smoothPoints.length;
+    // --- 4. Segmentation & Densification ---
+    const features = [];
+    const MAX_SEG_KM = 300; // Max distance before we force a point for the globe curve
 
-    smoothPoints.forEach((p, i) => {
-        coordinates.push([p.unwrappedLon, p.lat]);
-        
-        // Map altitude to your specific hex colors
-        const progress = i / (totalPoints - 1);
-        const color = getAltitudeColor(p.alt);
-        gradientStops.push(progress, color);
-    });
+    for (let i = 0; i < finalPoints.length - 1; i++) {
+        const start = finalPoints[i];
+        const end = finalPoints[i + 1];
+
+        // Densify this specific segment if it's long
+        const segDist = getDistanceKm(start.lat, start.unwrappedLon, end.lat, end.unwrappedLon);
+        const steps = Math.ceil(segDist / MAX_SEG_KM);
+
+        for (let j = 0; j < steps; j++) {
+            const f1 = j / steps;
+            const f2 = (j + 1) / steps;
+
+            const p1 = getIntermediatePoint(start.lat, start.unwrappedLon, end.lat, end.unwrappedLon, f1);
+            const p2 = getIntermediatePoint(start.lat, start.unwrappedLon, end.lat, end.unwrappedLon, f2);
+
+            // Interpolate longitude to maintain unwrapped continuity
+            const lon1 = start.unwrappedLon + (end.unwrappedLon - start.unwrappedLon) * f1;
+            const lon2 = start.unwrappedLon + (end.unwrappedLon - start.unwrappedLon) * f2;
+
+            features.push({
+                type: 'Feature',
+                geometry: {
+                    type: 'LineString',
+                    coordinates: [[lon1, p1.lat], [lon2, p2.lat]]
+                },
+                properties: {
+                    avgAltitude: (start.alt + end.alt) / 2
+                }
+            });
+        }
+    }
 
     return {
-        type: 'Feature',
-        geometry: { type: 'LineString', coordinates },
-        properties: {
-            gradientExpression: gradientStops // Store for the layer update
-        }
+        type: 'FeatureCollection',
+        features: features
     };
-}
-
-// Helper to match your existing altitude color scale
-function getAltitudeColor(alt) {
-    if (alt < 10000) return '#e6e600'; // Yellow
-    if (alt < 20000) return '#ff9900'; // Orange
-    if (alt < 29000) return '#ff3300'; // Red
-    if (alt < 38000) return '#00BFFF'; // Blue
-    return '#9400D3'; // Purple
 }
 
 /**
@@ -9456,39 +9477,32 @@ if (routeData && routeData.ok && Array.isArray(historyArray)) {
         const flownLayerId = `flown-path-${flightProps.flightId}`;
         if (typeof generateAltitudeColoredRoute === 'function' && !sectorOpsMap.getSource(flownLayerId)) {
             const routeFeatureCollection = generateAltitudeColoredRoute(sortedRoutePoints, flightProps.position, plan);
-            sectorOpsMap.addSource(flownLayerId, {
+            // Conceptual change for your data source
+sectorOpsMap.addSource(flownLayerId, {
     type: 'geojson',
-    lineMetrics: true, // REQUIRED for line-gradient
-    data: routeData
+    data: {
+        type: 'Feature',
+        geometry: {
+            type: 'LineString',
+            coordinates: sortedCoordinates // Your existing unwrapped/densified points
+        }
+    },
+    lineMetrics: true // REQUIRED for gradients
 });
-
-// 2. Add Layer with Gradient and Tapering
-sectorOpsMap.addLayer({
+            sectorOpsMap.addLayer({
     id: flownLayerId,
     type: 'line',
     source: flownLayerId,
     paint: {
-        // --- THE "DIFFERENT" PART ---
-        // Instead of line-color, we use line-gradient
+        'line-width': 4,
         'line-gradient': [
             'interpolate',
             ['linear'],
             ['line-progress'],
-            ...routeData.properties.gradientExpression
-        ],
-        // --- ADDING TAPERED WAKE ---
-        'line-width': [
-            'interpolate',
-            ['linear'],
-            ['line-progress'],
-            0, 1,    // Oldest part of trail: 1px wide
-            1, 5     // At the plane: 5px wide
-        ],
-        'line-opacity': 0.8
-    },
-    layout: {
-        'line-cap': 'round',
-        'line-join': 'round'
+            0, '#e6e600',   // Start of flight (Ground)
+            0.5, '#ff3300', // Mid-point
+            1, '#9400D3'    // End of flight (Current position)
+        ]
     }
 }, 'sector-ops-live-flights-layer');
             if (typeof sectorOpsLiveFlightPathLayers !== 'undefined') {
@@ -11400,8 +11414,7 @@ function updateFmsLegsModule(plan, currentPos) {
         const routeLinesId = `routes-from-${departureICAO}`;
         sectorOpsMap.addSource(routeLinesId, {
             type: 'geojson',
-            data: { type: 'FeatureCollection', features: routeLineFeatures },
-            tolerance: 0
+            data: { type: 'FeatureCollection', features: routeLineFeatures }
         });
 
         sectorOpsMap.addLayer({
