@@ -8770,7 +8770,8 @@ function onAtcDataReceived(newAtcData) {
 
                 sectorOpsMap.addSource(`flown-path-${flightId}`, {
                     type: 'geojson',
-                    data: routeFeatureCollection
+                    data: routeFeatureCollection,
+                    tolerance: 0
                 });
                 
                 sectorOpsMap.addLayer({
