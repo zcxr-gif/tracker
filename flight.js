@@ -6962,7 +6962,13 @@ const flownCoords = (routeRes.ok && routeJson.ok && Array.isArray(historyArray))
                         if (flownCoords.length > 1) {
                             allCoordsForBounds.push(...flownCoords);
                             liveFlightsMap.addSource('flown-path-source', { type: 'geojson', data: { type: 'Feature', geometry: { type: 'LineString', coordinates: flownCoords } } });
-                            liveFlightsMap.addLayer({ id: 'flown-path', type: 'line', source: 'flown-path-source', paint: { 'line-color': '#00b894', 'line-width': 4 } });
+                            liveFlightsMap.addLayer({ id: 'flown-path',
+    type: 'line',
+    source: 'flown-path-source',
+    paint: {
+        'line-color': '#81D4FA', // Defaulting to the light blue enroute color
+        'line-width': 2          // Matches the thinner width
+    } });
                         }
 
                         // Planned path
@@ -9447,16 +9453,18 @@ if (!sectorOpsMap.getSource(flownLayerId)) {
         type: 'line',
         source: flownLayerId,
         paint: {
-            'line-width': 4,
-            'line-opacity': 0.9,
-            'line-gradient': [
-                'interpolate',
-                ['linear'],
-                ['line-progress'],
-                0, '#e6e600',   // Start (Ground/Yellow)
-                0.5, '#ff3300', // Mid (Climb/Orange)
-                1, '#9400D3'    // Current (Cruise/Purple)
-            ]
+            'line-width': 2, 
+    // Slightly more transparent for a lighter feel
+    'line-opacity': 0.85, 
+    'line-gradient': [
+        'interpolate',
+        ['linear'],
+        ['line-progress'],
+        0.0, '#FFCC80', // Start / Ground: Light Orange
+        0.1, '#FFF59D', // Initial Climb: Yellow
+        0.4, '#81D4FA', // Enroute / Mid: Light Blue
+        1.0, '#1565C0'  // Current / High: Dark Blue
+    ]
         }
     }, 'sector-ops-live-flights-layer');
             if (typeof sectorOpsLiveFlightPathLayers !== 'undefined') {
