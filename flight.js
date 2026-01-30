@@ -8931,7 +8931,7 @@ function updateFlightPlanLayer(flightId, plan, currentPosition) {
             
             const fullLineData = { type: 'FeatureCollection', features: features };
             
-            sectorOpsMap.addSource(layerIdFull, { type: 'geojson', data: fullLineData });
+            sectorOpsMap.addSource(layerIdFull, { type: 'geojson', data: fullLineData, tolerance: 0 });
             
             // Add LINE Layer
             sectorOpsMap.addLayer({
