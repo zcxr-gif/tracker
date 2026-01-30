@@ -8762,58 +8762,38 @@ function onAtcDataReceived(newAtcData) {
             delete sectorOpsLiveFlightPathLayers[flightId]; 
 
             const { flightProps, plan } = cachedFlightDataForStatsView;
-            if (flightProps) {
-                const localTrail = liveTrailCache.get(flightId) || [];
-                const currentPosition = currentAircraftPositionForGeocode || flightProps.position;
-                
-                const routeFeatureCollection = generateAltitudeColoredRoute(localTrail, currentPosition, plan);
+            // Inside rebuildDynamicLayers() -> section 8 (active flight trail)
+if (flightProps) {
+    const localTrail = liveTrailCache.get(flightId) || [];
+    const currentPosition = currentAircraftPositionForGeocode || flightProps.position;
+    const routeFeature = generateAltitudeColoredRoute(localTrail, currentPosition, plan);
 
-                sectorOpsMap.addSource(`flown-path-${flightId}`, {
-                    type: 'geojson',
-                    data: routeFeatureCollection
-                });
-                
-                sectorOpsMap.addLayer({
-                    id: `flown-path-${flightId}`,
-                    type: 'line',
-                    source: `flown-path-${flightId}`,
-                    paint: {
-                        'line-color': [
-                            'interpolate',
-                            ['linear'],
-                            ['get', 'avgAltitude'],
-                            0,     '#e6e600',
-                            10000, '#ff9900',
-                            20000, '#ff3300',
-                            29000, '#00BFFF',
-                            38000, '#9400D3'
-                        ],
-                        'line-width': 4,
-                        'line-opacity': [
-                            'case',
-                            ['boolean', ['get', 'simulated'], false],
-                            0.6,
-                            0.9
-                        ],
-                        'line-dasharray': [
-                            'case',
-                            ['boolean', ['get', 'simulated'], false],
-                            ['literal', [2, 2]],
-                            ['literal', [1, 0]]
-                        ],
-                        'line-translate': [0, -2],
-                        'line-translate-anchor': 'viewport'
-                    }
-                }, 'sector-ops-live-flights-layer'); 
-                
-                sectorOpsLiveFlightPathLayers[flightId] = { flown: `flown-path-${flightId}` };
-                console.log(`Rebuilt active trail for ${flightId}`);
+    sectorOpsMap.addSource(`flown-path-${flightId}`, { 
+        type: 'geojson', 
+        data: routeFeature,
+        lineMetrics: true // CRITICAL for gradients
+    });
 
-                if (plan) {
-                    const position = currentAircraftPositionForGeocode || flightProps.position;
-                    updateFlightPlanLayer(flightId, plan, position);
-                }
-            }
+    sectorOpsMap.addLayer({
+        id: `flown-path-${flightId}`,
+        type: 'line',
+        source: `flown-path-${flightId}`,
+        paint: {
+            'line-width': 4,
+            'line-opacity': 0.9,
+            'line-gradient': [
+                'interpolate',
+                ['linear'],
+                ['line-progress'],
+                0, '#e6e600', // Start
+                0.5, '#ff3300', // Mid
+                1, '#9400D3' // Current
+            ]
+        }
+    }, 'sector-ops-live-flights-layer');
+
+    sectorOpsLiveFlightPathLayers[flightId] = { flown: `flown-path-${flightId}` };
+}
         }
         
         // 9. Re-apply aircraft filters
@@ -9221,39 +9201,18 @@ function generateSmoothPath(points, tension = 0.5) {
     return result;
 }
 
-/**
- * CORE FUNCTION: Transforms flight history into a colored GeoJSON collection.
- * 1. Sanitizes inputs
- * 2. Unwraps and densifies for map stability
- * 3. Segments the line for altitude-based styling
- */
 function generateAltitudeColoredRoute(history, currentPos, flightPlan = null) {
-    if (!history || history.length === 0) return { type: 'FeatureCollection', features: [] };
+    if (!history || history.length === 0) return { type: 'Feature', geometry: { type: 'LineString', coordinates: [] } };
 
-    // --- 1. Sanitization & Point Preparation ---
+    // 1. Prepare and sanitize points
     let points = history.map(p => {
-        // Fallback logic: check for 'lat' or 'latitude'
         const lat = p.lat ?? p.latitude;
         const lon = p.lon ?? p.longitude;
-        
-        return {
-            lat: parseFloat(Number(lat).toFixed(6)),
-            lon: parseFloat(Number(lon).toFixed(6)),
-            alt: p.altitude || 0
-        };
+        return { lat: parseFloat(Number(lat).toFixed(6)), lon: parseFloat(Number(lon).toFixed(6)), alt: p.altitude || 0 };
     });
+    points.push({ lat: parseFloat(currentPos.lat.toFixed(6)), lon: parseFloat(currentPos.lon.toFixed(6)), alt: currentPos.alt_ft || 0 });
 
-    // Append current position as the latest point (the 'nose')
-    points.push({
-        lat: parseFloat(currentPos.lat.toFixed(6)),
-        lon: parseFloat(currentPos.lon.toFixed(6)),
-        alt: currentPos.alt_ft || 0
-    });
-
-    // Remove micro-duplicates (less than 1 meter) which crash Mapbox renders
-    points = points.filter((p, i) => i === 0 || getDistanceKm(p.lat, p.lon, points[i-1].lat, points[i-1].lon) > 0.001);
-
-    // --- 2. Continuity & Unwrapping ---
+    // 2. Unwrapping for Date Line continuity
     let refLon = points[0].lon;
     points[0].unwrappedLon = refLon;
     for (let i = 1; i < points.length; i++) {
@@ -9264,50 +9223,36 @@ function generateAltitudeColoredRoute(history, currentPos, flightPlan = null) {
         refLon = points[i].unwrappedLon;
     }
 
-    // --- 3. Smoothing (Optional) ---
-    // We only smooth if points are relatively close and not at extreme poles
+    // 3. Smoothing
     const isPolar = points.some(p => Math.abs(p.lat) > 70);
     const finalPoints = (points.length > 1 && !isPolar) ? generateSmoothPath(points) : points;
 
-    // --- 4. Segmentation & Densification ---
-    const features = [];
-    const MAX_SEG_KM = 300; // Max distance before we force a point for the globe curve
+    // 4. Compile into a Single LineString with Densification
+    const allCoordinates = [];
+    const MAX_SEG_KM = 200; 
 
     for (let i = 0; i < finalPoints.length - 1; i++) {
         const start = finalPoints[i];
         const end = finalPoints[i + 1];
-
-        // Densify this specific segment if it's long
-        const segDist = getDistanceKm(start.lat, start.unwrappedLon, end.lat, end.unwrappedLon);
-        const steps = Math.ceil(segDist / MAX_SEG_KM);
-
+        const dist = getDistanceKm(start.lat, start.unwrappedLon, end.lat, end.unwrappedLon);
+        const steps = Math.ceil(dist / MAX_SEG_KM);
+        
         for (let j = 0; j < steps; j++) {
-            const f1 = j / steps;
-            const f2 = (j + 1) / steps;
-
-            const p1 = getIntermediatePoint(start.lat, start.unwrappedLon, end.lat, end.unwrappedLon, f1);
-            const p2 = getIntermediatePoint(start.lat, start.unwrappedLon, end.lat, end.unwrappedLon, f2);
-
-            // Interpolate longitude to maintain unwrapped continuity
-            const lon1 = start.unwrappedLon + (end.unwrappedLon - start.unwrappedLon) * f1;
-            const lon2 = start.unwrappedLon + (end.unwrappedLon - start.unwrappedLon) * f2;
-
-            features.push({
-                type: 'Feature',
-                geometry: {
-                    type: 'LineString',
-                    coordinates: [[lon1, p1.lat], [lon2, p2.lat]]
-                },
-                properties: {
-                    avgAltitude: (start.alt + end.alt) / 2
-                }
-            });
+            const fraction = j / steps;
+            const intermediate = getIntermediatePoint(start.lat, start.unwrappedLon, end.lat, end.unwrappedLon, fraction);
+            const lon = start.unwrappedLon + (end.unwrappedLon - start.unwrappedLon) * fraction;
+            allCoordinates.push([lon, intermediate.lat]);
         }
     }
+    allCoordinates.push([finalPoints[finalPoints.length - 1].unwrappedLon, finalPoints[finalPoints.length - 1].lat]);
 
     return {
-        type: 'FeatureCollection',
-        features: features
+        type: 'Feature',
+        geometry: {
+            type: 'LineString',
+            coordinates: allCoordinates
+        },
+        properties: {}
     };
 }
 
@@ -9473,51 +9418,45 @@ if (routeData && routeData.ok && Array.isArray(historyArray)) {
             fetchAndDisplayGeocode(flightProps.position.lat, flightProps.position.lon);
         }
         
-// 1. Prepare the updated coordinates
-let rawCoords = sortedRoutePoints.map(p => [p.lon ?? p.longitude, p.lat ?? p.latitude]);
+        let rawCoords = sortedRoutePoints.map(p => [p.lon ?? p.longitude, p.lat ?? p.latitude]);
 rawCoords.push([flightProps.position.lon, flightProps.position.lat]);
 
+// 2. Process for map stability (Unwrap Date Line + Densify for Globe)
+// Use your existing helper functions from the script
 const unwrappedCoords = unwrapLineCoordinates(rawCoords);
-const sortedCoordinates = densifyRoute(unwrappedCoords, 100);
+const sortedCoordinates = densifyRoute(unwrappedCoords, 100); 
 
-const geojsonData = {
-    type: 'Feature',
-    geometry: {
-        type: 'LineString',
-        coordinates: sortedCoordinates
-    }
-};
-
-// 2. Update existing source OR create new one
-if (source) {
-    // Crucial: setData handles the update without re-adding the layer
-    source.setData(geojsonData);
-} else {
+// 3. Add the Single-Source with lineMetrics enabled
+const flownLayerId = `flown-path-${flightProps.flightId}`;
+if (!sectorOpsMap.getSource(flownLayerId)) {
     sectorOpsMap.addSource(flownLayerId, {
         type: 'geojson',
-        data: geojsonData,
-        lineMetrics: true // Must be here for the gradient to work
+        data: {
+            type: 'Feature',
+            geometry: {
+                type: 'LineString',
+                coordinates: sortedCoordinates
+            }
+        },
+        lineMetrics: true // REQUIRED for gradients
     });
 
+    // 4. Add the Gradient Layer
     sectorOpsMap.addLayer({
         id: flownLayerId,
         type: 'line',
         source: flownLayerId,
         paint: {
-            'line-width': 3,
+            'line-width': 4,
+            'line-opacity': 0.9,
             'line-gradient': [
                 'interpolate',
                 ['linear'],
                 ['line-progress'],
-                0, '#f2f200',   // Departure
-                0.1, '#ff8000', // Initial Climb
-                0.5, '#ff4500', // Mid-flight
-                1, '#9400D3'    // Nose of the plane
+                0, '#e6e600',   // Start (Ground/Yellow)
+                0.5, '#ff3300', // Mid (Climb/Orange)
+                1, '#9400D3'    // Current (Cruise/Purple)
             ]
-        },
-        layout: {
-            'line-cap': 'round',
-            'line-join': 'round'
         }
     }, 'sector-ops-live-flights-layer');
             if (typeof sectorOpsLiveFlightPathLayers !== 'undefined') {
