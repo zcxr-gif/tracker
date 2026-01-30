@@ -9177,17 +9177,17 @@ function densifyRoute(coordinates, maxSegmentLengthKm = 100) {
 }
 
 /**
- * Smoothes a path using Catmull-Rom Splines for a more "organic" flight look.
- * Automatically bypassed at extreme latitudes or for long jumps.
+ * Smoothes a path using Catmull-Rom Splines with high-fidelity resolution.
+ * Makes aircraft turns look "smooth as hell" by increasing interpolation steps.
  */
-function generateSmoothPath(points) {
+function generateSmoothPath(points, tension = 0.5) {
     if (points.length < 4) return points;
-
     const result = [];
-    // Helper to interpolate between 4 points
+
     const interpolate = (p0, p1, p2, p3, t) => {
         const t2 = t * t;
         const t3 = t2 * t;
+        // Standard Catmull-Rom Spline formula
         return 0.5 * (
             (2 * p1) +
             (-p0 + p2) * t +
@@ -9202,15 +9202,18 @@ function generateSmoothPath(points) {
         const p2 = points[i + 1];
         const p3 = points[i + 2 >= points.length ? i + 1 : i + 2];
 
-        // Determine segments based on distance
+        // --- THE FIX: Increase Resolution ---
+        // Calculate distance in degrees for scaling
         const d = Math.sqrt(Math.pow(p2.unwrappedLon - p1.unwrappedLon, 2) + Math.pow(p2.lat - p1.lat, 2));
-        const steps = Math.max(1, Math.floor(d * 5));
+        
+        // Boost steps significantly (Changed multiplier from 5 to 25 and min from 1 to 12)
+        const steps = Math.max(12, Math.floor(d * 25)); 
 
         for (let t = 0; t < 1; t += 1 / steps) {
             result.push({
                 unwrappedLon: interpolate(p0.unwrappedLon, p1.unwrappedLon, p2.unwrappedLon, p3.unwrappedLon, t),
                 lat: interpolate(p0.lat, p1.lat, p2.lat, p3.lat, t),
-                alt: p1.alt + (p2.alt - p1.alt) * t
+                alt: p1.alt + (p2.alt - p1.alt) * t // Linear altitude interpolation is fine
             });
         }
     }
@@ -9264,7 +9267,7 @@ function generateAltitudeColoredRoute(history, currentPos, flightPlan = null) {
     // --- 3. Smoothing (Optional) ---
     // We only smooth if points are relatively close and not at extreme poles
     const isPolar = points.some(p => Math.abs(p.lat) > 70);
-    const finalPoints = (points.length > 5 && !isPolar) ? generateSmoothPath(points) : points;
+    const finalPoints = (points.length > 1 && !isPolar) ? generateSmoothPath(points) : points;
 
     // --- 4. Segmentation & Densification ---
     const features = [];
@@ -9475,22 +9478,21 @@ if (routeData && routeData.ok && Array.isArray(historyArray)) {
         if (typeof generateAltitudeColoredRoute === 'function' && !sectorOpsMap.getSource(flownLayerId)) {
             const routeFeatureCollection = generateAltitudeColoredRoute(sortedRoutePoints, flightProps.position, plan);
             sectorOpsMap.addSource(flownLayerId, { type: 'geojson', data: routeFeatureCollection });
-            sectorOpsMap.addLayer({
-                id: flownLayerId,
-                type: 'line',
-                source: flownLayerId,
-                tolerance: 0,
-                buffer: 0,
-                paint: {
-                    'line-color': ['interpolate', ['linear'], ['get', 'avgAltitude'], 0, '#e6e600', 10000, '#ff9900', 20000, '#ff3300', 29000, '#00BFFF', 38000, '#9400D3'],
-                    'line-width': [
-        'interpolate', ['linear'], ['zoom'],
-        2, 2,   // At zoom 2, line is 2px wide
-        10, 4   // At zoom 10, line is 4px wide
-    ],
-                    'line-opacity': 0.9
-                }
-            }, 'sector-ops-live-flights-layer');
+// Add layout properties to ensure the line ends and joins are rounded:
+sectorOpsMap.addLayer({
+    id: flownLayerId,
+    type: 'line',
+    source: flownLayerId,
+    layout: {
+        'line-join': 'round', // Makes turns look smooth at intersections
+        'line-cap': 'round'   // Rounds the ends of the segments
+    },
+    paint: {
+        'line-color': ['interpolate', ['linear'], ['get', 'avgAltitude'], ...],
+        'line-width': [ 'interpolate', ['linear'], ['zoom'], 2, 2, 10, 4 ],
+        'line-opacity': 0.9
+    }
+}, 'sector-ops-live-flights-layer');
             if (typeof sectorOpsLiveFlightPathLayers !== 'undefined') {
     // FIX: Use assignment that preserves other keys in the object
     if (!sectorOpsLiveFlightPathLayers[flightProps.flightId]) {
