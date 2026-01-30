@@ -9473,38 +9473,47 @@ if (routeData && routeData.ok && Array.isArray(historyArray)) {
             fetchAndDisplayGeocode(flightProps.position.lat, flightProps.position.lon);
         }
         
-        // Map path plotting
-        const flownLayerId = `flown-path-${flightProps.flightId}`;
-        if (typeof generateAltitudeColoredRoute === 'function' && !sectorOpsMap.getSource(flownLayerId)) {
-            const routeFeatureCollection = generateAltitudeColoredRoute(sortedRoutePoints, flightProps.position, plan);
-            // Conceptual change for your data source
-sectorOpsMap.addSource(flownLayerId, {
-    type: 'geojson',
-    data: {
-        type: 'Feature',
-        geometry: {
-            type: 'LineString',
-            coordinates: sortedCoordinates // Your existing unwrapped/densified points
+        let rawCoords = sortedRoutePoints.map(p => [p.lon ?? p.longitude, p.lat ?? p.latitude]);
+rawCoords.push([flightProps.position.lon, flightProps.position.lat]);
+
+// 2. Process for map stability (Unwrap Date Line + Densify for Globe)
+// Use your existing helper functions from the script
+const unwrappedCoords = unwrapLineCoordinates(rawCoords);
+const sortedCoordinates = densifyRoute(unwrappedCoords, 100); 
+
+// 3. Add the Single-Source with lineMetrics enabled
+const flownLayerId = `flown-path-${flightProps.flightId}`;
+if (!sectorOpsMap.getSource(flownLayerId)) {
+    sectorOpsMap.addSource(flownLayerId, {
+        type: 'geojson',
+        data: {
+            type: 'Feature',
+            geometry: {
+                type: 'LineString',
+                coordinates: sortedCoordinates
+            }
+        },
+        lineMetrics: true // REQUIRED for gradients
+    });
+
+    // 4. Add the Gradient Layer
+    sectorOpsMap.addLayer({
+        id: flownLayerId,
+        type: 'line',
+        source: flownLayerId,
+        paint: {
+            'line-width': 4,
+            'line-opacity': 0.9,
+            'line-gradient': [
+                'interpolate',
+                ['linear'],
+                ['line-progress'],
+                0, '#e6e600',   // Start (Ground/Yellow)
+                0.5, '#ff3300', // Mid (Climb/Orange)
+                1, '#9400D3'    // Current (Cruise/Purple)
+            ]
         }
-    },
-    lineMetrics: true // REQUIRED for gradients
-});
-            sectorOpsMap.addLayer({
-    id: flownLayerId,
-    type: 'line',
-    source: flownLayerId,
-    paint: {
-        'line-width': 4,
-        'line-gradient': [
-            'interpolate',
-            ['linear'],
-            ['line-progress'],
-            0, '#e6e600',   // Start of flight (Ground)
-            0.5, '#ff3300', // Mid-point
-            1, '#9400D3'    // End of flight (Current position)
-        ]
-    }
-}, 'sector-ops-live-flights-layer');
+    }, 'sector-ops-live-flights-layer');
             if (typeof sectorOpsLiveFlightPathLayers !== 'undefined') {
     // FIX: Use assignment that preserves other keys in the object
     if (!sectorOpsLiveFlightPathLayers[flightProps.flightId]) {
