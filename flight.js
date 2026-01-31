@@ -9191,17 +9191,17 @@ function generateSmoothPath(points, tension = 0.5) {
         // --- THE FIX: Increase Resolution ---
         // Calculate distance in degrees for scaling
         const d = Math.sqrt(Math.pow(p2.unwrappedLon - p1.unwrappedLon, 2) + Math.pow(p2.lat - p1.lat, 2));
-        
-        // Boost steps significantly (Changed multiplier from 5 to 25 and min from 1 to 12)
-        const steps = Math.max(12, Math.floor(d * 25)); 
 
-        for (let t = 0; t < 1; t += 1 / steps) {
-            result.push({
-                unwrappedLon: interpolate(p0.unwrappedLon, p1.unwrappedLon, p2.unwrappedLon, p3.unwrappedLon, t),
-                lat: interpolate(p0.lat, p1.lat, p2.lat, p3.lat, t),
-                alt: p1.alt + (p2.alt - p1.alt) * t // Linear altitude interpolation is fine
-            });
-        }
+// Boost steps further (e.g., multiplier from 25 to 50, min from 12 to 24)
+const steps = Math.max(24, Math.floor(d * 50)); 
+
+for (let t = 0; t < 1; t += 1 / steps) {
+    result.push({
+        unwrappedLon: interpolate(p0.unwrappedLon, p1.unwrappedLon, p2.unwrappedLon, p3.unwrappedLon, t),
+        lat: interpolate(p0.lat, p1.lat, p2.lat, p3.lat, t),
+        alt: p1.alt + (p2.alt - p1.alt) * t 
+    });
+}
     }
     result.push(points[points.length - 1]);
     return result;
