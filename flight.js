@@ -4864,35 +4864,44 @@ function getLiteFlightPhase(position) {
     return 'Enroute'; // Default for level flight, etc.
 }
 
-// Inside flight.js - Optimize fetchAirportsData
+/**
+ * --- [NEW FIX] Fetches the airport database from airports.json
+ * This function was missing, causing a 'ReferenceError'.
+ */
 async function fetchAirportsData() {
     try {
-        const response = await fetch('airports.json');
+        const response = await fetch('airports.json'); // Assumes airports.json is in the same directory
+        if (!response.ok) {
+            throw new Error('Could not load airports.json database.');
+        }
+        
         const rawAirports = await response.json();
 
-        // Index for logic/lookup
-        airportsData = Array.isArray(rawAirports) ? 
-            rawAirports.reduce((acc, a) => ({...acc, [(a.icao || a.ident).toUpperCase()]: a}), {}) : 
-            rawAirports;
-
-        // Convert to GeoJSON for the Map Layer
-        const airportGeoJSON = {
-            type: 'FeatureCollection',
-            features: Object.values(airportsData).map(a => ({
-                type: 'Feature',
-                geometry: { type: 'Point', coordinates: [a.lon, a.lat] },
-                properties: { icao: a.icao || a.ident, name: a.name }
-            }))
-        };
-
-        // Add to map as a single source
-        if (sectorOpsMap.getSource('airports-source')) {
-            sectorOpsMap.getSource('airports-source').setData(airportGeoJSON);
+        // Check if the file is an array (which needs to be indexed)
+        // or an object (which is already indexed)
+        if (Array.isArray(rawAirports)) {
+            // It's an array, so we must index it by ICAO
+            airportsData = rawAirports.reduce((acc, airport) => {
+                // Use 'icao' or 'ident' as the key, ensure it's uppercase
+                const ikey = airport.icao || airport.ident; 
+                if (ikey) {
+                    acc[ikey.toUpperCase()] = airport;
+                }
+                return acc;
+            }, {});
         } else {
-            addAirportLayer(airportGeoJSON);
+            // It's already an object, just use it
+            airportsData = rawAirports;
         }
+
+        console.log(`Successfully loaded data for ${Object.keys(airportsData).length} airports.`);
+
     } catch (error) {
         console.error('Failed to fetch airport data:', error);
+        // Use the showNotification function if it's available
+        if (typeof showNotification === 'function') {
+            showNotification('Airport database could not be loaded. Map may be incomplete.', 'error');
+        }
     }
 }
     /// --- Helper Functions ---
@@ -12237,43 +12246,134 @@ function stopSectorOpsLiveLoop() {
     }
 }
 
-/**
- * REPLACEMENT: High-performance Airport Rendering Logic
- * Uses Mapbox Sources/Layers instead of individual DOM markers.
- */
 function renderAirportMarkers() {
     if (!sectorOpsMap || !sectorOpsMap.isStyleLoaded()) return;
 
-    // 1. Prepare the GeoJSON collection from your airportsData
-    const features = Object.values(airportsData).map(airport => {
-        const icao = (airport.icao || airport.ident || "").toUpperCase();
-        const isStaffed = activeAtcFacilities.some(f => f.airportName === icao);
-        
-        // Skip rendering if "Show Unstaffed" is off and the airport isn't staffed
-        if (!mapFilters.showUnstaffedAirports && !isStaffed) return null;
-        
-        // Skip if "Hide Staffed" is on and it is staffed
-        if (mapFilters.hideAtcMarkers && isStaffed) return null;
+    const showUnstaffed = mapFilters.showUnstaffedAirports;
+    const hideNoAtc = mapFilters.hideNoAtcMarkers;
+    const hideAtc = mapFilters.hideAtcMarkers;
 
-        return {
-            type: 'Feature',
-            geometry: { type: 'Point', coordinates: [airport.lon, airport.lat] },
-            properties: {
-                icao: icao,
-                name: airport.name,
-                isStaffed: isStaffed
-            }
-        };
-    }).filter(Boolean);
+    // Helper: Identify "Major" airports (Class A/B/C) without explicit class data
+    const isMajorAirport = (icao, airport) => {
+        if (!icao || icao.length !== 4) return false;
+        if (/\d/.test(icao)) return false; // Exclude IDs with numbers
+        const name = (airport.name || "").toLowerCase();
+        const junk = ['water', 'seaplane', 'heliport', 'helipad', 'strip', 'field', 'glider'];
+        if (junk.some(k => name.includes(k))) return false;
+        return true;
+    };
 
-    const geojsonData = { type: 'FeatureCollection', features };
-
-    // 2. Update the map source or create it if it doesn't exist
-    if (sectorOpsMap.getSource('airports-source')) {
-        sectorOpsMap.getSource('airports-source').setData(geojsonData);
-    } else {
-        addAirportLayers(geojsonData);
+    // 1. Identify Staffed Airports (ATC + Routes)
+    const atcAirportIcaos = new Set(activeAtcFacilities.map(f => f.airportName).filter(Boolean));
+    const allRouteAirports = new Set();
+    if (typeof ALL_AVAILABLE_ROUTES !== 'undefined') {
+        ALL_AVAILABLE_ROUTES.forEach(route => {
+            allRouteAirports.add(route.departure);
+            allRouteAirports.add(route.arrival);
+        });
     }
+    const staffedIcaos = new Set([...allRouteAirports, ...atcAirportIcaos]);
+
+    // 2. Manage DOM Markers (Staffed Only)
+    Object.keys(airportAndAtcMarkers).forEach(icao => {
+        const hasAtc = atcAirportIcaos.has(icao);
+        const shouldBeDom = staffedIcaos.has(icao);
+        const isFiltered = (hideNoAtc && !hasAtc) || (hideAtc && hasAtc);
+        if (!shouldBeDom || isFiltered) {
+            airportAndAtcMarkers[icao].marker.remove();
+            delete airportAndAtcMarkers[icao];
+        }
+    });
+
+    staffedIcaos.forEach(icao => {
+        const airport = airportsData[icao];
+        if (!airport || airport.lat == null || airport.lon == null) return;
+
+        const hasAtc = atcAirportIcaos.has(icao);
+        if ((hideNoAtc && !hasAtc) || (hideAtc && hasAtc)) return;
+
+        // Filter unstaffed/minor airports
+        if (!hasAtc && !isMajorAirport(icao, airport)) return;
+
+        if (airportAndAtcMarkers[icao]) {
+            if (airportAndAtcMarkers[icao].hasAtc === hasAtc) return;
+            airportAndAtcMarkers[icao].marker.remove();
+        }
+
+        const el = document.createElement('div');
+        
+        // --- ADDED: Hover Suppression Logic ---
+        el.addEventListener('mouseenter', () => {
+            window.isMouseOverAirportTag = true;
+            // Forcefully remove any aircraft hover card if it appears
+            const activePopups = document.querySelectorAll('.mapboxgl-popup');
+            activePopups.forEach(popup => popup.remove());
+        });
+
+        el.addEventListener('mouseleave', () => {
+            window.isMouseOverAirportTag = false;
+        });
+
+        if (hasAtc) {
+            el.className += ' apt-live-tag';
+            const airportAtc = activeAtcFacilities.filter(f => f.airportName === icao);
+            const earliestStart = airportAtc.reduce((min, f) => {
+                const start = new Date(f.startTime).getTime();
+                return start < min ? start : min;
+            }, Date.now());
+            const diffMins = Math.floor((Date.now() - earliestStart) / 60000);
+            const durationText = diffMins > 60 ? `${Math.floor(diffMins/60)}h ${diffMins%60}m` : `${diffMins}m online`;
+
+            const hasGnd = airportAtc.some(f => f.type === 0);
+            const hasTwr = airportAtc.some(f => f.type === 1);
+            const hasApp = airportAtc.some(f => f.type === 4 || f.type === 5);
+            const hasAtis = airportAtc.some(f => f.type === 7);
+
+            if (hasApp) {
+                const aura = document.createElement('div');
+                aura.className = 'tag-pulse-aura';
+                el.appendChild(aura);
+            }
+
+            const extra = document.createElement('div');
+            extra.className = 'apt-tag-extra';
+            extra.innerHTML = `<div class="apt-tag-extra-item">Oldest Session</div><div class="apt-tag-extra-val">${durationText}</div>`;
+            el.appendChild(extra);
+
+            const base = document.createElement('div');
+            base.className = 'apt-tag-base';
+            base.innerHTML = `<div class="apt-tag-ident">${icao}</div>`;
+
+            const freqs = document.createElement('div');
+            freqs.className = 'apt-tag-freqs';
+            if (hasAtis) freqs.innerHTML += `<div class="freq-mini-badge f-atis">A</div>`;
+            if (hasGnd) freqs.innerHTML += `<div class="freq-mini-badge f-gnd">G</div>`;
+            if (hasTwr) freqs.innerHTML += `<div class="freq-mini-badge f-twr">T</div>`;
+            if (hasApp) freqs.innerHTML += `<div class="freq-mini-badge f-app">R</div>`;
+            
+            base.appendChild(freqs);
+            el.appendChild(base);
+        } else {
+            el.className += ' destination-marker';
+            el.textContent = icao;
+        }
+
+        const marker = new mapboxgl.Marker({ element: el })
+            .setLngLat([airport.lon, airport.lat])
+            .addTo(sectorOpsMap);
+
+        // --- ADDED: Click Priority Logic ---
+        el.addEventListener('click', (e) => {
+            // Stop the click from reaching the Mapbox canvas layers (aircraft icons)
+            e.stopPropagation(); 
+            handleAirportClick(icao);
+        });
+
+        airportAndAtcMarkers[icao] = { marker, hasAtc };
+    });
+
+    // 3. Update the high-performance background layer
+    updateUnstaffedLayer(showUnstaffed, staffedIcaos);
 }
 
 function updateUnstaffedLayer(show, excludeIcaos) {
