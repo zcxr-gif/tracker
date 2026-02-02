@@ -4607,33 +4607,29 @@ function updateMapFilters() {
         });
     }
 
-    // 3. Apply Aircraft Icon Visuals (Color & Size)
-    // 3. Apply Aircraft Icon Visuals (Color & Size)
+// 3. Apply Aircraft Icon Visuals (Color & Size)
 if (sectorOpsMap.getLayer('sector-ops-live-flights-layer')) {
     
-    // Determine the correct image expression
+    // Switch between SVG and PNG logic based on the setting
     let iconImageExpression;
-    
     if (mapFilters.useSvgIcons) {
-        // Use the high-performance SVG matching (matches aircraftName to assets.js keys)
         iconImageExpression = [
             'match', ['get', 'aircraftName'],
             ...Object.keys(aircraftPaths).flatMap(name => [name, name]),
-            'icon-default' // Fallback if no SVG match found
+            'icon-default'
         ];
     } else {
-        // Use the existing category-based PNG logic
         iconImageExpression = getIconImageExpression(mapFilters.iconColorMode);
     }
 
-    // Update the layer
+    // Apply the chosen expression
     sectorOpsMap.setLayoutProperty(
         'sector-ops-live-flights-layer', 
         'icon-image', 
         iconImageExpression
     );
 
-    // Update size
+    // Update Size
     const iconSize = parseFloat(mapFilters.planeIconSize) || 0.05;
     sectorOpsMap.setLayoutProperty(
         'sector-ops-live-flights-layer', 
@@ -11353,12 +11349,16 @@ async function registerAircraftAssets(map) {
 }
 
 function addHighPerformanceAircraftLayer(map) {
-    // Generate the matching expression dynamically from your assets file
+    // Check if layer exists to prevent "already exists" error
+    if (map.getLayer('sector-ops-live-flights-layer')) {
+        console.log("Aircraft layer already exists, skipping addition.");
+        return;
+    }
+
     const aircraftMatchExpression = [
-        'match',
-        ['get', 'aircraftName'], // Property assigned in handleSocketFlightUpdate
+        'match', ['get', 'aircraftName'],
         ...Object.keys(aircraftPaths).flatMap(name => [name, name]),
-        'icon-default' // Fallback image ID
+        'icon-default'
     ];
 
     map.addLayer({
@@ -11371,20 +11371,15 @@ function addHighPerformanceAircraftLayer(map) {
             'icon-rotation-alignment': 'map',
             'icon-allow-overlap': true,
             'icon-ignore-placement': true,
-            'icon-size': mapFilters.planeIconSize || 0.05,
-            'symbol-placement': 'point'
+            'icon-size': mapFilters.planeIconSize || 0.05
         },
         paint: {
-            // Dynamic coloring enabled by SDF
             'icon-color': [
-                'match',
-                ['get', 'iconColorMode'], 
+                'match', ['get', 'iconColorMode'],
                 'blue', '#38bdf8',
                 'orange', '#f59e0b',
-                '#ffffff' // Default
-            ],
-            'icon-halo-color': 'rgba(0,0,0,0.4)',
-            'icon-halo-width': 1
+                '#ffffff'
+            ]
         }
     });
 }
