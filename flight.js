@@ -5398,11 +5398,12 @@ function handleSocketFlightUpdate(data) {
 
         updatedFlightIds.add(flightId);
 
+        const aircraftData = flight.aircraft || {};
         const litePhase = getLiteFlightPhase(flight.position);
         const acName = aircraftData?.aircraftName || '';
         const livName = aircraftData?.liveryName || '';
-        const matchedSvgKey = matchAircraftToSvg(acName);
         const lookupKey = `${acName}/${livName}`;
+        const matchedSvgKey = matchAircraftToSvg(acName);
         
         let existingFeature = currentMapFeatures[flightId] || {};
         let existingProps = existingFeature.properties || {};
