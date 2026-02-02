@@ -5399,10 +5399,10 @@ function handleSocketFlightUpdate(data) {
         updatedFlightIds.add(flightId);
 
         const litePhase = getLiteFlightPhase(flight.position);
-        const aircraftData = flight.aircraft || null;
         const matchedSvgKey = matchAircraftToSvg(acName);
         const acName = aircraftData?.aircraftName || '';
         const livName = aircraftData?.liveryName || '';
+        const aircraftData = flight.aircraft || null;
         const lookupKey = `${acName}/${livName}`;
         
         let existingFeature = currentMapFeatures[flightId] || {};
