@@ -4609,18 +4609,45 @@ function updateMapFilters() {
 
     // 3. Apply Aircraft Icon Visuals (Color & Size)
     if (sectorOpsMap.getLayer('sector-ops-live-flights-layer')) {
-        // Update Color
+        
+        // [FIX]: Check if we should be using SVG IDs or Sprite IDs
+        const iconPrefix = mapFilters.useSvgIcons ? 'svg-' : 'png-';
+        
+        // Update the icon image expression to respect the SVG toggle
         sectorOpsMap.setLayoutProperty(
             'sector-ops-live-flights-layer', 
             'icon-image', 
-            getIconImageExpression(mapFilters.iconColorMode)
+            ['concat', iconPrefix, ['get', 'matchedSvgKey']] // Assumes your data features have 'matchedSvgKey'
         );
-        const iconSize = parseFloat(mapFilters.planeIconSize) || 0.05;
+
+        // Update Icon Color (Only works if icons are SDF-enabled or if you have colored versions)
         sectorOpsMap.setLayoutProperty(
             'sector-ops-live-flights-layer', 
-            'icon-size',
-            iconSize
+            'icon-image', 
+            getIconImageExpression(mapFilters.iconColorMode, mapFilters.useSvgIcons)
         );
+
+        const iconSize = parseFloat(mapFilters.planeIconSize) || 0.05;
+        sectorOpsMap.setLayoutProperty('sector-ops-live-flights-layer', 'icon-size', iconSize);
+    }
+
+    if (mapFilters.useSvgIcons) {
+        ensureSvgIconsLoaded(sectorOpsMap);
+    }
+
+    const iconImageExpression = mapFilters.useSvgIcons 
+            ? ['concat', 'svg-', ['get', 'matchedSvgKey']] // Use high-fidelity SVG paths
+            : getIconImageExpression(mapFilters.iconColorMode); // Use standard PNG categories
+
+        sectorOpsMap.setLayoutProperty(
+            'sector-ops-live-flights-layer', 
+            'icon-image', 
+            iconImageExpression
+        );
+
+        // Update Size (SVGs look better slightly larger than generic dots)
+        const iconSize = mapFilters.useSvgIcons ? 0.25 : (parseFloat(mapFilters.planeIconSize) || 0.05);
+        sectorOpsMap.setLayoutProperty('sector-ops-live-flights-layer', 'icon-size', iconSize);
     }
 
     // 4. Existing Logic
@@ -4631,6 +4658,30 @@ function updateMapFilters() {
     updateAircraftLabelVisibility();
     renderAirportMarkers();
     updateToolbarButtonStates();
+}
+
+/**
+ * Converts SVG paths from assets.js into Mapbox images.
+ */
+function ensureSvgIconsLoaded(map) {
+    const { aircraftPaths } = require('./assets.js'); // Ensure this matches your import style
+    
+    Object.entries(aircraftPaths).forEach(([key, path]) => {
+        const id = `svg-${key}`;
+        if (!map.hasImage(id)) {
+            // Create a small SVG canvas element
+            const svgString = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64"><path d="${path}" fill="white"/></svg>`;
+            const img = new Image(64, 64);
+            const svg = new Blob([svgString], {type: 'image/svg+xml;charset=utf-8'});
+            const url = URL.createObjectURL(svg);
+
+            img.onload = () => {
+                if (!map.hasImage(id)) map.addImage(id, img, { sdf: true });
+                URL.revokeObjectURL(url);
+            };
+            img.src = url;
+        }
+    });
 }
 
 function updateAircraftLayerFilter() {
@@ -5416,6 +5467,7 @@ function handleSocketFlightUpdate(data) {
             altitude: flight.position.alt_ft,
             speed: flight.position.gs_kt || 0,
             verticalSpeed: flight.position.vs_fpm || 0,
+            matchedSvgKey: matchedSvgKey,
             position: JSON.stringify(flight.position),
             aircraft: JSON.stringify(aircraftData),
             aircraftName: acName, // ADD THIS: For direct filtering
@@ -5733,6 +5785,37 @@ function densifyRoute(coordinates, maxSegmentLengthKm = 100) {
     }
 
     return densified;
+}
+
+/**
+ * Converts SVG paths into high-performance Mapbox SDF images.
+ */
+function ensureSvgIconsLoaded(map) {
+    if (!map) return;
+
+    Object.entries(aircraftPaths).forEach(([key, path]) => {
+        const id = `svg-${key}`;
+        if (map.hasImage(id)) return; // Don't reload if already exists
+
+        // Create a canvas to draw the path once
+        const size = 128; // High resolution for sharp icons
+        const canvas = document.createElement('canvas');
+        canvas.width = size;
+        canvas.height = size;
+        const ctx = canvas.getContext('2d');
+
+        // Draw the SVG path to the canvas
+        const p = new Path2D(path);
+        ctx.fillStyle = 'black'; // Color doesn't matter for SDF masks
+        ctx.translate(size/2, size/2); // Center path
+        ctx.scale(1.8, 1.8); // Adjust scale to fit 128x128
+        ctx.translate(-32, -32); // Center relative to path origin
+        ctx.fill(p);
+
+        // Add to Mapbox as an SDF (allows dynamic coloring)
+        map.addImage(id, ctx.getImageData(0, 0, size, size), { sdf: true });
+    });
+    console.log("High-performance SVG icons registered.");
 }
 
 
