@@ -90,6 +90,7 @@ window.currentAirportTraffic = { in: [], out: [] }; // Stores IDs for the curren
     // --- NEW: To cache flight data when switching to stats view ---
     let cachedFlightDataForStatsView = { flightProps: null, plan: null };
     let mapFilters = {
+        useSvgIcons: false,
         show3DPath: false,
         showNatTracks: true,  // New: Toggle for the tracks themselves
         showNatLabels: false,
@@ -5399,6 +5400,7 @@ function handleSocketFlightUpdate(data) {
 
         const litePhase = getLiteFlightPhase(flight.position);
         const aircraftData = flight.aircraft || null;
+        const matchedSvgKey = matchAircraftToSvg(acName);
         const acName = aircraftData?.aircraftName || '';
         const livName = aircraftData?.liveryName || '';
         const lookupKey = `${acName}/${livName}`;
@@ -7295,6 +7297,79 @@ function setupAircraftWindowEvents() {
 }
 
 /**
+ * Fuzzy matches a backend aircraft name to our local SVG path keys.
+ * @param {string} rawName - The name from the backend (e.g., "Boeing 737-800")
+ * @returns {string} The matching key from aircraftPaths
+ */
+function matchAircraftToSvg(rawName) {
+    if (!rawName) return 'default';
+    
+    const name = rawName.toUpperCase().replace(/\s+/g, '');
+    const keys = Object.keys(aircraftPaths);
+    
+    // 1. Exact match (ignoring case/spaces)
+    const exactMatch = keys.find(k => k.toUpperCase().replace(/\s+/g, '') === name);
+    if (exactMatch) return exactMatch;
+
+    // 2. Contains match (e.g., "737-800" matches "Boeing 737-800")
+    const containsMatch = keys.find(k => {
+        const keyNorm = k.toUpperCase().replace(/\s+/g, '');
+        return name.includes(keyNorm) || keyNorm.includes(name);
+    });
+    if (containsMatch) return containsMatch;
+
+    // 3. Common Code Mapping (Expanding backend short-codes)
+    const shorthands = {
+        'B73': 'Boeing 737',
+        'A32': 'Airbus 320',
+        'B77': 'Boeing 777',
+        'B78': 'Boeing 787',
+        'A33': 'Airbus 330'
+    };
+    
+    for (const [code, full] of Object.entries(shorthands)) {
+        if (name.startsWith(code)) {
+            const fallback = keys.find(k => k.includes(full));
+            if (fallback) return fallback;
+        }
+    }
+
+    return 'default'; // Fallback to a standard plane icon
+}
+
+/**
+ * Registers SVG paths as Mapbox images for high-performance rendering.
+ */
+async function registerAircraftIcons(map) {
+    const keys = Object.keys(aircraftPaths);
+    
+    for (const key of keys) {
+        const pathData = aircraftPaths[key];
+        const svgString = `
+            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64">
+                <path d="${pathData}" fill="white" />
+            </svg>
+        `;
+        
+        const img = new Image();
+        const svgBlob = new Blob([svgString], {type: 'image/svg+xml;charset=utf-8'});
+        const url = URL.createObjectURL(svgBlob);
+
+        await new Promise((resolve) => {
+            img.onload = () => {
+                // 'sdf: true' is the key to 100% performance and dynamic coloring
+                if (!map.hasImage(key)) {
+                    map.addImage(key, img, { sdf: true });
+                }
+                URL.revokeObjectURL(url);
+                resolve();
+            };
+            img.src = url;
+        });
+    }
+}
+
+/**
  * --- [UPDATED] Builds the icon-image expression ---
  * Now includes logic for Inbound/Outbound traffic highlighting.
  */
@@ -7837,6 +7912,14 @@ function formatDataForSimpleWindow(flightProps, plan, routePoints, communityData
                     <div class="settings-section">
                         <label class="config-header">Map & Assets</label>
                         <div class="settings-row">
+                <div class="row-label"><i class="fa-solid fa-vector-square"></i> Vector Icons (SVG)</div>
+                <label class="toggle-switch">
+                    <input type="checkbox" id="set-use-svg" ${mapFilters.useSvgIcons ? 'checked' : ''}>
+                    <span class="toggle-slider"></span>
+                </label>
+            </div>
+
+                        <div class="settings-row">
                             <div class="row-label"><i class="fa-solid fa-tags"></i> Aircraft Labels</div>
                             <label class="toggle-switch"><input type="checkbox" id="set-labels" ${mapFilters.showAircraftLabels ? 'checked' : ''}><span class="toggle-slider"></span></label>
                         </div>
@@ -7968,6 +8051,7 @@ function formatDataForSimpleWindow(flightProps, plan, routePoints, communityData
         // Mapping settings IDs to mapFilters keys
         const ids = {
             'set-nat-tracks': 'showNatTracks',
+            'set-use-svg': 'useSvgIcons',
             'set-nat-labels': 'showNatLabels',
             'setting-toggle-3dpath': 'show3DPath',
             'set-hide-atc': 'hideAtcMarkers',
@@ -9191,17 +9275,17 @@ function generateSmoothPath(points, tension = 0.5) {
         // --- THE FIX: Increase Resolution ---
         // Calculate distance in degrees for scaling
         const d = Math.sqrt(Math.pow(p2.unwrappedLon - p1.unwrappedLon, 2) + Math.pow(p2.lat - p1.lat, 2));
+        
+        // Boost steps significantly (Changed multiplier from 5 to 25 and min from 1 to 12)
+        const steps = Math.max(12, Math.floor(d * 25)); 
 
-// Boost steps further (e.g., multiplier from 25 to 50, min from 12 to 24)
-const steps = Math.max(24, Math.floor(d * 50)); 
-
-for (let t = 0; t < 1; t += 1 / steps) {
-    result.push({
-        unwrappedLon: interpolate(p0.unwrappedLon, p1.unwrappedLon, p2.unwrappedLon, p3.unwrappedLon, t),
-        lat: interpolate(p0.lat, p1.lat, p2.lat, p3.lat, t),
-        alt: p1.alt + (p2.alt - p1.alt) * t 
-    });
-}
+        for (let t = 0; t < 1; t += 1 / steps) {
+            result.push({
+                unwrappedLon: interpolate(p0.unwrappedLon, p1.unwrappedLon, p2.unwrappedLon, p3.unwrappedLon, t),
+                lat: interpolate(p0.lat, p1.lat, p2.lat, p3.lat, t),
+                alt: p1.alt + (p2.alt - p1.alt) * t // Linear altitude interpolation is fine
+            });
+        }
     }
     result.push(points[points.length - 1]);
     return result;
