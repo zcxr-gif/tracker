@@ -4608,20 +4608,39 @@ function updateMapFilters() {
     }
 
     // 3. Apply Aircraft Icon Visuals (Color & Size)
-    if (sectorOpsMap.getLayer('sector-ops-live-flights-layer')) {
-        // Update Color
-        sectorOpsMap.setLayoutProperty(
-            'sector-ops-live-flights-layer', 
-            'icon-image', 
-            getIconImageExpression(mapFilters.iconColorMode)
-        );
-        const iconSize = parseFloat(mapFilters.planeIconSize) || 0.05;
-        sectorOpsMap.setLayoutProperty(
-            'sector-ops-live-flights-layer', 
-            'icon-size',
-            iconSize
-        );
+    // 3. Apply Aircraft Icon Visuals (Color & Size)
+if (sectorOpsMap.getLayer('sector-ops-live-flights-layer')) {
+    
+    // Determine the correct image expression
+    let iconImageExpression;
+    
+    if (mapFilters.useSvgIcons) {
+        // Use the high-performance SVG matching (matches aircraftName to assets.js keys)
+        iconImageExpression = [
+            'match', ['get', 'aircraftName'],
+            ...Object.keys(aircraftPaths).flatMap(name => [name, name]),
+            'icon-default' // Fallback if no SVG match found
+        ];
+    } else {
+        // Use the existing category-based PNG logic
+        iconImageExpression = getIconImageExpression(mapFilters.iconColorMode);
     }
+
+    // Update the layer
+    sectorOpsMap.setLayoutProperty(
+        'sector-ops-live-flights-layer', 
+        'icon-image', 
+        iconImageExpression
+    );
+
+    // Update size
+    const iconSize = parseFloat(mapFilters.planeIconSize) || 0.05;
+    sectorOpsMap.setLayoutProperty(
+        'sector-ops-live-flights-layer', 
+        'icon-size',
+        iconSize
+    );
+}
 
     // 4. Existing Logic
     GroupFlightManager.toggle(mapFilters.showGroupFlights);
