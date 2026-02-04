@@ -1,4 +1,3 @@
-import { aircraftPaths, aircraftScales } from './assets.js';
 import { MapAnimator } from './mapAnimator.js';
 import { AirportLayoutManager } from './airportLayout.js';
 import { LandingUI } from './landingUI.js';
@@ -91,7 +90,6 @@ window.currentAirportTraffic = { in: [], out: [] }; // Stores IDs for the curren
     // --- NEW: To cache flight data when switching to stats view ---
     let cachedFlightDataForStatsView = { flightProps: null, plan: null };
     let mapFilters = {
-        useSvgIcons: false,
         show3DPath: false,
         showNatTracks: true,  // New: Toggle for the tracks themselves
         showNatLabels: false,
@@ -4607,52 +4605,21 @@ function updateMapFilters() {
         });
     }
 
-// 3. Apply Aircraft Icon Visuals (Color & Size)
-if (sectorOpsMap.getLayer('sector-ops-live-flights-layer')) {
-    
-    // Switch between SVG and PNG logic based on the setting
-    let iconImageExpression;
-    if (mapFilters.useSvgIcons) {
-        iconImageExpression = [
-            'match', ['get', 'aircraftName'],
-            ...Object.keys(aircraftPaths).flatMap(name => [name, name]),
-            'icon-default'
-        ];
-    } else {
-        iconImageExpression = getIconImageExpression(mapFilters.iconColorMode);
+    // 3. Apply Aircraft Icon Visuals (Color & Size)
+    if (sectorOpsMap.getLayer('sector-ops-live-flights-layer')) {
+        // Update Color
+        sectorOpsMap.setLayoutProperty(
+            'sector-ops-live-flights-layer', 
+            'icon-image', 
+            getIconImageExpression(mapFilters.iconColorMode)
+        );
+        const iconSize = parseFloat(mapFilters.planeIconSize) || 0.05;
+        sectorOpsMap.setLayoutProperty(
+            'sector-ops-live-flights-layer', 
+            'icon-size',
+            iconSize
+        );
     }
-
-    // Apply the chosen expression
-    sectorOpsMap.setLayoutProperty(
-        'sector-ops-live-flights-layer', 
-        'icon-image', 
-        iconImageExpression
-    );
-
-    // Update Size
-    const iconSize = parseFloat(mapFilters.planeIconSize) || 0.05;
-    sectorOpsMap.setLayoutProperty(
-        'sector-ops-live-flights-layer', 
-        'icon-size',
-        iconSize
-    );
-
-    const baseSize = parseFloat(mapFilters.planeIconSize) || 0.05;
-
-    // Re-calculate the dynamic expression based on the new base size
-    const iconSizeExpression = [
-        'match',
-        ['get', 'aircraftName'],
-        ...Object.entries(aircraftScales).flatMap(([name, scale]) => [name, baseSize * scale]),
-        baseSize
-    ];
-
-    sectorOpsMap.setLayoutProperty(
-        'sector-ops-live-flights-layer',
-        'icon-size',
-        iconSizeExpression
-    );
-}
 
     // 4. Existing Logic
     GroupFlightManager.toggle(mapFilters.showGroupFlights);
@@ -5430,12 +5397,11 @@ function handleSocketFlightUpdate(data) {
 
         updatedFlightIds.add(flightId);
 
-        const aircraftData = flight.aircraft || {};
         const litePhase = getLiteFlightPhase(flight.position);
+        const aircraftData = flight.aircraft || null;
         const acName = aircraftData?.aircraftName || '';
         const livName = aircraftData?.liveryName || '';
         const lookupKey = `${acName}/${livName}`;
-        const matchedSvgKey = matchAircraftToSvg(acName);
         
         let existingFeature = currentMapFeatures[flightId] || {};
         let existingProps = existingFeature.properties || {};
@@ -7329,114 +7295,6 @@ function setupAircraftWindowEvents() {
 }
 
 /**
- * Fuzzy matches a backend aircraft name to our local SVG path keys.
- * @param {string} rawName - The name from the backend (e.g., "Boeing 737-800")
- * @returns {string} The matching key from aircraftPaths
- */
-function matchAircraftToSvg(rawName) {
-    if (!rawName) return 'default';
-    
-    const name = rawName.toUpperCase().replace(/\s+/g, '');
-    const keys = Object.keys(aircraftPaths);
-    
-    // 1. Exact match (ignoring case/spaces)
-    const exactMatch = keys.find(k => k.toUpperCase().replace(/\s+/g, '') === name);
-    if (exactMatch) return exactMatch;
-
-    // 2. Contains match (e.g., "737-800" matches "Boeing 737-800")
-    const containsMatch = keys.find(k => {
-        const keyNorm = k.toUpperCase().replace(/\s+/g, '');
-        return name.includes(keyNorm) || keyNorm.includes(name);
-    });
-    if (containsMatch) return containsMatch;
-
-    // 3. Common Code Mapping (Expanding backend short-codes)
-    const shorthands = {
-        'B73': 'Boeing 737',
-        'A32': 'Airbus 320',
-        'B77': 'Boeing 777',
-        'B78': 'Boeing 787',
-        'A33': 'Airbus 330'
-    };
-    
-    for (const [code, full] of Object.entries(shorthands)) {
-        if (name.startsWith(code)) {
-            const fallback = keys.find(k => k.includes(full));
-            if (fallback) return fallback;
-        }
-    }
-
-    return 'default'; // Fallback to a standard plane icon
-}
-
-/**
- * Iterates through aircraftPaths from assets.js and registers them as 
- * high-performance Mapbox images.
- */
-async function registerAircraftAssets(map) {
-    console.log("Starting aircraft icon registration...");
-    const entries = Object.entries(aircraftPaths);
-    
-    for (const [name, pathData] of entries) {
-        // Create a 64x64 SVG container for the path data
-        const svgString = `
-            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64">
-                <path d="${pathData}" fill="white" />
-            </svg>
-        `;
-
-        const img = new Image();
-        const blob = new Blob([svgString], { type: 'image/svg+xml;charset=utf-8' });
-        const url = URL.createObjectURL(blob);
-
-        await new Promise((resolve) => {
-            img.onload = () => {
-                if (!map.hasImage(name)) {
-                    // sdf: true allows Mapbox to dynamically change the color via CSS-like paint properties
-                    map.addImage(name, img, { sdf: true });
-                }
-                URL.revokeObjectURL(url);
-                resolve();
-            };
-            img.src = url;
-        });
-    }
-    console.log(`Successfully registered ${entries.length} aircraft icons.`);
-}
-
-/**
- * Registers SVG paths as Mapbox images for high-performance rendering.
- */
-async function registerAircraftIcons(map) {
-    const keys = Object.keys(aircraftPaths);
-    
-    for (const key of keys) {
-        const pathData = aircraftPaths[key];
-        const svgString = `
-            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64">
-                <path d="${pathData}" fill="white" />
-            </svg>
-        `;
-        
-        const img = new Image();
-        const svgBlob = new Blob([svgString], {type: 'image/svg+xml;charset=utf-8'});
-        const url = URL.createObjectURL(svgBlob);
-
-        await new Promise((resolve) => {
-            img.onload = () => {
-                // 'sdf: true' is the key to 100% performance and dynamic coloring
-                if (!map.hasImage(key)) {
-                    map.addImage(key, img, { sdf: true });
-                }
-                URL.revokeObjectURL(url);
-                resolve();
-            };
-            img.src = url;
-        });
-    }
-}
-
-/**
  * --- [UPDATED] Builds the icon-image expression ---
  * Now includes logic for Inbound/Outbound traffic highlighting.
  */
@@ -7979,14 +7837,6 @@ function formatDataForSimpleWindow(flightProps, plan, routePoints, communityData
                     <div class="settings-section">
                         <label class="config-header">Map & Assets</label>
                         <div class="settings-row">
-                <div class="row-label"><i class="fa-solid fa-vector-square"></i> Vector Icons (SVG)</div>
-                <label class="toggle-switch">
-                    <input type="checkbox" id="set-use-svg" ${mapFilters.useSvgIcons ? 'checked' : ''}>
-                    <span class="toggle-slider"></span>
-                </label>
-            </div>
-
-                        <div class="settings-row">
                             <div class="row-label"><i class="fa-solid fa-tags"></i> Aircraft Labels</div>
                             <label class="toggle-switch"><input type="checkbox" id="set-labels" ${mapFilters.showAircraftLabels ? 'checked' : ''}><span class="toggle-slider"></span></label>
                         </div>
@@ -8118,7 +7968,6 @@ function formatDataForSimpleWindow(flightProps, plan, routePoints, communityData
         // Mapping settings IDs to mapFilters keys
         const ids = {
             'set-nat-tracks': 'showNatTracks',
-            'set-use-svg': 'useSvgIcons',
             'set-nat-labels': 'showNatLabels',
             'setting-toggle-3dpath': 'show3DPath',
             'set-hide-atc': 'hideAtcMarkers',
@@ -8796,7 +8645,6 @@ function initializeSectorOpsMap(centerICAO) {
         await setupMapLayersAndFog();
         if (typeof rebuildDynamicLayers !== 'undefined') rebuildDynamicLayers();
     });
-    
 
     return new Promise(resolve => {
         sectorOpsMap.on('load', async () => {
@@ -8804,8 +8652,6 @@ function initializeSectorOpsMap(centerICAO) {
             await setupMapLayersAndFog();
             setTimeout(() => initializeMapBoundaries(sectorOpsMap), 2000);
             await initializeMapBoundaries(sectorOpsMap);
-            await registerAircraftAssets(sectorOpsMap);
-            addHighPerformanceAircraftLayer(sectorOpsMap);
             resolve();
         });
     });
@@ -9345,17 +9191,17 @@ function generateSmoothPath(points, tension = 0.5) {
         // --- THE FIX: Increase Resolution ---
         // Calculate distance in degrees for scaling
         const d = Math.sqrt(Math.pow(p2.unwrappedLon - p1.unwrappedLon, 2) + Math.pow(p2.lat - p1.lat, 2));
-        
-        // Boost steps significantly (Changed multiplier from 5 to 25 and min from 1 to 12)
-        const steps = Math.max(12, Math.floor(d * 25)); 
 
-        for (let t = 0; t < 1; t += 1 / steps) {
-            result.push({
-                unwrappedLon: interpolate(p0.unwrappedLon, p1.unwrappedLon, p2.unwrappedLon, p3.unwrappedLon, t),
-                lat: interpolate(p0.lat, p1.lat, p2.lat, p3.lat, t),
-                alt: p1.alt + (p2.alt - p1.alt) * t // Linear altitude interpolation is fine
-            });
-        }
+// Boost steps further (e.g., multiplier from 25 to 50, min from 12 to 24)
+const steps = Math.max(24, Math.floor(d * 50)); 
+
+for (let t = 0; t < 1; t += 1 / steps) {
+    result.push({
+        unwrappedLon: interpolate(p0.unwrappedLon, p1.unwrappedLon, p2.unwrappedLon, p3.unwrappedLon, t),
+        lat: interpolate(p0.lat, p1.lat, p2.lat, p3.lat, t),
+        alt: p1.alt + (p2.alt - p1.alt) * t 
+    });
+}
     }
     result.push(points[points.length - 1]);
     return result;
@@ -11329,79 +11175,6 @@ function updateAircraftInfoWindow(baseProps, plan, sortedRoutePoints) {
             rulesDisplay.textContent = "RULES UNKNOWN";
         }
     }
-}
-
-/**
- * Dynamically registers every aircraft from assets.js as a map image.
- */
-async function registerAircraftAssets(map) {
-    const entries = Object.entries(aircraftPaths);
-    
-    for (const [name, pathData] of entries) {
-        // Wrap path data in a standard SVG container
-        const svgString = `
-            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64">
-                <path d="${pathData}" fill="white" />
-            </svg>
-        `;
-
-        const img = new Image();
-        const blob = new Blob([svgString], { type: 'image/svg+xml;charset=utf-8' });
-        const url = URL.createObjectURL(blob);
-
-        await new Promise((resolve) => {
-            img.onload = () => {
-                if (!map.hasImage(name)) {
-                    // sdf: true allows us to use 'icon-color' in the layer paint
-                    map.addImage(name, img, { sdf: true });
-                }
-                URL.revokeObjectURL(url);
-                resolve();
-            };
-            img.src = url;
-        });
-    }
-    console.log(`Registered ${entries.length} aircraft icons from assets.js`);
-}
-
-function addHighPerformanceAircraftLayer(map) {
-    if (map.getLayer('sector-ops-live-flights-layer')) return;
-
-    const baseSize = mapFilters.planeIconSize || 0.05;
-
-    // Create dynamic scaling expression
-    const iconSizeExpression = [
-        'match',
-        ['get', 'aircraftName'],
-        ...Object.entries(aircraftScales).flatMap(([name, scale]) => [name, baseSize * scale]),
-        baseSize // Fallback for unknown aircraft
-    ];
-
-    map.addLayer({
-        id: 'sector-ops-live-flights-layer',
-        type: 'symbol',
-        source: 'sector-ops-live-flights-source',
-        layout: {
-            'icon-image': [
-                'match',
-                ['get', 'aircraftName'],
-                ...Object.keys(aircraftPaths).flatMap(name => [name, name]),
-                'icon-default'
-            ],
-            'icon-rotate': ['get', 'heading'],
-            'icon-rotation-alignment': 'map',
-            'icon-allow-overlap': true,
-            'icon-size': iconSizeExpression // [NEW DYNAMIC SCALING]
-        },
-        paint: {
-            'icon-color': [
-                'match', ['get', 'iconColorMode'],
-                'blue', '#38bdf8',
-                'orange', '#f59e0b',
-                '#ffffff'
-            ]
-        }
-    });
 }
 
 
