@@ -1,4 +1,4 @@
-import { aircraftPaths } from './assets.js';
+import { aircraftPaths, aircraftScales } from './assets.js';
 import { MapAnimator } from './mapAnimator.js';
 import { AirportLayoutManager } from './airportLayout.js';
 import { LandingUI } from './landingUI.js';
@@ -4635,6 +4635,22 @@ if (sectorOpsMap.getLayer('sector-ops-live-flights-layer')) {
         'sector-ops-live-flights-layer', 
         'icon-size',
         iconSize
+    );
+
+    const baseSize = parseFloat(mapFilters.planeIconSize) || 0.05;
+
+    // Re-calculate the dynamic expression based on the new base size
+    const iconSizeExpression = [
+        'match',
+        ['get', 'aircraftName'],
+        ...Object.entries(aircraftScales).flatMap(([name, scale]) => [name, baseSize * scale]),
+        baseSize
+    ];
+
+    sectorOpsMap.setLayoutProperty(
+        'sector-ops-live-flights-layer',
+        'icon-size',
+        iconSizeExpression
     );
 }
 
@@ -11349,16 +11365,16 @@ async function registerAircraftAssets(map) {
 }
 
 function addHighPerformanceAircraftLayer(map) {
-    // Check if layer exists to prevent "already exists" error
-    if (map.getLayer('sector-ops-live-flights-layer')) {
-        console.log("Aircraft layer already exists, skipping addition.");
-        return;
-    }
+    if (map.getLayer('sector-ops-live-flights-layer')) return;
 
-    const aircraftMatchExpression = [
-        'match', ['get', 'aircraftName'],
-        ...Object.keys(aircraftPaths).flatMap(name => [name, name]),
-        'icon-default'
+    const baseSize = mapFilters.planeIconSize || 0.05;
+
+    // Create dynamic scaling expression
+    const iconSizeExpression = [
+        'match',
+        ['get', 'aircraftName'],
+        ...Object.entries(aircraftScales).flatMap(([name, scale]) => [name, baseSize * scale]),
+        baseSize // Fallback for unknown aircraft
     ];
 
     map.addLayer({
@@ -11366,12 +11382,16 @@ function addHighPerformanceAircraftLayer(map) {
         type: 'symbol',
         source: 'sector-ops-live-flights-source',
         layout: {
-            'icon-image': aircraftMatchExpression,
+            'icon-image': [
+                'match',
+                ['get', 'aircraftName'],
+                ...Object.keys(aircraftPaths).flatMap(name => [name, name]),
+                'icon-default'
+            ],
             'icon-rotate': ['get', 'heading'],
             'icon-rotation-alignment': 'map',
             'icon-allow-overlap': true,
-            'icon-ignore-placement': true,
-            'icon-size': mapFilters.planeIconSize || 0.05
+            'icon-size': iconSizeExpression // [NEW DYNAMIC SCALING]
         },
         paint: {
             'icon-color': [
