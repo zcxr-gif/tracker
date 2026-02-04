@@ -7,15 +7,28 @@
     <script src="https://cdn.tailwindcss.com"></script>
     <style>
         .svg-container {
-            transition: transform 0.2s ease;
+            /* Default base size is 6rem (w-24) */
+            width: 6rem;
+            height: 6rem;
+            transition: width 0.1s ease, height 0.1s ease, transform 0.2s ease;
+            display: flex;
+            align-items: center;
+            justify-content: center;
         }
+
         .card:hover .svg-container {
-            transform: scale(1.1);
+            transform: scale(1.05);
         }
+
         svg {
             fill: currentColor;
             width: 100%;
             height: 100%;
+        }
+
+        /* Custom slider styling for the dark theme */
+        input[type=range] {
+            accent-color: #60a5fa; /* blue-400 */
         }
     </style>
 </head>
@@ -23,17 +36,16 @@
 
     <header class="max-w-6xl mx-auto mb-12 text-center">
         <h1 class="text-4xl font-bold mb-4 text-blue-400">Aircraft SVG Assets Preview</h1>
-        <p class="text-slate-400">Validating path integrity for all registered aircraft models.</p>
+        <p class="text-slate-400">Validating path integrity for all registered aircraft models. Use individual sliders to scale icons.</p>
     </header>
 
-    <main id="gallery" class="max-auto max-w-7xl grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-6">
+    <main id="gallery" class="max-auto max-w-7xl grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-6">
         <!-- Aircraft cards will be injected here -->
     </main>
 
     <script>
-        // The merged data from your assets.js and SVGS.txt
         const aircraftPaths = {
-'Boeing 737-400': "m 32,1.75 0.375,0.125 1,2 1.125,4.5 0.5,4 0,11.5 2.875,2 -0.25,-1.75 0,-1.5 0.125,-0.75 0.25,-0.375 2.625,0 0.2,0.375 0.175,0.75 0,1.5 -0.5,2.5 -0.375,0 0,0.75 12.5,6.625 0.875,0.875 0.25,0.625 0,1.375 -13.875,-4 -4.875,0 0,9 -0.25,4 -0.5,3.625 -0.5,2.875 7.75,5.5 0,1.75 -9.125,-2.25 -0.375,1.625 -0.375,-1.625 -9.125,2.25 0,-1.75 7.75,-5.5 -0.5,-2.875 -0.5,-3.625 -0.25,-4 0,-9 -4.875,0 -13.875,4 0,-1.375 0.25,-0.625 0.875,-0.875 12.5,-6.625 0,-0.75 -0.375,0 -0.5,-2.5 0,-1.5 0.125,-0.75 0.25,-0.375 2.625,0 0.25,0.375 0.125,0.75 0,1.5 -0.25,1.75 2.875,-2 0,-11.5 0.5,-4 1.125,-4.5 1,-2 z",
+                        'Boeing 737-400': "m 32,1.75 0.375,0.125 1,2 1.125,4.5 0.5,4 0,11.5 2.875,2 -0.25,-1.75 0,-1.5 0.125,-0.75 0.25,-0.375 2.625,0 0.2,0.375 0.175,0.75 0,1.5 -0.5,2.5 -0.375,0 0,0.75 12.5,6.625 0.875,0.875 0.25,0.625 0,1.375 -13.875,-4 -4.875,0 0,9 -0.25,4 -0.5,3.625 -0.5,2.875 7.75,5.5 0,1.75 -9.125,-2.25 -0.375,1.625 -0.375,-1.625 -9.125,2.25 0,-1.75 7.75,-5.5 -0.5,-2.875 -0.5,-3.625 -0.25,-4 0,-9 -4.875,0 -13.875,4 0,-1.375 0.25,-0.625 0.875,-0.875 12.5,-6.625 0,-0.75 -0.375,0 -0.5,-2.5 0,-1.5 0.125,-0.75 0.25,-0.375 2.625,0 0.25,0.375 0.125,0.75 0,1.5 -0.25,1.75 2.875,-2 0,-11.5 0.5,-4 1.125,-4.5 1,-2 z",
             'Boeing 777-200ER': "m 31.875,0.5 0.25,0 0.375,0.25 0.75,1.125 0.875,2.625 0.625,3 0,13.5 4.25,3 -0.25,-0.875 0,-1.75 0.25,-1.75 2.625,0 0.25,1.75 0,1.75 -0.25,1 -0.875,1.125 17.25,11.875 0.25,1.375 -16.75,-6.125 -6.75,-0.5 0,13 -0.5,3.25 -0.5,1.75 7.875,6.625 -0.125,1.75 -8.625,-3 -0.875,2.625 -0.875,-2.625 -8.625,3 -0.125,-1.75 7.875,-6.625 -0.5,-1.75 -0.5,-3.25 0,-13 -6.75,0.5 -16.75,6.125 0.25,-1.375 17.25,-11.875 -0.875,-1.125 -0.25,-1 0,-1.75 0.25,-1.75 2.625,0 0.25,1.75 0,1.75 -0.25,0.875 4.25,-3 0,-13.5 0.625,-3 0.875,-2.625 0.75,-1.125 z",
             'Boeing 777-300ER': "m 31.875,0.5 0.25,0 0.375,0.25 0.75,1.125 0.875,2.625 0.625,3 0,16 4.25,3 -0.25,-0.875 0,-1.75 0.25,-1.75 2.625,0 0.25,1.75 0,1.75 -0.25,1 -0.875,1.125 17.25,11.875 0.25,1.375 -16.75,-6.125 -6.75,-0.5 0,15 -0.5,3.25 -0.5,1.75 7.875,6.625 -0.125,1.75 -8.625,-3 -0.875,2.625 -0.875,-2.625 -8.625,3 -0.125,-1.75 7.875,-6.625 -0.5,-1.75 -0.5,-3.25 0,-15 -6.75,0.5 -16.75,6.125 0.25,-1.375 17.25,-11.875 -0.875,-1.125 -0.25,-1 0,-1.75 0.25,-1.75 2.625,0 0.25,1.75 0,1.75 -0.25,0.875 4.25,-3 0,-16 0.625,-3 0.875,-2.625 0.75,-1.125 z",
             'Boeing 787-9': "m 31.5,0.825 0.5,0 0.375,0.3 0.625,0.875 0.75,2 0.5,2.5 0.5,3 0,12.125 0.375,1 1.125,1 3.75,2.5 -0.25,-1.625 0,-1.5 0.125,-1.375 0.25,-0.25 2.875,0 0.25,0.25 0.125,0.75 0,2.625 -0.25,1.875 -0.375,0 -0.25,0.625 18.25,13 1.625,1.875 0.75,1.5 L 63,44.25 60.5,42.375 57.75,40.75 43.375,34.75 41.125,34.25 34.75,34 l 0,12 -0.25,3 -0.5,3.625 -0.375,1.625 7.625,6.5 0.375,1 0,1 L 32.5,59.5 32.3,60.75 31.75,62 31.3,60.75 31,59.5 l -9.125,3.25 0,-1 0.375,-1 7.625,-6.5 L 29.5,52.625 29,49 28.75,46 28.75,34 22.375,34.25 20.175,34.75 5.75,40.75 3,42.375 0.5,44.25 0.425,43.875 1.175,42.375 2.75,40.375 21,27.5 20.75,26.875 l -0.375,0 -0.25,-1.875 0,-2.625 0.125,-0.75 0.25,-0.25 2.875,0 0.25,0.25 0.125,1.375 0,1.5 -0.25,1.625 3.75,-2.5 1.125,-1 0.375,-1 0,-12.125 0.5,-3 0.5,-2.5 0.75,-2 0.625,-0.875 z",
@@ -73,27 +85,70 @@
             'Boeing 737-400': "m 32,2.3 0.3,0.1 0.8,1.2 0.9,3.1 0.6,3.1 0.5,5.2 0,8.6 3.6,2.7 -0.2,-1.5 0,-1.5 0.1,-1.2 0.2,-0.4 2.8,0 0.2,0.4 0.1,1.2 0,1.5 -0.4,2.2 -0.3,0 -0.1,0.9 14,7.7 0.4,0.4 0.2,0.7 0,1.5 -8.3,-2.4 -0.1,0.4 -0.2,0.2 -0.2,-0.2 -0.1,-0.5 -3.7,-1.1 -0.1,0.4 -0.2,0.2 -0.2,-0.2 -0.1,-0.5 -2,-0.6 0,1 -0.1,0.5 -0.1,0.1 -0.4,0 -0.1,-0.1 -0.1,-0.5 0,-1.3 -4.6,0 0,10.5 -0.1,2.8 -0.6,3.7 -0.6,3 0.1,0.4 8.5,5.9 0,1.8 -10,-2.5 -0.2,0.7 -0.1,0.8 -0.1,0.4 -0.1,-0.4 -0.1,-0.8 -0.2,-0.7 -10,2.5 0,-1.8 8.5,-5.9 0.1,-0.4 -0.6,-3 -0.6,-3.7 -0.1,-2.8 0,-10.5 -4.6,0 0,1.3 -0.1,0.5 -0.1,0.1 -0.4,0 -0.1,-0.1 -0.1,-0.5 0,-1 -2,0.6 -0.1,0.5 -0.2,0.2 -0.2,-0.2 -0.1,-0.4 -3.7,1.1 -0.1,0.5 -0.2,0.2 -0.2,-0.2 -0.1,-0.4 -8.3,2.4 0,-1.5 0.2,-0.7 0.4,-0.4 14,-7.7 -0.1,-0.9 -0.3,0 -0.4,-2.2 0,-1.5 0.1,-1.2 0.2,-0.4 2.8,0 0.2,0.4 0.1,1.6 0,1.1 -0.2,1.5 3.6,-2.8 0,-8.5 0.5,-5.2 0.6,-3.1 1,-3.1 0.7,-1.2 z",
             'Boeing 737-8 MAX': "m 32,5.3 0.3,0.1 0.8,1.2 0.9,3.1 0.6,3.1 0.5,5.2 0,5.5 2.9,2.4 -0.1,-1 0,-1.5 0.1,-1.2 0.2,-0.4 2.7,0 0.2,0.4 0.1,1.2 0,1.5 -0.3,2.3 -0.4,0 -0.1,0.3 1.8,1 15.9,8.3 0.9,0.8 0.5,1.2 0,1.9 -0.4,-0.9 -0.7,-0.9 -11.4,-3.6 -0.1,0.8 -0.3,0.7 -0.3,-0.7 -0.1,-1 -4.2,-1 -0.1,0.8 -0.3,0.7 -0.3,-0.7 -0.1,-1 -1.2,-0.2 -0.6,0 -0.1,0.9 -0.3,0.7 -0.3,-0.7 -0.1,-0.9 -3.5,0 0,6.9 -0.1,2.7 -0.3,2.5 -0.7,2.4 9.1,7 0,2 -10.7,-3.2 -0.3,1 -0.2,0 -0.3,-1 -10.7,3.2 0,-2 9.2,-7 -0.7,-2.4 -0.4,-2.5 -0.1,-2.7 0,-6.9 -3.5,0 -0.1,0.9 -0.3,0.7 -0.3,-0.7 -0.1,-0.9 -0.6,0 -1.2,0.2 -0.1,1 -0.3,0.7 -0.3,-0.7 -0.1,-0.8 -4.2,1 -0.1,1 -0.3,0.7 -0.3,-0.7 -0.1,-0.8 -11.4,3.6 -0.7,0.9 -0.4,0.9 0,-1.9 0.5,-1.2 0.9,-0.8 15.9,-8.3 1.8,-1 -0.1,-0.3 -0.5,0 -0.2,-2.3 0,-1.5 0.1,-1.2 0.2,-0.4 2.7,0 0.2,0.4 0.1,1.2 0,1.5 -0.1,1 2.9,-2.4 0,-5.5 0.5,-5.2 0.6,-3.1 1,-3.1 0.7,-1.2 z",
             'Bombardier Dash 8-Q400': "m 32,3 0.2,0.1 0.2,0.2 0.2,0.3 0.7,1.4 0.7,1.9 0.7,3 0.2,2.5 0,13.8 5.7,0.3 0,-4.5 0.2,-1 -3,0 0,-0.1 3,0 0.4,-1.4 0.2,-0.2 0.2,-0.1 0.2,0.1 0.2,0.2 0.4,1.4 3,0 0,0.1 -3,0 0.2,1 0,4.6 19.5,1.5 0.3,0.3 0.2,1.2 0.1,1.6 -9.1,0.6 -0.1,0.2 -0.1,0.1 -0.1,-0.1 -0.1,-0.2 -5.6,0.4 -0.1,0.2 -0.1,0.1 -0.1,-0.1 -0.1,-0.2 -4.6,0.2 0,3 -0.4,1.7 -0.3,0.6 -0.3,0.1 -0.3,-0.1 -0.3,-0.6 -0.4,-1.7 0,-2.5 -5.7,0 0,6 -1.6,13.1 -0.3,2.9 7.5,1 0.3,0.3 0,3.3 -8.5,0 -0.1,0.9 -0.2,0.7 -0.2,-0.7 -0.1,-0.9 -8.5,0 0,-3.3 0.3,-0.3 7.5,-1 -0.3,-2.9 -1.6,-13.1 0,-6 -5.7,0 0,2.5 -0.4,1.7 -0.3,0.6 -0.3,0.1 -0.3,-0.1 -0.3,-0.6 -0.4,-1.7 0,-3 -4.6,-0.2 -0.1,0.2 -0.1,0.1 -0.1,-0.1 -0.1,-0.2 -5.6,-0.4 -0.1,0.2 -0.1,0.1 -0.1,-0.1 -0.1,-0.2 -9.1,-0.6 0.1,-1.6 0.2,-1.2 0.3,-0.3 19.5,-1.5 0,-4.6 0.2,-1 -3,0 0,-0.1 3,0 0.4,-1.4 0.2,-0.2 0.2,-0.1 0.2,0.1 0.2,0.2 0.4,1.4 3,0 0,0.1 -3,0 0.2,1 0,4.5 5.7,-0.3 0,-13.8 0.2,-2.5 0.7,-3 0.7,-1.9 0.7,-1.4 0.2,-0.3 0.2,-0.2 z"
-      };
+            };
 
         const gallery = document.getElementById('gallery');
 
-        // Loop through the data and create a card for each aircraft
-        Object.entries(aircraftPaths).forEach(([id, path]) => {
-            const card = document.createElement('div');
-            card.className = 'card bg-slate-800 rounded-xl p-6 flex flex-col items-center justify-center border border-slate-700 shadow-lg';
+        // Render function
+        function renderGallery() {
+            gallery.innerHTML = '';
+            Object.entries(aircraftPaths).forEach(([id, path], index) => {
+                const card = document.createElement('div');
+                card.className = 'card bg-slate-800 rounded-xl p-5 flex flex-col items-center border border-slate-700 shadow-lg';
+                
+                // Unique ID for the specific icon container
+                const containerId = `container-${index}`;
+                const labelId = `label-${index}`;
+                
+                card.innerHTML = `
+                    <div id="${containerId}" class="svg-container mb-4 text-white">
+                        <svg viewBox="0 0 64 64" xmlns="http://www.w3.org/2000/svg">
+                            <path d="${path}" />
+                        </svg>
+                    </div>
+                    <div class="text-[10px] font-mono text-slate-500 mb-1 uppercase tracking-widest">Model ID</div>
+                    <div class="text-xs font-semibold text-center mb-4 truncate w-full px-2" title="${id}">${id}</div>
+                    
+                    <div class="w-full mt-auto pt-4 border-t border-slate-700/50 flex flex-col gap-2">
+                        <div class="flex justify-between items-center text-[10px] text-slate-400 font-mono uppercase">
+                            <span>Scale</span>
+                            <span id="${labelId}" class="text-blue-400 font-bold">1.0x</span>
+                        </div>
+                        <input 
+                            type="range" 
+                            min="0.5" 
+                            max="2.5" 
+                            step="0.1" 
+                            value="1.0" 
+                            class="w-full h-1.5 bg-slate-700 rounded-lg appearance-none cursor-pointer"
+                            oninput="updateIconScale('${containerId}', '${labelId}', this.value)"
+                        >
+                    </div>
+                `;
+                
+                gallery.appendChild(card);
+            });
+        }
+
+        /**
+         * Updates the scale of a specific aircraft icon
+         */
+        window.updateIconScale = function(containerId, labelId, value) {
+            const container = document.getElementById(containerId);
+            const label = document.getElementById(labelId);
+            const scale = parseFloat(value);
             
-            card.innerHTML = `
-                <div class="svg-container w-24 h-24 mb-4 text-white">
-                    <svg viewBox="0 0 64 64" xmlns="http://www.w3.org/2000/svg">
-                        <path d="${path}" />
-                    </svg>
-                </div>
-                <div class="text-xs font-mono text-slate-500 mb-1 uppercase tracking-widest">Model ID</div>
-                <div class="text-sm font-semibold text-center">${id}</div>
-            `;
+            // Apply scale to dimensions (base is 6rem)
+            const newSize = 6 * scale;
+            container.style.width = `${newSize}rem`;
+            container.style.height = `${newSize}rem`;
             
-            gallery.appendChild(card);
-        });
+            // Update textual label
+            label.textContent = `${scale.toFixed(1)}x`;
+        };
+
+        // Initial render
+        renderGallery();
     </script>
 </body>
 </html>

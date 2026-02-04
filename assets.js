@@ -71,7 +71,7 @@ export const aircraftPaths = {
     'Boeing 737-700': 0.62,
     'Boeing 737-400': 0.6,
     'Boeing 737-300': 0.58,
-    'Boeing 757-200': 1.5,
+    'Boeing 757-200': 2.5,
     'Boeing 767-300': 0.85,
     'C130': 0.7,
     'ac-130': 0.7,
