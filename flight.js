@@ -5632,11 +5632,12 @@ function initializeSectorOpsSocket() {
     
     console.log(`Socket: Connecting to ${ACARS_SOCKET_URL}...`);
     sectorOpsSocket = io(ACARS_SOCKET_URL, {
-        reconnection: true,
-        reconnectionAttempts: 5,
-        reconnectionDelay: 2000,
-        transports: ['websocket'] 
-    });
+    reconnection: true,
+    reconnectionAttempts: 10, // Increase attempts
+    reconnectionDelay: 3000,   // Wait longer between retries
+    transports: ['websocket', 'polling'], // Allow fallback for 10mbps/unstable users
+    timeout: 20000 // Increase connection timeout to 20 seconds
+});
 
     // On successful connection, join the server room based on State
     sectorOpsSocket.on('connect', () => {
