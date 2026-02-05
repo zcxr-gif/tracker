@@ -8506,35 +8506,16 @@ async function setupMapLayersAndFog() {
                 res();
                 return;
             }
+            // Update the loadImage callback inside setupMapLayersAndFog:
 sectorOpsMap.loadImage(icon.path, (error, image) => {
-        if (error) {
-            console.warn(`Could not load icon: ${icon.path}`);
-            res();
-        } else {
-            // --- FIX: Dynamic Canvas Pre-Processing ---
-            const padding = 2; // Create a 2px buffer to prevent edge-bleeding
-            const canvas = document.createElement('canvas');
-            const ctx = canvas.getContext('2d');
-            
-            canvas.width = image.width + (padding * 2);
-            canvas.height = image.height + (padding * 2);
-
-            // 1. Draw the icon into the center of the padded canvas
-            ctx.drawImage(image, padding, padding);
-
-            // 2. Clean Alpha Channel (Removes "ghost" pixels from BG removal)
-            const imgData = ctx.getImageData(0, 0, canvas.width, canvas.height);
-            const data = imgData.data;
-            for (let i = 3; i < data.length; i += 4) {
-                // If a pixel is mostly transparent (noise), make it 100% transparent
-                if (data[i] < 20) data[i] = 0; 
-            }
-            ctx.putImageData(imgData, 0, 0);
-
-            // 3. Add the cleaned, padded image to the map
-            sectorOpsMap.addImage(icon.id, imgData, { sdf: true });
-            res();
-        }
+    if (error) {
+        console.warn(`Could not load icon: ${icon.path}`);
+        res();
+    } else {
+        // ADD {sdf: true} HERE to enable dynamic coloring
+        sectorOpsMap.addImage(icon.id, image, { sdf: true }); 
+        res();
+    }
 });
         })
     );
