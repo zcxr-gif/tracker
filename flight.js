@@ -90,6 +90,7 @@ window.currentAirportTraffic = { in: [], out: [] }; // Stores IDs for the curren
     // --- NEW: To cache flight data when switching to stats view ---
     let cachedFlightDataForStatsView = { flightProps: null, plan: null };
     let mapFilters = {
+        proCustomColor: '#38bdf8',
         show3DPath: false,
         showNatTracks: true,  // New: Toggle for the tracks themselves
         showNatLabels: false,
@@ -4607,12 +4608,26 @@ function updateMapFilters() {
 
     // 3. Apply Aircraft Icon Visuals (Color & Size)
     if (sectorOpsMap.getLayer('sector-ops-live-flights-layer')) {
-        // Update Color
-        sectorOpsMap.setLayoutProperty(
-            'sector-ops-live-flights-layer', 
-            'icon-image', 
-            getIconImageExpression(mapFilters.iconColorMode)
-        );
+    
+    // 1. Update the icon set (Keep using your existing icon expressions)
+    sectorOpsMap.setLayoutProperty(
+        'sector-ops-live-flights-layer', 
+        'icon-image', 
+        getIconImageExpression(mapFilters.iconColorMode)
+    );
+
+    // 2. APPLY THE CUSTOM COLOR (The Pro Feature)
+    // If the iconColorMode is set to 'default', apply the custom pro color.
+    // Otherwise, keep it white (since blue/orange are pre-baked)
+    const activeColor = (mapFilters.iconColorMode === 'default') 
+        ? mapFilters.proCustomColor 
+        : '#ffffff';
+
+    sectorOpsMap.setPaintProperty(
+        'sector-ops-live-flights-layer', 
+        'icon-color', 
+        activeColor
+    );
         const iconSize = parseFloat(mapFilters.planeIconSize) || 0.05;
         sectorOpsMap.setLayoutProperty(
             'sector-ops-live-flights-layer', 
@@ -7835,6 +7850,18 @@ function formatDataForSimpleWindow(flightProps, plan, routePoints, communityData
                 break;
             case 'visuals':
                 html = `
+                    <div class="settings-row pro-feature-row" style="border-left: 3px solid #38bdf8; background: rgba(56, 189, 248, 0.05);">
+        <div class="row-label">
+            <i class="fa-solid fa-wand-magic-sparkles" style="color: #38bdf8;"></i> 
+            Custom Plane Color 
+            <span style="background: #38bdf8; color: #000; font-size: 0.6rem; padding: 2px 6px; border-radius: 4px; margin-left: 8px; font-weight: 800;">PRO</span>
+        </div>
+        <input type="color" id="set-pro-color" class="settings-color-input" value="${mapFilters.proCustomColor || '#38bdf8'}">
+    </div>
+    <p style="font-size: 0.65rem; color: #71717a; margin: -10px 0 12px 42px;">
+        Unlock arbitrary colors for all aircraft icons. (Coming Soon)
+    </p>
+
                     <div class="settings-section">
                         <label class="config-header">Map & Assets</label>
                         <div class="settings-row">
@@ -7984,7 +8011,8 @@ function formatDataForSimpleWindow(flightProps, plan, routePoints, communityData
             'set-plan-mode': 'planDisplayMode',
             'set-theme-start': 'themeStartColor',
             'set-theme-end': 'themeEndColor',
-            'set-theme-opacity': 'themeOpacity'
+            'set-theme-opacity': 'themeOpacity',
+            'set-pro-color': 'proCustomColor'
         };
 
         const sizeSlider = document.getElementById('set-plane-size');
@@ -8478,16 +8506,17 @@ async function setupMapLayersAndFog() {
                 res();
                 return;
             }
-            sectorOpsMap.loadImage(icon.path, (error, image) => {
-                if (error) {
-                    console.warn(`Could not load icon: ${icon.path}`);
-                    // Don't reject, just resolve so others can proceed
-                    res();
-                } else {
-                    sectorOpsMap.addImage(icon.id, image);
-                    res();
-                }
-            });
+            // Update the loadImage callback inside setupMapLayersAndFog:
+sectorOpsMap.loadImage(icon.path, (error, image) => {
+    if (error) {
+        console.warn(`Could not load icon: ${icon.path}`);
+        res();
+    } else {
+        // ADD {sdf: true} HERE to enable dynamic coloring
+        sectorOpsMap.addImage(icon.id, image, { sdf: true }); 
+        res();
+    }
+});
         })
     );
     
