@@ -8186,6 +8186,7 @@ function formatDataForSimpleWindow(flightProps, plan, routePoints, communityData
                 updateMapFilters();
             });
         }
+};
 
     async function initializeSectorOpsView() {
     // [FIX] 1. Load saved preferences FIRST
