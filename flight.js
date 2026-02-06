@@ -8817,7 +8817,7 @@ if (flightProps) {
         source: `flown-path-${flightId}`,
         paint: {
             'line-width': 4,
-            'line-opacity': 0.9,
+            'line-opacity': 1,
             'line-gradient': [
                 'interpolate',
                 ['linear'],
@@ -9486,7 +9486,7 @@ if (!sectorOpsMap.getSource(flownLayerId)) {
         paint: {
             'line-width': 2, 
     // Slightly more transparent for a lighter feel
-    'line-opacity': 0.85, 
+    'line-opacity': 1, 
     'line-gradient': [
         'interpolate',
         ['linear'],
