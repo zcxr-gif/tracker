@@ -91,6 +91,13 @@ window.currentAirportTraffic = { in: [], out: [] }; // Stores IDs for the curren
     let cachedFlightDataForStatsView = { flightProps: null, plan: null };
     let mapFilters = {
         proCustomColor: '#38bdf8',
+        proMapConfig: {
+        showBorders: true,
+        showRoads: true,
+        showLabels: true,
+        showPois: false, // Default POIs to off for cleaner flight maps
+        showWaterLabels: true
+        },
         show3DPath: false,
         showNatTracks: true,  // New: Toggle for the tracks themselves
         showNatLabels: false,
@@ -7026,6 +7033,52 @@ const flownCoords = (routeRes.ok && routeJson.ok && Array.isArray(historyArray))
 }
 
 /**
+ * --- [NEW] PRO FEATURE: BASE MAP LAYER MANAGER ---
+ * Dynamically toggles visibility of Mapbox base layers (Roads, Borders, Labels).
+ */
+function updateBaseMapLayerVisibility() {
+    if (!sectorOpsMap || !sectorOpsMap.getStyle()) return;
+
+    const layers = sectorOpsMap.getStyle().layers;
+    const config = mapFilters.proMapConfig;
+
+    layers.forEach(layer => {
+        const id = layer.id.toLowerCase();
+        
+        // Skip custom app layers (flight icons, routes, weather)
+        if (id.includes('sector-ops') || id.includes('rainviewer') || id.includes('active-sectors')) return;
+
+        let isVisible = true;
+
+        // 1. Political Borders (Admin boundaries)
+        if (id.includes('admin') || id.includes('boundary')) {
+            isVisible = config.showBorders;
+        }
+        // 2. Roads & Transport (Roads, tunnels, bridges)
+        else if (id.includes('road') || id.includes('tunnel') || id.includes('bridge') || id.includes('transit')) {
+            isVisible = config.showRoads;
+        }
+        // 3. POIs (Points of Interest icons)
+        else if (id.includes('poi')) {
+            isVisible = config.showPois;
+        }
+        // 4. Water Labels (Ocean/Sea names)
+        else if (id.includes('water') && (id.includes('label') || id.includes('text'))) {
+            isVisible = config.showWaterLabels;
+        }
+        // 5. General Place Labels (Cities, Towns - exclude water to avoid double toggle)
+        else if ((id.includes('label') || id.includes('text') || id.includes('place')) && !id.includes('water')) {
+            isVisible = config.showLabels;
+        }
+
+        // Apply visibility
+        sectorOpsMap.setLayoutProperty(layer.id, 'visibility', isVisible ? 'visible' : 'none');
+    });
+    
+    console.log("Pro Map Layers Updated:", config);
+}
+
+/**
  * --- [NEW] Applies traffic highlighting to map features ---
  */
 function applyTrafficHighlighting() {
@@ -7713,9 +7766,10 @@ function formatDataForSimpleWindow(flightProps, plan, routePoints, communityData
 
     categories: {
         airspace: { label: "Filters", icon: "fa-tower-broadcast" },
-        visuals: { label: "Map & more", icon: "fa-eye" },
+        visuals:  { label: "Visuals", icon: "fa-eye" },
+        pro_layers: { label: "Pro Layers", icon: "fa-layer-group" }, // <--- NEW TAB
         interface: { label: "Interface", icon: "fa-tablet-screen-button" },
-        theme: { label: "Window Theme", icon: "fa-palette" }
+        theme:    { label: "Theme", icon: "fa-palette" }
     },
 
     init() {
@@ -7960,6 +8014,63 @@ function formatDataForSimpleWindow(flightProps, plan, routePoints, communityData
                     </div>
                 `;
                 break;
+            case 'pro_layers': // <--- NEW CASE
+                html = `
+                <div class="settings-section">
+                    <div class="pro-feature-banner" style="background: linear-gradient(90deg, rgba(56, 189, 248, 0.1), transparent); padding: 12px; border-left: 3px solid #38bdf8; margin-bottom: 20px; border-radius: 0 8px 8px 0;">
+                        <h4 style="margin: 0; color: #38bdf8; display: flex; align-items: center; gap: 8px;">
+                            <i class="fa-solid fa-star"></i> PRO MAP CONTROL
+                        </h4>
+                        <p style="margin: 4px 0 0 0; font-size: 0.75rem; color: #94a3b8;">
+                            Fully customize the base map elements to create a clean radar experience.
+                        </p>
+                    </div>
+
+                    <label class="config-header">Base Map Elements</label>
+                    
+                    <div class="settings-row">
+                        <div class="row-label"><i class="fa-solid fa-earth-americas"></i> Political Borders</div>
+                        <label class="toggle-switch">
+                            <input type="checkbox" id="pro-toggle-borders" ${mapFilters.proMapConfig.showBorders ? 'checked' : ''}>
+                            <span class="toggle-slider"></span>
+                        </label>
+                    </div>
+
+                    <div class="settings-row">
+                        <div class="row-label"><i class="fa-solid fa-road"></i> Roads & Highways</div>
+                        <label class="toggle-switch">
+                            <input type="checkbox" id="pro-toggle-roads" ${mapFilters.proMapConfig.showRoads ? 'checked' : ''}>
+                            <span class="toggle-slider"></span>
+                        </label>
+                    </div>
+
+                    <div class="settings-row">
+                        <div class="row-label"><i class="fa-solid fa-font"></i> City & Place Labels</div>
+                        <label class="toggle-switch">
+                            <input type="checkbox" id="pro-toggle-labels" ${mapFilters.proMapConfig.showLabels ? 'checked' : ''}>
+                            <span class="toggle-slider"></span>
+                        </label>
+                    </div>
+
+                    <div class="settings-row">
+                        <div class="row-label"><i class="fa-solid fa-water"></i> Water Labels</div>
+                        <label class="toggle-switch">
+                            <input type="checkbox" id="pro-toggle-water-labels" ${mapFilters.proMapConfig.showWaterLabels ? 'checked' : ''}>
+                            <span class="toggle-slider"></span>
+                        </label>
+                    </div>
+
+                    <div class="settings-row">
+                        <div class="row-label"><i class="fa-solid fa-map-pin"></i> Points of Interest (POIs)</div>
+                        <label class="toggle-switch">
+                            <input type="checkbox" id="pro-toggle-pois" ${mapFilters.proMapConfig.showPois ? 'checked' : ''}>
+                            <span class="toggle-slider"></span>
+                        </label>
+                    </div>
+                </div>
+                `;
+                break;
+            
             case 'theme':
                 html = `
                     <div class="settings-section">
@@ -7995,6 +8106,11 @@ function formatDataForSimpleWindow(flightProps, plan, routePoints, communityData
 
         // Mapping settings IDs to mapFilters keys
         const ids = {
+            'pro-toggle-borders': 'showBorders',
+            'pro-toggle-roads':   'showRoads',
+            'pro-toggle-labels':  'showLabels',
+            'pro-toggle-water-labels': 'showWaterLabels',
+            'pro-toggle-pois':    'showPois',
             'set-nat-tracks': 'showNatTracks',
             'set-nat-labels': 'showNatLabels',
             'setting-toggle-3dpath': 'show3DPath',
@@ -8014,6 +8130,22 @@ function formatDataForSimpleWindow(flightProps, plan, routePoints, communityData
             'set-theme-opacity': 'themeOpacity',
             'set-pro-color': 'proCustomColor'
         };
+
+        Object.entries(proIds).forEach(([id, key]) => {
+            const el = document.getElementById(id);
+            if (el) {
+                el.addEventListener('change', (e) => {
+                    // Update State
+                    mapFilters.proMapConfig[key] = e.target.checked;
+                    
+                    // Save
+                    saveFiltersToLocalStorage();
+                    
+                    // Trigger Map Update
+                    updateBaseMapLayerVisibility();
+                });
+            }
+        });
 
         const sizeSlider = document.getElementById('set-plane-size');
 const sizeDisplay = document.getElementById('plane-size-display');
@@ -8672,10 +8804,17 @@ function initializeSectorOpsMap(centerICAO) {
     });
 
     sectorOpsMap.on('style.load', async () => {
-        console.log("Map style reloading. Rebuilding layers...");
-        await setupMapLayersAndFog();
-        if (typeof rebuildDynamicLayers !== 'undefined') rebuildDynamicLayers();
-    });
+    console.log("Map style reloading. Rebuilding layers...");
+    await setupMapLayersAndFog();
+    
+    // --- NEW: Apply Pro Layer Filters on Style Load ---
+    if (typeof updateBaseMapLayerVisibility === 'function') {
+        // Small timeout ensures Mapbox has fully parsed the style layers
+        setTimeout(updateBaseMapLayerVisibility, 500);
+    }
+    
+    if (typeof rebuildDynamicLayers !== 'undefined') rebuildDynamicLayers();
+});
 
     return new Promise(resolve => {
         sectorOpsMap.on('load', async () => {
