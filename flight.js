@@ -8506,14 +8506,15 @@ async function setupMapLayersAndFog() {
                 res();
                 return;
             }
-            // Update the loadImage callback inside setupMapLayersAndFog:
 sectorOpsMap.loadImage(icon.path, (error, image) => {
     if (error) {
         console.warn(`Could not load icon: ${icon.path}`);
         res();
     } else {
-        // ADD {sdf: true} HERE to enable dynamic coloring
-        sectorOpsMap.addImage(icon.id, image, { sdf: true }); 
+        // --- FIX: Add the { sdf: true } flag here ---
+        if (!sectorOpsMap.hasImage(icon.id)) {
+            sectorOpsMap.addImage(icon.id, image, { sdf: true }); 
+        }
         res();
     }
 });
