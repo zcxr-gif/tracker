@@ -8098,96 +8098,94 @@ function formatDataForSimpleWindow(flightProps, plan, routePoints, communityData
     },
 
     attachConfigListeners() {
-        const update = (key, val) => {
-            mapFilters[key] = val;
-            saveFiltersToLocalStorage();
-            updateMapFilters();
-        };
+            const update = (key, val) => {
+                mapFilters[key] = val;
+                saveFiltersToLocalStorage();
+                updateMapFilters();
+            };
 
-        // Mapping settings IDs to mapFilters keys
-        const ids = {
-            'pro-toggle-borders': 'showBorders',
-            'pro-toggle-roads':   'showRoads',
-            'pro-toggle-labels':  'showLabels',
-            'pro-toggle-water-labels': 'showWaterLabels',
-            'pro-toggle-pois':    'showPois',
-            'set-nat-tracks': 'showNatTracks',
-            'set-nat-labels': 'showNatLabels',
-            'setting-toggle-3dpath': 'show3DPath',
-            'set-hide-atc': 'hideAtcMarkers',
-            'set-show-unstaffed': 'showUnstaffedAirports',
-            'set-plane-size': 'planeIconSize',
-            'set-staff-only': 'showStaffOnly',
-            'set-va-only': 'showVaOnly',
-            'set-labels': 'showAircraftLabels',
-            'set-flat-map': 'useFlatMap',
-            'set-simple-win': 'useSimpleFlightWindow',
-            'set-map-style': 'mapStyle',
-            'set-icon-color': 'iconColorMode',
-            'set-plan-mode': 'planDisplayMode',
-            'set-theme-start': 'themeStartColor',
-            'set-theme-end': 'themeEndColor',
-            'set-theme-opacity': 'themeOpacity',
-            'set-pro-color': 'proCustomColor'
-        };
+            // --- 1. Define Pro Layer IDs (Fixes the undefined proIds error) ---
+            const proIds = {
+                'pro-toggle-borders': 'showBorders',
+                'pro-toggle-roads': 'showRoads',
+                'pro-toggle-labels': 'showLabels',
+                'pro-toggle-water-labels': 'showWaterLabels',
+                'pro-toggle-pois': 'showPois'
+            };
 
-        Object.entries(proIds).forEach(([id, key]) => {
-            const el = document.getElementById(id);
-            if (el) {
-                el.addEventListener('change', (e) => {
-                    // Update State
-                    mapFilters.proMapConfig[key] = e.target.checked;
-                    
-                    // Save
+            // --- 2. Define General Settings IDs ---
+            const ids = {
+                'set-nat-tracks': 'showNatTracks',
+                'set-nat-labels': 'showNatLabels',
+                'setting-toggle-3dpath': 'show3DPath',
+                'set-hide-atc': 'hideAtcMarkers',
+                'set-show-unstaffed': 'showUnstaffedAirports',
+                'set-plane-size': 'planeIconSize',
+                'set-staff-only': 'showStaffOnly',
+                'set-va-only': 'showVaOnly',
+                'set-labels': 'showAircraftLabels',
+                'set-flat-map': 'useFlatMap',
+                'set-simple-win': 'useSimpleFlightWindow',
+                'set-map-style': 'mapStyle',
+                'set-icon-color': 'iconColorMode',
+                'set-plan-mode': 'planDisplayMode',
+                'set-theme-start': 'themeStartColor',
+                'set-theme-end': 'themeEndColor',
+                'set-theme-opacity': 'themeOpacity',
+                'set-pro-color': 'proCustomColor'
+            };
+
+            // --- 3. Attach Pro Layer Listeners (Updates proMapConfig & calls Visibility function) ---
+            Object.entries(proIds).forEach(([id, key]) => {
+                const el = document.getElementById(id);
+                if (el) {
+                    el.addEventListener('change', (e) => {
+                        // Update the Nested Config State
+                        mapFilters.proMapConfig[key] = e.target.checked;
+                        
+                        // Save & Trigger Specific Update
+                        saveFiltersToLocalStorage();
+                        updateBaseMapLayerVisibility(); 
+                    });
+                }
+            });
+
+            // --- 4. Attach General Listeners (Updates root mapFilters & calls standard Update) ---
+            Object.entries(ids).forEach(([id, key]) => {
+                const el = document.getElementById(id);
+                if (!el) return;
+                el.addEventListener(el.type === 'checkbox' ? 'change' : 'input', (e) => {
+                    let val = el.type === 'checkbox' ? e.target.checked : e.target.value;
+                    // Ensure numeric inputs are converted to numbers
+                    if (el.type === 'range' || el.type === 'number') {
+                        val = parseFloat(val);
+                    }
+                    update(key, val);
+                });
+            });
+
+            // --- 5. Other Specific Listeners ---
+            const sizeSlider = document.getElementById('set-plane-size');
+            const sizeDisplay = document.getElementById('plane-size-display');
+            if (sizeSlider && sizeDisplay) {
+                sizeSlider.addEventListener('input', (e) => {
+                    const val = parseFloat(e.target.value);
+                    sizeDisplay.textContent = `${Math.round(val * 100)}%`;
+                    mapFilters.planeIconSize = val;
                     saveFiltersToLocalStorage();
-                    
-                    // Trigger Map Update
-                    updateBaseMapLayerVisibility();
+                    updateMapFilters();
                 });
             }
-        });
 
-        const sizeSlider = document.getElementById('set-plane-size');
-const sizeDisplay = document.getElementById('plane-size-display');
-
-if (sizeSlider && sizeDisplay) {
-    sizeSlider.addEventListener('input', (e) => {
-        const val = parseFloat(e.target.value);
-        sizeDisplay.textContent = `${Math.round(val * 100)}%`;
-        
-        // Update global filter and save
-        mapFilters.planeIconSize = val;
-        saveFiltersToLocalStorage();
-        updateMapFilters(); // Instantly applies icon-size to the Mapbox layer
-    });
-}
-
-        // Inside SettingsUI.attachConfigListeners
-Object.entries(ids).forEach(([id, key]) => {
-    const el = document.getElementById(id);
-    if (!el) return;
-    el.addEventListener(el.type === 'checkbox' ? 'change' : 'input', (e) => {
-        let val = el.type === 'checkbox' ? e.target.checked : e.target.value;
-        
-        // FIX: Ensure numeric inputs are converted to numbers
-        if (el.type === 'range' || el.type === 'number') {
-            val = parseFloat(val);
+            document.getElementById('set-theme-reset')?.addEventListener('click', () => {
+                mapFilters.themeStartColor = '#18181b';
+                mapFilters.themeEndColor = '#18181b';
+                mapFilters.themeOpacity = 90;
+                saveFiltersToLocalStorage();
+                this.renderCategory('theme');
+                updateMapFilters();
+            });
         }
-
-        update(key, val);
-    });
-});
-
-        document.getElementById('set-theme-reset')?.addEventListener('click', () => {
-            mapFilters.themeStartColor = '#18181b';
-            mapFilters.themeEndColor = '#18181b';
-            mapFilters.themeOpacity = 90;
-            saveFiltersToLocalStorage();
-            this.renderCategory('theme');
-            updateMapFilters();
-        });
-    }
-};
 
     async function initializeSectorOpsView() {
     // [FIX] 1. Load saved preferences FIRST
