@@ -8741,32 +8741,29 @@ function onAtcDataReceived(newAtcData) {
 function rebuildDynamicLayers() {
     console.log("Rebuilding dynamic layers...");
 
-    // 1. Re-apply FIR Boundaries (Boundaries usually wipe on style change)
+    // 1. Re-apply FIR Boundaries
     if (typeof initializeMapBoundaries === 'function') {
         initializeMapBoundaries(sectorOpsMap);
     }
 
     // 2. Re-apply NAT Tracks
     if (window.globalNatTracks) {
-        // Re-initialize the source and layers for the new style
         window.globalNatTracks.initSource();
-        // Sync visibility and labels with current mapFilters state
         window.globalNatTracks.setOptions({
             showTracks: mapFilters.showNatTracks,
             showLabels: mapFilters.showNatLabels
         });
-        // Trigger the render to add them to the map
         window.globalNatTracks.render();
         console.log("NAT Tracks restored.");
     }
 
-    // 3. Re-apply SIGMETS (Volanta Style)
+    // 3. Re-apply SIGMETS
     if (document.getElementById('weather-toggle-sigmets')?.checked) {
-        isSigmetLayerAdded = false; // Force re-fetch/re-add
+        isSigmetLayerAdded = false; 
         toggleSigmetLayer(true);
     }
 
-    // 4. Re-apply Radar (Precip - RainViewer)
+    // 4. Re-apply Radar
     if (document.getElementById('weather-toggle-precip')?.checked) {
         isWeatherLayerAdded = false;
         toggleWeatherLayer(true);
@@ -8774,13 +8771,13 @@ function rebuildDynamicLayers() {
 
     // 5. Re-apply Clouds
     if (document.getElementById('weather-toggle-clouds')?.checked) {
-        isCloudLayerAdded = false; // Force re-creation
+        isCloudLayerAdded = false; 
         toggleCloudLayer(true);
     }
 
     // 6. Re-apply Wind
     if (document.getElementById('weather-toggle-wind')?.checked) {
-        isWindLayerAdded = false; // Force re-creation
+        isWindLayerAdded = false; 
         toggleWindLayer(true);
     }
 
@@ -8789,7 +8786,7 @@ function rebuildDynamicLayers() {
         plotRoutesFromAirport(currentAirportInWindow);
     }
 
-    // 8. Re-apply active flight trail
+    // 8. Re-apply active flight trail (Dual Layer Glow)
     if (currentFlightInWindow) {
         const flightId = currentFlightInWindow;
         clearLiveFlightPath(flightId);
@@ -8797,44 +8794,72 @@ function rebuildDynamicLayers() {
 
         const { flightProps, plan } = cachedFlightDataForStatsView;
 
-        // Inside rebuildDynamicLayers() -> section 8 (active flight trail)
         if (flightProps) {
             const localTrail = liveTrailCache.get(flightId) || [];
             const currentPosition = currentAircraftPositionForGeocode || flightProps.position;
 
             const routeFeature = generateAltitudeColoredRoute(localTrail, currentPosition, plan);
+            const sourceId = `flown-path-${flightId}`;
+            const glowLayerId = `flown-path-glow-${flightId}`;
+            const coreLayerId = `flown-path-core-${flightId}`;
 
-            sectorOpsMap.addSource(`flown-path-${flightId}`, {
+            sectorOpsMap.addSource(sourceId, {
                 type: 'geojson',
                 data: routeFeature,
-                lineMetrics: true // CRITICAL for gradients
+                lineMetrics: true 
             });
 
+            // Add Glow Layer
             sectorOpsMap.addLayer({
-                id: `flown-path-${flightId}`,
+                id: glowLayerId,
                 type: 'line',
-                source: `flown-path-${flightId}`,
+                source: sourceId,
                 paint: {
-                    'line-width': 2,
-                    'line-opacity': 0.85,
-                    'line-blur': 3, // <--- ADDED GLOW EFFECT
+                    'line-width': 15,
+                    'line-blur': 6,
+                    'line-opacity': 0.6,
                     'line-gradient': [
                         'interpolate',
                         ['linear'],
                         ['line-progress'],
-                        0.0, '#FFCC80', // Start / Ground: Light Orange
-                        0.1, '#FFF59D', // Initial Climb: Yellow
-                        0.4, '#81D4FA', // Enroute / Mid: Light Blue
-                        1.0, '#1565C0' // Current / High: Dark Blue
+                        0.0, '#FFCC80', 
+                        0.1, '#FFF59D',
+                        0.4, '#81D4FA', 
+                        1.0, '#1565C0'
+                    ]
+                }
+            }, 'sector-ops-live-flights-layer');
+
+            // Add Core Layer
+            sectorOpsMap.addLayer({
+                id: coreLayerId,
+                type: 'line',
+                source: sourceId,
+                paint: {
+                    'line-width': 4,
+                    'line-blur': 0,
+                    'line-opacity': 1.0,
+                    'line-gradient': [
+                        'interpolate',
+                        ['linear'],
+                        ['line-progress'],
+                        0.0, '#FFCC80', 
+                        0.1, '#FFF59D',
+                        0.4, '#81D4FA', 
+                        1.0, '#1565C0' 
                     ]
                 }
             }, 'sector-ops-live-flights-layer');
 
             sectorOpsLiveFlightPathLayers[flightId] = {
-                flown: `flown-path-${flightId}`
+                glow: glowLayerId,
+                core: coreLayerId
             };
         }
     }
+    
+    updateAircraftLayerFilter();
+    renderAirportMarkers();
 }
 
 /**
@@ -9327,10 +9352,6 @@ function closeAircraftWindow() {
     }
 }
 
-/**
- * Handles clicks on aircraft markers.
- * Includes a hit-test to prioritize airports if they overlap.
- */
 async function handleAircraftClick(flightProps, sessionId, event = null) {
     if (!flightProps || !flightProps.flightId) return;
 
@@ -9338,27 +9359,22 @@ async function handleAircraftClick(flightProps, sessionId, event = null) {
     localStorage.setItem('landingUI_visible', 'false');
 
     // --- BALANCE LOGIC: Prioritize Airport ---
-    // If there is an event, check if an airport marker is also at this location
     if (event && sectorOpsMap) {
         const airportFeatures = sectorOpsMap.queryRenderedFeatures(event.point, {
-            // Adjust 'airport-symbols-layer' to match your specific airport layer ID
             layers: ['airport-symbols-layer', 'airport-label-layer']
         });
 
         if (airportFeatures.length > 0) {
-            // An airport is here! Yield to the airport click handler and stop aircraft logic.
             console.log("Airport detected at click point, prioritizing airport over aircraft.");
             return;
         }
     }
 
     // --- MUTUAL EXCLUSION ---
-    // If the airport window is open, close it before proceeding
     if (currentAirportInWindow) {
         closeAirportWindow();
     }
 
-    // Standard Aircraft Window Logic Starts Here
     if (typeof trackPilotView === 'function') trackPilotView(flightProps);
 
     if (isAircraftWindowLoading) return;
@@ -9424,7 +9440,6 @@ async function handleAircraftClick(flightProps, sessionId, event = null) {
         let communityAircraftData = aircraftLookupRes.ok ? await aircraftLookupRes.json() : null;
 
         let sortedRoutePoints = [];
-        // Updated to check for the new .path property from the history endpoint
         const historyArray = routeData?.path || routeData?.route || [];
         if (routeData && routeData.ok && Array.isArray(historyArray)) {
             sortedRoutePoints = historyArray.sort((a, b) => new Date(a.date) - new Date(b.date));
@@ -9460,7 +9475,6 @@ async function handleAircraftClick(flightProps, sessionId, event = null) {
             populateAircraftInfoWindow(flightProps, plan, sortedRoutePoints, communityAircraftData);
         }
 
-        // Additional data updates
         if (typeof fetchAndDisplayGeocode === 'function') {
             fetchAndDisplayGeocode(flightProps.position.lat, flightProps.position.lon);
         }
@@ -9468,16 +9482,15 @@ async function handleAircraftClick(flightProps, sessionId, event = null) {
         let rawCoords = sortedRoutePoints.map(p => [p.lon ?? p.longitude, p.lat ?? p.latitude]);
         rawCoords.push([flightProps.position.lon, flightProps.position.lat]);
 
-        // 2. Process for map stability (Unwrap Date Line + Densify for Globe)
-        // Use your existing helper functions from the script
         const unwrappedCoords = unwrapLineCoordinates(rawCoords);
         const sortedCoordinates = densifyRoute(unwrappedCoords, 100);
 
-        // 3. Add the Single-Source with lineMetrics enabled
-        const flownLayerId = `flown-path-${flightProps.flightId}`;
+        const sourceId = `flown-path-${flightProps.flightId}`;
+        const glowLayerId = `flown-path-glow-${flightProps.flightId}`;
+        const coreLayerId = `flown-path-core-${flightProps.flightId}`;
 
-        if (!sectorOpsMap.getSource(flownLayerId)) {
-            sectorOpsMap.addSource(flownLayerId, {
+        if (!sectorOpsMap.getSource(sourceId)) {
+            sectorOpsMap.addSource(sourceId, {
                 type: 'geojson',
                 data: {
                     type: 'Feature',
@@ -9486,36 +9499,60 @@ async function handleAircraftClick(flightProps, sessionId, event = null) {
                         coordinates: sortedCoordinates
                     }
                 },
-                lineMetrics: true // REQUIRED for gradients
+                lineMetrics: true
             });
 
-            // 4. Add the Gradient Layer
+            // 1. GLOW LAYER (Bottom)
+            // Thick, blurred, lower opacity
             sectorOpsMap.addLayer({
-                id: flownLayerId,
+                id: glowLayerId,
                 type: 'line',
-                source: flownLayerId,
+                source: sourceId,
                 paint: {
-                    'line-width': 2, // Slightly more transparent for a lighter feel
-                    'line-opacity': 0.85,
-                    'line-blur': 3,  // <--- ADDED GLOW EFFECT
+                    'line-width': 15,  // Very wide for the halo
+                    'line-blur': 6,    // Soft edges
+                    'line-opacity': 0.6,
                     'line-gradient': [
                         'interpolate',
                         ['linear'],
                         ['line-progress'],
-                        0.0, '#FFCC80', // Start / Ground: Light Orange
-                        0.1, '#FFF59D', // Initial Climb: Yellow
-                        0.4, '#81D4FA', // Enroute / Mid: Light Blue
-                        1.0, '#1565C0'  // Current / High: Dark Blue
+                        0.0, '#FFCC80', 
+                        0.1, '#FFF59D',
+                        0.4, '#81D4FA', 
+                        1.0, '#1565C0'
+                    ]
+                }
+            }, 'sector-ops-live-flights-layer');
+
+            // 2. CORE LAYER (Top)
+            // Thinner, sharp, full opacity
+            sectorOpsMap.addLayer({
+                id: coreLayerId,
+                type: 'line',
+                source: sourceId,
+                paint: {
+                    'line-width': 4,   // Defines the actual "line"
+                    'line-blur': 0,    // Sharp
+                    'line-opacity': 1.0,
+                    'line-gradient': [
+                        'interpolate',
+                        ['linear'],
+                        ['line-progress'],
+                        0.0, '#FFCC80', 
+                        0.1, '#FFF59D',
+                        0.4, '#81D4FA', 
+                        1.0, '#1565C0' 
                     ]
                 }
             }, 'sector-ops-live-flights-layer');
 
             if (typeof sectorOpsLiveFlightPathLayers !== 'undefined') {
-                // FIX: Use assignment that preserves other keys in the object
                 if (!sectorOpsLiveFlightPathLayers[flightProps.flightId]) {
                     sectorOpsLiveFlightPathLayers[flightProps.flightId] = {};
                 }
-                sectorOpsLiveFlightPathLayers[flightProps.flightId].flown = flownLayerId;
+                // Store BOTH layers so clearLiveFlightPath removes them both
+                sectorOpsLiveFlightPathLayers[flightProps.flightId].glow = glowLayerId;
+                sectorOpsLiveFlightPathLayers[flightProps.flightId].core = coreLayerId;
             }
         }
 
