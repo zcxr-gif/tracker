@@ -7037,8 +7037,8 @@ const flownCoords = (routeRes.ok && routeJson.ok && Array.isArray(historyArray))
 
 /**
  * --- [NEW] PRO FEATURE: BASE MAP LAYER MANAGER ---
- * Dynamically toggles visibility AND COLORS of Mapbox base layers.
- * Now paints Taxiways YELLOW and Runways CONCRETE when enabled.
+ * Dynamically toggles visibility and forces CHART COLORS on Mapbox base layers.
+ * Aggressively targets 'aeroway' source layers to ensure Taxiways = Yellow, Runways = Dark.
  */
 function updateBaseMapLayerVisibility() {
     if (!sectorOpsMap || !sectorOpsMap.getStyle()) return;
@@ -7046,68 +7046,93 @@ function updateBaseMapLayerVisibility() {
     const layers = sectorOpsMap.getStyle().layers;
     const config = mapFilters.proMapConfig;
 
+    // Define Chart Colors
+    const COLOR_TAXIWAY = '#FACC15'; // Bright Yellow
+    const COLOR_RUNWAY = '#18181b';  // Zinc-950 (Very Dark Concrete)
+    const COLOR_RUNWAY_OUTLINE = '#52525b'; // Zinc-600 (Lighter Outline)
+
+    let modifiedCount = 0;
+
     layers.forEach(layer => {
         const id = layer.id.toLowerCase();
+        // Check specific Mapbox source layer if available (more reliable than ID)
+        const sourceLayer = (layer['source-layer'] || '').toLowerCase();
         
         // Skip custom app layers
         if (id.includes('sector-ops') || id.includes('rainviewer') || id.includes('active-sectors')) return;
 
         let isVisible = true;
+        let isAeroway = false;
 
-        // 1. Political Borders
-        if (id.includes('admin') || id.includes('boundary')) {
+        // --- 1. Airport Layout (Runways, Taxiways, Aprons) ---
+        if (id.includes('aeroway') || sourceLayer === 'aeroway' || id.includes('runway') || id.includes('taxiway')) {
+            isVisible = (config.showAirportLayout !== false);
+            isAeroway = true;
+
+            // FORCE COLORS if enabled
+            if (isVisible) {
+                const isTaxiway = id.includes('taxiway') || sourceLayer.includes('taxiway');
+                const isRunway = id.includes('runway') || sourceLayer.includes('runway');
+                
+                // We only style Lines and Fills (ignoring symbols/text labels here)
+                if (layer.type === 'line') {
+                    if (isTaxiway) {
+                        sectorOpsMap.setPaintProperty(layer.id, 'line-color', COLOR_TAXIWAY);
+                        // Force width to make them visible if they are too thin
+                        if(sectorOpsMap.getPaintProperty(layer.id, 'line-width') < 1) {
+                             sectorOpsMap.setPaintProperty(layer.id, 'line-width', 2);
+                        }
+                    } else if (isRunway) {
+                        sectorOpsMap.setPaintProperty(layer.id, 'line-color', COLOR_RUNWAY_OUTLINE);
+                    }
+                } 
+                else if (layer.type === 'fill') {
+                    if (isTaxiway) {
+                        sectorOpsMap.setPaintProperty(layer.id, 'fill-color', COLOR_TAXIWAY);
+                        sectorOpsMap.setPaintProperty(layer.id, 'fill-opacity', 1); // Ensure it's not transparent
+                    } else if (isRunway) {
+                        sectorOpsMap.setPaintProperty(layer.id, 'fill-color', COLOR_RUNWAY);
+                        sectorOpsMap.setPaintProperty(layer.id, 'fill-opacity', 1);
+                    }
+                }
+                modifiedCount++;
+            }
+        }
+        
+        // --- 2. Political Borders ---
+        else if (id.includes('admin') || id.includes('boundary')) {
             isVisible = config.showBorders;
         }
-        // 2. Roads & Transport
+        // --- 3. Roads & Transport ---
         else if (id.includes('road') || id.includes('tunnel') || id.includes('bridge') || id.includes('transit')) {
             isVisible = config.showRoads;
         }
-        // 3. POIs
+        // --- 4. POIs ---
         else if (id.includes('poi')) {
             isVisible = config.showPois;
         }
-        // 4. Water Labels
+        // --- 5. Water Labels ---
         else if (id.includes('water') && (id.includes('label') || id.includes('text'))) {
             isVisible = config.showWaterLabels;
         }
-        // 5. Terrain Hillshading
+        // --- 6. Terrain Hillshading ---
         else if (id.includes('hillshade')) {
             isVisible = (config.showTerrain !== false);
         }
-        // 6. [UPDATED] Airport Layout (Runways & Taxiways) + COLORING
-        else if (id.includes('aeroway') || id.includes('runway') || id.includes('taxiway')) {
-            isVisible = (config.showAirportLayout !== false);
-
-            // Apply "Chart Mode" colors if visible
-            if (isVisible) {
-                const type = layer.type;
-
-                // --- TAXIWAYS: YELLOW ---
-                if (id.includes('taxiway')) {
-                    if (type === 'line') sectorOpsMap.setPaintProperty(layer.id, 'line-color', '#FACC15'); // Bright Yellow
-                    if (type === 'fill') sectorOpsMap.setPaintProperty(layer.id, 'fill-color', '#FACC15');
-                } 
-                // --- RUNWAYS: CONCRETE / DARK ---
-                else if (id.includes('runway')) {
-                    if (type === 'line') sectorOpsMap.setPaintProperty(layer.id, 'line-color', '#52525b'); // Zinc-600 (Dark Grey Outline)
-                    if (type === 'fill') sectorOpsMap.setPaintProperty(layer.id, 'fill-color', '#27272a'); // Zinc-800 (Dark Asphalt)
-                }
-            }
-        }
-        // 7. Land Use
+        // --- 7. Land Use ---
         else if (id.includes('landuse') || id.includes('landcover') || id.includes('national-park')) {
             isVisible = (config.showLandUse !== false);
         }
-        // 8. General Place Labels
-        else if ((id.includes('label') || id.includes('text') || id.includes('place')) && !id.includes('water') && !id.includes('aeroway')) {
+        // --- 8. General Place Labels ---
+        else if ((id.includes('label') || id.includes('text') || id.includes('place')) && !id.includes('water') && !isAeroway) {
             isVisible = config.showLabels;
         }
 
         // Apply visibility
-        sectorOpsMap.setLayoutProperty(layer.id, 'visibility', isVisible ? 'visible' : 'none');
+        if (sectorOpsMap.getLayoutProperty(layer.id, 'visibility') !== (isVisible ? 'visible' : 'none')) {
+            sectorOpsMap.setLayoutProperty(layer.id, 'visibility', isVisible ? 'visible' : 'none');
+        }
     });
-
-    console.log("Pro Map Layers Updated (Chart Mode Applied):", config);
 }
 
 /**
