@@ -89,7 +89,7 @@ window.currentAirportTraffic = { in: [], out: [] }; // Stores IDs for the curren
     let lastPfdState = { track_deg: 0, timestamp: 0, roll_deg: 0 };
     // --- NEW: To cache flight data when switching to stats view ---
     let cachedFlightDataForStatsView = { flightProps: null, plan: null };
-    let mapFilters = {
+let mapFilters = {
         proCustomColor: '#38bdf8',
         proMapConfig: {
             showBorders: true,
@@ -97,9 +97,9 @@ window.currentAirportTraffic = { in: [], out: [] }; // Stores IDs for the curren
             showLabels: true,
             showPois: false,
             showWaterLabels: true,
-            showTerrain: true,   // [NEW] Terrain Hillshading
-            showRunways: true,   // [NEW] Airport Runways/Taxiways
-            showLandUse: true    // [NEW] Parks, Forests, etc.
+            showTerrain: true,   // Terrain Hillshading
+            showAirportLayout: true,   // [RENAMED] Airport Layout (Runways & Taxiways)
+            showLandUse: true    // Parks, Forests, etc.
         },
         show3DPath: false,
         showNatTracks: true,
@@ -7047,7 +7047,7 @@ function updateBaseMapLayerVisibility() {
 
     layers.forEach(layer => {
         const id = layer.id.toLowerCase();
-
+        
         // Skip custom app layers (flight icons, routes, weather)
         if (id.includes('sector-ops') || id.includes('rainviewer') || id.includes('active-sectors')) return;
 
@@ -7073,9 +7073,10 @@ function updateBaseMapLayerVisibility() {
         else if (id.includes('hillshade')) {
             isVisible = (config.showTerrain !== false);
         }
-        // 6. [NEW] Airport Infrastructure (Runways, Taxiways)
+        // 6. [NEW] Airport Layout (Runways & Taxiways)
         else if (id.includes('aeroway') || id.includes('runway') || id.includes('taxiway')) {
-            isVisible = (config.showRunways !== false);
+            // [RENAMED] Logic updated to match new config key
+            isVisible = (config.showAirportLayout !== false);
         }
         // 7. [NEW] Land Use (National Parks, Grass, Scrub, Forests)
         else if (id.includes('landuse') || id.includes('landcover') || id.includes('national-park')) {
@@ -7778,6 +7779,7 @@ function formatDataForSimpleWindow(flightProps, plan, routePoints, communityData
 const SettingsUI = {
     _isVisible: false,
     _currentCategory: 'airspace',
+
     categories: {
         airspace: { label: "Filters", icon: "fa-tower-broadcast" },
         visuals: { label: "Visuals", icon: "fa-eye" },
@@ -7856,6 +7858,7 @@ const SettingsUI = {
                     </div>
                     <div class="filter-config-pane custom-scroll">
                         <div id="settings-category-content" class="settings-content-wrapper">
+                            
                         </div>
                     </div>
                 </div>
@@ -7911,6 +7914,7 @@ const SettingsUI = {
                     </div>
                 `;
                 break;
+
             case 'visuals':
                 html = `
                     <div class="settings-row pro-feature-row" style="border-left: 3px solid #38bdf8; background: rgba(56, 189, 248, 0.05);">
@@ -7926,17 +7930,20 @@ const SettingsUI = {
 
                     <div class="settings-section">
                         <label class="config-header">Map & Assets</label>
+                        
                         <div class="settings-row">
                             <div class="row-label"><i class="fa-solid fa-tags"></i> Aircraft Labels</div>
                             <label class="toggle-switch"><input type="checkbox" id="set-labels" ${mapFilters.showAircraftLabels ? 'checked' : ''}><span class="toggle-slider"></span></label>
                         </div>
+
                         <div class="settings-row">
                             <div class="row-label"><i class="fa-solid fa-map"></i> Flat Map Projection</div>
                             <label class="toggle-switch"><input type="checkbox" id="set-flat-map" ${mapFilters.useFlatMap ? 'checked' : ''}><span class="toggle-slider"></span></label>
                         </div>
-
-                        <div class="settings-section">
+                    
+                    <div class="settings-section">
                         <label class="config-header">Map & Assets</label>
+
                         <div class="settings-row">
                             <div class="row-label"><i class="fa-solid fa-route"></i> North Atlantic Tracks</div>
                             <label class="toggle-switch">
@@ -7944,6 +7951,7 @@ const SettingsUI = {
                                 <span class="toggle-slider"></span>
                             </label>
                         </div>
+
                         <div class="settings-row">
                             <div class="row-label"><i class="fa-solid fa-font"></i> Track Labels</div>
                             <label class="toggle-switch">
@@ -7951,6 +7959,7 @@ const SettingsUI = {
                                 <span class="toggle-slider"></span>
                             </label>
                         </div>
+                        
                         <div class="settings-row" style="margin-bottom: 4px;">
                             <div class="row-label">
                                 <i class="fa-solid fa-cube"></i> 3D Path Trail
@@ -7976,6 +7985,7 @@ const SettingsUI = {
                                 </select>
                             </div>
                         </div>
+
                         <div class="settings-row" style="flex-direction: column; align-items: flex-start; gap: 8px;">
                             <div style="display: flex; justify-content: space-between; width: 100%; align-items: center;">
                                 <div class="row-label"><i class="fa-solid fa-plane-up"></i> Aircraft Scale</div>
@@ -7985,6 +7995,7 @@ const SettingsUI = {
                             </div>
                             <input type="range" id="set-plane-size" min="0.02" max="0.15" step="0.01" value="${mapFilters.planeIconSize}" style="width: 100%;">
                         </div>
+
                         <div class="settings-row">
                             <div class="row-label">Icon Color</div>
                             <div class="input-wrapper select-wrapper">
@@ -7998,6 +8009,7 @@ const SettingsUI = {
                     </div>
                 `;
                 break;
+
             case 'interface':
                 html = `
                     <div class="settings-section">
@@ -8019,6 +8031,7 @@ const SettingsUI = {
                     </div>
                 `;
                 break;
+
             case 'pro_layers':
                 // <--- UPDATED PRO LAYERS SECTION --->
                 html = `
@@ -8031,9 +8044,9 @@ const SettingsUI = {
                                 Fully customize the base map elements to create a clean radar experience.
                             </p>
                         </div>
-                        
+
                         <label class="config-header">Base Map Elements</label>
-                        
+
                         <div class="settings-row">
                             <div class="row-label"><i class="fa-solid fa-earth-americas"></i> Political Borders</div>
                             <label class="toggle-switch">
@@ -8041,6 +8054,7 @@ const SettingsUI = {
                                 <span class="toggle-slider"></span>
                             </label>
                         </div>
+
                         <div class="settings-row">
                             <div class="row-label"><i class="fa-solid fa-road"></i> Roads & Highways</div>
                             <label class="toggle-switch">
@@ -8048,6 +8062,7 @@ const SettingsUI = {
                                 <span class="toggle-slider"></span>
                             </label>
                         </div>
+
                         <div class="settings-row">
                             <div class="row-label"><i class="fa-solid fa-font"></i> City & Place Labels</div>
                             <label class="toggle-switch">
@@ -8055,6 +8070,7 @@ const SettingsUI = {
                                 <span class="toggle-slider"></span>
                             </label>
                         </div>
+
                         <div class="settings-row">
                             <div class="row-label"><i class="fa-solid fa-water"></i> Water Labels</div>
                             <label class="toggle-switch">
@@ -8062,6 +8078,7 @@ const SettingsUI = {
                                 <span class="toggle-slider"></span>
                             </label>
                         </div>
+
                         <div class="settings-row">
                             <div class="row-label"><i class="fa-solid fa-map-pin"></i> Points of Interest (POIs)</div>
                             <label class="toggle-switch">
@@ -8079,13 +8096,15 @@ const SettingsUI = {
                                 <span class="toggle-slider"></span>
                             </label>
                         </div>
+
                         <div class="settings-row">
-                            <div class="row-label"><i class="fa-solid fa-plane-arrival"></i> Airport Runways</div>
+                            <div class="row-label"><i class="fa-solid fa-plane-arrival"></i> Airport Layout</div>
                             <label class="toggle-switch">
-                                <input type="checkbox" id="pro-toggle-runways" ${mapFilters.proMapConfig.showRunways !== false ? 'checked' : ''}>
+                                <input type="checkbox" id="pro-toggle-layout" ${mapFilters.proMapConfig.showAirportLayout !== false ? 'checked' : ''}>
                                 <span class="toggle-slider"></span>
                             </label>
                         </div>
+
                         <div class="settings-row">
                             <div class="row-label"><i class="fa-solid fa-tree"></i> Land Use / Greenery</div>
                             <label class="toggle-switch">
@@ -8096,6 +8115,7 @@ const SettingsUI = {
                     </div>
                 `;
                 break;
+
             case 'theme':
                 html = `
                     <div class="settings-section">
@@ -8112,11 +8132,13 @@ const SettingsUI = {
                             <div class="row-label">Theme Opacity (%)</div>
                             <input type="number" id="set-theme-opacity" class="row-input" style="width: 80px;" value="${mapFilters.themeOpacity || 90}">
                         </div>
+
                         <button id="set-theme-reset" class="modal-btn secondary" style="width: 100%; margin-top: 20px;">Reset Default Theme</button>
                     </div>
                 `;
                 break;
         }
+
         container.innerHTML = html;
         this.attachConfigListeners();
     },
@@ -8135,85 +8157,111 @@ const SettingsUI = {
             'pro-toggle-labels': 'showLabels',
             'pro-toggle-water-labels': 'showWaterLabels',
             'pro-toggle-pois': 'showPois',
-            'pro-toggle-terrain': 'showTerrain',   // NEW
-            'pro-toggle-runways': 'showRunways',   // NEW
-            'pro-toggle-landuse': 'showLandUse'    // NEW
+            'pro-toggle-terrain': 'showTerrain',
+            'pro-toggle-layout': 'showAirportLayout', // [RENAMED]
+            'pro-toggle-landuse': 'showLandUse'
         };
 
         // --- 2. Define General Settings IDs ---
         const ids = {
-            'set-nat-tracks': 'showNatTracks',
-            'set-nat-labels': 'showNatLabels',
-            'setting-toggle-3dpath': 'show3DPath',
             'set-hide-atc': 'hideAtcMarkers',
             'set-show-unstaffed': 'showUnstaffedAirports',
-            'set-plane-size': 'planeIconSize',
             'set-staff-only': 'showStaffOnly',
             'set-va-only': 'showVaOnly',
             'set-labels': 'showAircraftLabels',
             'set-flat-map': 'useFlatMap',
+            'set-nat-tracks': 'showNatTracks',
+            'set-nat-labels': 'showNatLabels',
             'set-simple-win': 'useSimpleFlightWindow',
-            'set-map-style': 'mapStyle',
-            'set-icon-color': 'iconColorMode',
-            'set-plan-mode': 'planDisplayMode',
-            'set-theme-start': 'themeStartColor',
-            'set-theme-end': 'themeEndColor',
-            'set-theme-opacity': 'themeOpacity',
-            'set-pro-color': 'proCustomColor'
+            'setting-toggle-3dpath': 'show3DPath'
         };
 
-        // --- 3. Attach Pro Layer Listeners (Updates proMapConfig & calls Visibility function) ---
-        Object.entries(proIds).forEach(([id, key]) => {
+        // --- 3. Attach Pro Layer Listeners ---
+        Object.keys(proIds).forEach(id => {
             const el = document.getElementById(id);
             if (el) {
                 el.addEventListener('change', (e) => {
-                    // Update the Nested Config State
-                    mapFilters.proMapConfig[key] = e.target.checked;
-                    // Save & Trigger Specific Update
+                    mapFilters.proMapConfig[proIds[id]] = e.target.checked;
                     saveFiltersToLocalStorage();
-                    updateBaseMapLayerVisibility();
+                    // NEW: Update base map layers specifically
+                    if (typeof updateBaseMapLayerVisibility === 'function') {
+                        updateBaseMapLayerVisibility(); 
+                    }
                 });
             }
         });
 
-        // --- 4. Attach General Listeners (Updates root mapFilters & calls standard Update) ---
-        Object.entries(ids).forEach(([id, key]) => {
+        // --- 4. Attach General Listeners ---
+        Object.keys(ids).forEach(id => {
             const el = document.getElementById(id);
-            if (!el) return;
-            el.addEventListener(el.type === 'checkbox' ? 'change' : 'input', (e) => {
-                let val = el.type === 'checkbox' ? e.target.checked : e.target.value;
-                // Ensure numeric inputs are converted to numbers
-                if (el.type === 'range' || el.type === 'number') {
-                    val = parseFloat(val);
-                }
-                update(key, val);
-            });
+            if (el) el.addEventListener('change', (e) => update(ids[id], e.target.checked));
         });
 
-        // --- 5. Other Specific Listeners ---
-        const sizeSlider = document.getElementById('set-plane-size');
-        const sizeDisplay = document.getElementById('plane-size-display');
-        if (sizeSlider && sizeDisplay) {
-            sizeSlider.addEventListener('input', (e) => {
+        // Map Style Select
+        const mapStyleSelect = document.getElementById('set-map-style');
+        if (mapStyleSelect) {
+            mapStyleSelect.addEventListener('change', (e) => update('mapStyle', e.target.value));
+        }
+
+        // Plane Size Input
+        const planeSizeInput = document.getElementById('set-plane-size');
+        const planeSizeDisplay = document.getElementById('plane-size-display');
+        if (planeSizeInput && planeSizeDisplay) {
+            planeSizeInput.addEventListener('input', (e) => {
                 const val = parseFloat(e.target.value);
-                sizeDisplay.textContent = `${Math.round(val * 100)}%`;
-                mapFilters.planeIconSize = val;
-                saveFiltersToLocalStorage();
-                updateMapFilters();
+                planeSizeDisplay.textContent = Math.round(val * 100) + '%';
+                update('planeIconSize', val);
             });
         }
 
-        document.getElementById('set-theme-reset')?.addEventListener('click', () => {
-            mapFilters.themeStartColor = '#18181b';
-            mapFilters.themeEndColor = '#18181b';
-            mapFilters.themeOpacity = 90;
+        // Icon Color Select
+        const iconColorSelect = document.getElementById('set-icon-color');
+        if (iconColorSelect) {
+            iconColorSelect.addEventListener('change', (e) => update('iconColorMode', e.target.value));
+        }
+
+        // Pro Custom Color Picker
+        const proColorInput = document.getElementById('set-pro-color');
+        if (proColorInput) {
+            proColorInput.addEventListener('input', (e) => {
+                update('proCustomColor', e.target.value);
+            });
+        }
+
+        // Flight Plan Mode Select
+        const planModeSelect = document.getElementById('set-plan-mode');
+        if (planModeSelect) {
+            planModeSelect.addEventListener('change', (e) => update('planDisplayMode', e.target.value));
+        }
+
+        // Theme Configuration
+        const themeStart = document.getElementById('set-theme-start');
+        const themeEnd = document.getElementById('set-theme-end');
+        const themeOpacity = document.getElementById('set-theme-opacity');
+        const themeReset = document.getElementById('set-theme-reset');
+
+        const updateTheme = () => {
+            mapFilters.themeStartColor = themeStart.value;
+            mapFilters.themeEndColor = themeEnd.value;
+            mapFilters.themeOpacity = parseInt(themeOpacity.value) || 90;
             saveFiltersToLocalStorage();
-            this.renderCategory('theme');
-            updateMapFilters();
-        });
+            // Optional: Trigger a visual refresh of the window if open
+        };
+
+        if (themeStart) themeStart.addEventListener('input', updateTheme);
+        if (themeEnd) themeEnd.addEventListener('input', updateTheme);
+        if (themeOpacity) themeOpacity.addEventListener('input', updateTheme);
+        
+        if (themeReset) {
+            themeReset.addEventListener('click', () => {
+                themeStart.value = '#18181b';
+                themeEnd.value = '#18181b';
+                themeOpacity.value = 90;
+                updateTheme();
+            });
+        }
     }
 };
-
     async function initializeSectorOpsView() {
     // [FIX] 1. Load saved preferences FIRST
     // This updates the global 'currentMapStyle' before the map creates itself.
