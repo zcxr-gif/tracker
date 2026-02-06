@@ -9510,7 +9510,7 @@ async function handleAircraftClick(flightProps, sessionId, event = null) {
                 source: sourceId,
                 paint: {
                     'line-width': 3,  // Very wide for the halo
-                    'line-blur': 1,    // Soft edges
+                    'line-blur': 3,    // Soft edges
                     'line-opacity': 0.6,
                     'line-gradient': [
                         'interpolate',
@@ -9531,8 +9531,8 @@ async function handleAircraftClick(flightProps, sessionId, event = null) {
                 type: 'line',
                 source: sourceId,
                 paint: {
-                    'line-width': 2,   // Defines the actual "line"
-                    'line-blur': 5,    // Sharp
+                    'line-width': 3,   // Defines the actual "line"
+                    'line-blur': 8,    // Sharp
                     'line-opacity': 1.0,
                     'line-gradient': [
                         'interpolate',
