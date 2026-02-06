@@ -92,14 +92,17 @@ window.currentAirportTraffic = { in: [], out: [] }; // Stores IDs for the curren
     let mapFilters = {
         proCustomColor: '#38bdf8',
         proMapConfig: {
-        showBorders: true,
-        showRoads: true,
-        showLabels: true,
-        showPois: false, // Default POIs to off for cleaner flight maps
-        showWaterLabels: true
+            showBorders: true,
+            showRoads: true,
+            showLabels: true,
+            showPois: false,
+            showWaterLabels: true,
+            showTerrain: true,   // [NEW] Terrain Hillshading
+            showRunways: true,   // [NEW] Airport Runways/Taxiways
+            showLandUse: true    // [NEW] Parks, Forests, etc.
         },
         show3DPath: false,
-        showNatTracks: true,  // New: Toggle for the tracks themselves
+        showNatTracks: true,
         showNatLabels: false,
         showVaOnly: false,
         showGroupFlights: false,
@@ -116,9 +119,9 @@ window.currentAirportTraffic = { in: [], out: [] }; // Stores IDs for the curren
         useFlatMap: false,
         useSimpleFlightWindow: false,
         planeIconSize: 0.05,
-        themeStartColor: '#18181b', // [UPDATED] Carbon/Zinc-900
-        themeEndColor: '#18181b',   // [UPDATED] Carbon/Zinc-900
-        themeOpacity: 90            // [UPDATED] Slightly more transparent (90%)
+        themeStartColor: '#18181b',
+        themeEndColor: '#18181b',
+        themeOpacity: 90
     };
 
     window.saveFiltersToLocalStorage = saveFiltersToLocalStorage;
@@ -7034,7 +7037,7 @@ const flownCoords = (routeRes.ok && routeJson.ok && Array.isArray(historyArray))
 
 /**
  * --- [NEW] PRO FEATURE: BASE MAP LAYER MANAGER ---
- * Dynamically toggles visibility of Mapbox base layers (Roads, Borders, Labels).
+ * Dynamically toggles visibility of Mapbox base layers (Roads, Borders, Labels, Terrain, etc).
  */
 function updateBaseMapLayerVisibility() {
     if (!sectorOpsMap || !sectorOpsMap.getStyle()) return;
@@ -7044,7 +7047,7 @@ function updateBaseMapLayerVisibility() {
 
     layers.forEach(layer => {
         const id = layer.id.toLowerCase();
-        
+
         // Skip custom app layers (flight icons, routes, weather)
         if (id.includes('sector-ops') || id.includes('rainviewer') || id.includes('active-sectors')) return;
 
@@ -7066,15 +7069,27 @@ function updateBaseMapLayerVisibility() {
         else if (id.includes('water') && (id.includes('label') || id.includes('text'))) {
             isVisible = config.showWaterLabels;
         }
-        // 5. General Place Labels (Cities, Towns - exclude water to avoid double toggle)
-        else if ((id.includes('label') || id.includes('text') || id.includes('place')) && !id.includes('water')) {
+        // 5. [NEW] Terrain Hillshading
+        else if (id.includes('hillshade')) {
+            isVisible = (config.showTerrain !== false);
+        }
+        // 6. [NEW] Airport Infrastructure (Runways, Taxiways)
+        else if (id.includes('aeroway') || id.includes('runway') || id.includes('taxiway')) {
+            isVisible = (config.showRunways !== false);
+        }
+        // 7. [NEW] Land Use (National Parks, Grass, Scrub, Forests)
+        else if (id.includes('landuse') || id.includes('landcover') || id.includes('national-park')) {
+            isVisible = (config.showLandUse !== false);
+        }
+        // 8. General Place Labels (Cities, Towns - exclude water/aeroways to avoid double toggle)
+        else if ((id.includes('label') || id.includes('text') || id.includes('place')) && !id.includes('water') && !id.includes('aeroway')) {
             isVisible = config.showLabels;
         }
 
         // Apply visibility
         sectorOpsMap.setLayoutProperty(layer.id, 'visibility', isVisible ? 'visible' : 'none');
     });
-    
+
     console.log("Pro Map Layers Updated:", config);
 }
 
@@ -7760,48 +7775,47 @@ function formatDataForSimpleWindow(flightProps, plan, routePoints, communityData
         }
     }
 
-    const SettingsUI = {
+const SettingsUI = {
     _isVisible: false,
     _currentCategory: 'airspace',
-
     categories: {
         airspace: { label: "Filters", icon: "fa-tower-broadcast" },
-        visuals:  { label: "Visuals", icon: "fa-eye" },
-        pro_layers: { label: "Pro Layers", icon: "fa-layer-group" }, // <--- NEW TAB
+        visuals: { label: "Visuals", icon: "fa-eye" },
+        pro_layers: { label: "Pro Layers", icon: "fa-layer-group" },
         interface: { label: "Interface", icon: "fa-tablet-screen-button" },
-        theme:    { label: "Theme", icon: "fa-palette" }
+        theme: { label: "Theme", icon: "fa-palette" }
     },
 
     init() {
-    this.render();
-    this.attachListeners();
+        this.render();
+        this.attachListeners();
 
-    // The logic to decide which UI to show
-    const handleSettingsOpen = (e) => {
-        // Prevent the button from keeping focus state during the transition
-        e.currentTarget.blur(); 
+        // The logic to decide which UI to show
+        const handleSettingsOpen = (e) => {
+            // Prevent the button from keeping focus state during the transition
+            e.currentTarget.blur();
+            
+            if (window.innerWidth <= 768) {
+                // Trigger the Mobile Bottom Sheet
+                window.dispatchEvent(new CustomEvent('openMobileSettings'));
+            } else {
+                // Open the Desktop Modal
+                this.toggle(true);
+            }
+        };
 
-        if (window.innerWidth <= 768) {
-            // Trigger the Mobile Bottom Sheet
-            window.dispatchEvent(new CustomEvent('openMobileSettings'));
-        } else {
-            // Open the Desktop Modal
-            this.toggle(true);
+        // 1. Hook into the LandingUI 'Settings' Tile
+        const tileSettings = document.getElementById('tile-settings');
+        if (tileSettings) {
+            tileSettings.addEventListener('click', handleSettingsOpen);
         }
-    };
 
-    // 1. Hook into the LandingUI 'Settings' Tile
-    const tileSettings = document.getElementById('tile-settings');
-    if (tileSettings) {
-        tileSettings.addEventListener('click', handleSettingsOpen);
-    }
-
-    // 2. Hook into the standard toolbar button
-    const toolbarSettings = document.getElementById('open-filter-settings-btn');
-    if (toolbarSettings) {
-        toolbarSettings.addEventListener('click', handleSettingsOpen);
-    }
-},
+        // 2. Hook into the standard toolbar button
+        const toolbarSettings = document.getElementById('open-filter-settings-btn');
+        if (toolbarSettings) {
+            toolbarSettings.addEventListener('click', handleSettingsOpen);
+        }
+    },
 
     toggle(state) {
         this._isVisible = state;
@@ -7814,50 +7828,46 @@ function formatDataForSimpleWindow(flightProps, plan, routePoints, communityData
 
     render() {
         const html = `
-            <div id="global-settings-modal-overlay" class="modal-overlay">
-                <div class="filter-modal settings-modal">
-                    <div class="modal-header">
-                        <div class="header-main">
-                            <div class="header-icon-box"><i class="fa-solid fa-gear"></i></div>
-                            <div class="header-text">
-                                <h2>Global Settings</h2>
-                                <span>Configure your airspace experience</span>
-                            </div>
+        <div id="global-settings-modal-overlay" class="modal-overlay">
+            <div class="filter-modal settings-modal">
+                <div class="modal-header">
+                    <div class="header-main">
+                        <div class="header-icon-box"><i class="fa-solid fa-gear"></i></div>
+                        <div class="header-text">
+                            <h2>Global Settings</h2>
+                            <span>Configure your airspace experience</span>
                         </div>
-                        <button class="close-modal" id="close-settings-modal">&times;</button>
                     </div>
-                    
-                    <div class="modal-body">
-                        <div class="filter-selection-pane custom-scroll">
-                            <div class="filter-group-wrapper">
-                                <div class="filter-group-header">Configuration</div>
-                                <div class="filter-options-list">
-                                    ${Object.entries(this.categories).map(([key, cat]) => `
-                                        <button class="nexus-item ${this._currentCategory === key ? 'active' : ''}" data-cat-id="${key}">
-                                            <div class="nexus-icon"><i class="fa-solid ${cat.icon}"></i></div>
-                                            <span class="nexus-label">${cat.label}</span>
-                                        </button>
-                                    `).join('')}
-                                </div>
+                    <button class="close-modal" id="close-settings-modal">&times;</button>
+                </div>
+                <div class="modal-body">
+                    <div class="filter-selection-pane custom-scroll">
+                        <div class="filter-group-wrapper">
+                            <div class="filter-group-header">Configuration</div>
+                            <div class="filter-options-list">
+                                ${Object.entries(this.categories).map(([key, cat]) => `
+                                    <button class="nexus-item ${this._currentCategory === key ? 'active' : ''}" data-cat-id="${key}">
+                                        <div class="nexus-icon"><i class="fa-solid ${cat.icon}"></i></div>
+                                        <span class="nexus-label">${cat.label}</span>
+                                    </button>
+                                `).join('')}
                             </div>
                         </div>
-
-                        <div class="filter-config-pane custom-scroll">
-                            <div id="settings-category-content" class="settings-content-wrapper">
-                                </div>
+                    </div>
+                    <div class="filter-config-pane custom-scroll">
+                        <div id="settings-category-content" class="settings-content-wrapper">
                         </div>
                     </div>
                 </div>
             </div>
+        </div>
         `;
-
         const container = document.getElementById('sector-ops-map-fullscreen');
         if (container) container.insertAdjacentHTML('beforeend', html);
     },
 
     attachListeners() {
         const modal = document.getElementById('global-settings-modal-overlay');
-        
         modal?.addEventListener('click', (e) => {
             if (e.target === modal || e.target.id === 'close-settings-modal') this.toggle(false);
         });
@@ -7877,7 +7887,6 @@ function formatDataForSimpleWindow(flightProps, plan, routePoints, communityData
         if (!container) return;
 
         let html = '';
-
         switch(catId) {
             case 'airspace':
                 html = `
@@ -7905,16 +7914,15 @@ function formatDataForSimpleWindow(flightProps, plan, routePoints, communityData
             case 'visuals':
                 html = `
                     <div class="settings-row pro-feature-row" style="border-left: 3px solid #38bdf8; background: rgba(56, 189, 248, 0.05);">
-        <div class="row-label">
-            <i class="fa-solid fa-wand-magic-sparkles" style="color: #38bdf8;"></i> 
-            Custom Plane Color 
-            <span style="background: #38bdf8; color: #000; font-size: 0.6rem; padding: 2px 6px; border-radius: 4px; margin-left: 8px; font-weight: 800;">PRO</span>
-        </div>
-        <input type="color" id="set-pro-color" class="settings-color-input" value="${mapFilters.proCustomColor || '#38bdf8'}">
-    </div>
-    <p style="font-size: 0.65rem; color: #71717a; margin: -10px 0 12px 42px;">
-        Unlock arbitrary colors for all aircraft icons. (Coming Soon)
-    </p>
+                        <div class="row-label">
+                            <i class="fa-solid fa-wand-magic-sparkles" style="color: #38bdf8;"></i> Custom Plane Color
+                            <span style="background: #38bdf8; color: #000; font-size: 0.6rem; padding: 2px 6px; border-radius: 4px; margin-left: 8px; font-weight: 800;">PRO</span>
+                        </div>
+                        <input type="color" id="set-pro-color" class="settings-color-input" value="${mapFilters.proCustomColor || '#38bdf8'}">
+                    </div>
+                    <p style="font-size: 0.65rem; color: #71717a; margin: -10px 0 12px 42px;">
+                        Unlock arbitrary colors for all aircraft icons. (Coming Soon)
+                    </p>
 
                     <div class="settings-section">
                         <label class="config-header">Map & Assets</label>
@@ -7928,38 +7936,35 @@ function formatDataForSimpleWindow(flightProps, plan, routePoints, communityData
                         </div>
 
                         <div class="settings-section">
-            <label class="config-header">Map & Assets</label>
-            <div class="settings-row">
-                <div class="row-label"><i class="fa-solid fa-route"></i> North Atlantic Tracks</div>
-                <label class="toggle-switch">
-                    <input type="checkbox" id="set-nat-tracks" ${mapFilters.showNatTracks ? 'checked' : ''}>
-                    <span class="toggle-slider"></span>
-                </label>
-            </div>
-
-            <div class="settings-row">
-                <div class="row-label"><i class="fa-solid fa-font"></i> Track Labels</div>
-                <label class="toggle-switch">
-                    <input type="checkbox" id="set-nat-labels" ${mapFilters.showNatLabels ? 'checked' : ''}>
-                    <span class="toggle-slider"></span>
-                </label>
-            </div>
-
-            <div class="settings-row" style="margin-bottom: 4px;">
-                <div class="row-label">
-                    <i class="fa-solid fa-cube"></i> 
-                    3D Path Trail
-                    <span style="background: #f59e0b; color: #000; font-size: 0.6rem; padding: 2px 6px; border-radius: 4px; margin-left: 10px; font-weight: 800; letter-spacing: 0.5px;">EXPERIMENTAL</span>
-                </div>
-                <label class="toggle-switch">
-                    <input type="checkbox" id="setting-toggle-3dpath" ${mapFilters.show3DPath ? 'checked' : ''}>
-                    <span class="toggle-slider"></span>
-                </label>
-            </div>
-            <p style="font-size: 0.7rem; color: #71717a; margin: 0 0 12px 16px; line-height: 1.4;">
-                <i class="fa-solid fa-circle-info" style="font-size: 0.6rem; margin-right: 4px;"></i>
-                Note: This feature is experimental and may be broken at times.
-            </p>
+                        <label class="config-header">Map & Assets</label>
+                        <div class="settings-row">
+                            <div class="row-label"><i class="fa-solid fa-route"></i> North Atlantic Tracks</div>
+                            <label class="toggle-switch">
+                                <input type="checkbox" id="set-nat-tracks" ${mapFilters.showNatTracks ? 'checked' : ''}>
+                                <span class="toggle-slider"></span>
+                            </label>
+                        </div>
+                        <div class="settings-row">
+                            <div class="row-label"><i class="fa-solid fa-font"></i> Track Labels</div>
+                            <label class="toggle-switch">
+                                <input type="checkbox" id="set-nat-labels" ${mapFilters.showNatLabels ? 'checked' : ''}>
+                                <span class="toggle-slider"></span>
+                            </label>
+                        </div>
+                        <div class="settings-row" style="margin-bottom: 4px;">
+                            <div class="row-label">
+                                <i class="fa-solid fa-cube"></i> 3D Path Trail
+                                <span style="background: #f59e0b; color: #000; font-size: 0.6rem; padding: 2px 6px; border-radius: 4px; margin-left: 10px; font-weight: 800; letter-spacing: 0.5px;">EXPERIMENTAL</span>
+                            </div>
+                            <label class="toggle-switch">
+                                <input type="checkbox" id="setting-toggle-3dpath" ${mapFilters.show3DPath ? 'checked' : ''}>
+                                <span class="toggle-slider"></span>
+                            </label>
+                        </div>
+                        <p style="font-size: 0.7rem; color: #71717a; margin: 0 0 12px 16px; line-height: 1.4;">
+                            <i class="fa-solid fa-circle-info" style="font-size: 0.6rem; margin-right: 4px;"></i>
+                            Note: This feature is experimental and may be broken at times.
+                        </p>
 
                         <div class="settings-row">
                             <div class="row-label">Map Style</div>
@@ -7972,14 +7977,14 @@ function formatDataForSimpleWindow(flightProps, plan, routePoints, communityData
                             </div>
                         </div>
                         <div class="settings-row" style="flex-direction: column; align-items: flex-start; gap: 8px;">
-                <div style="display: flex; justify-content: space-between; width: 100%; align-items: center;">
-                    <div class="row-label"><i class="fa-solid fa-plane-up"></i> Aircraft Scale</div>
-                    <span id="plane-size-display" style="font-family: 'JetBrains Mono', monospace; color: #38bdf8; font-weight: 800; font-size: 0.9rem;">
-                        ${Math.round(mapFilters.planeIconSize * 100)}%
-                    </span>
-                </div>
-                <input type="range" id="set-plane-size" min="0.02" max="0.15" step="0.01" value="${mapFilters.planeIconSize}" style="width: 100%;">
-            </div>
+                            <div style="display: flex; justify-content: space-between; width: 100%; align-items: center;">
+                                <div class="row-label"><i class="fa-solid fa-plane-up"></i> Aircraft Scale</div>
+                                <span id="plane-size-display" style="font-family: 'JetBrains Mono', monospace; color: #38bdf8; font-weight: 800; font-size: 0.9rem;">
+                                    ${Math.round(mapFilters.planeIconSize * 100)}%
+                                </span>
+                            </div>
+                            <input type="range" id="set-plane-size" min="0.02" max="0.15" step="0.01" value="${mapFilters.planeIconSize}" style="width: 100%;">
+                        </div>
                         <div class="settings-row">
                             <div class="row-label">Icon Color</div>
                             <div class="input-wrapper select-wrapper">
@@ -8014,63 +8019,83 @@ function formatDataForSimpleWindow(flightProps, plan, routePoints, communityData
                     </div>
                 `;
                 break;
-            case 'pro_layers': // <--- NEW CASE
+            case 'pro_layers':
+                // <--- UPDATED PRO LAYERS SECTION --->
                 html = `
-                <div class="settings-section">
-                    <div class="pro-feature-banner" style="background: linear-gradient(90deg, rgba(56, 189, 248, 0.1), transparent); padding: 12px; border-left: 3px solid #38bdf8; margin-bottom: 20px; border-radius: 0 8px 8px 0;">
-                        <h4 style="margin: 0; color: #38bdf8; display: flex; align-items: center; gap: 8px;">
-                            <i class="fa-solid fa-star"></i> PRO MAP CONTROL
-                        </h4>
-                        <p style="margin: 4px 0 0 0; font-size: 0.75rem; color: #94a3b8;">
-                            Fully customize the base map elements to create a clean radar experience.
-                        </p>
-                    </div>
+                    <div class="settings-section">
+                        <div class="pro-feature-banner" style="background: linear-gradient(90deg, rgba(56, 189, 248, 0.1), transparent); padding: 12px; border-left: 3px solid #38bdf8; margin-bottom: 20px; border-radius: 0 8px 8px 0;">
+                            <h4 style="margin: 0; color: #38bdf8; display: flex; align-items: center; gap: 8px;">
+                                <i class="fa-solid fa-star"></i> PRO MAP CONTROL
+                            </h4>
+                            <p style="margin: 4px 0 0 0; font-size: 0.75rem; color: #94a3b8;">
+                                Fully customize the base map elements to create a clean radar experience.
+                            </p>
+                        </div>
+                        
+                        <label class="config-header">Base Map Elements</label>
+                        
+                        <div class="settings-row">
+                            <div class="row-label"><i class="fa-solid fa-earth-americas"></i> Political Borders</div>
+                            <label class="toggle-switch">
+                                <input type="checkbox" id="pro-toggle-borders" ${mapFilters.proMapConfig.showBorders ? 'checked' : ''}>
+                                <span class="toggle-slider"></span>
+                            </label>
+                        </div>
+                        <div class="settings-row">
+                            <div class="row-label"><i class="fa-solid fa-road"></i> Roads & Highways</div>
+                            <label class="toggle-switch">
+                                <input type="checkbox" id="pro-toggle-roads" ${mapFilters.proMapConfig.showRoads ? 'checked' : ''}>
+                                <span class="toggle-slider"></span>
+                            </label>
+                        </div>
+                        <div class="settings-row">
+                            <div class="row-label"><i class="fa-solid fa-font"></i> City & Place Labels</div>
+                            <label class="toggle-switch">
+                                <input type="checkbox" id="pro-toggle-labels" ${mapFilters.proMapConfig.showLabels ? 'checked' : ''}>
+                                <span class="toggle-slider"></span>
+                            </label>
+                        </div>
+                        <div class="settings-row">
+                            <div class="row-label"><i class="fa-solid fa-water"></i> Water Labels</div>
+                            <label class="toggle-switch">
+                                <input type="checkbox" id="pro-toggle-water-labels" ${mapFilters.proMapConfig.showWaterLabels ? 'checked' : ''}>
+                                <span class="toggle-slider"></span>
+                            </label>
+                        </div>
+                        <div class="settings-row">
+                            <div class="row-label"><i class="fa-solid fa-map-pin"></i> Points of Interest (POIs)</div>
+                            <label class="toggle-switch">
+                                <input type="checkbox" id="pro-toggle-pois" ${mapFilters.proMapConfig.showPois ? 'checked' : ''}>
+                                <span class="toggle-slider"></span>
+                            </label>
+                        </div>
 
-                    <label class="config-header">Base Map Elements</label>
-                    
-                    <div class="settings-row">
-                        <div class="row-label"><i class="fa-solid fa-earth-americas"></i> Political Borders</div>
-                        <label class="toggle-switch">
-                            <input type="checkbox" id="pro-toggle-borders" ${mapFilters.proMapConfig.showBorders ? 'checked' : ''}>
-                            <span class="toggle-slider"></span>
-                        </label>
-                    </div>
+                        <label class="config-header" style="margin-top: 20px;">Terrain & Detail</label>
 
-                    <div class="settings-row">
-                        <div class="row-label"><i class="fa-solid fa-road"></i> Roads & Highways</div>
-                        <label class="toggle-switch">
-                            <input type="checkbox" id="pro-toggle-roads" ${mapFilters.proMapConfig.showRoads ? 'checked' : ''}>
-                            <span class="toggle-slider"></span>
-                        </label>
+                        <div class="settings-row">
+                            <div class="row-label"><i class="fa-solid fa-mountain-sun"></i> Terrain Shading</div>
+                            <label class="toggle-switch">
+                                <input type="checkbox" id="pro-toggle-terrain" ${mapFilters.proMapConfig.showTerrain !== false ? 'checked' : ''}>
+                                <span class="toggle-slider"></span>
+                            </label>
+                        </div>
+                        <div class="settings-row">
+                            <div class="row-label"><i class="fa-solid fa-plane-arrival"></i> Airport Runways</div>
+                            <label class="toggle-switch">
+                                <input type="checkbox" id="pro-toggle-runways" ${mapFilters.proMapConfig.showRunways !== false ? 'checked' : ''}>
+                                <span class="toggle-slider"></span>
+                            </label>
+                        </div>
+                        <div class="settings-row">
+                            <div class="row-label"><i class="fa-solid fa-tree"></i> Land Use / Greenery</div>
+                            <label class="toggle-switch">
+                                <input type="checkbox" id="pro-toggle-landuse" ${mapFilters.proMapConfig.showLandUse !== false ? 'checked' : ''}>
+                                <span class="toggle-slider"></span>
+                            </label>
+                        </div>
                     </div>
-
-                    <div class="settings-row">
-                        <div class="row-label"><i class="fa-solid fa-font"></i> City & Place Labels</div>
-                        <label class="toggle-switch">
-                            <input type="checkbox" id="pro-toggle-labels" ${mapFilters.proMapConfig.showLabels ? 'checked' : ''}>
-                            <span class="toggle-slider"></span>
-                        </label>
-                    </div>
-
-                    <div class="settings-row">
-                        <div class="row-label"><i class="fa-solid fa-water"></i> Water Labels</div>
-                        <label class="toggle-switch">
-                            <input type="checkbox" id="pro-toggle-water-labels" ${mapFilters.proMapConfig.showWaterLabels ? 'checked' : ''}>
-                            <span class="toggle-slider"></span>
-                        </label>
-                    </div>
-
-                    <div class="settings-row">
-                        <div class="row-label"><i class="fa-solid fa-map-pin"></i> Points of Interest (POIs)</div>
-                        <label class="toggle-switch">
-                            <input type="checkbox" id="pro-toggle-pois" ${mapFilters.proMapConfig.showPois ? 'checked' : ''}>
-                            <span class="toggle-slider"></span>
-                        </label>
-                    </div>
-                </div>
                 `;
                 break;
-            
             case 'theme':
                 html = `
                     <div class="settings-section">
@@ -8092,100 +8117,101 @@ function formatDataForSimpleWindow(flightProps, plan, routePoints, communityData
                 `;
                 break;
         }
-
         container.innerHTML = html;
         this.attachConfigListeners();
     },
 
     attachConfigListeners() {
-            const update = (key, val) => {
-                mapFilters[key] = val;
-                saveFiltersToLocalStorage();
-                updateMapFilters();
-            };
+        const update = (key, val) => {
+            mapFilters[key] = val;
+            saveFiltersToLocalStorage();
+            updateMapFilters();
+        };
 
-            // --- 1. Define Pro Layer IDs (Fixes the undefined proIds error) ---
-            const proIds = {
-                'pro-toggle-borders': 'showBorders',
-                'pro-toggle-roads': 'showRoads',
-                'pro-toggle-labels': 'showLabels',
-                'pro-toggle-water-labels': 'showWaterLabels',
-                'pro-toggle-pois': 'showPois'
-            };
+        // --- 1. Define Pro Layer IDs (UPDATED) ---
+        const proIds = {
+            'pro-toggle-borders': 'showBorders',
+            'pro-toggle-roads': 'showRoads',
+            'pro-toggle-labels': 'showLabels',
+            'pro-toggle-water-labels': 'showWaterLabels',
+            'pro-toggle-pois': 'showPois',
+            'pro-toggle-terrain': 'showTerrain',   // NEW
+            'pro-toggle-runways': 'showRunways',   // NEW
+            'pro-toggle-landuse': 'showLandUse'    // NEW
+        };
 
-            // --- 2. Define General Settings IDs ---
-            const ids = {
-                'set-nat-tracks': 'showNatTracks',
-                'set-nat-labels': 'showNatLabels',
-                'setting-toggle-3dpath': 'show3DPath',
-                'set-hide-atc': 'hideAtcMarkers',
-                'set-show-unstaffed': 'showUnstaffedAirports',
-                'set-plane-size': 'planeIconSize',
-                'set-staff-only': 'showStaffOnly',
-                'set-va-only': 'showVaOnly',
-                'set-labels': 'showAircraftLabels',
-                'set-flat-map': 'useFlatMap',
-                'set-simple-win': 'useSimpleFlightWindow',
-                'set-map-style': 'mapStyle',
-                'set-icon-color': 'iconColorMode',
-                'set-plan-mode': 'planDisplayMode',
-                'set-theme-start': 'themeStartColor',
-                'set-theme-end': 'themeEndColor',
-                'set-theme-opacity': 'themeOpacity',
-                'set-pro-color': 'proCustomColor'
-            };
+        // --- 2. Define General Settings IDs ---
+        const ids = {
+            'set-nat-tracks': 'showNatTracks',
+            'set-nat-labels': 'showNatLabels',
+            'setting-toggle-3dpath': 'show3DPath',
+            'set-hide-atc': 'hideAtcMarkers',
+            'set-show-unstaffed': 'showUnstaffedAirports',
+            'set-plane-size': 'planeIconSize',
+            'set-staff-only': 'showStaffOnly',
+            'set-va-only': 'showVaOnly',
+            'set-labels': 'showAircraftLabels',
+            'set-flat-map': 'useFlatMap',
+            'set-simple-win': 'useSimpleFlightWindow',
+            'set-map-style': 'mapStyle',
+            'set-icon-color': 'iconColorMode',
+            'set-plan-mode': 'planDisplayMode',
+            'set-theme-start': 'themeStartColor',
+            'set-theme-end': 'themeEndColor',
+            'set-theme-opacity': 'themeOpacity',
+            'set-pro-color': 'proCustomColor'
+        };
 
-            // --- 3. Attach Pro Layer Listeners (Updates proMapConfig & calls Visibility function) ---
-            Object.entries(proIds).forEach(([id, key]) => {
-                const el = document.getElementById(id);
-                if (el) {
-                    el.addEventListener('change', (e) => {
-                        // Update the Nested Config State
-                        mapFilters.proMapConfig[key] = e.target.checked;
-                        
-                        // Save & Trigger Specific Update
-                        saveFiltersToLocalStorage();
-                        updateBaseMapLayerVisibility(); 
-                    });
-                }
-            });
-
-            // --- 4. Attach General Listeners (Updates root mapFilters & calls standard Update) ---
-            Object.entries(ids).forEach(([id, key]) => {
-                const el = document.getElementById(id);
-                if (!el) return;
-                el.addEventListener(el.type === 'checkbox' ? 'change' : 'input', (e) => {
-                    let val = el.type === 'checkbox' ? e.target.checked : e.target.value;
-                    // Ensure numeric inputs are converted to numbers
-                    if (el.type === 'range' || el.type === 'number') {
-                        val = parseFloat(val);
-                    }
-                    update(key, val);
-                });
-            });
-
-            // --- 5. Other Specific Listeners ---
-            const sizeSlider = document.getElementById('set-plane-size');
-            const sizeDisplay = document.getElementById('plane-size-display');
-            if (sizeSlider && sizeDisplay) {
-                sizeSlider.addEventListener('input', (e) => {
-                    const val = parseFloat(e.target.value);
-                    sizeDisplay.textContent = `${Math.round(val * 100)}%`;
-                    mapFilters.planeIconSize = val;
+        // --- 3. Attach Pro Layer Listeners (Updates proMapConfig & calls Visibility function) ---
+        Object.entries(proIds).forEach(([id, key]) => {
+            const el = document.getElementById(id);
+            if (el) {
+                el.addEventListener('change', (e) => {
+                    // Update the Nested Config State
+                    mapFilters.proMapConfig[key] = e.target.checked;
+                    // Save & Trigger Specific Update
                     saveFiltersToLocalStorage();
-                    updateMapFilters();
+                    updateBaseMapLayerVisibility();
                 });
             }
+        });
 
-            document.getElementById('set-theme-reset')?.addEventListener('click', () => {
-                mapFilters.themeStartColor = '#18181b';
-                mapFilters.themeEndColor = '#18181b';
-                mapFilters.themeOpacity = 90;
+        // --- 4. Attach General Listeners (Updates root mapFilters & calls standard Update) ---
+        Object.entries(ids).forEach(([id, key]) => {
+            const el = document.getElementById(id);
+            if (!el) return;
+            el.addEventListener(el.type === 'checkbox' ? 'change' : 'input', (e) => {
+                let val = el.type === 'checkbox' ? e.target.checked : e.target.value;
+                // Ensure numeric inputs are converted to numbers
+                if (el.type === 'range' || el.type === 'number') {
+                    val = parseFloat(val);
+                }
+                update(key, val);
+            });
+        });
+
+        // --- 5. Other Specific Listeners ---
+        const sizeSlider = document.getElementById('set-plane-size');
+        const sizeDisplay = document.getElementById('plane-size-display');
+        if (sizeSlider && sizeDisplay) {
+            sizeSlider.addEventListener('input', (e) => {
+                const val = parseFloat(e.target.value);
+                sizeDisplay.textContent = `${Math.round(val * 100)}%`;
+                mapFilters.planeIconSize = val;
                 saveFiltersToLocalStorage();
-                this.renderCategory('theme');
                 updateMapFilters();
             });
         }
+
+        document.getElementById('set-theme-reset')?.addEventListener('click', () => {
+            mapFilters.themeStartColor = '#18181b';
+            mapFilters.themeEndColor = '#18181b';
+            mapFilters.themeOpacity = 90;
+            saveFiltersToLocalStorage();
+            this.renderCategory('theme');
+            updateMapFilters();
+        });
+    }
 };
 
     async function initializeSectorOpsView() {
