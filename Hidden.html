@@ -314,9 +314,9 @@
             </div>
         </div>
 
-        <!-- Timer Section 2: Countdown to 3rd Anniversary -->
+        <!-- Timer Section 2: Countdown to Anniversary (Dynamic) -->
         <div class="timer-section countdown-style">
-            <div class="timer-title">Countdown to our 3rd Anniversary</div>
+            <div class="timer-title" id="anniversary-title">Countdown to our Anniversary</div>
             <div class="timer-container">
                 <div class="time-box"><span class="time-value" id="cd-days">0</span><span class="time-label">Days</span></div>
                 <div class="time-box"><span class="time-value" id="cd-hours">0</span><span class="time-label">Hours</span></div>
@@ -397,17 +397,23 @@
         });
 
 
-        /* --- 2. TIMER LOGIC (UPDATED) --- */
+        /* --- 2. TIMER LOGIC (UPDATED & DYNAMIC) --- */
         // START: Oct 16, 2023
         const startDate = new Date("October 16, 2023 00:00:00").getTime();
-        // 3RD ANNIVERSARY: Oct 16, 2026
-        const anniversaryDate = new Date("October 16, 2026 00:00:00").getTime();
+        
+        // Helper to get suffixes (1st, 2nd, 3rd, 4th...)
+        function getOrdinal(n) {
+            var s = ["th", "st", "nd", "rd"];
+            var v = n % 100;
+            return n + (s[(v - 20) % 10] || s[v] || s[0]);
+        }
 
         function updateTimers() {
-            const now = new Date().getTime();
+            const now = new Date();
+            const nowTime = now.getTime();
 
-            // Timer 1: Time Together (Past -> Now)
-            const diffTogether = now - startDate;
+            // --- A. Time Together (Past -> Now) ---
+            const diffTogether = nowTime - startDate;
             
             if (diffTogether > 0) {
                 document.getElementById("days").innerText = Math.floor(diffTogether / (1000 * 60 * 60 * 24));
@@ -416,8 +422,27 @@
                 document.getElementById("secs").innerText = Math.floor((diffTogether / 1000) % 60);
             }
 
-            // Timer 2: Countdown (Now -> Future)
-            const diffAnniversary = anniversaryDate - now;
+            // --- B. Dynamic Countdown (Now -> Future Anniversary) ---
+            const currentYear = now.getFullYear();
+            
+            // Create a date object for Oct 16 of the current year
+            // Note: Month 9 is October (0-indexed)
+            let nextAnnivDate = new Date(currentYear, 9, 16); 
+
+            // If we have already passed the anniversary this year, target next year
+            if (nowTime > nextAnnivDate.getTime()) {
+                nextAnnivDate.setFullYear(currentYear + 1);
+            }
+
+            // Calculate which anniversary it is
+            const yearsDiff = nextAnnivDate.getFullYear() - 2023;
+            const ordinal = getOrdinal(yearsDiff);
+            
+            // Update the title dynamically
+            document.getElementById('anniversary-title').innerText = `Countdown to our ${ordinal} Anniversary`;
+
+            // Calculate time difference
+            const diffAnniversary = nextAnnivDate.getTime() - nowTime;
 
             if (diffAnniversary > 0) {
                 document.getElementById("cd-days").innerText = Math.floor(diffAnniversary / (1000 * 60 * 60 * 24));
@@ -425,7 +450,7 @@
                 document.getElementById("cd-mins").innerText = Math.floor((diffAnniversary / 1000 / 60) % 60);
                 document.getElementById("cd-secs").innerText = Math.floor((diffAnniversary / 1000) % 60);
             } else {
-                // If the date has passed
+                // If it's the exact second of the anniversary
                 document.getElementById("cd-days").innerText = "0";
                 document.getElementById("cd-hours").innerText = "0";
                 document.getElementById("cd-mins").innerText = "0";
