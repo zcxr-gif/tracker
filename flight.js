@@ -7037,7 +7037,8 @@ const flownCoords = (routeRes.ok && routeJson.ok && Array.isArray(historyArray))
 
 /**
  * --- [NEW] PRO FEATURE: BASE MAP LAYER MANAGER ---
- * Dynamically toggles visibility of Mapbox base layers (Roads, Borders, Labels, Terrain, etc).
+ * Dynamically toggles visibility AND COLORS of Mapbox base layers.
+ * Now paints Taxiways YELLOW and Runways CONCRETE when enabled.
  */
 function updateBaseMapLayerVisibility() {
     if (!sectorOpsMap || !sectorOpsMap.getStyle()) return;
@@ -7048,41 +7049,56 @@ function updateBaseMapLayerVisibility() {
     layers.forEach(layer => {
         const id = layer.id.toLowerCase();
         
-        // Skip custom app layers (flight icons, routes, weather)
+        // Skip custom app layers
         if (id.includes('sector-ops') || id.includes('rainviewer') || id.includes('active-sectors')) return;
 
         let isVisible = true;
 
-        // 1. Political Borders (Admin boundaries)
+        // 1. Political Borders
         if (id.includes('admin') || id.includes('boundary')) {
             isVisible = config.showBorders;
         }
-        // 2. Roads & Transport (Roads, tunnels, bridges)
+        // 2. Roads & Transport
         else if (id.includes('road') || id.includes('tunnel') || id.includes('bridge') || id.includes('transit')) {
             isVisible = config.showRoads;
         }
-        // 3. POIs (Points of Interest icons)
+        // 3. POIs
         else if (id.includes('poi')) {
             isVisible = config.showPois;
         }
-        // 4. Water Labels (Ocean/Sea names)
+        // 4. Water Labels
         else if (id.includes('water') && (id.includes('label') || id.includes('text'))) {
             isVisible = config.showWaterLabels;
         }
-        // 5. [NEW] Terrain Hillshading
+        // 5. Terrain Hillshading
         else if (id.includes('hillshade')) {
             isVisible = (config.showTerrain !== false);
         }
-        // 6. [NEW] Airport Layout (Runways & Taxiways)
+        // 6. [UPDATED] Airport Layout (Runways & Taxiways) + COLORING
         else if (id.includes('aeroway') || id.includes('runway') || id.includes('taxiway')) {
-            // [RENAMED] Logic updated to match new config key
             isVisible = (config.showAirportLayout !== false);
+
+            // Apply "Chart Mode" colors if visible
+            if (isVisible) {
+                const type = layer.type;
+
+                // --- TAXIWAYS: YELLOW ---
+                if (id.includes('taxiway')) {
+                    if (type === 'line') sectorOpsMap.setPaintProperty(layer.id, 'line-color', '#FACC15'); // Bright Yellow
+                    if (type === 'fill') sectorOpsMap.setPaintProperty(layer.id, 'fill-color', '#FACC15');
+                } 
+                // --- RUNWAYS: CONCRETE / DARK ---
+                else if (id.includes('runway')) {
+                    if (type === 'line') sectorOpsMap.setPaintProperty(layer.id, 'line-color', '#52525b'); // Zinc-600 (Dark Grey Outline)
+                    if (type === 'fill') sectorOpsMap.setPaintProperty(layer.id, 'fill-color', '#27272a'); // Zinc-800 (Dark Asphalt)
+                }
+            }
         }
-        // 7. [NEW] Land Use (National Parks, Grass, Scrub, Forests)
+        // 7. Land Use
         else if (id.includes('landuse') || id.includes('landcover') || id.includes('national-park')) {
             isVisible = (config.showLandUse !== false);
         }
-        // 8. General Place Labels (Cities, Towns - exclude water/aeroways to avoid double toggle)
+        // 8. General Place Labels
         else if ((id.includes('label') || id.includes('text') || id.includes('place')) && !id.includes('water') && !id.includes('aeroway')) {
             isVisible = config.showLabels;
         }
@@ -7091,7 +7107,7 @@ function updateBaseMapLayerVisibility() {
         sectorOpsMap.setLayoutProperty(layer.id, 'visibility', isVisible ? 'visible' : 'none');
     });
 
-    console.log("Pro Map Layers Updated:", config);
+    console.log("Pro Map Layers Updated (Chart Mode Applied):", config);
 }
 
 /**
