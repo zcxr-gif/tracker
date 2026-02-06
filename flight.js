@@ -8735,110 +8735,107 @@ function onAtcDataReceived(newAtcData) {
 
     
 /**
-     * --- [UPDATED] Rebuilds all dynamic layers after a map style change.
-     * Ensures Volanta-style Radar, SIGMETs, and NAT Tracks are restored correctly.
-     */
-    function rebuildDynamicLayers() {
-        console.log("Rebuilding dynamic layers...");
+ * --- [UPDATED] Rebuilds all dynamic layers after a map style change.
+ * Ensures Volanta-style Radar, SIGMETs, and NAT Tracks are restored correctly.
+ */
+function rebuildDynamicLayers() {
+    console.log("Rebuilding dynamic layers...");
 
-        // 1. Re-apply FIR Boundaries (Boundaries usually wipe on style change)
-        if (typeof initializeMapBoundaries === 'function') {
-            initializeMapBoundaries(sectorOpsMap);
-        }
+    // 1. Re-apply FIR Boundaries (Boundaries usually wipe on style change)
+    if (typeof initializeMapBoundaries === 'function') {
+        initializeMapBoundaries(sectorOpsMap);
+    }
 
-        // 2. Re-apply NAT Tracks
-        if (window.globalNatTracks) {
-            // Re-initialize the source and layers for the new style
-            window.globalNatTracks.initSource();
-            
-            // Sync visibility and labels with current mapFilters state
-            window.globalNatTracks.setOptions({
-                showTracks: mapFilters.showNatTracks,
-                showLabels: mapFilters.showNatLabels
+    // 2. Re-apply NAT Tracks
+    if (window.globalNatTracks) {
+        // Re-initialize the source and layers for the new style
+        window.globalNatTracks.initSource();
+        // Sync visibility and labels with current mapFilters state
+        window.globalNatTracks.setOptions({
+            showTracks: mapFilters.showNatTracks,
+            showLabels: mapFilters.showNatLabels
+        });
+        // Trigger the render to add them to the map
+        window.globalNatTracks.render();
+        console.log("NAT Tracks restored.");
+    }
+
+    // 3. Re-apply SIGMETS (Volanta Style)
+    if (document.getElementById('weather-toggle-sigmets')?.checked) {
+        isSigmetLayerAdded = false; // Force re-fetch/re-add
+        toggleSigmetLayer(true);
+    }
+
+    // 4. Re-apply Radar (Precip - RainViewer)
+    if (document.getElementById('weather-toggle-precip')?.checked) {
+        isWeatherLayerAdded = false;
+        toggleWeatherLayer(true);
+    }
+
+    // 5. Re-apply Clouds
+    if (document.getElementById('weather-toggle-clouds')?.checked) {
+        isCloudLayerAdded = false; // Force re-creation
+        toggleCloudLayer(true);
+    }
+
+    // 6. Re-apply Wind
+    if (document.getElementById('weather-toggle-wind')?.checked) {
+        isWindLayerAdded = false; // Force re-creation
+        toggleWindLayer(true);
+    }
+
+    // 7. Re-apply airport routes
+    if (currentAirportInWindow) {
+        plotRoutesFromAirport(currentAirportInWindow);
+    }
+
+    // 8. Re-apply active flight trail
+    if (currentFlightInWindow) {
+        const flightId = currentFlightInWindow;
+        clearLiveFlightPath(flightId);
+        delete sectorOpsLiveFlightPathLayers[flightId];
+
+        const { flightProps, plan } = cachedFlightDataForStatsView;
+
+        // Inside rebuildDynamicLayers() -> section 8 (active flight trail)
+        if (flightProps) {
+            const localTrail = liveTrailCache.get(flightId) || [];
+            const currentPosition = currentAircraftPositionForGeocode || flightProps.position;
+
+            const routeFeature = generateAltitudeColoredRoute(localTrail, currentPosition, plan);
+
+            sectorOpsMap.addSource(`flown-path-${flightId}`, {
+                type: 'geojson',
+                data: routeFeature,
+                lineMetrics: true // CRITICAL for gradients
             });
 
-            // Trigger the render to add them to the map
-            window.globalNatTracks.render();
-            console.log("NAT Tracks restored.");
+            sectorOpsMap.addLayer({
+                id: `flown-path-${flightId}`,
+                type: 'line',
+                source: `flown-path-${flightId}`,
+                paint: {
+                    'line-width': 2,
+                    'line-opacity': 0.85,
+                    'line-blur': 3, // <--- ADDED GLOW EFFECT
+                    'line-gradient': [
+                        'interpolate',
+                        ['linear'],
+                        ['line-progress'],
+                        0.0, '#FFCC80', // Start / Ground: Light Orange
+                        0.1, '#FFF59D', // Initial Climb: Yellow
+                        0.4, '#81D4FA', // Enroute / Mid: Light Blue
+                        1.0, '#1565C0' // Current / High: Dark Blue
+                    ]
+                }
+            }, 'sector-ops-live-flights-layer');
+
+            sectorOpsLiveFlightPathLayers[flightId] = {
+                flown: `flown-path-${flightId}`
+            };
         }
-
-        // 3. Re-apply SIGMETS (Volanta Style)
-        if (document.getElementById('weather-toggle-sigmets')?.checked) {
-            isSigmetLayerAdded = false; // Force re-fetch/re-add
-            toggleSigmetLayer(true);
-        }
-
-        // 4. Re-apply Radar (Precip - RainViewer)
-        if (document.getElementById('weather-toggle-precip')?.checked) {
-            isWeatherLayerAdded = false; 
-            toggleWeatherLayer(true);
-        }
-
-        // 5. Re-apply Clouds
-        if (document.getElementById('weather-toggle-clouds')?.checked) {
-            isCloudLayerAdded = false; // Force re-creation
-            toggleCloudLayer(true);
-        }
-
-        // 6. Re-apply Wind
-        if (document.getElementById('weather-toggle-wind')?.checked) {
-            isWindLayerAdded = false; // Force re-creation
-            toggleWindLayer(true);
-        }
-
-        // 7. Re-apply airport routes
-        if (currentAirportInWindow) {
-            plotRoutesFromAirport(currentAirportInWindow);
-        }
-
-        // 8. Re-apply active flight trail
-        if (currentFlightInWindow) {
-            const flightId = currentFlightInWindow;
-            
-            clearLiveFlightPath(flightId); 
-            delete sectorOpsLiveFlightPathLayers[flightId]; 
-
-            const { flightProps, plan } = cachedFlightDataForStatsView;
-            // Inside rebuildDynamicLayers() -> section 8 (active flight trail)
-if (flightProps) {
-    const localTrail = liveTrailCache.get(flightId) || [];
-    const currentPosition = currentAircraftPositionForGeocode || flightProps.position;
-    const routeFeature = generateAltitudeColoredRoute(localTrail, currentPosition, plan);
-
-    sectorOpsMap.addSource(`flown-path-${flightId}`, { 
-        type: 'geojson', 
-        data: routeFeature,
-        lineMetrics: true // CRITICAL for gradients
-    });
-
-    sectorOpsMap.addLayer({
-        id: `flown-path-${flightId}`,
-        type: 'line',
-        source: `flown-path-${flightId}`,
-        paint: {
-            'line-width': 4,
-            'line-opacity': 0.9,
-            'line-gradient': [
-                'interpolate',
-                ['linear'],
-                ['line-progress'],
-                0, '#e6e600', // Start
-                0.5, '#ff3300', // Mid
-                1, '#9400D3' // Current
-            ]
-        }
-    }, 'sector-ops-live-flights-layer');
-
-    sectorOpsLiveFlightPathLayers[flightId] = { flown: `flown-path-${flightId}` };
-}
-        }
-        
-        // 9. Re-apply aircraft filters
-        updateAircraftLayerFilter();
-
-        // 10. Re-render airport markers
-        renderAirportMarkers();
     }
+}
 
 /**
  * --- [MODIFIED] Draws or updates the filed flight plan layers (direct or full)
@@ -9345,13 +9342,13 @@ async function handleAircraftClick(flightProps, sessionId, event = null) {
     if (event && sectorOpsMap) {
         const airportFeatures = sectorOpsMap.queryRenderedFeatures(event.point, {
             // Adjust 'airport-symbols-layer' to match your specific airport layer ID
-            layers: ['airport-symbols-layer', 'airport-label-layer'] 
+            layers: ['airport-symbols-layer', 'airport-label-layer']
         });
 
         if (airportFeatures.length > 0) {
             // An airport is here! Yield to the airport click handler and stop aircraft logic.
             console.log("Airport detected at click point, prioritizing airport over aircraft.");
-            return; 
+            return;
         }
     }
 
@@ -9372,8 +9369,14 @@ async function handleAircraftClick(flightProps, sessionId, event = null) {
     isAircraftWindowLoading = true;
 
     // Reset Intervals and State
-    if (activePfdUpdateInterval) { clearInterval(activePfdUpdateInterval); activePfdUpdateInterval = null; }
-    if (activeGeocodeUpdateInterval) { clearInterval(activeGeocodeUpdateInterval); activeGeocodeUpdateInterval = null; }
+    if (activePfdUpdateInterval) {
+        clearInterval(activePfdUpdateInterval);
+        activePfdUpdateInterval = null;
+    }
+    if (activeGeocodeUpdateInterval) {
+        clearInterval(activeGeocodeUpdateInterval);
+        activeGeocodeUpdateInterval = null;
+    }
     if (typeof resetPfdState === 'function') resetPfdState();
 
     if (currentFlightInWindow && currentFlightInWindow !== flightProps.flightId) {
@@ -9390,6 +9393,7 @@ async function handleAircraftClick(flightProps, sessionId, event = null) {
     } else {
         aircraftInfoWindow.classList.add('visible');
     }
+
     if (typeof aircraftInfoWindowRecallBtn !== 'undefined' && aircraftInfoWindowRecallBtn) {
         aircraftInfoWindowRecallBtn.classList.remove('visible');
     }
@@ -9407,7 +9411,7 @@ async function handleAircraftClick(flightProps, sessionId, event = null) {
     try {
         const acName = flightProps.aircraft?.aircraftName || '';
         const livName = flightProps.aircraft?.liveryName || '';
-        
+
         const [planRes, routeRes, aircraftLookupRes] = await Promise.all([
             fetch(`${LIVE_FLIGHTS_API_URL}/${sessionId}/${flightProps.flightId}/plan`),
             fetch(`${LIVE_FLIGHTS_API_URL.replace('/flights', '/api/flights')}/${flightProps.flightId}/history`),
@@ -9420,32 +9424,38 @@ async function handleAircraftClick(flightProps, sessionId, event = null) {
         let communityAircraftData = aircraftLookupRes.ok ? await aircraftLookupRes.json() : null;
 
         let sortedRoutePoints = [];
-// Updated to check for the new .path property from the history endpoint
-const historyArray = routeData?.path || routeData?.route || [];
-
-if (routeData && routeData.ok && Array.isArray(historyArray)) {
-    sortedRoutePoints = historyArray.sort((a, b) => new Date(a.date) - new Date(b.date));
-}
+        // Updated to check for the new .path property from the history endpoint
+        const historyArray = routeData?.path || routeData?.route || [];
+        if (routeData && routeData.ok && Array.isArray(historyArray)) {
+            sortedRoutePoints = historyArray.sort((a, b) => new Date(a.date) - new Date(b.date));
+        }
 
         if (typeof liveTrailCache !== 'undefined') liveTrailCache.set(flightProps.flightId, sortedRoutePoints);
-        cachedFlightDataForStatsView = { flightProps, plan };
+
+        cachedFlightDataForStatsView = {
+            flightProps,
+            plan
+        };
 
         if (typeof FlownPath3D !== 'undefined') {
-    FlownPath3D.updatePath(
-        sectorOpsMap, 
-        flightProps.flightId, 
-        sortedRoutePoints, 
-        mapFilters.show3DPath
-    );
-}
+            FlownPath3D.updatePath(
+                sectorOpsMap,
+                flightProps.flightId,
+                sortedRoutePoints,
+                mapFilters.show3DPath
+            );
+        }
 
         // Render UI
         if (typeof mapFilters !== 'undefined' && mapFilters.useSimpleFlightWindow) {
             windowEl.style.width = '420px';
             windowEl.innerHTML = `<iframe id="simple-flight-window-frame" src="flightinfo.html" style="width:100%; flex-grow: 1; border:none;" scrolling="no"></iframe>`;
+            
             const simpleData = formatDataForSimpleWindow(flightProps, plan, sortedRoutePoints, communityAircraftData);
+            
             const iframe = document.getElementById('simple-flight-window-frame');
             iframe.onload = () => iframe.contentWindow.postMessage({ type: 'FLIGHT_DATA_UPDATE', payload: simpleData }, '*');
+
         } else if (typeof populateAircraftInfoWindow === 'function') {
             populateAircraftInfoWindow(flightProps, plan, sortedRoutePoints, communityAircraftData);
         }
@@ -9454,64 +9464,67 @@ if (routeData && routeData.ok && Array.isArray(historyArray)) {
         if (typeof fetchAndDisplayGeocode === 'function') {
             fetchAndDisplayGeocode(flightProps.position.lat, flightProps.position.lon);
         }
-        
+
         let rawCoords = sortedRoutePoints.map(p => [p.lon ?? p.longitude, p.lat ?? p.latitude]);
-rawCoords.push([flightProps.position.lon, flightProps.position.lat]);
+        rawCoords.push([flightProps.position.lon, flightProps.position.lat]);
 
-// 2. Process for map stability (Unwrap Date Line + Densify for Globe)
-// Use your existing helper functions from the script
-const unwrappedCoords = unwrapLineCoordinates(rawCoords);
-const sortedCoordinates = densifyRoute(unwrappedCoords, 100); 
+        // 2. Process for map stability (Unwrap Date Line + Densify for Globe)
+        // Use your existing helper functions from the script
+        const unwrappedCoords = unwrapLineCoordinates(rawCoords);
+        const sortedCoordinates = densifyRoute(unwrappedCoords, 100);
 
-// 3. Add the Single-Source with lineMetrics enabled
-const flownLayerId = `flown-path-${flightProps.flightId}`;
-if (!sectorOpsMap.getSource(flownLayerId)) {
-    sectorOpsMap.addSource(flownLayerId, {
-        type: 'geojson',
-        data: {
-            type: 'Feature',
-            geometry: {
-                type: 'LineString',
-                coordinates: sortedCoordinates
-            }
-        },
-        lineMetrics: true // REQUIRED for gradients
-    });
+        // 3. Add the Single-Source with lineMetrics enabled
+        const flownLayerId = `flown-path-${flightProps.flightId}`;
 
-    // 4. Add the Gradient Layer
-    sectorOpsMap.addLayer({
-        id: flownLayerId,
-        type: 'line',
-        source: flownLayerId,
-        paint: {
-            'line-width': 2, 
-    // Slightly more transparent for a lighter feel
-    'line-opacity': 0.85, 
-    'line-gradient': [
-        'interpolate',
-        ['linear'],
-        ['line-progress'],
-        0.0, '#FFCC80', // Start / Ground: Light Orange
-        0.1, '#FFF59D', // Initial Climb: Yellow
-        0.4, '#81D4FA', // Enroute / Mid: Light Blue
-        1.0, '#1565C0'  // Current / High: Dark Blue
-    ]
-        }
-    }, 'sector-ops-live-flights-layer');
+        if (!sectorOpsMap.getSource(flownLayerId)) {
+            sectorOpsMap.addSource(flownLayerId, {
+                type: 'geojson',
+                data: {
+                    type: 'Feature',
+                    geometry: {
+                        type: 'LineString',
+                        coordinates: sortedCoordinates
+                    }
+                },
+                lineMetrics: true // REQUIRED for gradients
+            });
+
+            // 4. Add the Gradient Layer
+            sectorOpsMap.addLayer({
+                id: flownLayerId,
+                type: 'line',
+                source: flownLayerId,
+                paint: {
+                    'line-width': 2, // Slightly more transparent for a lighter feel
+                    'line-opacity': 0.85,
+                    'line-blur': 3,  // <--- ADDED GLOW EFFECT
+                    'line-gradient': [
+                        'interpolate',
+                        ['linear'],
+                        ['line-progress'],
+                        0.0, '#FFCC80', // Start / Ground: Light Orange
+                        0.1, '#FFF59D', // Initial Climb: Yellow
+                        0.4, '#81D4FA', // Enroute / Mid: Light Blue
+                        1.0, '#1565C0'  // Current / High: Dark Blue
+                    ]
+                }
+            }, 'sector-ops-live-flights-layer');
+
             if (typeof sectorOpsLiveFlightPathLayers !== 'undefined') {
-    // FIX: Use assignment that preserves other keys in the object
-    if (!sectorOpsLiveFlightPathLayers[flightProps.flightId]) {
-        sectorOpsLiveFlightPathLayers[flightProps.flightId] = {};
-    }
-    sectorOpsLiveFlightPathLayers[flightProps.flightId].flown = flownLayerId;
-}
+                // FIX: Use assignment that preserves other keys in the object
+                if (!sectorOpsLiveFlightPathLayers[flightProps.flightId]) {
+                    sectorOpsLiveFlightPathLayers[flightProps.flightId] = {};
+                }
+                sectorOpsLiveFlightPathLayers[flightProps.flightId].flown = flownLayerId;
+            }
         }
-        
+
         if (plan && typeof updateFlightPlanLayer === 'function') {
             updateFlightPlanLayer(flightProps.flightId, plan, flightProps.position);
         }
 
         isAircraftWindowLoading = false;
+
     } catch (error) {
         console.error("Error fetching aircraft details:", error);
         closeAircraftWindow();
