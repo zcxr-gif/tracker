@@ -7096,8 +7096,8 @@ function updatePro3DLayers() {
 }
 
 /**
- * --- PRO Day/Night Terminator ---
- * Features: High-res geometry, Twilight gradient blur, Date-line glitch protection.
+ * --- PRO Day/Night Terminator & City Lights ---
+ * Features: High-res geometry, Twilight gradient blur, NASA City Lights Layer.
  */
 let dayNightInterval = null;
 
@@ -7106,14 +7106,45 @@ function updateDayNightTerminator() {
     if (!sectorOpsMap) return;
 
     const sourceId = 'day-night-source';
+    const lightsSourceId = 'city-lights-source';
     const fillLayerId = 'day-night-fill';   // The solid night
     const glowLayerId = 'day-night-glow';   // The twilight fade
+    const lightsLayerId = 'city-lights-layer'; // NASA Black Marble
 
     // Check if the user wants to see it
     const isVisible = mapFilters.proMapConfig.showDayNight;
 
     if (isVisible) {
-        // 1. Create Source if it doesn't exist
+        // --- 1. ADD CITY LIGHTS (NASA VIIRS) ---
+        if (!sectorOpsMap.getSource(lightsSourceId)) {
+            sectorOpsMap.addSource(lightsSourceId, {
+                'type': 'raster',
+                'tiles': [
+                    // NASA GIBS VIIRS City Lights 2012
+                    'https://map1.vis.earthdata.nasa.gov/wmts-webmerc/VIIRS_CityLights_2012/default/2012-03-14/GoogleMapsCompatible_Level8/{z}/{y}/{x}.jpg'
+                ],
+                'tileSize': 256,
+                'maxzoom': 8 // Resolution limit of this specific dataset
+            });
+
+            // Add the Lights Layer
+            // We insert it BEFORE the aircraft layer so planes fly OVER the lights
+            // We insert it BEFORE the day-night-fill so the shadow dims it slightly (blending it in)
+            sectorOpsMap.addLayer({
+                'id': lightsLayerId,
+                'type': 'raster',
+                'source': lightsSourceId,
+                'paint': {
+                    'raster-opacity': 0.6, // Adjust brightness of lights
+                    'raster-fade-duration': 0,
+                    'raster-saturation': 1.0 // Boost colors
+                }
+            }, 'sector-ops-live-flights-layer'); 
+        } else {
+            sectorOpsMap.setLayoutProperty(lightsLayerId, 'visibility', 'visible');
+        }
+
+        // --- 2. ADD TERMINATOR GEOMETRY ---
         if (!sectorOpsMap.getSource(sourceId)) {
             sectorOpsMap.addSource(sourceId, {
                 type: 'geojson',
@@ -7121,40 +7152,38 @@ function updateDayNightTerminator() {
             });
 
             // LAYER A: The Deep Night (Fill)
-            // Placed at the very bottom so it covers water/land but sits under routes
             sectorOpsMap.addLayer({
                 id: fillLayerId,
                 type: 'fill',
                 source: sourceId,
                 paint: {
-                    'fill-color': '#020617', // Deep Navy/Black (Slate-950)
-                    'fill-opacity': 0.45     // Subtle darkness
+                    'fill-color': '#020617', // Deep Navy/Black
+                    'fill-opacity': 0.50     // Dark enough to see, transparent enough for lights
                 }
             }, 'sector-ops-live-flights-layer'); // Ensure it's below planes
 
             // LAYER B: The Twilight (Blurred Line)
-            // This creates the soft fade at the edge of darkness
             sectorOpsMap.addLayer({
                 id: glowLayerId,
                 type: 'line',
                 source: sourceId,
                 layout: { 'line-join': 'round', 'line-cap': 'round' },
                 paint: {
-                    'line-color': '#020617', // Match the fill color
-                    'line-width': 45,        // Wide stroke
-                    'line-blur': 30,         // Heavy blur creates the gradient
-                    'line-opacity': 0.4
+                    'line-color': '#0f172a', // Matches fill
+                    'line-width': 50,        // Wider fade
+                    'line-blur': 40,         // Maximum blur for gradient effect
+                    'line-opacity': 0.5
                 }
             }, fillLayerId); // Sit right on top of the fill
         } 
-        // 2. If it exists, just ensure it's visible and updated
         else {
+            // Update Visibility if already exists
             sectorOpsMap.setLayoutProperty(fillLayerId, 'visibility', 'visible');
             sectorOpsMap.setLayoutProperty(glowLayerId, 'visibility', 'visible');
             sectorOpsMap.getSource(sourceId).setData(generateAccurateTerminator());
         }
 
-        // 3. Auto-update every minute (Sun moves!)
+        // --- 3. Auto-update every minute (Sun moves!) ---
         if (!dayNightInterval) {
             dayNightInterval = setInterval(() => {
                 if (sectorOpsMap.getSource(sourceId)) {
@@ -7164,11 +7193,11 @@ function updateDayNightTerminator() {
         }
 
     } else {
-        // Hide if disabled
+        // --- HIDE EVERYTHING IF DISABLED ---
         if (sectorOpsMap.getLayer(fillLayerId)) sectorOpsMap.setLayoutProperty(fillLayerId, 'visibility', 'none');
         if (sectorOpsMap.getLayer(glowLayerId)) sectorOpsMap.setLayoutProperty(glowLayerId, 'visibility', 'none');
-        
-        // Kill the timer to save resources
+        if (sectorOpsMap.getLayer(lightsLayerId)) sectorOpsMap.setLayoutProperty(lightsLayerId, 'visibility', 'none');
+
         if (dayNightInterval) {
             clearInterval(dayNightInterval);
             dayNightInterval = null;
@@ -7251,6 +7280,38 @@ function generateAccurateTerminator() {
             coordinates: [coords]
         }
     };
+}
+
+/**
+ * --- [NEW] Visual Upgrade: Atmosphere & Fog ---
+ * Adds a realistic horizon and sky to the map.
+ * Call this ONCE inside initializeSectorOpsView()
+ */
+function configureProAtmosphere() {
+    if (!sectorOpsMap) return;
+
+    // 1. Add "Pro" Fog (Blends the horizon so it's not a sharp line)
+    sectorOpsMap.setFog({
+        'range': [0.5, 10],
+        'color': 'white',
+        'horizon-blend': 0.1,
+        'high-color': '#245cdf', // Deep blue sky at high angles
+        'space-color': '#020617', // Starry black background
+        'star-intensity': 0.4     // Visible stars
+    });
+
+    // 2. Add the Sky Layer (Gradient Blue) if it doesn't exist
+    if (!sectorOpsMap.getLayer('sky-layer')) {
+        sectorOpsMap.addLayer({
+            'id': 'sky-layer',
+            'type': 'sky',
+            'paint': {
+                'sky-type': 'atmosphere', // Realistic physics-based sky
+                'sky-atmosphere-sun': [90, 0], // Sun fixed at noon (for lighting consistency)
+                'sky-atmosphere-halo-color': 'rgba(255, 255, 255, 0.5)'
+            }
+        });
+    }
 }
 
 /**
