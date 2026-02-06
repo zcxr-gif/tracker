@@ -119,7 +119,8 @@
 
         /* --- LAYOUT --- */
         .wrapper {
-            z-index: 1; width: 100%; max-width: 900px; padding: 80px 20px 40px 20px;
+            z-index: 1; width: 100%; max-width: 1100px; /* Increased width to fit bigger gallery */
+            padding: 80px 20px 40px 20px;
             display: flex; flex-direction: column; align-items: center;
         }
 
@@ -135,8 +136,25 @@
         h1 { font-family: 'Playfair Display', serif; font-size: 4rem; margin: 0; color: #3e2723; }
         .subtitle { font-size: 1.1rem; color: #5d4037; font-style: italic; margin-top: 10px; border-top: 2px dashed #8d6e63; padding-top: 10px; display: inline-block; }
 
-        /* --- TIMER --- */
-        .timer-container { display: flex; justify-content: center; gap: 20px; margin-bottom: 60px; flex-wrap: wrap; }
+        /* --- TIMERS --- */
+        .timer-section {
+            width: 100%;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            margin-bottom: 60px;
+        }
+        
+        .timer-title {
+            color: #d7ccc8;
+            font-family: 'Playfair Display', serif;
+            font-size: 1.5rem;
+            margin-bottom: 15px;
+            text-align: center;
+            text-shadow: 1px 1px 3px black;
+        }
+
+        .timer-container { display: flex; justify-content: center; gap: 20px; flex-wrap: wrap; margin-bottom: 30px; }
         .time-box {
             background: linear-gradient(to bottom, #6d4c41, #5d4037); border: 2px solid #3e2723;
             padding: 15px 25px; border-radius: 8px; min-width: 90px; text-align: center;
@@ -145,16 +163,28 @@
         .time-value { font-size: 2.2rem; font-weight: 700; display: block; color: #fff8e1; font-family: 'Playfair Display', serif; }
         .time-label { font-size: 0.8rem; text-transform: uppercase; letter-spacing: 2px; color: #d7ccc8; margin-top: 5px; }
 
+        /* Specific style for countdown to differentiate */
+        .countdown-style .time-box {
+            background: linear-gradient(to bottom, #4e342e, #3e2723);
+            border-color: #ffb74d;
+        }
+        .countdown-style .time-value { color: #ffe0b2; }
+
+
         /* --- GALLERY --- */
         .gallery-section { width: 100%; margin-bottom: 60px; position: relative; }
         h2 { font-family: 'Playfair Display', serif; font-size: 3rem; text-align: center; margin-bottom: 40px; color: var(--parchment); text-shadow: 2px 2px 4px rgba(0,0,0,0.8); }
         
-        .gallery-grid { display: flex; flex-wrap: wrap; justify-content: center; gap: 30px; }
+        .gallery-grid { display: flex; flex-wrap: wrap; justify-content: center; gap: 40px; }
         
         .polaroid {
-            background: white; padding: 12px 12px 45px 12px;
+            background: white; padding: 15px 15px 55px 15px;
             box-shadow: 0 10px 20px var(--shadow); transform: rotate(var(--rotation));
-            transition: all 0.4s ease; width: 180px; height: 230px; position: relative; cursor: pointer;
+            transition: all 0.4s ease; 
+            /* UPDATED: Bigger Dimensions */
+            width: 280px; 
+            height: 360px; 
+            position: relative; cursor: pointer;
         }
         .polaroid::after {
             content: ''; position: absolute; top: -10px; left: 50%; width: 12px; height: 12px;
@@ -225,11 +255,14 @@
         .modal-wood input[type="file"] { margin-bottom: 15px; }
         .modal-btn-group { display: flex; gap: 10px; justify-content: center; }
 
-        @media (max-width: 600px) {
+        @media (max-width: 650px) {
             h1 { font-size: 3rem; }
-            .polaroid { width: 45%; height: 180px; }
+            /* On mobile, let them fit 1 per row or scale down if screen is tiny */
+            .polaroid { width: 85%; height: auto; aspect-ratio: 3/4; }
             .bucket-container { padding: 20px; }
             .lightrope li { margin: 10px; }
+            .time-box { min-width: 70px; padding: 10px; }
+            .time-value { font-size: 1.5rem; }
         }
     </style>
 </head>
@@ -266,15 +299,30 @@
     <div class="wrapper">
         <header>
             <h1>Antony & Ashley</h1>
-            <div class="subtitle">Together since Nov 16, 2024</div>
+            <!-- UPDATED DATE -->
+            <div class="subtitle">Together since Oct 16, 2023</div>
         </header>
 
-        <!-- Timer -->
-        <div class="timer-container">
-            <div class="time-box"><span class="time-value" id="days">0</span><span class="time-label">Days</span></div>
-            <div class="time-box"><span class="time-value" id="hours">0</span><span class="time-label">Hours</span></div>
-            <div class="time-box"><span class="time-value" id="mins">0</span><span class="time-label">Mins</span></div>
-            <div class="time-box"><span class="time-value" id="secs">0</span><span class="time-label">Secs</span></div>
+        <!-- Timer Section 1: Time Together -->
+        <div class="timer-section">
+            <div class="timer-title">Time we've been loving each other</div>
+            <div class="timer-container">
+                <div class="time-box"><span class="time-value" id="days">0</span><span class="time-label">Days</span></div>
+                <div class="time-box"><span class="time-value" id="hours">0</span><span class="time-label">Hours</span></div>
+                <div class="time-box"><span class="time-value" id="mins">0</span><span class="time-label">Mins</span></div>
+                <div class="time-box"><span class="time-value" id="secs">0</span><span class="time-label">Secs</span></div>
+            </div>
+        </div>
+
+        <!-- Timer Section 2: Countdown to 3rd Anniversary -->
+        <div class="timer-section countdown-style">
+            <div class="timer-title">Countdown to our 3rd Anniversary</div>
+            <div class="timer-container">
+                <div class="time-box"><span class="time-value" id="cd-days">0</span><span class="time-label">Days</span></div>
+                <div class="time-box"><span class="time-value" id="cd-hours">0</span><span class="time-label">Hours</span></div>
+                <div class="time-box"><span class="time-value" id="cd-mins">0</span><span class="time-label">Mins</span></div>
+                <div class="time-box"><span class="time-value" id="cd-secs">0</span><span class="time-label">Secs</span></div>
+            </div>
         </div>
 
         <!-- Gallery -->
@@ -326,25 +374,12 @@
 
     <script>
         /* --- 1. LOGIN SYSTEM (OFFLINE SAFE) --- */
-        // This calculates a hash so the raw password isn't visible in the code.
-        function getHash(str) {
-            let hash = 0;
-            if (str.length === 0) return hash;
-            for (let i = 0; i < str.length; i++) {
-                const char = str.charCodeAt(i);
-                // Standard bitwise hash arithmetic
-                hash = ((hash << 5) - hash) + char;
-                hash = hash & hash; // Convert to 32bit integer
-            }
-            return hash.toString();
-        }
-
         function attemptLogin() {
             const input = document.getElementById('passAttempt').value;
             const errorMsg = document.getElementById('error-msg');
             
-            // Directly checking the password to ensure it works for you
-            if (input === "11162024") {
+            // UPDATED PASSWORD: Oct 16, 2023 -> 10162023
+            if (input === "10162023") {
                 // Success! Fade out lock screen
                 const screen = document.getElementById('login-screen');
                 screen.style.opacity = "0";
@@ -362,29 +397,54 @@
         });
 
 
-        /* --- 2. TIMER LOGIC --- */
-        const startDate = new Date("November 16, 2024 00:00:00");
-        function updateTimer() {
-            const now = new Date();
-            const diff = now - startDate;
-            document.getElementById("days").innerText = Math.floor(diff / (1000 * 60 * 60 * 24));
-            document.getElementById("hours").innerText = Math.floor((diff / (1000 * 60 * 60)) % 24);
-            document.getElementById("mins").innerText = Math.floor((diff / 1000 / 60) % 60);
-            document.getElementById("secs").innerText = Math.floor((diff / 1000) % 60);
+        /* --- 2. TIMER LOGIC (UPDATED) --- */
+        // START: Oct 16, 2023
+        const startDate = new Date("October 16, 2023 00:00:00").getTime();
+        // 3RD ANNIVERSARY: Oct 16, 2026
+        const anniversaryDate = new Date("October 16, 2026 00:00:00").getTime();
+
+        function updateTimers() {
+            const now = new Date().getTime();
+
+            // Timer 1: Time Together (Past -> Now)
+            const diffTogether = now - startDate;
+            
+            if (diffTogether > 0) {
+                document.getElementById("days").innerText = Math.floor(diffTogether / (1000 * 60 * 60 * 24));
+                document.getElementById("hours").innerText = Math.floor((diffTogether / (1000 * 60 * 60)) % 24);
+                document.getElementById("mins").innerText = Math.floor((diffTogether / 1000 / 60) % 60);
+                document.getElementById("secs").innerText = Math.floor((diffTogether / 1000) % 60);
+            }
+
+            // Timer 2: Countdown (Now -> Future)
+            const diffAnniversary = anniversaryDate - now;
+
+            if (diffAnniversary > 0) {
+                document.getElementById("cd-days").innerText = Math.floor(diffAnniversary / (1000 * 60 * 60 * 24));
+                document.getElementById("cd-hours").innerText = Math.floor((diffAnniversary / (1000 * 60 * 60)) % 24);
+                document.getElementById("cd-mins").innerText = Math.floor((diffAnniversary / 1000 / 60) % 60);
+                document.getElementById("cd-secs").innerText = Math.floor((diffAnniversary / 1000) % 60);
+            } else {
+                // If the date has passed
+                document.getElementById("cd-days").innerText = "0";
+                document.getElementById("cd-hours").innerText = "0";
+                document.getElementById("cd-mins").innerText = "0";
+                document.getElementById("cd-secs").innerText = "0";
+            }
         }
-        setInterval(updateTimer, 1000); updateTimer();
+        setInterval(updateTimers, 1000); updateTimers();
 
         /* --- 3. STORAGE & GALLERY LOGIC --- */
         // UPDATE: These are placeholder web links. Replace the URLs inside the "" quotes with your own image links!
         const defaultGallery = [
-            { src: "https://media.discordapp.net/attachments/1448147572878344405/1469440262995448101/image0.jpg?ex=6987aa63&is=698658e3&hm=a8a5fa57cbed1e6227165ec7d0036696eddbabace978657e1a909abde49d3c88&=&format=webp&width=671&height=894" }, // Couple holding hands
-            { src: "https://media.discordapp.net/attachments/1448147572878344405/1469439145809019083/IMG_1058.jpg?ex=6987a959&is=698657d9&hm=ddaeece93933b03527956f77cf1ba056ad5119419837c7921d0fe917e18fcd3d&=&format=webp&width=671&height=894" }, // Sunset
-            { src: "https://media.discordapp.net/attachments/1448147572878344405/1469440508769337426/image0.jpg?ex=6987aa9e&is=6986591e&hm=a1d7b4c9dd6ab324f6354ee93297a65d51a56a63f08f7678b0584bb666075dab&=&format=webp&width=671&height=894" }, // Dog
-            { src: "https://media.discordapp.net/attachments/1448147572878344405/1469440686213562573/image0.jpg?ex=6987aac8&is=69865948&hm=6fb212000051a23ba83552bfd6e5a59f98c11d145a176ba6d25b851e28ac4e8c&=&format=webp&width=671&height=894" }, // Coffee/Cozy
-            { src: "https://media.discordapp.net/attachments/1448147572878344405/1469440315177046191/image0.jpg?ex=6987aa70&is=698658f0&hm=77c4edd8d208160484619a4ba61a858d52f67a3976a59b44d8706156898a045a&=&format=webp&width=671&height=894" }, // Beach
-            { src: "https://media.discordapp.net/attachments/1448147572878344405/1469440151796187318/image0.jpg?ex=6987aa49&is=698658c9&hm=ffd5ef80db83d405609a72f600a1351db98a0d688f937eab392b1cabc6d843f6&=&format=webp&width=671&height=894" }, // Flowers
-            { src: "https://media.discordapp.net/attachments/1448147572878344405/1469440606546956473/image0.jpg?ex=6987aab5&is=69865935&hm=fa6eb8d4d7a611b59b3457bb903a4d29157862bfdd763ea2d557d298d13f56c4&=&format=webp&width=621&height=807" }, // Mountains
-            { src: "https://media.discordapp.net/attachments/1448147572878344405/1469440081059254355/image0.jpg?ex=6987aa38&is=698658b8&hm=721a81e37adc89e4337e476e21f4cfd3023e0a404867a6fe687313825b4ac5a4&=&format=webp&width=761&height=891" }  // Holding hands
+            { src: "https://media.discordapp.net/attachments/1448147572878344405/1469440262995448101/image0.jpg?ex=6987aa63&is=698658e3&hm=a8a5fa57cbed1e6227165ec7d0036696eddbabace978657e1a909abde49d3c88&=&format=webp&width=671&height=894" },
+            { src: "https://media.discordapp.net/attachments/1448147572878344405/1469439145809019083/IMG_1058.jpg?ex=6987a959&is=698657d9&hm=ddaeece93933b03527956f77cf1ba056ad5119419837c7921d0fe917e18fcd3d&=&format=webp&width=671&height=894" },
+            { src: "https://media.discordapp.net/attachments/1448147572878344405/1469440508769337426/image0.jpg?ex=6987aa9e&is=6986591e&hm=a1d7b4c9dd6ab324f6354ee93297a65d51a56a63f08f7678b0584bb666075dab&=&format=webp&width=671&height=894" },
+            { src: "https://media.discordapp.net/attachments/1448147572878344405/1469440686213562573/image0.jpg?ex=6987aac8&is=69865948&hm=6fb212000051a23ba83552bfd6e5a59f98c11d145a176ba6d25b851e28ac4e8c&=&format=webp&width=671&height=894" },
+            { src: "https://media.discordapp.net/attachments/1448147572878344405/1469440315177046191/image0.jpg?ex=6987aa70&is=698658f0&hm=77c4edd8d208160484619a4ba61a858d52f67a3976a59b44d8706156898a045a&=&format=webp&width=671&height=894" },
+            { src: "https://media.discordapp.net/attachments/1448147572878344405/1469440151796187318/image0.jpg?ex=6987aa49&is=698658c9&hm=ffd5ef80db83d405609a72f600a1351db98a0d688f937eab392b1cabc6d843f6&=&format=webp&width=671&height=894" },
+            { src: "https://media.discordapp.net/attachments/1448147572878344405/1469440606546956473/image0.jpg?ex=6987aab5&is=69865935&hm=fa6eb8d4d7a611b59b3457bb903a4d29157862bfdd763ea2d557d298d13f56c4&=&format=webp&width=621&height=807" },
+            { src: "https://media.discordapp.net/attachments/1448147572878344405/1469440081059254355/image0.jpg?ex=6987aa38&is=698658b8&hm=721a81e37adc89e4337e476e21f4cfd3023e0a404867a6fe687313825b4ac5a4&=&format=webp&width=761&height=891" }
         ];
 
         // Combine default (folder) images with uploaded (Base64) images
@@ -402,7 +462,7 @@
 
         function createPolaroid(src, container) {
             const div = document.createElement('div');
-            const rotation = Math.floor(Math.random() * 10) - 5; // Random -5 to 5 deg
+            const rotation = Math.floor(Math.random() * 6) - 3; // Reduced rotation for cleaner look
             div.className = 'polaroid';
             div.style.setProperty('--rotation', rotation + 'deg');
             div.innerHTML = `<img src="${src}" alt="Memory">`;
