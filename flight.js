@@ -121,7 +121,9 @@ let mapFilters = {
         planeIconSize: 0.05,
         themeStartColor: '#18181b',
         themeEndColor: '#18181b',
-        themeOpacity: 90
+        themeOpacity: 90,
+        showBuildings: false, // NEW: 3D Buildings
+        showDayNight: false   // NEW: Day/Night Cycle
     };
 
     window.saveFiltersToLocalStorage = saveFiltersToLocalStorage;
@@ -7036,6 +7038,190 @@ const flownCoords = (routeRes.ok && routeJson.ok && Array.isArray(historyArray))
 }
 
 /**
+ * --- [NEW] Master Handler for Pro 3D Layers ---
+ * Called whenever filters change to sync state.
+ */
+function updatePro3DLayers() {
+    if (!sectorOpsMap) return;
+    
+    // 1. Update Elevation (Terrain)
+    if (mapFilters.proMapConfig.showTerrain) {
+        if (!sectorOpsMap.getSource('mapbox-dem')) {
+            sectorOpsMap.addSource('mapbox-dem', {
+                'type': 'raster-dem',
+                'url': 'mapbox://mapbox.mapbox-terrain-dem-v1',
+                'tileSize': 512,
+                'maxzoom': 14
+            });
+        }
+        sectorOpsMap.setTerrain({ 'source': 'mapbox-dem', 'exaggeration': 1.5 });
+    } else {
+        sectorOpsMap.setTerrain(null);
+    }
+
+    // 2. Update 3D Buildings
+    const buildingsLayerId = '3d-buildings';
+    if (mapFilters.proMapConfig.showBuildings) {
+        if (!sectorOpsMap.getLayer(buildingsLayerId)) {
+            // Insert buildings below labels but above base map
+            const labelLayerId = sectorOpsMap.getStyle().layers.find(
+                (l) => l.type === 'symbol' && l.layout['text-field']
+            )?.id;
+
+            sectorOpsMap.addLayer({
+                'id': buildingsLayerId,
+                'source': 'composite',
+                'source-layer': 'building',
+                'filter': ['==', 'extrude', 'true'],
+                'type': 'fill-extrusion',
+                'minzoom': 13,
+                'paint': {
+                    'fill-extrusion-color': '#27272a', // Dark zinc color
+                    'fill-extrusion-height': ['get', 'height'],
+                    'fill-extrusion-base': ['get', 'min_height'],
+                    'fill-extrusion-opacity': 0.9
+                }
+            }, labelLayerId);
+        } else {
+            sectorOpsMap.setLayoutProperty(buildingsLayerId, 'visibility', 'visible');
+        }
+    } else {
+        if (sectorOpsMap.getLayer(buildingsLayerId)) {
+            sectorOpsMap.setLayoutProperty(buildingsLayerId, 'visibility', 'none');
+        }
+    }
+
+    // 3. Update Day/Night Terminator
+    updateDayNightTerminator();
+}
+
+/**
+ * --- [NEW] Day/Night Terminator Logic ---
+ * Generates and updates the shadow polygon.
+ */
+let dayNightInterval = null;
+
+function updateDayNightTerminator() {
+    if (!sectorOpsMap) return;
+
+    const sourceId = 'day-night-source';
+    const layerId = 'day-night-layer';
+
+    if (mapFilters.proMapConfig.showDayNight) {
+        // A. Add Source/Layer if missing
+        if (!sectorOpsMap.getSource(sourceId)) {
+            sectorOpsMap.addSource(sourceId, {
+                type: 'geojson',
+                data: generateTerminatorGeoJSON() // Initial Generation
+            });
+
+            sectorOpsMap.addLayer({
+                id: layerId,
+                type: 'fill',
+                source: sourceId,
+                layout: {},
+                paint: {
+                    'fill-color': '#000000',
+                    'fill-opacity': 0.35 // Semi-transparent shadow
+                }
+            }, 'sector-ops-live-flights-layer'); // Place below planes
+        } else {
+            // Ensure visible
+            if(sectorOpsMap.getLayer(layerId)) {
+                sectorOpsMap.setLayoutProperty(layerId, 'visibility', 'visible');
+            }
+            // Update Data
+            sectorOpsMap.getSource(sourceId).setData(generateTerminatorGeoJSON());
+        }
+
+        // B. Start interval if not running (Update every 1 minute)
+        if (!dayNightInterval) {
+            dayNightInterval = setInterval(() => {
+                if (sectorOpsMap && sectorOpsMap.getSource(sourceId)) {
+                    sectorOpsMap.getSource(sourceId).setData(generateTerminatorGeoJSON());
+                }
+            }, 60000);
+        }
+
+    } else {
+        // Hide Layer
+        if (sectorOpsMap.getLayer(layerId)) {
+            sectorOpsMap.setLayoutProperty(layerId, 'visibility', 'none');
+        }
+        // Stop Interval
+        if (dayNightInterval) {
+            clearInterval(dayNightInterval);
+            dayNightInterval = null;
+        }
+    }
+}
+
+/**
+ * --- [NEW] Simple Terminator Generator ---
+ * Approximates the night polygon without external heavy libraries.
+ */
+function generateTerminatorGeoJSON() {
+    const now = new Date();
+    
+    // 1. Calculate Sun Position (Simplified)
+    const rad = Math.PI / 180;
+    const dayOfYear = Math.floor((now - new Date(now.getFullYear(), 0, 0)) / 1000 / 60 / 60 / 24);
+    const utcHours = now.getUTCHours() + now.getUTCMinutes() / 60;
+    
+    // Approximate declination of the sun
+    const declination = -23.44 * Math.cos(rad * (360 / 365) * (dayOfYear + 10));
+    
+    // Approximate longitude where sun is at zenith (12:00 UTC = 0 deg, 13:00 UTC = -15 deg)
+    let sunLon = -15 * (utcHours - 12);
+    if (sunLon > 180) sunLon -= 360;
+    if (sunLon < -180) sunLon += 360;
+
+    // The "Night" center is opposite the sun
+    let antiSunLon = sunLon + 180;
+    if (antiSunLon > 180) antiSunLon -= 360;
+    const antiSunLat = -declination;
+
+    // 2. Generate Circle Polygon around the Anti-Sun point
+    // A circle of 90 degrees radius on the globe represents the hemisphere in shadow.
+    const coords = [];
+    const steps = 60;
+    
+    // Helper to rotate point [0, 90] (North Pole) to target [lon, lat]
+    // Here we generate a circle around (0,0) and rotate it to (antiSunLon, antiSunLat)
+    // Actually simpler: Generate the great circle directly.
+    
+    for (let i = 0; i <= steps; i++) {
+        const theta = (i / steps) * 2 * Math.PI;
+        // Circle of radius 90 degrees (approx earth curvature)
+        // We use a slightly smaller radius (e.g. 89) or handle logic for the "infinite" shadow
+        // Simplest viz: Create a circle around the ANTI-SUN point with radius ~90 deg.
+        
+        const r = 90 * rad; // 90 degrees in radians
+        const lat = Math.asin(Math.sin(antiSunLat * rad) * Math.cos(r) + Math.cos(antiSunLat * rad) * Math.sin(r) * Math.cos(theta));
+        const dlon = Math.atan2(Math.sin(theta) * Math.sin(r) * Math.cos(antiSunLat * rad), Math.cos(r) - Math.sin(antiSunLat * rad) * Math.sin(lat));
+        
+        let lon = ((antiSunLon * rad - dlon) * 180 / Math.PI);
+        // Normalize lon
+        if (lon > 180) lon -= 360;
+        if (lon < -180) lon += 360;
+        
+        coords.push([lon, lat * 180 / Math.PI]);
+    }
+
+    // Close the loop
+    coords.push(coords[0]);
+
+    return {
+        type: 'Feature',
+        geometry: {
+            type: 'Polygon',
+            coordinates: [coords]
+        },
+        properties: {}
+    };
+}
+
+/**
  * --- [NEW] PRO FEATURE: BASE MAP LAYER MANAGER ---
  * Dynamically toggles visibility and forces CHART COLORS on Mapbox base layers.
  * Aggressively targets 'aeroway' source layers to ensure Taxiways = Yellow, Runways = Dark.
@@ -8073,89 +8259,74 @@ const SettingsUI = {
                 `;
                 break;
 
-            case 'pro_layers':
-                // <--- UPDATED PRO LAYERS SECTION --->
-                html = `
-                    <div class="settings-section">
-                        <div class="pro-feature-banner" style="background: linear-gradient(90deg, rgba(56, 189, 248, 0.1), transparent); padding: 12px; border-left: 3px solid #38bdf8; margin-bottom: 20px; border-radius: 0 8px 8px 0;">
-                            <h4 style="margin: 0; color: #38bdf8; display: flex; align-items: center; gap: 8px;">
-                                <i class="fa-solid fa-star"></i> PRO MAP CONTROL
-                            </h4>
-                            <p style="margin: 4px 0 0 0; font-size: 0.75rem; color: #94a3b8;">
-                                Fully customize the base map elements to create a clean radar experience.
-                            </p>
-                        </div>
+            // FIND SettingsUI.renderCategory -> switch(catId) -> case 'pro_layers':
+case 'pro_layers':
+    html = `
+    <div class="settings-section">
+        <div class="pro-feature-banner" style="background: linear-gradient(90deg, rgba(56, 189, 248, 0.1), transparent); padding: 12px; border-left: 3px solid #38bdf8; margin-bottom: 20px; border-radius: 0 8px 8px 0;">
+            <h4 style="margin: 0; color: #38bdf8; display: flex; align-items: center; gap: 8px;">
+                <i class="fa-solid fa-star"></i> PRO MAP CONTROL
+            </h4>
+            <p style="margin: 4px 0 0 0; font-size: 0.75rem; color: #94a3b8;">
+                High-fidelity map layers and 3D visualization tools.
+            </p>
+        </div>
 
-                        <label class="config-header">Base Map Elements</label>
+        <label class="config-header">3D Environment</label>
+        <div class="settings-row">
+            <div class="row-label"><i class="fa-solid fa-mountain"></i> 3D Terrain (Elevation)</div>
+            <label class="toggle-switch">
+                <input type="checkbox" id="pro-toggle-terrain" ${mapFilters.proMapConfig.showTerrain ? 'checked' : ''}>
+                <span class="toggle-slider"></span>
+            </label>
+        </div>
+        <div class="settings-row">
+            <div class="row-label"><i class="fa-solid fa-city"></i> 3D Buildings</div>
+            <label class="toggle-switch">
+                <input type="checkbox" id="pro-toggle-buildings" ${mapFilters.proMapConfig.showBuildings ? 'checked' : ''}>
+                <span class="toggle-slider"></span>
+            </label>
+        </div>
+        <div class="settings-row">
+            <div class="row-label"><i class="fa-solid fa-moon"></i> Day/Night Terminator</div>
+            <label class="toggle-switch">
+                <input type="checkbox" id="pro-toggle-daynight" ${mapFilters.proMapConfig.showDayNight ? 'checked' : ''}>
+                <span class="toggle-slider"></span>
+            </label>
+        </div>
 
-                        <div class="settings-row">
-                            <div class="row-label"><i class="fa-solid fa-earth-americas"></i> Political Borders</div>
-                            <label class="toggle-switch">
-                                <input type="checkbox" id="pro-toggle-borders" ${mapFilters.proMapConfig.showBorders ? 'checked' : ''}>
-                                <span class="toggle-slider"></span>
-                            </label>
-                        </div>
-
-                        <div class="settings-row">
-                            <div class="row-label"><i class="fa-solid fa-road"></i> Roads & Highways</div>
-                            <label class="toggle-switch">
-                                <input type="checkbox" id="pro-toggle-roads" ${mapFilters.proMapConfig.showRoads ? 'checked' : ''}>
-                                <span class="toggle-slider"></span>
-                            </label>
-                        </div>
-
-                        <div class="settings-row">
-                            <div class="row-label"><i class="fa-solid fa-font"></i> City & Place Labels</div>
-                            <label class="toggle-switch">
-                                <input type="checkbox" id="pro-toggle-labels" ${mapFilters.proMapConfig.showLabels ? 'checked' : ''}>
-                                <span class="toggle-slider"></span>
-                            </label>
-                        </div>
-
-                        <div class="settings-row">
-                            <div class="row-label"><i class="fa-solid fa-water"></i> Water Labels</div>
-                            <label class="toggle-switch">
-                                <input type="checkbox" id="pro-toggle-water-labels" ${mapFilters.proMapConfig.showWaterLabels ? 'checked' : ''}>
-                                <span class="toggle-slider"></span>
-                            </label>
-                        </div>
-
-                        <div class="settings-row">
-                            <div class="row-label"><i class="fa-solid fa-map-pin"></i> Points of Interest (POIs)</div>
-                            <label class="toggle-switch">
-                                <input type="checkbox" id="pro-toggle-pois" ${mapFilters.proMapConfig.showPois ? 'checked' : ''}>
-                                <span class="toggle-slider"></span>
-                            </label>
-                        </div>
-
-                        <label class="config-header" style="margin-top: 20px;">Terrain & Detail</label>
-
-                        <div class="settings-row">
-                            <div class="row-label"><i class="fa-solid fa-mountain-sun"></i> Terrain Shading</div>
-                            <label class="toggle-switch">
-                                <input type="checkbox" id="pro-toggle-terrain" ${mapFilters.proMapConfig.showTerrain !== false ? 'checked' : ''}>
-                                <span class="toggle-slider"></span>
-                            </label>
-                        </div>
-
-                        <div class="settings-row">
-                            <div class="row-label"><i class="fa-solid fa-plane-arrival"></i> Airport Layout</div>
-                            <label class="toggle-switch">
-                                <input type="checkbox" id="pro-toggle-layout" ${mapFilters.proMapConfig.showAirportLayout !== false ? 'checked' : ''}>
-                                <span class="toggle-slider"></span>
-                            </label>
-                        </div>
-
-                        <div class="settings-row">
-                            <div class="row-label"><i class="fa-solid fa-tree"></i> Land Use / Greenery</div>
-                            <label class="toggle-switch">
-                                <input type="checkbox" id="pro-toggle-landuse" ${mapFilters.proMapConfig.showLandUse !== false ? 'checked' : ''}>
-                                <span class="toggle-slider"></span>
-                            </label>
-                        </div>
-                    </div>
-                `;
-                break;
+        <label class="config-header" style="margin-top: 20px;">Base Map Elements</label>
+        <div class="settings-row">
+            <div class="row-label"><i class="fa-solid fa-earth-americas"></i> Political Borders</div>
+            <label class="toggle-switch">
+                <input type="checkbox" id="pro-toggle-borders" ${mapFilters.proMapConfig.showBorders ? 'checked' : ''}>
+                <span class="toggle-slider"></span>
+            </label>
+        </div>
+        <div class="settings-row">
+            <div class="row-label"><i class="fa-solid fa-road"></i> Roads & Highways</div>
+            <label class="toggle-switch">
+                <input type="checkbox" id="pro-toggle-roads" ${mapFilters.proMapConfig.showRoads ? 'checked' : ''}>
+                <span class="toggle-slider"></span>
+            </label>
+        </div>
+        <div class="settings-row">
+            <div class="row-label"><i class="fa-solid fa-font"></i> City & Place Labels</div>
+            <label class="toggle-switch">
+                <input type="checkbox" id="pro-toggle-labels" ${mapFilters.proMapConfig.showLabels ? 'checked' : ''}>
+                <span class="toggle-slider"></span>
+            </label>
+        </div>
+        <div class="settings-row">
+            <div class="row-label"><i class="fa-solid fa-plane-arrival"></i> Airport Layout</div>
+            <label class="toggle-switch">
+                <input type="checkbox" id="pro-toggle-layout" ${mapFilters.proMapConfig.showAirportLayout !== false ? 'checked' : ''}>
+                <span class="toggle-slider"></span>
+            </label>
+        </div>
+    </div>
+    `;
+    break;
 
             case 'theme':
                 html = `
@@ -8193,15 +8364,17 @@ const SettingsUI = {
 
         // --- 1. Define Pro Layer IDs (UPDATED) ---
         const proIds = {
-            'pro-toggle-borders': 'showBorders',
-            'pro-toggle-roads': 'showRoads',
-            'pro-toggle-labels': 'showLabels',
-            'pro-toggle-water-labels': 'showWaterLabels',
-            'pro-toggle-pois': 'showPois',
-            'pro-toggle-terrain': 'showTerrain',
-            'pro-toggle-layout': 'showAirportLayout', // [RENAMED]
-            'pro-toggle-landuse': 'showLandUse'
-        };
+    'pro-toggle-borders': 'showBorders',
+    'pro-toggle-roads': 'showRoads',
+    'pro-toggle-labels': 'showLabels',
+    'pro-toggle-pois': 'showPois',
+    'pro-toggle-water-labels': 'showWaterLabels',
+    'pro-toggle-terrain': 'showTerrain',
+    'pro-toggle-layout': 'showAirportLayout',
+    'pro-toggle-landuse': 'showLandUse',
+    'pro-toggle-buildings': 'showBuildings', // NEW
+    'pro-toggle-daynight': 'showDayNight'    // NEW
+};
 
         // --- 2. Define General Settings IDs ---
         const ids = {
@@ -8228,6 +8401,7 @@ const SettingsUI = {
                     if (typeof updateBaseMapLayerVisibility === 'function') {
                         updateBaseMapLayerVisibility(); 
                     }
+                    if (typeof updatePro3DLayers === 'function') updatePro3DLayers();
                 });
             }
         });
@@ -8320,6 +8494,7 @@ const SettingsUI = {
         // Now that filters are loaded, this will use the correct currentMapStyle
         const selectedHub = "KJFK"; 
         await initializeSectorOpsMap(selectedHub);
+        updatePro3DLayers();
 
         /*
         // --- 3. Inject Server Selector Pill ---
