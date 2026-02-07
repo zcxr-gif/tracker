@@ -10230,6 +10230,10 @@ function closeAircraftWindow() {
 }
 
 function populateAircraftInfoWindow(baseProps, plan, sortedRoutePoints, communityAircraftData) {
+    // --- Safety Check: Ensure the container exists ---
+    const windowEl = document.getElementById('aircraft-info-window');
+    if (!windowEl) return;
+
     // --- Helper function to update all elements matching a selector ---
     const updateAll = (selector, value, isHTML = false) => {
         const elements = document.querySelectorAll(selector);
@@ -10251,22 +10255,36 @@ function populateAircraftInfoWindow(baseProps, plan, sortedRoutePoints, communit
     };
 
     // --- Get Original Data ---
-    const originalFlatWaypoints = (plan && plan.flightPlanItems) ? flattenWaypointsFromPlan(plan.flightPlanItems) : [];
-    const originalFlatWaypointObjects = (plan && plan.flightPlanItems) ? getFlatWaypointObjects(plan.flightPlanItems) : [];
+    // Added safety checks for helper functions
+    const originalFlatWaypoints = (plan && plan.flightPlanItems && typeof flattenWaypointsFromPlan === 'function') ? flattenWaypointsFromPlan(plan.flightPlanItems) : [];
+    const originalFlatWaypointObjects = (plan && plan.flightPlanItems && typeof getFlatWaypointObjects === 'function') ? getFlatWaypointObjects(plan.flightPlanItems) : [];
     const hasPlan = originalFlatWaypoints.length >= 2;
-    const windowEl = document.getElementById('aircraft-info-window');
 
     // --- State Persistence Logic ---
-    // Check which tab was active before we wipe the innerHTML
     const currentActiveTab = windowEl.querySelector('.ac-info-tab-btn.active')?.dataset.tab || 'ac-tab-flight-data';
     const currentViewTarget = windowEl.querySelector('.display-toggle-btn.active')?.dataset.target || 'nd-view';
 
     // --- Aircraft Info ---
     const aircraftName = baseProps.aircraft?.aircraftName || 'Unknown Type';
-    const airlineName = baseProps.aircraft?.liveryName ||
-        'Generic Livery';
+    const airlineName = baseProps.aircraft?.liveryName || 'Generic Livery';
     const liveryName = baseProps.aircraft?.liveryName || '';
     const reg = baseProps.aircraft?.registration || 'N/A';
+
+    // --- [FIX] DEFINE MISSING VARIABLES HERE ---
+    // This prevents the ReferenceError crashes
+    const flightPhase = baseProps.flightPhase || "CRUISE";
+    const totalDistanceNM = baseProps.totalDistance || 0;
+    const distanceFlown = baseProps.distanceFlown || 0;
+    const ete = baseProps.ete || "--:--";
+
+    // Calculate progress safely
+    let progress = 0;
+    if (totalDistanceNM > 0) {
+        progress = (distanceFlown / totalDistanceNM) * 100;
+        if (progress > 100) progress = 100;
+    }
+    // -------------------------------------------
+
     // --- Logo Logic ---
     const words = liveryName.trim().split(/\s+/);
     let logoName = words.length > 1 && /[^a-zA-Z0-9]/.test(words[1]) ? words[0] : (words[0] + (words[1] ? ' ' + words[1] : ''));
@@ -10279,19 +10297,22 @@ function populateAircraftInfoWindow(baseProps, plan, sortedRoutePoints, communit
     const atdTimestamp = (sortedRoutePoints && sortedRoutePoints.length > 0) ?
         sortedRoutePoints[0].date : null;
     const atdTime = atdTimestamp ? formatTimeFromTimestamp(atdTimestamp) : '--:--';
-    const etaTime = '--:--';
-
+    
     const departureIcao = hasPlan ?
         originalFlatWaypointObjects[0]?.identifier || originalFlatWaypointObjects[0]?.name : 'N/A';
     const arrivalIcao = hasPlan ? originalFlatWaypointObjects[originalFlatWaypointObjects.length - 1]?.identifier || originalFlatWaypointObjects[originalFlatWaypointObjects.length - 1]?.name : 'N/A';
-    const depCountryCode = airportsData[departureIcao]?.country ? airportsData[departureIcao].country.toLowerCase() : '';
-    const arrCountryCode = airportsData[arrivalIcao]?.country ? airportsData[arrivalIcao].country.toLowerCase() : '';
+    
+    // Safety check for airportsData
+    const depCountryCode = (typeof airportsData !== 'undefined' && airportsData[departureIcao]?.country) ? airportsData[departureIcao].country.toLowerCase() : '';
+    const arrCountryCode = (typeof airportsData !== 'undefined' && airportsData[arrivalIcao]?.country) ? airportsData[arrivalIcao].country.toLowerCase() : '';
+    
     const depFlagSrc = depCountryCode ? `https://flagcdn.com/w20/${depCountryCode}.png` : '';
     const arrFlagSrc = arrCountryCode ? `https://flagcdn.com/w20/${arrCountryCode}.png` : '';
     const depFlagDisplay = depCountryCode ? 'block' : 'none';
     const arrFlagDisplay = arrCountryCode ? 'block' : 'none';
+
     // --- Plan Button ---
-    const simbriefAircraftValue = findSimbriefAircraftValue(aircraftName);
+    const simbriefAircraftValue = (typeof findSimbriefAircraftValue === 'function') ? findSimbriefAircraftValue(aircraftName) : null;
     let planButtonHtml = '';
     if (hasPlan && simbriefAircraftValue) {
         planButtonHtml = `
@@ -10331,29 +10352,29 @@ function populateAircraftInfoWindow(baseProps, plan, sortedRoutePoints, communit
 
     let psTitle = "ACTIVE";
     let psIcon = "fa-user-check";
-    let psColor = "#4ade80"; 
+    let psColor = "#4ade80";
     let psDesc = "Pilot is active";
-    let psBg = "rgba(74, 222, 128, 0.08)"; 
+    let psBg = "rgba(74, 222, 128, 0.08)";
 
     switch (pilotStateValue) {
-        case 1: 
+        case 1:
             psTitle = "AWAY";
             psIcon = "fa-plane-slash";
-            psColor = "#facc15"; 
+            psColor = "#facc15";
             psDesc = "Online (No Input)";
             psBg = "rgba(250, 204, 21, 0.08)";
             break;
-        case 2: 
+        case 2:
             psTitle = "PARKED";
             psIcon = "fa-square-parking";
-            psColor = "#94a3b8"; 
+            psColor = "#94a3b8";
             psDesc = "Away (On Ground)";
             psBg = "rgba(148, 163, 184, 0.08)";
             break;
-        case 3: 
+        case 3:
             psTitle = "AUTO-PILOT+";
             psIcon = "fa-cloud-arrow-up";
-            psColor = "#60a5fa"; 
+            psColor = "#60a5fa";
             psDesc = "Cloud Session";
             psBg = "rgba(96, 165, 250, 0.08)";
             break;
@@ -10361,6 +10382,9 @@ function populateAircraftInfoWindow(baseProps, plan, sortedRoutePoints, communit
 
     // --- GENERATE FMS LEGS HTML ---
     let fmsLegsHtml = '';
+    // Safety check for getDistanceKm
+    const safeGetDistance = (typeof getDistanceKm === 'function') ? getDistanceKm : (lat1, lon1, lat2, lon2) => 0;
+
     if (originalFlatWaypointObjects.length > 0) {
         originalFlatWaypointObjects.forEach((wp, index) => {
             const ident = wp.identifier || wp.name || `WP${index + 1}`;
@@ -10369,7 +10393,7 @@ function populateAircraftInfoWindow(baseProps, plan, sortedRoutePoints, communit
                 const prev = originalFlatWaypointObjects[index - 1];
 
                 if (prev.location && wp.location) {
-                    const d = getDistanceKm(prev.location.latitude, prev.location.longitude, wp.location.latitude, wp.location.longitude);
+                    const d = safeGetDistance(prev.location.latitude, prev.location.longitude, wp.location.latitude, wp.location.longitude);
                     distDisplay = (d / 1.852).toFixed(0);
                 }
             }
@@ -10377,7 +10401,7 @@ function populateAircraftInfoWindow(baseProps, plan, sortedRoutePoints, communit
             let procTag = '';
             if (index <= 1 && hasPlan) procTag = `<span class="proc-tag sid">SID</span>`;
             else if (index >= originalFlatWaypointObjects.length - 2 && hasPlan) procTag = `<span class="proc-tag star">STAR</span>`;
-            
+
             fmsLegsHtml += `
             <div class="fms-row ${index === 0 ? 'active-leg' : ''}" style="display: flex; justify-content: space-between; padding: 10px 14px; border-bottom: 1px solid rgba(255,255,255,0.03);">
                  <span style="display:flex; align-items:center; gap:8px; flex: 2; text-align: left; font-weight: 500; font-family: 'JetBrains Mono', monospace;">
@@ -10396,29 +10420,28 @@ function populateAircraftInfoWindow(baseProps, plan, sortedRoutePoints, communit
     const pilotReportActiveClass = currentActiveTab === 'ac-tab-pilot-report' ? 'active' : '';
     const flightDataDisplay = currentActiveTab === 'ac-tab-flight-data' ? 'flex' : 'none';
     const pilotReportDisplay = currentActiveTab === 'ac-tab-pilot-report' ? 'block' : 'none';
-    
+
     // Switcher Highlight Position
     const highlightX = currentActiveTab === 'ac-tab-pilot-report' ? '100%' : '0%';
 
-    // --- [NEW] Lookup City Names ---
-// Use the global airportsData object you already have
-const depCity = airportsData[departureIcao]?.city || 'Departure';
-const arrCity = airportsData[arrivalIcao]?.city || 'Arrival';
+    // --- Lookup City Names ---
+    const depCity = (typeof airportsData !== 'undefined' && airportsData[departureIcao]?.city) || 'Departure';
+    const arrCity = (typeof airportsData !== 'undefined' && airportsData[arrivalIcao]?.city) || 'Arrival';
 
-// --- [NEW] Determine Phase Color/Icon ---
-let statusColor = '#4ade80'; // Green
-let statusPulse = 'pulse';
+    // --- Determine Phase Color/Icon ---
+    let statusColor = '#4ade80'; // Green
+    let statusPulse = 'pulse';
 
-// Adjust color based on phase (using your existing flightPhase variable)
-if (flightPhase.includes('CRUISE')) statusColor = '#38bdf8'; // Blue
-if (flightPhase.includes('DESCENT')) statusColor = '#fbbf24'; // Orange
-if (flightPhase.includes('GROUND') || flightPhase.includes('PARKED')) {
-    statusColor = '#94a3b8'; // Grey
-    statusPulse = ''; // No pulse on ground
-}
+    // Adjust color based on phase (using the now-defined flightPhase variable)
+    if (flightPhase.includes('CRUISE')) statusColor = '#38bdf8'; // Blue
+    if (flightPhase.includes('DESCENT')) statusColor = '#fbbf24'; // Orange
+    if (flightPhase.includes('GROUND') || flightPhase.includes('PARKED')) {
+        statusColor = '#94a3b8'; // Grey
+        statusPulse = ''; // No pulse on ground
+    }
 
-// --- [NEW] HTML Construction ---
-windowEl.innerHTML = `
+    // --- HTML Construction ---
+    windowEl.innerHTML = `
     <div class="ac-header-modern" id="ac-overview-panel" style="background-image: url('${techCardImagePath}'), url('/CommunityPlanes/default.png');">
         <div class="ac-header-overlay"></div>
         
@@ -10615,7 +10638,7 @@ windowEl.innerHTML = `
                                     </g>
                                 </svg>
                             </div>
-                     </div>
+                      </div>
                     </div> 
                     
              <div class="info-right-col" style="gap: 6px; display: flex; flex-direction: column; height: 100%; justify-content: space-between;">
@@ -10668,7 +10691,6 @@ windowEl.innerHTML = `
                 </div> 
 
                 <div class="nd-full-width-section">
-                    <!-- REDESIGNED VIEW SWITCHER -->
                     <div class="modern-view-switcher" style="margin-bottom: 12px; background: rgba(15, 23, 42, 0.4); border-radius: 12px; padding: 4px; display: flex; position: relative; border: 1px solid rgba(255,255,255,0.05);">
                          <button class="display-toggle-btn ${currentViewTarget === 'nd-view' ? 'active' : ''}" data-target="nd-view" style="flex: 1; border: none; background: transparent; color: #94a3b8; font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: 1.5px; padding: 10px; cursor: pointer; z-index: 1; transition: color 0.3s ease;">
                             <i class="fa-solid fa-compass" style="margin-right: 6px;"></i> Navigation
@@ -10717,7 +10739,6 @@ windowEl.innerHTML = `
                     </div>
                  </div>
 
-                <!-- RE-STYLED NAV DATA PANEL - FLUID DESIGN -->
                 <div class="tech-module" id="location-data-panel" style="background: rgba(15, 23, 42, 0.4); border: 1px solid rgba(255,255,255,0.05); border-radius: 12px; overflow: hidden; backdrop-filter: blur(8px);">
                     <div class="tech-module-header" style="padding: 14px 18px; background: rgba(255,255,255,0.03); display: flex; align-items: center; justify-content: space-between; border-bottom: 1px solid rgba(255,255,255,0.05);">
                          <span class="tech-module-title" style="font-weight: 700; font-size: 11px; text-transform: uppercase; color: #fff; letter-spacing: 1px;"><i class="fa-solid fa-radar" style="margin-right: 8px; color: #38bdf8;"></i> Navigation Info</span>
@@ -10727,7 +10748,6 @@ windowEl.innerHTML = `
                          </div>
                     </div>
                     <div class="tech-module-body" style="padding: 18px;">
-                        <!-- Primary Telemetry Row -->
                         <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 24px; margin-bottom: 24px;">
                              <div class="nav-block">
                                 <span style="font-size: 8px; color: #64748b; text-transform: uppercase; letter-spacing: 1px; display: block; margin-bottom: 6px;">Current Location</span>
@@ -10742,7 +10762,6 @@ windowEl.innerHTML = `
                              </div>
                         </div>
 
-                        <!-- Secondary Metrics (No Borders, just spacing/flow) -->
                         <div style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; margin-bottom: 24px;">
                             <div class="sub-block">
                                 <span style="font-size: 8px; color: #475569; text-transform: uppercase; display: block; margin-bottom: 4px;">Vertical Spd</span>
@@ -10758,7 +10777,6 @@ windowEl.innerHTML = `
                             </div>
                         </div>
 
-                        <!-- Progress Section -->
                         <div style="background: rgba(0,0,0,0.2); padding: 14px; border-radius: 12px; border: 1px solid rgba(255,255,255,0.03);">
                              <div style="display: flex; justify-content: space-between; align-items: flex-end; margin-bottom: 12px;">
                                  <div>
@@ -10779,7 +10797,6 @@ windowEl.innerHTML = `
                              </div>
                         </div>
 
-                        <!-- Destination Footer -->
                         <div style="margin-top: 24px; padding-top: 18px; border-top: 1px solid rgba(255,255,255,0.05); display: flex; justify-content: space-between; align-items: center;">
                             <div style="display: flex; gap: 12px; align-items: center;">
                                 <div style="width: 32px; height: 32px; border-radius: 50%; background: rgba(56, 189, 248, 0.1); display: flex; align-items: center; justify-content: center; color: #38bdf8;">
@@ -10798,7 +10815,6 @@ windowEl.innerHTML = `
                     </div>
                 </div>
 
-              <!-- RE-STYLED FLIGHT DATA (TECH CARD) -->
               <div class="tech-card" style="background: rgba(15, 23, 42, 0.6); border: 1px solid rgba(255,255,255,0.1); border-radius: 16px; overflow: hidden; backdrop-filter: blur(12px); box-shadow: 0 10px 30px rgba(0,0,0,0.5);">
                     <div class="tech-card-header" style="padding: 20px 20px 10px 20px; display: flex; justify-content: space-between; align-items: flex-start;">
                          <div>
@@ -10901,9 +10917,9 @@ windowEl.innerHTML = `
     `;
 
     // --- POST-RENDER LOGIC ---
-    createPfdDisplay();
-    updatePfdDisplay(baseProps.position);
-    updateAircraftInfoWindow(baseProps, plan, sortedRoutePoints, communityAircraftData);
+    // Safety checks for external functions
+    if(typeof createPfdDisplay === 'function') createPfdDisplay();
+    if(typeof updatePfdDisplay === 'function') updatePfdDisplay(baseProps.position);
     
     // Automatically trigger Pilot Report loading if it was the active tab
     if (currentActiveTab === 'ac-tab-pilot-report' && typeof displayPilotStats === 'function') {
@@ -10941,7 +10957,7 @@ windowEl.innerHTML = `
             const currentEte = sourceEte.textContent;
             if (currentEte && currentEte.includes(':')) {
                 elEte.textContent = currentEte;
-                if (elElapsed.textContent !== '--:--') {
+                if (elElapsed && elElapsed.textContent !== '--:--') {
                     const [eH, eM] = elElapsed.textContent.split(':').map(Number);
                     const [rH, rM] = currentEte.split(':').map(Number);
                     let tM = eM + rM;
@@ -11012,11 +11028,11 @@ windowEl.innerHTML = `
 
             const target = e.currentTarget.dataset.target; 
             if (target === 'nd-view') {
-                ndContainer.style.display = 'block';
-                fmcContainer.style.display = 'none';
+                if(ndContainer) ndContainer.style.display = 'block';
+                if(fmcContainer) fmcContainer.style.display = 'none';
             } else {
-                ndContainer.style.display = 'none';
-                fmcContainer.style.display = 'flex';
+                if(ndContainer) ndContainer.style.display = 'none';
+                if(fmcContainer) fmcContainer.style.display = 'flex';
             }
         });
         if (btn.classList.contains('active')) btn.style.color = '#fff';
