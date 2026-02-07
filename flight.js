@@ -10232,7 +10232,7 @@ function closeAircraftWindow() {
 function populateAircraftInfoWindow(baseProps, plan, sortedRoutePoints, communityAircraftData) {
     // --- Safety Check: Ensure the container exists ---
     const windowEl = document.getElementById('aircraft-info-window');
-    if (!windowEl) return; // 
+    if (!windowEl) return;
 
     // --- Helper function to update all elements matching a selector ---
     const updateAll = (selector, value, isHTML = false) => {
@@ -10244,54 +10244,58 @@ function populateAircraftInfoWindow(baseProps, plan, sortedRoutePoints, communit
                 el.textContent = value;
             }
         });
-    }; // 
+    };
 
     // --- Get Original Data ---
     const originalFlatWaypoints = (plan && plan.flightPlanItems && typeof flattenWaypointsFromPlan === 'function') ?
-        flattenWaypointsFromPlan(plan.flightPlanItems) : []; // 
-    const originalFlatWaypointObjects = (plan && plan.flightPlanItems && typeof getFlatWaypointObjects === 'function') ? getFlatWaypointObjects(plan.flightPlanItems) : [];
-    const hasPlan = originalFlatWaypoints.length >= 2; // 
+        flattenWaypointsFromPlan(plan.flightPlanItems) : [];
+    const originalFlatWaypointObjects = (plan && plan.flightPlanItems && typeof getFlatWaypointObjects === 'function') ?
+        getFlatWaypointObjects(plan.flightPlanItems) : [];
+    const hasPlan = originalFlatWaypoints.length >= 2;
 
-    // --- State Persistence Logic (Only keeping View Target for Map/FMC) ---
+    // --- State Persistence Logic ---
+    const currentActiveTab = windowEl.querySelector('.ac-info-tab-btn.active')?.dataset.tab || 'ac-tab-flight-data';
     const currentViewTarget = windowEl.querySelector('.display-toggle-btn.active')?.dataset.target || 'nd-view';
-
+    
     // --- Aircraft Info ---
-    const aircraftName = baseProps.aircraft?.aircraftName || 'Unknown Type'; // 
+    const aircraftName = baseProps.aircraft?.aircraftName || 'Unknown Type';
     const airlineName = baseProps.aircraft?.liveryName || 'Generic Livery';
     const liveryName = baseProps.aircraft?.liveryName || '';
-    const reg = baseProps.aircraft?.registration || 'N/A'; // 
+    const reg = baseProps.aircraft?.registration || 'N/A';
 
     // --- Variables ---
     const flightPhase = baseProps.flightPhase || "CRUISE";
     const totalDistanceNM = baseProps.totalDistance || 0;
-    const distanceFlown = baseProps.distanceFlown || 0; // 
+    const distanceFlown = baseProps.distanceFlown || 0;
     const ete = baseProps.ete || "--:--";
-    
+
     // Calculate progress safely
     let progress = 0;
     if (totalDistanceNM > 0) {
         progress = (distanceFlown / totalDistanceNM) * 100;
-        if (progress > 100) progress = 100; // 
+        if (progress > 100) progress = 100;
     }
 
     // --- Logo Logic ---
     const words = liveryName.trim().split(/\s+/);
-    let logoName = words.length > 1 && /[^a-zA-Z0-9]/.test(words[1]) ? words[0] : (words[0] + (words[1] ? ' ' + words[1] : '')); // 
-    const sanitizedLogoName = logoName.toLowerCase().replace(/[^a-z0-9\s]/g, '').replace(/\s+/g, '_'); // 
+    let logoName = words.length > 1 && /[^a-zA-Z0-9]/.test(words[1]) ? words[0] : (words[0] + (words[1] ? ' ' + words[1] : ''));
+    const sanitizedLogoName = logoName.toLowerCase().replace(/[^a-z0-9\s]/g, '').replace(/\s+/g, '_');
     const logoPath = sanitizedLogoName ? `Images/airline_logos/${sanitizedLogoName}.png` : '';
     const logoHtml = logoPath ?
-        `<img src="${logoPath}" alt="${liveryName}" class="ac-header-logo" onerror="this.style.display='none'">` : ''; // 
+        `<img src="${logoPath}" alt="${liveryName}" class="ac-header-logo" onerror="this.style.display='none'">` : '';
 
     // --- Times ---
-    const atdTimestamp = (sortedRoutePoints && sortedRoutePoints.length > 0) ? sortedRoutePoints[0].date : null; // 
+    const atdTimestamp = (sortedRoutePoints && sortedRoutePoints.length > 0) ?
+        sortedRoutePoints[0].date : null;
     const atdTime = atdTimestamp ? formatTimeFromTimestamp(atdTimestamp) : '--:--';
-
     const departureIcao = hasPlan ?
-        originalFlatWaypointObjects[0]?.identifier || originalFlatWaypointObjects[0]?.name : 'N/A'; // 
-    const arrivalIcao = hasPlan ? originalFlatWaypointObjects[originalFlatWaypointObjects.length - 1]?.identifier || originalFlatWaypointObjects[originalFlatWaypointObjects.length - 1]?.name : 'N/A';
+        originalFlatWaypointObjects[0]?.identifier || originalFlatWaypointObjects[0]?.name : 'N/A';
+    const arrivalIcao = hasPlan ?
+        originalFlatWaypointObjects[originalFlatWaypointObjects.length - 1]?.identifier || originalFlatWaypointObjects[originalFlatWaypointObjects.length - 1]?.name : 'N/A';
     
     // --- Plan Button ---
-    const simbriefAircraftValue = (typeof findSimbriefAircraftValue === 'function') ? findSimbriefAircraftValue(aircraftName) : null; // 
+    const simbriefAircraftValue = (typeof findSimbriefAircraftValue === 'function') ?
+        findSimbriefAircraftValue(aircraftName) : null;
     let planButtonHtml = '';
     if (hasPlan && simbriefAircraftValue) {
         planButtonHtml = `
@@ -10300,83 +10304,99 @@ function populateAircraftInfoWindow(baseProps, plan, sortedRoutePoints, communit
                 data-arrival="${arrivalIcao}" 
                 data-aircraft="${simbriefAircraftValue}"
                 style="width: 100%; margin-top: 16px;">
-                <i class="fa-solid fa-file-invoice"></i> Plan This Flight
-            </button>`; // 
+                 <i class="fa-solid fa-file-invoice"></i> Plan This Flight
+            </button>`;
     }
 
     const pilotUsername = baseProps.username || 'N/A';
-    
+    const pilotReportTabText = (pilotUsername !== 'N/A' && pilotUsername) ? pilotUsername : 'Pilot Report';
+
     // --- DYNAMIC IMAGE & CONTRIBUTOR LOGIC ---
     let techCardImagePath = '/CommunityPlanes/default.png';
-    let photographerName = 'IF Community'; // 
+    let photographerName = 'IF Community';
     let techCardTail = reg;
-
     if (Array.isArray(communityAircraftData)) {
-        communityAircraftData = communityAircraftData.length > 0 ? communityAircraftData[0] : null; // 
+        communityAircraftData = communityAircraftData.length > 0 ? communityAircraftData[0] : null;
     }
     if (communityAircraftData && communityAircraftData.imageUrl) {
         techCardImagePath = communityAircraftData.imageUrl;
-        photographerName = communityAircraftData.contributorName || 'IF Community'; // 
+        photographerName = communityAircraftData.contributorName || 'IF Community';
         if (communityAircraftData.tailNumber) {
             techCardTail = communityAircraftData.tailNumber;
         }
     }
 
     // --- REAL-TIME COCKPIT STATE LOGIC ---
-    const pilotStateValue = (typeof baseProps.pilotState !== 'undefined') ? Number(baseProps.pilotState) : 0; // 
+    const pilotStateValue = (typeof baseProps.pilotState !== 'undefined') ?
+        Number(baseProps.pilotState) : 0;
 
     let psTitle = "ACTIVE";
     let psIcon = "fa-user-check";
     let psColor = "#4ade80";
-    let psDesc = "Pilot is active"; // 
+    let psDesc = "Pilot is active";
     switch (pilotStateValue) {
-        case 1: psTitle = "AWAY"; psIcon = "fa-plane-slash"; psColor = "#facc15"; psDesc = "Online (No Input)"; break; // 
-        case 2: psTitle = "PARKED"; psIcon = "fa-square-parking"; psColor = "#94a3b8"; psDesc = "Away (On Ground)"; break; // 
-        case 3: psTitle = "AUTO-PILOT+"; psIcon = "fa-cloud-arrow-up"; psColor = "#60a5fa"; psDesc = "Cloud Session"; break; // 
+        case 1: psTitle = "AWAY"; psIcon = "fa-plane-slash"; psColor = "#facc15"; psDesc = "Online (No Input)"; break;
+        case 2: psTitle = "PARKED"; psIcon = "fa-square-parking"; psColor = "#94a3b8"; psDesc = "Away (On Ground)"; break;
+        case 3: psTitle = "AUTO-PILOT+"; psIcon = "fa-cloud-arrow-up"; psColor = "#60a5fa"; psDesc = "Cloud Session"; break;
     }
 
     // --- GENERATE FMS LEGS HTML ---
     let fmsLegsHtml = '';
-    const safeGetDistance = (typeof getDistanceKm === 'function') ? getDistanceKm : (lat1, lon1, lat2, lon2) => 0; // 
-    if (originalFlatWaypointObjects.length > 0) { // 
+    const safeGetDistance = (typeof getDistanceKm === 'function') ? getDistanceKm : (lat1, lon1, lat2, lon2) => 0;
+    
+    if (originalFlatWaypointObjects.length > 0) {
         originalFlatWaypointObjects.forEach((wp, index) => {
             const ident = wp.identifier || wp.name || `WP${index + 1}`;
             let distDisplay = '----';
             if (index > 0) {
                 const prev = originalFlatWaypointObjects[index - 1];
-                if (prev.location && wp.location) { // 
+                if (prev.location && wp.location) {
                     const d = safeGetDistance(prev.location.latitude, prev.location.longitude, wp.location.latitude, wp.location.longitude);
                     distDisplay = (d / 1.852).toFixed(0);
                 }
             }
-            let procTag = ''; // 
+     
+            let procTag = '';
             if (index <= 1 && hasPlan) procTag = `<span class="proc-tag sid">SID</span>`;
             else if (index >= originalFlatWaypointObjects.length - 2 && hasPlan) procTag = `<span class="proc-tag star">STAR</span>`;
 
             fmsLegsHtml += `
-            <div class="fms-row ${index === 0 ? 'active-leg' : ''}" style="display: flex; justify-content: space-between; padding: 10px 14px; border-bottom: 1px solid rgba(255,255,255,0.03);">
-                 <span style="display:flex; align-items:center; gap:8px; flex: 2; text-align: left; font-weight: 500; font-family: 'JetBrains Mono', monospace;">
-                    <i class="fa-solid fa-diamond" style="font-size: 6px; color: ${index === 0 ? '#4ade80' : '#475569'};"></i> ${ident} ${procTag}
+            <div class="fms-row ${index === 0 ? 'active-leg' : ''}" style="display: flex;
+                justify-content: space-between; padding: 10px 14px; border-bottom: 1px solid rgba(255,255,255,0.03);">
+                 <span style="display:flex;
+                    align-items:center; gap:8px; flex: 2; text-align: left; font-weight: 500; font-family: 'JetBrains Mono', monospace;">
+                    <i class="fa-solid fa-diamond" style="font-size: 6px;
+                    color: ${index === 0 ? '#4ade80' : '#475569'};"></i> ${ident} ${procTag}
                  </span>
-                 <span class="text-center" style="color:#94a3b8; flex: 1; font-size: 11px;">---°</span>
-                 <span class="text-right" style="flex: 1; color: #fff; font-weight: 600;">${distDisplay} <small style="font-size: 8px; color: #64748b;">NM</small></span>
-            </div>`; // 
+                 <span class="text-center" style="color:#94a3b8;
+                    flex: 1; font-size: 11px;">---°</span>
+                 <span class="text-right" style="flex: 1;
+                    color: #fff; font-weight: 600;">${distDisplay} <small style="font-size: 8px; color: #64748b;">NM</small></span>
+            </div>`;
         });
     } else {
-        fmsLegsHtml = `<div class="fms-empty-state" style="padding: 40px; text-align: center; color: #475569; font-size: 12px; font-weight: 600; letter-spacing: 1px;">NO ROUTE DATA AVAILABLE</div>`; // 
+        fmsLegsHtml = `<div class="fms-empty-state" style="padding: 40px;
+            text-align: center; color: #475569; font-size: 12px; font-weight: 600; letter-spacing: 1px;">NO ROUTE DATA AVAILABLE</div>`;
     }
 
+    // Determine initial active classes for rendering
+    const flightDataActiveClass = currentActiveTab === 'ac-tab-flight-data' ? 'active' : '';
+    const pilotReportActiveClass = currentActiveTab === 'ac-tab-pilot-report' ? 'active' : '';
+    const flightDataDisplay = currentActiveTab === 'ac-tab-flight-data' ? 'flex' : 'none';
+    const pilotReportDisplay = currentActiveTab === 'ac-tab-pilot-report' ? 'block' : 'none';
+    const highlightX = currentActiveTab === 'ac-tab-pilot-report' ? '100%' : '0%';
+
     // --- Lookup City Names ---
-    const depCity = (typeof airportsData !== 'undefined' && airportsData[departureIcao]?.city) || 'Departure'; // 
+    const depCity = (typeof airportsData !== 'undefined' && airportsData[departureIcao]?.city) || 'Departure';
     const arrCity = (typeof airportsData !== 'undefined' && airportsData[arrivalIcao]?.city) || 'Arrival';
 
     // --- Determine Phase Color/Icon ---
     let statusColor = '#4ade80'; // Green
     let statusPulse = 'pulse';
-    if (flightPhase.includes('CRUISE')) statusColor = '#38bdf8'; // Blue 
-    if (flightPhase.includes('DESCENT')) statusColor = '#fbbf24'; // Orange 
+    if (flightPhase.includes('CRUISE')) statusColor = '#38bdf8'; // Blue
+    if (flightPhase.includes('DESCENT')) statusColor = '#fbbf24'; // Orange
     if (flightPhase.includes('GROUND') || flightPhase.includes('PARKED')) {
-        statusColor = '#94a3b8'; // Grey 
+        statusColor = '#94a3b8'; // Grey
         statusPulse = '';
     }
 
@@ -10404,32 +10424,38 @@ function populateAircraftInfoWindow(baseProps, plan, sortedRoutePoints, communit
             align-items: flex-start;">
             
             <div class="ac-identity-group" style="max-width: calc(100% - 120px);"> 
-                 <h1 style="font-size: 24px; font-weight: 800; color: #fff; margin: 0; line-height: 1.1; text-shadow: 0 2px 4px rgba(0,0,0,0.6);">${logoHtml} ${baseProps.callsign}</h1>
+                 <h1 style="font-size: 24px;
+                    font-weight: 800; color: #fff; margin: 0; line-height: 1.1; text-shadow: 0 2px 4px rgba(0,0,0,0.6);">${logoHtml} ${baseProps.callsign}</h1>
                 <div class="ac-sub-identity" style="
-                    font-size: 11px; 
+                    font-size: 11px;
                     font-weight: 500; 
                     color: #cbd5e1; 
                     margin-top: 6px; 
                     text-shadow: 0 1px 2px rgba(0,0,0,0.8); 
                     display: flex; 
                     gap: 8px; 
-                    align-items: center; 
+                    align-items: center;
                     flex-wrap: wrap;">
                     <span>${aircraftName}</span>
-                    <span style="width: 3px; height: 3px; background: #94a3b8; border-radius: 50%;"></span>
+                    <span style="width: 3px;
+                    height: 3px; background: #94a3b8; border-radius: 50%;"></span>
                     <span>${liveryName}</span>
                 </div>
             </div>
         </div>
 
-        <div class="overview-actions" style="top: 20px; right: 20px; position: absolute; z-index: 10; display: flex; gap: 8px;">
-             <button class="hero-btn aircraft-window-share-btn" title="Fullscreen Trip Card" style="background: rgba(0,0,0,0.4); backdrop-filter: blur(4px); border: 1px solid rgba(255,255,255,0.1);"><i class="fa-solid fa-expand"></i></button>
-             <button class="hero-btn aircraft-window-hide-btn" title="Minimize" style="background: rgba(0,0,0,0.4); backdrop-filter: blur(4px); border: 1px solid rgba(255,255,255,0.1);"><i class="fa-solid fa-minus"></i></button>
-             <button class="hero-btn aircraft-window-close-btn" title="Close" style="background: rgba(0,0,0,0.4); backdrop-filter: blur(4px); border: 1px solid rgba(255,255,255,0.1);"><i class="fa-solid fa-xmark"></i></button>
+        <div class="overview-actions" style="top: 20px;
+            right: 20px; position: absolute; z-index: 10; display: flex; gap: 8px;">
+             <button class="hero-btn aircraft-window-share-btn" title="Fullscreen Trip Card" style="background: rgba(0,0,0,0.4);
+                backdrop-filter: blur(4px); border: 1px solid rgba(255,255,255,0.1);"><i class="fa-solid fa-expand"></i></button>
+             <button class="hero-btn aircraft-window-hide-btn" title="Minimize" style="background: rgba(0,0,0,0.4);
+                backdrop-filter: blur(4px); border: 1px solid rgba(255,255,255,0.1);"><i class="fa-solid fa-minus"></i></button>
+             <button class="hero-btn aircraft-window-close-btn" title="Close" style="background: rgba(0,0,0,0.4);
+                backdrop-filter: blur(4px); border: 1px solid rgba(255,255,255,0.1);"><i class="fa-solid fa-xmark"></i></button>
         </div>
 
         <div class="phase-badge-hero" style="
-            position: absolute; 
+            position: absolute;
             bottom: 45px; 
             left: 24px; 
             z-index: 2;
@@ -10437,467 +10463,685 @@ function populateAircraftInfoWindow(baseProps, plan, sortedRoutePoints, communit
             backdrop-filter: blur(8px); 
             padding: 4px 10px; 
             border-radius: 20px; 
-            border: 1px solid rgba(255,255,255,0.15); 
+            border: 1px solid rgba(255,255,255,0.15);
             display: flex; 
             align-items: center; 
             gap: 6px;">
-            <div class="phase-dot" style="width: 6px; height: 6px; border-radius: 50%; background: ${statusColor}; box-shadow: 0 0 8px ${statusColor}; animation: ${statusPulse} 2s infinite;"></div>
-            <span style="font-size: 9px; font-weight: 700; color: #fff; letter-spacing: 0.5px;">${flightPhase}</span>
+            <div class="phase-dot" style="width: 6px;
+                height: 6px; border-radius: 50%; background: ${statusColor}; box-shadow: 0 0 8px ${statusColor};
+                animation: ${statusPulse} 2s infinite;"></div>
+            <span style="font-size: 9px; font-weight: 700;
+                color: #fff; letter-spacing: 0.5px;">${flightPhase}</span>
         </div>
     </div>
 
     <div class="ac-route-info-bar" style="
         background: rgba(30, 41, 59, 0.75);
         backdrop-filter: blur(16px);
-        margin: -24px 16px 20px 16px; /* -24px top overlap, 20px bottom spacing */
+        margin: -32px 16px 16px 16px; /* Adjusted bottom margin */
         border-radius: 12px;
-        padding: 14px 24px; 
+        padding: 12px 16px; 
         border: 1px solid rgba(255,255,255,0.1);
         display: flex;
         align-items: center;
         justify-content: space-between;
-        gap: 16px;
+        gap: 12px;
         flex-shrink: 0;
         position: relative;
         z-index: 5;
         box-shadow: 0 8px 32px rgba(0,0,0,0.3);">
         
         <div class="route-node">
-            <span class="city-name" style="color: #94a3b8; font-size: 9px; font-weight: 600; text-transform: uppercase;">${depCity}</span>
-            <span class="icao-large" style="color: #fff; font-size: 20px; font-weight: 800; font-family: 'JetBrains Mono', monospace; line-height: 1.1;">${departureIcao}</span>
-            <span class="time-small" style="color: #38bdf8; font-size: 11px; font-weight: 600;">${atdTime}</span>
+            <span class="city-name" style="color: #94a3b8;
+                font-size: 8px; font-weight: 600; text-transform: uppercase;">${depCity}</span>
+            <span class="icao-large" style="color: #fff;
+                font-size: 18px; font-weight: 800; font-family: 'JetBrains Mono', monospace; line-height: 1.1;">${departureIcao}</span>
+            <span class="time-small" style="color: #38bdf8;
+                font-size: 10px; font-weight: 600;">${atdTime}</span>
         </div>
 
-        <div class="route-visual" style="flex: 1; max-width: 240px; display: flex; flex-direction: column; justify-content: center;">
-            <div class="flight-progress-track" style="height: 4px; background: rgba(255,255,255,0.1); border-radius: 4px; position: relative;">
-                <div class="flight-progress-fill" id="ac-progress-bar" style="width: ${progress}%; background: #38bdf8; height: 100%; border-radius: 4px; position: relative; transition: width 0.5s ease;">
-                    <i class="fa-solid fa-plane flight-progress-plane" style="position: absolute; right: -6px; top: 50%; transform: translateY(-50%) rotate(90deg); color: #fff; font-size: 10px; filter: drop-shadow(0 0 4px #38bdf8);"></i>
+        <div class="route-visual" style="flex: 1; max-width: 180px; display: flex; flex-direction: column; justify-content: center;">
+            <div class="flight-progress-track" style="height: 4px;
+                background: rgba(255,255,255,0.1); border-radius: 4px; position: relative;">
+                <div class="flight-progress-fill" id="ac-progress-bar" style="width: ${progress}%;
+                    background: #38bdf8; height: 100%; border-radius: 4px; position: relative; transition: width 0.5s ease;">
+                    <i class="fa-solid fa-plane flight-progress-plane" style="position: absolute;
+                    right: -6px; top: 50%; transform: translateY(-50%) rotate(90deg); color: #fff; font-size: 10px;
+                    filter: drop-shadow(0 0 4px #38bdf8);"></i>
                 </div>
             </div>
-            <div style="display: flex; justify-content: space-between; width: 100%; margin-top: 6px; font-size: 9px; color: #cbd5e1; font-weight: 700;">
+            <div style="display: flex;
+                justify-content: space-between; width: 100%; margin-top: 4px; font-size: 8px; color: #cbd5e1;
+                font-weight: 700;">
                 <span>${Math.round(totalDistanceNM)} NM</span>
                 <span>ETE: ${ete}</span>
             </div>
         </div>
 
+        <div class="modern-view-switcher" id="main-data-switcher" style="flex: 1.2;
+            background: rgba(15, 23, 42, 0.6); border-radius: 10px; padding: 3px; display: flex; position: relative; border: 1px solid rgba(255,255,255,0.05);
+            height: 38px;">
+             <button class="ac-info-tab-btn ${flightDataActiveClass}" data-tab="ac-tab-flight-data" style="flex: 1;
+                border: none; background: transparent; color: #fff; font-size: 9px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.5px; padding: 0 6px; cursor: pointer;
+                z-index: 1; transition: color 0.3s ease; display: flex; align-items: center; justify-content: center;
+                gap: 4px;">
+                <i class="fa-solid fa-gauge-high"></i> Flight
+             </button>
+             <button class="ac-info-tab-btn pilot-tab-btn ${pilotReportActiveClass}" data-tab="ac-tab-pilot-report" data-user-id="${baseProps.userId}" data-username="${pilotUsername}" style="flex: 1;
+                border: none; background: transparent; color: #94a3b8; font-size: 9px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.5px; padding: 0 6px; cursor: pointer;
+                z-index: 1; transition: color 0.3s ease; display: flex; align-items: center; justify-content: center;
+                gap: 4px;">
+                <i class="fa-solid fa-user"></i> ${pilotReportTabText}
+             </button>
+             <div class="switcher-highlight" id="main-switcher-highlight" style="position: absolute;
+                top: 3px; left: 3px; width: calc(50% - 3px); height: calc(100% - 6px); background: rgba(255,255,255,0.08); border: 1px solid rgba(255,255,255,0.1); border-radius: 7px;
+                transition: transform 0.3s cubic-bezier(0.4, 0, 0.2, 1); transform: translateX(${highlightX});"></div>
+        </div>
+
         <div class="route-node end" style="text-align: right;">
-            <span class="city-name" style="color: #94a3b8; font-size: 9px; font-weight: 600; text-transform: uppercase;">${arrCity}</span>
-            <span class="icao-large" style="color: #fff; font-size: 20px; font-weight: 800; font-family: 'JetBrains Mono', monospace; line-height: 1.1;">${arrivalIcao}</span>
-            <span class="time-small" id="ac-ete" style="color: #38bdf8; font-size: 11px; font-weight: 600;">${ete}</span>
+            <span class="city-name" style="color: #94a3b8;
+                font-size: 8px; font-weight: 600; text-transform: uppercase;">${arrCity}</span>
+            <span class="icao-large" style="color: #fff;
+                font-size: 18px; font-weight: 800; font-family: 'JetBrains Mono', monospace; line-height: 1.1;">${arrivalIcao}</span>
+            <span class="time-small" id="ac-ete" style="color: #38bdf8;
+                font-size: 10px; font-weight: 600;">${ete}</span>
         </div>
     </div>
 
-    <div class="unified-display-main-content" style="display: flex; flex-direction: column; gap: 6px; padding: 0 16px 16px 16px;">
-            <div class="pfd-and-location-grid">
-                    <div class="pfd-main-panel">
-                    <div class="display-bezel" style="background: rgba(15, 23, 42, 0.4); border: 1px solid rgba(255,255,255,0.05); border-radius: 12px; overflow: hidden; box-shadow: 0 4px 24px rgba(0,0,0,0.4);">
-                        <div class="crt-container scanlines" id="pfd-container">
-                            <svg width="787" height="800" viewBox="0 0 787 800" fill="none" xmlns="http://www.w3.org/2000/svg">
+    <div class="unified-display-main-content">
+            <div id="ac-tab-flight-data" class="ac-tab-pane ${flightDataActiveClass}" style="gap: 6px;
+                display: ${flightDataDisplay};">
+                <div class="pfd-and-location-grid">
+                     <div class="pfd-main-panel">
+                      <div class="display-bezel" style="background: rgba(15, 23, 42, 0.4);
+                        border: 1px solid rgba(255,255,255,0.05); border-radius: 12px; overflow: hidden; box-shadow: 0 4px 24px rgba(0,0,0,0.4);">
+                            <div class="crt-container scanlines" id="pfd-container">
+                                <svg width="787" height="800" viewBox="0 0 787 800" fill="none" xmlns="http://www.w3.org/2000/svg">
                                     <defs>
-                                    <clipPath id="clip0_1_2890"><rect width="787" height="800" fill="white"/></clipPath>
-                                    <clipPath id="tensReelClip"><rect x="732" y="269" width="50" height="75"/></clipPath>
-                                    <clipPath id="headingClip"><rect x="243" y="620" width="326" height="45"/></clipPath>
-                                    <clipPath id="speedTapeClip"><rect x="28" y="73" width="97" height="477"/></clipPath>
-                                    <clipPath id="altTapeClip"><rect x="675" y="73" width="72" height="476"/></clipPath>
-                                </defs>
-                                <g id="PFD" clip-path="url(#clip0_1_2890)">
-                                    <g transform="translate(0, 100)">
-                                        <g id="attitude_group">
-                                            <rect id="Sky" x="-186" y="-222" width="1121" height="600" fill="#0596FF"/>
-                                            <rect id="Ground" x="-138" y="307" width="1024" height="527" fill="#9A4710"/>
-                                        </g>
+                                        <clipPath id="clip0_1_2890"><rect width="787" height="800" fill="white"/></clipPath>
+                                        <clipPath id="tensReelClip"><rect x="732" y="269" width="50" height="75"/></clipPath>
+                                        <clipPath id="headingClip"><rect x="243" y="620" width="326" height="45"/></clipPath>
+                                        <clipPath id="speedTapeClip"><rect x="28" y="73" width="97" height="477"/></clipPath>
+                                        <clipPath id="altTapeClip"><rect x="675" y="73" width="72" height="476"/></clipPath>
+                                    </defs>
+                    
+                                    <g id="PFD" clip-path="url(#clip0_1_2890)">
+                                        <g transform="translate(0, 100)">
                                         
-                                        <rect id="Rectangle 1" x="-6" y="5" width="191" height="566" fill="#030309"/>
-                                        <rect id="Rectangle 9" x="609" width="185" height="566" fill="#030309"/>
-                                        <path id="Rectangle 2" d="M273.905 84.9424L180.983 183.181L-23 -9.76114L69.9218 -108L273.905 84.9424Z" fill="#030309"/>
-                                        <path id="Rectangle 8" d="M303.215 77.0814L187.591 147.198L42 -92.8829L157.624 -163L303.215 77.0814Z" fill="#030309"/>
-                                        <path id="Rectangle 7" d="M372.606 54.0171L244.59 97.5721L154.152 -168.242L282.169 -211.796L372.606 54.0171Z" fill="#030309"/>
-                                        <rect id="Rectangle 10" x="25" y="487.905" width="168.696" height="262.947" transform="rotate(-31.8041 25 487.905)" fill="#030309"/>
-                                        <rect id="Rectangle 14" width="67.3639" height="53.5561" transform="matrix(-0.972506 0.23288 0.23288 0.972506 482.512 537)" fill="#030309"/>
-                                        <rect id="Rectangle 19" width="80.8905" height="53.5561" transform="matrix(-0.999899 0.0142423 0.0142423 0.999899 442.882 549.506)" fill="#030309"/>
-                                        <rect id="Rectangle 18" width="46.2297" height="53.5561" transform="matrix(-0.988103 -0.153795 -0.153795 0.988103 369.916 549.11)" fill="#030309"/>
-                                        <rect id="Rectangle 17" width="46.2297" height="53.5561" transform="matrix(-0.940186 -0.340662 -0.340662 0.940186 337.709 546.749)" fill="#030309"/>
-                                        <rect id="Rectangle 16" width="46.2297" height="53.5561" transform="matrix(-0.940186 -0.340662 -0.340662 0.940186 299.709 531.749)" fill="#030309"/>
-                                        <rect id="Rectangle 15" x="387" y="587.269" width="168.696" height="262.947" transform="rotate(-27.6434 387 587.269)" fill="#030309"/>
-                                        <rect id="Rectangle 13" x="86" y="584.104" width="168.696" height="262.947" transform="rotate(-46.8648 86 584.104)" fill="#030309"/>
-                                        <rect id="Rectangle 11" x="527" y="532.777" width="168.696" height="262.947" transform="rotate(-51.9135 527 532.777)" fill="#030309"/>
-                                        <rect id="Rectangle 12" x="503" y="527.247" width="168.696" height="262.947" transform="rotate(-31.9408 503 527.247)" fill="#030309"/>
-                                        <rect id="Rectangle 6" x="456.715" y="60.2651" width="131.991" height="278.153" transform="rotate(-177.303 456.715 60.2651)" fill="#030309"/>
-                                        <rect id="Rectangle 5" x="525.118" y="90.4898" width="131.991" height="274.627" transform="rotate(-158.368 525.118 90.4898)" fill="#030309"/>
-                                        <rect id="Rectangle 4" x="570.695" y="127.633" width="109.94" height="223.222" transform="rotate(-142.051 570.695 127.633)" fill="#030309"/>
-                                        <rect id="Rectangle 3" x="613.292" y="189.098" width="99.2768" height="223.222" transform="rotate(-128.125 613.292 189.098)" fill="#030309"/>
-                                        <path id="Vector 3" d="M609 183V422.5" stroke="#E7E6E8" stroke-width="4"/>
-                                        <path id="Vector 1" d="M185.5 425.5L185 180" stroke="#DBDBDC" stroke-width="4"/>
-                                        <path id="Vector 2" d="M185 181.502C185 181.502 269.8 52.0936 397 56.0907C524.2 60.0879 576.603 135.189 609 184" stroke="#DBDBDC" stroke-width="4"/>
-                                        <path id="Vector 4" d="M608.5 424.5C608.5 424.5 557 548 396 550.5C235 553 185 424.5 185 424.5" stroke="#DBDBDC" stroke-width="4"/>
-                                        <path id="Polygon 1" d="M396.252 65.2333L377.848 35.8138L414.647 35.8079L396.252 65.2333Z" fill="#E7F013"/>
-                                        <path id="Polygon 2" d="M407.919 38.9482L396.431 59.4193L384.446 38.7244L407.919 38.9482Z" fill="#030309"/>
-                                        <path id="Vector 6" d="M307 76L302 64.5L312 60.5L317 71" stroke="#E7E6E8" stroke-width="4"/>
-                                        <path id="Vector 7" d="M279.5 91L268.5 73.5L259 79L269.5 97.5" stroke="#E7E6E8" stroke-width="4"/>
-                                        <path id="Vector 8" d="M225 135L206.5 117" stroke="#E7E6E8" stroke-width="4"/>
-                                        <path id="Vector 9" d="M477.153 71.5794L479.366 59.3018L489.886 61.5697L488.226 73.0218" stroke="#E7E6E8" stroke-width="4"/>
-                                        <path id="Vector 10" d="M347.928 61.4888L346.352 49.0483L357.072 48.0112L358.929 59.4917" stroke="#E7E6E8" stroke-width="4"/>
-                                        <path id="Vector 11" d="M435.153 59.5794L437.366 47.3018L447.886 49.5697L446.226 61.0218" stroke="#E7E6E8" stroke-width="4"/>
-                                        <path id="Vector 12" d="M514.032 86.1754L522.756 72.2658L533.956 78.0405L525.5 93.5" stroke="#E7E6E8" stroke-width="4"/>
-                                        <path id="Vector 13" d="M569.5 131.5L585.5 116" stroke="#E7E6E8" stroke-width="4"/>
-                                        <path id="Vector 15" d="M183.5 193.5L173 187" stroke="#029705" stroke-width="4"/>
-                                        <path id="Vector 16" d="M184 203L173.5 196.5" stroke="#029705" stroke-width="4"/>
-                                        <path id="Vector 17" d="M610 193.5L619 188" stroke="#029705" stroke-width="3"/>
-                                        <path id="Vector 18" d="M610 199.5L619 194" stroke="#029705" stroke-width="3"/>
-                                        <line id="Line 1" x1="184" y1="211" x2="184" y2="184" stroke="#DBDBDC" stroke-width="2"/>
-                                        <line id="Line 2" x1="610" y1="211" x2="610" y2="184" stroke="#DBDBDC" stroke-width="2"/>
-                                        <rect id="altitude_bg" x="675" y="73" width="72" height="476" fill="#76767A"/>
-                                        <g clip-path="url(#altTapeClip)">
-                                            <svg x="675" y="73" width="72" height="476"><g id="altitude_tape_group"></g></svg>
-                                        </g>
-                                        <g id="altitude_indicator_static">
-                                            <rect id="altitude_1" x="675" y="280" width="73" height="49" fill="#030309"/>
-                                            <text id="altitude_readout_hundreds" x="740" y="316" fill="#00FF00" font-size="32" text-anchor="end" font-weight="bold">0</text>
-                                            <g id="altitude_tens_reel_container" clip-path="url(#tensReelClip)"><g id="altitude_tens_reel_group"></g></g>
-                                            <line id="Line 8" x1="669" y1="307" x2="618" y2="307" stroke="#DDDF07" stroke-width="8"/>
-                                        </g>
-                                        <path id="limit" d="M636 336.08L621.413 307.511L650.858 307.651L636 336.08Z" fill="#C477C6"/>
-                                        <path id="limit2" d="M636 279L650.722 307.5H621.278L636 279Z" fill="#C477C6"/>
-                                        <path id="limit3" d="M636 285L643.794 303H628.206L636 285Z" fill="#100010"/>
-                                        <path id="limit4" d="M636.191 329.14L628.276 311.242L643.534 310.999L636.191 329.14Z" fill="#030309"/>
-                                        <line id="Line 6" x1="746.5" y1="263" x2="746.5" y2="281" stroke="#ECED06" stroke-width="3"/>
-                                        <line id="Line 4" x1="746.5" y1="329" x2="746.5" y2="347" stroke="#ECED06" stroke-width="3"/>
-                                        <path id="Ellipse 1" d="M636 481C636 484.866 632.866 488 629 488C625.134 488 622 484.866 622 481C622 477.134 625.134 474 629 474C632.866 474 636 477.134 636 481Z" fill="#D9D9D9"/>
-                                        <path id="Ellipse 4" d="M636 147C636 150.866 632.866 154 629 154C625.134 154 622 150.866 622 147C622 143.134 625.134 140 629 140C632.866 140 636 147Z" fill="#D9D9D9"/>
-                                        <g id="Ellipse 3">
-                                            <path d="M636 229C636 232.866 632.866 236 629 236C625.134 236 622 232.866 622 229C622 225.134 625.134 222 629 222C632.866 222 636 225.134 636 229Z" fill="#D9D9D9"/>
-                                            <path d="M636 395C636 398.866 632.866 402 629 402C625.134 402 622 398.866 622 395C622 391.134 625.134 388 629 388C632.866 388 636 395Z" fill="#D9D9D9"/>
-                                        </g>
-                                        <rect id="speed" x="28" y="73" width="97" height="477" fill="#76767A"/>
-                                        <g clip-path="url(#speedTapeClip)">
-                                            <svg x="28" y="73" width="97" height="477"><g id="speed_tape_group"></g></svg>
-                                        </g>
-                                        <g id="speed_indicator_static">
-                                            <path id="Polygon 9" d="M128.036 311.591L150.451 301.561L150.513 321.482L128.036 311.591Z" fill="#FDFD03"/>
-                                            <path id="Vector 20" d="M137 311H96.5" stroke="#FDFD03" stroke-width="4"/>
-                                            <rect x="50" y="296" width="45" height="30" fill="black" stroke="#999" stroke-width="1"/>
-                                            <text id="speed_readout" x="72.5" y="318" fill="#00FF00" font-size="20" text-anchor="middle" font-weight="bold">0</text>
-                                        </g>
-                                        <path id="Vector 19" d="M19.5 311H31" stroke="#FDFD03" stroke-width="4"/>
-                                        <path id="Vector 21" d="M29 73H151.5" stroke="#E7E6E8" stroke-width="4"/>
-                                        <path id="Vector 22" d="M28 549H151.5" stroke="#E7E6E8" stroke-width="4"/>
-                                        <path id="Vector 23" d="M672.5 73H774" stroke="#E7E6E8" stroke-width="4"/>
-                                        <path id="Vector 24" d="M672 548.5H773" stroke="#E7E6E8" stroke-width="4"/>
-                                        <path id="Vector 25" d="M745 549.5L746 347" stroke="#E7E6E8" stroke-width="3"/>
-                                        <path id="Vector 26" d="M745 73V265" stroke="#E7E6E8" stroke-width="3"/>
-                                        <g id="wings">
-                                            <rect id="Rectangle 21" x="280" y="315" width="11" height="25" fill="#030309"/>
-                                            <rect id="Rectangle 23" x="522" y="304" width="71" height="12" fill="#030309"/>
-                                            <rect id="Rectangle 22" x="512" y="305" width="13" height="35" fill="#030309"/>
-                                            <rect id="Rectangle 20" x="208" y="304" width="83" height="13" fill="#030309"/>
-                                            <g id="wing">
-                                                <path d="M278.591 316.857H208V304H291.608V340H278.591V316.857Z" stroke="#FEFE03" stroke-width="3"/>
-                                                <path d="M511.392 340V304H595V316.857H524.409V340H511.392Z" stroke="#FEFE03" stroke-width="3"/>
+                                            <g id="attitude_group">
+                                                <rect id="Sky" x="-186" y="-222" width="1121" height="600" fill="#0596FF"/>
+                                                <rect id="Ground" x="-138" y="307" width="1024" height="527" fill="#9A4710"/>
                                             </g>
-                                        </g>
-                                        <g id="middle">
-                                            <rect id="middle_2" x="393" y="304" width="17" height="17" fill="#0CC704"/>
-                                            <rect id="Rectangle 24" x="395" y="307" width="13" height="11" fill="#030309"/>
-                                        </g>
-                                        <rect id="Rectangle 25" y="571" width="787" height="140" fill="#030309"/>
-                                        <rect id="header" x="243" y="599" width="326" height="66" fill="#76767A"/>
-                                        <g id="heading_indicator">
-                                            <g id="heading_tape_container" clip-path="url(#headingClip)"><g id="heading_tape_group"></g></g>
-                                            <g id="heading_static_elements">
-                                                <line x1="406" y1="620" x2="406" y2="635" stroke="#FDFD03" stroke-width="3"/>
-                                                <rect x="381" y="599" width="50" height="20" fill="black" stroke="#FFFFFF" stroke-width="1"/>
-                                                <text id="heading_readout" x="406" y="615" fill="#00FF00" font-size="16" text-anchor="middle" font-weight="bold">000</text>
+                                           
+                                            <rect id="Rectangle 1" x="-6" y="5" width="191" height="566" fill="#030309"/>
+                                            <rect id="Rectangle 9" x="609" width="185" height="566" fill="#030309"/>
+                                            <path id="Rectangle 2" d="M273.905 84.9424L180.983 183.181L-23 -9.76114L69.9218 -108L273.905 84.9424Z" fill="#030309"/>
+                                            <path id="Rectangle 8" d="M303.215 77.0814L187.591 147.198L42 -92.8829L157.624 -163L303.215 77.0814Z" fill="#030309"/>
+                                            <path id="Rectangle 7" d="M372.606 54.0171L244.59 97.5721L154.152 -168.242L282.169 -211.796L372.606 54.0171Z" fill="#030309"/>
+                                       
+                                            <rect id="Rectangle 10" x="25" y="487.905" width="168.696" height="262.947" transform="rotate(-31.8041 25 487.905)" fill="#030309"/>
+                                            <rect id="Rectangle 14" width="67.3639" height="53.5561" transform="matrix(-0.972506 0.23288 0.23288 0.972506 482.512 537)" fill="#030309"/>
+                              
+                                            <rect id="Rectangle 19" width="80.8905" height="53.5561" transform="matrix(-0.999899 0.0142423 0.0142423 0.999899 442.882 549.506)" fill="#030309"/>
+                                            <rect id="Rectangle 18" width="46.2297" height="53.5561" transform="matrix(-0.988103 -0.153795 -0.153795 0.988103 369.916 549.11)" fill="#030309"/>
+                    
+                                            <rect id="Rectangle 17" width="46.2297" height="53.5561" transform="matrix(-0.940186 -0.340662 -0.340662 0.940186 337.709 546.749)" fill="#030309"/>
+                                            <rect id="Rectangle 16" width="46.2297" height="53.5561" transform="matrix(-0.940186 -0.340662 -0.340662 0.940186 299.709 531.749)" fill="#030309"/>
+          
+                                            <rect id="Rectangle 15" x="387" y="587.269" width="168.696" height="262.947" transform="rotate(-27.6434 387 587.269)" fill="#030309"/>
+                                            <rect id="Rectangle 13" x="86" y="584.104" width="168.696" height="262.947" transform="rotate(-46.8648 86 584.104)" fill="#030309"/>
+  
+                                            <rect id="Rectangle 11" x="527" y="532.777" width="168.696" height="262.947" transform="rotate(-51.9135 527 532.777)" fill="#030309"/>
+                                            <rect id="Rectangle 12" x="503" y="527.247" width="168.696" height="262.947" transform="rotate(-31.9408 503 527.247)" fill="#030309"/>
+                                            <rect id="Rectangle 6" x="456.715" y="60.2651" width="131.991" height="278.153" transform="rotate(-177.303 456.715 60.2651)" fill="#030309"/>
+                                        
+                                            <rect id="Rectangle 5" x="525.118" y="90.4898" width="131.991" height="274.627" transform="rotate(-158.368 525.118 90.4898)" fill="#030309"/>
+                                            <rect id="Rectangle 4" x="570.695" y="127.633" width="109.94" height="223.222" transform="rotate(-142.051 570.695 127.633)" fill="#030309"/>
+                                
+                                            <rect id="Rectangle 3" x="613.292" y="189.098" width="99.2768" height="223.222" transform="rotate(-128.125 613.292 189.098)" fill="#030309"/>
+                                            <path id="Vector 3" d="M609 183V422.5" stroke="#E7E6E8" stroke-width="4"/>
+                            
+                                            <path id="Vector 1" d="M185.5 425.5L185 180" stroke="#DBDBDC" stroke-width="4"/>
+                                            <path id="Vector 2" d="M185 181.502C185 181.502 269.8 52.0936 397 56.0907C524.2 60.0879 576.603 135.189 609 184" stroke="#DBDBDC" stroke-width="4"/>
+                 
+                                            <path id="Vector 4" d="M608.5 424.5C608.5 424.5 557 548 396 550.5C235 553 185 424.5 185 424.5" stroke="#DBDBDC" stroke-width="4"/>
+                                            <path id="Polygon 1" d="M396.252 65.2333L377.848 35.8138L414.647 35.8079L396.252 65.2333Z" fill="#E7F013"/>
+     
+                                            <path id="Polygon 2" d="M407.919 38.9482L396.431 59.4193L384.446 38.7244L407.919 38.9482Z" fill="#030309"/>
+                                            <path id="Vector 6" d="M307 76L302 64.5L312 60.5L317 71" stroke="#E7E6E8" stroke-width="4"/>
+                                            <path id="Vector 7" d="M279.5 91L268.5 73.5L259 79L269.5 97.5" stroke="#E7E6E8" stroke-width="4"/>
+                                            <path id="Vector 8" d="M225 135L206.5 117" stroke="#E7E6E8" stroke-width="4"/>
+                                            <path id="Vector 9" d="M477.153 71.5794L479.366 59.3018L489.886 61.5697L488.226 73.0218" stroke="#E7E6E8" stroke-width="4"/>
+                                           
+                                            <path id="Vector 10" d="M347.928 61.4888L346.352 49.0483L357.072 48.0112L358.929 59.4917" stroke="#E7E6E8" stroke-width="4"/>
+                                            <path id="Vector 11" d="M435.153 59.5794L437.366 47.3018L447.886 49.5697L446.226 61.0218" stroke="#E7E6E8" stroke-width="4"/>
+                                     
+                                            <path id="Vector 12" d="M514.032 86.1754L522.756 72.2658L533.956 78.0405L525.5 93.5" stroke="#E7E6E8" stroke-width="4"/>
+                                            <path id="Vector 13" d="M569.5 131.5L585.5 116" stroke="#E7E6E8" stroke-width="4"/>
+                                 
+                                            <path id="Vector 15" d="M183.5 193.5L173 187" stroke="#029705" stroke-width="4"/>
+                                            <path id="Vector 16" d="M184 203L173.5 196.5" stroke="#029705" stroke-width="4"/>
+                               
+                                            <path id="Vector 17" d="M610 193.5L619 188" stroke="#029705" stroke-width="3"/>
+                                            <path id="Vector 18" d="M610 199.5L619 194" stroke="#029705" stroke-width="3"/>
+                             
+                                            <line id="Line 1" x1="184" y1="211" x2="184" y2="184" stroke="#DBDBDC" stroke-width="2"/>
+                                            <line id="Line 2" x1="610" y1="211" x2="610" y2="184" stroke="#DBDBDC" stroke-width="2"/>
+                         
+                                            <rect id="altitude_bg" x="675" y="73" width="72" height="476" fill="#76767A"/>
+                                            <g clip-path="url(#altTapeClip)">
+                                                <svg x="675" y="73" width="72" height="476"><g id="altitude_tape_group"></g></svg>
                                             </g>
-                                        </g>
-                                        <path id="Vector 27" d="M243 599V667" stroke="#FCFCFF" stroke-width="4"/>
-                                        <g id="Line 5"><line id="Line 5_2" x1="745" y1="264.5" x2="787" y2="264.5" stroke="#ECED06" stroke-width="3"/></g>
-                                        <line id="Line 6_2" x1="671" y1="279.5" x2="748" y2="279.5" stroke="#ECED06" stroke-width="3"/>
-                                        <line id="Line 7" x1="671" y1="329.5" x2="748" y2="329.5" stroke="#ECED06" stroke-width="3"/>
-                                        <line id="Line 3" x1="746" y1="345.5" x2="786" y2="345.5" stroke="#ECED06" stroke-width="3"/>
+                                 
+                                            <g id="altitude_indicator_static">
+                                                <rect id="altitude_1" x="675" y="280" width="73" height="49" fill="#030309"/>
+                                                <text id="altitude_readout_hundreds" x="740" y="316" fill="#00FF00" font-size="32" text-anchor="end" font-weight="bold">0</text>
+                                                <g id="altitude_tens_reel_container" clip-path="url(#tensReelClip)"><g id="altitude_tens_reel_group"></g></g>
+                                                <line id="Line 8" x1="669" y1="307" x2="618" y2="307" stroke="#DDDF07" stroke-width="8"/>
+                                            </g>
+                            
+                                            <path id="limit" d="M636 336.08L621.413 307.511L650.858 307.651L636 336.08Z" fill="#C477C6"/>
+                                            <path id="limit2" d="M636 279L650.722 307.5H621.278L636 279Z" fill="#C477C6"/>
+                                            <path id="limit3" d="M636 285L643.794 303H628.206L636 285Z" fill="#100010"/>
+                                            <path id="limit4" d="M636.191 329.14L628.276 311.242L643.534 310.999L636.191 329.14Z" fill="#030309"/>
+                          
+                                            <line id="Line 6" x1="746.5" y1="263" x2="746.5" y2="281" stroke="#ECED06" stroke-width="3"/>
+                                            <line id="Line 4" x1="746.5" y1="329" x2="746.5" y2="347" stroke="#ECED06" stroke-width="3"/>
+                      
+                                            <path id="Ellipse 1" d="M636 481C636 484.866 632.866 488 629 488C625.134 488 622 484.866 622 481C622 477.134 625.134 474 629 474C632.866 474 636 477.134 636 481Z" fill="#D9D9D9"/>
+                                            <path id="Ellipse 4" d="M636 147C636 150.866 632.866 154 629 154C625.134 154 622 150.866 622 147C622 143.134 625.134 140 629 140C632.866 140 636 147Z" fill="#D9D9D9"/>
+                                            <g id="Ellipse 3">
+                                                <path d="M636 229C636 232.866 632.866 236 629 236C625.134 236 622 232.866 622 229C622 225.134 625.134 222 629 222C632.866 222 636 225.134 636 229Z" fill="#D9D9D9"/>
+                                                <path d="M636 395C636 398.866 632.866 402 629 402C625.134 402 622 398.866 622 395C622 391.134 625.134 388 629 388C632.866 388 636 391.134 636 395Z" fill="#D9D9D9"/>
+                                            </g>
+                                            <rect id="speed" x="28" y="73" width="97" height="477" fill="#76767A"/>
+    
+                                            <g clip-path="url(#speedTapeClip)">
+                                                <svg x="28" y="73" width="97" height="477"><g id="speed_tape_group"></g></svg>
+                                            </g>
+                                            <g id="speed_indicator_static">
+                                                <path id="Polygon 9" d="M128.036 311.591L150.451 301.561L150.513 321.482L128.036 311.591Z" fill="#FDFD03"/>
+                                                <path id="Vector 20" d="M137 311H96.5" stroke="#FDFD03" stroke-width="4"/>
+                                                <rect x="50" y="296" width="45" height="30" fill="black" stroke="#999" stroke-width="1"/>
+                                                <text id="speed_readout" x="72.5" y="318" fill="#00FF00" font-size="20" text-anchor="middle" font-weight="bold">0</text>
+                                            </g>
+                                            <path id="Vector 19" d="M19.5 311H31" stroke="#FDFD03" stroke-width="4"/>
+                                            <path id="Vector 21" d="M29 73H151.5" stroke="#E7E6E8" stroke-width="4"/>
+                                            <path id="Vector 22" d="M28 549H151.5" stroke="#E7E6E8" stroke-width="4"/>
+                                            <path id="Vector 23" d="M672.5 73H774" stroke="#E7E6E8" stroke-width="4"/>
+                                            <path id="Vector 24" d="M672 548.5H773" stroke="#E7E6E8" stroke-width="4"/>
+                                            <path id="Vector 25" d="M745 549.5L746 347" stroke="#E7E6E8" stroke-width="3"/>
+                                            <path id="Vector 26" d="M745 73V265" stroke="#E7E6E8" stroke-width="3"/>
+  
+                                            <g id="wings">
+                                                <rect id="Rectangle 21" x="280" y="315" width="11" height="25" fill="#030309"/>
+                                                <rect id="Rectangle 23" x="522" y="304" width="71" height="12" fill="#030309"/>
+                                                <rect id="Rectangle 22" x="512" y="305" width="13" height="35" fill="#030309"/>
+                                                <rect id="Rectangle 20" x="208" y="304" width="83" height="13" fill="#030309"/>
+                                     
+                                                <g id="wing">
+                                                    <path d="M278.591 316.857H208V304H291.608V340H278.591V316.857Z" stroke="#FEFE03" stroke-width="3"/>
+                                                    <path d="M511.392 340V304H595V316.857H524.409V340H511.392Z" stroke="#FEFE03" stroke-width="3"/>
+                                                </g>
+                                            </g>
+                                            <g id="middle">
+                                                <rect id="middle_2" x="393" y="304" width="17" height="17" fill="#0CC704"/>
+                                                <rect id="Rectangle 24" x="395" y="307" width="13" height="11" fill="#030309"/>
+                                            </g>
+                                            <rect id="Rectangle 25" y="571" width="787" height="140" fill="#030309"/>
+                                            <rect id="header" x="243" y="599" width="326" height="66" fill="#76767A"/>
+                                            <g id="heading_indicator">
+                                                <g id="heading_tape_container" clip-path="url(#headingClip)"><g id="heading_tape_group"></g></g>
+                                                <g id="heading_static_elements">
+                                                    <line x1="406" y1="620" x2="406" y2="635" stroke="#FDFD03" stroke-width="3"/>
+                                                    <rect x="381" y="599" width="50" height="20" fill="black" stroke="#FFFFFF" stroke-width="1"/>
+                                                    <text id="heading_readout" x="406" y="615" fill="#00FF00" font-size="16" text-anchor="middle" font-weight="bold">000</text>
+                                                </g>
+                                            </g>
+                                            <path id="Vector 27" d="M243 599V667" stroke="#FCFCFF" stroke-width="4"/>
+                                            <g id="Line 5"><line id="Line 5_2" x1="745" y1="264.5" x2="787" y2="264.5" stroke="#ECED06" stroke-width="3"/></g>
+                                            <line id="Line 6_2" x1="671" y1="279.5" x2="748" y2="279.5" stroke="#ECED06" stroke-width="3"/>
+                                            <line id="Line 7" x1="671" y1="329.5" x2="748" y2="329.5" stroke="#ECED06" stroke-width="3"/>
+                                            <line id="Line 3" x1="746" y1="345.5" x2="786" y2="345.5" stroke="#ECED06" stroke-width="3"/>
                                     </g>
-                                </g>
-                            </svg>
-                        </div>
-                    </div>
+                                </svg>
+                            </div>
+                         </div>
                     </div> 
                     
-                <div class="info-right-col" style="gap: 6px; display: flex; flex-direction: column; height: 100%; justify-content: space-between;">
-                    <div class="modern-status-card" style="background: linear-gradient(165deg, rgba(255,255,255,0.08) 0%, rgba(255,255,255,0.01) 100%); border: 1px solid rgba(255,255,255,0.1); border-radius: 12px; padding: 10px 12px; position: relative; overflow: hidden; backdrop-filter: blur(12px); flex: 1; display: flex; flex-direction: column; justify-content: center;">
-                        <div class="status-glow" style="position: absolute; top: -20px; right: -20px; width: 60px; height: 60px; background: ${psColor}; filter: blur(35px); opacity: 0.2;"></div>
+                 <div class="info-right-col" style="gap: 6px; display: flex; flex-direction: column; height: 100%;
+                    justify-content: space-between;">
+                    <div class="modern-status-card" style="background: linear-gradient(165deg, rgba(255,255,255,0.08) 0%, rgba(255,255,255,0.01) 100%); border: 1px solid rgba(255,255,255,0.1); border-radius: 12px;
+                    padding: 10px 12px; position: relative; overflow: hidden; backdrop-filter: blur(12px); flex: 1; display: flex; flex-direction: column;
+                    justify-content: center;">
+                        <div class="status-glow" style="position: absolute; top: -20px; right: -20px; width: 60px;
+                        height: 60px; background: ${psColor}; filter: blur(35px); opacity: 0.2;"></div>
                         
-                        <div style="display: flex; flex-direction: column; gap: 8px; position: relative; z-index: 2;">
-                            <div style="display: flex; align-items: center; justify-content: space-between;">
-                                <div style="width: 30px; height: 30px; border-radius: 8px; background: rgba(0,0,0,0.2); display: flex; align-items: center; justify-content: center; color: ${psColor}; border: 1px solid ${psColor}40;">
-                                    <i class="fa-solid ${psIcon}" style="font-size: 14px; filter: drop-shadow(0 0 8px ${psColor}60);"></i>
+                        <div style="display: flex;
+                        flex-direction: column; gap: 8px; position: relative; z-index: 2;">
+                            <div style="display: flex;
+                            align-items: center; justify-content: space-between;">
+                                <div style="width: 30px;
+                                height: 30px; border-radius: 8px; background: rgba(0,0,0,0.2); display: flex; align-items: center; justify-content: center; color: ${psColor};
+                                border: 1px solid ${psColor}40;">
+                                    <i class="fa-solid ${psIcon}" style="font-size: 14px;
+                                    filter: drop-shadow(0 0 8px ${psColor}60);"></i>
                                 </div>
-                                <div class="tech-ping" style="width: 6px; height: 6px; position: relative;">
-                                    <span class="animate" style="background: ${psColor}; position: absolute; inset: 0; border-radius: 50%; opacity: 0.6;"></span>
-                                    <span style="background: ${psColor}; position: absolute; inset: 0; border-radius: 50%;"></span>
+                                <div class="tech-ping" style="width: 6px;
+                                height: 6px; position: relative;">
+                                    <span class="animate" style="background: ${psColor};
+                                    position: absolute; inset: 0; border-radius: 50%; opacity: 0.6;"></span>
+                                    <span style="background: ${psColor};
+                                    position: absolute; inset: 0; border-radius: 50%;"></span>
                                 </div>
                             </div>
                             <div>
-                                <span style="display: block; font-size: 8px; color: #94a3b8; font-weight: 800; text-transform: uppercase; letter-spacing: 1px; margin-bottom: 1px;">Pilot Status</span>
-                                <span style="display: block; font-size: 14px; color: #fff; font-weight: 800; letter-spacing: 0.5px;">${psTitle}</span>
-                                <span style="display: block; font-size: 9px; color: #64748b; font-weight: 500; margin-top: 1px;">${psDesc}</span>
+                                <span style="display: block;
+                                font-size: 8px; color: #94a3b8; font-weight: 800; text-transform: uppercase; letter-spacing: 1px;
+                                margin-bottom: 1px;">Pilot Status</span>
+                                <span style="display: block;
+                                font-size: 14px; color: #fff; font-weight: 800; letter-spacing: 0.5px;">${psTitle}</span>
+                                <span style="display: block;
+                                font-size: 9px; color: #64748b; font-weight: 500; margin-top: 1px;">${psDesc}</span>
                             </div>
                         </div>
                     </div>
 
-                    <div class="modern-timer-stack" style="display: flex; flex-direction: column; gap: 4px;">
-                        <div class="timer-node" style="background: rgba(15, 23, 42, 0.4); border-left: 3px solid #64748b; padding: 8px 10px; border-radius: 4px 10px 10px 4px; border-top: 1px solid rgba(255,255,255,0.03);">
-                            <div style="display: flex; align-items: center; gap: 4px; margin-bottom: 2px;">
-                                <i class="fa-solid fa-stopwatch" style="color: #64748b; font-size: 8px;"></i>
-                                <span style="display: block; font-size: 7px; color: #64748b; text-transform: uppercase; font-weight: 700; letter-spacing: 1px;">Elapsed</span>
+                    <div class="modern-timer-stack" style="display: flex;
+                    flex-direction: column; gap: 4px;">
+                        <div class="timer-node" style="background: rgba(15, 23, 42, 0.4);
+                        border-left: 3px solid #64748b; padding: 8px 10px; border-radius: 4px 10px 10px 4px;
+                        border-top: 1px solid rgba(255,255,255,0.03);">
+                            <div style="display: flex; align-items: center;
+                            gap: 4px; margin-bottom: 2px;">
+                                <i class="fa-solid fa-stopwatch" style="color: #64748b;
+                                font-size: 8px;"></i>
+                                <span style="display: block;
+                                font-size: 7px; color: #64748b; text-transform: uppercase; font-weight: 700; letter-spacing: 1px;">Elapsed</span>
                             </div>
-                            <span id="ac-sensor-elapsed" style="display: block; font-family: 'JetBrains Mono', monospace; font-size: 16px; color: #fff; font-weight: 500;">--:--</span>
+                            <span id="ac-sensor-elapsed" style="display: block;
+                            font-family: 'JetBrains Mono', monospace; font-size: 16px; color: #fff; font-weight: 500;">--:--</span>
                         </div>
 
-                        <div class="timer-node" style="background: rgba(15, 23, 42, 0.4); border-left: 3px solid #38bdf8; padding: 8px 10px; border-radius: 4px 10px 10px 4px; border-top: 1px solid rgba(255,255,255,0.03);">
-                            <div style="display: flex; align-items: center; gap: 4px; margin-bottom: 2px;">
-                                <i class="fa-solid fa-hourglass-half" style="color: #38bdf8; font-size: 8px;"></i>
-                                <span style="display: block; font-size: 7px; color: #38bdf8; text-transform: uppercase; font-weight: 700; letter-spacing: 1px;">Remaining</span>
+                        <div class="timer-node" style="background: rgba(15, 23, 42, 0.4);
+                        border-left: 3px solid #38bdf8; padding: 8px 10px; border-radius: 4px 10px 10px 4px;
+                        border-top: 1px solid rgba(255,255,255,0.03);">
+                            <div style="display: flex; align-items: center;
+                            gap: 4px; margin-bottom: 2px;">
+                                <i class="fa-solid fa-hourglass-half" style="color: #38bdf8;
+                                font-size: 8px;"></i>
+                                <span style="display: block;
+                                font-size: 7px; color: #38bdf8; text-transform: uppercase; font-weight: 700; letter-spacing: 1px;">Remaining</span>
                             </div>
-                            <span id="ac-sensor-ete" style="display: block; font-family: 'JetBrains Mono', monospace; font-size: 16px; color: #38bdf8; font-weight: 700;">--:--</span>
+                            <span id="ac-sensor-ete" style="display: block;
+                            font-family: 'JetBrains Mono', monospace; font-size: 16px; color: #38bdf8; font-weight: 700;">--:--</span>
                         </div>
 
-                        <div class="timer-node" style="background: transparent; padding: 4px 10px; display: flex; justify-content: space-between; align-items: center; border-top: 1px solid rgba(255,255,255,0.05);">
-                            <span style="font-size: 7px; color: #475569; text-transform: uppercase; font-weight: 700;">Total</span>
-                            <span id="ac-sensor-total" style="font-family: 'JetBrains Mono', monospace; font-size: 11px; color: #475569; font-weight: 600;">--:--</span>
+                        <div class="timer-node" style="background: transparent;
+                        padding: 4px 10px; display: flex; justify-content: space-between; align-items: center; border-top: 1px solid rgba(255,255,255,0.05);">
+                            <span style="font-size: 7px;
+                            color: #475569; text-transform: uppercase; font-weight: 700;">Total</span>
+                            <span id="ac-sensor-total" style="font-family: 'JetBrains Mono', monospace;
+                            font-size: 11px; color: #475569; font-weight: 600;">--:--</span>
                         </div>
                     </div>
                 </div>
             </div> 
 
-            <div class="nd-full-width-section">
-                <div class="modern-view-switcher" style="margin-bottom: 12px; background: rgba(15, 23, 42, 0.4); border-radius: 12px; padding: 4px; display: flex; position: relative; border: 1px solid rgba(255,255,255,0.05);">
-                        <button class="display-toggle-btn ${currentViewTarget === 'nd-view' ? 'active' : ''}" data-target="nd-view" style="flex: 1; border: none; background: transparent; color: #94a3b8; font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: 1.5px; padding: 10px; cursor: pointer; z-index: 1; transition: color 0.3s ease;">
-                        <i class="fa-solid fa-compass" style="margin-right: 6px;"></i> Navigation
-                        </button>
-                        <button class="display-toggle-btn ${currentViewTarget === 'fmc-view' ? 'active' : ''}" data-target="fmc-view" style="flex: 1; border: none; background: transparent; color: #94a3b8; font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: 1.5px; padding: 10px; cursor: pointer; z-index: 1; transition: color 0.3s ease;">
-                        <i class="fa-solid fa-list-ul" style="margin-right: 6px;"></i> Flight Plan
-                        </button>
-                        <div class="switcher-highlight" style="position: absolute; top: 4px; left: 4px; width: calc(50% - 4px); height: calc(100% - 8px); background: rgba(255,255,255,0.08); border: 1px solid rgba(255,255,255,0.1); border-radius: 8px; transition: transform 0.3s cubic-bezier(0.4, 0, 0.2, 1); transform: translateX(${currentViewTarget === 'fmc-view' ? '100%' : '0%'});"></div>
-                </div>
+                <div class="nd-full-width-section">
+                    <div class="modern-view-switcher" style="margin-bottom: 12px;
+                        background: rgba(15, 23, 42, 0.4); border-radius: 12px; padding: 4px; display: flex; position: relative;
+                        border: 1px solid rgba(255,255,255,0.05);">
+                         <button class="display-toggle-btn ${currentViewTarget === 'nd-view' ?
+                        'active' : ''}" data-target="nd-view" style="flex: 1; border: none; background: transparent; color: #94a3b8; font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: 1.5px;
+                        padding: 10px; cursor: pointer; z-index: 1; transition: color 0.3s ease;">
+                            <i class="fa-solid fa-compass" style="margin-right: 6px;"></i> Navigation
+                         </button>
+                         <button class="display-toggle-btn ${currentViewTarget === 'fmc-view' ?
+                        'active' : ''}" data-target="fmc-view" style="flex: 1; border: none; background: transparent; color: #94a3b8; font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: 1.5px;
+                        padding: 10px; cursor: pointer; z-index: 1; transition: color 0.3s ease;">
+                            <i class="fa-solid fa-list-ul" style="margin-right: 6px;"></i> Flight Plan
+                         </button>
+                         <div class="switcher-highlight" style="position: absolute;
+                        top: 4px; left: 4px; width: calc(50% - 4px); height: calc(100% - 8px); background: rgba(255,255,255,0.08); border: 1px solid rgba(255,255,255,0.1); border-radius: 8px;
+                        transition: transform 0.3s cubic-bezier(0.4, 0, 0.2, 1); transform: translateX(${currentViewTarget === 'fmc-view' ? '100%' : '0%'});"></div>
+                    </div>
 
-                <div class="display-bezel" style="background: rgba(15, 23, 42, 0.4); border: 1px solid rgba(255,255,255,0.05); border-radius: 12px; overflow: hidden; box-shadow: 0 4px 24px rgba(0,0,0,0.4);">
-                    <div class="crt-container scanlines" style="aspect-ratio: 1/1; display: flex; flex-direction: column; overflow: hidden;">
-                            <div id="nd-view-container" style="width: 100%; height: 100%; display: ${currentViewTarget === 'nd-view' ? 'block' : 'none'};">
-                            <div id="nd-container">
-                                <iframe id="nav-display-frame" src="nav.html" scrolling="no"></iframe>
+                    <div class="display-bezel" style="background: rgba(15, 23, 42, 0.4);
+                        border: 1px solid rgba(255,255,255,0.05); border-radius: 12px; overflow: hidden; box-shadow: 0 4px 24px rgba(0,0,0,0.4);">
+                        <div class="crt-container scanlines" style="aspect-ratio: 1/1;
+                            display: flex; flex-direction: column; overflow: hidden;">
+                             <div id="nd-view-container" style="width: 100%;
+                                height: 100%; display: ${currentViewTarget === 'nd-view' ? 'block' : 'none'};">
+                                <div id="nd-container">
+                                    <iframe id="nav-display-frame" src="nav.html" scrolling="no"></iframe>
                                 </div>
-                        </div>
+                            </div>
 
-                        <div id="fmc-view-container" style="display: ${currentViewTarget === 'fmc-view' ? 'flex' : 'none'}; width: 100%; height: 100%; background: #000; flex-direction: column;">
-                            <div class="fms-module-container" style="height: 100%; max-height: 100%; width: 100%; border: none; background: transparent; box-shadow: none; border-radius: 0; display: flex; flex-direction: column; overflow: hidden;">
-                                <div class="fms-header" style="background: rgba(255,255,255,0.05); padding: 14px 18px; border-bottom: 1px solid rgba(255,255,255,0.05); flex-shrink: 0; display: flex; justify-content: space-between; align-items: center;">
-                                    <span class="tech-module-title" style="font-weight: 700; font-size: 11px; letter-spacing: 1px;"><i class="fa-solid fa-route" style="color: #38bdf8;"></i> ROUTE PROFILE</span>
-                                    <span class="fms-page-count" style="font-family: monospace; font-size: 10px; color: #475569;">PAGE 01/01</span>
-                                </div>
-                                <div class="fms-columns" style="border-bottom: 1px dashed rgba(255,255,255,0.1); display: flex; justify-content: space-between; padding: 8px 14px; flex-shrink: 0; background: rgba(0,0,0,0.2);">
-                                    <span class="col-wpt" style="flex: 2; text-align: left; font-size: 9px; color: #64748b; text-transform: uppercase;">Waypoint Ident</span>
-                                    <span class="col-data text-center" style="flex: 1; font-size: 9px; color: #64748b; text-transform: uppercase;">CRS</span>
-                                    <span class="col-data text-right" style="flex: 1; font-size: 9px; color: #64748b; text-transform: uppercase;">DIST</span>
-                                </div>
-                                <div id="fms-legs-list" class="fms-list-scrollarea" style="flex: 1; overflow-y: auto; min-height: 0; scrollbar-width: none;">
-                                    ${fmsLegsHtml}
-                                </div>
-                                    <div class="fms-footer" style="background: rgba(15, 23, 42, 0.8); border-top: 1px solid rgba(255,255,255,0.05); flex-shrink: 0; padding: 12px 18px; display: flex; gap: 24px;">
-                                    <div class="fms-stat">
-                                        <span class="stat-label" style="display: block; font-size: 8px; color: #64748b; text-transform: uppercase; margin-bottom: 2px;">Total Distance</span>
-                                        <span id="fms-total-dist" class="stat-value" style="font-size: 16px; color: #fff; font-weight: 700;">---- NM</span>
+                            <div id="fmc-view-container" style="display: ${currentViewTarget === 'fmc-view' ?
+                                'flex' : 'none'}; width: 100%; height: 100%; background: #000; flex-direction: column;">
+                                <div class="fms-module-container" style="height: 100%;
+                                    max-height: 100%; width: 100%; border: none; background: transparent; box-shadow: none; border-radius: 0; display: flex; flex-direction: column;
+                                    overflow: hidden;">
+                                    <div class="fms-header" style="background: rgba(255,255,255,0.05);
+                                        padding: 14px 18px; border-bottom: 1px solid rgba(255,255,255,0.05); flex-shrink: 0; display: flex; justify-content: space-between;
+                                        align-items: center;">
+                                        <span class="tech-module-title" style="font-weight: 700;
+                                        font-size: 11px; letter-spacing: 1px;"><i class="fa-solid fa-route" style="color: #38bdf8;"></i> ROUTE PROFILE</span>
+                                        <span class="fms-page-count" style="font-family: monospace;
+                                        font-size: 10px; color: #475569;">PAGE 01/01</span>
                                     </div>
-                                    <div class="fms-stat">
-                                            <span class="stat-label" style="display: block; font-size: 8px; color: #64748b; text-transform: uppercase; margin-bottom: 2px;">Estimated Time</span>
-                                        <span id="fms-total-ete" class="stat-value" style="font-size: 16px; color: #38bdf8; font-weight: 700;">--:--</span>
+                                    <div class="fms-columns" style="border-bottom: 1px dashed rgba(255,255,255,0.1);
+                                        display: flex; justify-content: space-between; padding: 8px 14px; flex-shrink: 0; background: rgba(0,0,0,0.2);">
+                                        <span class="col-wpt" style="flex: 2;
+                                        text-align: left; font-size: 9px; color: #64748b; text-transform: uppercase;">Waypoint Ident</span>
+                                        <span class="col-data text-center" style="flex: 1;
+                                        font-size: 9px; color: #64748b; text-transform: uppercase;">CRS</span>
+                                        <span class="col-data text-right" style="flex: 1;
+                                        font-size: 9px; color: #64748b; text-transform: uppercase;">DIST</span>
+                                    </div>
+                                    <div id="fms-legs-list" class="fms-list-scrollarea" style="flex: 1;
+                                        overflow-y: auto; min-height: 0; scrollbar-width: none;">
+                                        ${fmsLegsHtml}
+                                    </div>
+                                    <div class="fms-footer" style="background: rgba(15, 23, 42, 0.8);
+                                        border-top: 1px solid rgba(255,255,255,0.05); flex-shrink: 0; padding: 12px 18px; display: flex;
+                                        gap: 24px;">
+                                        <div class="fms-stat">
+                                            <span class="stat-label" style="display: block;
+                                            font-size: 8px; color: #64748b; text-transform: uppercase; margin-bottom: 2px;">Total Distance</span>
+                                            <span id="fms-total-dist" class="stat-value" style="font-size: 16px;
+                                            color: #fff; font-weight: 700;">---- NM</span>
+                                        </div>
+                                        <div class="fms-stat">
+                                            <span class="stat-label" style="display: block;
+                                            font-size: 8px; color: #64748b; text-transform: uppercase; margin-bottom: 2px;">Estimated Time</span>
+                                            <span id="fms-total-ete" class="stat-value" style="font-size: 16px;
+                                            color: #38bdf8; font-weight: 700;">--:--</span>
+                                        </div>
                                     </div>
                                 </div>
                             </div>
                         </div>
                     </div>
                 </div>
-            </div>
 
-            <div class="tech-module" id="location-data-panel" style="background: rgba(15, 23, 42, 0.4); border: 1px solid rgba(255,255,255,0.05); border-radius: 12px; overflow: hidden; backdrop-filter: blur(8px);">
-                <div class="tech-module-header" style="padding: 14px 18px; background: rgba(255,255,255,0.03); display: flex; align-items: center; justify-content: space-between; border-bottom: 1px solid rgba(255,255,255,0.05);">
-                        <span class="tech-module-title" style="font-weight: 700; font-size: 11px; text-transform: uppercase; color: #fff; letter-spacing: 1px;"><i class="fa-solid fa-radar" style="margin-right: 8px; color: #38bdf8;"></i> Navigation Info</span>
-                        <div style="display: flex; align-items: center; gap: 8px;">
-                            <span style="font-size: 9px; color: #4ade80; font-weight: 700; letter-spacing: 0.5px;">SYNC ACTIVE</span>
-                            <div class="nav-status-indicator" style="width: 6px; height: 6px; background: #4ade80; border-radius: 50%; box-shadow: 0 0 8px #4ade80;"></div>
-                        </div>
-                </div>
-                <div class="tech-module-body" style="padding: 18px;">
-                        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 24px; margin-bottom: 24px;">
-                            <div class="nav-block">
-                            <span style="font-size: 8px; color: #64748b; text-transform: uppercase; letter-spacing: 1px; display: block; margin-bottom: 6px;">Current Location</span>
-                            <span id="ac-location" style="font-size: 15px; color: #fff; font-weight: 600; font-family: 'Inter', sans-serif;">Scanning...</span>
-                            </div>
-                            <div class="nav-block">
-                            <span style="font-size: 8px; color: #64748b; text-transform: uppercase; letter-spacing: 1px; display: block; margin-bottom: 6px;">Next Sequence</span>
-                            <div style="display: flex; align-items: center; gap: 8px;">
-                                <span id="ac-next-wp" style="font-size: 16px; color: #facc15; font-weight: 800; font-family: 'JetBrains Mono', monospace;">---</span>
-                                <span style="font-size: 11px; color: #94a3b8; font-weight: 500;"><span id="ac-next-wp-dist">--.-</span> <small>NM</small></span>
-                            </div>
-                            </div>
+                <div class="tech-module" id="location-data-panel" style="background: rgba(15, 23, 42, 0.4);
+                border: 1px solid rgba(255,255,255,0.05); border-radius: 12px; overflow: hidden; backdrop-filter: blur(8px);">
+                    <div class="tech-module-header" style="padding: 14px 18px;
+                        background: rgba(255,255,255,0.03); display: flex; align-items: center; justify-content: space-between; border-bottom: 1px solid rgba(255,255,255,0.05);">
+                         <span class="tech-module-title" style="font-weight: 700;
+                        font-size: 11px; text-transform: uppercase; color: #fff; letter-spacing: 1px;"><i class="fa-solid fa-radar" style="margin-right: 8px;
+                        color: #38bdf8;"></i> Navigation Info</span>
+                         <div style="display: flex;
+                        align-items: center; gap: 8px;">
+                             <span style="font-size: 9px;
+                            color: #4ade80; font-weight: 700; letter-spacing: 0.5px;">SYNC ACTIVE</span>
+                             <div class="nav-status-indicator" style="width: 6px;
+                            height: 6px; background: #4ade80; border-radius: 50%; box-shadow: 0 0 8px #4ade80;"></div>
+                         </div>
                     </div>
+                    <div class="tech-module-body" style="padding: 18px;">
+                      
+                        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 24px;
+                        margin-bottom: 24px;">
+                             <div class="nav-block">
+                                <span style="font-size: 8px;
+                                color: #64748b; text-transform: uppercase; letter-spacing: 1px; display: block; margin-bottom: 6px;">Current Location</span>
+                                <span id="ac-location" style="font-size: 15px;
+                                color: #fff; font-weight: 600; font-family: 'Inter', sans-serif;">Scanning...</span>
+                             </div>
+                             <div class="nav-block">
+                                <span style="font-size: 8px;
+                                color: #64748b; text-transform: uppercase; letter-spacing: 1px; display: block; margin-bottom: 6px;">Next Sequence</span>
+                                <div style="display: flex;
+                                align-items: center; gap: 8px;">
+                                   <span id="ac-next-wp" style="font-size: 16px;
+                                   color: #facc15; font-weight: 800; font-family: 'JetBrains Mono', monospace;">---</span>
+                                   <span style="font-size: 11px;
+                                   color: #94a3b8; font-weight: 500;"><span id="ac-next-wp-dist">--.-</span> <small>NM</small></span>
+                                </div>
+                             </div>
+                        </div>
 
-                        <div style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; margin-bottom: 24px;">
-                        <div class="sub-block">
-                            <span style="font-size: 8px; color: #475569; text-transform: uppercase; display: block; margin-bottom: 4px;">Vertical Spd</span>
-                            <span id="ac-vs" style="font-size: 14px; color: #fff; font-weight: 600;">---</span>
+                        <div style="display: grid;
+                        grid-template-columns: repeat(3, 1fr); gap: 12px; margin-bottom: 24px;">
+                            <div class="sub-block">
+                                <span style="font-size: 8px;
+                                color: #475569; text-transform: uppercase; display: block; margin-bottom: 4px;">Vertical Spd</span>
+                                <span id="ac-vs" style="font-size: 14px;
+                                color: #fff; font-weight: 600;">---</span>
+                            </div>
+                            <div class="sub-block">
+                                <span style="font-size: 8px;
+                                color: #475569; text-transform: uppercase; display: block; margin-bottom: 4px;">Wind Velocity</span>
+                                <span id="ac-env-wind" style="font-size: 14px;
+                                color: #fff; font-weight: 600; font-family: monospace;">---/--</span>
+                            </div>
+                            <div class="sub-block">
+                                <span style="font-size: 8px;
+                                color: #475569; text-transform: uppercase; display: block; margin-bottom: 4px;">Static Temp</span>
+                                <span id="ac-env-oat" style="font-size: 14px;
+                                color: #fff; font-weight: 600;">--°C</span>
+                            </div>
                         </div>
-                        <div class="sub-block">
-                            <span style="font-size: 8px; color: #475569; text-transform: uppercase; display: block; margin-bottom: 4px;">Wind Velocity</span>
-                            <span id="ac-env-wind" style="font-size: 14px; color: #fff; font-weight: 600; font-family: monospace;">---/--</span>
-                        </div>
-                        <div class="sub-block">
-                            <span style="font-size: 8px; color: #475569; text-transform: uppercase; display: block; margin-bottom: 4px;">Static Temp</span>
-                            <span id="ac-env-oat" style="font-size: 14px; color: #fff; font-weight: 600;">--°C</span>
-                        </div>
-                    </div>
 
-                    <div style="background: rgba(0,0,0,0.2); padding: 14px; border-radius: 12px; border: 1px solid rgba(255,255,255,0.03);">
-                            <div style="display: flex; justify-content: space-between; align-items: flex-end; margin-bottom: 12px;">
+                        <div style="background: rgba(0,0,0,0.2);
+                        padding: 14px; border-radius: 12px; border: 1px solid rgba(255,255,255,0.03);">
+                             <div style="display: flex;
+                            justify-content: space-between; align-items: flex-end; margin-bottom: 12px;">
+                                 <div>
+                                    <span style="font-size: 8px;
+                                    color: #64748b; text-transform: uppercase; display: block; margin-bottom: 2px;">Nearest Facility</span>
+                                    <span id="ac-nearest-apt" style="font-size: 14px;
+                                    color: #38bdf8; font-weight: 700;">---</span>
+                                 </div>
+                                 <div style="text-align: right;">
+                             
+                                    <span style="font-size: 8px; color: #64748b; text-transform: uppercase; display: block;
+                                    margin-bottom: 2px;">Separation</span>
+                                    <span style="font-size: 14px;
+                                    color: #fff; font-weight: 600;"><span id="ac-nearest-apt-dist">--.-</span> NM</span>
+                                 </div>
+                             </div>
+                             <div style="height: 2px;
+                            background: rgba(255,255,255,0.05); width: 100%; border-radius: 2px; margin-bottom: 12px;">
+                                <div id="facility-proximity-bar" style="height: 100%;
+                                width: 0%; background: #38bdf8; border-radius: 2px; transition: width 0.5s ease;"></div>
+                             </div>
+                             <div style="display: flex;
+                            justify-content: space-between; font-family: 'JetBrains Mono', monospace; font-size: 10px; color: #475569;">
+                                 <span>LAT <span id="ac-lat" style="color: #94a3b8;">---</span></span>
+                                 <span>LON <span id="ac-lon" style="color: #94a3b8;">---</span></span>
+                            </div>
+                        </div>
+
+                        <div style="margin-top: 24px;
+                        padding-top: 18px; border-top: 1px solid rgba(255,255,255,0.05); display: flex; justify-content: space-between;
+                        align-items: center;">
+                            <div style="display: flex;
+                            gap: 12px; align-items: center;">
+                                <div style="width: 32px;
+                                height: 32px; border-radius: 50%; background: rgba(56, 189, 248, 0.1); display: flex; align-items: center; justify-content: center;
+                                color: #38bdf8;">
+                                    <i class="fa-solid fa-flag-checkered"></i>
+                                </div>
                                 <div>
-                                <span style="font-size: 8px; color: #64748b; text-transform: uppercase; display: block; margin-bottom: 2px;">Nearest Facility</span>
-                                <span id="ac-nearest-apt" style="font-size: 14px; color: #38bdf8; font-weight: 700;">---</span>
-                                </div>
-                                <div style="text-align: right;">
-                                    <span style="font-size: 8px; color: #64748b; text-transform: uppercase; display: block; margin-bottom: 2px;">Separation</span>
-                                <span style="font-size: 14px; color: #fff; font-weight: 600;"><span id="ac-nearest-apt-dist">--.-</span> NM</span>
+                                    <span style="font-size: 8px;
+                                    color: #64748b; text-transform: uppercase; display: block;">Distance to Goal</span>
+                                    <span id="ac-dist" style="font-size: 16px;
+                                    color: #fff; font-weight: 700;">---</span>
                                 </div>
                             </div>
-                            <div style="height: 2px; background: rgba(255,255,255,0.05); width: 100%; border-radius: 2px; margin-bottom: 12px;">
-                            <div id="facility-proximity-bar" style="height: 100%; width: 0%; background: #38bdf8; border-radius: 2px; transition: width 0.5s ease;"></div>
+                            <div style="text-align: right;">
+                                <span style="font-size: 8px;
+                                color: #64748b; text-transform: uppercase; display: block;">Arrival In</span>
+                                <span id="ac-ete" style="font-size: 16px;
+                                color: #38bdf8; font-weight: 700;">--:--</span>
                             </div>
-                            <div style="display: flex; justify-content: space-between; font-family: 'JetBrains Mono', monospace; font-size: 10px; color: #475569;">
-                                <span>LAT <span id="ac-lat" style="color: #94a3b8;">---</span></span>
-                                <span>LON <span id="ac-lon" style="color: #94a3b8;">---</span></span>
-                            </div>
-                    </div>
-
-                    <div style="margin-top: 24px; padding-top: 18px; border-top: 1px solid rgba(255,255,255,0.05); display: flex; justify-content: space-between; align-items: center;">
-                        <div style="display: flex; gap: 12px; align-items: center;">
-                            <div style="width: 32px; height: 32px; border-radius: 50%; background: rgba(56, 189, 248, 0.1); display: flex; align-items: center; justify-content: center; color: #38bdf8;">
-                                <i class="fa-solid fa-flag-checkered"></i>
-                            </div>
-                                <div>
-                                <span style="font-size: 8px; color: #64748b; text-transform: uppercase; display: block;">Distance to Goal</span>
-                                <span id="ac-dist" style="font-size: 16px; color: #fff; font-weight: 700;">---</span>
-                            </div>
-                        </div>
-                        <div style="text-align: right;">
-                                <span style="font-size: 8px; color: #64748b; text-transform: uppercase; display: block;">Arrival In</span>
-                            <span id="ac-ete" style="font-size: 16px; color: #38bdf8; font-weight: 700;">--:--</span>
                         </div>
                     </div>
                 </div>
-            </div>
 
-            <div class="tech-card" style="background: rgba(15, 23, 42, 0.6); border: 1px solid rgba(255,255,255,0.1); border-radius: 16px; overflow: hidden; backdrop-filter: blur(12px); box-shadow: 0 10px 30px rgba(0,0,0,0.5);">
-                <div class="tech-card-header" style="padding: 20px 20px 10px 20px; display: flex; justify-content: space-between; align-items: flex-start;">
-                        <div>
-                        <div style="display: flex; align-items: center; gap: 8px; margin-bottom: 8px;">
-                            <span style="background: rgba(74, 222, 128, 0.15); color: #4ade80; font-size: 9px; font-weight: 700; padding: 2px 8px; border-radius: 4px; text-transform: uppercase; letter-spacing: 0.5px;">Live Feed</span>
-                            <span style="font-size: 10px; font-weight: 600; color: #64748b; text-transform: uppercase; letter-spacing: 1px;">Flight Specifications</span>
+                <div class="tech-card" style="background: rgba(15, 23, 42, 0.6); border: 1px solid rgba(255,255,255,0.1); border-radius: 16px;
+                    overflow: hidden; backdrop-filter: blur(12px); box-shadow: 0 10px 30px rgba(0,0,0,0.5);">
+                    <div class="tech-card-header" style="padding: 20px 20px 10px 20px;
+                        display: flex; justify-content: space-between; align-items: flex-start;">
+                         <div>
+                            <div style="display: flex;
+                            align-items: center; gap: 8px; margin-bottom: 8px;">
+                                <span style="background: rgba(74, 222, 128, 0.15);
+                                color: #4ade80; font-size: 9px; font-weight: 700; padding: 2px 8px; border-radius: 4px; text-transform: uppercase;
+                                letter-spacing: 0.5px;">Live Feed</span>
+                                <span style="font-size: 10px;
+                                font-weight: 600; color: #64748b; text-transform: uppercase; letter-spacing: 1px;">Flight Specifications</span>
+                            </div>
+                            <h1 style="font-size: 22px;
+                            font-weight: 800; color: #fff; margin: 0; line-height: 1.1;">${aircraftName}</h1>
+                            <p style="font-size: 12px;
+                            color: #94a3b8; margin: 4px 0 0 0; display: flex; align-items: center;
+                            gap: 6px;">
+                                <i class="fa-solid fa-plane" style="font-size: 10px;
+                                color: #38bdf8;"></i>
+                                <span>${airlineName}</span>
+                            </p>
                         </div>
-                        <h1 style="font-size: 22px; font-weight: 800; color: #fff; margin: 0; line-height: 1.1;">${aircraftName}</h1>
-                        <p style="font-size: 12px; color: #94a3b8; margin: 4px 0 0 0; display: flex; align-items: center; gap: 6px;">
-                            <i class="fa-solid fa-plane" style="font-size: 10px; color: #38bdf8;"></i>
-                            <span>${airlineName}</span>
-                        </p>
+               
+                        <button style="width: 32px; height: 32px; border-radius: 8px; background: rgba(255,255,255,0.05);
+                            color: #94a3b8; border: none; cursor: pointer; display: flex; align-items: center;
+                            justify-content: center;">
+                            <i class="fa-solid fa-ellipsis-vertical"></i>
+                         </button>
                     </div>
-                        <button style="width: 32px; height: 32px; border-radius: 8px; background: rgba(255,255,255,0.05); color: #94a3b8; border: none; cursor: pointer; display: flex; align-items: center; justify-content: center;">
-                        <i class="fa-solid fa-ellipsis-vertical"></i>
-                        </button>
+                
+                    <div class="tech-content" style="padding: 15px 20px 20px 20px;
+                        display: flex; flex-direction: column; gap: 20px;">
+                        <div class="tech-image-container" style="position: relative;
+                        border-radius: 12px; overflow: hidden; height: 160px; background: #000;">
+                            <img src="${techCardImagePath}" onerror="this.src='/CommunityPlanes/default.png'" class="tech-image" style="width: 100%;
+                            height: 100%; object-fit: cover; opacity: 0.8;" alt="Aircraft">
+                            <div class="tech-image-overlay" style="position: absolute;
+                            inset: 0; background: linear-gradient(to top, rgba(15,23,42,1) 0%, rgba(15,23,42,0) 60%);"></div>
+                            <div class="tech-image-info" style="position: absolute;
+                            bottom: 12px; left: 12px; right: 12px; display: flex; justify-content: space-between;
+                            align-items: flex-end;">
+                                <div class="tech-photographer">
+                                    <span style="font-size: 8px;
+                                    color: #64748b; text-transform: uppercase; display: block; margin-bottom: 2px;">Image Credit</span>
+                                    <div style="display: flex;
+                                    align-items: center; gap: 6px;">
+                                        <i class="fa-solid fa-camera" style="color: #38bdf8;
+                                        font-size: 10px;"></i>
+                                        <span style="font-size: 11px;
+                                        color: #fff; font-weight: 500;">${photographerName}</span>
+                                    </div>
+                                </div>
+                             
+                                <a href="#" style="width: 28px; height: 28px; background: rgba(56, 189, 248, 0.2); border-radius: 6px; color: #38bdf8;
+                                display: flex; align-items: center; justify-content: center; border: 1px solid rgba(56, 189, 248, 0.2);">
+                                    <i class="fa-solid fa-expand" style="font-size: 12px;"></i>
+                                </a>
+                            </div>
+                        </div>
+                        <div class="tech-grid" style="display: grid;
+                        grid-template-columns: repeat(2, 1fr); gap: 12px;">
+                            <div style="background: rgba(255,255,255,0.03);
+                            padding: 12px; border-radius: 10px; border: 1px solid rgba(255,255,255,0.05);">
+                                <div style="display: flex;
+                                justify-content: space-between; align-items: center; margin-bottom: 6px;">
+                                    <span style="font-size: 9px;
+                                    color: #64748b; text-transform: uppercase; letter-spacing: 0.5px;">Registration</span>
+                                    <i class="fa-solid fa-hashtag" style="font-size: 9px;
+                                    color: #475569;"></i>
+                                </div>
+                                <span style="font-size: 15px;
+                                font-weight: 700; color: #fff; font-family: 'JetBrains Mono', monospace;">${techCardTail}</span>
+                            </div>
+                            <div style="background: rgba(255,255,255,0.03);
+                            padding: 12px; border-radius: 10px; border: 1px solid rgba(255,255,255,0.05);">
+                                <div style="display: flex;
+                                justify-content: space-between; align-items: center; margin-bottom: 6px;">
+                                    <span style="font-size: 9px;
+                                    color: #64748b; text-transform: uppercase; letter-spacing: 0.5px;">Callsign</span>
+                                    <i class="fa-solid fa-tower-broadcast" style="font-size: 9px;
+                                    color: #475569;"></i>
+                                </div>
+                                <span style="font-size: 15px;
+                                font-weight: 700; color: #fff; font-family: 'JetBrains Mono', monospace;">${baseProps.callsign}</span>
+                            </div>
+                            <div style="grid-column: span 2;
+                            background: linear-gradient(90deg, rgba(30, 41, 59, 0.4) 0%, rgba(15, 23, 42, 0.4) 100%); padding: 12px; border-radius: 10px; border: 1px solid rgba(255,255,255,0.05);
+                            display: flex; justify-content: space-between; align-items: center;">
+                                <div style="display: flex;
+                                align-items: center; gap: 10px;">
+                                    <div style="width: 28px;
+                                    height: 28px; background: rgba(56, 189, 248, 0.1); border-radius: 6px; display: flex; align-items: center; justify-content: center;
+                                    color: #38bdf8;">
+                                        <i class="fa-solid fa-plane-up" style="font-size: 12px;"></i>
+                                    </div>
+                                    <div style="display: flex;
+                                    flex-direction: column;">
+                                        <span style="font-size: 8px;
+                                        color: #64748b; text-transform: uppercase;">Aircraft Class</span>
+                                        <span style="font-size: 13px;
+                                        font-weight: 600; color: #fff; text-transform: capitalize;">${baseProps.category || 'Commercial'}</span>
+                                    </div>
+                                </div>
+                                <div style="padding: 4px 10px; background: rgba(255,255,255,0.05); border-radius: 4px;
+                                border: 1px solid rgba(255, 255, 255, 0.05);">
+                                    <span style="font-family: monospace;
+                                    font-size: 9px; color: #94a3b8; font-weight: 600;">CLASS-1</span>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
                 </div>
-            
-                <div class="tech-content" style="padding: 15px 20px 20px 20px; display: flex; flex-direction: column; gap: 20px;">
-                    <div class="tech-image-container" style="position: relative; border-radius: 12px; overflow: hidden; height: 160px; background: #000;">
-                        <img src="${techCardImagePath}" onerror="this.src='/CommunityPlanes/default.png'" class="tech-image" style="width: 100%; height: 100%; object-fit: cover; opacity: 0.8;" alt="Aircraft">
-                        <div class="tech-image-overlay" style="position: absolute; inset: 0; background: linear-gradient(to top, rgba(15,23,42,1) 0%, rgba(15,23,42,0) 60%);"></div>
-                        <div class="tech-image-info" style="position: absolute; bottom: 12px; left: 12px; right: 12px; display: flex; justify-content: space-between; align-items: flex-end;">
-                            <div class="tech-photographer">
-                                <span style="font-size: 8px; color: #64748b; text-transform: uppercase; display: block; margin-bottom: 2px;">Image Credit</span>
-                                <div style="display: flex; align-items: center; gap: 6px;">
-                                    <i class="fa-solid fa-camera" style="color: #38bdf8; font-size: 10px;"></i>
-                                    <span style="font-size: 11px; color: #fff; font-weight: 500;">${photographerName}</span>
-                                </div>
-                            </div>
-                                <a href="#" style="width: 28px; height: 28px; background: rgba(56, 189, 248, 0.2); border-radius: 6px; color: #38bdf8; display: flex; align-items: center; justify-content: center; border: 1px solid rgba(56, 189, 248, 0.2);">
-                                <i class="fa-solid fa-expand" style="font-size: 12px;"></i>
-                            </a>
-                            </div>
-                    </div>
-                    <div class="tech-grid" style="display: grid; grid-template-columns: repeat(2, 1fr); gap: 12px;">
-                        <div style="background: rgba(255,255,255,0.03); padding: 12px; border-radius: 10px; border: 1px solid rgba(255,255,255,0.05);">
-                            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px;">
-                                <span style="font-size: 9px; color: #64748b; text-transform: uppercase; letter-spacing: 0.5px;">Registration</span>
-                                <i class="fa-solid fa-hashtag" style="font-size: 9px; color: #475569;"></i>
-                            </div>
-                            <span style="font-size: 15px; font-weight: 700; color: #fff; font-family: 'JetBrains Mono', monospace;">${techCardTail}</span>
-                        </div>
-                        <div style="background: rgba(255,255,255,0.03); padding: 12px; border-radius: 10px; border: 1px solid rgba(255,255,255,0.05);">
-                            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px;">
-                                <span style="font-size: 9px; color: #64748b; text-transform: uppercase; letter-spacing: 0.5px;">Callsign</span>
-                                <i class="fa-solid fa-tower-broadcast" style="font-size: 9px; color: #475569;"></i>
-                            </div>
-                            <span style="font-size: 15px; font-weight: 700; color: #fff; font-family: 'JetBrains Mono', monospace;">${baseProps.callsign}</span>
-                        </div>
-                        <div style="grid-column: span 2; background: linear-gradient(90deg, rgba(30, 41, 59, 0.4) 0%, rgba(15, 23, 42, 0.4) 100%); padding: 12px; border-radius: 10px; border: 1px solid rgba(255,255,255,0.05); display: flex; justify-content: space-between; align-items: center;">
-                            <div style="display: flex; align-items: center; gap: 10px;">
-                                <div style="width: 28px; height: 28px; background: rgba(56, 189, 248, 0.1); border-radius: 6px; display: flex; align-items: center; justify-content: center; color: #38bdf8;">
-                                    <i class="fa-solid fa-plane-up" style="font-size: 12px;"></i>
-                                </div>
-                                    <div style="display: flex; flex-direction: column;">
-                                    <span style="font-size: 8px; color: #64748b; text-transform: uppercase;">Aircraft Class</span>
-                                    <span style="font-size: 13px; font-weight: 600; color: #fff; text-transform: capitalize;">${baseProps.category || 'Commercial'}</span>
-                                </div>
-                            </div>
-                                <div style="padding: 4px 10px; background: rgba(255,255,255,0.05); border-radius: 4px; border: 1px solid rgba(255, 255, 255, 0.05);">
-                                <span style="font-family: monospace; font-size: 9px; color: #94a3b8; font-weight: 600;">CLASS-1</span>
-                            </div>
-                        </div>
-                    </div>
-                    </div>
-            </div>
 
-            <div class="tech-module vsd-module-container">
-                <div class="tech-module-header">
-                    <span class="tech-module-title"><i class="fa-solid fa-chart-area"></i> VERTICAL SITUATION DISPLAY</span>
-                        <span class="fms-page-count">VSD</span>
-                </div>
-                <div id="vsd-panel" class="vsd-panel active" data-plan-id="" data-profile-built="false">
-                    <div id="vsd-graph-window" class="vsd-graph-window">
-                        <div id="vsd-aircraft-icon"></div>
-                            <div id="vsd-graph-content">
-                            <svg id="vsd-profile-svg" xmlns="http://www.w3.org/2000/svg">
+                <div class="tech-module vsd-module-container">
+                    <div class="tech-module-header">
+                        <span class="tech-module-title"><i class="fa-solid fa-chart-area"></i> VERTICAL SITUATION DISPLAY</span>
+                         <span class="fms-page-count">VSD</span>
+                    </div>
+                    <div id="vsd-panel" class="vsd-panel active" data-plan-id="" data-profile-built="false">
+                        <div id="vsd-graph-window" class="vsd-graph-window">
+                             <div id="vsd-aircraft-icon"></div>
+                             <div id="vsd-graph-content">
+                                <svg id="vsd-profile-svg" xmlns="http://www.w3.org/2000/svg">
                                     <path id="vsd-flown-path" d="" />
-                                <path id="vsd-profile-path" d="" />
-                            </svg>
-                                <div id="vsd-waypoint-labels"></div>
-                            </div>
-                            ${planButtonHtml}
+                                    <path id="vsd-profile-path" d="" />
+                                </svg>
+                                 <div id="vsd-waypoint-labels"></div>
+                             </div>
+                             ${planButtonHtml}
                         </div>
-                </div>
-                <div class="vsd-footer">
-                    <div class="vsd-legend-item"><div class="dot-plan"></div> PLANNED</div>
+                    </div>
+                    <div class="vsd-footer">
+                        <div class="vsd-legend-item"><div class="dot-plan"></div> PLANNED</div>
                         <div class="vsd-legend-item"><div class="dot-flown"></div> FLOWN</div>
-                    <div>ALTITUDE PROFILE</div>
+                        <div>ALTITUDE PROFILE</div>
+                    </div>
                 </div>
             </div>
-            
-            <div id="pilot-stats-display" style="width: 100%; display: none;"></div>
+ 
+            <div id="ac-tab-pilot-report" class="ac-tab-pane ${pilotReportActiveClass}" style="display: ${pilotReportDisplay}; padding: 12px;">
+                 <div id="pilot-stats-display" style="width: 100%;
+                    min-height: 200px;"></div>
+            </div>
+        </div>
     </div>
     `;
 
     // --- POST-RENDER LOGIC ---
     if(typeof createPfdDisplay === 'function') createPfdDisplay();
     if(typeof updatePfdDisplay === 'function') updatePfdDisplay(baseProps.position);
-    if(typeof displayPilotStats === 'function') displayPilotStats(baseProps.userId, pilotUsername); // Trigger loading, even if hidden
+    
+    if (currentActiveTab === 'ac-tab-pilot-report' && typeof displayPilotStats === 'function') {
+        displayPilotStats(baseProps.userId, pilotUsername);
+    }
 
     const imagePath = techCardImagePath;
     const fallbackPath = '/CommunityPlanes/default.png';
-    const newImageUrl = `url('${imagePath}'), url('${fallbackPath}')`; // 
+    const newImageUrl = `url('${imagePath}'), url('${fallbackPath}')`;
 
     const overviewPanels = document.querySelectorAll('#ac-overview-panel');
     overviewPanels.forEach(overviewPanel => {
@@ -10908,46 +11152,76 @@ function populateAircraftInfoWindow(baseProps, plan, sortedRoutePoints, communit
     // --- SENSOR TIMER LOGIC ---
     const updateSensorTimers = () => {
         const elElapsed = document.getElementById('ac-sensor-elapsed');
-        const elEte = document.getElementById('ac-sensor-ete'); // 
+        const elEte = document.getElementById('ac-sensor-ete');
         const elTotal = document.getElementById('ac-sensor-total');
         const sourceEte = document.getElementById('ac-ete');
-        if (elElapsed && atdTimestamp) { // 
+        if (elElapsed && atdTimestamp) {
             const now = Date.now();
-            const start = new Date(atdTimestamp).getTime(); // 
+            const start = new Date(atdTimestamp).getTime();
             const diff = now - start;
-            if (diff >= 0) { // 
+            if (diff >= 0) {
                 const h = Math.floor(diff / 3600000);
-                const m = Math.floor((diff % 3600000) / 60000); // 
+                const m = Math.floor((diff % 3600000) / 60000);
                 elElapsed.textContent = `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}`;
             }
         }
 
         if (elEte && sourceEte && elTotal) {
             const currentEte = sourceEte.textContent;
-            if (currentEte && currentEte.includes(':')) { // 
+            if (currentEte && currentEte.includes(':')) {
                 elEte.textContent = currentEte;
-                if (elElapsed && elElapsed.textContent !== '--:--') { // 
+                if (elElapsed && elElapsed.textContent !== '--:--') {
                     const [eH, eM] = elElapsed.textContent.split(':').map(Number);
-                    const [rH, rM] = currentEte.split(':').map(Number); // 
+                    const [rH, rM] = currentEte.split(':').map(Number);
                     let tM = eM + rM;
-                    let tH = eH + rH + Math.floor(tM / 60); // 
+                    let tH = eH + rH + Math.floor(tM / 60);
                     tM = tM % 60;
                     elTotal.textContent = `${String(tH).padStart(2, '0')}:${String(tM).padStart(2, '0')}`;
                 }
             }
         }
     };
-    if (window.sensorTimerInterval) clearInterval(window.sensorTimerInterval); // 
+    if (window.sensorTimerInterval) clearInterval(window.sensorTimerInterval);
     updateSensorTimers();
     window.sensorTimerInterval = setInterval(updateSensorTimers, 1000);
+    // --- REDESIGNED DISPLAY TOGGLE LOGIC ---
+    const mainTabBtns = windowEl.querySelectorAll('.ac-info-tab-btn');
+    const mainHighlight = windowEl.querySelector('#main-switcher-highlight');
+    const tabPanes = windowEl.querySelectorAll('.ac-tab-pane');
 
-    // --- DISPLAY TOGGLE LOGIC (Map vs Flight Plan) ---
-    // (Previous Main Tab logic removed)
+    mainTabBtns.forEach((btn, index) => {
+        btn.addEventListener('click', (e) => {
+            mainTabBtns.forEach(b => {
+                b.classList.remove('active');
+                b.style.color = '#94a3b8';
+            });
+            e.currentTarget.classList.add('active');
+            e.currentTarget.style.color = '#fff';
+
+            if (mainHighlight) {
+                mainHighlight.style.transform = `translateX(${index * 100}%)`;
+            }
+
+            const targetId = e.currentTarget.dataset.tab;
+            tabPanes.forEach(pane => {
+                pane.classList.remove('active');
+                const displayType = targetId === 'ac-tab-pilot-report' ? 'block' : 'flex';
+                pane.style.display = pane.id === targetId ? displayType : 'none';
+            });
+       
+             if (e.currentTarget.classList.contains('pilot-tab-btn')) {
+                const uid = e.currentTarget.dataset.userId;
+                const uname = e.currentTarget.dataset.username;
+                if (typeof displayPilotStats === 'function') displayPilotStats(uid, uname);
+            }
+        });
+        if (btn.classList.contains('active')) btn.style.color = '#fff';
+    });
 
     const toggleBtns = windowEl.querySelectorAll('.display-toggle-btn');
-    const displayHighlight = windowEl.querySelector('.switcher-highlight');
+    const displayHighlight = windowEl.querySelector('.switcher-highlight:not(#main-switcher-highlight)');
     const ndContainer = windowEl.querySelector('#nd-view-container');
-    const fmcContainer = windowEl.querySelector('#fmc-view-container'); // 
+    const fmcContainer = windowEl.querySelector('#fmc-view-container');
 
     toggleBtns.forEach((btn, index) => {
         btn.addEventListener('click', (e) => {
@@ -10956,7 +11230,7 @@ function populateAircraftInfoWindow(baseProps, plan, sortedRoutePoints, communit
                 b.style.color = '#94a3b8';
             });
             e.currentTarget.classList.add('active');
-            e.currentTarget.style.color = '#fff'; // 
+            e.currentTarget.style.color = '#fff';
             
             if (displayHighlight) {
                 displayHighlight.style.transform = `translateX(${index * 100}%)`;
@@ -10964,13 +11238,13 @@ function populateAircraftInfoWindow(baseProps, plan, sortedRoutePoints, communit
 
             const target = e.currentTarget.dataset.target; 
             if (target === 'nd-view') {
-                if(ndContainer) ndContainer.style.display = 'block'; // 
+                if(ndContainer) ndContainer.style.display = 'block';
                if(fmcContainer) fmcContainer.style.display = 'none';
             } else {
                 if(ndContainer) ndContainer.style.display = 'none';
                 if(fmcContainer) fmcContainer.style.display = 'flex';
             }
-        }); // 
+        });
         if (btn.classList.contains('active')) btn.style.color = '#fff';
     });
 }
