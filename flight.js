@@ -10246,14 +10246,6 @@ function populateAircraftInfoWindow(baseProps, plan, sortedRoutePoints, communit
         });
     };
 
-    // --- Helper for styling ---
-    const styleAll = (selector, property, value) => {
-        const elements = document.querySelectorAll(selector);
-        elements.forEach(el => {
-            el.style[property] = value;
-        });
-    };
-
     // --- Get Original Data ---
     const originalFlatWaypoints = (plan && plan.flightPlanItems && typeof flattenWaypointsFromPlan === 'function') ?
         flattenWaypointsFromPlan(plan.flightPlanItems) : [];
@@ -10291,22 +10283,13 @@ function populateAircraftInfoWindow(baseProps, plan, sortedRoutePoints, communit
     const logoHtml = logoPath ?
         `<img src="${logoPath}" alt="${liveryName}" class="ac-header-logo" onerror="this.style.display='none'">` : '';
 
-    // --- Times & Flags ---
+    // --- Times ---
     const atdTimestamp = (sortedRoutePoints && sortedRoutePoints.length > 0) ? sortedRoutePoints[0].date : null;
     const atdTime = atdTimestamp ? formatTimeFromTimestamp(atdTimestamp) : '--:--';
 
     const departureIcao = hasPlan ?
         originalFlatWaypointObjects[0]?.identifier || originalFlatWaypointObjects[0]?.name : 'N/A';
     const arrivalIcao = hasPlan ? originalFlatWaypointObjects[originalFlatWaypointObjects.length - 1]?.identifier || originalFlatWaypointObjects[originalFlatWaypointObjects.length - 1]?.name : 'N/A';
-
-    // Safety check for airportsData
-    const depCountryCode = (typeof airportsData !== 'undefined' && airportsData[departureIcao]?.country) ?
-        airportsData[departureIcao].country.toLowerCase() : '';
-    const arrCountryCode = (typeof airportsData !== 'undefined' && airportsData[arrivalIcao]?.country) ? airportsData[arrivalIcao].country.toLowerCase() : '';
-    const depFlagSrc = depCountryCode ? `https://flagcdn.com/w20/${depCountryCode}.png` : '';
-    const arrFlagSrc = arrCountryCode ? `https://flagcdn.com/w20/${arrCountryCode}.png` : '';
-    const depFlagDisplay = depCountryCode ? 'block' : 'none';
-    const arrFlagDisplay = arrCountryCode ? 'block' : 'none';
 
     // --- Plan Button ---
     const simbriefAircraftValue = (typeof findSimbriefAircraftValue === 'function') ? findSimbriefAircraftValue(aircraftName) : null;
@@ -10348,29 +10331,10 @@ function populateAircraftInfoWindow(baseProps, plan, sortedRoutePoints, communit
     let psIcon = "fa-user-check";
     let psColor = "#4ade80";
     let psDesc = "Pilot is active";
-    let psBg = "rgba(74, 222, 128, 0.08)";
     switch (pilotStateValue) {
-        case 1:
-            psTitle = "AWAY";
-            psIcon = "fa-plane-slash";
-            psColor = "#facc15";
-            psDesc = "Online (No Input)";
-            psBg = "rgba(250, 204, 21, 0.08)";
-            break;
-        case 2:
-            psTitle = "PARKED";
-            psIcon = "fa-square-parking";
-            psColor = "#94a3b8";
-            psDesc = "Away (On Ground)";
-            psBg = "rgba(148, 163, 184, 0.08)";
-            break;
-        case 3:
-            psTitle = "AUTO-PILOT+";
-            psIcon = "fa-cloud-arrow-up";
-            psColor = "#60a5fa";
-            psDesc = "Cloud Session";
-            psBg = "rgba(96, 165, 250, 0.08)";
-            break;
+        case 1: psTitle = "AWAY"; psIcon = "fa-plane-slash"; psColor = "#facc15"; psDesc = "Online (No Input)"; break;
+        case 2: psTitle = "PARKED"; psIcon = "fa-square-parking"; psColor = "#94a3b8"; psDesc = "Away (On Ground)"; break;
+        case 3: psTitle = "AUTO-PILOT+"; psIcon = "fa-cloud-arrow-up"; psColor = "#60a5fa"; psDesc = "Cloud Session"; break;
     }
 
     // --- GENERATE FMS LEGS HTML ---
@@ -10388,7 +10352,6 @@ function populateAircraftInfoWindow(baseProps, plan, sortedRoutePoints, communit
                     distDisplay = (d / 1.852).toFixed(0);
                 }
             }
-
             let procTag = '';
             if (index <= 1 && hasPlan) procTag = `<span class="proc-tag sid">SID</span>`;
             else if (index >= originalFlatWaypointObjects.length - 2 && hasPlan) procTag = `<span class="proc-tag star">STAR</span>`;
@@ -10411,8 +10374,6 @@ function populateAircraftInfoWindow(baseProps, plan, sortedRoutePoints, communit
     const pilotReportActiveClass = currentActiveTab === 'ac-tab-pilot-report' ? 'active' : '';
     const flightDataDisplay = currentActiveTab === 'ac-tab-flight-data' ? 'flex' : 'none';
     const pilotReportDisplay = currentActiveTab === 'ac-tab-pilot-report' ? 'block' : 'none';
-
-    // Switcher Highlight Position
     const highlightX = currentActiveTab === 'ac-tab-pilot-report' ? '100%' : '0%';
 
     // --- Lookup City Names ---
@@ -10422,7 +10383,6 @@ function populateAircraftInfoWindow(baseProps, plan, sortedRoutePoints, communit
     // --- Determine Phase Color/Icon ---
     let statusColor = '#4ade80'; // Green
     let statusPulse = 'pulse';
-
     if (flightPhase.includes('CRUISE')) statusColor = '#38bdf8'; // Blue
     if (flightPhase.includes('DESCENT')) statusColor = '#fbbf24'; // Orange
     if (flightPhase.includes('GROUND') || flightPhase.includes('PARKED')) {
@@ -10432,52 +10392,94 @@ function populateAircraftInfoWindow(baseProps, plan, sortedRoutePoints, communit
 
     // --- HTML Construction ---
     windowEl.innerHTML = `
+    <!-- HEADER -->
     <div class="ac-header-modern" id="ac-overview-panel" style="
         background-image: url('${techCardImagePath}'), url('/CommunityPlanes/default.png'); 
         position: relative; 
         display: flex; 
         flex-direction: column; 
         flex-shrink: 0; 
-        min-height: 160px; /* Reduced Height since route bar is gone */
+        min-height: 160px;
         background-size: cover; 
         background-position: center;
         transition: background-image 0.5s ease-in-out;">
         
-        <div class="ac-header-overlay" style="position: absolute; inset: 0; background: rgba(0,0,0,0.4); z-index: 0;"></div>
+        <div class="ac-header-overlay" style="position: absolute; inset: 0; background: linear-gradient(to bottom, rgba(0,0,0,0.2) 0%, rgba(0,0,0,0.6) 100%); z-index: 0;"></div>
         
-        <div class="ac-header-top" style="position: relative; z-index: 1;">
-            <div class="ac-identity-group">
-                <h1>${logoHtml} ${baseProps.callsign}</h1>
-                <div class="ac-sub-identity">
+        <!-- Header Top: Title & Badge -->
+        <div class="ac-header-top" style="
+            position: relative; 
+            z-index: 1; 
+            padding: 16px 20px; 
+            display: flex; 
+            justify-content: space-between; 
+            align-items: flex-start;">
+            
+            <div class="ac-identity-group" style="max-width: calc(100% - 100px);"> <!-- Prevents overlap with buttons -->
+                <h1 style="font-size: 22px; font-weight: 800; color: #fff; margin: 0; line-height: 1.1; text-shadow: 0 2px 4px rgba(0,0,0,0.6);">${logoHtml} ${baseProps.callsign}</h1>
+                <div class="ac-sub-identity" style="
+                    font-size: 11px; 
+                    font-weight: 500; 
+                    color: #cbd5e1; 
+                    margin-top: 4px; 
+                    text-shadow: 0 1px 2px rgba(0,0,0,0.8); 
+                    display: flex; 
+                    gap: 6px; 
+                    align-items: center; 
+                    flex-wrap: wrap;">
                     <span>${aircraftName}</span>
-                    <span class="separator"></span>
+                    <span style="width: 3px; height: 3px; background: #94a3b8; border-radius: 50%;"></span>
                     <span>${liveryName}</span>
                 </div>
             </div>
             
-            <div class="phase-badge-hero">
-                <div class="phase-dot" style="background: ${statusColor}; box-shadow: 0 0 8px ${statusColor}; animation: ${statusPulse} 2s infinite;"></div>
-                <span>${flightPhase}</span>
-            </div>
+            <!-- Phase Badge (Inline to not overlap) -->
+            <!-- Note: Positioned absolutely by user request or context, but here flexible is safer. 
+                 If we want it top-right under buttons, we can leave it out or put it in content.
+                 Let's keep it near title or absolute top-center if preferred. 
+                 For now, I'll put it absolutely bottom-left of the image area for cleanliness. -->
         </div>
 
-        <div class="overview-actions" style="top: 20px; right: 20px; position: absolute; z-index: 2;">
-             <button class="hero-btn aircraft-window-share-btn" title="Fullscreen Trip Card"><i class="fa-solid fa-expand"></i></button>
-             <button class="hero-btn aircraft-window-hide-btn" title="Minimize"><i class="fa-solid fa-minus"></i></button>
-             <button class="hero-btn aircraft-window-close-btn" title="Close"><i class="fa-solid fa-xmark"></i></button>
+        <!-- Buttons (Absolute Top Right) -->
+        <div class="overview-actions" style="top: 16px; right: 16px; position: absolute; z-index: 10; display: flex; gap: 8px;">
+             <button class="hero-btn aircraft-window-share-btn" title="Fullscreen Trip Card" style="background: rgba(0,0,0,0.4); backdrop-filter: blur(4px); border: 1px solid rgba(255,255,255,0.1);"><i class="fa-solid fa-expand"></i></button>
+             <button class="hero-btn aircraft-window-hide-btn" title="Minimize" style="background: rgba(0,0,0,0.4); backdrop-filter: blur(4px); border: 1px solid rgba(255,255,255,0.1);"><i class="fa-solid fa-minus"></i></button>
+             <button class="hero-btn aircraft-window-close-btn" title="Close" style="background: rgba(0,0,0,0.4); backdrop-filter: blur(4px); border: 1px solid rgba(255,255,255,0.1);"><i class="fa-solid fa-xmark"></i></button>
+        </div>
+
+        <!-- Phase Badge (Bottom Left of Image) -->
+        <div class="phase-badge-hero" style="
+            position: absolute; 
+            bottom: 16px; 
+            left: 20px; 
+            z-index: 2;
+            background: rgba(0,0,0,0.5); 
+            backdrop-filter: blur(4px); 
+            padding: 4px 10px; 
+            border-radius: 20px; 
+            border: 1px solid rgba(255,255,255,0.1); 
+            display: flex; 
+            align-items: center; 
+            gap: 6px;">
+            <div class="phase-dot" style="width: 6px; height: 6px; border-radius: 50%; background: ${statusColor}; box-shadow: 0 0 8px ${statusColor}; animation: ${statusPulse} 2s infinite;"></div>
+            <span style="font-size: 9px; font-weight: 700; color: #fff; letter-spacing: 0.5px;">${flightPhase}</span>
         </div>
     </div>
 
+    <!-- ROUTE INFO BAR (Glass Style) -->
     <div class="ac-route-info-bar" style="
-        background: #0f172a; 
+        background: rgba(15, 23, 42, 0.85); /* Semi-transparent Slate-900 */
+        backdrop-filter: blur(12px);
         padding: 12px 20px; 
         border-bottom: 1px solid rgba(255,255,255,0.05);
+        border-top: 1px solid rgba(255,255,255,0.05);
         display: flex;
         align-items: center;
         justify-content: space-between;
         gap: 16px;
         flex-shrink: 0;
-        position: relative;">
+        position: relative;
+        box-shadow: 0 4px 12px rgba(0,0,0,0.2);">
         
         <div class="route-node">
             <span class="city-name" style="color: #94a3b8; font-size: 9px; font-weight: 600; text-transform: uppercase;">${depCity}</span>
@@ -10503,6 +10505,8 @@ function populateAircraftInfoWindow(baseProps, plan, sortedRoutePoints, communit
             <span class="time-small" id="ac-ete" style="color: #38bdf8; font-size: 11px; font-weight: 600;">${ete}</span>
         </div>
     </div>
+
+    <!-- TABS -->
     <div class="ac-info-window-tabs" style="padding: 12px 16px; display: flex; align-items: center; justify-content: space-between; gap: 16px; flex-shrink: 0;">
             <div class="modern-view-switcher" id="main-data-switcher" style="flex: 1; background: rgba(15, 23, 42, 0.4); border-radius: 12px; padding: 4px; display: flex; position: relative; border: 1px solid rgba(255,255,255,0.05); height: 44px;">
                  <button class="ac-info-tab-btn ${flightDataActiveClass}" data-tab="ac-tab-flight-data" style="flex: 1; border: none; background: transparent; color: #fff; font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: 1.2px; padding: 0 10px; cursor: pointer; z-index: 1; transition: color 0.3s ease; display: flex; align-items: center; justify-content: center; gap: 8px;">
@@ -10516,6 +10520,7 @@ function populateAircraftInfoWindow(baseProps, plan, sortedRoutePoints, communit
             <img src="Images/inflight.png" alt="Inflight Logo" class="ac-info-tab-logo" style="height: 24px; width: auto; opacity: 0.8;">
     </div>
 
+    <!-- MAIN CONTENT -->
     <div class="unified-display-main-content">
             <div id="ac-tab-flight-data" class="ac-tab-pane ${flightDataActiveClass}" style="gap: 6px; display: ${flightDataDisplay};">
                 <div class="pfd-and-location-grid">
@@ -10539,7 +10544,6 @@ function populateAircraftInfoWindow(baseProps, plan, sortedRoutePoints, communit
                                             
                                             <rect id="Rectangle 1" x="-6" y="5" width="191" height="566" fill="#030309"/>
                                             <rect id="Rectangle 9" x="609" width="185" height="566" fill="#030309"/>
-                                            
                                             <path id="Rectangle 2" d="M273.905 84.9424L180.983 183.181L-23 -9.76114L69.9218 -108L273.905 84.9424Z" fill="#030309"/>
                                             <path id="Rectangle 8" d="M303.215 77.0814L187.591 147.198L42 -92.8829L157.624 -163L303.215 77.0814Z" fill="#030309"/>
                                             <path id="Rectangle 7" d="M372.606 54.0171L244.59 97.5721L154.152 -168.242L282.169 -211.796L372.606 54.0171Z" fill="#030309"/>
@@ -10926,11 +10930,9 @@ function populateAircraftInfoWindow(baseProps, plan, sortedRoutePoints, communit
     `;
 
     // --- POST-RENDER LOGIC ---
-    // Safety checks for external functions
     if(typeof createPfdDisplay === 'function') createPfdDisplay();
     if(typeof updatePfdDisplay === 'function') updatePfdDisplay(baseProps.position);
     
-    // Automatically trigger Pilot Report loading if it was the active tab
     if (currentActiveTab === 'ac-tab-pilot-report' && typeof displayPilotStats === 'function') {
         displayPilotStats(baseProps.userId, pilotUsername);
     }
