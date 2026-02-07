@@ -585,6 +585,189 @@ function injectCustomStyles() {
 
     const css = `
 
+    /* --- MODERN HEADER REDESIGN --- */
+.ac-header-modern {
+    position: relative;
+    height: 220px; /* Taller for better impact */
+    background-size: cover;
+    background-position: center;
+    display: flex;
+    flex-direction: column;
+    justify-content: space-between;
+    overflow: hidden;
+}
+
+/* Dark gradient overlay for text readability */
+.ac-header-overlay {
+    position: absolute;
+    inset: 0;
+    background: linear-gradient(180deg, 
+        rgba(0,0,0,0.6) 0%, 
+        rgba(0,0,0,0.2) 40%, 
+        rgba(15, 23, 42, 1) 100%
+    );
+    z-index: 1;
+}
+
+/* Top Row: Callsign & Status */
+.ac-header-top {
+    position: relative;
+    z-index: 2;
+    padding: 20px;
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-start;
+}
+
+.ac-identity-group h1 {
+    margin: 0;
+    font-size: 2.2rem;
+    font-weight: 800;
+    color: #fff;
+    letter-spacing: -1px;
+    line-height: 1;
+    text-shadow: 0 2px 10px rgba(0,0,0,0.5);
+    display: flex;
+    align-items: center;
+    gap: 12px;
+}
+
+.ac-logo-hero {
+    height: 28px;
+    width: auto;
+    object-fit: contain;
+    filter: drop-shadow(0 2px 4px rgba(0,0,0,0.5));
+}
+
+.ac-sub-identity {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-top: 6px;
+    font-size: 0.85rem;
+    font-weight: 500;
+    color: #cbd5e1;
+    text-shadow: 0 1px 2px rgba(0,0,0,0.8);
+}
+
+.ac-sub-identity .separator {
+    width: 4px;
+    height: 4px;
+    background: #64748b;
+    border-radius: 50%;
+}
+
+/* Phase Badge (Top Right) */
+.phase-badge-hero {
+    background: rgba(15, 23, 42, 0.6);
+    backdrop-filter: blur(8px);
+    border: 1px solid rgba(255,255,255,0.1);
+    padding: 6px 12px;
+    border-radius: 99px;
+    font-size: 0.75rem;
+    font-weight: 700;
+    color: #fff;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    box-shadow: 0 4px 15px rgba(0,0,0,0.3);
+}
+
+.phase-dot {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    background: #4ade80;
+    box-shadow: 0 0 8px #4ade80;
+    animation: pulse 2s infinite;
+}
+
+/* Bottom Strip: Route Info */
+.ac-header-route-strip {
+    position: relative;
+    z-index: 2;
+    padding: 0 24px 16px 24px;
+    display: grid;
+    grid-template-columns: 1fr auto 1fr;
+    gap: 20px;
+    align-items: end;
+}
+
+.route-node {
+    display: flex;
+    flex-direction: column;
+}
+
+.route-node.end {
+    text-align: right;
+    align-items: flex-end;
+}
+
+.city-name {
+    font-size: 0.75rem;
+    color: #94a3b8;
+    font-weight: 600;
+    text-transform: uppercase;
+    margin-bottom: 2px;
+    max-width: 120px;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.icao-large {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 1.8rem;
+    font-weight: 700;
+    color: #fff;
+    line-height: 1;
+}
+
+.time-small {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 0.85rem;
+    color: #38bdf8;
+    margin-top: 4px;
+    font-weight: 600;
+}
+
+/* Middle Progress Visual */
+.route-visual {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    width: 100%;
+    padding-bottom: 8px;
+}
+
+.flight-progress-track {
+    width: 100%;
+    height: 4px;
+    background: rgba(255,255,255,0.1);
+    border-radius: 2px;
+    position: relative;
+    overflow: visible;
+}
+
+.flight-progress-fill {
+    height: 100%;
+    background: #38bdf8;
+    border-radius: 2px;
+    position: relative;
+    box-shadow: 0 0 10px rgba(56, 189, 248, 0.5);
+}
+
+/* The little plane icon on the bar */
+.flight-progress-plane {
+    position: absolute;
+    right: -8px;
+    top: 50%;
+    transform: translateY(-50%);
+    color: #fff;
+    font-size: 0.85rem;
+    filter: drop-shadow(0 0 5px #38bdf8);
+}
+
     /* --- COMPACT REDESIGNED TRIP CARD --- */
 #trip-card-takeover {
     position: fixed;
@@ -10217,51 +10400,76 @@ function populateAircraftInfoWindow(baseProps, plan, sortedRoutePoints, communit
     // Switcher Highlight Position
     const highlightX = currentActiveTab === 'ac-tab-pilot-report' ? '100%' : '0%';
 
-    // --- HTML Construction ---
-    windowEl.innerHTML = `
-    <div class="info-window-content">
-        <div class="aircraft-overview-panel" id="ac-overview-panel">
-            <div class="overview-actions">
-                <button class="aircraft-window-share-btn" title="Generate Trip Card" style="margin-right: auto;"><i class="fa-solid fa-camera"></i></button>
-                <button class="aircraft-window-close-btn" title="Close"><i class="fa-solid fa-xmark"></i></button>
-            </div>
-            <div class="overview-content">
-                <div class="overview-col-left">
-                    <h3 id="ac-header-callsign">${logoHtml}${baseProps.callsign}</h3>
-                    <p id="ac-header-subtext-container">
-                        <span class="ac-header-subtext" id="ac-header-livery">${airlineName}</span>
-                        <span class="ac-header-subtext" id="ac-header-actype">${aircraftName}</span>
-                    </p>
-                </div>
-                <div class="overview-col-right">
-                    <span class="route-icao" id="ac-header-dep">${departureIcao}</span>
-                    <span class="route-icao" id="ac-header-arr">${arrivalIcao}</span>
-                </div>
-            </div>
-        </div>
+    // --- [NEW] Lookup City Names ---
+// Use the global airportsData object you already have
+const depCity = airportsData[departureIcao]?.city || 'Departure';
+const arrCity = airportsData[arrivalIcao]?.city || 'Arrival';
+
+// --- [NEW] Determine Phase Color/Icon ---
+let statusColor = '#4ade80'; // Green
+let statusPulse = 'pulse';
+
+// Adjust color based on phase (using your existing flightPhase variable)
+if (flightPhase.includes('CRUISE')) statusColor = '#38bdf8'; // Blue
+if (flightPhase.includes('DESCENT')) statusColor = '#fbbf24'; // Orange
+if (flightPhase.includes('GROUND') || flightPhase.includes('PARKED')) {
+    statusColor = '#94a3b8'; // Grey
+    statusPulse = ''; // No pulse on ground
+}
+
+// --- [NEW] HTML Construction ---
+windowEl.innerHTML = `
+    <div class="ac-header-modern" id="ac-overview-panel" style="background-image: url('${techCardImagePath}'), url('/CommunityPlanes/default.png');">
+        <div class="ac-header-overlay"></div>
         
-        <div class="route-summary-overlay">
-            <div class="route-summary-airport" id="route-summary-dep">
-                <div class="airport-line">
-                     <img src="${depFlagSrc}" class="country-flag" id="ac-bar-dep-flag" alt="${depCountryCode}" style="display: ${depFlagDisplay};">
-                     <span class="icao" id="ac-bar-dep">${departureIcao}</span>
+        <div class="ac-header-top">
+            <div class="ac-identity-group">
+                <h1>${logoHtml} ${baseProps.callsign}</h1>
+                <div class="ac-sub-identity">
+                    <span>${aircraftName}</span>
+                    <span class="separator"></span>
+                    <span>${liveryName}</span>
                 </div>
-                <span class="time" id="ac-bar-atd">${atdTime} Z</span>
             </div>
-            <div class="route-progress-container">
-                <div class="route-progress-bar-container">
-                    <div class="progress-bar-fill" id="ac-progress-bar"></div>
-                </div>
-                <div class="flight-phase-indicator" id="ac-phase-indicator">ENROUTE</div>
+            
+            <div class="phase-badge-hero">
+                <div class="phase-dot" style="background: ${statusColor}; box-shadow: 0 0 8px ${statusColor}; animation: ${statusPulse} 2s infinite;"></div>
+                <span>${flightPhase}</span>
             </div>
-             <div class="route-summary-airport" id="route-summary-arr">
-                <div class="airport-line">
-                     <span class="icao" id="ac-bar-arr">${arrivalIcao}</span>
-                     <img src="${arrFlagSrc}" class="country-flag" id="ac-bar-arr-flag" alt="${arrCountryCode}" style="display: ${arrFlagDisplay};">
-                </div>
-                 <span class="time" id="ac-bar-eta">${etaTime} Z</span>
-             </div>
         </div>
+
+        <div class="overview-actions" style="top: 20px; right: 20px;">
+             <button class="hero-btn aircraft-window-share-btn" title="Fullscreen Trip Card"><i class="fa-solid fa-expand"></i></button>
+             <button class="hero-btn aircraft-window-hide-btn" title="Minimize"><i class="fa-solid fa-minus"></i></button>
+             <button class="hero-btn aircraft-window-close-btn" title="Close"><i class="fa-solid fa-xmark"></i></button>
+        </div>
+
+        <div class="ac-header-route-strip">
+            <div class="route-node">
+                <span class="city-name">${depCity}</span>
+                <span class="icao-large">${departureIcao}</span>
+                <span class="time-small">${atdTime}</span>
+            </div>
+
+            <div class="route-visual">
+                <div class="flight-progress-track">
+                    <div class="flight-progress-fill" id="ac-progress-bar" style="width: ${progress}%">
+                        <i class="fa-solid fa-plane flight-progress-plane"></i>
+                    </div>
+                </div>
+                <div style="display: flex; justify-content: space-between; width: 100%; margin-top: 6px; font-size: 0.65rem; color: #64748b; font-weight: 700;">
+                    <span>DIST: ${Math.round(totalDistanceNM)} NM</span>
+                    <span>ETE: ${ete}</span>
+                </div>
+            </div>
+
+            <div class="route-node end">
+                <span class="city-name">${arrCity}</span>
+                <span class="icao-large">${arrivalIcao}</span>
+                <span class="time-small" id="ac-ete">${ete}</span>
+            </div>
+        </div>
+    </div>
 
         <div class="ac-info-window-tabs" style="padding: 12px 16px; display: flex; align-items: center; justify-content: space-between; gap: 16px;">
             <div class="modern-view-switcher" id="main-data-switcher" style="flex: 1; background: rgba(15, 23, 42, 0.4); border-radius: 12px; padding: 4px; display: flex; position: relative; border: 1px solid rgba(255,255,255,0.05); height: 44px;">
