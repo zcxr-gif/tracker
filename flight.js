@@ -10453,58 +10453,120 @@ function populateAircraftInfoWindow(baseProps, plan, sortedRoutePoints, communit
         </div>
     </div>
 
-    <div class="ac-route-info-bar" style="
+    <div class="ac-unified-header-card" style="
         background: rgba(30, 41, 59, 0.75);
         backdrop-filter: blur(16px);
-        margin: -32px 16px 0 16px; 
+        margin: -32px 16px 12px 16px; 
         border-radius: 12px;
-        padding: 14px 24px; 
         border: 1px solid rgba(255,255,255,0.1);
-        display: flex;
-        align-items: center;
-        justify-content: space-between;
-        gap: 16px;
-        flex-shrink: 0;
+        box-shadow: 0 8px 32px rgba(0,0,0,0.3);
         position: relative;
         z-index: 5;
-        box-shadow: 0 8px 32px rgba(0,0,0,0.3);">
-        
-        <div class="route-node" style="flex-shrink: 0;">
-            <span class="city-name" style="color: #94a3b8; font-size: 9px; font-weight: 600; text-transform: uppercase;">${depCity}</span>
-            <span class="icao-large" style="color: #fff; font-size: 20px; font-weight: 800; font-family: 'JetBrains Mono', monospace; line-height: 1.1;">${departureIcao}</span>
-            <span class="time-small" style="color: #38bdf8; font-size: 11px; font-weight: 600;">${atdTime}</span>
-        </div>
+        overflow: hidden;
+        display: flex;
+        flex-direction: column;">
 
-        <div class="route-visual" style="flex: 1; min-width: 0; max-width: 240px; display: flex; flex-direction: column; justify-content: center;">
-            <div class="flight-progress-track" style="height: 4px; background: rgba(255,255,255,0.1); border-radius: 4px; position: relative;">
-                <div class="flight-progress-fill" id="ac-progress-bar" style="width: ${progress}%; background: #38bdf8; height: 100%; border-radius: 4px; position: relative; transition: width 0.5s ease;">
-                    <i class="fa-solid fa-plane flight-progress-plane" style="position: absolute; right: -6px; top: 50%; transform: translateY(-50%) rotate(90deg); color: #fff; font-size: 10px; filter: drop-shadow(0 0 4px #38bdf8);"></i>
+        <div class="ac-route-row" style="
+            padding: 14px 20px;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 16px;">
+            
+            <div class="route-node" style="flex-shrink: 0;">
+                <span class="city-name" style="color: #94a3b8; font-size: 9px; font-weight: 600; text-transform: uppercase;">${depCity}</span>
+                <span class="icao-large" style="color: #fff; font-size: 20px; font-weight: 800; font-family: 'JetBrains Mono', monospace; line-height: 1.1;">${departureIcao}</span>
+                <span class="time-small" style="color: #38bdf8; font-size: 11px; font-weight: 600;">${atdTime}</span>
+            </div>
+
+            <div class="route-visual" style="flex: 1; min-width: 0; max-width: 240px; display: flex; flex-direction: column; justify-content: center;">
+                <div class="flight-progress-track" style="height: 4px; background: rgba(255,255,255,0.1); border-radius: 4px; position: relative;">
+                    <div class="flight-progress-fill" id="ac-progress-bar" style="width: ${progress}%; background: #38bdf8; height: 100%; border-radius: 4px; position: relative; transition: width 0.5s ease;">
+                        <i class="fa-solid fa-plane flight-progress-plane" style="position: absolute; right: -6px; top: 50%; transform: translateY(-50%) rotate(90deg); color: #fff; font-size: 10px; filter: drop-shadow(0 0 4px #38bdf8);"></i>
+                    </div>
+                </div>
+                <div style="display: flex; justify-content: space-between; width: 100%; margin-top: 6px; font-size: 9px; color: #cbd5e1; font-weight: 700;">
+                    <span style="white-space: nowrap;">${Math.round(totalDistanceNM)} NM</span>
+                    <span style="white-space: nowrap;">ETE: ${ete}</span>
                 </div>
             </div>
-            <div style="display: flex; justify-content: space-between; width: 100%; margin-top: 6px; font-size: 9px; color: #cbd5e1; font-weight: 700;">
-                <span style="white-space: nowrap;">${Math.round(totalDistanceNM)} NM</span>
-                <span style="white-space: nowrap;">ETE: ${ete}</span>
+
+            <div class="route-node end" style="text-align: right; flex-shrink: 0;">
+                <span class="city-name" style="color: #94a3b8; font-size: 9px; font-weight: 600; text-transform: uppercase;">${arrCity}</span>
+                <span class="icao-large" style="color: #fff; font-size: 20px; font-weight: 800; font-family: 'JetBrains Mono', monospace; line-height: 1.1;">${arrivalIcao}</span>
+                <span class="time-small" id="ac-ete" style="color: #38bdf8; font-size: 11px; font-weight: 600;">${ete}</span>
             </div>
         </div>
 
-        <div class="route-node end" style="text-align: right; flex-shrink: 0;">
-            <span class="city-name" style="color: #94a3b8; font-size: 9px; font-weight: 600; text-transform: uppercase;">${arrCity}</span>
-            <span class="icao-large" style="color: #fff; font-size: 20px; font-weight: 800; font-family: 'JetBrains Mono', monospace; line-height: 1.1;">${arrivalIcao}</span>
-            <span class="time-small" id="ac-ete" style="color: #38bdf8; font-size: 11px; font-weight: 600;">${ete}</span>
-        </div>
-    </div>
+        <div style="height: 1px; background: rgba(255,255,255,0.05); width: 100%;"></div>
 
-    <div class="ac-info-window-tabs" style="padding: 16px 16px 8px 16px; display: flex; align-items: center; justify-content: space-between; gap: 16px; flex-shrink: 0;">
-            <div class="modern-view-switcher" id="main-data-switcher" style="flex: 1; background: rgba(15, 23, 42, 0.4); border-radius: 12px; padding: 4px; display: flex; position: relative; border: 1px solid rgba(255,255,255,0.05); height: 44px; min-width: 0;">
-                 <button class="ac-info-tab-btn ${flightDataActiveClass}" data-tab="ac-tab-flight-data" style="flex: 1; border: none; background: transparent; color: #fff; font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: 1.2px; padding: 0 10px; cursor: pointer; z-index: 1; transition: color 0.3s ease; display: flex; align-items: center; justify-content: center; gap: 8px; white-space: nowrap; overflow: hidden;">
+        <div class="ac-switcher-row" style="
+            padding: 8px 16px;
+            background: rgba(0,0,0,0.2); 
+            display: flex;
+            align-items: center;
+            gap: 12px;">
+            
+            <div class="modern-view-switcher" id="main-data-switcher" style="
+                flex: 1; 
+                background: rgba(15, 23, 42, 0.4); 
+                border-radius: 8px; 
+                padding: 4px; 
+                display: flex; 
+                position: relative; 
+                border: 1px solid rgba(255,255,255,0.05); 
+                height: 38px;
+                min-width: 0;">
+                
+                 <button class="ac-info-tab-btn ${flightDataActiveClass}" data-tab="ac-tab-flight-data" style="
+                    flex: 1; 
+                    border: none; 
+                    background: transparent; 
+                    color: #fff; 
+                    font-size: 10px; 
+                    font-weight: 700; 
+                    text-transform: uppercase; 
+                    letter-spacing: 1.2px; 
+                    padding: 0 10px; 
+                    cursor: pointer; 
+                    z-index: 1; 
+                    transition: color 0.3s ease; 
+                    display: flex; 
+                    align-items: center; 
+                    justify-content: center; 
+                    gap: 8px; 
+                    white-space: nowrap; 
+                    overflow: hidden;">
                     <i class="fa-solid fa-gauge-high"></i> Flight Display
                  </button>
-                 <button class="ac-info-tab-btn pilot-tab-btn ${pilotReportActiveClass}" data-tab="ac-tab-pilot-report" data-user-id="${baseProps.userId}" data-username="${pilotUsername}" style="flex: 1; border: none; background: transparent; color: #94a3b8; font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: 1.2px; padding: 0 10px; cursor: pointer; z-index: 1; transition: color 0.3s ease; display: flex; align-items: center; justify-content: center; gap: 8px; white-space: nowrap; overflow: hidden;">
+                 
+                 <button class="ac-info-tab-btn pilot-tab-btn ${pilotReportActiveClass}" data-tab="ac-tab-pilot-report" data-user-id="${baseProps.userId}" data-username="${pilotUsername}" style="
+                    flex: 1; 
+                    border: none; 
+                    background: transparent; 
+                    color: #94a3b8; 
+                    font-size: 10px; 
+                    font-weight: 700; 
+                    text-transform: uppercase; 
+                    letter-spacing: 1.2px; 
+                    padding: 0 10px; 
+                    cursor: pointer; 
+                    z-index: 1; 
+                    transition: color 0.3s ease; 
+                    display: flex; 
+                    align-items: center; 
+                    justify-content: center; 
+                    gap: 8px; 
+                    white-space: nowrap; 
+                    overflow: hidden;">
                     <i class="fa-solid fa-chart-simple"></i> ${pilotReportTabText}
                  </button>
-                 <div class="switcher-highlight" id="main-switcher-highlight" style="position: absolute; top: 4px; left: 4px; width: calc(50% - 4px); height: calc(100% - 8px); background: rgba(255,255,255,0.08); border: 1px solid rgba(255,255,255,0.1); border-radius: 8px; transition: transform 0.3s cubic-bezier(0.4, 0, 0.2, 1); transform: translateX(${highlightX});"></div>
+                 
+                 <div class="switcher-highlight" id="main-switcher-highlight" style="position: absolute; top: 4px; left: 4px; width: calc(50% - 4px); height: calc(100% - 8px); background: rgba(255,255,255,0.08); border: 1px solid rgba(255,255,255,0.1); border-radius: 6px; transition: transform 0.3s cubic-bezier(0.4, 0, 0.2, 1); transform: translateX(${highlightX});"></div>
             </div>
-            <img src="Images/inflight.png" alt="Inflight Logo" class="ac-info-tab-logo" style="height: 24px; width: auto; opacity: 0.8; flex-shrink: 0;">
+            
+            <img src="Images/inflight.png" alt="Inflight Logo" class="ac-info-tab-logo" style="height: 20px; width: auto; opacity: 0.6; flex-shrink: 0;">
+        </div>
     </div>
 
     <div class="unified-display-main-content">
