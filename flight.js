@@ -586,92 +586,145 @@ function injectCustomStyles() {
     const css = `
 
     /* --- MODERN HEADER REDESIGN --- */
-.ac-header-modern {
-    position: relative;
-    height: 220px; /* Taller for better impact */
-    background-size: cover;
-    background-position: center;
-    display: flex;
-    flex-direction: column;
-    justify-content: space-between;
-    overflow: hidden;
-}
+    .ac-header-modern {
+        position: relative;
+        height: 220px;
+        background-size: cover;
+        background-position: center;
+        display: flex;
+        flex-direction: column;
+        justify-content: space-between;
+        overflow: hidden;
+    }
 
-/* Dark gradient overlay for text readability */
-.ac-header-overlay {
-    position: absolute;
-    inset: 0;
-    background: linear-gradient(180deg, 
-        rgba(0,0,0,0.6) 0%, 
-        rgba(0,0,0,0.2) 40%, 
-        rgba(15, 23, 42, 1) 100%
-    );
-    z-index: 1;
-}
+    .ac-header-overlay {
+        position: absolute;
+        inset: 0;
+        background: linear-gradient(180deg, 
+            rgba(0,0,0,0.6) 0%, 
+            rgba(0,0,0,0.2) 40%, 
+            rgba(15, 23, 42, 1) 100%
+        );
+        z-index: 1;
+    }
 
-/* Top Row: Callsign & Status */
-.ac-header-top {
-    position: relative;
-    z-index: 2;
-    padding: 20px;
-    display: flex;
-    justify-content: space-between;
-    align-items: flex-start;
-}
+    .ac-header-top {
+        position: relative;
+        z-index: 2;
+        padding: 20px;
+        display: flex;
+        justify-content: space-between;
+        align-items: flex-start;
+    }
 
-.ac-identity-group h1 {
-    margin: 0;
-    font-size: 2.2rem;
-    font-weight: 800;
-    color: #fff;
-    letter-spacing: -1px;
-    line-height: 1;
-    text-shadow: 0 2px 10px rgba(0,0,0,0.5);
-    display: flex;
-    align-items: center;
-    gap: 12px;
-}
+    /* --- ROUTE INFO BAR FIXES --- */
+    .ac-route-info-bar {
+        background: rgba(30, 41, 59, 0.75); 
+        backdrop-filter: blur(16px); 
+        margin: -32px 16px 16px 16px; 
+        border-radius: 12px; 
+        border: 1px solid rgba(255,255,255,0.1); 
+        display: flex; 
+        flex-direction: column; 
+        flex-shrink: 0; 
+        position: relative; 
+        z-index: 5; 
+        box-shadow: 0 8px 32px rgba(0,0,0,0.3); 
+        /* FIX: Changed from hidden to visible to prevent clipping destination text */
+        overflow: visible; 
+    }
 
-.ac-logo-hero {
-    height: 28px;
-    width: auto;
-    object-fit: contain;
-    filter: drop-shadow(0 2px 4px rgba(0,0,0,0.5));
-}
+    .route-node {
+        display: flex;
+        flex-direction: column;
+        flex-shrink: 0;
+    }
 
-.ac-sub-identity {
-    display: flex;
-    align-items: center;
-    gap: 8px;
-    margin-top: 6px;
-    font-size: 0.85rem;
-    font-weight: 500;
-    color: #cbd5e1;
-    text-shadow: 0 1px 2px rgba(0,0,0,0.8);
-}
+    .route-node.end {
+        text-align: right;
+        align-items: flex-end;
+    }
 
-.ac-sub-identity .separator {
-    width: 4px;
-    height: 4px;
-    background: #64748b;
-    border-radius: 50%;
-}
+    .icao-large {
+        font-family: 'JetBrains Mono', monospace;
+        font-size: 1.8rem;
+        font-weight: 800;
+        color: #fff;
+        line-height: 1.1; /* Adjusted for better spacing */
+    }
 
-/* Phase Badge (Top Right) */
-.phase-badge-hero {
-    background: rgba(15, 23, 42, 0.6);
-    backdrop-filter: blur(8px);
-    border: 1px solid rgba(255,255,255,0.1);
-    padding: 6px 12px;
-    border-radius: 99px;
-    font-size: 0.75rem;
-    font-weight: 700;
-    color: #fff;
-    display: flex;
-    align-items: center;
-    gap: 8px;
-    box-shadow: 0 4px 15px rgba(0,0,0,0.3);
-}
+    .city-name {
+        font-size: 0.75rem;
+        color: #94a3b8;
+        font-weight: 600;
+        text-transform: uppercase;
+        margin-bottom: 2px;
+        max-width: 120px;
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+    }
+
+    .time-small {
+        font-family: 'JetBrains Mono', monospace;
+        font-size: 0.85rem;
+        color: #38bdf8;
+        margin-top: 4px;
+        font-weight: 600;
+    }
+
+    /* --- DATA SWITCHER --- */
+    .modern-view-switcher {
+        width: 100%;
+        background: rgba(0, 0, 0, 0.2);
+        border-top: 1px solid rgba(255,255,255,0.05);
+        padding: 4px;
+        display: flex;
+        position: relative;
+        height: 40px;
+        /* Apply the radius here since the parent is now overflow:visible */
+        border-bottom-left-radius: 12px;
+        border-bottom-right-radius: 12px;
+    }
+
+    .ac-info-tab-btn {
+        flex: 1;
+        border: none;
+        background: transparent;
+        color: #94a3b8;
+        font-size: 10px;
+        font-weight: 700;
+        text-transform: uppercase;
+        letter-spacing: 1.2px;
+        padding: 0 10px;
+        cursor: pointer;
+        z-index: 1;
+        transition: color 0.3s ease;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        gap: 8px;
+    }
+
+    .ac-info-tab-btn.active {
+        color: #fff;
+    }
+
+    /* --- PHASE BADGE --- */
+    .phase-badge-hero {
+        background: rgba(15, 23, 42, 0.6);
+        backdrop-filter: blur(8px);
+        border: 1px solid rgba(255,255,255,0.1);
+        padding: 6px 12px;
+        border-radius: 99px;
+        font-size: 0.75rem;
+        font-weight: 700;
+        color: #fff;
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        box-shadow: 0 4px 15px rgba(0,0,0,0.3);
+    }
 
 .phase-dot {
     width: 8px;
