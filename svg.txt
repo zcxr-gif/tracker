@@ -1,2903 +1,7 @@
-
-function injectCustomStyles() {
-    const styleId = 'sector-ops-custom-styles';
-    if (document.getElementById(styleId)) return;
-
-    const css = `
-
-    /* --- MODERN HEADER REDESIGN --- */
-.ac-header-modern {
-    position: relative;
-    height: 220px; /* Taller for better impact */
-    background-size: cover;
-    background-position: center;
-    display: flex;
-    flex-direction: column;
-    justify-content: space-between;
-    overflow: hidden;
-}
-
-/* Dark gradient overlay for text readability */
-.ac-header-overlay {
-    position: absolute;
-    inset: 0;
-    background: linear-gradient(180deg, 
-        rgba(0,0,0,0.6) 0%, 
-        rgba(0,0,0,0.2) 40%, 
-        rgba(15, 23, 42, 1) 100%
-    );
-    z-index: 1;
-}
-
-/* Top Row: Callsign & Status */
-.ac-header-top {
-    position: relative;
-    z-index: 2;
-    padding: 20px;
-    display: flex;
-    justify-content: space-between;
-    align-items: flex-start;
-}
-
-.ac-identity-group h1 {
-    margin: 0;
-    font-size: 2.2rem;
-    font-weight: 800;
-    color: #fff;
-    letter-spacing: -1px;
-    line-height: 1;
-    text-shadow: 0 2px 10px rgba(0,0,0,0.5);
-    display: flex;
-    align-items: center;
-    gap: 12px;
-}
-
-.ac-logo-hero {
-    height: 28px;
-    width: auto;
-    object-fit: contain;
-    filter: drop-shadow(0 2px 4px rgba(0,0,0,0.5));
-}
-
-.ac-sub-identity {
-    display: flex;
-    align-items: center;
-    gap: 8px;
-    margin-top: 6px;
-    font-size: 0.85rem;
-    font-weight: 500;
-    color: #cbd5e1;
-    text-shadow: 0 1px 2px rgba(0,0,0,0.8);
-}
-
-.ac-sub-identity .separator {
-    width: 4px;
-    height: 4px;
-    background: #64748b;
-    border-radius: 50%;
-}
-
-/* Phase Badge (Top Right) */
-.phase-badge-hero {
-    background: rgba(15, 23, 42, 0.6);
-    backdrop-filter: blur(8px);
-    border: 1px solid rgba(255,255,255,0.1);
-    padding: 6px 12px;
-    border-radius: 99px;
-    font-size: 0.75rem;
-    font-weight: 700;
-    color: #fff;
-    display: flex;
-    align-items: center;
-    gap: 8px;
-    box-shadow: 0 4px 15px rgba(0,0,0,0.3);
-}
-
-.phase-dot {
-    width: 8px;
-    height: 8px;
-    border-radius: 50%;
-    background: #4ade80;
-    box-shadow: 0 0 8px #4ade80;
-    animation: pulse 2s infinite;
-}
-
-/* Bottom Strip: Route Info */
-.ac-header-route-strip {
-    position: relative;
-    z-index: 2;
-    padding: 0 24px 16px 24px;
-    display: grid;
-    grid-template-columns: 1fr auto 1fr;
-    gap: 20px;
-    align-items: end;
-}
-
-.route-node {
-    display: flex;
-    flex-direction: column;
-}
-
-.route-node.end {
-    text-align: right;
-    align-items: flex-end;
-}
-
-.city-name {
-    font-size: 0.75rem;
-    color: #94a3b8;
-    font-weight: 600;
-    text-transform: uppercase;
-    margin-bottom: 2px;
-    max-width: 120px;
-    white-space: nowrap;
-    overflow: hidden;
-    text-overflow: ellipsis;
-}
-
-.icao-large {
-    font-family: 'JetBrains Mono', monospace;
-    font-size: 1.8rem;
-    font-weight: 700;
-    color: #fff;
-    line-height: 1;
-}
-
-.time-small {
-    font-family: 'JetBrains Mono', monospace;
-    font-size: 0.85rem;
-    color: #38bdf8;
-    margin-top: 4px;
-    font-weight: 600;
-}
-
-/* Middle Progress Visual */
-.route-visual {
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    width: 100%;
-    padding-bottom: 8px;
-}
-
-.flight-progress-track {
-    width: 100%;
-    height: 4px;
-    background: rgba(255,255,255,0.1);
-    border-radius: 2px;
-    position: relative;
-    overflow: visible;
-}
-
-.flight-progress-fill {
-    height: 100%;
-    background: #38bdf8;
-    border-radius: 2px;
-    position: relative;
-    box-shadow: 0 0 10px rgba(56, 189, 248, 0.5);
-}
-
-/* The little plane icon on the bar */
-.flight-progress-plane {
-    position: absolute;
-    right: -8px;
-    top: 50%;
-    transform: translateY(-50%);
-    color: #fff;
-    font-size: 0.85rem;
-    filter: drop-shadow(0 0 5px #38bdf8);
-}
-
-    /* --- COMPACT REDESIGNED TRIP CARD --- */
-#trip-card-takeover {
-    position: fixed;
-    bottom: 12px; /* Moved down from 30px for a smaller gap */
-    left: 50%;
-    transform: translateX(-50%) translateY(20px);
-    z-index: 9999;
-    pointer-events: none;
-    display: none;
-    width: 440px; /* Expanded from 380px */
-    max-width: 92vw;
-    font-family: 'Inter', sans-serif;
-    background: rgba(10, 10, 12, 0.9);
-    backdrop-filter: blur(25px) saturate(180%);
-    border: 1px solid rgba(255, 255, 255, 0.12);
-    border-radius: 20px;
-    padding: 0;
-    box-shadow: 0 20px 50px rgba(0, 0, 0, 0.9);
-    transition: all 0.4s cubic-bezier(0.16, 1, 0.3, 1);
-    opacity: 0;
-    overflow: hidden;
-}
-
-#trip-card-takeover.active { 
-    display: block; 
-    pointer-events: auto;
-    transform: translateX(-50%) translateY(0);
-    opacity: 1;
-}
-
-.tc-ac-image-container {
-    width: 100%;
-    height: 110px; /* Decreased height from 140px */
-    position: relative;
-    background: #000;
-}
-.tc-ac-image {
-    width: 100%;
-    height: 100%;
-    object-fit: cover;
-    opacity: 0.85;
-}
-.tc-image-overlay {
-    position: absolute;
-    inset: 0;
-    background: linear-gradient(to top, rgba(10,10,12,1) 0%, transparent 50%);
-}
-
-.tc-inner { 
-    padding: 12px; /* Tightened padding from 16px */
-    display: flex; 
-    flex-direction: column; 
-    gap: 10px; /* Tightened gap from 14px to reduce overall card height */
-}
-
-/* Compact Header */
-.tc-header { display: flex; justify-content: space-between; align-items: flex-start; }
-.tc-airline-info { display: flex; align-items: center; gap: 10px; }
-.tc-logo { height: 22px; width: auto; max-width: 70px; object-fit: contain; }
-.tc-callsign { font-family: 'JetBrains Mono', monospace; font-size: 1.1rem; font-weight: 800; color: #fff; }
-.tc-pilot { font-size: 0.65rem; color: #38bdf8; font-weight: 700; letter-spacing: 0.5px; }
-
-/* Compact Route row */
-.tc-route-row { display: flex; align-items: center; justify-content: center; gap: 15px; padding: 5px 0; }
-.tc-icao { font-family: 'JetBrains Mono', monospace; font-size: 1.8rem; font-weight: 800; color: #fff; }
-.tc-path-icon { color: #38bdf8; font-size: 0.9rem; }
-.tc-path-line { height: 2px; width: 30px; background: rgba(56, 189, 248, 0.4); }
-
-/* Compact Stats */
-.tc-stats-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
-.tc-stat-box { background: rgba(255, 255, 255, 0.04); border-radius: 12px; padding: 8px; text-align: center; }
-.tc-label { display: block; font-size: 0.55rem; font-weight: 800; color: #71717a; text-transform: uppercase; margin-bottom: 2px; }
-.tc-val { color: #fff; font-size: 0.9rem; font-weight: 700; font-family: 'JetBrains Mono', monospace; }
-
-    .settings-section { display: flex; flex-direction: column; gap: 16px; }
-.settings-row { 
-    display: flex; 
-    justify-content: space-between; 
-    align-items: center; 
-    background: rgba(255,255,255,0.03); 
-    padding: 12px 16px; 
-    border-radius: 10px; 
-    border: 1px solid rgba(255,255,255,0.05);
-}
-.row-label { color: #e4e4e7; font-size: 0.85rem; font-weight: 500; display: flex; align-items: center; gap: 10px; }
-.row-label i { color: #52525b; width: 16px; text-align: center; }
-.settings-color-input { background: none; border: none; width: 40px; height: 30px; cursor: pointer; padding: 0; }
-.settings-modal .filter-config-pane { 
-        background: #121214 !important; 
-        max-height: 500px; /* Limits height to trigger scrollbar */
-        overflow-y: auto !important; /* Enables vertical scrolling */
-    }
-    
-    /* Ensure the list pane also scrolls if it gets too long */
-    .filter-selection-pane.custom-scroll {
-        overflow-y: auto;
-    }    
-
-        /* --- REDESFIGNED TACTICAL FLIGHT CARDS --- */
-.route-card-reborn {
-    position: relative;
-    height: 115px;
-    flex-shrink: 0; /* Add this line to prevent squeezing */
-    border-radius: 12px;
-    overflow: hidden;
-    background-size: 101% 101%;
-    background-position: center;
-    margin-bottom: 12px;
-    border: 1px solid rgba(255, 255, 255, 0.08);
-    transition: all 0.3s cubic-bezier(0.16, 1, 0.3, 1);
-    box-shadow: 0 8px 32px rgba(0,0,0,0.4);
-    cursor: pointer;
-}
-
-        .route-card-reborn:hover {
-            transform: translateY(-2px) scale(1.01);
-            border-color: rgba(255, 255, 255, 0.2);
-            box-shadow: 0 12px 40px rgba(0,0,0,0.6);
-        }
-
-        .card-overlay {
-    position: absolute;
-    inset: -2px; /* Slightly larger than the card */
-    background: linear-gradient(180deg, 
-        rgba(10, 12, 26, 0.4) 0%, 
-        rgba(10, 12, 26, 0.8) 60%, 
-        rgba(10, 12, 26, 1) 100%
-    );
-    z-index: 1;
-    /* This "spreads" the color slightly to fill gaps */
-    box-shadow: inset 0 0 0 1px rgba(10, 12, 26, 1); 
-}
-
-        .card-content {
-            position: relative;
-            z-index: 2;
-            height: 100%;
-            display: flex;
-            flex-direction: column;
-            justify-content: space-between;
-            padding: 14px 18px;
-            box-sizing: border-box;
-        }
-
-        /* Header Zone: Metadata */
-        .card-header-zone {
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-        }
-
-        .card-header-zone .callsign-meta {
-            display: flex;
-            align-items: center;
-            font-family: 'JetBrains Mono', monospace;
-            font-weight: 800;
-            font-size: 0.9rem;
-            color: #fff;
-            letter-spacing: -0.5px;
-        }
-
-        .card-header-zone .aircraft-meta {
-            font-size: 0.6rem;
-            font-weight: 900;
-            color: #71717a; /* Muted grey */
-            text-transform: uppercase;
-            letter-spacing: 1.5px;
-            font-family: 'Inter', sans-serif;
-        }
-
-        /* Center Zone: High-Impact Route */
-        .card-center-zone {
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            flex-grow: 1;
-            margin-top: -5px;
-        }
-
-        .route-display {
-            display: flex;
-            align-items: center;
-            gap: 15px;
-        }
-
-        .icao-code {
-            font-family: 'Inter', sans-serif;
-            font-weight: 900;
-            font-size: 2.6rem;
-            color: rgba(255, 255, 255, 0.2); /* Muted origin */
-            letter-spacing: -3px;
-            line-height: 1;
-        }
-
-        .icao-code.destination-focus {
-            color: #ffffff; /* Ultra-bold white focal point */
-            text-shadow: 0 0 30px rgba(255,255,255,0.15);
-        }
-
-        .route-path-arrow {
-            color: rgba(255, 255, 255, 0.1);
-            font-size: 1.2rem;
-        }
-
-        /* Footer Zone: Details */
-        .card-footer-zone {
-            display: flex;
-            justify-content: space-between;
-            align-items: flex-end;
-        }
-
-        .operated-by-meta {
-            font-size: 0.55rem;
-            font-weight: 800;
-            color: #52525b; /* Muted grey */
-            text-transform: uppercase;
-            letter-spacing: 1px;
-            font-family: 'Inter', sans-serif;
-        }
-
-        .time-status-meta {
-            font-size: 0.75rem;
-            font-weight: 900;
-            font-family: 'JetBrains Mono', monospace;
-            color: #00ff41; /* Vibrant Neon Green */
-            letter-spacing: 0.5px;
-            text-shadow: 0 0 12px rgba(0, 255, 65, 0.4);
-        }
-
-        /* --- DYNAMIC & LOCKED AIRPORT TAG STYLES --- */
-        :root {
-            --apt-tag-scale: 1; 
-        }
-
-        .apt-live-tag, .destination-marker {
-            display: flex;
-            flex-direction: column-reverse;
-            align-items: center;
-            background: rgba(10, 15, 25, 0.9); /* Class 1 / Default */
-            backdrop-filter: blur(8px);
-            border: 1px solid rgba(255, 255, 255, 0.2);
-            border-radius: 6px;
-            padding: 2px;
-            cursor: pointer;
-            pointer-events: auto;
-            white-space: nowrap;
-            transform: scale(var(--apt-tag-scale));
-            transform-origin: bottom center;
-            min-height: 22px; 
-            box-sizing: border-box;
-            user-select: none;
-            box-shadow: 0 4px 12px rgba(0,0,0,0.5);
-        }
-
-        /* Class 2: Dark Green */
-        .apt-class-2 {
-            background: rgba(6, 78, 59, 0.9) !important;
-            border-color: #10b981 !important;
-        }
-
-        /* Class 3: Dark Orange */
-        .apt-class-3 {
-            background: rgba(120, 53, 15, 0.9) !important;
-            border-color: #f59e0b !important;
-        }
-
-        .destination-marker {
-            padding: 2px 6px;
-            font-family: 'JetBrains Mono', monospace;
-            font-weight: 800;
-            font-size: 11px;
-            color: #fff;
-        }
-
-        .apt-live-tag .apt-tag-extra {
-            max-height: 0;
-            opacity: 0;
-            overflow: hidden;
-            width: 100%;
-            display: flex;
-            flex-direction: column;
-            align-items: center;
-            border-bottom: 0px solid rgba(255,255,255,0.1);
-        }
-
-        @media (hover: hover) {
-            .apt-live-tag:hover {
-                background: #0f172a;
-                border-color: #38bdf8;
-                z-index: 9999 !important;
-                padding-bottom: 4px;
-            }
-
-            .apt-live-tag:hover .apt-tag-extra {
-                max-height: 50px; 
-                opacity: 1;
-                padding-bottom: 4px;
-                margin-bottom: 4px;
-                border-bottom-width: 1px;
-            }
-        }
-
-        .apt-tag-base {
-            display: flex;
-            align-items: center;
-            width: 100%;
-            height: 18px;
-        }
-
-        .apt-tag-ident {
-            font-family: 'JetBrains Mono', monospace;
-            font-weight: 800;
-            font-size: 11px;
-            color: #fff;
-            padding: 0 4px;
-        }
-
-        .apt-tag-freqs {
-            display: flex;
-            gap: 2px;
-            margin-left: 2px;
-            border-left: 1px solid rgba(255, 255, 255, 0.1);
-            padding-left: 4px;
-        }
-
-        .freq-mini-badge {
-            width: 14px;
-            height: 14px;
-            border-radius: 2px;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            font-family: 'Inter', sans-serif;
-            font-size: 8px;
-            font-weight: 900;
-            color: #fff;
-        }
-
-        .f-gnd { background: #475569; }
-        .f-twr { background: #2563eb; }
-        .f-app { background: #7c3aed; }
-        .f-atis { background: #fbbf24; color: #000; }
-
-        .tag-pulse-aura {
-            position: absolute;
-            inset: -1px;
-            border-radius: 4px;
-            border: 1px solid rgba(124, 58, 237, 0.6);
-            pointer-events: none;
-        }
-
-        /* --- IMPORT FONTS --- */
-        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;700&display=swap');
-
-        /* --- THEME VARIABLES --- */
-        :root {
-            --bg-glass: rgba(24, 24, 27, 0.95);
-            --bg-panel: rgba(63, 63, 70, 0.35);
-            --bg-subtle: rgba(255, 255, 255, 0.03);
-            --border-glass: rgba(255, 255, 255, 0.08);
-            --border-highlight: rgba(255, 255, 255, 0.12);
-            --text-primary: #fafafa;
-            --text-secondary: #a1a1aa;
-            --text-dim: #52525b;
-            --color-accent: #e4e4e7;
-            --color-brand: #38bdf8;
-            --color-success: #10b981;
-            --color-warning: #f59e0b;
-            --color-danger: #ef4444;
-            --color-purple: #c084fc;
-            --radius-sm: 8px;
-            --radius-md: 12px;
-            --radius-lg: 16px;
-            --font-ui: 'Inter', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
-            --font-data: 'JetBrains Mono', 'Consolas', monospace;
-            --iw-bg-start: var(--bg-glass);
-            --iw-bg-end: var(--bg-glass);
-        }
-
-        /* --- [MODIFIED] MODAL STYLES --- */
-        #sector-ops-floating-panel {
-            /* Position Center */
-            position: fixed !important;
-            top: 50% !important;
-            left: 50% !important;
-            transform: translate(-50%, -50%) !important;
-            
-            /* Dimensions */
-            width: 900px !important;
-            max-width: 95vw !important;
-            height: 85vh !important;
-            max-height: 800px !important;
-            
-            /* Visual Style */
-            background: var(--bg-glass) !important;
-            backdrop-filter: blur(20px) !important;
-            -webkit-backdrop-filter: blur(20px) !important;
-            border: 1px solid var(--border-glass) !important;
-            border-radius: var(--radius-lg) !important;
-            box-shadow: 0 0 0 100vmax rgba(0, 0, 0, 0.6), 0 25px 50px rgba(0, 0, 0, 0.5) !important;
-            
-            /* [FIXED] HIDDEN BY DEFAULT */
-            display: none; 
-            flex-direction: column !important;
-            z-index: 5000 !important;
-            overflow: hidden !important;
-            
-            /* Reset Sidebar specific props */
-            right: auto !important;
-            bottom: auto !important;
-            margin: 0 !important;
-        }
-
-        /* [NEW] Class to show the modal */
-        #sector-ops-floating-panel.visible {
-            display: flex !important;
-            animation: modalFadeIn 0.3s ease-out forwards;
-        }
-
-        @keyframes modalFadeIn {
-            from { opacity: 0; transform: translate(-50%, -48%) scale(0.96); }
-            to { opacity: 1; transform: translate(-50%, -50%) scale(1); }
-        }
-
-        #sector-ops-floating-panel .panel-content {
-            flex: 1;
-            overflow-y: auto !important;
-            height: auto !important;
-            padding-bottom: 20px;
-        }
-
-        /* Close Button Styling */
-        .panel-close-btn {
-            position: absolute !important;
-            top: 15px !important;
-            right: 15px !important;
-            z-index: 5010 !important;
-            background: rgba(255, 255, 255, 0.1) !important;
-            border: 1px solid rgba(255, 255, 255, 0.1) !important;
-            color: #fff !important;
-            width: 32px !important;
-            height: 32px !important;
-            border-radius: 50% !important;
-            cursor: pointer !important;
-            display: flex !important;
-            align-items: center !important;
-            justify-content: center !important;
-            transition: all 0.2s ease !important;
-        }
-        .panel-close-btn:hover {
-            background: var(--color-danger) !important;
-            transform: rotate(90deg);
-        }
-
-        /* Mobile Adjustment */
-        @media (max-width: 768px) {
-            #sector-ops-floating-panel {
-                width: 100% !important;
-                height: 100% !important;
-                max-width: 100% !important;
-                max-height: 100% !important;
-                border-radius: 0 !important;
-                top: 0 !important;
-                left: 0 !important;
-                transform: none !important;
-            }
-        }
-
-        /* --- ORIGINAL GLOBAL STYLES CONTINUED BELOW --- */
-        body, .mapboxgl-popup {
-            font-family: var(--font-ui);
-            color: var(--text-primary);
-        }
-
-        /* --- TOOLBAR STYLES --- */
-
-        .dashboard-toolbar {
-    display: none !important;
-}
-        .toolbar-btn {
-            background: var(--bg-glass) !important;
-            border: 1px solid var(--border-glass) !important;
-            color: var(--text-secondary) !important;
-            backdrop-filter: blur(10px);
-        }
-
-        .toolbar-btn:hover, .toolbar-btn.active {
-            background: var(--bg-panel) !important;
-            color: var(--text-primary) !important;
-            border-color: var(--text-secondary) !important;
-        }
-
-        /* --- INFO WINDOW STYLES --- */
-        .info-window {
-            font-family: var(--font-ui);
-            color: var(--text-primary);
-            position: absolute;
-            top: 20px; 
-            right: 20px;
-            width: 460px;
-            max-width: 95vw;
-            max-height: calc(100vh - 40px);
-            background: linear-gradient(135deg, var(--iw-bg-start), var(--iw-bg-end));
-            backdrop-filter: blur(40px) saturate(140%);
-            -webkit-backdrop-filter: blur(40px) saturate(140%);
-            border-radius: var(--radius-lg);
-            border: 1px solid var(--border-glass);
-            box-shadow: 0 20px 50px rgba(0,0,0,0.8); 
-            z-index: 2100; 
-            display: flex;
-            flex-direction: column;
-            overflow: hidden;
-            transition: opacity 0.3s ease, transform 0.3s ease;
-            opacity: 0;
-            transform: translateX(20px);
-            pointer-events: none;
-        }
-        .info-window.visible { 
-            opacity: 1;
-            transform: translateX(0);
-            pointer-events: auto;
-        }
-        .info-window-header {
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-            padding: 16px 20px;
-            background: var(--bg-panel);
-            border-bottom: 1px solid var(--border-glass);
-            flex-shrink: 0;
-        }
-        .info-window-header h3 {
-            margin: 0;
-            font-size: 1.1rem; 
-            color: var(--text-primary);
-            font-weight: 700;
-            letter-spacing: -0.025em;
-        }
-        .info-window-actions button {
-            background: var(--bg-subtle);
-            border: 1px solid var(--border-glass);
-            color: var(--text-secondary);
-            cursor: pointer;
-            font-size: 0.9rem;
-            width: 28px; height: 28px;
-            border-radius: 50%;
-            margin-left: 8px;
-            line-height: 1;
-            display: grid;
-            place-items: center;
-            transition: all 0.2s ease-in-out;
-        }
-        .info-window-actions button:hover { 
-            background: var(--bg-panel);
-            color: #fff; 
-            border-color: var(--text-secondary);
-        }
-        .info-window-content { 
-            overflow-y: auto;
-            flex-grow: 1; 
-            padding: 0;
-            background: transparent; 
-        }
-
-        /* --- VIRTUAL COCKPIT SEAT SENSOR --- */
-        .seat-sensor-wrapper {
-            background: var(--bg-glass);
-            border: 1px solid var(--border-glass); 
-            border-radius: var(--radius-sm); 
-            display: flex;
-            flex-direction: column;
-            box-shadow: 0 4px 20px rgba(0,0,0,0.5);
-            overflow: hidden;
-            position: relative;
-        }
-
-        .sensor-header {
-            background: var(--bg-panel);
-            padding: 8px 12px;
-            border-bottom: 1px solid var(--border-glass);
-            display: flex;
-            justify-content: space-between;
-            font-size: 0.75rem;
-            font-weight: 700;
-            color: var(--text-secondary);
-            flex-shrink: 0;
-            text-transform: uppercase;
-            letter-spacing: 0.05em;
-        }
-
-        .sensor-body {
-            padding: 15px;
-            display: flex;
-            flex-direction: column;
-            align-items: center;
-            position: relative;
-            background: transparent;
-        }
-
-        .cockpit-view {
-            position: relative;
-            width: 140px;
-            height: 80px;
-            background: rgba(0,0,0,0.3);
-            border-radius: 40px 40px 10px 10px;
-            border: 1px solid var(--border-glass);
-            display: flex;
-            justify-content: space-between;
-            padding: 10px 20px;
-            box-sizing: border-box;
-            margin-bottom: 10px;
-        }
-
-        .cockpit-view::after {
-            content: '';
-            position: absolute;
-            left: 50%;
-            bottom: 10px;
-            transform: translateX(-50%);
-            width: 14px;
-            height: 40px;
-            background: #333;
-            border-radius: 4px;
-            border: 1px solid #555;
-        }
-
-        .seat {
-            width: 35px;
-            height: 40px;
-            background: #222;
-            border-radius: 6px;
-            border: 1px solid #444;
-            transition: all 0.5s ease;
-            position: relative;
-            display: flex;
-            justify-content: center;
-            align-items: center;
-        }
-
-        .seat::before {
-            content: '';
-            position: absolute;
-            top: -8px;
-            width: 25px;
-            height: 8px;
-            background: inherit;
-            border-radius: 4px;
-            border: 1px solid #444;
-        }
-
-        .cockpit-overlay-icon {
-            position: absolute;
-            top: 50%;
-            left: 50%;
-            transform: translate(-50%, -50%);
-            font-size: 2.5rem;
-            z-index: 10;
-            opacity: 0;
-            transition: opacity 0.3s ease, transform 0.3s ease;
-            pointer-events: none;
-            text-shadow: 0 2px 10px rgba(0,0,0,0.8);
-        }
-
-        .cockpit-overlay-icon.visible {
-            opacity: 1;
-            transform: translate(-50%, -50%) scale(1);
-        }
-
-        .icon-parking { color: var(--color-danger); border: 3px solid var(--color-danger);
-            border-radius: 50%; width: 45px; height: 45px; display: flex; align-items: center; justify-content: center; font-weight: bold; background: rgba(0,0,0,0.6); font-family: sans-serif;
-        }
-        .icon-coffee { color: var(--color-warning);
-        }
-        .icon-cloud { color: var(--color-brand);
-        }
-
-        .seat.active-green { background: rgba(16, 185, 129, 0.1); border-color: var(--color-success);
-            box-shadow: 0 0 15px rgba(16, 185, 129, 0.2); }
-        .seat.active-green::before { border-color: var(--color-success);
-            background: #064e3b; }
-
-        .seat.active-amber { background: rgba(245, 158, 11, 0.1); border-color: var(--color-warning);
-            box-shadow: 0 0 15px rgba(245, 158, 11, 0.2); }
-        .seat.active-amber::before { border-color: var(--color-warning);
-            background: #78350f; }
-
-        .seat.active-blue { background: rgba(56, 189, 248, 0.1); border-color: var(--color-brand);
-            box-shadow: 0 0 15px rgba(56, 189, 248, 0.2); }
-        .seat.active-blue::before { border-color: var(--color-brand);
-            background: #0c4a6e; }
-
-        .seat::after { content: attr(data-role); font-size: 0.6rem; font-weight: bold; color: var(--text-dim);
-            margin-top: 2px; }
-        .seat.active-green::after, .seat.active-amber::after, .seat.active-blue::after { color: #fff;
-            text-shadow: 0 0 5px currentColor; }
-
-        .seat-status-display {
-            margin-top: 8px;
-            font-family: var(--font-data);
-            font-size: 0.75rem;
-            text-align: center;
-            width: 100%;
-            display: flex;
-            justify-content: space-between;
-            color: var(--text-secondary);
-        }
-
-        .status-pill { padding: 2px 8px; border-radius: 4px; background: rgba(255,255,255,0.05);
-            border: 1px solid var(--border-glass); }
-        .status-pill.green { color: var(--color-success);
-            border-color: rgba(16, 185, 129, 0.3); background: rgba(16, 185, 129, 0.1);
-        }
-        .status-pill.amber { color: var(--color-warning); border-color: rgba(245, 158, 11, 0.3);
-            background: rgba(245, 158, 11, 0.1); }
-        .status-pill.blue { color: var(--color-brand);
-            border-color: rgba(56, 189, 248, 0.3); background: rgba(56, 189, 248, 0.1);
-        }
-        .status-pill.red { color: var(--color-danger); border-color: rgba(239, 68, 68, 0.3);
-            background: rgba(239, 68, 68, 0.1); }
-
-        #seat-narrative-text {
-            font-family: var(--font-ui);
-            font-size: 0.7rem;
-            color: var(--text-secondary);
-            margin-top: 8px;
-            text-align: center;
-            border-top: 1px solid var(--border-glass);
-            padding-top: 6px;
-            width: 100%;
-            font-style: italic;
-        }
-        
-        #view-rosters.active {
-            position: absolute;
-            inset: 0;
-            width: 100%;
-            height: 100%;
-            padding: 0;
-            overflow: hidden;
-            display: grid;
-            grid-template-columns: 1fr;
-            grid-template-rows: 1fr;
-        }
-        #sector-ops-map-fullscreen {
-            grid-column: 1 / -1;
-            grid-row: 1 / -1;
-        }
-        .main-content:has(#view-rosters.active) {
-            padding: 0;
-            height: 100dvh; 
-            overflow: hidden; 
-        }
-
-        .pfd-and-location-grid { 
-    display: grid;
-    grid-template-columns: 1fr 150px; /* Fixed width for right column  */
-    gap: 6px;
-    align-items: stretch; /* Forces children to match height of the tallest item (PFD) */
-}
-
-        .info-right-col {
-    display: flex;
-    flex-direction: column;
-    gap: 6px; /* Reduced gap to keep it within PFD bounds  */
-    height: 100%; /* Stretch to fill the grid cell */
-    overflow: hidden; /* Prevents accidental overflow */
-}
-        
-        /* --- FMS & MODULE STYLES --- */
-        .fms-module-container {
-            height: 380px;
-            max-height: 380px;
-            background: var(--bg-glass);
-            color: var(--color-success); 
-            font-family: var(--font-data);
-            display: flex;
-            flex-direction: column;
-            border: 1px solid var(--border-glass);
-            border-radius: var(--radius-sm);
-            box-shadow: inset 0 0 20px rgba(0,0,0,0.5);
-            box-sizing: border-box;
-            overflow: hidden;
-        }
-        .fms-header {
-            background: var(--bg-panel);
-            padding: 6px 10px;
-            border-bottom: 1px solid var(--border-glass);
-            display: flex;
-            justify-content: space-between;
-            font-size: 0.75rem;
-            font-weight: 700;
-            color: var(--text-primary);
-            flex-shrink: 0;
-        }
-        .fms-columns {
-            display: grid;
-            grid-template-columns: 2fr 1fr 1fr;
-            padding: 4px 10px;
-            border-bottom: 1px dashed var(--border-glass);
-            font-size: 0.7rem;
-            color: var(--color-brand);
-            flex-shrink: 0;
-        }
-        .fms-list-scrollarea {
-            flex-grow: 1;
-            overflow-y: auto;
-            padding: 5px 0;
-            scrollbar-width: thin;
-            scrollbar-color: var(--border-glass) transparent;
-        }
-        .fms-list-scrollarea::-webkit-scrollbar { width: 4px;
-        }
-        .fms-list-scrollarea::-webkit-scrollbar-track { background: transparent;
-        }
-        .fms-list-scrollarea::-webkit-scrollbar-thumb { background-color: var(--border-glass); border-radius: 2px;
-        }
-        
-        .fms-row {
-            display: grid;
-            grid-template-columns: 2fr 1fr 1fr;
-            padding: 4px 10px;
-            font-size: 0.85rem;
-            border-bottom: 1px solid rgba(255,255,255,0.03);
-            align-items: center;
-        }
-        .fms-row.active-leg {
-            background: rgba(192, 132, 252, 0.1);
-            color: var(--color-purple);
-            font-weight: bold;
-        }
-        .fms-row.passed-leg { color: var(--text-dim);
-        }
-        .fms-proc-header {
-            padding: 4px 10px;
-            background: rgba(255,255,255,0.02);
-            color: var(--text-secondary);
-            font-size: 0.75rem;
-            font-weight: bold;
-            border-top: 1px solid var(--border-glass);
-            border-bottom: 1px solid var(--border-glass);
-            display: flex;
-            align-items: center;
-            gap: 6px;
-        }
-        .proc-tag {
-            font-size: 0.6rem;
-            padding: 1px 4px;
-            border-radius: 2px;
-            background: rgba(255,255,255,0.05);
-            color: var(--text-secondary);
-        }
-        .proc-tag.sid { background: rgba(16, 185, 129, 0.1);
-            color: var(--color-success); }
-        .proc-tag.star { background: rgba(245, 158, 11, 0.1); color: var(--color-warning);
-        }
-        .fms-row.is-child { padding-left: 20px;
-        }
-        .fms-footer {
-            background: var(--bg-panel);
-            padding: 6px 10px;
-            border-top: 1px solid var(--border-glass);
-            display: flex;
-            justify-content: space-between;
-            flex-shrink: 0;
-        }
-        .fms-stat { display: flex; gap: 8px; font-size: 0.8rem;
-        }
-        .stat-label { color: var(--text-dim);
-        }
-        .stat-value { color: var(--text-primary); font-weight: bold;
-        }
-        .fms-empty-state { text-align: center; padding: 20px; color: var(--text-dim); font-style: italic;
-        }
-
-        /* --- LOCATION DATA PANEL --- */
-        #location-data-panel {
-            background: var(--bg-glass);
-            border-radius: var(--radius-sm);
-            border: 1px solid var(--border-glass);
-            box-shadow: none;
-            width: 100%;
-            display: flex;
-            flex-direction: column;
-            overflow: visible;
-        }
-        .nav-header {
-            background: var(--bg-panel);
-            padding: 8px 12px;
-            border-bottom: 1px solid var(--border-glass);
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-        }
-        .nav-title { 
-            font-size: 0.7rem;
-            font-weight: 700; 
-            color: var(--text-dim); 
-            letter-spacing: 1px; 
-            font-family: var(--font-ui);
-        }
-        .nav-status-indicator {
-            display: flex;
-            align-items: center; gap: 6px;
-            font-size: 0.65rem; font-weight: 700; letter-spacing: 0.5px;
-            color: var(--color-success); text-transform: uppercase;
-        }
-        .nav-blink {
-            width: 6px;
-            height: 6px; border-radius: 50%; background: var(--color-success);
-            box-shadow: 0 0 6px var(--color-success);
-            animation: navPulse 2s infinite;
-        }
-        @keyframes navPulse { 0% { opacity: 1; } 50% { opacity: 0.4;
-        } 100% { opacity: 1; } }
-        
-        .nav-grid-container {
-            padding: 10px;
-            display: grid;
-            grid-template-columns: repeat(4, 1fr);
-            gap: 8px;
-        }
-        .nav-cell {
-            background: var(--bg-panel);
-            border-radius: 4px;
-            padding: 6px 10px;
-            display: flex;
-            flex-direction: column;
-            justify-content: space-between;
-            height: auto; 
-            min-height: 45px;
-            border: 1px solid var(--border-glass);
-            transition: background 0.2s;
-            overflow: visible;
-        }
-        .nav-cell:hover {
-            background: rgba(255, 255, 255, 0.06);
-            border-color: var(--border-highlight);
-        }
-        .nav-span-2 { grid-column: span 2;
-        }
-        .nav-span-4 { grid-column: span 4;
-        }
-        .nav-label {
-            font-size: 0.6rem;
-            color: var(--color-brand);
-            text-transform: uppercase;
-            margin-bottom: 4px;
-            font-weight: 600;
-            letter-spacing: 0.5px;
-            display: flex;
-            align-items: center;
-            gap: 6px;
-            white-space: nowrap;
-        }
-        .nav-label i { opacity: 0.7; font-size: 0.7rem;
-        }
-        
-        .nav-value {
-            font-family: var(--font-data);
-            font-size: 1.0rem; 
-            color: var(--text-primary);
-            font-weight: 600;
-            white-space: normal;  
-            overflow: visible;    
-            text-overflow: clip;  
-            word-wrap: break-word; 
-            line-height: 1.2;
-        }
-        
-        .nav-value.large { font-size: 1.2rem;
-        }
-        .nav-value.small { font-size: 0.85rem; color: var(--text-secondary);
-        }
-        .nav-value.highlight { color: var(--color-success); text-shadow: 0 0 5px rgba(16, 185, 129, 0.2);
-        }
-        .nav-value.accent { color: var(--color-warning);
-        }
-        
-        .nav-row {
-            display: flex;
-            justify-content: space-between;
-            align-items: baseline;
-            width: 100%;
-            flex-wrap: wrap; 
-            gap: 4px;
-        }
-        
-        .nav-unit {
-            font-size: 0.7rem;
-            color: var(--text-dim);
-            margin-left: 2px;
-            font-family: var(--font-ui);
-            font-weight: 400;
-            white-space: nowrap;
-        }
-
-        @media (max-width: 992px) {
-            .info-window { width: 95vw;
-                top: 10px; right: 2.5vw; left: 2.5vw; max-height: calc(100vh - 20px);
-            }
-            .pfd-and-location-grid { grid-template-columns: 1fr;
-            } 
-            #fms-legs-module { display: none;
-            }
-            #location-data-panel { min-height: auto;
-            }
-            .nav-grid-container { grid-template-columns: repeat(2, 1fr);
-            }
-            .nav-span-2 { grid-column: span 2;
-            }
-        }
-        
-        .aircraft-overview-panel { 
-            position: relative;
-            height: 200px; 
-            background-size: cover; 
-            background-position: center; 
-            border-bottom-left-radius: 0; 
-            border-bottom-right-radius: 0; 
-            color: #fff; 
-            display: flex; 
-            flex-direction: column; 
-            justify-content: space-between; 
-            margin-bottom: -40px;
-        }
-        
-        .aircraft-overview-panel::before { 
-            content: '';
-            position: absolute; 
-            inset: 0; 
-            z-index: 1; 
-            background: linear-gradient(
-                to bottom,
-                rgba(0, 0, 0, 0.7) 0%, 
-                rgba(0, 0, 0, 0) 35%, 
-                rgba(0, 0, 0, 0.2) 80%, 
-                rgba(24, 24, 27, 1) 100%
-            );
-        }
-        
-        .overview-content { position: relative;
-            z-index: 2; padding: 16px 20px 0 20px; display: flex; justify-content: space-between; align-items: flex-start;
-        }
-        .overview-col-left h3 { margin: 0; font-size: 1.6rem; font-weight: 700;
-            text-shadow: 0 4px 10px rgba(0, 0, 0, 0.7); display: flex; align-items: center; gap: 12px;
-        }
-        .ac-header-logo { height: 1.8rem; width: auto; max-width: 100px; object-fit: contain;
-            filter: drop-shadow(0 2px 4px rgba(0,0,0,0.7)); }
-        .overview-col-left p { position: relative; margin: 0;
-            font-size: 1.0rem; color: #e8eaf6; font-weight: 400; text-shadow: 0 2px 5px rgba(0, 0, 0, 0.6); min-height: 1.2em; margin-top: 4px;
-        }
-        
-        .ac-header-subtext { 
-            position: absolute;
-            top: 0; 
-            left: 0; 
-            width: 100%; 
-            opacity: 0; 
-            white-space: normal;
-        }
-        
-        @keyframes primarySubtextAnimation { 0% { opacity: 1;
-            transform: translateY(0); } 40% { opacity: 1; transform: translateY(0); } 50% { opacity: 0; transform: translateY(10px);
-            } 51% { opacity: 0; transform: translateY(-10px); } 90% { opacity: 0; transform: translateY(-10px); } 100% { opacity: 1;
-            transform: translateY(0); } }
-        @keyframes secondarySubtextAnimation { 0% { opacity: 0; transform: translateY(-10px);
-            } 40% { opacity: 0; transform: translateY(-10px); } 50% { opacity: 1; transform: translateY(0); } 90% { opacity: 1;
-            transform: translateY(0); } 100% { opacity: 0; transform: translateY(10px); } }
-        #ac-header-livery { animation: primarySubtextAnimation 8s infinite ease-in-out;
-        }
-        #ac-header-actype { animation: secondarySubtextAnimation 8s infinite ease-in-out;
-        }
-        .overview-actions { position: absolute; top: 16px; right: 16px; z-index: 3; display: flex;
-            gap: 8px; }
-        
-        .route-summary-overlay { 
-            position: relative;
-            padding: 15px 20px 12px 20px; 
-            background: linear-gradient(180deg, 
-                transparent 0%, 
-                rgba(0, 0, 0, 0.2) 40%, 
-                rgba(24, 24, 27, 1) 100%
-            );
-            display: grid; 
-            grid-template-columns: auto 1fr auto; 
-            align-items: center; 
-            gap: 16px; 
-            width: 100%;
-        }
-        
-        .route-summary-airport { display: flex;
-            flex-direction: column; }
-        #route-summary-dep { text-align: left; align-items: center;
-        }
-        #route-summary-arr { text-align: right; align-items: center;
-        }
-        .route-summary-airport .airport-line { display: flex; align-items: center; gap: 8px;
-        }
-        .route-summary-airport .icao { font-family: var(--font-data); font-size: 1.2rem; font-weight: 700; color: #fff;
-            text-shadow: 0 1px 3px rgba(0,0,0,0.5); }
-        .route-summary-airport .time { font-size: 0.85rem; font-weight: 600;
-            color: var(--text-secondary); margin-top: 4px; text-align: center; }
-        .country-flag { width: 20px; height: auto;
-            border-radius: 3px; border: 1px solid rgba(255, 255, 255, 0.2); display: none;
-        }
-        .route-progress-container { display: grid; grid-template-columns: 1fr; grid-template-rows: 1fr; align-items: center; justify-items: center;
-            position: relative; min-height: 28px; }
-        .route-progress-bar-container { width: 100%; height: 6px; background: var(--bg-panel);
-            border-radius: 3px; overflow: hidden; grid-row: 1; grid-column: 1; z-index: 1;
-        }
-        .progress-bar-fill { height: 100%; width: 0%; background: var(--color-brand); transition: width 0.5s ease-out;
-            border-radius: 3px; }
-        .flight-phase-indicator { padding: 4px 12px; border-radius: 20px; font-size: 0.75rem;
-            font-weight: 700; color: #fff; border: 1px solid var(--border-glass); grid-row: 1; grid-column: 1; z-index: 2;
-            box-shadow: 0 4px 15px rgba(0, 0, 0, 0.5); }
-        .phase-climb { background: var(--color-success);
-            opacity: 0.9; } .phase-cruise { background: var(--color-brand); opacity: 0.9; } .phase-descent { background: var(--color-warning); opacity: 0.9;
-        } .phase-approach { background: var(--color-purple); opacity: 0.9; } .phase-enroute { background: var(--text-dim); opacity: 0.9;
-        }
-        
-        .unified-display-main-content { 
-            padding: 10px;
-            flex-grow: 1; 
-            display: flex; 
-            flex-direction: column; 
-            gap: 10px; 
-            background: linear-gradient(180deg, var(--bg-glass), var(--bg-glass));
-            border-top: 1px solid var(--border-glass);
-        }
-
-        .ac-tab-pane { display: none; flex-direction: column; gap: 16px; animation: fadeIn 0.4s;
-        }
-        .ac-tab-pane.active { display: flex;
-        }
-        
-        .pfd-main-panel { 
-            display: flex;
-            flex-direction: column; 
-            width: 100%; 
-            align-items: center; 
-            gap: 16px; 
-        }
-
-        .display-bezel { 
-            position: relative;
-            background-color: #1f2937; 
-            border: 4px solid #374151; 
-            padding: 12px; 
-            border-radius: var(--radius-md); 
-            box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.5);
-            width: 100%; 
-            box-sizing: border-box; 
-            display: flex;
-            flex-direction: column;
-        }
-        
-        .screw { 
-            position: absolute;
-            width: 0.5rem; 
-            height: 0.5rem; 
-            background-color: #4b5563; 
-            border-radius: 50%; 
-            box-shadow: inset 1px 1px 2px rgba(0,0,0,0.5); 
-            z-index: 5;
-        }
-        .screw.tl { top: 0.35rem; left: 0.35rem;
-        } 
-        .screw.tr { top: 0.35rem; right: 0.35rem;
-        } 
-        .screw.bl { bottom: 0.35rem; left: 0.35rem;
-        } 
-        .screw.br { bottom: 0.35rem; right: 0.35rem;
-        }
-        
-        .crt-container { 
-            width: 100%;
-            position: relative; 
-            border: 2px solid #111827; 
-            background: #000; 
-            border-radius: 12px; 
-            overflow: hidden; 
-            box-shadow: inset 0 0 20px rgba(0,0,0,0.8); 
-            display: flex;
-        }
-        
-        .scanlines::before { 
-            content: " ";
-            display: block; 
-            position: absolute; 
-            top: 0; left: 0; bottom: 0; right: 0;
-            background: linear-gradient(rgba(18, 16, 16, 0) 50%, rgba(0, 0, 0, 0.25) 50%), 
-                        linear-gradient(90deg, rgba(255, 0, 0, 0.06), rgba(0, 255, 0, 0.02), rgba(0, 0, 255, 0.06));
-            z-index: 10; 
-            background-size: 100% 2px, 3px 100%; 
-            pointer-events: none; 
-        }
-        
-        #pfd-container { width: 100%;
-        }
-        
-        #pfd-container svg { 
-            width: 100%;
-            height: auto; 
-            display: block;
-            margin: 0; 
-            max-width: none; 
-            aspect-ratio: 787 / 800; 
-            background-color: #1a1a1a; 
-            overflow: hidden; 
-            border-radius: 0;
-            filter: brightness(1.3) contrast(1.2) drop-shadow(0 0 2px rgba(255, 255, 255, 0.3));
-        }
-        
-        #nd-container { 
-            width: 100%;
-            aspect-ratio: 787 / 800; 
-            background: transparent; 
-            overflow: hidden; 
-            display: flex; 
-            justify-content: center; 
-            height: auto;
-        }
-        
-        #nav-display-frame {
-            width: 100%;
-            height: 100%; 
-            border: none;
-            display: block;
-        }
-
-        .rules-module-container {
-            background: var(--bg-glass);
-            border: 1px solid var(--border-glass);
-            border-radius: var(--radius-sm);
-            display: flex;
-            flex-direction: column;
-            box-shadow: inset 0 0 20px rgba(0,0,0,0.8);
-            overflow: hidden;
-        }
-
-        .rules-header {
-            background: var(--bg-panel);
-            padding: 6px 10px;
-            border-bottom: 1px solid var(--border-glass);
-            display: flex;
-            justify-content: space-between;
-            font-size: 0.8rem;
-            font-weight: bold;
-            color: var(--text-primary);
-            font-family: var(--font-data);
-        }
-
-        .rules-body {
-            padding: 12px;
-            display: flex;
-            justify-content: center;
-            align-items: center;
-            background: transparent; 
-        }
-
-        .flight-rules-badge {
-            padding: 6px 16px;
-            border-radius: 4px;
-            font-family: var(--font-data);
-            font-weight: bold;
-            font-size: 1.1rem;
-            text-align: center;
-            width: 100%;
-            border: 1px solid rgba(255,255,255,0.1);
-            box-shadow: 0 4px 15px rgba(0,0,0,0.5);
-            text-shadow: 0 1px 2px rgba(0,0,0,0.8);
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            gap: 10px;
-        }
-
-        .badge-ifr {
-            background: linear-gradient(180deg, rgba(0, 119, 255, 0.2) 0%, rgba(0, 60, 130, 0.4) 100%);
-            color: var(--color-brand);
-            border-color: var(--color-brand);
-        }
-
-        .badge-vfr {
-            background: linear-gradient(180deg, rgba(40, 167, 69, 0.2) 0%, rgba(20, 80, 35, 0.4) 100%);
-            color: var(--color-success);
-            border-color: var(--color-success);
-        }
-
-        .badge-svfr {
-            background: linear-gradient(180deg, rgba(255, 193, 7, 0.2) 0%, rgba(130, 100, 5, 0.4) 100%);
-            color: var(--color-warning);
-            border-color: var(--color-warning);
-        }
-        
-        .vsd-module-container {
-            height: 260px;
-            max-height: 260px;
-            background: var(--bg-glass);
-            border: 1px solid var(--border-glass);
-            border-radius: var(--radius-sm);
-            display: flex;
-            flex-direction: column;
-            box-shadow: inset 0 0 20px rgba(0,0,0,0.8);
-            box-sizing: border-box;
-            overflow: hidden;
-            margin-bottom: 16px; 
-        }
-
-        .vsd-panel { 
-            display: flex;
-            flex-direction: column; 
-            background: transparent; 
-            flex-grow: 1;
-            position: relative;
-            overflow: hidden; 
-            width: 100%;
-        }
-
-        .vsd-graph-window { 
-            position: relative;
-            width: 100%; 
-            height: 100%; 
-            overflow: hidden; 
-            padding-left: 35px; 
-            box-sizing: border-box;
-        }
-
-        #vsd-y-axis {
-            position: absolute;
-            top: 0;
-            left: 0;
-            width: 35px;
-            height: 100%;
-            background: var(--bg-panel);
-            border-right: 1px solid var(--border-glass);
-            z-index: 10;
-        }
-        .y-axis-label {
-            position: absolute;
-            right: 4px;
-            font-family: var(--font-data);
-            font-size: 0.65rem;
-            color: var(--text-dim);
-            transform: translateY(-50%);
-        }
-
-        #vsd-graph-content {
-            position: relative;
-            height: 100%;
-        }
-
-        #vsd-profile-svg {
-            position: absolute;
-            top: 0;
-            left: 0;
-            width: 100%;
-            height: 100%;
-            overflow: visible;
-        }
-
-        #vsd-profile-path {
-            fill: none;
-            stroke: #444; 
-            stroke-width: 2;
-            stroke-dasharray: 4, 2;
-        }
-
-        #vsd-flown-path {
-            fill: none;
-            stroke: var(--color-success); 
-            stroke-width: 3;
-            filter: drop-shadow(0 0 4px rgba(0, 230, 0, 0.5));
-        }
-
-        #vsd-aircraft-icon {
-            position: absolute;
-            width: 14px;
-            height: 14px;
-            background-image: url('data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><path fill="%2338bdf8" d="M488 256l-112-80v-96l-80 48-80-48v96L104 256 24 288v64l192-48v96l-32 32v32l72-24 72 24v-32l-32-32v-96l192 48v-64l-80-32z"/></svg>');
-            background-size: contain;
-            background-repeat: no-repeat;
-            transform: translate(-50%, -50%);
-            z-index: 20;
-        }
-
-        .vsd-wp-label {
-            position: absolute;
-            transform: translateX(-50%);
-            font-family: var(--font-data);
-            text-align: center;
-            width: 60px;
-            pointer-events: none;
-        }
-        .vsd-wp-label .wp-name {
-            display: block;
-            font-size: 0.7rem;
-            color: var(--color-brand);
-            font-weight: bold;
-            background: rgba(0,0,0,0.7);
-            padding: 1px 3px;
-            border-radius: 2px;
-        }
-        .vsd-wp-label .wp-alt {
-            display: block;
-            font-size: 0.6rem;
-            color: var(--text-secondary);
-            margin-top: 1px;
-        }
-        
-        .vsd-footer {
-            background: var(--bg-panel);
-            padding: 4px 10px;
-            border-top: 1px solid var(--border-glass);
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-            font-size: 0.7rem;
-            color: var(--text-dim);
-            flex-shrink: 0;
-        }
-        .vsd-legend-item { display: flex; align-items: center; gap: 5px;
-        }
-        .dot-plan { width: 6px; height: 6px; background: #444; border-radius: 50%;
-        }
-        .dot-flown { width: 6px; height: 6px; background: var(--color-success); border-radius: 50%;
-            box-shadow: 0 0 4px var(--color-success); }
-        
-        .ac-info-window-tabs {
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-            background: var(--bg-glass);
-            border-bottom: 1px solid var(--border-glass);
-            padding: 0 20px;
-            height: 60px;
-        }
-
-        .ac-tabs-wrapper {
-            display: flex;
-            gap: 20px;
-            height: 100%;
-        }
-
-        .ac-info-tab-logo {
-            height: 32px;
-            width: auto;
-            object-fit: contain;
-            opacity: 0.8;
-        }
-
-        .ac-info-tab-btn {
-            padding: 0 10px;
-            height: 100%;
-            border: none;
-            background: transparent;
-            color: var(--text-secondary);
-            cursor: pointer;
-            font-size: 0.95rem;
-            font-family: var(--font-ui);
-            font-weight: 600;
-            position: relative;
-            display: flex;
-            align-items: center;
-            gap: 10px;
-            transition: all 0.3s ease;
-            border-bottom: 3px solid transparent;
-        }
-
-        .ac-info-tab-btn:hover {
-            color: #fff;
-        }
-
-        .ac-info-tab-btn.active {
-            color: #fff;
-            border-bottom-color: var(--color-brand);
-            text-shadow: 0 0 10px rgba(56, 189, 248, 0.5);
-        }
-        .ac-info-tab-btn.active i {
-            color: var(--color-brand);
-        }
-
-        .ac-info-tab-btn.pilot-tab-btn {
-            color: var(--text-primary);
-            font-weight: 700;
-            letter-spacing: 0.5px;
-        }
-        .ac-info-tab-btn.pilot-tab-btn i {
-            color: var(--color-warning);
-        }
-        .ac-info-tab-btn.pilot-tab-btn.active {
-            color: #fff;
-            border-bottom-color: var(--color-warning); 
-            text-shadow: 0 0 10px rgba(255, 183, 77, 0.5);
-        }
-
-        @media (max-width: 768px) {
-            .ac-info-tab-logo {
-                display: none !important;
-            }
-            .ac-info-window-tabs {
-                justify-content: center;
-                padding: 0 10px;
-            }
-            .ac-tabs-wrapper {
-                width: 100%;
-                justify-content: space-around;
-                gap: 0;
-            }
-        }
-
-        .vsd-disclaimer { background: rgba(10, 12, 26, 0.5);
-            border: 1px solid var(--border-glass); border-radius: var(--radius-sm); padding: 10px 14px; margin-top: 0;
-        }
-
-        /* --- MAPBOX POPUP OVERRIDES (FIXED) --- */
-        .mapboxgl-popup-content {
-            background: transparent !important;
-            box-shadow: none !important;
-            padding: 0 !important;
-            border: none !important;
-            pointer-events: none !important;
-        }
-        .mapboxgl-popup-tip {
-            display: none !important;
-        }
-        
-        /* --- FR24 STYLE CARD CONTAINER (MICRO) --- */
-        .fr24-card-container {
-            width: 160px;
-            display: flex;
-            flex-direction: column;
-            gap: 3px;
-            font-family: var(--font-ui);
-            pointer-events: none;
-        }
-
-        /* --- TOP IMAGE BUBBLE --- */
-        .fr24-image-box {
-            height: 85px;
-            width: 100%;
-            background-color: #2c2c2e;
-            background-size: cover;
-            background-position: center;
-            border-radius: var(--radius-sm);
-            position: relative;
-            box-shadow: 0 2px 8px rgba(0,0,0,0.4);
-            overflow: hidden;
-        }
-        
-        .fr24-copyright {
-            position: absolute;
-            bottom: 3px;
-            left: 6px;
-            color: rgba(255, 255, 255, 0.7);
-            font-size: 7px;
-            font-weight: 500;
-            text-shadow: 0 1px 2px rgba(0,0,0,1);
-            z-index: 2;
-        }
-        
-        .fr24-image-overlay {
-            position: absolute;
-            inset: 0;
-            background: linear-gradient(to top, rgba(0,0,0,0.6) 0%, transparent 40%);
-        }
-
-        /* --- BOTTOM INFO BUBBLE --- */
-        .fr24-info-box {
-            background-color: #2c2c2e;
-            border-radius: var(--radius-sm);
-            padding: 6px 8px;
-            box-shadow: 0 2px 8px rgba(0,0,0,0.4);
-            display: flex;
-            flex-direction: column;
-            gap: 4px;
-            color: #ffffff;
-        }
-
-        .fr24-header-row {
-            display: flex;
-            align-items: center;
-            gap: 6px;
-        }
-
-        .fr24-airline-logo {
-            height: 14px;
-            width: auto;
-            max-width: 35px;
-            object-fit: contain;
-            border-radius: 1px;
-        }
-
-        .fr24-ident-group {
-            display: flex;
-            align-items: center;
-            gap: 4px;
-        }
-
-        .fr24-callsign {
-            font-size: 13px;
-            font-weight: 700;
-            color: #fff;
-            line-height: 1;
-        }
-
-        .fr24-ac-badge {
-            background-color: #3a3a3c;
-            border: 1px solid #48484a;
-            color: #d1d1d6;
-            font-size: 8px;
-            font-weight: 600;
-            padding: 0px 3px;
-            border-radius: 3px;
-            line-height: 1.1;
-        }
-
-        .fr24-route {
-            font-size: 10px;
-            font-weight: 500;
-            color: #d1d1d6;
-            white-space: nowrap;
-            overflow: hidden;
-            text-overflow: ellipsis;
-            max-width: 100px;
-        }
-
-        .fr24-progress-track {
-            height: 3px;
-            width: 100%;
-            background-color: #3a3a3c;
-            border-radius: 1.5px;
-            overflow: hidden;
-            margin-top: 1px;
-        }
-
-        .fr24-progress-fill {
-            height: 100%;
-            background-color: var(--color-danger);
-            border-radius: 1.5px;
-        }
-
-        .fr24-stats-row {
-            font-size: 10px;
-            color: #98989d;
-            font-weight: 600;
-            margin-top: 1px;
-        }
-
-        .mapboxgl-popup {
-    z-index: 3000 !important; 
-    pointer-events: none; /* Prevents the popup from blocking clicks to aircraft behind it */
-}
-
-.mapboxgl-popup-content {
-    background: transparent !important;
-    box-shadow: none !important;
-    padding: 0 !important;
-    border: none !important;
-    pointer-events: none !important;
-}
-
-        /* --- AIRPORT WINDOW SPECIFIC STYLES --- */
-
-        .airport-hero {
-    /* Set the background size and position */
-    background-size: 101% 101%;
-    background-position: center;
-    min-height: 160px; /* Increased height to better showcase the airport image */
-    border-bottom: 1px solid var(--border-glass);
-    padding: 20px;
-    display: flex;
-    justify-content: space-between;
-    align-items: flex-end; /* Align data to the bottom of the image */
-    position: relative;
-    overflow: hidden;
-}
-
-/* Add this new overlay class */
-.airport-hero-overlay {
-    position: absolute;
-    inset: -1px;
-    /* Dark gradient to make white text pop */
-    background: linear-gradient(180deg, 
-        rgba(10, 12, 26, 0.2) 0%, 
-        rgba(10, 12, 26, 0.5) 50%, 
-        rgba(10, 12, 26, 0.9) 100%
-    );
-    z-index: 1;
-}
-
-/* Ensure the ident group stays above the overlay */
-.apt-ident-group {
-    display: flex;
-    flex-direction: column;
-    z-index: 2; /* Sits above the overlay */
-}
-
-        .apt-icao {
-            font-family: var(--font-data);
-            font-size: 2.5rem;
-            font-weight: 800;
-            color: #fff;
-            line-height: 1;
-            text-shadow: 0 4px 10px rgba(0,0,0,0.5);
-            display: flex;
-            align-items: center;
-            gap: 12px;
-        }
-
-        .apt-name {
-            font-size: 0.9rem;
-            color: #94a3b8;
-            margin-top: 6px;
-            font-weight: 500;
-        }
-
-        .apt-meta-badge {
-            background: rgba(255,255,255,0.05);
-            border: 1px solid var(--border-glass);
-            padding: 4px 8px;
-            border-radius: 4px;
-            font-size: 0.75rem;
-            color: #cbd5e1;
-            display: flex;
-            align-items: center;
-            gap: 6px;
-        }
-
-        /* Weather Module Refactor */
-        .weather-module-grid {
-            display: grid;
-            grid-template-columns: repeat(4, 1fr);
-            gap: 8px;
-            margin-top: 12px;
-        }
-
-        .wx-stat-box {
-            background: var(--bg-subtle);
-            border-radius: 6px;
-            padding: 8px;
-            display: flex;
-            flex-direction: column;
-            align-items: center;
-            text-align: center;
-        }
-
-        .wx-label {
-            font-size: 0.65rem;
-            color: #64748b;
-            text-transform: uppercase;
-            font-weight: 700;
-            margin-bottom: 4px;
-        }
-
-        .wx-value {
-            font-family: var(--font-data);
-            font-size: 0.95rem;
-            color: #e2e8f0;
-            font-weight: 600;
-        }
-
-        .wx-condition-pill {
-            grid-column: span 4;
-            background: rgba(16, 185, 129, 0.1); 
-            border: 1px solid rgba(16, 185, 129, 0.2);
-            color: var(--color-success);
-            padding: 8px;
-            border-radius: 6px;
-            text-align: center;
-            font-weight: 700;
-            font-size: 0.9rem;
-            margin-top: 4px;
-            display: flex;
-            justify-content: center;
-            align-items: center;
-            gap: 8px;
-        }
-
-        /* Dynamic colors for flight rules */
-        .wx-vfr { background: rgba(34, 197, 94, 0.1);
-            color: #4ade80; border-color: rgba(34, 197, 94, 0.3); }
-        .wx-mvfr { background: rgba(59, 130, 246, 0.1);
-            color: #60a5fa; border-color: rgba(59, 130, 246, 0.3); }
-        .wx-ifr { background: rgba(239, 68, 68, 0.1);
-            color: #f87171; border-color: rgba(239, 68, 68, 0.3); }
-        .wx-lifr { background: rgba(168, 85, 247, 0.1);
-            color: #c084fc; border-color: rgba(168, 85, 247, 0.3); }
-
-        /* Route Cards (Flight Strips) */
-        .route-card {
-            background: linear-gradient(to right, rgba(30, 41, 59, 0.4), rgba(30, 41, 59, 0.2));
-            border: 1px solid var(--border-glass);
-            border-left: 3px solid var(--color-brand);
-            border-radius: 4px;
-            padding: 10px 14px;
-            margin-bottom: 8px;
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-            transition: all 0.2s;
-        }
-
-        .route-card:hover {
-            background: rgba(30, 41, 59, 0.7);
-            transform: translateX(2px);
-            border-color: var(--border-highlight);
-        }
-
-        .route-info {
-            display: flex;
-            flex-direction: column;
-            gap: 4px;
-        }
-
-        .route-callsign {
-            font-family: var(--font-data);
-            font-size: 1rem;
-            color: #fff;
-            font-weight: 700;
-            display: flex;
-            align-items: center;
-            gap: 8px;
-        }
-
-        .route-details {
-            font-size: 0.75rem;
-            color: #94a3b8;
-            display: flex;
-            align-items: center;
-            gap: 10px;
-        }
-
-        .route-ac-badge {
-            background: #1e293b;
-            padding: 2px 6px;
-            border-radius: 3px;
-            color: #cbd5e1;
-            font-weight: 600;
-            font-size: 0.7rem;
-            border: 1px solid var(--border-glass);
-        }
-
-        .plan-btn-mini {
-            background: rgba(14, 165, 233, 0.1);
-            color: var(--color-brand);
-            border: 1px solid rgba(14, 165, 233, 0.3);
-            padding: 6px 12px;
-            border-radius: 4px;
-            font-size: 0.8rem;
-            font-weight: 600;
-            cursor: pointer;
-            transition: all 0.2s;
-        }
-
-        .plan-btn-mini:hover {
-            background: var(--color-brand);
-            color: #fff;
-        }
-
-        /* ATC Grid */
-        .atc-grid-card {
-            background: #1e293b;
-            border: 1px solid var(--border-glass);
-            border-radius: 6px;
-            padding: 10px;
-            margin-bottom: 8px;
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-        }
-
-        .atc-type-badge {
-            padding: 4px 8px;
-            border-radius: 4px;
-            font-size: 0.75rem;
-            font-weight: 800;
-            text-transform: uppercase;
-            width: 80px;
-            text-align: center;
-        }
-        .atc-type-gnd { background: #0f172a; color: #94a3b8; border: 1px solid #334155;
-        }
-        .atc-type-twr { background: #1e3a8a; color: #60a5fa; border: 1px solid #2563eb;
-        }
-        .atc-type-app { background: #312e81; color: #818cf8; border: 1px solid #4f46e5;
-        }
-        .atc-type-obs { background: #3f3f46; color: #a1a1aa; border: 1px solid #52525b;
-        }
-
-        .atc-controller {
-            font-weight: 600;
-            color: #e2e8f0;
-            font-size: 0.9rem;
-        }
-
-        .atc-duration {
-            font-family: monospace;
-            color: #64748b;
-            font-size: 0.8rem;
-        }
-
-        /* --- HERO ACTION BUTTONS --- */
-        .hero-actions {
-            position: absolute;
-            top: 15px;
-            right: 15px;
-            display: flex;
-            gap: 8px;
-            z-index: 10;
-        }
-
-        .hero-btn {
-            background: rgba(0, 0, 0, 0.3);
-            border: 1px solid rgba(255, 255, 255, 0.2);
-            color: #fff;
-            width: 32px;
-            height: 32px;
-            border-radius: 50%;
-            cursor: pointer;
-            display: grid;
-            place-items: center;
-            transition: all 0.2s ease;
-            backdrop-filter: blur(4px);
-        }
-
-        .hero-btn:hover {
-            background: rgba(255, 255, 255, 0.2);
-            transform: scale(1.1);
-        }
-
-        /* --- AIRPORT WINDOW TABS --- */
-        .apt-tabs-header {
-            display: flex;
-            background: rgba(0, 0, 0, 0.2);
-            border-bottom: 1px solid var(--border-glass);
-            margin-bottom: 16px;
-        }
-
-        .apt-tab-btn {
-            flex: 1;
-            padding: 12px 10px;
-            background: transparent;
-            border: none;
-            color: #94a3b8;
-            font-size: 0.85rem;
-            font-weight: 600;
-            text-transform: uppercase;
-            cursor: pointer;
-            border-bottom: 2px solid transparent;
-            transition: all 0.3s ease;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            gap: 8px;
-        }
-
-        .apt-tab-btn:hover {
-            color: #fff;
-            background: rgba(255, 255, 255, 0.05);
-        }
-
-        .apt-tab-btn.active {
-            color: var(--color-brand);
-            border-bottom-color: var(--color-brand);
-            background: rgba(56, 189, 248, 0.1);
-        }
-
-        .apt-tab-content {
-            display: none;
-            animation: fadeIn 0.3s ease;
-        }
-
-        .apt-tab-content.active {
-            display: block;
-        }
-
-        @keyframes fadeIn {
-            from { opacity: 0;
-            transform: translateY(5px); }
-            to { opacity: 1; transform: translateY(0);
-            }
-        }
-
-        /* --- RUNWAY DROPDOWN STYLES --- */
-        .runway-dropdown-header {
-            cursor: pointer;
-            transition: background 0.2s;
-        }
-        .runway-dropdown-header:hover {
-            background: rgba(255, 255, 255, 0.05);
-        }
-        .runway-dropdown-content {
-            display: none;
-            padding: 8px;
-            border-top: 1px solid var(--border-glass);
-        }
-        .runway-dropdown-content.open {
-            display: grid;
-            grid-template-columns: 1fr 1fr; 
-            gap: 8px;
-            animation: slideDown 0.3s ease-out;
-        }
-        .runway-toggle-icon {
-            color: #94a3b8;
-            transition: transform 0.3s ease;
-        }
-        .runway-dropdown-header.open .runway-toggle-icon {
-            transform: rotate(180deg);
-        }
-        
-        @keyframes slideDown {
-            from { opacity: 0;
-            transform: translateY(-5px); }
-            to { opacity: 1; transform: translateY(0);
-            }
-        }
-
-        /* --- SERVER SELECTOR PILL --- */
-        #server-selector-container {
-            position: absolute;
-            top: 20px;
-            left: 50%;
-            transform: translateX(-50%);
-            background: rgba(15, 23, 42, 0.9);
-            backdrop-filter: blur(10px);
-            border: 1px solid var(--border-glass);
-            border-radius: 999px;
-            /* Pill shape */
-            padding: 4px;
-            display: flex;
-            gap: 4px;
-            z-index: 1050; /* Above map */
-            box-shadow: 0 4px 20px rgba(0,0,0,0.4);
-        }
-
-        .server-btn {
-            background: transparent;
-            border: none;
-            color: #94a3b8;
-            padding: 6px 16px;
-            font-size: 0.8rem;
-            font-weight: 600;
-            border-radius: 999px;
-            cursor: pointer;
-            transition: all 0.2s ease;
-            white-space: nowrap;
-            font-family: var(--font-ui);
-        }
-
-        .server-btn:hover {
-            color: #fff;
-            background: rgba(255, 255, 255, 0.05);
-        }
-
-        .server-btn.active {
-            background: #3b82f6;
-            color: #fff;
-            box-shadow: 0 2px 10px rgba(59, 130, 246, 0.4);
-        }
-
-        /* Mobile adjustment */
-        @media (max-width: 768px) {
-            #server-selector-container {
-                top: 70px;
-                width: auto;
-                max-width: 90vw;
-            }
-            .server-btn {
-                padding: 6px 12px;
-                font-size: 0.75rem;
-            }
-        }
-
-        .apt-quick-info-strip {
-            display: flex;
-            align-items: center;
-            gap: 12px;
-            padding: 10px 16px;
-            background: rgba(0, 0, 0, 0.2);
-            border-bottom: 1px solid var(--border-glass);
-            font-size: 0.75rem;
-            color: #94a3b8;
-            overflow-x: auto;
-            white-space: nowrap;
-        }
-
-        .apt-feature-pill {
-            display: flex;
-            align-items: center;
-            gap: 6px;
-            background: var(--bg-subtle);
-            padding: 3px 8px;
-            border-radius: 4px;
-            border: 1px solid var(--border-glass);
-            font-weight: 600;
-        }
-
-        .apt-dashboard-grid {
-            display: grid;
-            grid-template-columns: 1fr 1fr;
-            gap: 8px;
-            padding: 0 16px;
-            margin-bottom: 8px;
-        }
-
-        @media (max-width: 600px) {
-            .apt-dashboard-grid {
-                grid-template-columns: 1fr;
-            }
-        }
-
-        .apt-mini-module {
-            background: rgba(15, 23, 42, 0.6);
-            border: 1px solid rgba(255, 255, 255, 0.08);
-            border-radius: var(--radius-sm);
-            display: flex;
-            flex-direction: column;
-            overflow: hidden;
-        }
-
-        .apt-mini-header {
-            background: var(--bg-subtle);
-            padding: 6px 10px;
-            font-size: 0.7rem;
-            font-weight: 700;
-            color: #94a3b8;
-            text-transform: uppercase;
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-            border-bottom: 1px solid var(--border-glass);
-        }
-
-        .apt-mini-body {
-            padding: 10px;
-            flex-grow: 1;
-            display: flex;
-            flex-direction: column;
-            justify-content: center;
-        }
-
-        .stat-grid-compact {
-            display: grid;
-            grid-template-columns: 1fr 1fr;
-            gap: 8px;
-        }
-
-        .compact-stat-box {
-            text-align: center;
-            background: rgba(255, 255, 255, 0.02);
-            border-radius: 4px;
-            padding: 4px;
-        }
-        .compact-label { font-size: 0.6rem;
-            color: #64748b; display: block; }
-        .compact-value { font-family: var(--font-data); font-size: 0.9rem; color: #e2e8f0;
-            font-weight: 600; }
-
-        .metar-strip {
-            background: rgba(0, 0, 0, 0.3);
-            padding: 8px 16px;
-            font-family: var(--font-data);
-            font-size: 0.7rem;
-            color: #94a3b8;
-            border-bottom: 1px solid var(--border-glass);
-            white-space: pre-wrap;
-            line-height: 1.3;
-        }
-
-        /* --- Shared Tech Style --- */
-        .tech-module {
-            background: var(--bg-glass);
-            border: 1px solid var(--border-glass);
-            border-radius: var(--radius-md);
-            overflow: hidden;
-            box-shadow: 0 4px 15px rgba(0, 0, 0, 0.5);
-            margin-bottom: 8px; 
-            display: flex;
-            flex-direction: column;
-        }
-
-        .tech-module-header {
-            background: var(--bg-panel);
-            padding: 8px 12px;
-            border-bottom: 1px solid var(--border-glass);
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-        }
-        
-        .tech-module-title {
-            font-size: 0.75rem;
-            font-weight: 700;
-            color: var(--text-secondary);
-            text-transform: uppercase;
-            letter-spacing: 0.05em;
-            display: flex;
-            align-items: center;
-            gap: 8px;
-        }
-
-        .tech-module-body {
-            padding: 12px;
-            background: transparent;
-            position: relative;
-        }
-
-        /* --- Tech Card Specifics --- */
-        .tech-card {
-            background: var(--bg-glass);
-            border: 1px solid var(--border-glass);
-            border-radius: var(--radius-md); 
-            overflow: hidden;
-            box-shadow: 0 4px 15px rgba(0, 0, 0, 0.5);
-            position: relative;
-            font-family: var(--font-ui);
-            margin-bottom: 12px; 
-        }
-        .tech-card-header {
-            padding: 12px 16px 4px;
-            display: flex;
-            justify-content: space-between;
-            align-items: flex-start;
-            position: relative;
-            z-index: 10;
-        }
-        .tech-badge {
-            display: inline-flex;
-            align-items: center;
-            gap: 4px;
-            padding: 1px 6px;
-            border-radius: 999px;
-            background: rgba(16, 185, 129, 0.1);
-            border: 1px solid rgba(16, 185, 129, 0.2);
-            font-size: 9px;
-            font-weight: 700;
-            color: var(--color-success);
-            text-transform: uppercase;
-            letter-spacing: 0.05em;
-        }
-        .tech-ping {
-            position: relative;
-            display: flex;
-            height: 5px;
-            width: 5px;
-        }
-        .tech-ping span {
-            position: absolute;
-            display: inline-flex;
-            height: 100%;
-            width: 100%;
-            border-radius: 50%;
-            background-color: var(--color-success);
-        }
-        .tech-ping .animate {
-            animation: ping 1s cubic-bezier(0, 0, 0.2, 1) infinite;
-            opacity: 0.75;
-        }
-        @keyframes ping {
-            75%, 100% { transform: scale(2);
-            opacity: 0; }
-        }
-        .tech-model {
-            font-size: 1.1rem;
-            font-weight: 700;
-            color: var(--text-primary);
-            letter-spacing: -0.025em;
-            margin: 0;
-            line-height: 1.2;
-        }
-        .tech-airline {
-            font-size: 0.75rem;
-            font-weight: 500;
-            color: rgba(56, 189, 248, 0.9);
-            margin-top: 0px;
-            display: flex;
-            align-items: center;
-            gap: 5px;
-        }
-        .tech-content {
-            padding: 12px;
-            position: relative;
-            z-index: 10;
-        }
-        .tech-image-container {
-            position: relative;
-            width: 100%;
-            aspect-ratio: 21 / 9;
-            border-radius: var(--radius-sm);
-            overflow: hidden;
-            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.2);
-            border: 1px solid var(--border-glass);
-            background: #000;
-        }
-        .tech-image {
-            width: 100%;
-            height: 100%;
-            object-fit: cover;
-            transition: transform 0.7s ease-out;
-        }
-        .tech-image-container:hover .tech-image {
-            transform: scale(1.05);
-        }
-        .tech-image-overlay {
-            position: absolute;
-            inset: 0;
-            background: linear-gradient(to top, rgba(2, 6, 23, 0.9), transparent, transparent);
-            opacity: 0.8;
-        }
-        .tech-image-info {
-            position: absolute;
-            bottom: 8px;
-            left: 10px;
-            right: 10px;
-            display: flex;
-            justify-content: space-between;
-            align-items: flex-end;
-        }
-        .tech-photographer {
-            display: flex;
-            flex-direction: column;
-        }
-        .tech-photo-label {
-            font-size: 9px;
-            color: #cbd5e1;
-            font-weight: 500;
-            margin-bottom: 0px;
-            line-height: 1;
-        }
-        .tech-photo-name {
-            display: flex;
-            align-items: center;
-            gap: 4px;
-            font-size: 10px;
-            font-weight: 600;
-            color: #fff;
-        }
-        .tech-grid {
-            display: grid;
-            grid-template-columns: repeat(2, 1fr);
-            gap: 8px;
-            margin-top: 12px;
-        }
-        .tech-stat-card {
-            background: var(--bg-panel);
-            border: 1px solid var(--border-glass);
-            padding: 8px 10px;
-            border-radius: 6px;
-            transition: background 0.2s;
-        }
-        .tech-stat-card:hover {
-            background: rgba(63, 63, 70, 0.6);
-        }
-        .tech-stat-header {
-            display: flex;
-            align-items: center;
-            justify-content: space-between;
-            margin-bottom: 2px;
-        }
-        .tech-stat-label {
-            font-size: 9px;
-            font-weight: 600;
-            color: #94a3b8;
-            text-transform: uppercase;
-            letter-spacing: 0.05em;
-        }
-        .tech-stat-value {
-            font-family: var(--font-data);
-            font-size: 0.95rem;
-            color: #fff;
-            font-weight: 600;
-            letter-spacing: -0.025em;
-        }
-        .tech-country-card {
-            grid-column: span 2;
-            background: var(--bg-panel);
-            border: 1px solid var(--border-glass);
-            padding: 6px 10px;
-            border-radius: 6px;
-            display: flex;
-            align-items: center;
-            justify-content: space-between;
-        }
-        .tech-country-left {
-            display: flex;
-            align-items: center;
-            gap: 8px;
-        }
-        .tech-country-icon {
-            width: 24px;
-            height: 24px;
-            border-radius: 4px;
-            background: rgba(51, 65, 85, 0.5);
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            color: #94a3b8;
-        }
-        .tech-bottom-bar {
-            height: 3px;
-            width: 100%;
-            background: linear-gradient(to right, #0ea5e9, #2563eb, #4f46e5);
-            opacity: 0.8;
-        }
-
-        #simple-flight-window-frame {
-            border-radius: var(--radius-md);
-            background: var(--bg-glass); 
-        }
-
-        /* --- ATIS & TERMINAL STYLES --- */
-        .atis-status-row {
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-            margin-bottom: 8px;
-            font-family: var(--font-data);
-        }
-
-        .atis-code-large {
-            font-size: 1.2rem;
-            font-weight: 700;
-            color: #fbbf24; /* Amber */
-            text-shadow: 0 0 5px rgba(251, 191, 36, 0.3);
-        }
-
-        .atis-timestamp {
-            font-size: 0.75rem;
-            color: #94a3b8;
-        }
-
-        /* The Digital Text Box */
-        .terminal-text-box {
-            background: rgba(10, 12, 16, 0.6);
-            border: 1px solid rgba(255, 255, 255, 0.1);
-            border-radius: 6px;
-            padding: 10px;
-            font-family: 'JetBrains Mono', 'Consolas', monospace;
-            font-size: 0.7rem;
-            color: #86efac;
-            /* Terminal Green */
-            line-height: 1.5;
-            white-space: pre-wrap;
-            box-shadow: inset 0 0 10px rgba(0,0,0,0.5);
-            max-height: 120px;
-            overflow-y: auto;
-            text-transform: uppercase;
-        }
-
-        /* Scrollbar for terminal */
-        .terminal-text-box::-webkit-scrollbar { width: 4px;
-        }
-        .terminal-text-box::-webkit-scrollbar-thumb { background: #334155; border-radius: 2px;
-        }
-
-        /* Fallback / Calculated Mode Styles */
-        .atis-runway-row {
-            display: flex;
-            align-items: center; justify-content: space-between;
-            background: rgba(255, 255, 255, 0.02); padding: 6px 8px;
-            border-radius: 4px; border: 1px solid var(--border-glass); margin-bottom: 4px;
-        }
-        .atis-label { font-size: 0.65rem; font-weight: 700; color: #94a3b8; min-width: 40px;
-        }
-        .atis-pill { font-family: var(--font-data); font-size: 0.75rem; font-weight: 700; padding: 2px 6px;
-            border-radius: 3px; border: 1px solid; margin-left: 4px; }
-        .pill-arr { background: rgba(16, 185, 129, 0.1);
-            color: #4ade80; border-color: rgba(16, 185, 129, 0.3); }
-        .pill-dep { background: rgba(56, 189, 248, 0.1);
-            color: #38bdf8; border-color: rgba(56, 189, 248, 0.3); }
-        
-        /* Mini Module Footer (For ATIS Remarks) */
-        .apt-mini-footer {
-            padding: 6px 10px;
-            background: rgba(0, 0, 0, 0.2);
-            border-top: 1px solid var(--border-glass);
-            font-size: 0.65rem;
-            color: #cbd5e1;
-            display: flex;
-            align-items: center;
-            min-height: 24px;
-            white-space: nowrap;
-            overflow: hidden;
-            text-overflow: ellipsis;
-        }
-        .apt-mini-footer i { margin-right: 6px;
-            color: #fbbf24; } /* Amber icon for remarks */
-
-
-
-        .stat-alt { color: #38bdf8;
-        } /* Sky Blue */
-        .stat-gs { color: #fbbf24; font-size: 0.75rem; font-weight: 600;
-        } /* Amber */
-
-        /* --- NEW: TRAFFIC DROPDOWN STYLES --- */
-.traffic-dropdown {
-    background: rgba(15, 23, 42, 0.4);
-    border: 1px solid rgba(255, 255, 255, 0.08);
-    border-radius: 8px;
-    overflow: hidden;
-    margin-bottom: 8px;
-    transition: all 0.3s ease;
-}
-
-.traffic-dropdown[open] {
-    background: rgba(15, 23, 42, 0.6);
-    border-color: rgba(56, 189, 248, 0.3);
-}
-
-.traffic-dropdown-header {
-    padding: 12px 16px;
-    cursor: pointer;
-    list-style: none; /* Hide default browser arrow */
-    display: flex;
-    align-items: center;
-    font-size: 0.75rem;
-    font-weight: 800;
-    color: #94a3b8;
-    text-transform: uppercase;
-    letter-spacing: 1px;
-    user-select: none;
-}
-
-.traffic-dropdown-header::-webkit-details-marker {
-    display: none; /* Hide Safari arrow */
-}
-
-.traffic-dropdown-header:hover {
-    color: #fff;
-    background: rgba(255, 255, 255, 0.05);
-}
-
-.traffic-dropdown-header i.chevron {
-    font-size: 0.8rem;
-    transition: transform 0.3s ease;
-    opacity: 0.6;
-    margin-left: 10px;
-}
-
-.traffic-dropdown[open] .traffic-dropdown-header i.chevron {
-    transform: rotate(180deg);
-}
-
-.traffic-count-badge {
-    background: rgba(56, 189, 248, 0.15);
-    color: #38bdf8;
-    padding: 2px 8px;
-    border-radius: 99px;
-    font-family: 'JetBrains Mono', monospace;
-    font-size: 0.7rem;
-    margin-left: auto;
-}
-
-.traffic-dropdown-content {
-    padding: 10px;
-    display: flex;
-    flex-direction: column;
-    gap: 8px;
-    max-height: 350px; /* Limits height to prevent excessive scrolling */
-    overflow-y: auto;
-    border-top: 1px solid rgba(255, 255, 255, 0.05);
-}
-    /* --- UNIVERSAL MODERN SCROLLBAR --- */
-/* Target all scrollable elements */
-*::-webkit-scrollbar {
-    width: 6px;     /* Thin enough to be sleek, thick enough to grab */
-    height: 6px;    /* For horizontal bars */
-}
-
-*::-webkit-scrollbar-track {
-    background: transparent; /* Keep background clean */
-}
-
-*::-webkit-scrollbar-thumb {
-    background-color: rgba(255, 255, 255, 0.1); /* Subtle white tint */
-    border-radius: 10px;
-    border: 1px solid transparent; /* Padding effect */
-}
-
-*::-webkit-scrollbar-thumb:hover {
-    background-color: var(--color-brand, #38bdf8); /* High-tech blue highlight on hover */
-}
-
-/* Firefox Support */
-* {
-    scrollbar-width: thin;
-    scrollbar-color: rgba(255, 255, 255, 0.1) transparent;
-}
-
-/* Example: Hiding the server selection buttons */
-.server-selection-container {
-    display: none !important;
-}
-
-/* --- SPICED PILOT REPORT STYLES --- */
-.stats-rehaul-container {
-    padding: 20px;
-    font-family: 'Inter', sans-serif;
-}
-
-.stats-hero {
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-    margin-bottom: 24px;
-    padding: 20px;
-    background: rgba(255, 255, 255, 0.03);
-    border-radius: 16px;
-    border: 1px solid rgba(255, 255, 255, 0.05);
-}
-
-.hero-username {
-    font-size: 2.2rem; /* Big Typography */
-    font-weight: 800;
-    margin: 4px 0;
-    letter-spacing: -1px;
-    color: #fff;
-}
-
-.hero-rank-tag {
-    font-size: 0.7rem;
-    font-weight: 900;
-    color: #38bdf8;
-    text-transform: uppercase;
-    letter-spacing: 1.5px;
-}
-
-.grade-badge {
-    text-align: center;
-    background: #38bdf8;
-    color: #000;
-    padding: 10px 18px;
-    border-radius: 12px;
-    display: flex;
-    flex-direction: column;
-}
-
-.grade-label { font-size: 0.6rem; font-weight: 900; }
-.grade-val { font-size: 1.8rem; font-weight: 800; line-height: 1; }
-
-.spiced-kpi-grid {
-    display: grid;
-    grid-template-columns: 1fr 1fr;
-    gap: 12px;
-    margin-bottom: 20px;
-}
-
-.kpi-card {
-    background: rgba(10, 10, 12, 0.4);
-    padding: 16px;
-    border-radius: 12px;
-    border: 1px solid rgba(255, 255, 255, 0.05);
-}
-
-.kpi-label {
-    display: block;
-    font-size: 0.65rem;
-    color: #71717a;
-    font-weight: 800;
-    margin-bottom: 4px;
-}
-
-.kpi-value {
-    font-size: 1.4rem;
-    font-weight: 700;
-    color: #fff;
-    font-family: 'JetBrains Mono', monospace;
-}
-
-.kpi-value.warn { color: #ef4444; }
-.kpi-value small { font-size: 0.8rem; color: #52525b; }
-
-/* --- CONTROLLER SPICE THEMES --- */
-
-/* Specialist (Blue Glow) */
-.atc-specialist .stats-hero {
-    border-left: 5px solid #38bdf8;
-    box-shadow: -10px 0 20px -10px rgba(56, 189, 248, 0.3);
-}
-
-/* Officer (Cyan / High Tech) */
-.atc-officer .stats-hero {
-    border-left: 5px solid #22d3ee;
-    background: linear-gradient(90deg, rgba(34, 211, 238, 0.05) 0%, rgba(255,255,255,0.03) 100%);
-}
-.atc-officer .hero-rank-tag { color: #22d3ee; }
-
-/* Supervisor (Gold / Elite) */
-.atc-supervisor .stats-hero {
-    border-left: 5px solid #fbbf24;
-    background: linear-gradient(90deg, rgba(251, 191, 36, 0.1) 0%, rgba(255,255,255,0.03) 100%);
-}
-.atc-supervisor .hero-rank-tag { color: #fbbf24; }
-.atc-supervisor .grade-badge { background: #fbbf24; }
-
-    `;
-
-    const style = document.createElement('style');
-    style.id = styleId;
-    style.type = 'text/css';
-    style.appendChild(document.createTextNode(css));
-    document.head.appendChild(style);
-}
-
 function populateAircraftInfoWindow(baseProps, plan, sortedRoutePoints, communityAircraftData) {
     // --- Safety Check: Ensure the container exists ---
     const windowEl = document.getElementById('aircraft-info-window');
-    if (!windowEl) return; // 
+    if (!windowEl) return; 
 
     // --- Helper function to update all elements matching a selector ---
     const updateAll = (selector, value, isHTML = false) => {
@@ -2909,55 +13,53 @@ function populateAircraftInfoWindow(baseProps, plan, sortedRoutePoints, communit
                 el.textContent = value;
             }
         });
-    }; // 
+    }; 
 
     // --- Get Original Data ---
     const originalFlatWaypoints = (plan && plan.flightPlanItems && typeof flattenWaypointsFromPlan === 'function') ?
-        flattenWaypointsFromPlan(plan.flightPlanItems) : []; // 
-    const originalFlatWaypointObjects = (plan && plan.flightPlanItems && typeof getFlatWaypointObjects === 'function') ? getFlatWaypointObjects(plan.flightPlanItems) : [];
-    const hasPlan = originalFlatWaypoints.length >= 2; // 
+        flattenWaypointsFromPlan(plan.flightPlanItems) : []; 
+    const originalFlatWaypointObjects = (plan && plan.flightPlanItems && typeof getFlatWaypointObjects === 'function') ?
+        getFlatWaypointObjects(plan.flightPlanItems) : [];
+    const hasPlan = originalFlatWaypoints.length >= 2; 
 
     // --- State Persistence Logic ---
-    const currentActiveTab = windowEl.querySelector('.ac-info-tab-btn.active')?.dataset.tab || 'ac-tab-flight-data'; // 
+    const currentActiveTab = windowEl.querySelector('.ac-info-tab-btn.active')?.dataset.tab || 'ac-tab-flight-data'; 
     const currentViewTarget = windowEl.querySelector('.display-toggle-btn.active')?.dataset.target || 'nd-view';
-
+    
     // --- Aircraft Info ---
-    const aircraftName = baseProps.aircraft?.aircraftName || 'Unknown Type'; // 
+    const aircraftName = baseProps.aircraft?.aircraftName || 'Unknown Type';
     const airlineName = baseProps.aircraft?.liveryName || 'Generic Livery';
     const liveryName = baseProps.aircraft?.liveryName || '';
-    const reg = baseProps.aircraft?.registration || 'N/A'; // 
+    const reg = baseProps.aircraft?.registration || 'N/A'; 
 
     // --- Variables ---
     const flightPhase = baseProps.flightPhase || "CRUISE";
     const totalDistanceNM = baseProps.totalDistance || 0;
-    const distanceFlown = baseProps.distanceFlown || 0; // 
+    const distanceFlown = baseProps.distanceFlown || 0;
     const ete = baseProps.ete || "--:--";
     
     // Calculate progress safely
     let progress = 0;
     if (totalDistanceNM > 0) {
         progress = (distanceFlown / totalDistanceNM) * 100;
-        if (progress > 100) progress = 100; // 
+        if (progress > 100) progress = 100; 
     }
 
     // --- Logo Logic ---
     const words = liveryName.trim().split(/\s+/);
-    let logoName = words.length > 1 && /[^a-zA-Z0-9]/.test(words[1]) ? words[0] : (words[0] + (words[1] ? ' ' + words[1] : '')); // 
-    const sanitizedLogoName = logoName.toLowerCase().replace(/[^a-z0-9\s]/g, '').replace(/\s+/g, '_'); // 
+    let logoName = words.length > 1 && /[^a-zA-Z0-9]/.test(words[1]) ? words[0] : (words[0] + (words[1] ? ' ' + words[1] : ''));
+    const sanitizedLogoName = logoName.toLowerCase().replace(/[^a-z0-9\s]/g, '').replace(/\s+/g, '_');
     const logoPath = sanitizedLogoName ? `Images/airline_logos/${sanitizedLogoName}.png` : '';
-    const logoHtml = logoPath ?
-        `<img src="${logoPath}" alt="${liveryName}" class="ac-header-logo" onerror="this.style.display='none'">` : ''; // 
+    const logoHtml = logoPath ? `<img src="${logoPath}" alt="${liveryName}" class="ac-header-logo" onerror="this.style.display='none'">` : ''; 
 
     // --- Times ---
-    const atdTimestamp = (sortedRoutePoints && sortedRoutePoints.length > 0) ? sortedRoutePoints[0].date : null; // 
+    const atdTimestamp = (sortedRoutePoints && sortedRoutePoints.length > 0) ? sortedRoutePoints[0].date : null; 
     const atdTime = atdTimestamp ? formatTimeFromTimestamp(atdTimestamp) : '--:--';
-
-    const departureIcao = hasPlan ?
-        originalFlatWaypointObjects[0]?.identifier || originalFlatWaypointObjects[0]?.name : 'N/A'; // 
+    const departureIcao = hasPlan ? originalFlatWaypointObjects[0]?.identifier || originalFlatWaypointObjects[0]?.name : 'N/A'; 
     const arrivalIcao = hasPlan ? originalFlatWaypointObjects[originalFlatWaypointObjects.length - 1]?.identifier || originalFlatWaypointObjects[originalFlatWaypointObjects.length - 1]?.name : 'N/A';
     
     // --- Plan Button ---
-    const simbriefAircraftValue = (typeof findSimbriefAircraftValue === 'function') ? findSimbriefAircraftValue(aircraftName) : null; // 
+    const simbriefAircraftValue = (typeof findSimbriefAircraftValue === 'function') ? findSimbriefAircraftValue(aircraftName) : null; 
     let planButtonHtml = '';
     if (hasPlan && simbriefAircraftValue) {
         planButtonHtml = `
@@ -2967,56 +69,57 @@ function populateAircraftInfoWindow(baseProps, plan, sortedRoutePoints, communit
                 data-aircraft="${simbriefAircraftValue}"
                 style="width: 100%; margin-top: 16px;">
                 <i class="fa-solid fa-file-invoice"></i> Plan This Flight
-            </button>`; // 
+            </button>`;
     }
 
     const pilotUsername = baseProps.username || 'N/A';
-    const pilotReportTabText = (pilotUsername !== 'N/A' && pilotUsername) ? pilotUsername : 'Pilot Report'; // 
+    const pilotReportTabText = (pilotUsername !== 'N/A' && pilotUsername) ? pilotUsername : 'Pilot Report';
 
     // --- DYNAMIC IMAGE & CONTRIBUTOR LOGIC ---
     let techCardImagePath = '/CommunityPlanes/default.png';
-    let photographerName = 'IF Community'; // 
+    let photographerName = 'IF Community'; 
     let techCardTail = reg;
-
     if (Array.isArray(communityAircraftData)) {
-        communityAircraftData = communityAircraftData.length > 0 ? communityAircraftData[0] : null; // 
+        communityAircraftData = communityAircraftData.length > 0 ? communityAircraftData[0] : null;
     }
     if (communityAircraftData && communityAircraftData.imageUrl) {
         techCardImagePath = communityAircraftData.imageUrl;
-        photographerName = communityAircraftData.contributorName || 'IF Community'; // 
+        photographerName = communityAircraftData.contributorName || 'IF Community'; 
         if (communityAircraftData.tailNumber) {
             techCardTail = communityAircraftData.tailNumber;
         }
     }
 
     // --- REAL-TIME COCKPIT STATE LOGIC ---
-    const pilotStateValue = (typeof baseProps.pilotState !== 'undefined') ? Number(baseProps.pilotState) : 0; // 
+    const pilotStateValue = (typeof baseProps.pilotState !== 'undefined') ? Number(baseProps.pilotState) : 0; 
 
     let psTitle = "ACTIVE";
     let psIcon = "fa-user-check";
     let psColor = "#4ade80";
-    let psDesc = "Pilot is active"; // 
+    let psDesc = "Pilot is active"; 
     switch (pilotStateValue) {
-        case 1: psTitle = "AWAY"; psIcon = "fa-plane-slash"; psColor = "#facc15"; psDesc = "Online (No Input)"; break; // 
-        case 2: psTitle = "PARKED"; psIcon = "fa-square-parking"; psColor = "#94a3b8"; psDesc = "Away (On Ground)"; break; // 
-        case 3: psTitle = "AUTO-PILOT+"; psIcon = "fa-cloud-arrow-up"; psColor = "#60a5fa"; psDesc = "Cloud Session"; break; // 
+        case 1: psTitle = "AWAY"; psIcon = "fa-plane-slash"; psColor = "#facc15"; psDesc = "Online (No Input)"; break;
+        case 2: psTitle = "PARKED"; psIcon = "fa-square-parking"; psColor = "#94a3b8"; psDesc = "Away (On Ground)"; break; 
+        case 3: psTitle = "AUTO-PILOT+"; psIcon = "fa-cloud-arrow-up"; psColor = "#60a5fa"; psDesc = "Cloud Session"; break;
     }
 
     // --- GENERATE FMS LEGS HTML ---
     let fmsLegsHtml = '';
-    const safeGetDistance = (typeof getDistanceKm === 'function') ? getDistanceKm : (lat1, lon1, lat2, lon2) => 0; // 
-    if (originalFlatWaypointObjects.length > 0) { // 
+    const safeGetDistance = (typeof getDistanceKm === 'function') ? getDistanceKm : (lat1, lon1, lat2, lon2) => 0;
+    
+    if (originalFlatWaypointObjects.length > 0) { 
         originalFlatWaypointObjects.forEach((wp, index) => {
             const ident = wp.identifier || wp.name || `WP${index + 1}`;
             let distDisplay = '----';
             if (index > 0) {
                 const prev = originalFlatWaypointObjects[index - 1];
-                if (prev.location && wp.location) { // 
+                if (prev.location && wp.location) { 
                     const d = safeGetDistance(prev.location.latitude, prev.location.longitude, wp.location.latitude, wp.location.longitude);
                     distDisplay = (d / 1.852).toFixed(0);
                 }
             }
-            let procTag = ''; // 
+     
+            let procTag = ''; 
             if (index <= 1 && hasPlan) procTag = `<span class="proc-tag sid">SID</span>`;
             else if (index >= originalFlatWaypointObjects.length - 2 && hasPlan) procTag = `<span class="proc-tag star">STAR</span>`;
 
@@ -3027,10 +130,10 @@ function populateAircraftInfoWindow(baseProps, plan, sortedRoutePoints, communit
                  </span>
                  <span class="text-center" style="color:#94a3b8; flex: 1; font-size: 11px;">---°</span>
                  <span class="text-right" style="flex: 1; color: #fff; font-weight: 600;">${distDisplay} <small style="font-size: 8px; color: #64748b;">NM</small></span>
-            </div>`; // 
+            </div>`; 
         });
     } else {
-        fmsLegsHtml = `<div class="fms-empty-state" style="padding: 40px; text-align: center; color: #475569; font-size: 12px; font-weight: 600; letter-spacing: 1px;">NO ROUTE DATA AVAILABLE</div>`; // 
+        fmsLegsHtml = `<div class="fms-empty-state" style="padding: 40px; text-align: center; color: #475569; font-size: 12px; font-weight: 600; letter-spacing: 1px;">NO ROUTE DATA AVAILABLE</div>`; 
     }
 
     // Determine initial active classes for rendering
@@ -3041,7 +144,7 @@ function populateAircraftInfoWindow(baseProps, plan, sortedRoutePoints, communit
     const highlightX = currentActiveTab === 'ac-tab-pilot-report' ? '100%' : '0%';
 
     // --- Lookup City Names ---
-    const depCity = (typeof airportsData !== 'undefined' && airportsData[departureIcao]?.city) || 'Departure'; // 
+    const depCity = (typeof airportsData !== 'undefined' && airportsData[departureIcao]?.city) || 'Departure'; 
     const arrCity = (typeof airportsData !== 'undefined' && airportsData[arrivalIcao]?.city) || 'Arrival';
 
     // --- Determine Phase Color/Icon ---
@@ -3080,14 +183,13 @@ function populateAircraftInfoWindow(baseProps, plan, sortedRoutePoints, communit
             <div class="ac-identity-group" style="max-width: calc(100% - 120px);"> 
                  <h1 style="font-size: 24px; font-weight: 800; color: #fff; margin: 0; line-height: 1.1; text-shadow: 0 2px 4px rgba(0,0,0,0.6);">${logoHtml} ${baseProps.callsign}</h1>
                 <div class="ac-sub-identity" style="
-                    font-size: 11px; 
-                    font-weight: 500; 
+                    font-size: 11px; font-weight: 500; 
                     color: #cbd5e1; 
                     margin-top: 6px; 
                     text-shadow: 0 1px 2px rgba(0,0,0,0.8); 
                     display: flex; 
                     gap: 8px; 
-                    align-items: center; 
+                    align-items: center;
                     flex-wrap: wrap;">
                     <span>${aircraftName}</span>
                     <span style="width: 3px; height: 3px; background: #94a3b8; border-radius: 50%;"></span>
@@ -3103,7 +205,7 @@ function populateAircraftInfoWindow(baseProps, plan, sortedRoutePoints, communit
         </div>
 
         <div class="phase-badge-hero" style="
-            position: absolute; 
+            position: absolute;
             bottom: 45px; 
             left: 24px; 
             z-index: 2;
@@ -3111,7 +213,7 @@ function populateAircraftInfoWindow(baseProps, plan, sortedRoutePoints, communit
             backdrop-filter: blur(8px); 
             padding: 4px 10px; 
             border-radius: 20px; 
-            border: 1px solid rgba(255,255,255,0.15); 
+            border: 1px solid rgba(255,255,255,0.15);
             display: flex; 
             align-items: center; 
             gap: 6px;">
@@ -3120,58 +222,120 @@ function populateAircraftInfoWindow(baseProps, plan, sortedRoutePoints, communit
         </div>
     </div>
 
-    <div class="ac-route-info-bar" style="
+    <div class="ac-unified-header-card" style="
         background: rgba(30, 41, 59, 0.75);
         backdrop-filter: blur(16px);
-        margin: -32px 16px 0 16px; /* Negative margin pulls it up over the header image */
+        margin: -32px 16px 12px 16px; 
         border-radius: 12px;
-        padding: 14px 24px; 
         border: 1px solid rgba(255,255,255,0.1);
-        display: flex;
-        align-items: center;
-        justify-content: space-between;
-        gap: 16px;
-        flex-shrink: 0;
+        box-shadow: 0 8px 32px rgba(0,0,0,0.3);
         position: relative;
         z-index: 5;
-        box-shadow: 0 8px 32px rgba(0,0,0,0.3);">
-        
-        <div class="route-node">
-            <span class="city-name" style="color: #94a3b8; font-size: 9px; font-weight: 600; text-transform: uppercase;">${depCity}</span>
-            <span class="icao-large" style="color: #fff; font-size: 20px; font-weight: 800; font-family: 'JetBrains Mono', monospace; line-height: 1.1;">${departureIcao}</span>
-            <span class="time-small" style="color: #38bdf8; font-size: 11px; font-weight: 600;">${atdTime}</span>
-        </div>
+        overflow: hidden;
+        display: flex;
+        flex-direction: column;">
 
-        <div class="route-visual" style="flex: 1; max-width: 240px; display: flex; flex-direction: column; justify-content: center;">
-            <div class="flight-progress-track" style="height: 4px; background: rgba(255,255,255,0.1); border-radius: 4px; position: relative;">
-                <div class="flight-progress-fill" id="ac-progress-bar" style="width: ${progress}%; background: #38bdf8; height: 100%; border-radius: 4px; position: relative; transition: width 0.5s ease;">
-                    <i class="fa-solid fa-plane flight-progress-plane" style="position: absolute; right: -6px; top: 50%; transform: translateY(-50%) rotate(90deg); color: #fff; font-size: 10px; filter: drop-shadow(0 0 4px #38bdf8);"></i>
+        <div class="ac-route-row" style="
+            padding: 14px 20px;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 16px;">
+            
+            <div class="route-node" style="flex-shrink: 0;">
+                <span class="city-name" style="color: #94a3b8; font-size: 9px; font-weight: 600; text-transform: uppercase;">${depCity}</span>
+                <span class="icao-large" style="color: #fff; font-size: 20px; font-weight: 800; font-family: 'JetBrains Mono', monospace; line-height: 1.1;">${departureIcao}</span>
+                <span class="time-small" style="color: #38bdf8; font-size: 11px; font-weight: 600;">${atdTime}</span>
+            </div>
+
+            <div class="route-visual" style="flex: 1; min-width: 0; max-width: 240px; display: flex; flex-direction: column; justify-content: center;">
+                <div class="flight-progress-track" style="height: 4px; background: rgba(255,255,255,0.1); border-radius: 4px; position: relative;">
+                    <div class="flight-progress-fill" id="ac-progress-bar" style="width: ${progress}%; background: #38bdf8; height: 100%; border-radius: 4px; position: relative; transition: width 0.5s ease;">
+                        <i class="fa-solid fa-plane flight-progress-plane" style="position: absolute; right: -6px; top: 50%; transform: translateY(-50%) rotate(90deg); color: #fff; font-size: 10px; filter: drop-shadow(0 0 4px #38bdf8);"></i>
+                    </div>
+                </div>
+                <div style="display: flex; justify-content: space-between; width: 100%; margin-top: 6px; font-size: 9px; color: #cbd5e1; font-weight: 700;">
+                    <span style="white-space: nowrap;">${Math.round(totalDistanceNM)} NM</span>
+                    <span style="white-space: nowrap;">ETE: ${ete}</span>
                 </div>
             </div>
-            <div style="display: flex; justify-content: space-between; width: 100%; margin-top: 6px; font-size: 9px; color: #cbd5e1; font-weight: 700;">
-                <span>${Math.round(totalDistanceNM)} NM</span>
-                <span>ETE: ${ete}</span>
+
+            <div class="route-node end" style="text-align: right; flex-shrink: 0;">
+                <span class="city-name" style="color: #94a3b8; font-size: 9px; font-weight: 600; text-transform: uppercase;">${arrCity}</span>
+                <span class="icao-large" style="color: #fff; font-size: 20px; font-weight: 800; font-family: 'JetBrains Mono', monospace; line-height: 1.1;">${arrivalIcao}</span>
+                <span class="time-small" id="ac-ete" style="color: #38bdf8; font-size: 11px; font-weight: 600;">${ete}</span>
             </div>
         </div>
 
-        <div class="route-node end" style="text-align: right;">
-            <span class="city-name" style="color: #94a3b8; font-size: 9px; font-weight: 600; text-transform: uppercase;">${arrCity}</span>
-            <span class="icao-large" style="color: #fff; font-size: 20px; font-weight: 800; font-family: 'JetBrains Mono', monospace; line-height: 1.1;">${arrivalIcao}</span>
-            <span class="time-small" id="ac-ete" style="color: #38bdf8; font-size: 11px; font-weight: 600;">${ete}</span>
-        </div>
-    </div>
+        <div style="height: 1px; background: rgba(255,255,255,0.05); width: 100%;"></div>
 
-    <div class="ac-info-window-tabs" style="padding: 16px 16px 8px 16px; display: flex; align-items: center; justify-content: space-between; gap: 16px; flex-shrink: 0;">
-            <div class="modern-view-switcher" id="main-data-switcher" style="flex: 1; background: rgba(15, 23, 42, 0.4); border-radius: 12px; padding: 4px; display: flex; position: relative; border: 1px solid rgba(255,255,255,0.05); height: 44px;">
-                 <button class="ac-info-tab-btn ${flightDataActiveClass}" data-tab="ac-tab-flight-data" style="flex: 1; border: none; background: transparent; color: #fff; font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: 1.2px; padding: 0 10px; cursor: pointer; z-index: 1; transition: color 0.3s ease; display: flex; align-items: center; justify-content: center; gap: 8px;">
+        <div class="ac-switcher-row" style="
+            padding: 8px 16px;
+            background: rgba(0,0,0,0.2); 
+            display: flex;
+            align-items: center;
+            gap: 12px;">
+            
+            <div class="modern-view-switcher" id="main-data-switcher" style="
+                flex: 1; 
+                background: rgba(15, 23, 42, 0.4); 
+                border-radius: 8px; 
+                padding: 4px; 
+                display: flex; 
+                position: relative; 
+                border: 1px solid rgba(255,255,255,0.05); 
+                height: 38px;
+                min-width: 0;">
+                
+                 <button class="ac-info-tab-btn ${flightDataActiveClass}" data-tab="ac-tab-flight-data" style="
+                    flex: 1; 
+                    border: none; 
+                    background: transparent; 
+                    color: #fff; 
+                    font-size: 10px; 
+                    font-weight: 700; 
+                    text-transform: uppercase; 
+                    letter-spacing: 1.2px; 
+                    padding: 0 10px; 
+                    cursor: pointer; 
+                    z-index: 1; 
+                    transition: color 0.3s ease; 
+                    display: flex; 
+                    align-items: center; 
+                    justify-content: center; 
+                    gap: 8px; 
+                    white-space: nowrap; 
+                    overflow: hidden;">
                     <i class="fa-solid fa-gauge-high"></i> Flight Display
                  </button>
-                 <button class="ac-info-tab-btn pilot-tab-btn ${pilotReportActiveClass}" data-tab="ac-tab-pilot-report" data-user-id="${baseProps.userId}" data-username="${pilotUsername}" style="flex: 1; border: none; background: transparent; color: #94a3b8; font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: 1.2px; padding: 0 10px; cursor: pointer; z-index: 1; transition: color 0.3s ease; display: flex; align-items: center; justify-content: center; gap: 8px;">
+                 
+                 <button class="ac-info-tab-btn pilot-tab-btn ${pilotReportActiveClass}" data-tab="ac-tab-pilot-report" data-user-id="${baseProps.userId}" data-username="${pilotUsername}" style="
+                    flex: 1; 
+                    border: none; 
+                    background: transparent; 
+                    color: #94a3b8; 
+                    font-size: 10px; 
+                    font-weight: 700; 
+                    text-transform: uppercase; 
+                    letter-spacing: 1.2px; 
+                    padding: 0 10px; 
+                    cursor: pointer; 
+                    z-index: 1; 
+                    transition: color 0.3s ease; 
+                    display: flex; 
+                    align-items: center; 
+                    justify-content: center; 
+                    gap: 8px; 
+                    white-space: nowrap; 
+                    overflow: hidden;">
                     <i class="fa-solid fa-chart-simple"></i> ${pilotReportTabText}
                  </button>
-                 <div class="switcher-highlight" id="main-switcher-highlight" style="position: absolute; top: 4px; left: 4px; width: calc(50% - 4px); height: calc(100% - 8px); background: rgba(255,255,255,0.08); border: 1px solid rgba(255,255,255,0.1); border-radius: 8px; transition: transform 0.3s cubic-bezier(0.4, 0, 0.2, 1); transform: translateX(${highlightX});"></div>
+                 
+                 <div class="switcher-highlight" id="main-switcher-highlight" style="position: absolute; top: 4px; left: 4px; width: calc(50% - 4px); height: calc(100% - 8px); background: rgba(255,255,255,0.08); border: 1px solid rgba(255,255,255,0.1); border-radius: 6px; transition: transform 0.3s cubic-bezier(0.4, 0, 0.2, 1); transform: translateX(${highlightX});"></div>
             </div>
-            <img src="Images/inflight.png" alt="Inflight Logo" class="ac-info-tab-logo" style="height: 24px; width: auto; opacity: 0.8;">
+            
+            <img src="Images/inflight.png" alt="Inflight Logo" class="ac-info-tab-logo" style="height: 20px; width: auto; opacity: 0.6; flex-shrink: 0;">
+        </div>
     </div>
 
     <div class="unified-display-main-content">
@@ -3181,20 +345,20 @@ function populateAircraftInfoWindow(baseProps, plan, sortedRoutePoints, communit
                       <div class="display-bezel" style="background: rgba(15, 23, 42, 0.4); border: 1px solid rgba(255,255,255,0.05); border-radius: 12px; overflow: hidden; box-shadow: 0 4px 24px rgba(0,0,0,0.4);">
                             <div class="crt-container scanlines" id="pfd-container">
                                 <svg width="787" height="800" viewBox="0 0 787 800" fill="none" xmlns="http://www.w3.org/2000/svg">
-                                     <defs>
+                                    <defs>
                                         <clipPath id="clip0_1_2890"><rect width="787" height="800" fill="white"/></clipPath>
                                         <clipPath id="tensReelClip"><rect x="732" y="269" width="50" height="75"/></clipPath>
                                         <clipPath id="headingClip"><rect x="243" y="620" width="326" height="45"/></clipPath>
                                         <clipPath id="speedTapeClip"><rect x="28" y="73" width="97" height="477"/></clipPath>
                                         <clipPath id="altTapeClip"><rect x="675" y="73" width="72" height="476"/></clipPath>
                                     </defs>
+                    
                                     <g id="PFD" clip-path="url(#clip0_1_2890)">
                                         <g transform="translate(0, 100)">
                                             <g id="attitude_group">
                                                 <rect id="Sky" x="-186" y="-222" width="1121" height="600" fill="#0596FF"/>
                                                 <rect id="Ground" x="-138" y="307" width="1024" height="527" fill="#9A4710"/>
                                             </g>
-                                            
                                             <rect id="Rectangle 1" x="-6" y="5" width="191" height="566" fill="#030309"/>
                                             <rect id="Rectangle 9" x="609" width="185" height="566" fill="#030309"/>
                                             <path id="Rectangle 2" d="M273.905 84.9424L180.983 183.181L-23 -9.76114L69.9218 -108L273.905 84.9424Z" fill="#030309"/>
@@ -3302,14 +466,14 @@ function populateAircraftInfoWindow(baseProps, plan, sortedRoutePoints, communit
                                             <line id="Line 6_2" x1="671" y1="279.5" x2="748" y2="279.5" stroke="#ECED06" stroke-width="3"/>
                                             <line id="Line 7" x1="671" y1="329.5" x2="748" y2="329.5" stroke="#ECED06" stroke-width="3"/>
                                             <line id="Line 3" x1="746" y1="345.5" x2="786" y2="345.5" stroke="#ECED06" stroke-width="3"/>
-                                        </g>
+                                            </g>
                                     </g>
                                 </svg>
-                            </div>
+                             </div>
                          </div>
                     </div> 
                     
-                <div class="info-right-col" style="gap: 6px; display: flex; flex-direction: column; height: 100%; justify-content: space-between;">
+                 <div class="info-right-col" style="gap: 6px; display: flex; flex-direction: column; height: 100%; justify-content: space-between;">
     <div class="modern-status-card" style="background: linear-gradient(165deg, rgba(255,255,255,0.08) 0%, rgba(255,255,255,0.01) 100%); border: 1px solid rgba(255,255,255,0.1); border-radius: 12px; padding: 10px 12px; position: relative; overflow: hidden; backdrop-filter: blur(12px); flex: 1; display: flex; flex-direction: column; justify-content: center;">
         <div class="status-glow" style="position: absolute; top: -20px; right: -20px; width: 60px; height: 60px; background: ${psColor}; filter: blur(35px); opacity: 0.2;"></div>
         
@@ -3372,7 +536,7 @@ function populateAircraftInfoWindow(baseProps, plan, sortedRoutePoints, communit
                              <div id="nd-view-container" style="width: 100%; height: 100%; display: ${currentViewTarget === 'nd-view' ? 'block' : 'none'};">
                                 <div id="nd-container">
                                     <iframe id="nav-display-frame" src="nav.html" scrolling="no"></iframe>
-                                 </div>
+                                </div>
                             </div>
 
                             <div id="fmc-view-container" style="display: ${currentViewTarget === 'fmc-view' ? 'flex' : 'none'}; width: 100%; height: 100%; background: #000; flex-direction: column;">
@@ -3389,13 +553,13 @@ function populateAircraftInfoWindow(baseProps, plan, sortedRoutePoints, communit
                                     <div id="fms-legs-list" class="fms-list-scrollarea" style="flex: 1; overflow-y: auto; min-height: 0; scrollbar-width: none;">
                                         ${fmsLegsHtml}
                                     </div>
-                                     <div class="fms-footer" style="background: rgba(15, 23, 42, 0.8); border-top: 1px solid rgba(255,255,255,0.05); flex-shrink: 0; padding: 12px 18px; display: flex; gap: 24px;">
+                                    <div class="fms-footer" style="background: rgba(15, 23, 42, 0.8); border-top: 1px solid rgba(255,255,255,0.05); flex-shrink: 0; padding: 12px 18px; display: flex; gap: 24px;">
                                         <div class="fms-stat">
                                             <span class="stat-label" style="display: block; font-size: 8px; color: #64748b; text-transform: uppercase; margin-bottom: 2px;">Total Distance</span>
                                             <span id="fms-total-dist" class="stat-value" style="font-size: 16px; color: #fff; font-weight: 700;">---- NM</span>
                                         </div>
                                         <div class="fms-stat">
-                                             <span class="stat-label" style="display: block; font-size: 8px; color: #64748b; text-transform: uppercase; margin-bottom: 2px;">Estimated Time</span>
+                                            <span class="stat-label" style="display: block; font-size: 8px; color: #64748b; text-transform: uppercase; margin-bottom: 2px;">Estimated Time</span>
                                             <span id="fms-total-ete" class="stat-value" style="font-size: 16px; color: #38bdf8; font-weight: 700;">--:--</span>
                                         </div>
                                     </div>
@@ -3414,7 +578,7 @@ function populateAircraftInfoWindow(baseProps, plan, sortedRoutePoints, communit
                          </div>
                     </div>
                     <div class="tech-module-body" style="padding: 18px;">
-                         <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 24px; margin-bottom: 24px;">
+                        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 24px; margin-bottom: 24px;">
                              <div class="nav-block">
                                 <span style="font-size: 8px; color: #64748b; text-transform: uppercase; letter-spacing: 1px; display: block; margin-bottom: 6px;">Current Location</span>
                                 <span id="ac-location" style="font-size: 15px; color: #fff; font-weight: 600; font-family: 'Inter', sans-serif;">Scanning...</span>
@@ -3428,7 +592,7 @@ function populateAircraftInfoWindow(baseProps, plan, sortedRoutePoints, communit
                              </div>
                         </div>
 
-                         <div style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; margin-bottom: 24px;">
+                        <div style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; margin-bottom: 24px;">
                             <div class="sub-block">
                                 <span style="font-size: 8px; color: #475569; text-transform: uppercase; display: block; margin-bottom: 4px;">Vertical Spd</span>
                                 <span id="ac-vs" style="font-size: 14px; color: #fff; font-weight: 600;">---</span>
@@ -3450,7 +614,7 @@ function populateAircraftInfoWindow(baseProps, plan, sortedRoutePoints, communit
                                     <span id="ac-nearest-apt" style="font-size: 14px; color: #38bdf8; font-weight: 700;">---</span>
                                  </div>
                                  <div style="text-align: right;">
-                                     <span style="font-size: 8px; color: #64748b; text-transform: uppercase; display: block; margin-bottom: 2px;">Separation</span>
+                                    <span style="font-size: 8px; color: #64748b; text-transform: uppercase; display: block; margin-bottom: 2px;">Separation</span>
                                     <span style="font-size: 14px; color: #fff; font-weight: 600;"><span id="ac-nearest-apt-dist">--.-</span> NM</span>
                                  </div>
                              </div>
@@ -3460,7 +624,7 @@ function populateAircraftInfoWindow(baseProps, plan, sortedRoutePoints, communit
                              <div style="display: flex; justify-content: space-between; font-family: 'JetBrains Mono', monospace; font-size: 10px; color: #475569;">
                                  <span>LAT <span id="ac-lat" style="color: #94a3b8;">---</span></span>
                                  <span>LON <span id="ac-lon" style="color: #94a3b8;">---</span></span>
-                              </div>
+                             </div>
                         </div>
 
                         <div style="margin-top: 24px; padding-top: 18px; border-top: 1px solid rgba(255,255,255,0.05); display: flex; justify-content: space-between; align-items: center;">
@@ -3468,20 +632,20 @@ function populateAircraftInfoWindow(baseProps, plan, sortedRoutePoints, communit
                                 <div style="width: 32px; height: 32px; border-radius: 50%; background: rgba(56, 189, 248, 0.1); display: flex; align-items: center; justify-content: center; color: #38bdf8;">
                                     <i class="fa-solid fa-flag-checkered"></i>
                                 </div>
-                                 <div>
+                                <div>
                                     <span style="font-size: 8px; color: #64748b; text-transform: uppercase; display: block;">Distance to Goal</span>
                                     <span id="ac-dist" style="font-size: 16px; color: #fff; font-weight: 700;">---</span>
                                 </div>
                             </div>
                             <div style="text-align: right;">
-                                  <span style="font-size: 8px; color: #64748b; text-transform: uppercase; display: block;">Arrival In</span>
+                                <span style="font-size: 8px; color: #64748b; text-transform: uppercase; display: block;">Arrival In</span>
                                 <span id="ac-ete" style="font-size: 16px; color: #38bdf8; font-weight: 700;">--:--</span>
                             </div>
                         </div>
                     </div>
                 </div>
 
-               <div class="tech-card" style="background: rgba(15, 23, 42, 0.6); border: 1px solid rgba(255,255,255,0.1); border-radius: 16px; overflow: hidden; backdrop-filter: blur(12px); box-shadow: 0 10px 30px rgba(0,0,0,0.5);">
+                <div class="tech-card" style="background: rgba(15, 23, 42, 0.6); border: 1px solid rgba(255,255,255,0.1); border-radius: 16px; overflow: hidden; backdrop-filter: blur(12px); box-shadow: 0 10px 30px rgba(0,0,0,0.5);">
                     <div class="tech-card-header" style="padding: 20px 20px 10px 20px; display: flex; justify-content: space-between; align-items: flex-start;">
                          <div>
                             <div style="display: flex; align-items: center; gap: 8px; margin-bottom: 8px;">
@@ -3494,7 +658,7 @@ function populateAircraftInfoWindow(baseProps, plan, sortedRoutePoints, communit
                                 <span>${airlineName}</span>
                             </p>
                         </div>
-                          <button style="width: 32px; height: 32px; border-radius: 8px; background: rgba(255,255,255,0.05); color: #94a3b8; border: none; cursor: pointer; display: flex; align-items: center; justify-content: center;">
+                        <button style="width: 32px; height: 32px; border-radius: 8px; background: rgba(255,255,255,0.05); color: #94a3b8; border: none; cursor: pointer; display: flex; align-items: center; justify-content: center;">
                             <i class="fa-solid fa-ellipsis-vertical"></i>
                          </button>
                     </div>
@@ -3511,10 +675,10 @@ function populateAircraftInfoWindow(baseProps, plan, sortedRoutePoints, communit
                                         <span style="font-size: 11px; color: #fff; font-weight: 500;">${photographerName}</span>
                                     </div>
                                 </div>
-                                 <a href="#" style="width: 28px; height: 28px; background: rgba(56, 189, 248, 0.2); border-radius: 6px; color: #38bdf8; display: flex; align-items: center; justify-content: center; border: 1px solid rgba(56, 189, 248, 0.2);">
+                                <a href="#" style="width: 28px; height: 28px; background: rgba(56, 189, 248, 0.2); border-radius: 6px; color: #38bdf8; display: flex; align-items: center; justify-content: center; border: 1px solid rgba(56, 189, 248, 0.2);">
                                     <i class="fa-solid fa-expand" style="font-size: 12px;"></i>
                                 </a>
-                             </div>
+                            </div>
                         </div>
                         <div class="tech-grid" style="display: grid; grid-template-columns: repeat(2, 1fr); gap: 12px;">
                             <div style="background: rgba(255,255,255,0.03); padding: 12px; border-radius: 10px; border: 1px solid rgba(255,255,255,0.05);">
@@ -3536,40 +700,40 @@ function populateAircraftInfoWindow(baseProps, plan, sortedRoutePoints, communit
                                     <div style="width: 28px; height: 28px; background: rgba(56, 189, 248, 0.1); border-radius: 6px; display: flex; align-items: center; justify-content: center; color: #38bdf8;">
                                         <i class="fa-solid fa-plane-up" style="font-size: 12px;"></i>
                                     </div>
-                                     <div style="display: flex; flex-direction: column;">
+                                    <div style="display: flex; flex-direction: column;">
                                         <span style="font-size: 8px; color: #64748b; text-transform: uppercase;">Aircraft Class</span>
                                         <span style="font-size: 13px; font-weight: 600; color: #fff; text-transform: capitalize;">${baseProps.category || 'Commercial'}</span>
                                     </div>
                                 </div>
-                                 <div style="padding: 4px 10px; background: rgba(255,255,255,0.05); border-radius: 4px; border: 1px solid rgba(255, 255, 255, 0.05);">
+                                <div style="padding: 4px 10px; background: rgba(255,255,255,0.05); border-radius: 4px; border: 1px solid rgba(255, 255, 255, 0.05);">
                                     <span style="font-family: monospace; font-size: 9px; color: #94a3b8; font-weight: 600;">CLASS-1</span>
                                 </div>
                             </div>
                         </div>
-                      </div>
+                    </div>
                 </div>
 
                 <div class="tech-module vsd-module-container">
                     <div class="tech-module-header">
                         <span class="tech-module-title"><i class="fa-solid fa-chart-area"></i> VERTICAL SITUATION DISPLAY</span>
-                         <span class="fms-page-count">VSD</span>
+                        <span class="fms-page-count">VSD</span>
                     </div>
                     <div id="vsd-panel" class="vsd-panel active" data-plan-id="" data-profile-built="false">
                         <div id="vsd-graph-window" class="vsd-graph-window">
-                            <div id="vsd-aircraft-icon"></div>
+                             <div id="vsd-aircraft-icon"></div>
                              <div id="vsd-graph-content">
                                 <svg id="vsd-profile-svg" xmlns="http://www.w3.org/2000/svg">
-                                     <path id="vsd-flown-path" d="" />
+                                    <path id="vsd-flown-path" d="" />
                                     <path id="vsd-profile-path" d="" />
                                 </svg>
-                                    <div id="vsd-waypoint-labels"></div>
+                                <div id="vsd-waypoint-labels"></div>
                              </div>
                              ${planButtonHtml}
-                         </div>
+                        </div>
                     </div>
                     <div class="vsd-footer">
                         <div class="vsd-legend-item"><div class="dot-plan"></div> PLANNED</div>
-                         <div class="vsd-legend-item"><div class="dot-flown"></div> FLOWN</div>
+                        <div class="vsd-legend-item"><div class="dot-flown"></div> FLOWN</div>
                         <div>ALTITUDE PROFILE</div>
                     </div>
                 </div>
@@ -3592,7 +756,7 @@ function populateAircraftInfoWindow(baseProps, plan, sortedRoutePoints, communit
 
     const imagePath = techCardImagePath;
     const fallbackPath = '/CommunityPlanes/default.png';
-    const newImageUrl = `url('${imagePath}'), url('${fallbackPath}')`; // 
+    const newImageUrl = `url('${imagePath}'), url('${fallbackPath}')`; 
 
     const overviewPanels = document.querySelectorAll('#ac-overview-panel');
     overviewPanels.forEach(overviewPanel => {
@@ -3603,42 +767,42 @@ function populateAircraftInfoWindow(baseProps, plan, sortedRoutePoints, communit
     // --- SENSOR TIMER LOGIC ---
     const updateSensorTimers = () => {
         const elElapsed = document.getElementById('ac-sensor-elapsed');
-        const elEte = document.getElementById('ac-sensor-ete'); // 
+        const elEte = document.getElementById('ac-sensor-ete'); 
         const elTotal = document.getElementById('ac-sensor-total');
         const sourceEte = document.getElementById('ac-ete');
-        if (elElapsed && atdTimestamp) { // 
+        if (elElapsed && atdTimestamp) { 
             const now = Date.now();
-            const start = new Date(atdTimestamp).getTime(); // 
+            const start = new Date(atdTimestamp).getTime(); 
             const diff = now - start;
-            if (diff >= 0) { // 
+            if (diff >= 0) { 
                 const h = Math.floor(diff / 3600000);
-                const m = Math.floor((diff % 3600000) / 60000); // 
+                const m = Math.floor((diff % 3600000) / 60000); 
                 elElapsed.textContent = `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}`;
             }
         }
 
         if (elEte && sourceEte && elTotal) {
             const currentEte = sourceEte.textContent;
-            if (currentEte && currentEte.includes(':')) { // 
+            if (currentEte && currentEte.includes(':')) { 
                 elEte.textContent = currentEte;
-                if (elElapsed && elElapsed.textContent !== '--:--') { // 
+                if (elElapsed && elElapsed.textContent !== '--:--') { 
                     const [eH, eM] = elElapsed.textContent.split(':').map(Number);
-                    const [rH, rM] = currentEte.split(':').map(Number); // 
+                    const [rH, rM] = currentEte.split(':').map(Number); 
                     let tM = eM + rM;
-                    let tH = eH + rH + Math.floor(tM / 60); // 
+                    let tH = eH + rH + Math.floor(tM / 60);
                     tM = tM % 60;
                     elTotal.textContent = `${String(tH).padStart(2, '0')}:${String(tM).padStart(2, '0')}`;
                 }
             }
         }
     };
-    if (window.sensorTimerInterval) clearInterval(window.sensorTimerInterval); // 
+    if (window.sensorTimerInterval) clearInterval(window.sensorTimerInterval); 
     updateSensorTimers();
     window.sensorTimerInterval = setInterval(updateSensorTimers, 1000);
 
     // --- REDESIGNED DISPLAY TOGGLE LOGIC ---
     const mainTabBtns = windowEl.querySelectorAll('.ac-info-tab-btn');
-    const mainHighlight = windowEl.querySelector('#main-switcher-highlight'); // 
+    const mainHighlight = windowEl.querySelector('#main-switcher-highlight');
     const tabPanes = windowEl.querySelectorAll('.ac-tab-pane');
 
     mainTabBtns.forEach((btn, index) => {
@@ -3648,7 +812,7 @@ function populateAircraftInfoWindow(baseProps, plan, sortedRoutePoints, communit
                 b.style.color = '#94a3b8';
             });
             e.currentTarget.classList.add('active');
-            e.currentTarget.style.color = '#fff'; // 
+            e.currentTarget.style.color = '#fff'; 
 
             if (mainHighlight) {
                 mainHighlight.style.transform = `translateX(${index * 100}%)`;
@@ -3656,24 +820,24 @@ function populateAircraftInfoWindow(baseProps, plan, sortedRoutePoints, communit
 
             const targetId = e.currentTarget.dataset.tab;
             tabPanes.forEach(pane => {
-                pane.classList.remove('active'); // 
+                pane.classList.remove('active'); 
                 const displayType = targetId === 'ac-tab-pilot-report' ? 'block' : 'flex';
                 pane.style.display = pane.id === targetId ? displayType : 'none';
             });
        
              if (e.currentTarget.classList.contains('pilot-tab-btn')) {
-                const uid = e.currentTarget.dataset.userId; // 
+                 const uid = e.currentTarget.dataset.userId; 
                 const uname = e.currentTarget.dataset.username;
-                if (typeof displayPilotStats === 'function') displayPilotStats(uid, uname); // 
+                if (typeof displayPilotStats === 'function') displayPilotStats(uid, uname); 
             }
         });
-        if (btn.classList.contains('active')) btn.style.color = '#fff'; // 
+        if (btn.classList.contains('active')) btn.style.color = '#fff'; 
     });
 
     const toggleBtns = windowEl.querySelectorAll('.display-toggle-btn');
     const displayHighlight = windowEl.querySelector('.switcher-highlight:not(#main-switcher-highlight)');
     const ndContainer = windowEl.querySelector('#nd-view-container');
-    const fmcContainer = windowEl.querySelector('#fmc-view-container'); // 
+    const fmcContainer = windowEl.querySelector('#fmc-view-container'); 
 
     toggleBtns.forEach((btn, index) => {
         btn.addEventListener('click', (e) => {
@@ -3682,7 +846,7 @@ function populateAircraftInfoWindow(baseProps, plan, sortedRoutePoints, communit
                 b.style.color = '#94a3b8';
             });
             e.currentTarget.classList.add('active');
-            e.currentTarget.style.color = '#fff'; // 
+            e.currentTarget.style.color = '#fff'; 
             
             if (displayHighlight) {
                 displayHighlight.style.transform = `translateX(${index * 100}%)`;
@@ -3690,13 +854,13 @@ function populateAircraftInfoWindow(baseProps, plan, sortedRoutePoints, communit
 
             const target = e.currentTarget.dataset.target; 
             if (target === 'nd-view') {
-                if(ndContainer) ndContainer.style.display = 'block'; // 
+                if(ndContainer) ndContainer.style.display = 'block'; 
                if(fmcContainer) fmcContainer.style.display = 'none';
             } else {
                 if(ndContainer) ndContainer.style.display = 'none';
                 if(fmcContainer) fmcContainer.style.display = 'flex';
             }
-        }); // 
+        }); 
         if (btn.classList.contains('active')) btn.style.color = '#fff';
     });
 }

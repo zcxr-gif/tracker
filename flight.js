@@ -10290,7 +10290,7 @@ function populateAircraftInfoWindow(baseProps, plan, sortedRoutePoints, communit
     const arrivalIcao = hasPlan ? originalFlatWaypointObjects[originalFlatWaypointObjects.length - 1]?.identifier || originalFlatWaypointObjects[originalFlatWaypointObjects.length - 1]?.name : 'N/A';
     
     // --- Plan Button ---
-    const simbriefAircraftValue = (typeof findSimbriefAircraftValue === 'function') ? findSimbriefAircraftValue(aircraftName) : null; 
+    const simbriefAircraftValue = (typeof findSimbriefAircraftValue === 'function') ? findSimbriefAircraftValue(aircraftName) : null;
     let planButtonHtml = '';
     if (hasPlan && simbriefAircraftValue) {
         planButtonHtml = `
@@ -10337,7 +10337,6 @@ function populateAircraftInfoWindow(baseProps, plan, sortedRoutePoints, communit
     // --- GENERATE FMS LEGS HTML ---
     let fmsLegsHtml = '';
     const safeGetDistance = (typeof getDistanceKm === 'function') ? getDistanceKm : (lat1, lon1, lat2, lon2) => 0;
-    
     if (originalFlatWaypointObjects.length > 0) { 
         originalFlatWaypointObjects.forEach((wp, index) => {
             const ident = wp.identifier || wp.name || `WP${index + 1}`;
@@ -10399,13 +10398,14 @@ function populateAircraftInfoWindow(baseProps, plan, sortedRoutePoints, communit
         min-height: 200px; 
         background-size: cover; 
         background-position: center;
-        transition: background-image 0.5s ease-in-out;">
+        transition: background-image 0.5s ease-in-out;
+        z-index: 1;">
         
         <div class="ac-header-overlay" style="position: absolute; inset: 0; background: linear-gradient(to bottom, rgba(0,0,0,0.3) 0%, rgba(15,23,42,0.4) 60%, rgba(15,23,42,1) 100%); z-index: 0;"></div>
         
         <div class="ac-header-top" style="
             position: relative; 
-            z-index: 1; 
+            z-index: 2; 
             padding: 20px 24px; 
             display: flex; 
             justify-content: space-between; 
@@ -10420,8 +10420,7 @@ function populateAircraftInfoWindow(baseProps, plan, sortedRoutePoints, communit
                     text-shadow: 0 1px 2px rgba(0,0,0,0.8); 
                     display: flex; 
                     gap: 8px; 
-                    align-items: center;
-                    flex-wrap: wrap;">
+                    align-items: center; flex-wrap: wrap;">
                     <span>${aircraftName}</span>
                     <span style="width: 3px; height: 3px; background: #94a3b8; border-radius: 50%;"></span>
                     <span>${liveryName}</span>
@@ -10429,23 +10428,21 @@ function populateAircraftInfoWindow(baseProps, plan, sortedRoutePoints, communit
             </div>
         </div>
 
-        <div class="overview-actions" style="top: 20px; right: 20px; position: absolute; z-index: 10; display: flex; gap: 8px;">
+        <div class="overview-actions" style="top: 20px; right: 20px; position: absolute; z-index: 20; display: flex; gap: 8px;">
              <button class="hero-btn aircraft-window-share-btn" title="Fullscreen Trip Card" style="background: rgba(0,0,0,0.4); backdrop-filter: blur(4px); border: 1px solid rgba(255,255,255,0.1);"><i class="fa-solid fa-expand"></i></button>
              <button class="hero-btn aircraft-window-hide-btn" title="Minimize" style="background: rgba(0,0,0,0.4); backdrop-filter: blur(4px); border: 1px solid rgba(255,255,255,0.1);"><i class="fa-solid fa-minus"></i></button>
              <button class="hero-btn aircraft-window-close-btn" title="Close" style="background: rgba(0,0,0,0.4); backdrop-filter: blur(4px); border: 1px solid rgba(255,255,255,0.1);"><i class="fa-solid fa-xmark"></i></button>
         </div>
 
         <div class="phase-badge-hero" style="
-            position: absolute;
-            bottom: 45px; 
+            position: absolute; bottom: 45px; 
             left: 24px; 
             z-index: 2;
             background: rgba(0,0,0,0.6); 
             backdrop-filter: blur(8px); 
             padding: 4px 10px; 
             border-radius: 20px; 
-            border: 1px solid rgba(255,255,255,0.15);
-            display: flex; 
+            border: 1px solid rgba(255,255,255,0.15); display: flex; 
             align-items: center; 
             gap: 6px;">
             <div class="phase-dot" style="width: 6px; height: 6px; border-radius: 50%; background: ${statusColor}; box-shadow: 0 0 8px ${statusColor}; animation: ${statusPulse} 2s infinite;"></div>
@@ -10461,14 +10458,13 @@ function populateAircraftInfoWindow(baseProps, plan, sortedRoutePoints, communit
         border: 1px solid rgba(255,255,255,0.1);
         box-shadow: 0 8px 32px rgba(0,0,0,0.3);
         position: relative;
-        z-index: 5;
+        z-index: 10;
         overflow: hidden;
         display: flex;
         flex-direction: column;">
 
         <div class="ac-route-row" style="
-            padding: 14px 20px;
-            display: flex;
+            padding: 14px 20px; display: flex;
             align-items: center;
             justify-content: space-between;
             gap: 16px;">
@@ -10501,26 +10497,22 @@ function populateAircraftInfoWindow(baseProps, plan, sortedRoutePoints, communit
         <div style="height: 1px; background: rgba(255,255,255,0.05); width: 100%;"></div>
 
         <div class="ac-switcher-row" style="
-            padding: 8px 16px;
-            background: rgba(0,0,0,0.2); 
+            padding: 8px 16px; background: rgba(0,0,0,0.2); 
             display: flex;
             align-items: center;
             gap: 12px;">
             
             <div class="modern-view-switcher" id="main-data-switcher" style="
-                flex: 1; 
-                background: rgba(15, 23, 42, 0.4); 
+                flex: 1; background: rgba(15, 23, 42, 0.4); 
                 border-radius: 8px; 
                 padding: 4px; 
                 display: flex; 
                 position: relative; 
                 border: 1px solid rgba(255,255,255,0.05); 
-                height: 38px;
-                min-width: 0;">
+                height: 38px; min-width: 0;">
                 
                  <button class="ac-info-tab-btn ${flightDataActiveClass}" data-tab="ac-tab-flight-data" style="
-                    flex: 1; 
-                    border: none; 
+                    flex: 1; border: none; 
                     background: transparent; 
                     color: #fff; 
                     font-size: 10px; 
@@ -10528,19 +10520,17 @@ function populateAircraftInfoWindow(baseProps, plan, sortedRoutePoints, communit
                     text-transform: uppercase; 
                     letter-spacing: 1.2px; 
                     padding: 0 10px; 
-                    cursor: pointer; 
-                    z-index: 1; 
+                    cursor: pointer; z-index: 1; 
                     transition: color 0.3s ease; 
                     display: flex; 
                     align-items: center; 
                     justify-content: center; 
                     gap: 8px; 
-                    white-space: nowrap; 
-                    overflow: hidden;">
+                    white-space: nowrap; overflow: hidden;">
                     <i class="fa-solid fa-gauge-high"></i> Flight Display
                  </button>
                  
-                 <button class="ac-info-tab-btn pilot-tab-btn ${pilotReportActiveClass}" data-tab="ac-tab-pilot-report" data-user-id="${baseProps.userId}" data-username="${pilotUsername}" style="
+                 <button class="ac-info-tab-btn pilot-tab-btn ${pilotReportActiveClass}" data-tab="ac-tab-pilot-report" data-user-id='${baseProps.userId || ""}' data-username='${pilotUsername.replace(/'/g, "&#39;")}' style="
                     flex: 1; 
                     border: none; 
                     background: transparent; 
@@ -10548,16 +10538,14 @@ function populateAircraftInfoWindow(baseProps, plan, sortedRoutePoints, communit
                     font-size: 10px; 
                     font-weight: 700; 
                     text-transform: uppercase; 
-                    letter-spacing: 1.2px; 
-                    padding: 0 10px; 
+                    letter-spacing: 1.2px; padding: 0 10px; 
                     cursor: pointer; 
                     z-index: 1; 
                     transition: color 0.3s ease; 
                     display: flex; 
                     align-items: center; 
                     justify-content: center; 
-                    gap: 8px; 
-                    white-space: nowrap; 
+                    gap: 8px; white-space: nowrap; 
                     overflow: hidden;">
                     <i class="fa-solid fa-chart-simple"></i> ${pilotReportTabText}
                  </button>
@@ -10583,7 +10571,6 @@ function populateAircraftInfoWindow(baseProps, plan, sortedRoutePoints, communit
                                         <clipPath id="speedTapeClip"><rect x="28" y="73" width="97" height="477"/></clipPath>
                                         <clipPath id="altTapeClip"><rect x="675" y="73" width="72" height="476"/></clipPath>
                                     </defs>
-                    
                                     <g id="PFD" clip-path="url(#clip0_1_2890)">
                                         <g transform="translate(0, 100)">
                                             <g id="attitude_group">
@@ -10697,10 +10684,10 @@ function populateAircraftInfoWindow(baseProps, plan, sortedRoutePoints, communit
                                             <line id="Line 6_2" x1="671" y1="279.5" x2="748" y2="279.5" stroke="#ECED06" stroke-width="3"/>
                                             <line id="Line 7" x1="671" y1="329.5" x2="748" y2="329.5" stroke="#ECED06" stroke-width="3"/>
                                             <line id="Line 3" x1="746" y1="345.5" x2="786" y2="345.5" stroke="#ECED06" stroke-width="3"/>
-                                            </g>
+                                        </g>
                                     </g>
                                 </svg>
-                             </div>
+                            </div>
                          </div>
                     </div> 
                     
@@ -10767,7 +10754,7 @@ function populateAircraftInfoWindow(baseProps, plan, sortedRoutePoints, communit
                              <div id="nd-view-container" style="width: 100%; height: 100%; display: ${currentViewTarget === 'nd-view' ? 'block' : 'none'};">
                                 <div id="nd-container">
                                     <iframe id="nav-display-frame" src="nav.html" scrolling="no"></iframe>
-                                </div>
+                                 </div>
                             </div>
 
                             <div id="fmc-view-container" style="display: ${currentViewTarget === 'fmc-view' ? 'flex' : 'none'}; width: 100%; height: 100%; background: #000; flex-direction: column;">
@@ -10784,13 +10771,13 @@ function populateAircraftInfoWindow(baseProps, plan, sortedRoutePoints, communit
                                     <div id="fms-legs-list" class="fms-list-scrollarea" style="flex: 1; overflow-y: auto; min-height: 0; scrollbar-width: none;">
                                         ${fmsLegsHtml}
                                     </div>
-                                    <div class="fms-footer" style="background: rgba(15, 23, 42, 0.8); border-top: 1px solid rgba(255,255,255,0.05); flex-shrink: 0; padding: 12px 18px; display: flex; gap: 24px;">
+                                     <div class="fms-footer" style="background: rgba(15, 23, 42, 0.8); border-top: 1px solid rgba(255,255,255,0.05); flex-shrink: 0; padding: 12px 18px; display: flex; gap: 24px;">
                                         <div class="fms-stat">
                                             <span class="stat-label" style="display: block; font-size: 8px; color: #64748b; text-transform: uppercase; margin-bottom: 2px;">Total Distance</span>
                                             <span id="fms-total-dist" class="stat-value" style="font-size: 16px; color: #fff; font-weight: 700;">---- NM</span>
                                         </div>
                                         <div class="fms-stat">
-                                            <span class="stat-label" style="display: block; font-size: 8px; color: #64748b; text-transform: uppercase; margin-bottom: 2px;">Estimated Time</span>
+                                             <span class="stat-label" style="display: block; font-size: 8px; color: #64748b; text-transform: uppercase; margin-bottom: 2px;">Estimated Time</span>
                                             <span id="fms-total-ete" class="stat-value" style="font-size: 16px; color: #38bdf8; font-weight: 700;">--:--</span>
                                         </div>
                                     </div>
@@ -10809,7 +10796,7 @@ function populateAircraftInfoWindow(baseProps, plan, sortedRoutePoints, communit
                          </div>
                     </div>
                     <div class="tech-module-body" style="padding: 18px;">
-                        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 24px; margin-bottom: 24px;">
+                         <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 24px; margin-bottom: 24px;">
                              <div class="nav-block">
                                 <span style="font-size: 8px; color: #64748b; text-transform: uppercase; letter-spacing: 1px; display: block; margin-bottom: 6px;">Current Location</span>
                                 <span id="ac-location" style="font-size: 15px; color: #fff; font-weight: 600; font-family: 'Inter', sans-serif;">Scanning...</span>
@@ -10845,7 +10832,7 @@ function populateAircraftInfoWindow(baseProps, plan, sortedRoutePoints, communit
                                     <span id="ac-nearest-apt" style="font-size: 14px; color: #38bdf8; font-weight: 700;">---</span>
                                  </div>
                                  <div style="text-align: right;">
-                                    <span style="font-size: 8px; color: #64748b; text-transform: uppercase; display: block; margin-bottom: 2px;">Separation</span>
+                                     <span style="font-size: 8px; color: #64748b; text-transform: uppercase; display: block; margin-bottom: 2px;">Separation</span>
                                     <span style="font-size: 14px; color: #fff; font-weight: 600;"><span id="ac-nearest-apt-dist">--.-</span> NM</span>
                                  </div>
                              </div>
@@ -10855,7 +10842,7 @@ function populateAircraftInfoWindow(baseProps, plan, sortedRoutePoints, communit
                              <div style="display: flex; justify-content: space-between; font-family: 'JetBrains Mono', monospace; font-size: 10px; color: #475569;">
                                  <span>LAT <span id="ac-lat" style="color: #94a3b8;">---</span></span>
                                  <span>LON <span id="ac-lon" style="color: #94a3b8;">---</span></span>
-                             </div>
+                              </div>
                         </div>
 
                         <div style="margin-top: 24px; padding-top: 18px; border-top: 1px solid rgba(255,255,255,0.05); display: flex; justify-content: space-between; align-items: center;">
@@ -10863,13 +10850,13 @@ function populateAircraftInfoWindow(baseProps, plan, sortedRoutePoints, communit
                                 <div style="width: 32px; height: 32px; border-radius: 50%; background: rgba(56, 189, 248, 0.1); display: flex; align-items: center; justify-content: center; color: #38bdf8;">
                                     <i class="fa-solid fa-flag-checkered"></i>
                                 </div>
-                                <div>
+                                 <div>
                                     <span style="font-size: 8px; color: #64748b; text-transform: uppercase; display: block;">Distance to Goal</span>
                                     <span id="ac-dist" style="font-size: 16px; color: #fff; font-weight: 700;">---</span>
                                 </div>
                             </div>
                             <div style="text-align: right;">
-                                <span style="font-size: 8px; color: #64748b; text-transform: uppercase; display: block;">Arrival In</span>
+                                 <span style="font-size: 8px; color: #64748b; text-transform: uppercase; display: block;">Arrival In</span>
                                 <span id="ac-ete" style="font-size: 16px; color: #38bdf8; font-weight: 700;">--:--</span>
                             </div>
                         </div>
@@ -10889,7 +10876,7 @@ function populateAircraftInfoWindow(baseProps, plan, sortedRoutePoints, communit
                                 <span>${airlineName}</span>
                             </p>
                         </div>
-                        <button style="width: 32px; height: 32px; border-radius: 8px; background: rgba(255,255,255,0.05); color: #94a3b8; border: none; cursor: pointer; display: flex; align-items: center; justify-content: center;">
+                         <button style="width: 32px; height: 32px; border-radius: 8px; background: rgba(255,255,255,0.05); color: #94a3b8; border: none; cursor: pointer; display: flex; align-items: center; justify-content: center;">
                             <i class="fa-solid fa-ellipsis-vertical"></i>
                          </button>
                     </div>
@@ -10906,10 +10893,10 @@ function populateAircraftInfoWindow(baseProps, plan, sortedRoutePoints, communit
                                         <span style="font-size: 11px; color: #fff; font-weight: 500;">${photographerName}</span>
                                     </div>
                                 </div>
-                                <a href="#" style="width: 28px; height: 28px; background: rgba(56, 189, 248, 0.2); border-radius: 6px; color: #38bdf8; display: flex; align-items: center; justify-content: center; border: 1px solid rgba(56, 189, 248, 0.2);">
+                                 <a href="#" style="width: 28px; height: 28px; background: rgba(56, 189, 248, 0.2); border-radius: 6px; color: #38bdf8; display: flex; align-items: center; justify-content: center; border: 1px solid rgba(56, 189, 248, 0.2);">
                                     <i class="fa-solid fa-expand" style="font-size: 12px;"></i>
                                 </a>
-                            </div>
+                             </div>
                         </div>
                         <div class="tech-grid" style="display: grid; grid-template-columns: repeat(2, 1fr); gap: 12px;">
                             <div style="background: rgba(255,255,255,0.03); padding: 12px; border-radius: 10px; border: 1px solid rgba(255,255,255,0.05);">
@@ -10936,35 +10923,35 @@ function populateAircraftInfoWindow(baseProps, plan, sortedRoutePoints, communit
                                         <span style="font-size: 13px; font-weight: 600; color: #fff; text-transform: capitalize;">${baseProps.category || 'Commercial'}</span>
                                     </div>
                                 </div>
-                                <div style="padding: 4px 10px; background: rgba(255,255,255,0.05); border-radius: 4px; border: 1px solid rgba(255, 255, 255, 0.05);">
+                                 <div style="padding: 4px 10px; background: rgba(255,255,255,0.05); border-radius: 4px; border: 1px solid rgba(255, 255, 255, 0.05);">
                                     <span style="font-family: monospace; font-size: 9px; color: #94a3b8; font-weight: 600;">CLASS-1</span>
                                 </div>
                             </div>
                         </div>
-                    </div>
+                     </div>
                 </div>
 
                 <div class="tech-module vsd-module-container">
                     <div class="tech-module-header">
                         <span class="tech-module-title"><i class="fa-solid fa-chart-area"></i> VERTICAL SITUATION DISPLAY</span>
-                        <span class="fms-page-count">VSD</span>
+                         <span class="fms-page-count">VSD</span>
                     </div>
                     <div id="vsd-panel" class="vsd-panel active" data-plan-id="" data-profile-built="false">
                         <div id="vsd-graph-window" class="vsd-graph-window">
-                             <div id="vsd-aircraft-icon"></div>
+                              <div id="vsd-aircraft-icon"></div>
                              <div id="vsd-graph-content">
                                 <svg id="vsd-profile-svg" xmlns="http://www.w3.org/2000/svg">
-                                    <path id="vsd-flown-path" d="" />
+                                     <path id="vsd-flown-path" d="" />
                                     <path id="vsd-profile-path" d="" />
                                 </svg>
-                                <div id="vsd-waypoint-labels"></div>
+                                 <div id="vsd-waypoint-labels"></div>
                              </div>
                              ${planButtonHtml}
-                        </div>
+                         </div>
                     </div>
                     <div class="vsd-footer">
                         <div class="vsd-legend-item"><div class="dot-plan"></div> PLANNED</div>
-                        <div class="vsd-legend-item"><div class="dot-flown"></div> FLOWN</div>
+                         <div class="vsd-legend-item"><div class="dot-flown"></div> FLOWN</div>
                         <div>ALTITUDE PROFILE</div>
                     </div>
                 </div>
@@ -11085,13 +11072,13 @@ function populateAircraftInfoWindow(baseProps, plan, sortedRoutePoints, communit
 
             const target = e.currentTarget.dataset.target; 
             if (target === 'nd-view') {
-                if(ndContainer) ndContainer.style.display = 'block'; 
+                 if(ndContainer) ndContainer.style.display = 'block'; 
                if(fmcContainer) fmcContainer.style.display = 'none';
             } else {
                 if(ndContainer) ndContainer.style.display = 'none';
                 if(fmcContainer) fmcContainer.style.display = 'flex';
             }
-        }); 
+         }); 
         if (btn.classList.contains('active')) btn.style.color = '#fff';
     });
 }
