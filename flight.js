@@ -585,6 +585,151 @@ function injectCustomStyles() {
 
     const css = `
 
+    /* --- TACTICAL COMMAND HUB REDESIGN --- */
+.ac-tactical-command-hub {
+    background: rgba(15, 23, 42, 0.8);
+    backdrop-filter: blur(20px);
+    margin: -40px 16px 0 16px; /* Overlaps header image */
+    border-radius: 14px;
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    box-shadow: 0 12px 40px rgba(0, 0, 0, 0.5);
+    position: relative;
+    z-index: 100;
+    overflow: hidden;
+    display: flex;
+    flex-direction: column;
+}
+
+/* Integrated Progress Track */
+.hub-progress-track {
+    height: 3px;
+    background: rgba(255, 255, 255, 0.05);
+    width: 100%;
+    position: relative;
+}
+
+.hub-progress-fill {
+    height: 100%;
+    background: linear-gradient(90deg, #38bdf8, #818cf8);
+    box-shadow: 0 0 10px rgba(56, 189, 248, 0.5);
+    transition: width 0.5s cubic-bezier(0.4, 0, 0.2, 1);
+    position: relative;
+}
+
+.hub-plane-icon {
+    position: absolute;
+    right: -6px;
+    top: 50%;
+    transform: translateY(-50%) rotate(90deg);
+    font-size: 10px;
+    color: #fff;
+    filter: drop-shadow(0 0 4px #38bdf8);
+}
+
+.hub-content {
+    display: grid;
+    grid-template-columns: 1fr 1.5fr 1fr;
+    align-items: center;
+    padding: 12px 20px;
+}
+
+/* Node Styling (DEP/ARR) */
+.hub-node {
+    display: flex;
+    flex-direction: column;
+}
+
+.hub-arr { text-align: right; }
+
+.hub-city {
+    font-size: 9px;
+    font-weight: 700;
+    color: #94a3b8;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+}
+
+.hub-icao {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 22px;
+    font-weight: 800;
+    color: #fff;
+    line-height: 1.1;
+}
+
+.hub-meta {
+    font-size: 11px;
+    font-weight: 600;
+    color: #38bdf8;
+    font-family: 'JetBrains Mono', monospace;
+}
+
+.hub-meta small {
+    color: #64748b;
+    font-size: 8px;
+    margin-left: 4px;
+}
+
+/* Center Control Block */
+.hub-center-controls {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 8px;
+}
+
+.hub-switcher-container {
+    background: rgba(0, 0, 0, 0.3);
+    padding: 3px;
+    border-radius: 10px;
+    display: flex;
+    position: relative;
+    border: 1px solid rgba(255, 255, 255, 0.05);
+    width: 220px;
+}
+
+.hub-switcher-container .ac-info-tab-btn {
+    flex: 1;
+    z-index: 2;
+    font-size: 9px;
+    font-weight: 800;
+    height: 32px;
+    border: none;
+    background: transparent;
+    color: #64748b;
+    cursor: pointer;
+    transition: color 0.3s;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
+}
+
+.hub-switcher-container .ac-info-tab-btn.active {
+    color: #fff;
+}
+
+.hub-switcher-highlight {
+    position: absolute;
+    top: 3px;
+    left: 3px;
+    width: calc(50% - 3px);
+    height: calc(100% - 6px);
+    background: rgba(56, 189, 248, 0.15);
+    border: 1px solid rgba(56, 189, 248, 0.3);
+    border-radius: 8px;
+    transition: transform 0.4s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+    z-index: 1;
+}
+
+.hub-dist-counter {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 10px;
+    font-weight: 700;
+    color: #cbd5e1;
+    letter-spacing: 1px;
+}
+
     /* --- MODERN HEADER REDESIGN --- */
 .ac-header-modern {
     position: relative;
