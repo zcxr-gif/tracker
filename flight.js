@@ -585,6 +585,54 @@ function injectCustomStyles() {
 
     const css = `
 
+    /* Update these specific classes to fix the alignment and overflow */
+
+.ac-route-info-bar {
+    width: calc(100% - 32px); /* Matches your 16px margins */
+    box-sizing: border-box;
+    overflow: hidden;
+    display: flex;
+    flex-direction: column;
+}
+
+/* Use a grid to keep departure, icon, and arrival on one line */
+.ac-route-data-container {
+    display: grid;
+    grid-template-columns: 1fr auto 1fr;
+    gap: 12px;
+    padding: 16px 20px;
+    align-items: center;
+    width: 100%;
+    box-sizing: border-box;
+}
+
+.route-node {
+    min-width: 0; /* Critical: allows children to shrink and prevents pushing the box wide */
+    display: flex;
+    flex-direction: column;
+}
+
+.city-name {
+    max-width: 100%;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis; /* Prevents long names from breaking the right side */
+}
+
+.modern-view-switcher {
+    width: 100%;
+    box-sizing: border-box;
+    display: flex;
+    position: relative;
+    height: 44px; /* Fixed height ensures it doesn't shift "under" the box */
+}
+
+.ac-info-tab-btn {
+    flex: 1;
+    min-width: 0;
+    white-space: nowrap;
+}
+
     /* --- MODERN HEADER REDESIGN --- */
     .ac-header-modern {
         position: relative;
