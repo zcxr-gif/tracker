@@ -2193,19 +2193,6 @@ function injectCustomStyles() {
             color: var(--text-secondary);
             margin-top: 1px;
         }
-
-        #live-flights-map-container, 
-#sector-ops-map-fullscreen {
-    /* Match this to your map's dark/light mode background color */
-    background-color: #0f172a; 
-    opacity: 0;
-    transition: opacity 0.8s ease-in-out;
-}
-
-#live-flights-map-container.map-ready, 
-#sector-ops-map-fullscreen.map-ready {
-    opacity: 1;
-}
         
         .vsd-footer {
             background: var(--bg-panel);
@@ -7080,28 +7067,27 @@ let trafficHtml = (!trafficFetchSuccess)
 function initializeLiveMap() {
     if (!MAPBOX_ACCESS_TOKEN) return;
 
+    // Check if the container exists and the map hasn't been initialized yet
     if (document.getElementById('live-flights-map-container') && !liveFlightsMap) {
         liveFlightsMap = new mapboxgl.Map({
             container: 'live-flights-map-container',
-            style: currentMapStyle, 
+            style: currentMapStyle, // [SYNCED] Uses global style state
             center: [78.9629, 22.5937],
             zoom: 2,
             minZoom: 0,
             projection: 'globe',
             
-            // Reverted memory-heavy maxTileCacheSize to eliminate panning lag
+            // --- NEW FIX FOR TILE LOADING & LAG ---
+            // 1. Removed fadeDuration: 0 (Let Mapbox use its default 300ms smooth crossfade).
+            // 2. Disabled preserveDrawingBuffer (This was the #1 cause of panning lag).
+            // 3. Increased prefetchZoomDelta to 4 (Stretches cached low-res tiles so you don't see the grid).
+            maxTileCacheSize: 2000, 
             prefetchZoomDelta: 4, 
             crossSourceCollisions: false, 
             trackResize: true,
             performanceMetrics: false,
             localIdeographFontFamily: "'Inter', 'sans-serif'",
-            preserveDrawingBuffer: false,
-            fadeDuration: 300 // Explicitly enforce smooth crossfading
-        });
-
-        // NEW: Wait for the map to completely finish rendering all tiles before showing it
-        liveFlightsMap.once('idle', () => {
-            document.getElementById('live-flights-map-container').classList.add('map-ready');
+            preserveDrawingBuffer: false 
         });
 
         liveFlightsMap.on('load', startLiveLoop);
@@ -9294,6 +9280,9 @@ if (!isTouchDevice && (typeof window.MobileUIHandler === 'undefined' || !window.
     }
 }
 
+/**
+ * [UPDATED] Initializes the Sector Ops map with high-performance configurations.
+ */
 function initializeSectorOpsMap(centerICAO) {
     if (!MAPBOX_ACCESS_TOKEN) {
         document.getElementById('sector-ops-map-fullscreen').innerHTML = '<p class="map-error-msg">Map service not available.</p>';
@@ -9303,11 +9292,11 @@ function initializeSectorOpsMap(centerICAO) {
     if (sectorOpsMap) {
         sectorOpsMap.remove();
         sectorOpsMap = null;
-        document.getElementById('sector-ops-map-fullscreen').classList.remove('map-ready');
     }
 
     const centerCoords = airportsData[centerICAO] ? [airportsData[centerICAO].lon, airportsData[centerICAO].lat] : [77.2, 28.6];
 
+    // --- ENHANCED PERFORMANCE CONFIGURATION ---
     sectorOpsMap = new mapboxgl.Map({
         container: 'sector-ops-map-fullscreen',
         style: currentMapStyle,
@@ -9316,32 +9305,26 @@ function initializeSectorOpsMap(centerICAO) {
         minZoom: 0,
         interactive: true,
         projection: mapFilters.useFlatMap ? 'mercator' : 'globe',
-        
-        // Reverted memory-heavy maxTileCacheSize to eliminate panning lag
-        prefetchZoomDelta: 4,
+        // --- PERFORMANCE & CACHING CONFIG ---
+        fadeDuration: 0,           // Instant rendering
+        maxTileCacheSize: 500,     // Broad tile caching
         crossSourceCollisions: false,
-        trackResize: true,
         localIdeographFontFamily: "'Inter', 'sans-serif'",
-        preserveDrawingBuffer: false,
-        fadeDuration: 300 // Explicitly enforce smooth crossfading
-    });
-
-    // NEW: Wait for the map to completely finish rendering all tiles before showing it
-    sectorOpsMap.once('idle', () => {
-        const container = document.getElementById('sector-ops-map-fullscreen');
-        if (container) container.classList.add('map-ready');
+        preserveDrawingBuffer: true 
     });
 
     sectorOpsMap.on('style.load', async () => {
-        console.log("Map style reloading. Rebuilding layers...");
-        await setupMapLayersAndFog();
-        
-        if (typeof updateBaseMapLayerVisibility === 'function') {
-            setTimeout(updateBaseMapLayerVisibility, 500);
-        }
-        
-        if (typeof rebuildDynamicLayers !== 'undefined') rebuildDynamicLayers();
-    });
+    console.log("Map style reloading. Rebuilding layers...");
+    await setupMapLayersAndFog();
+    
+    // --- NEW: Apply Pro Layer Filters on Style Load ---
+    if (typeof updateBaseMapLayerVisibility === 'function') {
+        // Small timeout ensures Mapbox has fully parsed the style layers
+        setTimeout(updateBaseMapLayerVisibility, 500);
+    }
+    
+    if (typeof rebuildDynamicLayers !== 'undefined') rebuildDynamicLayers();
+});
 
     return new Promise(resolve => {
         sectorOpsMap.on('load', async () => {
