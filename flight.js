@@ -5971,6 +5971,150 @@ function handleSocketFlightUpdate(data) {
     }
 }
 
+function createFlightInfoWindowContent(flightData) {
+    const callsign = flightData.callsign || 'Unknown';
+    const departure = flightData.departure || 'N/A';
+    const arrival = flightData.arrival || 'N/A';
+    const aircraft = flightData.aircraft || 'Unknown Aircraft';
+    const altitude = flightData.altitude || '0 ft';
+    const speed = flightData.speed || '0 kts';
+    const heading = flightData.heading || '0°';
+    const airline = flightData.airline || 'N/A';
+
+    const container = document.createElement('div');
+    container.className = 'flight-info-window';
+    container.style.fontFamily = 'system-ui, -apple-system, sans-serif';
+    container.style.minWidth = '280px';
+    container.style.color = '#333';
+
+    const header = document.createElement('div');
+    header.style.borderBottom = '2px solid #e2e8f0';
+    header.style.paddingBottom = '10px';
+    header.style.marginBottom = '12px';
+    
+    const title = document.createElement('h3');
+    title.style.margin = '0 0 4px 0';
+    title.style.fontSize = '18px';
+    title.textContent = `Flight: ${callsign}`;
+    
+    const subTitle = document.createElement('div');
+    subTitle.style.fontSize = '12px';
+    subTitle.style.color = '#64748b';
+    subTitle.textContent = airline;
+
+    header.appendChild(title);
+    header.appendChild(subTitle);
+    container.appendChild(header);
+
+    const tabsContainer = document.createElement('div');
+    tabsContainer.style.display = 'flex';
+    tabsContainer.style.borderBottom = '1px solid #cbd5e1';
+    tabsContainer.style.marginBottom = '12px';
+
+    const btnGeneral = document.createElement('button');
+    btnGeneral.textContent = 'General';
+    const btnDeparture = document.createElement('button');
+    btnDeparture.textContent = 'Departure';
+    const btnArrival = document.createElement('button');
+    btnArrival.textContent = 'Arrival';
+
+    const buttons = [btnGeneral, btnDeparture, btnArrival];
+    
+    buttons.forEach(btn => {
+        btn.style.flex = '1';
+        btn.style.padding = '8px 4px';
+        btn.style.cursor = 'pointer';
+        btn.style.backgroundColor = '#f8fafc';
+        btn.style.border = '1px solid #cbd5e1';
+        btn.style.borderBottom = 'none';
+        btn.style.outline = 'none';
+        btn.style.fontSize = '13px';
+        btn.style.color = '#475569';
+        btn.style.transition = 'background-color 0.2s';
+    });
+
+    btnGeneral.style.backgroundColor = '#ffffff';
+    btnGeneral.style.fontWeight = 'bold';
+    btnGeneral.style.color = '#0f172a';
+    btnGeneral.style.borderBottom = '2px solid #ffffff';
+    btnGeneral.style.marginBottom = '-1px';
+
+    tabsContainer.appendChild(btnGeneral);
+    tabsContainer.appendChild(btnDeparture);
+    tabsContainer.appendChild(btnArrival);
+    container.appendChild(tabsContainer);
+
+    const contentGeneral = document.createElement('div');
+    contentGeneral.innerHTML = `
+        <div style="display: flex; justify-content: space-between; margin-bottom: 8px;">
+            <strong style="color: #475569;">Aircraft:</strong> <span>${aircraft}</span>
+        </div>
+        <div style="display: flex; justify-content: space-between; margin-bottom: 8px;">
+            <strong style="color: #475569;">Altitude:</strong> <span>${altitude}</span>
+        </div>
+        <div style="display: flex; justify-content: space-between; margin-bottom: 8px;">
+            <strong style="color: #475569;">Speed:</strong> <span>${speed}</span>
+        </div>
+        <div style="display: flex; justify-content: space-between; margin-bottom: 8px;">
+            <strong style="color: #475569;">Heading:</strong> <span>${heading}</span>
+        </div>
+    `;
+
+    const contentDeparture = document.createElement('div');
+    contentDeparture.innerHTML = `
+        <div style="display: flex; justify-content: space-between; margin-bottom: 8px;">
+            <strong style="color: #475569;">Origin:</strong> <span style="font-weight: bold; color: #0284c7;">${departure}</span>
+        </div>
+        <div style="display: flex; justify-content: space-between; margin-bottom: 8px;">
+            <strong style="color: #475569;">Status:</strong> <span>Departed</span>
+        </div>
+    `;
+    contentDeparture.style.display = 'none';
+
+    const contentArrival = document.createElement('div');
+    contentArrival.innerHTML = `
+        <div style="display: flex; justify-content: space-between; margin-bottom: 8px;">
+            <strong style="color: #475569;">Destination:</strong> <span style="font-weight: bold; color: #0284c7;">${arrival}</span>
+        </div>
+        <div style="display: flex; justify-content: space-between; margin-bottom: 8px;">
+            <strong style="color: #475569;">Status:</strong> <span>Enroute</span>
+        </div>
+    `;
+    contentArrival.style.display = 'none';
+
+    container.appendChild(contentGeneral);
+    container.appendChild(contentDeparture);
+    container.appendChild(contentArrival);
+
+    function switchTab(activeBtn, activeContent) {
+        buttons.forEach(btn => {
+            btn.style.backgroundColor = '#f8fafc';
+            btn.style.fontWeight = 'normal';
+            btn.style.color = '#475569';
+            btn.style.borderBottom = 'none';
+            btn.style.marginBottom = '0';
+        });
+        
+        [contentGeneral, contentDeparture, contentArrival].forEach(content => {
+            content.style.display = 'none';
+        });
+
+        activeBtn.style.backgroundColor = '#ffffff';
+        activeBtn.style.fontWeight = 'bold';
+        activeBtn.style.color = '#0f172a';
+        activeBtn.style.borderBottom = '2px solid #ffffff';
+        activeBtn.style.marginBottom = '-1px';
+        
+        activeContent.style.display = 'block';
+    }
+
+    btnGeneral.addEventListener('click', () => switchTab(btnGeneral, contentGeneral));
+    btnDeparture.addEventListener('click', () => switchTab(btnDeparture, contentDeparture));
+    btnArrival.addEventListener('click', () => switchTab(btnArrival, contentArrival));
+
+    return container;
+}
+
 function initializeSectorOpsSocket() {
     // Prevent duplicate connections if called multiple times
     if (sectorOpsSocket && sectorOpsSocket.connected) {
