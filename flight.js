@@ -7064,10 +7064,6 @@ let trafficHtml = (!trafficFetchSuccess)
     // --- Mapbox Plotting Functions ---
 
  
-    /**
- * [UPDATED] Initializes the live flights map with synchronized performance and caching settings.
- * Now matches the optimized configuration of the Sector Ops map.
- */
 function initializeLiveMap() {
     if (!MAPBOX_ACCESS_TOKEN) return;
 
@@ -7080,15 +7076,18 @@ function initializeLiveMap() {
             zoom: 2,
             minZoom: 0,
             projection: 'globe',
-            // --- PERFORMANCE & CACHING CONFIG ---
-            fadeDuration: 0,            // Removes the "fade-in" tile flicker
-    maxTileCacheSize: 1000,     // Doubled cache size to keep tiles in memory longer
-    prefetchZoomDelta: 2,       // CRITICAL: Pre-loads tiles for smooth zooming
-    crossSourceCollisions: false, // Prevents planes from checking against map labels
-    trackResize: true,
-    performanceMetrics: false,
+            
+            // --- NEW FIX FOR TILE LOADING & LAG ---
+            // 1. Removed fadeDuration: 0 (Let Mapbox use its default 300ms smooth crossfade).
+            // 2. Disabled preserveDrawingBuffer (This was the #1 cause of panning lag).
+            // 3. Increased prefetchZoomDelta to 4 (Stretches cached low-res tiles so you don't see the grid).
+            maxTileCacheSize: 2000, 
+            prefetchZoomDelta: 4, 
+            crossSourceCollisions: false, 
+            trackResize: true,
+            performanceMetrics: false,
             localIdeographFontFamily: "'Inter', 'sans-serif'",
-            preserveDrawingBuffer: true // Required for high-res captures
+            preserveDrawingBuffer: false 
         });
 
         liveFlightsMap.on('load', startLiveLoop);
