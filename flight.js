@@ -179,6 +179,22 @@ let mapFilters = {
         { value: 'MD11', name: 'McDonnell Douglas MD-11' },
     ];
 
+    let mapSourceUpdateTimeout = null;
+
+function scheduleMapSourceUpdate() {
+    if (mapSourceUpdateTimeout) return; 
+    
+    mapSourceUpdateTimeout = setTimeout(() => {
+        if (typeof sectorOpsMap !== 'undefined' && sectorOpsMap && sectorOpsMap.isStyleLoaded() && sectorOpsMap.getSource('sector-ops-live-flights-source')) {
+            sectorOpsMap.getSource('sector-ops-live-flights-source').setData({
+                type: 'FeatureCollection',
+                features: Object.values(currentMapFeatures)
+            });
+        }
+        mapSourceUpdateTimeout = null;
+    }, 400); // Batches all image resolutions into a single update every 400ms
+}
+
     /**
      * --- [NEW] Saves the current mapFilters state to local storage.
      */
@@ -5708,15 +5724,14 @@ function handleSocketFlightUpdate(data) {
         console.warn('Socket: Received invalid or untimestamped flights data packet.');
         return;
     }
-    
+
     // --- [FIX] Race Condition Check (Case Insensitive) ---
     // Ignore packets that don't match the currently selected server.
     if (data.server && data.server.toLowerCase() !== currentServerName.toLowerCase()) {
-        return; 
+        return;
     }
-    
-    lastSocketUpdateTimestamp = new Date(data.timestamp).getTime();
 
+    lastSocketUpdateTimestamp = new Date(data.timestamp).getTime();
     const isMapReady = (sectorOpsMap && sectorOpsMap.isStyleLoaded() && mapAnimator);
     const flights = data.flights;
     const updatedFlightIds = new Set();
@@ -5736,9 +5751,7 @@ function handleSocketFlightUpdate(data) {
 
         // 2. Get the timestamp of the data we already have (if any)
         let existingTime = 0;
-        if (currentMapFeatures[flightId] && 
-            currentMapFeatures[flightId].properties && 
-            currentMapFeatures[flightId].properties.last_update) {
+        if (currentMapFeatures[flightId] && currentMapFeatures[flightId].properties && currentMapFeatures[flightId].properties.last_update) {
             existingTime = new Date(currentMapFeatures[flightId].properties.last_update).getTime();
         }
 
@@ -5746,7 +5759,7 @@ function handleSocketFlightUpdate(data) {
         // This prevents the plane from "jumping back" to a previous position.
         if (newTime <= existingTime) {
             updatedFlightIds.add(flightId); // Mark as active so it doesn't get deleted
-            return; 
+            return;
         }
         // --- [END FIX] ---
 
@@ -5757,7 +5770,7 @@ function handleSocketFlightUpdate(data) {
         const acName = aircraftData?.aircraftName || '';
         const livName = aircraftData?.liveryName || '';
         const lookupKey = `${acName}/${livName}`;
-        
+
         let existingFeature = currentMapFeatures[flightId] || {};
         let existingProps = existingFeature.properties || {};
 
@@ -5771,29 +5784,30 @@ function handleSocketFlightUpdate(data) {
             position: JSON.stringify(flight.position),
             aircraft: JSON.stringify(aircraftData),
             aircraftName: acName, // ADD THIS: For direct filtering
-            liveryName: livName,   // ADD THIS: For direct filtering
+            liveryName: livName, // ADD THIS: For direct filtering
             registration: aircraftData?.registration || '',
-            arrivalIcao: flight.arrivalIcao || null,   // Map new backend field
+            arrivalIcao: flight.arrivalIcao || null, // Map new backend field
             departureIcao: flight.departureIcao || null, // Map new backend field
             userId: flight.userId,
             category: getAircraftCategory(acName),
-            heading: flight.position.heading_deg, 
+            heading: flight.position.heading_deg,
             isStaff: flight.isStaff,
             isVAMember: flight.isVAMember,
             phase: litePhase,
             pilotState: flight.pilotState,
             last_update: newTimestampRaw, // Store the specific time used for the check
+            
             // Preserve existing cached data (Images + TAIL NUMBER)
             trafficType: (() => {
-        if (isTrafficHighlightActive && window.currentAirportTraffic) {
-            if (window.currentAirportTraffic.in.includes(flightId)) return 'inbound';
-            if (window.currentAirportTraffic.out.includes(flightId)) return 'outbound';
-        }
-        return 'none';
-    })(),
-            communityImageUrl: existingProps.communityImageUrl || null, 
+                if (isTrafficHighlightActive && window.currentAirportTraffic) {
+                    if (window.currentAirportTraffic.in.includes(flightId)) return 'inbound';
+                    if (window.currentAirportTraffic.out.includes(flightId)) return 'outbound';
+                }
+                return 'none';
+            })(),
+            communityImageUrl: existingProps.communityImageUrl || null,
             contributorName: existingProps.contributorName || null,
-            tailNumber: existingProps.tailNumber || null 
+            tailNumber: existingProps.tailNumber || null
         };
 
         // --- START: ASYNCHRONOUS LOOKUP LOGIC FOR HOVER CARD ---
@@ -5813,12 +5827,8 @@ function handleSocketFlightUpdate(data) {
                             currentMapFeatures[flightId].properties.contributorName = result.contributorName;
                             currentMapFeatures[flightId].properties.tailNumber = result.tailNumber;
                             
-                            if (isMapReady && sectorOpsMap.getSource('sector-ops-live-flights-source')) {
-                                sectorOpsMap.getSource('sector-ops-live-flights-source').setData({
-                                    type: 'FeatureCollection', 
-                                    features: Object.values(currentMapFeatures)
-                                });
-                            }
+                            // Replaced rapid-fire setData with the debounced map source updater
+                            scheduleMapSourceUpdate();
                         }
                     })
                     .catch(() => { /* Ignore errors */ });
@@ -5845,12 +5855,11 @@ function handleSocketFlightUpdate(data) {
         // === SELECTED AIRCRAFT UPDATE LOGIC ===
         // ================================================================
         if (flightId === currentFlightInWindow) {
-            
             // 1. Update the shared position object
             currentAircraftPositionForGeocode = flight.position;
-            
+
             // 2. Retrieve Cached Weather Data
-            const cachedOat = currentAircraftPositionForGeocode.oat_c ?? 15; 
+            const cachedOat = currentAircraftPositionForGeocode.oat_c ?? 15;
             const cachedWindDir = currentAircraftPositionForGeocode.wind_dir || 0;
             const cachedWindSpd = currentAircraftPositionForGeocode.wind_spd_kts || 0;
 
@@ -5881,7 +5890,7 @@ function handleSocketFlightUpdate(data) {
                 };
                 localTrail.push(newRoutePoint);
                 liveTrailCache.set(flightId, localTrail);
-
+                
                 // --- [NEW] Update Simple Iframe if Active ---
                 const simpleIframe = document.getElementById('simple-flight-window-frame');
                 if (mapFilters.useSimpleFlightWindow && simpleIframe && simpleIframe.contentWindow) {
@@ -5895,20 +5904,15 @@ function handleSocketFlightUpdate(data) {
                             tailNumber: fullFlightProps.tailNumber
                         }
                     );
-                    
-                    simpleIframe.contentWindow.postMessage({
-                        type: 'FLIGHT_DATA_UPDATE',
-                        payload: freshData
-                    }, '*');
-                } 
-                else if (!mapFilters.useSimpleFlightWindow) {
+                    simpleIframe.contentWindow.postMessage({ type: 'FLIGHT_DATA_UPDATE', payload: freshData }, '*');
+                } else if (!mapFilters.useSimpleFlightWindow) {
                     updatePfdDisplay(flight.position);
                     updateNavPanelData(
-                        flight.position.lat,
-                        flight.position.lon,
-                        flight.position.heading_deg,
-                        cachedOat,
-                        cachedWindDir,
+                        flight.position.lat, 
+                        flight.position.lon, 
+                        flight.position.heading_deg, 
+                        cachedOat, 
+                        cachedWindDir, 
                         cachedWindSpd
                     );
                     updateAircraftInfoWindow(fullFlightProps, cachedFlightDataForStatsView.plan, localTrail);
@@ -5937,9 +5941,9 @@ function handleSocketFlightUpdate(data) {
             }
 
             if (document.getElementById('trip-card-takeover')?.classList.contains('active')) {
-        updateTripCardRealtime();
-    }
-}
+                updateTripCardRealtime();
+            }
+        }
 
         // Only update the Map Animation/Icons if the map is actually ready.
         if (isMapReady) {
@@ -5953,15 +5957,16 @@ function handleSocketFlightUpdate(data) {
             if (isMapReady) {
                 mapAnimator.removeFlight(flightId);
             }
-            delete currentMapFeatures[flightId]; 
+            delete currentMapFeatures[flightId];
         }
     }
+
     const landingVisible = localStorage.getItem('landingUI_visible') !== 'false';
     if (landingVisible && !currentFlightInWindow && !currentAirportInWindow) {
-        LandingUI.update(true, {
-            server: currentServerName,
-            flights: Object.keys(currentMapFeatures).length,
-            atc: activeAtcFacilities.length
+        LandingUI.update(true, { 
+            server: currentServerName, 
+            flights: Object.keys(currentMapFeatures).length, 
+            atc: activeAtcFacilities.length 
         });
     }
 }
