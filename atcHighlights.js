@@ -35,8 +35,6 @@ export function updateActiveSectors(map, layerId, atcData) {
     if (!map || !map.getLayer(layerId)) return;
 
     // 1. Build the list of active IDs from data first to prevent flickering.
-    // By using atcData as the source of truth, the highlight stays even if 
-    // the region is currently off-screen.
     const activeIdsSet = new Set();
     const lookupPoints = [];
 
@@ -51,7 +49,6 @@ export function updateActiveSectors(map, layerId, atcData) {
     });
 
     // 2. Supplemental lookup for coordinates if needed.
-    // Note: querySourceFeatures only sees tiles currently in view.
     if (lookupPoints.length > 0) {
         const firFeatures = map.querySourceFeatures('fir-boundaries');
         lookupPoints.forEach(point => {
@@ -73,13 +70,12 @@ export function updateActiveSectors(map, layerId, atcData) {
         false
     ];
 
-    // --- STYLING: BRIGHT WHITE OUTLINE ---
+    // --- STYLING: RED OUTLINE AND STRIP LABEL ---
 
-    // Set fill to transparent (as we only want the outline highlighted)
     const isLightMode = window.mapFilters?.mapStyle === 'light';
     
-    // Use dark slate for light mode, white for dark/satellite modes
-    const activeBorderColor = isLightMode ? '#0f172a' : '#ffffff';
+    // Set active color to bright red
+    const activeBorderColor = '#ff0000';
     const inactiveBorderColor = isLightMode ? 'rgba(15, 23, 42, 0.15)' : 'rgba(255, 255, 255, 0.1)';
 
     // Set fill to transparent
@@ -92,20 +88,62 @@ export function updateActiveSectors(map, layerId, atcData) {
             map.moveLayer('fir-borders', 'sector-ops-live-flights-layer');
         }
 
-        // Apply dynamic colors
+        // Apply dynamic colors to the boundary line
         map.setPaintProperty('fir-borders', 'line-color', [
             "case",
             matchExpression,
-            activeBorderColor,   // High-intensity color for active
+            activeBorderColor,   // Red for active
             inactiveBorderColor  // Dimmed color for contrast
         ]);
 
         map.setPaintProperty('fir-borders', 'line-width', [
             "case",
             matchExpression,
-            1.5, // Thicker for active
+            2.0, // Thicker red line for active
             0.5  // Hairline for inactive
+        ]);
+
+        // --- ADD OR UPDATE THE LABEL STRIP LAYER ---
+        
+        // Dynamically add the text layer if it doesn't exist yet
+        if (!map.getLayer('fir-active-labels')) {
+            const borderLayer = map.getLayer('fir-borders');
+            
+            const labelLayer = {
+                id: 'fir-active-labels',
+                type: 'symbol',
+                source: borderLayer.source,
+                layout: {
+                    'symbol-placement': 'line', // Follows the boundary line
+                    'text-field': ['get', 'id'], // Uses the FIR ID for the label
+                    'text-size': 14,
+                    'text-offset': [0, 1.2], // Pushes the text slightly off the line (inside)
+                    'text-anchor': 'top',
+                    'text-max-angle': 45
+                },
+                paint: {
+                    'text-color': '#ff0000', // Red text
+                    'text-halo-color': 'rgba(255, 255, 255, 0.95)', // White background strip
+                    'text-halo-width': 4, // Thickness of the background strip
+                    'text-opacity': 0 // Hidden by default
+                }
+            };
+            
+            // If the original layer uses vector tiles, carry over the source-layer
+            if (borderLayer.sourceLayer) {
+                labelLayer['source-layer'] = borderLayer.sourceLayer;
+            }
+
+            // Insert labels just above the borders
+            map.addLayer(labelLayer, 'sector-ops-live-flights-layer');
+        }
+
+        // Show labels only on active boundaries
+        map.setPaintProperty('fir-active-labels', 'text-opacity', [
+            "case",
+            matchExpression,
+            1, // Fully visible if active
+            0  // Hidden if inactive
         ]);
     }
 }
-
