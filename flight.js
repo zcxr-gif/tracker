@@ -7,6 +7,85 @@ import { updateActiveSectors } from './atcHighlights.js';
 import { NatTracksLayer } from './natTracksLayer.js';
 import { FlownPath3D } from './flownPath3D.js';
 import { MobileSettingsUI } from './MobileSettingsUI.js';
+import { spriteUVs } from './plane-D2OPBxWC.js'; 
+
+
+async function loadSpriteSheetAndGenerateIcons(map) {
+    const spriteUrl = './markers.png'; 
+
+    const img = new Image();
+    img.crossOrigin = "Anonymous";
+    
+    // Await the physical loading of the sprite sheet
+    await new Promise((resolve, reject) => {
+        img.onload = resolve;
+        img.onerror = reject;
+        img.src = spriteUrl;
+    });
+
+    // Create an off-screen canvas to act as our slicing board
+    const canvas = document.createElement('canvas');
+    const ctx = canvas.getContext('2d', { willReadFrequently: true });
+    canvas.width = img.width;
+    canvas.height = img.height;
+    ctx.drawImage(img, 0, 0);
+
+    // Core mathematical tinting function for Blue/Orange states
+    function generateTintedImageData(baseData, rTarget, gTarget, bTarget) {
+        const tempCanvas = document.createElement('canvas');
+        tempCanvas.width = baseData.width;
+        tempCanvas.height = baseData.height;
+        const tempCtx = tempCanvas.getContext('2d');
+        tempCtx.putImageData(baseData, 0, 0);
+
+        const imageData = tempCtx.getImageData(0, 0, tempCanvas.width, tempCanvas.height);
+        const data = imageData.data;
+
+        for (let i = 0; i < data.length; i += 4) {
+            // Only apply tint to visible pixels (preserves the alpha channel for clean edges)
+            if (data[i + 3] > 0) {
+                data[i] = Math.round((data[i] * rTarget) / 255);         // Red
+                data[i + 1] = Math.round((data[i + 1] * gTarget) / 255); // Green
+                data[i + 2] = Math.round((data[i + 2] * bTarget) / 255); // Blue
+            }
+        }
+        return imageData;
+    }
+
+    // Iterate directly over the imported object from plane-D2OPBxWC.js
+    for (const [iconKey, uvRatios] of Object.entries(spriteUVs)) {
+        const [xRatio, yRatio, wRatio, hRatio] = uvRatios;
+        
+        // Convert ratios to exact pixel coordinates based on the loaded image size
+        const pixelX = Math.floor(xRatio * img.width);
+        const pixelY = Math.floor(yRatio * img.height);
+        const pixelW = Math.floor(wRatio * img.width);
+        const pixelH = Math.floor(hRatio * img.height);
+
+        // Skip invalid dimensions to prevent canvas errors
+        if (pixelW === 0 || pixelH === 0) continue;
+
+        // Extract the base icon pixel chunk
+        const baseImageData = ctx.getImageData(pixelX, pixelY, pixelW, pixelH);
+        
+        // 1. Register Base Icon (Default/White)
+        if (!map.hasImage(`icon-${iconKey}`)) {
+            map.addImage(`icon-${iconKey}`, baseImageData);
+        }
+
+        // 2. Register Blue Tint (Inbound state) 
+        const blueData = generateTintedImageData(baseImageData, 59, 130, 246);
+        if (!map.hasImage(`icon-${iconKey}-blue`)) {
+            map.addImage(`icon-${iconKey}-blue`, blueData);
+        }
+
+        // 3. Register Orange Tint (Outbound state) 
+        const orangeData = generateTintedImageData(baseImageData, 249, 115, 22);
+        if (!map.hasImage(`icon-${iconKey}-orange`)) {
+            map.addImage(`icon-${iconKey}-orange`, orangeData);
+        }
+    }
+}
 
 document.addEventListener('DOMContentLoaded', async () => {
     window.loadingStartTime = Date.now();
@@ -7827,49 +7906,17 @@ function setupAircraftWindowEvents() {
     aircraftInfoWindow.dataset.eventsAttached = 'true';
 }
 
-/**
- * --- [UPDATED] Builds the icon-image expression ---
- * Now includes logic for Inbound/Outbound traffic highlighting.
- */
-function getIconImageExpression(colorMode = 'default') {
-    const getSuffix = (mode) => {
-        if (mode === 'orange') return '-orange';
-        if (mode === 'blue') return '-blue';
-        return ''; // Default (White)
-    };
-
-    // [NEW] Logic to pick the "opposite" color for roles
-    const getRoleSuffix = (role, globalMode) => {
-        if (role === 'inbound') {
-            // Inbounds turn Blue (unless already blue, then White)
-            return globalMode === 'blue' ? '' : '-blue';
-        }
-        if (role === 'outbound') {
-            // Outbounds turn Orange (unless already orange, then White)
-            return globalMode === 'orange' ? '' : '-orange';
-        }
-        return getSuffix(globalMode);
-    };
-
-    // Helper to build the nested match for categories
-    const buildCategoryMatch = (roleSuffix) => [
-        'match', ['get', 'category'],
-        'jumbo', `icon-jumbo${roleSuffix}`,
-        'widebody', `icon-widebody${roleSuffix}`,
-        'narrowbody', `icon-narrowbody${roleSuffix}`,
-        'regional', `icon-regional${roleSuffix}`,
-        'private', `icon-private${roleSuffix}`,
-        'fighter', `icon-fighter${roleSuffix}`,
-        'military', `icon-military${roleSuffix}`,
-        'cessna', `icon-cessna${roleSuffix}`,
-        `icon-default${roleSuffix}`
-    ];
-
+function getIconImageExpression() {
     return [
-        'match', ['get', 'trafficType'],
-        'inbound', buildCategoryMatch(getRoleSuffix('inbound', colorMode)),
-        'outbound', buildCategoryMatch(getRoleSuffix('outbound', colorMode)),
-        buildCategoryMatch(getSuffix(colorMode)) // Fallback to global setting
+        'let',
+        // Fallback to 'default' if the category mapping fails or is missing
+        'baseCategory', ['coalesce', ['get', 'category'], 'default'],
+        
+        // Ensure the color suffix exists (expected to be '-blue', '-orange', or '')
+        'colorSuffix', ['coalesce', ['get', 'colorSuffix'], ''], 
+        
+        // Dynamically stitch the requested Mapbox image ID together: e.g., "icon-B737-blue"
+        ['concat', 'icon-', ['var', 'baseCategory'], ['var', 'colorSuffix']]
     ];
 }
 
@@ -9143,23 +9190,12 @@ async function setupMapLayersAndFog() {
     ];
 
     const imagePromises = iconsToLoad.map(icon =>
-        new Promise((res, rej) => {
+        new Promise(async (res, rej) => {
             if (sectorOpsMap.hasImage(icon.id)) {
                 res();
                 return;
             }
-sectorOpsMap.loadImage(icon.path, (error, image) => {
-    if (error) {
-        console.warn(`Could not load icon: ${icon.path}`);
-        res();
-    } else {
-        // --- FIX: Add the { sdf: true } flag here ---
-        if (!sectorOpsMap.hasImage(icon.id)) {
-            sectorOpsMap.addImage(icon.id, image, { sdf: true }); 
-        }
-        res();
-    }
-});
+await loadSpriteSheetAndGenerateIcons(map);
         })
     );
     
