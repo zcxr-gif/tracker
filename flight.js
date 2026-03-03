@@ -7,7 +7,7 @@ import { updateActiveSectors } from './atcHighlights.js';
 import { NatTracksLayer } from './natTracksLayer.js';
 import { FlownPath3D } from './flownPath3D.js';
 import { MobileSettingsUI } from './MobileSettingsUI.js';
-import { spriteUVs } from './plane-D2OPBxWC.js'; 
+import { spriteUVs } from 'assets/plane-D2OPBxWC.js'; 
 
 
 async function loadSpriteSheetAndGenerateIcons(map) {
