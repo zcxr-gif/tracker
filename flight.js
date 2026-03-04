@@ -5760,6 +5760,7 @@ function handleSocketFlightUpdate(data) {
         if (!currentMapFeatures[flightId]) {
             currentMapFeatures[flightId] = {
                 type: 'Feature',
+                id: flightId, // <-- ADD THIS LINE: Required for hover states
                 geometry: {
                     type: 'Point',
                     coordinates: [flight.position.lon, flight.position.lat]
@@ -5767,6 +5768,7 @@ function handleSocketFlightUpdate(data) {
                 properties: newProperties
             };
         } else {
+            currentMapFeatures[flightId].id = flightId; // <-- ADD THIS HERE TOO
             currentMapFeatures[flightId].properties = newProperties;
             currentMapFeatures[flightId].geometry.coordinates = [flight.position.lon, flight.position.lat];
         }
@@ -7995,18 +7997,21 @@ function initializeAircraftLayer() {
     }
 }
 
-function getIconImageExpression() {
-    return [
-        'let',
-        'baseCategory', ['coalesce', ['get', 'category'], 'B737'],
-        'colorSuffix', [
-            'match', ['get', 'trafficType'],
-            'inbound', '-blue',
-            'outbound', '-orange',
-            '' // default suffix
-        ],
-        ['concat', 'icon-', ['var', 'baseCategory'], ['var', 'colorSuffix']]
-    ];
+function getIconImageExpression(colorMode) {
+    // This Mapbox expression adds '_S' to the end of the category name if hovered is true
+    const hoverSuffix = ['case', ['boolean', ['feature-state', 'hover'], false], '_S', ''];
+
+    if (colorMode === 'blue') {
+        // e.g., icon-B737_S-blue
+        return ['concat', 'icon-', ['get', 'category'], hoverSuffix, '-blue'];
+    } else if (colorMode === 'orange') {
+        // e.g., icon-B737_S-orange
+        return ['concat', 'icon-', ['get', 'category'], hoverSuffix, '-orange'];
+    }
+    
+    // Default (White)
+    // e.g., icon-B737_S
+    return ['concat', 'icon-', ['get', 'category'], hoverSuffix];
 }
 
 /**
@@ -8577,7 +8582,6 @@ const SettingsUI = {
                                     ${Math.round(mapFilters.planeIconSize * 100)}%
                                 </span>
                             </div>
-                            // Change the range from 0.02-0.15 to 0.1-1.0
 <input type="range" id="set-plane-size" min="0.1" max="1.0" step="0.05" value="${mapFilters.planeIconSize}" style="width: 100%;">
                         </div>
 
@@ -12163,6 +12167,8 @@ function setupSectorOpsEventListeners() {
  * --- [REFINED] Logic for Flight Hover Popups (FR24 Style) ---
  * Handles hover effects but excludes touch-based "hover" emulation.
  */
+let hoveredAircraftId = null;
+
 function setupFlightHoverPopups() {
     if (!sectorOpsMap) return;
 
@@ -12185,6 +12191,19 @@ function setupFlightHoverPopups() {
 
         // Change cursor
         sectorOpsMap.getCanvas().style.cursor = 'pointer';
+        if (feature.id) {
+            if (hoveredAircraftId !== null) {
+                sectorOpsMap.setFeatureState(
+                    { source: 'sector-ops-live-flights-source', id: hoveredAircraftId },
+                    { hover: false }
+                );
+            }
+            hoveredAircraftId = feature.id;
+            sectorOpsMap.setFeatureState(
+                { source: 'sector-ops-live-flights-source', id: hoveredAircraftId },
+                { hover: true }
+            );
+        }
         
         const feature = e.features[0];
         const props = feature.properties;
@@ -12231,6 +12250,13 @@ function setupFlightHoverPopups() {
 
     sectorOpsMap.on('mouseleave', 'sector-ops-live-flights-layer', () => {
         sectorOpsMap.getCanvas().style.cursor = '';
+        if (hoveredAircraftId !== null) {
+            sectorOpsMap.setFeatureState(
+                { source: 'sector-ops-live-flights-source', id: hoveredAircraftId },
+                { hover: false }
+            );
+            hoveredAircraftId = null;
+        }
         hoverPopup.remove();
     });
 
