@@ -1465,4 +1465,4 @@ function R4(e, P) {
 function i4(e, P, t) {
     e === 1 ? P.Adshex = t.readString() : e === 2 ? P.Lat = t.readDouble() : e === 3 ? P.Lon = t.readDouble() : e === 4 ? P.Callsign = t.readString() : e === 5 ? P.FlightNumber = t.readString() : e === 6 ? P.Altitude = t.readVarint(!0) : e === 7 ? P.Heading = t.readVarint(!0) : e === 8 ? P.Speed = t.readVarint(!0) : e === 9 ? P.PosUpdateTime = t.readVarint(!0) : e === 10 ? P.DataSource = t.readVarint(!0) : e === 11 ? P.Squawk = t.readString() : e === 12 ? P.Route = t.readString() : e === 13 ? P.Reg = t.readString() : e === 14 ? P.PlaneType = t.readString() : e === 15 ? P.AirlineCode = t.readString() : e === 16 ? P.Category = t.readString() : e === 17 && (P.AircraftClass = t.readVarint())
 }
-export {O4 as P, n4 as _, g2 as a, I4 as g, u as m, r4 as r};
+export {O4 as P, n4 as _, g2 as a, g2 as spriteUVs, I4 as g, u as m, r4 as r};
