@@ -5243,50 +5243,36 @@ async function fetchAirportsData() {
 
 function getAircraftCategory(aircraftName) {
     if (!aircraftName) return 'default';
-    const name = aircraftName.toLowerCase();
+    const name = aircraftName.toUpperCase();
 
-    // Fighter / Military
-    if (['f-16', 'f-18', 'f-22', 'f-35', 'f/a-18', 'a-10'].some(ac => name.includes(ac))) {
-        return 'fighter';
-    }
+    // 1. Military / Fighters
+    if (['F-16', 'F-18', 'F-22', 'F-35', 'A-10', 'EUFI'].some(ac => name.includes(ac))) return 'F16';
+    if (['C-130', 'C130', 'AC-130'].some(ac => name.includes(ac))) return 'C130';
+    if (name.includes('C-17') || name.includes('C5')) return 'C17';
 
-    // --- [NEW] Military Cargo ---
-    if (['c-130', 'ac-130', 'hercules', 'c-17'].some(ac => name.includes(ac))) {
-        return 'military';
-    }
+    // 2. Heavy / Jumbo
+    if (name.includes('A380') || name.includes('A388')) return 'A380';
+    if (name.includes('747')) return 'B747';
 
-    // --- NEW: Jumbo Jets (Supers) ---
-    // This check MUST come before the wide-body check.
-    if (['a380', '747', 'vc-25'].some(ac => name.includes(ac))) {
-        return 'jumbo';
-    }
+    // 3. Widebody
+    if (name.includes('777') || name.includes('B77')) return 'B777';
+    if (name.includes('787') || name.includes('B78')) return 'B787';
+    if (name.includes('A350') || name.includes('A359')) return 'A350';
+    if (name.includes('A330') || name.includes('A333') || name.includes('A339')) return 'A330';
+    if (name.includes('DC-10') || name.includes('MD-11')) return 'A330'; // Mapping to similar footprint
 
-    // Wide-body Jets
-    if (['a330', 'a340', 'a350', '767', '777', '787', 'dc-10', 'md-11'].some(ac => name.includes(ac))) {
-        return 'widebody';
-    }
-    
-    // Regional Jets (CRJs, Embraer, etc.)
-    if (['crj', 'erj', 'dh8d', 'q400'].some(ac => name.includes(ac))) {
-        return 'regional';
-    }
-    
-    // --- [NEW] Split GA: Cessna ---
-    if (['cessna', 'c172', 'c208', 'xcub', 'tbm', 'sr22'].some(ac => name.includes(ac))) {
-        return 'cessna';
-    }
-    
-    // Private / General Aviation (remaining)
-    if (['citation', 'cirrus','challenger'].some(ac => name.includes(ac))) {
-        return 'private';
-    }
+    // 4. Narrowbody
+    if (name.includes('737') || name.includes('B73') || name.includes('B38M')) return 'B737';
+    if (name.includes('A320') || name.includes('A321') || name.includes('A319') || name.includes('A20N') || name.includes('A21N')) return 'A320';
+    if (name.includes('757') || name.includes('B75')) return 'B757';
 
-    // Narrow-body Jets
-    if (['a318', 'a319', 'a320', 'a321', '717', '727', '737', '757', 'a220', 'e17', 'e19'].some(ac => name.includes(ac))) {
-        return 'narrowbody';
-    }
-    
-    return 'default';
+    // 5. Regional / GA / Heli
+    if (name.includes('CRJ') || name.includes('E175') || name.includes('E190')) return 'E190';
+    if (name.includes('DASH 8') || name.includes('DH8D') || name.includes('Q400')) return 'DASH8';
+    if (['C172', 'SR22', 'CESSNA', 'SINGLEPROP'].some(ac => name.includes(ac))) return 'SINGLEPROP';
+    if (['EUROCOPTER', 'H60', 'H64', 'CHINOOK', 'LYNX'].some(ac => name.includes(ac))) return 'EUROCOPTER';
+
+    return 'B737'; // Default fallback that exists in your sprite sheet
 }
 
 /**
@@ -7909,13 +7895,11 @@ function setupAircraftWindowEvents() {
 function getIconImageExpression() {
     return [
         'let',
-        // Fallback to 'default' if the category mapping fails or is missing
-        'baseCategory', ['coalesce', ['get', 'category'], 'default'],
-        
-        // Ensure the color suffix exists (expected to be '-blue', '-orange', or '')
-        'colorSuffix', ['coalesce', ['get', 'colorSuffix'], ''], 
-        
-        // Dynamically stitch the requested Mapbox image ID together: e.g., "icon-B737-blue"
+        // Use the category returned by getAircraftCategory, fallback to B737 if missing
+        'baseCategory', ['coalesce', ['get', 'category'], 'B737'],
+        // Check for blue/orange highlight suffixes
+        'colorSuffix', ['coalesce', ['get', 'colorSuffix'], ''],
+        // Stitch it together, e.g., "icon-A380" or "icon-A380-blue"
         ['concat', 'icon-', ['var', 'baseCategory'], ['var', 'colorSuffix']]
     ];
 }
@@ -9142,179 +9126,33 @@ window.globalNatTracks = natTracks;
     }
 }
 
-/**
- * --- [RESTORED] Sets up base layers, icons, and fog.
- * Called on initial load AND on every style change.
- */
 async function setupMapLayersAndFog() {
     if (!sectorOpsMap) return;
 
     // 1. Set globe fog
     sectorOpsMap.setFog({
-        color: 'rgb(186, 210, 235)', // Lower atmosphere
-        'high-color': 'rgb(36, 92, 223)', // Upper atmosphere
-        'horizon-blend': 0.02, // Smooth blend
-        'space-color': 'rgb(27, 27, 54)', // Space color
-        'star-intensity': 0.3 // Adjust star intensity
+        'color': 'rgb(186, 210, 235)',
+        'high-color': 'rgb(36, 92, 223)',
+        'horizon-blend': 0.02,
+        'space-color': 'rgb(27, 27, 54)',
+        'star-intensity': 0.3
     });
 
-    // 2. Load all aircraft icons
-    const iconsToLoad = [
-        { id: 'icon-jumbo', path: '/Images/map_icons/jumbo.png' },
-        { id: 'icon-widebody', path: '/Images/map_icons/widebody.png' },
-        { id: 'icon-narrowbody', path: '/Images/map_icons/narrowbody.png' },
-        { id: 'icon-regional', path: '/Images/map_icons/regional.png' },
-        { id: 'icon-private', path: '/Images/map_icons/private.png' },
-        { id: 'icon-fighter', path: '/Images/map_icons/fighter.png' },
-        { id: 'icon-default', path: '/Images/map_icons/default.png' },
-        { id: 'icon-military', path: '/Images/map_icons/military.png' },
-        { id: 'icon-cessna', path: '/Images/map_icons/cessna.png' },
-        { id: 'icon-jumbo-orange', path: '/Images/map_icons/orange/jumbo.png' },
-        { id: 'icon-widebody-orange', path: '/Images/map_icons/orange/widebody.png' },
-        { id: 'icon-narrowbody-orange', path: '/Images/map_icons/orange/narrowbody.png' },
-        { id: 'icon-regional-orange', path: '/Images/map_icons/orange/regional.png' },
-        { id: 'icon-private-orange', path: '/Images/map_icons/orange/private.png' },
-        { id: 'icon-fighter-orange', path: '/Images/map_icons/orange/fighter.png' },
-        { id: 'icon-default-orange', path: '/Images/map_icons/orange/default.png' },
-        { id: 'icon-military-orange', path: '/Images/map_icons/orange/military.png' },
-        { id: 'icon-cessna-orange', path: '/Images/map_icons/orange/cessna.png' },
-        { id: 'icon-jumbo-blue', path: '/Images/map_icons/blue/jumbo.png' },
-        { id: 'icon-widebody-blue', path: '/Images/map_icons/blue/widebody.png' },
-        { id: 'icon-narrowbody-blue', path: '/Images/map_icons/blue/narrowbody.png' },
-        { id: 'icon-regional-blue', path: '/Images/map_icons/blue/regional.png' },
-        { id: 'icon-private-blue', path: '/Images/map_icons/blue/private.png' },
-        { id: 'icon-fighter-blue', path: '/Images/map_icons/blue/fighter.png' },
-        { id: 'icon-default-blue', path: '/Images/map_icons/blue/default.png' },
-        { id: 'icon-military-blue', path: '/Images/map_icons/blue/military.png' },
-        { id: 'icon-cessna-blue', path: '/Images/map_icons/blue/cessna.png' }
-    ];
-
-    const imagePromises = iconsToLoad.map(icon =>
-        new Promise(async (res, rej) => {
-            if (sectorOpsMap.hasImage(icon.id)) {
-                res();
-                return;
-            }
-            await loadSpriteSheetAndGenerateIcons(sectorOpsMap);
-            res();
-        })
-    );
-    
-    await Promise.all(imagePromises).catch(err => console.error("Error loading map icons", err));
-
-    // 3. Add base flight data source
-    if (!sectorOpsMap.getSource('sector-ops-live-flights-source')) {
-        sectorOpsMap.addSource('sector-ops-live-flights-source', {
-            type: 'geojson',
-            data: { type: 'FeatureCollection', features: Object.values(currentMapFeatures) }
-        });
+    // 2. Generate icons from sprite sheet
+    // We call this once. It iterates through spriteUVs and registers 'icon-A380', etc.
+    try {
+        await loadSpriteSheetAndGenerateIcons(sectorOpsMap);
+        console.log("Aircraft sprites loaded and registered.");
+    } catch (err) {
+        console.error("Failed to load sprite sheet:", err);
     }
 
-    // Initialize Animator if class exists
-    if (typeof MapAnimator !== 'undefined') {
-        mapAnimator = new MapAnimator(sectorOpsMap, 'sector-ops-live-flights-source', currentMapFeatures);
-    }
+    // 3. Add boundaries and other layers
+    await initializeMapBoundaries(sectorOpsMap);
 
-    // 4. Add the ICON layer
-    if (!sectorOpsMap.getLayer('sector-ops-live-flights-layer')) {
-        // Inside setupMapLayersAndFog
-        sectorOpsMap.addLayer({
-            'id': 'sector-ops-live-flights-layer',
-            'type': 'symbol',
-            'source': 'sector-ops-live-flights-source',
-            'layout': {
-                'icon-image': getIconImageExpression(mapFilters.iconColorMode),
-                'icon-size': mapFilters.planeIconSize,
-                'icon-allow-overlap': true,
-                'icon-ignore-placement': true,
-                'icon-rotation-alignment': 'map',
-                'icon-rotate': ['get', 'heading']
-            }
-        });
-
-        // Click Listener
-        sectorOpsMap.on('click', 'sector-ops-live-flights-layer', (e) => {
-            const props = e.features[0].properties;
-            const flightProps = { ...props, position: JSON.parse(props.position), aircraft: JSON.parse(props.aircraft) };
-            fetch('https://site--acars-backend--6dmjph8ltlhv.code.run/if-sessions').then(res => res.json()).then(data => {
-                const sessionId = getCurrentSessionId(data);
-                if (sessionId) {
-                    handleAircraftClick(flightProps, sessionId);
-                }
-            });
-        });
-
-        // Locate the Hover Listener block inside setupMapLayersAndFog
-        const isTouchDevice = 'ontouchstart' in window || navigator.maxTouchPoints > 0;
-
-        if (!isTouchDevice && (typeof window.MobileUIHandler === 'undefined' || !window.MobileUIHandler.isMobile())) {
-            const hoverPopup = new mapboxgl.Popup({ closeButton: false, closeOnClick: false, offset: 20 });
-
-            sectorOpsMap.on('mouseenter', 'sector-ops-live-flights-layer', (e) => {
-                sectorOpsMap.getCanvas().style.cursor = 'pointer';
-                const coordinates = e.features[0].geometry.coordinates.slice();
-                const props = e.features[0].properties;
-
-                // Ensure popup doesn't display over the same spot twice if map wraps
-                while (Math.abs(e.lngLat.lng - coordinates[0]) > 180) {
-                    coordinates[0] += e.lngLat.lng > coordinates[0] ? 360 : -360;
-                }
-
-                if (typeof generateHoverCardHTML !== 'undefined') {
-                    const cardHTML = generateHoverCardHTML(props);
-                    hoverPopup.setLngLat(coordinates).setHTML(cardHTML).addTo(sectorOpsMap);
-                }
-            });
-
-            sectorOpsMap.on('mouseleave', 'sector-ops-live-flights-layer', () => {
-                sectorOpsMap.getCanvas().style.cursor = '';
-                hoverPopup.remove();
-            });
-        }
-    }
-    
-    // 5. Add the LABEL layer
-    if (!sectorOpsMap.getLayer('sector-ops-live-flights-labels')) {
-        sectorOpsMap.addLayer({
-            id: 'sector-ops-live-flights-labels',
-            type: 'symbol',
-            source: 'sector-ops-live-flights-source', 
-            minzoom: 6.5,
-            layout: {
-                'visibility': (mapFilters && mapFilters.showAircraftLabels) ? 'visible' : 'none',
-                'text-field': [
-                    'format',
-                    ['get', 'callsign'], { 'text-color': '#FFFFFF' }, 
-                    '\n', {},                  
-                    ['get', 'phase'],    
-                    { 
-                        'text-color': [ 
-                            'match',
-                            ['get', 'phase'],
-                            'Climb', '#28a745',
-                            'Cruise', '#007bff',
-                            'Descent', '#ff9900',
-                            'Approach', '#a33ea3',
-                            'Ground', '#9fa8da',
-                            '#e8eaf6'
-                        ]
-                    }
-                ],
-                'text-font': ['Mapbox Txt Regular', 'Arial Unicode MS Regular'],
-                'text-size': 10,
-                'text-offset': [0, 2.5],
-                'text-anchor': 'top',
-                'text-allow-overlap': false,
-                'text-ignore-placement': false,
-                'text-padding': 3,
-            },
-            paint: {
-                'text-halo-color': 'rgba(10, 12, 26, 0.85)',
-                'text-halo-width': 2,
-                'text-halo-blur': 0
-            }
-        });
-    }
+    // 4. Finally, initialize the aircraft layer
+    // This ensures icons are already in the map's memory before the layer tries to draw them
+    initializeAircraftLayer();
 }
 
 /**
