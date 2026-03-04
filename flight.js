@@ -2390,126 +2390,168 @@ function injectCustomStyles() {
             display: none !important;
         }
         
-        /* --- FR24 STYLE CARD CONTAINER (MICRO) --- */
-        .fr24-card-container {
-            width: 160px;
-            display: flex;
-            flex-direction: column;
-            gap: 3px;
+        /* --- MODERN FLIGHT HOVERCARD --- */
+        .modern-hovercard {
+            width: 240px;
+            background: rgba(15, 23, 42, 0.85);
+            backdrop-filter: blur(16px);
+            -webkit-backdrop-filter: blur(16px);
+            border: 1px solid rgba(255, 255, 255, 0.15);
+            border-radius: 12px;
+            overflow: hidden;
             font-family: var(--font-ui);
-            pointer-events: none;
+            box-shadow: 0 12px 30px rgba(0,0,0,0.6);
+            pointer-events: none; /* Let map clicks pass through */
         }
 
-        /* --- TOP IMAGE BUBBLE --- */
-        .fr24-image-box {
-            height: 85px;
+        .mh-image-zone {
+            height: 110px;
             width: 100%;
-            background-color: #2c2c2e;
+            background-color: #0f172a;
             background-size: cover;
             background-position: center;
-            border-radius: var(--radius-sm);
             position: relative;
-            box-shadow: 0 2px 8px rgba(0,0,0,0.4);
-            overflow: hidden;
         }
         
-        .fr24-copyright {
-            position: absolute;
-            bottom: 3px;
-            left: 6px;
-            color: rgba(255, 255, 255, 0.7);
-            font-size: 7px;
-            font-weight: 500;
-            text-shadow: 0 1px 2px rgba(0,0,0,1);
-            z-index: 2;
-        }
-        
-        .fr24-image-overlay {
+        .mh-overlay {
             position: absolute;
             inset: 0;
-            background: linear-gradient(to top, rgba(0,0,0,0.6) 0%, transparent 40%);
+            background: linear-gradient(180deg, rgba(0,0,0,0.6) 0%, transparent 40%, rgba(15, 23, 42, 1) 100%);
         }
 
-        /* --- BOTTOM INFO BUBBLE --- */
-        .fr24-info-box {
-            background-color: #2c2c2e;
-            border-radius: var(--radius-sm);
-            padding: 6px 8px;
-            box-shadow: 0 2px 8px rgba(0,0,0,0.4);
+        .mh-top-bar {
+            position: absolute;
+            top: 10px;
+            left: 12px;
+            right: 12px;
             display: flex;
-            flex-direction: column;
-            gap: 4px;
-            color: #ffffff;
+            justify-content: space-between;
+            align-items: flex-start;
+            z-index: 2;
         }
 
-        .fr24-header-row {
+        .mh-ident {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .mh-logo {
+            height: 18px;
+            width: auto;
+            max-width: 40px;
+            object-fit: contain;
+            filter: drop-shadow(0 2px 4px rgba(0,0,0,0.8));
+        }
+
+        .mh-callsign {
+            font-family: var(--font-data);
+            font-size: 15px;
+            font-weight: 800;
+            color: #fff;
+            text-shadow: 0 2px 6px rgba(0,0,0,0.8);
+            line-height: 1;
+        }
+
+        .mh-pilot-badge {
+            background: rgba(0, 0, 0, 0.5);
+            border: 1px solid rgba(255, 255, 255, 0.2);
+            padding: 3px 6px;
+            border-radius: 6px;
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            backdrop-filter: blur(4px);
+        }
+
+        .mh-state-dot {
+            width: 6px;
+            height: 6px;
+            border-radius: 50%;
+        }
+
+        .mh-pilot-name {
+            font-size: 9px;
+            font-weight: 700;
+            color: #fff;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            max-width: 70px;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+
+        .mh-credit {
+            position: absolute;
+            bottom: 4px;
+            right: 8px;
+            font-size: 8px;
+            font-weight: 500;
+            color: rgba(255, 255, 255, 0.5);
+            z-index: 2;
+        }
+
+        .mh-content {
+            padding: 8px 14px 14px 14px;
+            position: relative;
+            z-index: 2;
+        }
+
+        .mh-route {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 10px;
+            padding-bottom: 10px;
+            border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+        }
+
+        .mh-icao {
+            font-family: var(--font-data);
+            font-size: 18px;
+            font-weight: 800;
+            color: #fff;
+        }
+
+        .mh-route-arrow {
+            color: var(--color-brand);
+            font-size: 11px;
+            opacity: 0.8;
             display: flex;
             align-items: center;
             gap: 6px;
         }
 
-        .fr24-airline-logo {
-            height: 14px;
-            width: auto;
-            max-width: 35px;
-            object-fit: contain;
-            border-radius: 1px;
+        .mh-route-line {
+            width: 20px;
+            height: 2px;
+            background: rgba(56, 189, 248, 0.3);
+            border-radius: 2px;
         }
 
-        .fr24-ident-group {
-            display: flex;
-            align-items: center;
-            gap: 4px;
+        .mh-stats {
+            display: grid;
+            grid-template-columns: repeat(3, 1fr);
+            gap: 6px;
+            text-align: center;
         }
 
-        .fr24-callsign {
-            font-size: 13px;
-            font-weight: 700;
-            color: #fff;
-            line-height: 1;
-        }
-
-        .fr24-ac-badge {
-            background-color: #3a3a3c;
-            border: 1px solid #48484a;
-            color: #d1d1d6;
+        .mh-stat-lbl {
+            display: block;
             font-size: 8px;
-            font-weight: 600;
-            padding: 0px 3px;
-            border-radius: 3px;
-            line-height: 1.1;
+            color: #64748b;
+            font-weight: 800;
+            text-transform: uppercase;
+            margin-bottom: 3px;
         }
 
-        .fr24-route {
-            font-size: 10px;
-            font-weight: 500;
-            color: #d1d1d6;
-            white-space: nowrap;
-            overflow: hidden;
-            text-overflow: ellipsis;
-            max-width: 100px;
-        }
-
-        .fr24-progress-track {
-            height: 3px;
-            width: 100%;
-            background-color: #3a3a3c;
-            border-radius: 1.5px;
-            overflow: hidden;
-            margin-top: 1px;
-        }
-
-        .fr24-progress-fill {
-            height: 100%;
-            background-color: var(--color-danger);
-            border-radius: 1.5px;
-        }
-
-        .fr24-stats-row {
-            font-size: 10px;
-            color: #98989d;
-            font-weight: 600;
-            margin-top: 1px;
+        .mh-stat-val {
+            display: block;
+            font-family: var(--font-data);
+            font-size: 12px;
+            font-weight: 700;
+            color: #e2e8f0;
         }
 
         .mapboxgl-popup {
@@ -12222,12 +12264,12 @@ function setupFlightHoverPopups() {
     const hoverPopup = new mapboxgl.Popup({
         closeButton: false,
         closeOnClick: false,
-        offset: 15,
+        offset: 20, // Increased slightly to prevent cursor overlap
         maxWidth: 'none',
         className: 'flight-hover-popup'
     });
 
-    let hoveredFlightId = null; // Tracks the currently highlighted flight
+    let hoveredFlightId = null;
 
     sectorOpsMap.on('mouseenter', 'sector-ops-live-flights-layer', (e) => {
         const isHoverDevice = window.matchMedia('(hover: hover)').matches;
@@ -12243,11 +12285,24 @@ function setupFlightHoverPopups() {
         // Data Parsing
         const acData = props.aircraft ? JSON.parse(props.aircraft) : {};
         const callsign = props.callsign || '---';
+        const pilot = props.username || 'Unknown';
         const acType = (acData.aircraftName || 'AC').split(' ')[0].substring(0, 4).toUpperCase();
         const imgUrl = props.communityImageUrl || '/CommunityPlanes/default.png';
         const credit = props.contributorName || 'IF Community';
         const alt = Math.round(props.altitude || 0).toLocaleString();
         const gs = Math.round(props.speed || 0);
+        
+        // Route Parsing
+        const dep = props.departureIcao || '???';
+        const arr = props.arrivalIcao || '???';
+
+        // Pilot State Logic (For the colored dot)
+        const pState = props.pilotState !== undefined ? Number(props.pilotState) : 0;
+        let stateColor = '#4ade80'; // Active (Green)
+        let stateShadow = '0 0 6px rgba(74, 222, 128, 0.6)';
+        if (pState === 1) { stateColor = '#facc15'; stateShadow = '0 0 6px rgba(250, 204, 21, 0.6)'; } // Away
+        else if (pState === 2) { stateColor = '#94a3b8'; stateShadow = 'none'; } // Parked
+        else if (pState === 3) { stateColor = '#60a5fa'; stateShadow = '0 0 6px rgba(96, 165, 250, 0.6)'; } // Background
         
         // Logo Generation
         const livName = acData.liveryName || '';
@@ -12256,22 +12311,48 @@ function setupFlightHoverPopups() {
         const sanitizedLogoName = logoName.toLowerCase().replace(/[^a-z0-9\s]/g, '').replace(/\s+/g, '_');
         const logoPath = `Images/airline_logos/${sanitizedLogoName}.png`;
 
+        // Render HTML
         const html = `
-            <div class="fr24-card-container">
-                <div class="fr24-image-box" style="background-image: url('${imgUrl}')">
-                    <div class="fr24-image-overlay"></div>
-                    <div class="fr24-copyright">© ${credit}</div>
-                </div>
-                <div class="fr24-info-box">
-                    <div class="fr24-header-row">
-                        <img src="${logoPath}" class="fr24-airline-logo" onerror="this.style.display='none'">
-                        <div class="fr24-ident-group">
-                            <span class="fr24-callsign">${callsign}</span>
-                            <span class="fr24-ac-badge">${acType}</span>
+            <div class="modern-hovercard">
+                <div class="mh-image-zone" style="background-image: url('${imgUrl}')">
+                    <div class="mh-overlay"></div>
+                    <div class="mh-top-bar">
+                        <div class="mh-ident">
+                            <img src="${logoPath}" class="mh-logo" onerror="this.style.display='none'">
+                            <span class="mh-callsign">${callsign}</span>
+                        </div>
+                        <div class="mh-pilot-badge">
+                            <div class="mh-state-dot" style="background: ${stateColor}; box-shadow: ${stateShadow};"></div>
+                            <span class="mh-pilot-name">${pilot}</span>
                         </div>
                     </div>
-                    <div class="fr24-stats-row">
-                        ${alt} FT · ${gs} KTS
+                    <div class="mh-credit">© ${credit}</div>
+                </div>
+                
+                <div class="mh-content">
+                    <div class="mh-route">
+                        <span class="mh-icao">${dep}</span>
+                        <div class="mh-route-arrow">
+                            <div class="mh-route-line"></div>
+                            <i class="fa-solid fa-plane"></i>
+                            <div class="mh-route-line"></div>
+                        </div>
+                        <span class="mh-icao">${arr}</span>
+                    </div>
+                    
+                    <div class="mh-stats">
+                        <div>
+                            <span class="mh-stat-lbl">Aircraft</span>
+                            <span class="mh-stat-val" style="color: #38bdf8;">${acType}</span>
+                        </div>
+                        <div>
+                            <span class="mh-stat-lbl">Altitude</span>
+                            <span class="mh-stat-val">${alt} <span style="font-size:8px; color:#64748b;">FT</span></span>
+                        </div>
+                        <div>
+                            <span class="mh-stat-lbl">Speed</span>
+                            <span class="mh-stat-val">${gs} <span style="font-size:8px; color:#64748b;">KT</span></span>
+                        </div>
                     </div>
                 </div>
             </div>
@@ -12284,7 +12365,6 @@ function setupFlightHoverPopups() {
         if (window.matchMedia('(hover: hover)').matches) {
             if (hoverPopup.isOpen()) hoverPopup.setLngLat(e.lngLat);
 
-            // --- FIX: Filter the phantom layer to show the highlight ---
             if (e.features.length > 0) {
                 const flightId = e.features[0].properties.flightId;
                 if (hoveredFlightId !== flightId) {
@@ -12299,7 +12379,6 @@ function setupFlightHoverPopups() {
         sectorOpsMap.getCanvas().style.cursor = '';
         hoverPopup.remove();
 
-        // --- FIX: Clear the filter to hide the highlight ---
         if (hoveredFlightId !== null) {
             hoveredFlightId = null;
             sectorOpsMap.setFilter('sector-ops-live-flights-hover-layer', ['==', 'flightId', '']);
