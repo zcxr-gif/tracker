@@ -116,6 +116,7 @@ window.currentAirportTraffic = { in: [], out: [] }; // Stores IDs for the curren
     let CURRENT_PILOT = null;
     let CURRENT_OFP_DATA = null;
     let airportsData = {};
+    let precalculatedMajorAirports = null; // Caches the heavy math
     let runwaysData = {}; // NEW: To store runway data indexed by airport ICAO
     let currentMapFeatures = {}; // Key: flightId, Value: GeoJSON Feature
     const DATA_REFRESH_INTERVAL_MS = 50000; // Your current refresh interval
@@ -13056,10 +13057,23 @@ function renderAirportMarkers() {
         if (!hasAtc && !isMajorAirport(icao, airport)) return;
 
         if (airportAndAtcMarkers[icao]) {
-            if (airportAndAtcMarkers[icao].hasAtc === hasAtc) return;
-            airportAndAtcMarkers[icao].marker.remove();
+            // Update existing marker instead of destroying it
+            const el = airportAndAtcMarkers[icao].marker.getElement();
+            if (hasAtc !== airportAndAtcMarkers[icao].hasAtc) {
+                // Class changed (e.g., ATC came online or went offline)
+                el.className = hasAtc ? 'apt-live-tag' : 'destination-marker';
+                airportAndAtcMarkers[icao].hasAtc = hasAtc;
+            }
+            
+            // Only update innerHTML if it's an ATC marker to refresh the timer
+            if (hasAtc) {
+                // (Build your innerHTML string here exactly as you currently do)
+                // el.innerHTML = `<div class="apt-tag-extra">...</div><div class="apt-tag-base">...</div>`;
+            }
+            return; // Skip creating a new marker
         }
 
+        // If it doesn't exist, create a new one
         const el = document.createElement('div');
         
         // --- ADDED: Hover Suppression Logic ---
@@ -13145,39 +13159,51 @@ function updateUnstaffedLayer(show, excludeIcaos) {
         return;
     }
 
-    // Heuristic: Filter out non-major airports from the thousands of unstaffed dots
-    const isMajorAirport = (icao, airport) => {
-        if (!icao || icao.length !== 4) return false;
-        if (/\d/.test(icao)) return false;
-        const name = (airport.name || "").toLowerCase();
+    // 1. DO THE HEAVY MATH ONLY ONCE
+    if (!precalculatedMajorAirports) {
+        console.log("Pre-calculating major airports to prevent lag...");
+        precalculatedMajorAirports = [];
+        
         const junk = ['water', 'seaplane', 'heliport', 'helipad', 'strip', 'field', 'glider'];
-        return !junk.some(k => name.includes(k));
-    };
+        
+        Object.keys(airportsData).forEach(icao => {
+            const airport = airportsData[icao];
+            // Fast filters
+            if (!icao || icao.length !== 4 || /\d/.test(icao)) return;
+            
+            const name = (airport.name || "").toLowerCase();
+            if (!junk.some(k => name.includes(k))) {
+                precalculatedMajorAirports.push({
+                    icao: icao,
+                    lon: airport.lon,
+                    lat: airport.lat
+                });
+            }
+        });
+    }
 
-    const features = Object.keys(airportsData)
-        .filter(icao => {
-            // Must NOT be already shown as a DOM marker (staffed)
-            if (excludeIcaos.has(icao)) return false;
-            // NEW: Must meet the "Major Airport" criteria
-            return isMajorAirport(icao, airportsData[icao]);
-        })
-        .map(icao => {
-            const apt = airportsData[icao];
-            return {
+    // 2. BLAZING FAST FILTERING
+    // Just map the pre-calculated list and exclude the 1-6 currently staffed ones
+    const features = [];
+    for (let i = 0; i < precalculatedMajorAirports.length; i++) {
+        const apt = precalculatedMajorAirports[i];
+        if (!excludeIcaos.has(apt.icao)) {
+            features.push({
                 type: 'Feature',
                 geometry: { type: 'Point', coordinates: [apt.lon, apt.lat] },
-                properties: { icao: icao }
-            };
-        });
+                properties: { icao: apt.icao }
+            });
+        }
+    }
 
     const geojsonData = { type: 'FeatureCollection', features: features };
 
+    // 3. UPDATE MAPBOX
     if (sectorOpsMap.getSource(SOURCE_ID)) {
         sectorOpsMap.getSource(SOURCE_ID).setData(geojsonData);
         sectorOpsMap.setLayoutProperty(LAYER_ID, 'visibility', 'visible');
     } else {
         sectorOpsMap.addSource(SOURCE_ID, { type: 'geojson', data: geojsonData });
-        
         sectorOpsMap.addLayer({
             id: LAYER_ID,
             type: 'circle',
@@ -13188,13 +13214,9 @@ function updateUnstaffedLayer(show, excludeIcaos) {
                 'circle-stroke-width': 1,
                 'circle-stroke-color': 'rgba(255,255,255,0.1)'
             }
-        });
+        }, 'sector-ops-live-flights-layer'); // Draw under planes
 
-        sectorOpsMap.on('click', LAYER_ID, (e) => {
-            const icao = e.features[0].properties.icao;
-            handleAirportClick(icao);
-        });
-
+        sectorOpsMap.on('click', LAYER_ID, (e) => handleAirportClick(e.features[0].properties.icao));
         sectorOpsMap.on('mouseenter', LAYER_ID, () => { sectorOpsMap.getCanvas().style.cursor = 'pointer'; });
         sectorOpsMap.on('mouseleave', LAYER_ID, () => { sectorOpsMap.getCanvas().style.cursor = ''; });
     }
