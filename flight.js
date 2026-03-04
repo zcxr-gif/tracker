@@ -12961,19 +12961,12 @@ function setupSearchEventListeners() {
     // ====================================================================
 
 
+// --- [REPLACEMENT] ---
+// Starts the data polling AND the animation loop.
 function startSectorOpsLiveLoop() {
     stopSectorOpsLiveLoop(); // Clear any old loops
 
-    // ✅ NEW: Load cached ATC data instantly before the API responds
-    try {
-        const cachedAtc = localStorage.getItem(`atc_cache_${currentServerName}`);
-        if (cachedAtc) {
-            activeAtcFacilities = JSON.parse(cachedAtc);
-            renderAirportMarkers(); // Draw instantly!
-        }
-    } catch(e) {}
-
-    // 1. Start the data fetching loop for ATC/NOTAMs
+    // 1. Start the data fetching loop for ATC/NOTAMs (infrequent)
     updateSectorOpsSecondaryData(); // Fetch immediately
     sectorOpsAtcNotamInterval = setInterval(updateSectorOpsSecondaryData, DATA_REFRESH_INTERVAL_MS); 
 
@@ -12981,7 +12974,9 @@ function startSectorOpsLiveLoop() {
     initializeSectorOpsSocket();
 
     // 3. Start the MapAnimator loop
-    if (mapAnimator) mapAnimator.start();
+    if (mapAnimator) {
+        mapAnimator.start();
+    }
 }
 
 // Stops the data polling AND the animation loop.
@@ -13018,13 +13013,17 @@ function renderAirportMarkers() {
     const hideNoAtc = mapFilters.hideNoAtcMarkers;
     const hideAtc = mapFilters.hideAtcMarkers;
 
+    // Helper: Identify "Major" airports (Class A/B/C) without explicit class data
     const isMajorAirport = (icao, airport) => {
-        if (!icao || icao.length !== 4 || /\d/.test(icao)) return false;
+        if (!icao || icao.length !== 4) return false;
+        if (/\d/.test(icao)) return false; // Exclude IDs with numbers
         const name = (airport.name || "").toLowerCase();
         const junk = ['water', 'seaplane', 'heliport', 'helipad', 'strip', 'field', 'glider'];
-        return !junk.some(k => name.includes(k));
+        if (junk.some(k => name.includes(k))) return false;
+        return true;
     };
 
+    // 1. Identify Staffed Airports (ATC + Routes)
     const atcAirportIcaos = new Set(activeAtcFacilities.map(f => f.airportName).filter(Boolean));
     const allRouteAirports = new Set();
     if (typeof ALL_AVAILABLE_ROUTES !== 'undefined') {
@@ -13035,102 +13034,105 @@ function renderAirportMarkers() {
     }
     const staffedIcaos = new Set([...allRouteAirports, ...atcAirportIcaos]);
 
-    // 1. Remove markers that are no longer needed
+    // 2. Manage DOM Markers (Staffed Only)
     Object.keys(airportAndAtcMarkers).forEach(icao => {
         const hasAtc = atcAirportIcaos.has(icao);
         const shouldBeDom = staffedIcaos.has(icao);
         const isFiltered = (hideNoAtc && !hasAtc) || (hideAtc && hasAtc);
-        
         if (!shouldBeDom || isFiltered) {
             airportAndAtcMarkers[icao].marker.remove();
             delete airportAndAtcMarkers[icao];
         }
     });
 
-    // 2. Create or Update existing markers
     staffedIcaos.forEach(icao => {
         const airport = airportsData[icao];
         if (!airport || airport.lat == null || airport.lon == null) return;
 
         const hasAtc = atcAirportIcaos.has(icao);
         if ((hideNoAtc && !hasAtc) || (hideAtc && hasAtc)) return;
+
+        // Filter unstaffed/minor airports
         if (!hasAtc && !isMajorAirport(icao, airport)) return;
 
-        // --- Generate Inner HTML ---
-        let innerHTML = '';
-        let className = 'destination-marker';
+        if (airportAndAtcMarkers[icao]) {
+            if (airportAndAtcMarkers[icao].hasAtc === hasAtc) return;
+            airportAndAtcMarkers[icao].marker.remove();
+        }
+
+        const el = document.createElement('div');
+        
+        // --- ADDED: Hover Suppression Logic ---
+        el.addEventListener('mouseenter', () => {
+            window.isMouseOverAirportTag = true;
+            // Forcefully remove any aircraft hover card if it appears
+            const activePopups = document.querySelectorAll('.mapboxgl-popup');
+            activePopups.forEach(popup => popup.remove());
+        });
+
+        el.addEventListener('mouseleave', () => {
+            window.isMouseOverAirportTag = false;
+        });
 
         if (hasAtc) {
-            className = 'apt-live-tag';
+            el.className += ' apt-live-tag';
             const airportAtc = activeAtcFacilities.filter(f => f.airportName === icao);
-            const earliestStart = airportAtc.reduce((min, f) => Math.min(new Date(f.startTime).getTime(), min), Date.now());
+            const earliestStart = airportAtc.reduce((min, f) => {
+                const start = new Date(f.startTime).getTime();
+                return start < min ? start : min;
+            }, Date.now());
             const diffMins = Math.floor((Date.now() - earliestStart) / 60000);
             const durationText = diffMins > 60 ? `${Math.floor(diffMins/60)}h ${diffMins%60}m` : `${diffMins}m online`;
 
-            const freqs = {
-                A: airportAtc.some(f => f.type === 7),
-                G: airportAtc.some(f => f.type === 0),
-                T: airportAtc.some(f => f.type === 1),
-                R: airportAtc.some(f => f.type === 4 || f.type === 5)
-            };
+            const hasGnd = airportAtc.some(f => f.type === 0);
+            const hasTwr = airportAtc.some(f => f.type === 1);
+            const hasApp = airportAtc.some(f => f.type === 4 || f.type === 5);
+            const hasAtis = airportAtc.some(f => f.type === 7);
 
-            const auraHtml = freqs.R ? `<div class="tag-pulse-aura"></div>` : '';
-            const freqHtml = `
-                <div class="apt-tag-freqs">
-                    ${freqs.A ? `<div class="freq-mini-badge f-atis">A</div>` : ''}
-                    ${freqs.G ? `<div class="freq-mini-badge f-gnd">G</div>` : ''}
-                    ${freqs.T ? `<div class="freq-mini-badge f-twr">T</div>` : ''}
-                    ${freqs.R ? `<div class="freq-mini-badge f-app">R</div>` : ''}
-                </div>`;
-
-            innerHTML = `
-                ${auraHtml}
-                <div class="apt-tag-extra">
-                    <div class="apt-tag-extra-item">Oldest Session</div>
-                    <div class="apt-tag-extra-val">${durationText}</div>
-                </div>
-                <div class="apt-tag-base">
-                    <div class="apt-tag-ident">${icao}</div>
-                    ${freqHtml}
-                </div>
-            `;
-        } else {
-            innerHTML = icao;
-        }
-
-        // --- Update Existing OR Create New ---
-        if (airportAndAtcMarkers[icao]) {
-            // ✅ Reuse the DOM element to massively boost performance
-            const el = airportAndAtcMarkers[icao].marker.getElement();
-            if (el.innerHTML !== innerHTML || el.className !== className) {
-                el.className = className;
-                el.innerHTML = innerHTML;
+            if (hasApp) {
+                const aura = document.createElement('div');
+                aura.className = 'tag-pulse-aura';
+                el.appendChild(aura);
             }
-            airportAndAtcMarkers[icao].hasAtc = hasAtc;
+
+            const extra = document.createElement('div');
+            extra.className = 'apt-tag-extra';
+            extra.innerHTML = `<div class="apt-tag-extra-item">Oldest Session</div><div class="apt-tag-extra-val">${durationText}</div>`;
+            el.appendChild(extra);
+
+            const base = document.createElement('div');
+            base.className = 'apt-tag-base';
+            base.innerHTML = `<div class="apt-tag-ident">${icao}</div>`;
+
+            const freqs = document.createElement('div');
+            freqs.className = 'apt-tag-freqs';
+            if (hasAtis) freqs.innerHTML += `<div class="freq-mini-badge f-atis">A</div>`;
+            if (hasGnd) freqs.innerHTML += `<div class="freq-mini-badge f-gnd">G</div>`;
+            if (hasTwr) freqs.innerHTML += `<div class="freq-mini-badge f-twr">T</div>`;
+            if (hasApp) freqs.innerHTML += `<div class="freq-mini-badge f-app">R</div>`;
+            
+            base.appendChild(freqs);
+            el.appendChild(base);
         } else {
-            // Create a brand new marker
-            const el = document.createElement('div');
-            el.className = className;
-            el.innerHTML = innerHTML;
-
-            el.addEventListener('mouseenter', () => {
-                window.isMouseOverAirportTag = true;
-                document.querySelectorAll('.mapboxgl-popup').forEach(p => p.remove());
-            });
-            el.addEventListener('mouseleave', () => window.isMouseOverAirportTag = false);
-            el.addEventListener('click', (e) => {
-                e.stopPropagation(); 
-                handleAirportClick(icao);
-            });
-
-            const marker = new mapboxgl.Marker({ element: el })
-                .setLngLat([airport.lon, airport.lat])
-                .addTo(sectorOpsMap);
-
-            airportAndAtcMarkers[icao] = { marker, hasAtc };
+            el.className += ' destination-marker';
+            el.textContent = icao;
         }
+
+        const marker = new mapboxgl.Marker({ element: el })
+            .setLngLat([airport.lon, airport.lat])
+            .addTo(sectorOpsMap);
+
+        // --- ADDED: Click Priority Logic ---
+        el.addEventListener('click', (e) => {
+            // Stop the click from reaching the Mapbox canvas layers (aircraft icons)
+            e.stopPropagation(); 
+            handleAirportClick(icao);
+        });
+
+        airportAndAtcMarkers[icao] = { marker, hasAtc };
     });
 
+    // 3. Update the high-performance background layer
     updateUnstaffedLayer(showUnstaffed, staffedIcaos);
 }
 
@@ -13199,30 +13201,40 @@ function updateUnstaffedLayer(show, excludeIcaos) {
 }
 
 
-// --- UPDATED: updateSectorOpsSecondaryData ---
+// --- [UPDATED] Fetches ATC & NOTAMs for the CURRENTLY SELECTED SERVER ---
 async function updateSectorOpsSecondaryData() {
     if (!sectorOpsMap || !sectorOpsMap.isStyleLoaded()) return;
+
     const LIVE_FLIGHTS_BACKEND = 'https://site--acars-backend--6dmjph8ltlhv.code.run';
 
     try {
         const sessionsRes = await fetch(`${LIVE_FLIGHTS_BACKEND}/if-sessions`);
-        if (!sessionsRes.ok) return;
+        if (!sessionsRes.ok) {
+            console.warn('Sector Ops Map: Could not fetch server sessions. Skipping secondary data update.');
+            return;
+        }
         const sessionsData = await sessionsRes.json();
+        
+        // [UPDATED] Use helper to get ID for currentServerName
         const targetSessionId = getCurrentSessionId(sessionsData);
-        if (!targetSessionId) return;
+
+        if (!targetSessionId) {
+            console.warn(`Sector Ops Map: Session ID not found for ${currentServerName}`);
+            return;
+        }
 
         const [atcRes, notamsRes] = await Promise.all([
             fetch(`${LIVE_FLIGHTS_BACKEND}/atc/${targetSessionId}`),
             fetch(`${LIVE_FLIGHTS_BACKEND}/notams/${targetSessionId}`)
         ]);
         
+        // Update ATC & NOTAMs
+        // Update ATC & NOTAMs
         if (atcRes.ok) {
             const atcData = await atcRes.json();
             activeAtcFacilities = (atcData.ok && Array.isArray(atcData.atc)) ? atcData.atc : [];
             
-            // ✅ NEW: Cache the ATC data so it loads instantly next time
-            localStorage.setItem(`atc_cache_${currentServerName}`, JSON.stringify(activeAtcFacilities));
-            
+            // --- FIX: Initial draw for FIRs if the map is ready ---
             if (sectorOpsMap && sectorOpsMap.getLayer('sector-ops-live-flights-layer')) {
                 const centerControllers = activeAtcFacilities.filter(f => f.type === 6);
                 if (typeof updateActiveSectors === 'function') {
@@ -13230,15 +13242,15 @@ async function updateSectorOpsSecondaryData() {
                 }
             }
         }
-        
         if (notamsRes.ok) {
             const notamsData = await notamsRes.json();
             activeNotams = (notamsData.ok && Array.isArray(notamsData.notams)) ? notamsData.notams : [];
         }
-
+        // Re-render airport markers with fresh ATC data
         renderAirportMarkers();
+
     } catch (error) {
-        console.error('Error updating Sector Ops secondary data:', error);
+        console.error('Error updating Sector Ops secondary data (ATC/NOTAMs):', error);
     }
 }
     // ====================================================================
