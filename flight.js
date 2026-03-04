@@ -4896,41 +4896,39 @@ function updateMapFilters() {
         });
     }
 
-    // 3. Apply Aircraft Icon Visuals (Color & Size)
     if (sectorOpsMap.getLayer('sector-ops-live-flights-layer')) {
     
-    // 1. Update the icon set (Keep using your existing icon expressions)
+    // 1. DECLARE VARIABLES FIRST (Fixes the ReferenceError crash)
+    const activeColor = (mapFilters.iconColorMode === 'default') 
+        ? mapFilters.proCustomColor 
+        : '#ffffff';
+
+    const iconSize = parseFloat(mapFilters.planeIconSize) || 0.05;
+
+    // 2. APPLY TO MAIN LAYER
     sectorOpsMap.setLayoutProperty(
         'sector-ops-live-flights-layer', 
         'icon-image', 
         getIconImageExpression(mapFilters.iconColorMode)
     );
-
-    if (sectorOpsMap.getLayer('sector-ops-live-flights-hover-layer')) {
-        sectorOpsMap.setLayoutProperty('sector-ops-live-flights-hover-layer', 'icon-image', getHoverIconImageExpression());
-        sectorOpsMap.setPaintProperty('sector-ops-live-flights-hover-layer', 'icon-color', activeColor);
-        sectorOpsMap.setLayoutProperty('sector-ops-live-flights-hover-layer', 'icon-size', iconSize);
-    }
-
-    // 2. APPLY THE CUSTOM COLOR (The Pro Feature)
-    // If the iconColorMode is set to 'default', apply the custom pro color.
-    // Otherwise, keep it white (since blue/orange are pre-baked)
-    const activeColor = (mapFilters.iconColorMode === 'default') 
-        ? mapFilters.proCustomColor 
-        : '#ffffff';
-
     sectorOpsMap.setPaintProperty(
         'sector-ops-live-flights-layer', 
         'icon-color', 
         activeColor
     );
-        const iconSize = parseFloat(mapFilters.planeIconSize) || 0.05;
-        sectorOpsMap.setLayoutProperty(
-            'sector-ops-live-flights-layer', 
-            'icon-size',
-            iconSize
-        );
+    sectorOpsMap.setLayoutProperty(
+        'sector-ops-live-flights-layer', 
+        'icon-size',
+        iconSize
+    );
+
+    // 3. APPLY TO HOVER LAYER
+    if (sectorOpsMap.getLayer('sector-ops-live-flights-hover-layer')) {
+        sectorOpsMap.setLayoutProperty('sector-ops-live-flights-hover-layer', 'icon-image', getHoverIconImageExpression());
+        sectorOpsMap.setPaintProperty('sector-ops-live-flights-hover-layer', 'icon-color', activeColor);
+        sectorOpsMap.setLayoutProperty('sector-ops-live-flights-hover-layer', 'icon-size', iconSize);
     }
+}
 
     // 4. Existing Logic
     GroupFlightManager.toggle(mapFilters.showGroupFlights);
