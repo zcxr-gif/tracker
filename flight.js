@@ -7926,8 +7926,8 @@ function initializeAircraftLayer() {
                     'interpolate',
                     ['linear'],
                     ['zoom'],
-                    0, 0.15,
-                    10, 0.35
+                    0, 0.50,
+                    10, 1.0
                 ],
                 // --- SIZE FIX END ---
 
