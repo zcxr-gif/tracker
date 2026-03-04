@@ -7904,12 +7904,12 @@ function initializeAircraftLayer() {
         });
     }
 
-    // 2. Initialize Animator if available
+    // 2. Initialize Animator
     if (typeof MapAnimator !== 'undefined' && !mapAnimator) {
         mapAnimator = new MapAnimator(sectorOpsMap, 'sector-ops-live-flights-source', currentMapFeatures);
     }
 
-    // 3. Add the Icon Layer (using the sprite sheet icons)
+    // 3. Add the Icon Layer
     if (!sectorOpsMap.getLayer('sector-ops-live-flights-layer')) {
         sectorOpsMap.addLayer({
             'id': 'sector-ops-live-flights-layer',
@@ -7917,7 +7917,20 @@ function initializeAircraftLayer() {
             'source': 'sector-ops-live-flights-source',
             'layout': {
                 'icon-image': getIconImageExpression(),
-                'icon-size': mapFilters.planeIconSize || 0.05,
+                
+                // --- SIZE FIX START ---
+                // We use an interpolation expression: 
+                // At zoom 0 (far away), size is 0.15
+                // At zoom 10 (closer), size is 0.35
+                'icon-size': [
+                    'interpolate',
+                    ['linear'],
+                    ['zoom'],
+                    0, 0.15,
+                    10, 0.35
+                ],
+                // --- SIZE FIX END ---
+
                 'icon-allow-overlap': true,
                 'icon-ignore-placement': true,
                 'icon-rotation-alignment': 'map',
@@ -7928,7 +7941,7 @@ function initializeAircraftLayer() {
             }
         });
 
-        // Click Listener for Aircraft
+        // Click Listener
         sectorOpsMap.on('click', 'sector-ops-live-flights-layer', (e) => {
             const props = e.features[0].properties;
             const flightProps = {
@@ -7944,7 +7957,6 @@ function initializeAircraftLayer() {
                 });
         });
 
-        // Hover popup logic
         const hoverPopup = new mapboxgl.Popup({ closeButton: false, closeOnClick: false, offset: 20 });
         sectorOpsMap.on('mouseenter', 'sector-ops-live-flights-layer', (e) => {
             if (window.isMouseOverAirportTag) return;
@@ -7960,7 +7972,7 @@ function initializeAircraftLayer() {
         });
     }
 
-    // 4. Add the Label Layer (Callsign/Phase)
+    // 4. Label Layer
     if (!sectorOpsMap.getLayer('sector-ops-live-flights-labels')) {
         sectorOpsMap.addLayer({
             id: 'sector-ops-live-flights-labels',
@@ -7970,8 +7982,8 @@ function initializeAircraftLayer() {
             layout: {
                 'visibility': mapFilters.showAircraftLabels ? 'visible' : 'none',
                 'text-field': ['format', ['get', 'callsign'], { 'text-color': '#FFFFFF' }, '\n', {}, ['get', 'phase'], { 'text-color': ['match', ['get', 'phase'], 'Climb', '#28a745', 'Cruise', '#007bff', 'Descent', '#ff9900', 'Approach', '#a33ea3', 'Ground', '#9fa8da', '#e8eaf6'] }],
-                'text-font': ['Mapbox Txt Regular', 'Arial Unicode MS Regular'],
-                'text-size': 10,
+                'text-font': ['Open Sans Semibold', 'Arial Unicode MS Bold'],
+                'text-size': 12,
                 'text-offset': [0, 2.5],
                 'text-anchor': 'top'
             },
