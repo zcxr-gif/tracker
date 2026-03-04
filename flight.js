@@ -7892,14 +7892,107 @@ function setupAircraftWindowEvents() {
     aircraftInfoWindow.dataset.eventsAttached = 'true';
 }
 
+function initializeAircraftLayer() {
+    if (!sectorOpsMap) return;
+
+    // 1. Ensure the GeoJSON source exists
+    if (!sectorOpsMap.getSource('sector-ops-live-flights-source')) {
+        sectorOpsMap.addSource('sector-ops-live-flights-source', {
+            type: 'geojson',
+            data: { type: 'FeatureCollection', features: [] },
+            generateId: true
+        });
+    }
+
+    // 2. Initialize Animator if available
+    if (typeof MapAnimator !== 'undefined' && !mapAnimator) {
+        mapAnimator = new MapAnimator(sectorOpsMap, 'sector-ops-live-flights-source', currentMapFeatures);
+    }
+
+    // 3. Add the Icon Layer (using the sprite sheet icons)
+    if (!sectorOpsMap.getLayer('sector-ops-live-flights-layer')) {
+        sectorOpsMap.addLayer({
+            'id': 'sector-ops-live-flights-layer',
+            'type': 'symbol',
+            'source': 'sector-ops-live-flights-source',
+            'layout': {
+                'icon-image': getIconImageExpression(),
+                'icon-size': mapFilters.planeIconSize || 0.05,
+                'icon-allow-overlap': true,
+                'icon-ignore-placement': true,
+                'icon-rotation-alignment': 'map',
+                'icon-rotate': ['get', 'heading']
+            },
+            'paint': {
+                'icon-color': (mapFilters.iconColorMode === 'default') ? (mapFilters.proCustomColor || '#38bdf8') : '#ffffff'
+            }
+        });
+
+        // Click Listener for Aircraft
+        sectorOpsMap.on('click', 'sector-ops-live-flights-layer', (e) => {
+            const props = e.features[0].properties;
+            const flightProps = {
+                ...props,
+                position: JSON.parse(props.position),
+                aircraft: JSON.parse(props.aircraft)
+            };
+            fetch('https://site--acars-backend--6dmjph8ltlhv.code.run/if-sessions')
+                .then(res => res.json())
+                .then(data => {
+                    const sessionId = getCurrentSessionId(data);
+                    if (sessionId) handleAircraftClick(flightProps, sessionId, e);
+                });
+        });
+
+        // Hover popup logic
+        const hoverPopup = new mapboxgl.Popup({ closeButton: false, closeOnClick: false, offset: 20 });
+        sectorOpsMap.on('mouseenter', 'sector-ops-live-flights-layer', (e) => {
+            if (window.isMouseOverAirportTag) return;
+            sectorOpsMap.getCanvas().style.cursor = 'pointer';
+            const feature = e.features[0];
+            if (typeof generateHoverCardHTML !== 'undefined') {
+                hoverPopup.setLngLat(feature.geometry.coordinates).setHTML(generateHoverCardHTML(feature.properties)).addTo(sectorOpsMap);
+            }
+        });
+        sectorOpsMap.on('mouseleave', 'sector-ops-live-flights-layer', () => {
+            sectorOpsMap.getCanvas().style.cursor = '';
+            hoverPopup.remove();
+        });
+    }
+
+    // 4. Add the Label Layer (Callsign/Phase)
+    if (!sectorOpsMap.getLayer('sector-ops-live-flights-labels')) {
+        sectorOpsMap.addLayer({
+            id: 'sector-ops-live-flights-labels',
+            type: 'symbol',
+            source: 'sector-ops-live-flights-source',
+            minzoom: 6.5,
+            layout: {
+                'visibility': mapFilters.showAircraftLabels ? 'visible' : 'none',
+                'text-field': ['format', ['get', 'callsign'], { 'text-color': '#FFFFFF' }, '\n', {}, ['get', 'phase'], { 'text-color': ['match', ['get', 'phase'], 'Climb', '#28a745', 'Cruise', '#007bff', 'Descent', '#ff9900', 'Approach', '#a33ea3', 'Ground', '#9fa8da', '#e8eaf6'] }],
+                'text-font': ['Mapbox Txt Regular', 'Arial Unicode MS Regular'],
+                'text-size': 10,
+                'text-offset': [0, 2.5],
+                'text-anchor': 'top'
+            },
+            paint: {
+                'text-halo-color': 'rgba(10, 12, 26, 0.85)',
+                'text-halo-width': 2
+            }
+        });
+    }
+}
+
 function getIconImageExpression() {
     return [
         'let',
-        // Use the category returned by getAircraftCategory, fallback to B737 if missing
         'baseCategory', ['coalesce', ['get', 'category'], 'B737'],
-        // Check for blue/orange highlight suffixes
-        'colorSuffix', ['coalesce', ['get', 'colorSuffix'], ''],
-        // Stitch it together, e.g., "icon-A380" or "icon-A380-blue"
+        'colorSuffix', [
+            'match', ['get', 'trafficType'],
+            'inbound', '-blue',
+            'outbound', '-orange',
+            '' // default suffix
+        ],
         ['concat', 'icon-', ['var', 'baseCategory'], ['var', 'colorSuffix']]
     ];
 }
@@ -9129,7 +9222,6 @@ window.globalNatTracks = natTracks;
 async function setupMapLayersAndFog() {
     if (!sectorOpsMap) return;
 
-    // 1. Set globe fog
     sectorOpsMap.setFog({
         'color': 'rgb(186, 210, 235)',
         'high-color': 'rgb(36, 92, 223)',
@@ -9138,20 +9230,17 @@ async function setupMapLayersAndFog() {
         'star-intensity': 0.3
     });
 
-    // 2. Generate icons from sprite sheet
-    // We call this once. It iterates through spriteUVs and registers 'icon-A380', etc.
+    // Load the sprite sheet once
     try {
         await loadSpriteSheetAndGenerateIcons(sectorOpsMap);
-        console.log("Aircraft sprites loaded and registered.");
     } catch (err) {
-        console.error("Failed to load sprite sheet:", err);
+        console.error("Sprite sheet failed to load:", err);
     }
 
-    // 3. Add boundaries and other layers
+    // Initialize boundaries
     await initializeMapBoundaries(sectorOpsMap);
 
-    // 4. Finally, initialize the aircraft layer
-    // This ensures icons are already in the map's memory before the layer tries to draw them
+    // Initialize the aircraft layers now that icons are ready
     initializeAircraftLayer();
 }
 
