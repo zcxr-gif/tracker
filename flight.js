@@ -5950,8 +5950,12 @@ sectorOpsSocket.on('secondary_data_update', (data) => {
     // Filter for Center controllers (Type 6)
     const centerControllers = activeAtcFacilities.filter(f => f.type === 6);
 
-    // This now uses coordinates to find the right FIR polygon on the map
-    updateActiveSectors(sectorOpsMap, 'fir-fills', centerControllers);
+    // --- FIX: Only draw sectors if the aircraft layer exists (prevents Mapbox crash) ---
+    if (sectorOpsMap && sectorOpsMap.getLayer('sector-ops-live-flights-layer')) {
+        if (typeof updateActiveSectors === 'function') {
+            updateActiveSectors(sectorOpsMap, 'fir-fills', centerControllers);
+        }
+    }
     
     renderAirportMarkers();
 });
@@ -7922,6 +7926,7 @@ function initializeAircraftLayer() {
     }
 
     // 3. Add the Icon Layer
+    // 3. Add the Icon Layer
     if (!sectorOpsMap.getLayer('sector-ops-live-flights-layer')) {
         sectorOpsMap.addLayer({
             'id': 'sector-ops-live-flights-layer',
@@ -7929,11 +7934,6 @@ function initializeAircraftLayer() {
             'source': 'sector-ops-live-flights-source',
             'layout': {
                 'icon-image': getIconImageExpression(),
-                
-                // --- SIZE FIX START ---
-                // We use an interpolation expression: 
-                // At zoom 0 (far away), size is 0.15
-                // At zoom 10 (closer), size is 0.35
                 'icon-size': [
                     'interpolate',
                     ['linear'],
@@ -7941,8 +7941,6 @@ function initializeAircraftLayer() {
                     0, 1.0,
                     10, 4.0
                 ],
-                // --- SIZE FIX END ---
-
                 'icon-allow-overlap': true,
                 'icon-ignore-placement': true,
                 'icon-rotation-alignment': 'map',
@@ -7952,6 +7950,14 @@ function initializeAircraftLayer() {
                 'icon-color': (mapFilters.iconColorMode === 'default') ? (mapFilters.proCustomColor || '#38bdf8') : '#ffffff'
             }
         });
+
+        // --- NEW FIX: Now that the layer exists, safely draw the active FIR sectors ---
+        if (activeAtcFacilities && activeAtcFacilities.length > 0) {
+            const centerControllers = activeAtcFacilities.filter(f => f.type === 6);
+            if (typeof updateActiveSectors === 'function') {
+                updateActiveSectors(sectorOpsMap, 'fir-fills', centerControllers);
+            }
+        }
 
         // Click Listener
         sectorOpsMap.on('click', 'sector-ops-live-flights-layer', (e) => {
@@ -13203,16 +13209,25 @@ async function updateSectorOpsSecondaryData() {
         ]);
         
         // Update ATC & NOTAMs
+        // Update ATC & NOTAMs
         if (atcRes.ok) {
             const atcData = await atcRes.json();
             activeAtcFacilities = (atcData.ok && Array.isArray(atcData.atc)) ? atcData.atc : [];
+            
+            // --- FIX: Initial draw for FIRs if the map is ready ---
+            if (sectorOpsMap && sectorOpsMap.getLayer('sector-ops-live-flights-layer')) {
+                const centerControllers = activeAtcFacilities.filter(f => f.type === 6);
+                if (typeof updateActiveSectors === 'function') {
+                    updateActiveSectors(sectorOpsMap, 'fir-fills', centerControllers);
+                }
+            }
         }
         if (notamsRes.ok) {
             const notamsData = await notamsRes.json();
             activeNotams = (notamsData.ok && Array.isArray(notamsData.notams)) ? notamsData.notams : [];
         }
         // Re-render airport markers with fresh ATC data
-        renderAirportMarkers(); 
+        renderAirportMarkers();
 
     } catch (error) {
         console.error('Error updating Sector Ops secondary data (ATC/NOTAMs):', error);
