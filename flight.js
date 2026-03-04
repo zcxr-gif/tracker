@@ -23,14 +23,12 @@ async function loadSpriteSheetAndGenerateIcons(map) {
         img.src = spriteUrl;
     });
 
-    // Create an off-screen canvas to act as our slicing board
     const canvas = document.createElement('canvas');
     const ctx = canvas.getContext('2d', { willReadFrequently: true });
     canvas.width = img.width;
     canvas.height = img.height;
     ctx.drawImage(img, 0, 0);
 
-    // Core mathematical tinting function for Blue/Orange states
     function generateTintedImageData(baseData, rTarget, gTarget, bTarget) {
         const tempCanvas = document.createElement('canvas');
         tempCanvas.width = baseData.width;
@@ -42,47 +40,49 @@ async function loadSpriteSheetAndGenerateIcons(map) {
         const data = imageData.data;
 
         for (let i = 0; i < data.length; i += 4) {
-            // Only apply tint to visible pixels (preserves the alpha channel for clean edges)
             if (data[i + 3] > 0) {
-                data[i] = Math.round((data[i] * rTarget) / 255);         // Red
-                data[i + 1] = Math.round((data[i + 1] * gTarget) / 255); // Green
-                data[i + 2] = Math.round((data[i + 2] * bTarget) / 255); // Blue
+                data[i] = Math.round((data[i] * rTarget) / 255);         
+                data[i + 1] = Math.round((data[i + 1] * gTarget) / 255); 
+                data[i + 2] = Math.round((data[i + 2] * bTarget) / 255); 
             }
         }
         return imageData;
     }
 
-    // Iterate directly over the imported object from plane-D2OPBxWC.js
+    // Target a consistent "logical" base size for all icons
+    // This makes the icon-size slider predictable regardless of sprite resolution.
+    const TARGET_LOGICAL_SIZE = 128; 
+
     for (const [iconKey, uvRatios] of Object.entries(spriteUVs)) {
         const [xRatio, yRatio, wRatio, hRatio] = uvRatios;
         
-        // Convert ratios to exact pixel coordinates based on the loaded image size
         const pixelX = Math.floor(xRatio * img.width);
         const pixelY = Math.floor(yRatio * img.height);
         const pixelW = Math.floor(wRatio * img.width);
         const pixelH = Math.floor(hRatio * img.height);
 
-        // Skip invalid dimensions to prevent canvas errors
         if (pixelW === 0 || pixelH === 0) continue;
 
-        // Extract the base icon pixel chunk
         const baseImageData = ctx.getImageData(pixelX, pixelY, pixelW, pixelH);
         
-        // 1. Register Base Icon (Default/White)
+        // Calculate ratio: if the sprite is 512px but we want it to behave like 128px, ratio is 4.
+        const pRatio = pixelW / TARGET_LOGICAL_SIZE;
+
+        // 1. Register Base Icon
         if (!map.hasImage(`icon-${iconKey}`)) {
-            map.addImage(`icon-${iconKey}`, baseImageData);
+            map.addImage(`icon-${iconKey}`, baseImageData, { pixelRatio: pRatio });
         }
 
-        // 2. Register Blue Tint (Inbound state) 
+        // 2. Register Blue Tint
         const blueData = generateTintedImageData(baseImageData, 59, 130, 246);
         if (!map.hasImage(`icon-${iconKey}-blue`)) {
-            map.addImage(`icon-${iconKey}-blue`, blueData);
+            map.addImage(`icon-${iconKey}-blue`, blueData, { pixelRatio: pRatio });
         }
 
-        // 3. Register Orange Tint (Outbound state) 
+        // 3. Register Orange Tint
         const orangeData = generateTintedImageData(baseImageData, 249, 115, 22);
         if (!map.hasImage(`icon-${iconKey}-orange`)) {
-            map.addImage(`icon-${iconKey}-orange`, orangeData);
+            map.addImage(`icon-${iconKey}-orange`, orangeData, { pixelRatio: pRatio });
         }
     }
 }
@@ -8577,7 +8577,8 @@ const SettingsUI = {
                                     ${Math.round(mapFilters.planeIconSize * 100)}%
                                 </span>
                             </div>
-                            <input type="range" id="set-plane-size" min="0.02" max="0.15" step="0.01" value="${mapFilters.planeIconSize}" style="width: 100%;">
+                            // Change the range from 0.02-0.15 to 0.1-1.0
+<input type="range" id="set-plane-size" min="0.1" max="1.0" step="0.05" value="${mapFilters.planeIconSize}" style="width: 100%;">
                         </div>
 
                         <div class="settings-row">
