@@ -4906,6 +4906,12 @@ function updateMapFilters() {
         getIconImageExpression(mapFilters.iconColorMode)
     );
 
+    if (sectorOpsMap.getLayer('sector-ops-live-flights-hover-layer')) {
+        sectorOpsMap.setLayoutProperty('sector-ops-live-flights-hover-layer', 'icon-image', getHoverIconImageExpression());
+        sectorOpsMap.setPaintProperty('sector-ops-live-flights-hover-layer', 'icon-color', activeColor);
+        sectorOpsMap.setLayoutProperty('sector-ops-live-flights-hover-layer', 'icon-size', iconSize);
+    }
+
     // 2. APPLY THE CUSTOM COLOR (The Pro Feature)
     // If the iconColorMode is set to 'default', apply the custom pro color.
     // Otherwise, keep it white (since blue/orange are pre-baked)
@@ -7926,7 +7932,6 @@ function initializeAircraftLayer() {
     }
 
     // 3. Add the Icon Layer
-    // 3. Add the Icon Layer
     if (!sectorOpsMap.getLayer('sector-ops-live-flights-layer')) {
         sectorOpsMap.addLayer({
             'id': 'sector-ops-live-flights-layer',
@@ -7940,6 +7945,27 @@ function initializeAircraftLayer() {
                     ['zoom'],
                     0, 1.0,
                     10, 4.0
+                ],
+                'icon-allow-overlap': true,
+                'icon-ignore-placement': true,
+                'icon-rotation-alignment': 'map',
+                'icon-rotate': ['get', 'heading']
+            },
+            'paint': {
+                'icon-color': (mapFilters.iconColorMode === 'default') ? (mapFilters.proCustomColor || '#38bdf8') : '#ffffff'
+            }
+        });
+
+        sectorOpsMap.addLayer({
+            'id': 'sector-ops-live-flights-hover-layer',
+            'type': 'symbol',
+            'source': 'sector-ops-live-flights-source',
+            'filter': ['==', 'flightId', ''], // Hides everything by default!
+            'layout': {
+                'icon-image': getHoverIconImageExpression(), // Uses the _S expression
+                'icon-size': [
+                    'interpolate', ['linear'], ['zoom'],
+                    0, 1.0, 10, 4.0
                 ],
                 'icon-allow-overlap': true,
                 'icon-ignore-placement': true,
@@ -8017,19 +8043,28 @@ function getIconImageExpression() {
     return [
         'let',
         'baseCategory', ['coalesce', ['get', 'category'], 'B737'],
-        
-        // --- NEW: Check if hovered. If true, append _S ---
-        'hoverSuffix', ['case', ['boolean', ['feature-state', 'hover'], false], '_S', ''],
-        
         'colorSuffix', [
             'match', ['get', 'trafficType'],
             'inbound', '-blue',
             'outbound', '-orange',
-            '' // default suffix
+            '' 
         ],
-        
-        // --- UPDATED: Concatenate all parts (e.g., icon-B737_S-blue) ---
-        ['concat', 'icon-', ['var', 'baseCategory'], ['var', 'hoverSuffix'], ['var', 'colorSuffix']]
+        ['concat', 'icon-', ['var', 'baseCategory'], ['var', 'colorSuffix']]
+    ];
+}
+
+// --- NEW: Forces the _S suffix for the phantom hover layer ---
+function getHoverIconImageExpression() {
+    return [
+        'let',
+        'baseCategory', ['coalesce', ['get', 'category'], 'B737'],
+        'colorSuffix', [
+            'match', ['get', 'trafficType'],
+            'inbound', '-blue',
+            'outbound', '-orange',
+            ''
+        ],
+        ['concat', 'icon-', ['var', 'baseCategory'], '_S', ['var', 'colorSuffix']]
     ];
 }
 
@@ -12194,7 +12229,7 @@ function setupFlightHoverPopups() {
         className: 'flight-hover-popup'
     });
 
-    let hoveredStateId = null; // <-- NEW: Tracks the currently hovered plane
+    let hoveredFlightId = null; // Tracks the currently highlighted flight
 
     sectorOpsMap.on('mouseenter', 'sector-ops-live-flights-layer', (e) => {
         const isHoverDevice = window.matchMedia('(hover: hover)').matches;
@@ -12251,22 +12286,12 @@ function setupFlightHoverPopups() {
         if (window.matchMedia('(hover: hover)').matches) {
             if (hoverPopup.isOpen()) hoverPopup.setLngLat(e.lngLat);
 
-            // --- NEW: Apply Highlight State dynamically as cursor moves ---
+            // --- FIX: Filter the phantom layer to show the highlight ---
             if (e.features.length > 0) {
-                const featureId = e.features[0].id;
-                
-                if (hoveredStateId !== featureId) {
-                    if (hoveredStateId !== null) {
-                        sectorOpsMap.setFeatureState(
-                            { source: 'sector-ops-live-flights-source', id: hoveredStateId },
-                            { hover: false }
-                        );
-                    }
-                    hoveredStateId = featureId;
-                    sectorOpsMap.setFeatureState(
-                        { source: 'sector-ops-live-flights-source', id: hoveredStateId },
-                        { hover: true }
-                    );
+                const flightId = e.features[0].properties.flightId;
+                if (hoveredFlightId !== flightId) {
+                    hoveredFlightId = flightId;
+                    sectorOpsMap.setFilter('sector-ops-live-flights-hover-layer', ['==', 'flightId', hoveredFlightId]);
                 }
             }
         }
@@ -12276,14 +12301,11 @@ function setupFlightHoverPopups() {
         sectorOpsMap.getCanvas().style.cursor = '';
         hoverPopup.remove();
 
-        // --- NEW: Remove Highlight State when mouse leaves plane ---
-        if (hoveredStateId !== null) {
-            sectorOpsMap.setFeatureState(
-                { source: 'sector-ops-live-flights-source', id: hoveredStateId },
-                { hover: false }
-            );
+        // --- FIX: Clear the filter to hide the highlight ---
+        if (hoveredFlightId !== null) {
+            hoveredFlightId = null;
+            sectorOpsMap.setFilter('sector-ops-live-flights-hover-layer', ['==', 'flightId', '']);
         }
-        hoveredStateId = null;
     });
 }
 
