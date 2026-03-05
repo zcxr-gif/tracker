@@ -3577,6 +3577,8 @@ function injectCustomStyles() {
  * @param {Array} flownPath - The array of trail points [{lat, lon}, ...] for the flight.
  * @returns {Promise<{departureGate: string, arrivalGate: string}>} The resolved gate names.
  */
+const gateCache = new Map();
+
 async function determineGatesForFlight(departureIcao, flownPath) {
     let departureGate = '---';
     let arrivalGate = '---'; // Left blank for now
@@ -3595,13 +3597,18 @@ async function determineGatesForFlight(departureIcao, flownPath) {
     }
 
     try {
-        // 2. Fetch the gates from the MongoDB-backed endpoint
-        const response = await fetch(`https://site--indgo-backend--6dmjph8ltlhv.code.run/api/gates/${departureIcao}`);
-        if (!response.ok) {
-            return { departureGate, arrivalGate };
+        let gates;
+        // 2. Fetch the gates from the MongoDB-backed endpoint or Cache
+        if (gateCache.has(departureIcao)) {
+            gates = gateCache.get(departureIcao);
+        } else {
+            const response = await fetch(`https://site--indgo-backend--6dmjph8ltlhv.code.run/api/gates/${departureIcao}`);
+            if (!response.ok) {
+                return { departureGate, arrivalGate };
+            }
+            gates = await response.json();
+            gateCache.set(departureIcao, gates);
         }
-
-        const gates = await response.json();
         
         if (!gates || gates.length === 0) {
             return { departureGate, arrivalGate };
@@ -5552,20 +5559,15 @@ async function fetchAndDisplayWeather() {
     }
 }
 
-    /**
-     * Calculates the distance between two coordinates in kilometers using the Haversine formula.
-     */
-    function getDistanceKm(lat1, lon1, lat2, lon2) {
-      const R = 6371; // Radius of the Earth in km
-      const toRad = (v) => (v * Math.PI) / 180;
-      const dLat = toRad(lat2 - lat1);
-      const dLon = toRad(lon2 - lon1);
-      const a =
-        Math.sin(dLat / 2) ** 2 +
-        Math.cos(toRad(lat1)) * Math.cos(toRad(lat2)) * Math.sin(dLon / 2) ** 2;
-      const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
-      return R * c;
-    }
+function getDistanceKm(lat1, lon1, lat2, lon2) {
+    const R = 6371; // Radius of the Earth in km
+    const toRad = Math.PI / 180;
+    const dLat = (lat2 - lat1) * toRad;
+    const dLon = (lon2 - lon1) * toRad;
+    const a = Math.sin(dLat / 2) ** 2 + Math.cos(lat1 * toRad) * Math.cos(lat2 * toRad) * Math.sin(dLon / 2) ** 2;
+    const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+    return R * c;
+}
 
 /**
  * --- [NEW] Unwraps coordinates to prevent Date Line issues ---
@@ -5683,27 +5685,26 @@ function calculateTas(alt_ft, oat_c, gs_kt) {
  * @returns {{lat: number, lon: number}} The intermediate point's coordinates.
  */
 function getIntermediatePoint(lat1, lon1, lat2, lon2, fraction) {
-    const toRad = (v) => v * Math.PI / 180;
-    const toDeg = (v) => v * 180 / Math.PI;
-
-    const lat1Rad = toRad(lat1);
-    const lon1Rad = toRad(lon1);
-    const lat2Rad = toRad(lat2);
-    const lon2Rad = toRad(lon2);
-
+    const toRad = Math.PI / 180;
+    const toDeg = 180 / Math.PI;
+    const lat1Rad = lat1 * toRad;
+    const lon1Rad = lon1 * toRad;
+    const lat2Rad = lat2 * toRad;
+    const lon2Rad = lon2 * toRad;
     const d = getDistanceKm(lat1, lon1, lat2, lon2) / 6371; // Angular distance in radians
-
-    const a = Math.sin((1 - fraction) * d) / Math.sin(d);
-    const b = Math.sin(fraction * d) / Math.sin(d);
-
+    
+    // Protect against division by zero if points are identical
+    if (d === 0) return { lat: lat1, lon: lon1 };
+    
+    const sinD = Math.sin(d);
+    const a = Math.sin((1 - fraction) * d) / sinD;
+    const b = Math.sin(fraction * d) / sinD;
     const x = a * Math.cos(lat1Rad) * Math.cos(lon1Rad) + b * Math.cos(lat2Rad) * Math.cos(lon2Rad);
     const y = a * Math.cos(lat1Rad) * Math.sin(lon1Rad) + b * Math.cos(lat2Rad) * Math.sin(lon2Rad);
     const z = a * Math.sin(lat1Rad) + b * Math.sin(lat2Rad);
-
-    const latI = toDeg(Math.atan2(z, Math.sqrt(x * x + y * y)));
-    const lonI = toDeg(Math.atan2(y, x));
-
-    return { lat: latI, lon: lonI };
+    const intLat = Math.atan2(z, Math.sqrt(x * x + y * y));
+    const intLon = Math.atan2(y, x);
+    return { lat: intLat * toDeg, lon: intLon * toDeg };
 }
 
 /**
@@ -6113,54 +6114,44 @@ sectorOpsSocket.on('secondary_data_update', (data) => {
  * @returns {Array<[number, number]>} Densified coordinates.
  */
 function densifyRoute(coordinates, maxSegmentLengthKm = 100) {
-    if (!coordinates || coordinates.length < 2) return coordinates || [];
-
+    if (!coordinates || coordinates.length < 2) return coordinates;
     const densified = [coordinates[0]];
-
+    const toRad = Math.PI / 180;
+    
     for (let i = 0; i < coordinates.length - 1; i++) {
         const start = coordinates[i];
         const end = coordinates[i + 1];
         
-        // Handle potential unwrapped coordinates (if > 180 or < -180)
-        // We normalize them for the distance calc, but keep the raw value for the array
-        const lon1 = start[0];
-        const lat1 = start[1];
-        const lon2 = end[0];
-        const lat2 = end[1];
-
-        const distKm = getDistanceKm(lat1, lon1, lat2, lon2);
-
-        // If segment is long, add intermediate points
+        // Fast equirectangular approximation for initial distance check to avoid heavy math
+        const lat1 = start[1] * toRad;
+        const lat2 = end[1] * toRad;
+        const lon1 = start[0] * toRad;
+        const lon2 = end[0] * toRad;
+        
+        const x = (lon2 - lon1) * Math.cos((lat1 + lat2) / 2);
+        const y = lat2 - lat1;
+        const distKm = Math.sqrt(x * x + y * y) * 6371;
+        
         if (distKm > maxSegmentLengthKm) {
-            const numSteps = Math.ceil(distKm / maxSegmentLengthKm);
-            
-            for (let j = 1; j < numSteps; j++) {
-                const fraction = j / numSteps;
-                // getIntermediatePoint calculates the Great Circle position
-                const intermediate = getIntermediatePoint(lat1, lon1, lat2, lon2, fraction);
+            const steps = Math.ceil(distKm / maxSegmentLengthKm);
+            for (let j = 1; j < steps; j++) {
+                const fraction = j / steps;
+                const intermediate = getIntermediatePoint(start[1], start[0], end[1], end[0], fraction);
                 
-                // --- [FIX] Handle Date Line Unwrapping during interpolation ---
-                // If the original segment was crossing the date line (unwrapped),
-                // we need to ensure the intermediate points follow that unwrap logic.
-                let newLon = intermediate.lon;
+                // Maintain the 'unwrapped' longitude continuity
+                let lon = intermediate.lon;
+                let prevLon = densified[densified.length - 1][0];
+                let delta = lon - (prevLon % 360);
                 
-                // Simple check: if start is ~179 and end is ~181 (unwrapped), 
-                // intermediate shouldn't be -179.
-                // We assume getIntermediatePoint returns normalized -180 to 180.
-                // We re-apply the unwrap logic relative to the previous point.
-                const prevLon = densified[densified.length - 1][0];
-                let delta = newLon - (prevLon % 360);
+                // Optimized wrap math
                 if (delta > 180) delta -= 360;
-                if (delta < -180) delta += 360;
+                else if (delta < -180) delta += 360;
                 
                 densified.push([prevLon + delta, intermediate.lat]);
             }
         }
-        
-        // Always add the original end point
         densified.push(end);
     }
-
     return densified;
 }
 
@@ -10014,7 +10005,6 @@ function densifyRoute(coordinates, maxSegmentLengthKm = 100) {
 function generateSmoothPath(points, tension = 0.5) {
     if (points.length < 4) return points;
     const result = [];
-
     const interpolate = (p0, p1, p2, p3, t) => {
         const t2 = t * t;
         const t3 = t2 * t;
@@ -10033,20 +10023,20 @@ function generateSmoothPath(points, tension = 0.5) {
         const p2 = points[i + 1];
         const p3 = points[i + 2 >= points.length ? i + 1 : i + 2];
 
-        // --- THE FIX: Increase Resolution ---
+        // --- THE FIX: Optimize Resolution ---
         // Calculate distance in degrees for scaling
         const d = Math.sqrt(Math.pow(p2.unwrappedLon - p1.unwrappedLon, 2) + Math.pow(p2.lat - p1.lat, 2));
 
-// Boost steps further (e.g., multiplier from 25 to 50, min from 12 to 24)
-const steps = Math.max(24, Math.floor(d * 50)); 
-
-for (let t = 0; t < 1; t += 1 / steps) {
-    result.push({
-        unwrappedLon: interpolate(p0.unwrappedLon, p1.unwrappedLon, p2.unwrappedLon, p3.unwrappedLon, t),
-        lat: interpolate(p0.lat, p1.lat, p2.lat, p3.lat, t),
-        alt: p1.alt + (p2.alt - p1.alt) * t 
-    });
-}
+        // Massively reduced steps to prevent UI freezing. Max 10 steps per segment instead of 2500+.
+        const steps = Math.max(2, Math.min(10, Math.floor(d * 2))); 
+        
+        for (let t = 0; t < 1; t += 1 / steps) {
+            result.push({
+                unwrappedLon: interpolate(p0.unwrappedLon, p1.unwrappedLon, p2.unwrappedLon, p3.unwrappedLon, t),
+                lat: interpolate(p0.lat, p1.lat, p2.lat, p3.lat, t),
+                alt: p1.alt + (p2.alt - p1.alt) * t
+            });
+        }
     }
     result.push(points[points.length - 1]);
     return result;
