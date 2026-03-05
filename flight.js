@@ -3570,6 +3570,136 @@ function injectCustomStyles() {
     document.head.appendChild(style);
 }
 
+/**
+ * Calculates the departure gate based on the closest proximity to the start of the flown path.
+ * Leaves the arrival gate blank as a placeholder for future implementation.
+ * @param {string} departureIcao - The 4-letter ICAO code of the departure airport.
+ * @param {Array} flownPath - The array of trail points [{lat, lon}, ...] for the flight.
+ * @returns {Promise<{departureGate: string, arrivalGate: string}>} The resolved gate names.
+ */
+async function determineGatesForFlight(departureIcao, flownPath) {
+    let departureGate = '---';
+    let arrivalGate = '---'; // Left blank for now
+
+    if (!departureIcao || !flownPath || flownPath.length === 0) {
+        return { departureGate, arrivalGate };
+    }
+
+    // 1. Get the starting point of the flight (first recorded point in the trail)
+    const startPoint = flownPath[0];
+    const startLat = startPoint.lat !== undefined ? startPoint.lat : startPoint.latitude;
+    const startLon = startPoint.lon !== undefined ? startPoint.lon : startPoint.longitude;
+
+    if (startLat === undefined || startLon === undefined) {
+        return { departureGate, arrivalGate };
+    }
+
+    try {
+        // 2. Fetch the gates from the MongoDB-backed endpoint
+        const response = await fetch(`/api/gates/${departureIcao}`);
+        if (!response.ok) {
+            return { departureGate, arrivalGate };
+        }
+
+        const gates = await response.json();
+        
+        if (!gates || gates.length === 0) {
+            return { departureGate, arrivalGate };
+        }
+
+        let nearestGate = null;
+        let minDistance = Infinity;
+
+        // 3. Iterate through all gates to find the closest one to the start point
+        gates.forEach(gate => {
+            const gateLat = gate.latitude || gate.lat || (gate.location && gate.location.lat) || (gate.location && gate.location.latitude);
+            const gateLon = gate.longitude || gate.lon || (gate.location && gate.location.lon) || (gate.location && gate.location.longitude);
+
+            if (gateLat != null && gateLon != null) {
+                // Utilizing the existing getDistanceKm helper function
+                const distance = getDistanceKm(startLat, startLon, gateLat, gateLon);
+                
+                if (distance < minDistance) {
+                    minDistance = distance;
+                    nearestGate = gate;
+                }
+            }
+        });
+
+        // 4. Set the departure gate to the nearest one found
+        if (nearestGate) {
+            departureGate = nearestGate.name || nearestGate.ident || nearestGate.gateName || nearestGate.id || 'GATE';
+        }
+
+    } catch (error) {
+        console.error(`Error calculating departure gate for ${departureIcao}:`, error);
+    }
+
+    return { departureGate, arrivalGate };
+}
+
+/**
+ * Dynamically injects the gate info into the existing flight info bar layout.
+ * Finds the HTML nodes and injects pills that show a "Loading" state until the math finishes.
+ * @param {string} departureIcao - The 4-letter ICAO of the origin.
+ * @param {Array} flownPath - The array of trail points.
+ */
+function injectGateInfoUI(departureIcao, flownPath) {
+    const routeBar = document.querySelector('.ac-route-info-bar');
+    if (!routeBar) return;
+
+    // 1. Locate the left (Departure) and right (Arrival) node containers
+    const depNode = routeBar.querySelector('.route-node:not(.end)');
+    const arrNode = routeBar.querySelector('.route-node.end');
+
+    // 2. Inject the Departure Gate HTML if it doesn't already exist
+    if (depNode) {
+        depNode.style.display = 'flex';
+        depNode.style.flexDirection = 'column';
+        
+        let depGateEl = document.getElementById('ac-dep-gate');
+        if (!depGateEl) {
+            depGateEl = document.createElement('span');
+            depGateEl.id = 'ac-dep-gate';
+            depGateEl.style.cssText = 'color: #cbd5e1; font-size: 10px; font-weight: 700; margin-top: 4px; background: rgba(0,0,0,0.2); padding: 2px 6px; border-radius: 4px; width: fit-content; display: inline-block;';
+            depGateEl.innerHTML = '<i class="fa-solid fa-door-open"></i> Calc...';
+            depNode.appendChild(depGateEl);
+        }
+    }
+
+    // 3. Inject the Arrival Gate HTML if it doesn't already exist
+    if (arrNode) {
+        arrNode.style.display = 'flex';
+        arrNode.style.flexDirection = 'column';
+        arrNode.style.alignItems = 'flex-end'; // Keep it aligned to the right side
+        
+        let arrGateEl = document.getElementById('ac-arr-gate');
+        if (!arrGateEl) {
+            arrGateEl = document.createElement('span');
+            arrGateEl.id = 'ac-arr-gate';
+            arrGateEl.style.cssText = 'color: #cbd5e1; font-size: 10px; font-weight: 700; margin-top: 4px; background: rgba(0,0,0,0.2); padding: 2px 6px; border-radius: 4px; width: fit-content; display: inline-block;';
+            arrGateEl.innerHTML = '<i class="fa-solid fa-door-closed"></i> ---';
+            arrNode.appendChild(arrGateEl);
+        }
+    }
+
+    // 4. Execute the logic and update the UI when the nearest gate is found
+    determineGatesForFlight(departureIcao, flownPath).then(gates => {
+        const depGateEl = document.getElementById('ac-dep-gate');
+        const arrGateEl = document.getElementById('ac-arr-gate');
+        
+        if (depGateEl) {
+            depGateEl.innerHTML = gates.departureGate !== '---' 
+                ? `<i class="fa-solid fa-door-open"></i> Gate ${gates.departureGate}` 
+                : `<i class="fa-solid fa-door-open"></i> Gate ---`;
+        }
+        
+        if (arrGateEl) {
+            arrGateEl.innerHTML = `<i class="fa-solid fa-door-closed"></i> Gate ${gates.arrivalGate}`;
+        }
+    });
+}
+
 function createFlightMarker(flight) {
     if (!map) return null;
 
@@ -3644,7 +3774,7 @@ async function initializeMapBoundaries(map) {
     if (!map) return;
 
     try {
-        // 1. Switched to local GeoJSON as requested
+        // 1. Switched to local GeoJSON
         if (!map.getSource('fir-boundaries')) {
             map.addSource('fir-boundaries', {
                 type: 'geojson',
@@ -11928,6 +12058,9 @@ function updateAircraftInfoWindow(baseProps, plan, sortedRoutePoints) {
             rulesDisplay.textContent = "RULES UNKNOWN";
         }
     }
+
+    injectGateInfoUI(departureIcao, sortedRoutePoints);
+
 }
 
 
