@@ -10147,15 +10147,20 @@ async function handleAircraftClick(flightProps, sessionId, event = null) {
     // --- BALANCE LOGIC: Prioritize Airport ---
     // If there is an event, check if an airport marker is also at this location
     if (event && sectorOpsMap) {
-        const airportFeatures = sectorOpsMap.queryRenderedFeatures(event.point, {
-            // Adjust 'airport-symbols-layer' to match your specific airport layer ID
-            layers: ['airport-symbols-layer', 'airport-label-layer'] 
-        });
+        // FIX: Check if layers exist before querying to prevent Mapbox crash
+        const targetLayers = ['airport-symbols-layer', 'airport-label-layer'];
+        const existingLayers = targetLayers.filter(layerId => sectorOpsMap.getLayer(layerId));
 
-        if (airportFeatures.length > 0) {
-            // An airport is here! Yield to the airport click handler and stop aircraft logic.
-            console.log("Airport detected at click point, prioritizing airport over aircraft.");
-            return; 
+        if (existingLayers.length > 0) {
+            const airportFeatures = sectorOpsMap.queryRenderedFeatures(event.point, {
+                layers: existingLayers
+            });
+            
+            if (airportFeatures.length > 0) {
+                // An airport is here! Yield to the airport click handler and stop aircraft logic.
+                console.log("Airport detected at click point, prioritizing airport over aircraft.");
+                return;
+            }
         }
     }
 
@@ -10169,6 +10174,7 @@ async function handleAircraftClick(flightProps, sessionId, event = null) {
     if (typeof trackPilotView === 'function') trackPilotView(flightProps);
 
     if (isAircraftWindowLoading) return;
+
     if (currentFlightInWindow === flightProps.flightId && aircraftInfoWindow.classList.contains('visible')) {
         return;
     }
@@ -10176,8 +10182,16 @@ async function handleAircraftClick(flightProps, sessionId, event = null) {
     isAircraftWindowLoading = true;
 
     // Reset Intervals and State
-    if (activePfdUpdateInterval) { clearInterval(activePfdUpdateInterval); activePfdUpdateInterval = null; }
-    if (activeGeocodeUpdateInterval) { clearInterval(activeGeocodeUpdateInterval); activeGeocodeUpdateInterval = null; }
+    if (activePfdUpdateInterval) {
+        clearInterval(activePfdUpdateInterval);
+        activePfdUpdateInterval = null;
+    }
+
+    if (activeGeocodeUpdateInterval) {
+        clearInterval(activeGeocodeUpdateInterval);
+        activeGeocodeUpdateInterval = null;
+    }
+
     if (typeof resetPfdState === 'function') resetPfdState();
 
     if (currentFlightInWindow && currentFlightInWindow !== flightProps.flightId) {
@@ -10194,6 +10208,7 @@ async function handleAircraftClick(flightProps, sessionId, event = null) {
     } else {
         aircraftInfoWindow.classList.add('visible');
     }
+
     if (typeof aircraftInfoWindowRecallBtn !== 'undefined' && aircraftInfoWindowRecallBtn) {
         aircraftInfoWindowRecallBtn.classList.remove('visible');
     }
@@ -10211,7 +10226,7 @@ async function handleAircraftClick(flightProps, sessionId, event = null) {
     try {
         const acName = flightProps.aircraft?.aircraftName || '';
         const livName = flightProps.aircraft?.liveryName || '';
-        
+
         const [planRes, routeRes, aircraftLookupRes] = await Promise.all([
             fetch(`${LIVE_FLIGHTS_API_URL}/${sessionId}/${flightProps.flightId}/plan`),
             fetch(`${LIVE_FLIGHTS_API_URL.replace('/flights', '/api/flights')}/${flightProps.flightId}/history`),
@@ -10220,36 +10235,42 @@ async function handleAircraftClick(flightProps, sessionId, event = null) {
 
         const planData = planRes.ok ? await planRes.json() : null;
         const plan = (planData && planData.ok) ? planData.plan : null;
+
         const routeData = routeRes.ok ? await routeRes.json() : null;
         let communityAircraftData = aircraftLookupRes.ok ? await aircraftLookupRes.json() : null;
 
         let sortedRoutePoints = [];
-// Updated to check for the new .path property from the history endpoint
-const historyArray = routeData?.path || routeData?.route || [];
-
-if (routeData && routeData.ok && Array.isArray(historyArray)) {
-    sortedRoutePoints = historyArray.sort((a, b) => new Date(a.date) - new Date(b.date));
-}
+        
+        // Updated to check for the new .path property from the history endpoint
+        const historyArray = routeData?.path || routeData?.route || [];
+        if (routeData && routeData.ok && Array.isArray(historyArray)) {
+            sortedRoutePoints = historyArray.sort((a, b) => new Date(a.date) - new Date(b.date));
+        }
 
         if (typeof liveTrailCache !== 'undefined') liveTrailCache.set(flightProps.flightId, sortedRoutePoints);
+        
         cachedFlightDataForStatsView = { flightProps, plan };
 
         if (typeof FlownPath3D !== 'undefined') {
-    FlownPath3D.updatePath(
-        sectorOpsMap, 
-        flightProps.flightId, 
-        sortedRoutePoints, 
-        mapFilters.show3DPath
-    );
-}
+            FlownPath3D.updatePath(
+                sectorOpsMap,
+                flightProps.flightId,
+                sortedRoutePoints,
+                mapFilters.show3DPath
+            );
+        }
 
         // Render UI
         if (typeof mapFilters !== 'undefined' && mapFilters.useSimpleFlightWindow) {
             windowEl.style.width = '420px';
             windowEl.innerHTML = `<iframe id="simple-flight-window-frame" src="flightinfo.html" style="width:100%; flex-grow: 1; border:none;" scrolling="no"></iframe>`;
+            
             const simpleData = formatDataForSimpleWindow(flightProps, plan, sortedRoutePoints, communityAircraftData);
             const iframe = document.getElementById('simple-flight-window-frame');
-            iframe.onload = () => iframe.contentWindow.postMessage({ type: 'FLIGHT_DATA_UPDATE', payload: simpleData }, '*');
+            iframe.onload = () => iframe.contentWindow.postMessage({
+                type: 'FLIGHT_DATA_UPDATE',
+                payload: simpleData
+            }, '*');
         } else if (typeof populateAircraftInfoWindow === 'function') {
             populateAircraftInfoWindow(flightProps, plan, sortedRoutePoints, communityAircraftData);
         }
@@ -10258,64 +10279,65 @@ if (routeData && routeData.ok && Array.isArray(historyArray)) {
         if (typeof fetchAndDisplayGeocode === 'function') {
             fetchAndDisplayGeocode(flightProps.position.lat, flightProps.position.lon);
         }
-        
+
         let rawCoords = sortedRoutePoints.map(p => [p.lon ?? p.longitude, p.lat ?? p.latitude]);
-rawCoords.push([flightProps.position.lon, flightProps.position.lat]);
+        rawCoords.push([flightProps.position.lon, flightProps.position.lat]);
 
-// 2. Process for map stability (Unwrap Date Line + Densify for Globe)
-// Use your existing helper functions from the script
-const unwrappedCoords = unwrapLineCoordinates(rawCoords);
-const sortedCoordinates = densifyRoute(unwrappedCoords, 100); 
+        // 2. Process for map stability (Unwrap Date Line + Densify for Globe)
+        const unwrappedCoords = unwrapLineCoordinates(rawCoords);
+        const sortedCoordinates = densifyRoute(unwrappedCoords, 100);
 
-// 3. Add the Single-Source with lineMetrics enabled
-const flownLayerId = `flown-path-${flightProps.flightId}`;
-if (!sectorOpsMap.getSource(flownLayerId)) {
-    sectorOpsMap.addSource(flownLayerId, {
-        type: 'geojson',
-        data: {
-            type: 'Feature',
-            geometry: {
-                type: 'LineString',
-                coordinates: sortedCoordinates
-            }
-        },
-        lineMetrics: true // REQUIRED for gradients
-    });
+        // 3. Add the Single-Source with lineMetrics enabled
+        const flownLayerId = `flown-path-${flightProps.flightId}`;
+        if (!sectorOpsMap.getSource(flownLayerId)) {
+            sectorOpsMap.addSource(flownLayerId, {
+                type: 'geojson',
+                data: {
+                    type: 'Feature',
+                    geometry: {
+                        type: 'LineString',
+                        coordinates: sortedCoordinates
+                    }
+                },
+                lineMetrics: true // REQUIRED for gradients
+            });
 
-    // 4. Add the Gradient Layer
-    sectorOpsMap.addLayer({
-        id: flownLayerId,
-        type: 'line',
-        source: flownLayerId,
-        paint: {
-            'line-width': 2, 
-    // Slightly more transparent for a lighter feel
-    'line-opacity': 1, 
-    'line-gradient': [
-        'interpolate',
-        ['linear'],
-        ['line-progress'],
-        0.0, '#FFCC80', // Start / Ground: Light Orange
-        0.1, '#FFF59D', // Initial Climb: Yellow
-        0.4, '#81D4FA', // Enroute / Mid: Light Blue
-        1.0, '#1565C0'  // Current / High: Dark Blue
-    ]
-        }
-    }, 'sector-ops-live-flights-layer');
+            // 4. Add the Gradient Layer
+            sectorOpsMap.addLayer({
+                id: flownLayerId,
+                type: 'line',
+                source: flownLayerId,
+                paint: {
+                    'line-width': 2,
+                    // Slightly more transparent for a lighter feel
+                    'line-opacity': 1,
+                    'line-gradient': [
+                        'interpolate',
+                        ['linear'],
+                        ['line-progress'],
+                        0.0, '#FFCC80', // Start / Ground: Light Orange
+                        0.1, '#FFF59D', // Initial Climb: Yellow
+                        0.4, '#81D4FA', // Enroute / Mid: Light Blue
+                        1.0, '#1565C0'  // Current / High: Dark Blue
+                    ]
+                }
+            }, 'sector-ops-live-flights-layer');
+
             if (typeof sectorOpsLiveFlightPathLayers !== 'undefined') {
-    // FIX: Use assignment that preserves other keys in the object
-    if (!sectorOpsLiveFlightPathLayers[flightProps.flightId]) {
-        sectorOpsLiveFlightPathLayers[flightProps.flightId] = {};
-    }
-    sectorOpsLiveFlightPathLayers[flightProps.flightId].flown = flownLayerId;
-}
+                // FIX: Use assignment that preserves other keys in the object
+                if (!sectorOpsLiveFlightPathLayers[flightProps.flightId]) {
+                    sectorOpsLiveFlightPathLayers[flightProps.flightId] = {};
+                }
+                sectorOpsLiveFlightPathLayers[flightProps.flightId].flown = flownLayerId;
+            }
         }
-        
+
         if (plan && typeof updateFlightPlanLayer === 'function') {
             updateFlightPlanLayer(flightProps.flightId, plan, flightProps.position);
         }
 
         isAircraftWindowLoading = false;
+
     } catch (error) {
         console.error("Error fetching aircraft details:", error);
         closeAircraftWindow();
