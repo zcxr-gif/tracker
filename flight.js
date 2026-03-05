@@ -10136,41 +10136,39 @@ function closeAircraftWindow() {
 
 /**
  * Handles clicks on aircraft markers.
- * Includes a hit-test to prioritize airports if they overlap.
+ * Includes a hit-test to prioritize airports if they overlap, secured with a try/catch shield.
  */
-async function handleAircraftClick(flightProps, sessionId, event = null) {
+async function handleAircraftClick(flightProps, optionalSessionId = null, event = null) {
     if (!flightProps || !flightProps.flightId) return;
 
     LandingUI.update(false);
     localStorage.setItem('landingUI_visible', 'false');
 
-    // --- BALANCE LOGIC: Prioritize Airport ---
-    // If there is an event, check if an airport marker is also at this location
+    // --- NEW FIX: THE TRY/CATCH SHIELD ---
+    // Mapbox will throw a fatal error if queried while rendering. 
+    // We catch the error to ensure the aircraft click never halts.
     if (event && sectorOpsMap) {
-        // FIX: Check if layers exist before querying to prevent Mapbox crash
-        const targetLayers = ['airport-symbols-layer', 'airport-label-layer'];
-        const existingLayers = targetLayers.filter(layerId => sectorOpsMap.getLayer(layerId));
-
-        if (existingLayers.length > 0) {
+        try {
             const airportFeatures = sectorOpsMap.queryRenderedFeatures(event.point, {
-                layers: existingLayers
+                layers: ['airport-symbols-layer', 'airport-label-layer']
             });
             
             if (airportFeatures.length > 0) {
-                // An airport is here! Yield to the airport click handler and stop aircraft logic.
                 console.log("Airport detected at click point, prioritizing airport over aircraft.");
-                return;
+                return; // Yield to airport logic
             }
+        } catch (mapboxError) {
+            // If Mapbox fails to query (e.g., layers are still loading), we catch the error silently.
+            // We assume no airport was clicked and continue straight to the aircraft window logic.
+            console.warn("Bypassed Mapbox rendering error during airport check.", mapboxError.message);
         }
     }
 
     // --- MUTUAL EXCLUSION ---
-    // If the airport window is open, close it before proceeding
     if (currentAirportInWindow) {
         closeAirportWindow();
     }
 
-    // Standard Aircraft Window Logic Starts Here
     if (typeof trackPilotView === 'function') trackPilotView(flightProps);
 
     if (isAircraftWindowLoading) return;
@@ -10202,7 +10200,8 @@ async function handleAircraftClick(flightProps, sessionId, event = null) {
     currentFlightInWindow = flightProps.flightId;
     currentAircraftPositionForGeocode = flightProps.position;
 
-    // UI: Show Aircraft Window
+    // --- IMMEDIATE UI FEEDBACK ---
+    // This executes instantly, before any network fetches or heavy processing
     if (window.MobileUIHandler && window.MobileUIHandler.isMobile()) {
         window.MobileUIHandler.openWindow(aircraftInfoWindow);
     } else {
@@ -10224,13 +10223,30 @@ async function handleAircraftClick(flightProps, sessionId, event = null) {
     }
 
     try {
+        let sessionId = optionalSessionId;
+        
+        // Fetch session ID asynchronously if not provided
+        if (!sessionId) {
+            const sessionRes = await fetch('https://site--acars-backend--6dmjph8ltlhv.code.run/if-sessions');
+            const sessionData = await sessionRes.json();
+            // Assuming getCurrentSessionId exists in your scope based on previous context
+            if (typeof getCurrentSessionId === 'function') {
+                sessionId = getCurrentSessionId(sessionData);
+            }
+        }
+
         const acName = flightProps.aircraft?.aircraftName || '';
         const livName = flightProps.aircraft?.liveryName || '';
 
+        // Safely fallback to generic session if needed, but ensure URLs are formed
+        const planUrl = `${LIVE_FLIGHTS_API_URL}/${sessionId || 'default'}/${flightProps.flightId}/plan`;
+        const historyUrl = `${LIVE_FLIGHTS_API_URL.replace('/flights', '/api/flights')}/${flightProps.flightId}/history`;
+        const aircraftLookupUrl = `${API_BASE_URL}/api/aircraft/lookup?type=${encodeURIComponent(acName)}&livery=${encodeURIComponent(livName)}`;
+
         const [planRes, routeRes, aircraftLookupRes] = await Promise.all([
-            fetch(`${LIVE_FLIGHTS_API_URL}/${sessionId}/${flightProps.flightId}/plan`),
-            fetch(`${LIVE_FLIGHTS_API_URL.replace('/flights', '/api/flights')}/${flightProps.flightId}/history`),
-            fetch(`${API_BASE_URL}/api/aircraft/lookup?type=${encodeURIComponent(acName)}&livery=${encodeURIComponent(livName)}`)
+            fetch(planUrl).catch(() => ({ ok: false })),
+            fetch(historyUrl).catch(() => ({ ok: false })),
+            fetch(aircraftLookupUrl).catch(() => ({ ok: false }))
         ]);
 
         const planData = planRes.ok ? await planRes.json() : null;
@@ -10241,7 +10257,6 @@ async function handleAircraftClick(flightProps, sessionId, event = null) {
 
         let sortedRoutePoints = [];
         
-        // Updated to check for the new .path property from the history endpoint
         const historyArray = routeData?.path || routeData?.route || [];
         if (routeData && routeData.ok && Array.isArray(historyArray)) {
             sortedRoutePoints = historyArray.sort((a, b) => new Date(a.date) - new Date(b.date));
@@ -10283,11 +10298,9 @@ async function handleAircraftClick(flightProps, sessionId, event = null) {
         let rawCoords = sortedRoutePoints.map(p => [p.lon ?? p.longitude, p.lat ?? p.latitude]);
         rawCoords.push([flightProps.position.lon, flightProps.position.lat]);
 
-        // 2. Process for map stability (Unwrap Date Line + Densify for Globe)
         const unwrappedCoords = unwrapLineCoordinates(rawCoords);
         const sortedCoordinates = densifyRoute(unwrappedCoords, 100);
 
-        // 3. Add the Single-Source with lineMetrics enabled
         const flownLayerId = `flown-path-${flightProps.flightId}`;
         if (!sectorOpsMap.getSource(flownLayerId)) {
             sectorOpsMap.addSource(flownLayerId, {
@@ -10299,32 +10312,29 @@ async function handleAircraftClick(flightProps, sessionId, event = null) {
                         coordinates: sortedCoordinates
                     }
                 },
-                lineMetrics: true // REQUIRED for gradients
+                lineMetrics: true 
             });
 
-            // 4. Add the Gradient Layer
             sectorOpsMap.addLayer({
                 id: flownLayerId,
                 type: 'line',
                 source: flownLayerId,
                 paint: {
                     'line-width': 2,
-                    // Slightly more transparent for a lighter feel
                     'line-opacity': 1,
                     'line-gradient': [
                         'interpolate',
                         ['linear'],
                         ['line-progress'],
-                        0.0, '#FFCC80', // Start / Ground: Light Orange
-                        0.1, '#FFF59D', // Initial Climb: Yellow
-                        0.4, '#81D4FA', // Enroute / Mid: Light Blue
-                        1.0, '#1565C0'  // Current / High: Dark Blue
+                        0.0, '#FFCC80', 
+                        0.1, '#FFF59D', 
+                        0.4, '#81D4FA', 
+                        1.0, '#1565C0'  
                     ]
                 }
             }, 'sector-ops-live-flights-layer');
 
             if (typeof sectorOpsLiveFlightPathLayers !== 'undefined') {
-                // FIX: Use assignment that preserves other keys in the object
                 if (!sectorOpsLiveFlightPathLayers[flightProps.flightId]) {
                     sectorOpsLiveFlightPathLayers[flightProps.flightId] = {};
                 }
