@@ -3596,7 +3596,7 @@ async function determineGatesForFlight(departureIcao, flownPath) {
 
     try {
         // 2. Fetch the gates from the MongoDB-backed endpoint
-        const response = await fetch(`/api/gates/${departureIcao}`);
+        const response = await fetch(`https://site--indgo-backend--6dmjph8ltlhv.code.run/api/gates/${departureIcao}`);
         if (!response.ok) {
             return { departureGate, arrivalGate };
         }
