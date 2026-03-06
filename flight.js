@@ -8067,7 +8067,6 @@ function initializeAircraftLayer() {
                     10, 4.0
                 ],
                 'icon-allow-overlap': true,
-                'icon-padding': 15,
                 'icon-ignore-placement': true,
                 'icon-rotation-alignment': 'map',
                 'icon-rotate': ['get', 'heading']
@@ -8098,6 +8097,16 @@ function initializeAircraftLayer() {
             }
         });
 
+        sectorOpsMap.on('click', (e) => {
+    console.log("📍 Raw map tap at:", e.point);
+    
+    // Check every single layer under your finger
+    const features = sectorOpsMap.queryRenderedFeatures(e.point);
+    const layerNames = features.map(f => f.layer.id);
+    
+    console.log("🔍 Layers under this tap:", layerNames);
+});
+
         // --- NEW FIX: Now that the layer exists, safely draw the active FIR sectors ---
         if (activeAtcFacilities && activeAtcFacilities.length > 0) {
             const centerControllers = activeAtcFacilities.filter(f => f.type === 6);
@@ -8108,6 +8117,7 @@ function initializeAircraftLayer() {
 
         // Click Listener
         sectorOpsMap.on('click', 'sector-ops-live-flights-layer', (e) => {
+            console.log("✈️ Plane click listener fired!", e.features[0].properties.callsign);
             const props = e.features[0].properties;
             const flightProps = {
                 ...props,
