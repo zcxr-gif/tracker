@@ -1974,7 +1974,7 @@ function injectCustomStyles() {
         .route-progress-bar-container { width: 100%; height: 6px; background: var(--bg-panel);
             border-radius: 3px; overflow: hidden; grid-row: 1; grid-column: 1; z-index: 1;
         }
-        .progress-bar-fill { height: 100%; width: 0%; background: var(--color-brand); transition: width 0.5s ease-out;
+        .progress-bar-fill { height: 100%; width: 0%; background: var(--color-brand); transition: none;
             border-radius: 3px; }
         .flight-phase-indicator { padding: 4px 12px; border-radius: 20px; font-size: 0.75rem;
             font-weight: 700; color: #fff; border: 1px solid var(--border-glass); grid-row: 1; grid-column: 1; z-index: 2;
