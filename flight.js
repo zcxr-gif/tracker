@@ -8067,6 +8067,7 @@ function initializeAircraftLayer() {
                     10, 4.0
                 ],
                 'icon-allow-overlap': true,
+                'icon-padding': 15,
                 'icon-ignore-placement': true,
                 'icon-rotation-alignment': 'map',
                 'icon-rotate': ['get', 'heading']
