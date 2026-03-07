@@ -8051,6 +8051,9 @@ function initializeAircraftLayer() {
         mapAnimator = new MapAnimator(sectorOpsMap, 'sector-ops-live-flights-source', currentMapFeatures);
     }
 
+    // Fetch the standard or user-set size directly for the initial load state
+    const initialIconSize = parseFloat(mapFilters.planeIconSize) || 0.05;
+
     // 3. Add the Icon Layer
     if (!sectorOpsMap.getLayer('sector-ops-live-flights-layer')) {
         sectorOpsMap.addLayer({
@@ -8058,14 +8061,8 @@ function initializeAircraftLayer() {
             'type': 'symbol',
             'source': 'sector-ops-live-flights-source',
             'layout': {
-                'icon-image': getIconImageExpression(),
-                'icon-size': [
-                    'interpolate',
-                    ['linear'],
-                    ['zoom'],
-                    0, 1.0,
-                    10, 4.0
-                ],
+                'icon-image': getIconImageExpression(mapFilters.iconColorMode),
+                'icon-size': initialIconSize,
                 'icon-allow-overlap': true,
                 'icon-ignore-placement': true,
                 'icon-rotation-alignment': 'map',
@@ -8083,10 +8080,7 @@ function initializeAircraftLayer() {
             'filter': ['==', 'flightId', ''], // Hides everything by default!
             'layout': {
                 'icon-image': getHoverIconImageExpression(), // Uses the _S expression
-                'icon-size': [
-                    'interpolate', ['linear'], ['zoom'],
-                    0, 1.0, 10, 4.0
-                ],
+                'icon-size': initialIconSize,
                 'icon-allow-overlap': true,
                 'icon-ignore-placement': true,
                 'icon-rotation-alignment': 'map',
@@ -8098,14 +8092,12 @@ function initializeAircraftLayer() {
         });
 
         sectorOpsMap.on('click', (e) => {
-    console.log("📍 Raw map tap at:", e.point);
-    
-    // Check every single layer under your finger
-    const features = sectorOpsMap.queryRenderedFeatures(e.point);
-    const layerNames = features.map(f => f.layer.id);
-    
-    console.log("🔍 Layers under this tap:", layerNames);
-});
+            console.log("📍 Raw map tap at:", e.point);
+            // Check every single layer under your finger
+            const features = sectorOpsMap.queryRenderedFeatures(e.point);
+            const layerNames = features.map(f => f.layer.id);
+            console.log("🔍 Layers under this tap:", layerNames);
+        });
 
         // --- NEW FIX: Now that the layer exists, safely draw the active FIR sectors ---
         if (activeAtcFacilities && activeAtcFacilities.length > 0) {
@@ -8124,6 +8116,7 @@ function initializeAircraftLayer() {
                 position: JSON.parse(props.position),
                 aircraft: JSON.parse(props.aircraft)
             };
+
             fetch('https://site--acars-backend--6dmjph8ltlhv.code.run/if-sessions')
                 .then(res => res.json())
                 .then(data => {
@@ -8132,15 +8125,22 @@ function initializeAircraftLayer() {
                 });
         });
 
-        const hoverPopup = new mapboxgl.Popup({ closeButton: false, closeOnClick: false, offset: 20 });
+        const hoverPopup = new mapboxgl.Popup({
+            closeButton: false,
+            closeOnClick: false,
+            offset: 20
+        });
+
         sectorOpsMap.on('mouseenter', 'sector-ops-live-flights-layer', (e) => {
             if (window.isMouseOverAirportTag) return;
             sectorOpsMap.getCanvas().style.cursor = 'pointer';
+
             const feature = e.features[0];
             if (typeof generateHoverCardHTML !== 'undefined') {
                 hoverPopup.setLngLat(feature.geometry.coordinates).setHTML(generateHoverCardHTML(feature.properties)).addTo(sectorOpsMap);
             }
         });
+
         sectorOpsMap.on('mouseleave', 'sector-ops-live-flights-layer', () => {
             sectorOpsMap.getCanvas().style.cursor = '';
             hoverPopup.remove();
@@ -8156,15 +8156,26 @@ function initializeAircraftLayer() {
             minzoom: 6.5,
             layout: {
                 'visibility': mapFilters.showAircraftLabels ? 'visible' : 'none',
-                'text-field': ['format', ['get', 'callsign'], { 'text-color': '#FFFFFF' }, '\n', {}, ['get', 'phase'], { 'text-color': ['match', ['get', 'phase'], 'Climb', '#28a745', 'Cruise', '#007bff', 'Descent', '#ff9900', 'Approach', '#a33ea3', 'Ground', '#9fa8da', '#e8eaf6'] }],
-                'text-font': ['Open Sans Semibold', 'Arial Unicode MS Bold'],
-                'text-size': 12,
-                'text-offset': [0, 2.5],
-                'text-anchor': 'top'
+                'text-field': [
+                    'format',
+                    ['get', 'callsign'], { 'font-scale': 1.1 },
+                    '\n', {},
+                    ['get', 'aircraftName'], { 'font-scale': 0.8 },
+                    '\n', {},
+                    ['concat', ['get', 'altitude'], ' ft | ', ['get', 'speed'], ' kts'], { 'font-scale': 0.8 }
+                ],
+                'text-font': ['Inter Regular', 'Arial Unicode MS Regular'],
+                'text-size': 11,
+                'text-offset': [0, 1.5],
+                'text-anchor': 'top',
+                'text-allow-overlap': false,
+                'text-ignore-placement': false
             },
             paint: {
-                'text-halo-color': 'rgba(10, 12, 26, 0.85)',
-                'text-halo-width': 2
+                'text-color': '#ffffff',
+                'text-halo-color': 'rgba(15, 23, 42, 0.9)',
+                'text-halo-width': 2,
+                'text-halo-blur': 1
             }
         });
     }
