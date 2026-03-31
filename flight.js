@@ -38,7 +38,7 @@ async function loadSpriteSheetAndGenerateIcons(map) {
         img.src = spriteUrl;
     });
 
-    // --- GPU ACCELERATED TINTING ---
+    // --- GPU ACCELERATED SDF MASKING ---
     // 1. Master Base Canvas
     const baseCanvas = document.createElement('canvas');
     baseCanvas.width = img.width;
@@ -46,35 +46,11 @@ async function loadSpriteSheetAndGenerateIcons(map) {
     const baseCtx = baseCanvas.getContext('2d', { willReadFrequently: true });
     baseCtx.drawImage(img, 0, 0);
 
-    // 2. Master Blue Canvas (GPU Tinted)
-    const blueCanvas = document.createElement('canvas');
-    blueCanvas.width = img.width;
-    blueCanvas.height = img.height;
-    const blueCtx = blueCanvas.getContext('2d', { willReadFrequently: true });
-    blueCtx.drawImage(img, 0, 0);
-    blueCtx.globalCompositeOperation = 'multiply';
-    blueCtx.fillStyle = 'rgb(59, 130, 246)'; // Target blue
-    blueCtx.fillRect(0, 0, img.width, img.height);
-    blueCtx.globalCompositeOperation = 'destination-in';
-    blueCtx.drawImage(img, 0, 0);
-
-    // 3. Master Orange Canvas (GPU Tinted)
-    const orangeCanvas = document.createElement('canvas');
-    orangeCanvas.width = img.width;
-    orangeCanvas.height = img.height;
-    const orangeCtx = orangeCanvas.getContext('2d', { willReadFrequently: true });
-    orangeCtx.drawImage(img, 0, 0);
-    orangeCtx.globalCompositeOperation = 'multiply';
-    orangeCtx.fillStyle = 'rgb(249, 115, 22)'; // Target orange
-    orangeCtx.fillRect(0, 0, img.width, img.height);
-    orangeCtx.globalCompositeOperation = 'destination-in';
-    orangeCtx.drawImage(img, 0, 0);
-
     const TARGET_LOGICAL_SIZE = 128; 
     const entries = Object.entries(spriteUVs);
 
     // --- ADAPTIVE FRAME BUDGETING ---
-    const FRAME_BUDGET_MS = 12; // Reserve ~4.6ms for browser rendering to maintain 60 FPS
+    const FRAME_BUDGET_MS = 12; 
     let executionStartTime = performance.now();
 
     for (let i = 0; i < entries.length; i++) {
@@ -90,30 +66,178 @@ async function loadSpriteSheetAndGenerateIcons(map) {
         
         const pRatio = pixelW / TARGET_LOGICAL_SIZE;
 
-        // 1. Register Base Icon
+        // Register Base Icon with 'sdf: true' for Native Mapbox GPU Tinting
+        // This replaces the old multi-canvas system and unlocks infinite colors.
         if (!map.hasImage(`icon-${iconKey}`)) {
             const baseImageData = baseCtx.getImageData(pixelX, pixelY, pixelW, pixelH);
-            map.addImage(`icon-${iconKey}`, baseImageData, { pixelRatio: pRatio });
-        }
-
-        // 2. Register Blue Tint
-        if (!map.hasImage(`icon-${iconKey}-blue`)) {
-            const blueImageData = blueCtx.getImageData(pixelX, pixelY, pixelW, pixelH);
-            map.addImage(`icon-${iconKey}-blue`, blueImageData, { pixelRatio: pRatio });
-        }
-
-        // 3. Register Orange Tint
-        if (!map.hasImage(`icon-${iconKey}-orange`)) {
-            const orangeImageData = orangeCtx.getImageData(pixelX, pixelY, pixelW, pixelH);
-            map.addImage(`icon-${iconKey}-orange`, orangeImageData, { pixelRatio: pRatio });
+            map.addImage(`icon-${iconKey}`, baseImageData, { pixelRatio: pRatio, sdf: true });
         }
         
-        // Yield to the display refresh cycle if we exceed our time budget
         if (performance.now() - executionStartTime > FRAME_BUDGET_MS) {
             await new Promise(resolve => requestAnimationFrame(resolve));
             executionStartTime = performance.now();
         }
     }
+}
+
+function updateMapFilters() {
+    if (!sectorOpsMap) return;
+
+    const currentProjection = sectorOpsMap.getProjection().name;
+    const targetProjection = mapFilters.useFlatMap ? 'mercator' : 'globe';
+    if (currentProjection !== targetProjection) {
+        sectorOpsMap.setProjection(targetProjection);
+    }
+
+    const styleUrls = {
+        'dark': 'mapbox://styles/mapbox/dark-v11',
+        'light': 'mapbox://styles/servernoob/cmg3wq7an002p01s17kbx7lqk',
+        'satellite': 'mapbox://styles/mapbox/satellite-streets-v12'
+    };
+    const targetStyle = styleUrls[mapFilters.mapStyle || 'dark'];
+
+    if (currentFlightInWindow && liveTrailCache.has(currentFlightInWindow)) {
+        FlownPath3D.updatePath(
+            sectorOpsMap, 
+            currentFlightInWindow, 
+            liveTrailCache.get(currentFlightInWindow), 
+            mapFilters.show3DPath 
+        );
+    }
+    
+    if (currentMapStyle !== targetStyle) {
+        currentMapStyle = targetStyle;
+        sectorOpsMap.setStyle(targetStyle);
+    }
+
+    if (window.globalNatTracks) {
+        window.globalNatTracks.setOptions({
+            showTracks: mapFilters.showNatTracks,
+            showLabels: mapFilters.showNatLabels
+        });
+    }
+
+    if (sectorOpsMap.getLayer('sector-ops-live-flights-layer')) {
+    
+        // 1. DYNAMIC COLOR RESOLUTION (SDF GPU TINTING)
+        let baseColor = '#ffffff'; 
+        if (mapFilters.iconColorMode === 'default') {
+            baseColor = mapFilters.proCustomColor || '#38bdf8';
+        } else if (mapFilters.iconColorMode === 'blue') {
+            baseColor = '#38bdf8';
+        } else if (mapFilters.iconColorMode === 'orange') {
+            baseColor = '#f59e0b';
+        }
+
+        const iconColorExpression = [
+            'match',
+            ['get', 'trafficType'],
+            'inbound', '#38bdf8', 
+            'outbound', '#f59e0b', 
+            baseColor 
+        ];
+
+        const iconSize = parseFloat(mapFilters.planeIconSize) || 0.05;
+        const iconImageExpression = getIconImageExpression();
+
+        // 2. APPLY TO MAIN LAYER
+        sectorOpsMap.setLayoutProperty(
+            'sector-ops-live-flights-layer', 
+            'icon-image', 
+            iconImageExpression
+        );
+        sectorOpsMap.setPaintProperty(
+            'sector-ops-live-flights-layer', 
+            'icon-color', 
+            iconColorExpression
+        );
+        sectorOpsMap.setLayoutProperty(
+            'sector-ops-live-flights-layer', 
+            'icon-size',
+            iconSize
+        );
+
+        // 3. APPLY TO HOVER LAYER
+        if (sectorOpsMap.getLayer('sector-ops-live-flights-hover-layer')) {
+            sectorOpsMap.setLayoutProperty('sector-ops-live-flights-hover-layer', 'icon-image', getHoverIconImageExpression());
+            sectorOpsMap.setPaintProperty('sector-ops-live-flights-hover-layer', 'icon-color', iconColorExpression);
+            sectorOpsMap.setLayoutProperty('sector-ops-live-flights-hover-layer', 'icon-size', iconSize);
+        }
+    }
+
+    GroupFlightManager.toggle(mapFilters.showGroupFlights);
+    GroupFlightManager.update(currentMapFeatures);
+
+    updateAircraftLayerFilter();
+    updateAircraftLabelVisibility();
+    renderAirportMarkers();
+    updateToolbarButtonStates();
+}
+
+function applyTrafficHighlighting() {
+    const { in: inbounds, out: outbounds } = window.currentAirportTraffic || { in: [], out: [] };
+    const inSet = new Set(inbounds);
+    const outSet = new Set(outbounds);
+
+    Object.values(currentMapFeatures).forEach(f => {
+        const fid = f.properties.flightId;
+        if (isTrafficHighlightActive) {
+            if (inSet.has(fid)) f.properties.trafficType = 'inbound';
+            else if (outSet.has(fid)) f.properties.trafficType = 'outbound';
+            else f.properties.trafficType = 'none';
+        } else {
+            f.properties.trafficType = 'none';
+        }
+    });
+
+    if (sectorOpsMap && sectorOpsMap.getLayer('sector-ops-live-flights-layer')) {
+        let baseColor = '#ffffff'; 
+        if (mapFilters.iconColorMode === 'default') {
+            baseColor = mapFilters.proCustomColor || '#38bdf8';
+        } else if (mapFilters.iconColorMode === 'blue') {
+            baseColor = '#38bdf8';
+        } else if (mapFilters.iconColorMode === 'orange') {
+            baseColor = '#f59e0b';
+        }
+
+        const iconColorExpression = [
+            'match',
+            ['get', 'trafficType'],
+            'inbound', '#38bdf8',
+            'outbound', '#f59e0b',
+            baseColor
+        ];
+
+        sectorOpsMap.setPaintProperty(
+            'sector-ops-live-flights-layer', 
+            'icon-color', 
+            iconColorExpression
+        );
+
+        if (sectorOpsMap.getLayer('sector-ops-live-flights-hover-layer')) {
+            sectorOpsMap.setPaintProperty(
+                'sector-ops-live-flights-hover-layer', 
+                'icon-color', 
+                iconColorExpression
+            );
+        }
+    }
+
+    if (sectorOpsMap && sectorOpsMap.getSource('sector-ops-live-flights-source')) {
+        sectorOpsMap.getSource('sector-ops-live-flights-source').setData({
+            type: 'FeatureCollection',
+            features: Object.values(currentMapFeatures)
+        });
+    }
+}
+
+function getIconImageExpression() {
+    // With SDF GPU tinting, dynamic color suffixes are no longer needed
+    return ['concat', 'icon-', ['coalesce', ['get', 'category'], 'B737']];
+}
+
+function getHoverIconImageExpression() {
+    return ['concat', 'icon-', ['coalesce', ['get', 'category'], 'B737']];
 }
 
 document.addEventListener('DOMContentLoaded', async () => {
