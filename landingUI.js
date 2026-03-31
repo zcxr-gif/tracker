@@ -18,16 +18,15 @@ export const LandingUI = {
             ]
         },
         aircraft: {
-    label: "Aircraft Info",
-    filters: [
-        { id: 'category', label: 'Category', icon: 'fa-shapes', type: 'select', options: ['Heavy', 'Widebody', 'Narrowbody', 'Regional', 'GA', 'Military', 'Fighter'] },
-        // Changed type to 'autocomplete'
-        { id: 'type', label: 'Aircraft Type', icon: 'fa-plane', type: 'autocomplete', placeholder: 'e.g. B737, A320' },
-        { id: 'livery', label: 'Livery', icon: 'fa-paint-roller', type: 'autocomplete', placeholder: 'e.g. United, FedEx' },
-        { id: 'country', label: 'Country Registry', icon: 'fa-globe', type: 'select', options: [] },
-        { id: 'airline', label: 'Airline Code', icon: 'fa-building', type: 'text', placeholder: 'e.g. UAL, BAW' }
-    ]
-},
+            label: "Aircraft Info",
+            filters: [
+                { id: 'category', label: 'Category', icon: 'fa-shapes', type: 'select', options: ['Heavy', 'Widebody', 'Narrowbody', 'Regional', 'GA', 'Military', 'Fighter'] },
+                { id: 'type', label: 'Aircraft Type', icon: 'fa-plane', type: 'autocomplete', placeholder: 'e.g. B737, A320' },
+                { id: 'livery', label: 'Livery', icon: 'fa-paint-roller', type: 'autocomplete', placeholder: 'e.g. United, FedEx' },
+                { id: 'country', label: 'Country Registry', icon: 'fa-globe', type: 'select', options: [] },
+                { id: 'airline', label: 'Airline Code', icon: 'fa-building', type: 'text', placeholder: 'e.g. UAL, BAW' }
+            ]
+        },
         route: {
             label: "Route & Network",
             filters: [
@@ -146,17 +145,14 @@ export const LandingUI = {
     },
 
     executeSearchClick(id, lat, lon) {
-        // LOGGING: Confirm the search click is firing and has data
         console.log(`[LandingUI] Executing Search Click. ID: ${id}, Lat: ${lat}, Lon: ${lon}`);
 
-        // 1. Trigger the map navigation and info panel logic in flight.js
         if (typeof window.onSearchResultClick === 'function') {
             window.onSearchResultClick(id, lat, lon);
         } else {
             console.error("[LandingUI] Global onSearchResultClick not found! Ensure flight.js is loaded correctly.");
         }
 
-        // 2. UI Cleanup: Clear the search bar and hide results
         const searchInput = document.getElementById('blade-search-input');
         const resultsDropdown = document.getElementById('blade-search-results');
         const searchBlade = document.querySelector('.search-blade');
@@ -168,7 +164,6 @@ export const LandingUI = {
         if (resultsDropdown) resultsDropdown.classList.remove('visible');
         if (searchBlade) searchBlade.classList.remove('has-results');
 
-        // Reset search internal state
         this._currentMatches = [];
         this._searchCursorIndex = -1;
     },
@@ -256,6 +251,12 @@ export const LandingUI = {
                     </div>
                 </div>
 
+                <div class="auth-nexus" id="auth-nexus-container">
+                    <button class="orb-btn" id="open-auth-btn" aria-label="Profile">
+                        <i class="fa-solid fa-user-astronaut"></i>
+                    </button>
+                </div>
+
                 <div class="utility-nexus">
                     <div class="orb-row">
                         <div class="weather-nexus-container" id="weather-menu-wrapper">
@@ -300,6 +301,7 @@ export const LandingUI = {
         const serverSelector = document.getElementById('server-selector');
         const weatherTrigger = document.getElementById('tile-weather');
         const weatherWrapper = document.getElementById('weather-menu-wrapper');
+        const authBtn = document.getElementById('open-auth-btn');
         
         const toggleModal = (state) => {
             this._modalOpen = state;
@@ -312,6 +314,16 @@ export const LandingUI = {
                 document.activeElement?.blur();
             }
         };
+
+        authBtn?.addEventListener('click', () => {
+            if (window.AuthUI) {
+                window.AuthUI.open();
+            } else {
+                import('./authUI.js').then(module => {
+                    module.AuthUI.open();
+                }).catch(err => console.error("Failed to load AuthUI:", err));
+            }
+        });
 
         filterBtn?.addEventListener('click', () => {
             if (window.innerWidth <= 768) {
@@ -484,70 +496,57 @@ export const LandingUI = {
         container.querySelectorAll('.data-input-max').forEach(input => input.addEventListener('input', (e) => this.updateFilterValue(e.target.dataset.id, e.target.value, 'max')));
     },
 
-    // Add these methods to the LandingUI object in landingUI.js
+    getUniqueValues(property) {
+        const flights = window.getLiveFlightData ? window.getLiveFlightData() : [];
+        const values = new Set();
+        
+        flights.forEach(f => {
+            const val = f.properties[property];
+            if (val) values.add(val);
+        });
+        
+        return Array.from(values).sort();
+    },
 
-/**
- * Gets unique values for a property from the live flight data
- */
-getUniqueValues(property) {
-    const flights = window.getLiveFlightData ? window.getLiveFlightData() : [];
-    const values = new Set();
-    
-    flights.forEach(f => {
-        const val = f.properties[property];
-        if (val) values.add(val);
-    });
-    
-    return Array.from(values).sort();
-},
-
-/**
- * Handles the logic of showing/filtering suggestions
- */
-handleAutocomplete(id, query) {
-    const suggestionsContainer = document.getElementById(`suggestions-${id}`);
-    if (!suggestionsContainer) return;
-
-    if (!query || query.length < 1) {
-        suggestionsContainer.innerHTML = '';
-        suggestionsContainer.style.display = 'none';
-        return;
-    }
-
-    // Map UI filter ID to flight property names
-    const propMap = { 'type': 'aircraftName', 'livery': 'liveryName' };
-    const allOptions = this.getUniqueValues(propMap[id] || id);
-    
-    const matches = allOptions.filter(opt => 
-        opt.toUpperCase().includes(query.toUpperCase())
-    ).slice(0, 8);
-
-    if (matches.length > 0) {
-        suggestionsContainer.innerHTML = matches.map(match => `
-            <div class="autocomplete-item" 
-                 onmousedown="LandingUI.applySuggestion('${id}', '${match.replace(/'/g, "\\'")}')">
-                ${this.highlightText(match, query)}
-            </div>
-        `).join('');
-        suggestionsContainer.style.display = 'block';
-    } else {
-        suggestionsContainer.style.display = 'none';
-    }
-},
-
-/**
- * Applies a clicked suggestion to the filter
- */
-applySuggestion(id, value) {
-    const input = document.querySelector(`input[data-id="${id}"]`);
-    if (input) {
-        input.value = value;
-        this.updateFilterValue(id, value);
-        // Hide the dropdown
+    handleAutocomplete(id, query) {
         const suggestionsContainer = document.getElementById(`suggestions-${id}`);
-        if (suggestionsContainer) suggestionsContainer.style.display = 'none';
-    }
-},
+        if (!suggestionsContainer) return;
+
+        if (!query || query.length < 1) {
+            suggestionsContainer.innerHTML = '';
+            suggestionsContainer.style.display = 'none';
+            return;
+        }
+
+        const propMap = { 'type': 'aircraftName', 'livery': 'liveryName' };
+        const allOptions = this.getUniqueValues(propMap[id] || id);
+        
+        const matches = allOptions.filter(opt => 
+            opt.toUpperCase().includes(query.toUpperCase())
+        ).slice(0, 8);
+
+        if (matches.length > 0) {
+            suggestionsContainer.innerHTML = matches.map(match => `
+                <div class="autocomplete-item" 
+                     onmousedown="LandingUI.applySuggestion('${id}', '${match.replace(/'/g, "\\'")}')">
+                    ${this.highlightText(match, query)}
+                </div>
+            `).join('');
+            suggestionsContainer.style.display = 'block';
+        } else {
+            suggestionsContainer.style.display = 'none';
+        }
+    },
+
+    applySuggestion(id, value) {
+        const input = document.querySelector(`input[data-id="${id}"]`);
+        if (input) {
+            input.value = value;
+            this.updateFilterValue(id, value);
+            const suggestionsContainer = document.getElementById(`suggestions-${id}`);
+            if (suggestionsContainer) suggestionsContainer.style.display = 'none';
+        }
+    },
 
     renderInputControl(id, value) {
         const def = this.allFilters.find(f => f.id === id);
@@ -555,18 +554,18 @@ applySuggestion(id, value) {
         if (def.type === 'range') return `<div class="range-pill-container"><div class="range-half"><span class="range-label">MIN</span><input type="number" class="range-input data-input-min" data-id="${id}" placeholder="0" value="${value.min || ''}"></div><div class="range-divider"></div><div class="range-half"><span class="range-label">MAX</span><input type="number" class="range-input data-input-max" data-id="${id}" placeholder="Max" value="${value.max || ''}"></div></div>`;
         if (def.type === 'boolean') return `<div class="bool-indicator" style="font-size:0.8rem; color:#10b981; font-weight:600;"><i class="fa-solid fa-check"></i> Active Policy Enabled</div>`;
         if (def.type === 'autocomplete') {
-    return `
-        <div class="input-wrapper autocomplete-wrapper">
-            <input type="text" class="row-input data-input autocomplete-input" 
-                   data-id="${id}" 
-                   placeholder="${def.placeholder || 'Search...'}" 
-                   value="${value}"
-                   oninput="LandingUI.handleAutocomplete('${id}', this.value)"
-                   onfocus="LandingUI.handleAutocomplete('${id}', this.value)"
-                   onblur="setTimeout(() => { document.getElementById('suggestions-${id}').style.display='none'; }, 200)">
-            <div id="suggestions-${id}" class="autocomplete-suggestions custom-scroll"></div>
-        </div>`;
-}
+            return `
+                <div class="input-wrapper autocomplete-wrapper">
+                    <input type="text" class="row-input data-input autocomplete-input" 
+                           data-id="${id}" 
+                           placeholder="${def.placeholder || 'Search...'}" 
+                           value="${value}"
+                           oninput="LandingUI.handleAutocomplete('${id}', this.value)"
+                           onfocus="LandingUI.handleAutocomplete('${id}', this.value)"
+                           onblur="setTimeout(() => { document.getElementById('suggestions-${id}').style.display='none'; }, 200)">
+                    <div id="suggestions-${id}" class="autocomplete-suggestions custom-scroll"></div>
+                </div>`;
+        }
         return `<div class="input-wrapper"><input type="text" class="row-input data-input" data-id="${id}" placeholder="${def.placeholder || 'Search value...'}" value="${value}"></div>`;
     },
 
@@ -584,103 +583,64 @@ applySuggestion(id, value) {
         const css = `
             @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap');
 
-            /* --- Fix for Autocomplete Visibility --- */
-.modal-filter-card {
-    background: #141416;
-    border: 1px solid rgba(255, 255, 255, 0.08);
-    border-radius: 20px;
-    display: flex;
-    /* Changed from overflow: hidden to visible */
-    overflow: visible !important; 
-    box-shadow: 0 8px 30px rgba(0,0,0,0.3);
-    position: relative;
-}
+            .modal-filter-card {
+                background: #141416;
+                border: 1px solid rgba(255, 255, 255, 0.08);
+                border-radius: 20px;
+                display: flex;
+                overflow: visible !important; 
+                box-shadow: 0 8px 30px rgba(0,0,0,0.3);
+                position: relative;
+            }
 
-/* Ensure the card being edited is on top of others */
-.modal-filter-card:focus-within {
-    z-index: 10;
-    border-color: rgba(56, 189, 248, 0.5);
-}
+            .modal-filter-card:focus-within {
+                z-index: 10;
+                border-color: rgba(56, 189, 248, 0.5);
+            }
 
-.card-content {
-    flex: 1;
-    padding: 24px;
-    overflow: visible !important;
-}
+            .card-content {
+                flex: 1;
+                padding: 24px;
+                overflow: visible !important;
+            }
 
-.autocomplete-wrapper {
-    position: relative;
-    width: 100%;
-}
+            .autocomplete-wrapper {
+                position: relative;
+                width: 100%;
+            }
 
-.autocomplete-suggestions {
-    position: absolute;
-    top: calc(100% + 5px);
-    left: 0;
-    right: 0;
-    background: #1c1c1f; /* Matches input background */
-    border: 1px solid #38bdf8;
-    border-radius: 12px;
-    z-index: 9999; /* Ensure it stays above everything */
-    max-height: 200px;
-    overflow-y: auto;
-    display: none;
-    box-shadow: 0 10px 25px rgba(0,0,0,0.5);
-}
+            .autocomplete-suggestions {
+                position: absolute;
+                top: calc(100% + 5px);
+                left: 0;
+                right: 0;
+                background: #1c1c1f;
+                border: 1px solid #38bdf8;
+                border-radius: 12px;
+                z-index: 9999;
+                max-height: 200px;
+                overflow-y: auto;
+                display: none;
+                box-shadow: 0 10px 25px rgba(0,0,0,0.5);
+            }
 
-.autocomplete-item {
-    padding: 12px 16px;
-    cursor: pointer;
-    font-size: 0.9rem;
-    color: #fff;
-    border-bottom: 1px solid rgba(255, 255, 255, 0.05);
-}
+            .autocomplete-item {
+                padding: 12px 16px;
+                cursor: pointer;
+                font-size: 0.9rem;
+                color: #fff;
+                border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+            }
 
-.autocomplete-item:hover {
-    background: #38bdf8;
-    color: #000;
-}
+            .autocomplete-item:hover {
+                background: #38bdf8;
+                color: #000;
+            }
 
-            /* Autocomplete Styles */
-.autocomplete-wrapper {
-    position: relative;
-    width: 100%;
-}
-
-.autocomplete-suggestions {
-    position: absolute;
-    top: 100%;
-    left: 0;
-    right: 0;
-    background: rgba(20, 20, 22, 0.98);
-    border: 1px solid rgba(255, 255, 255, 0.1);
-    border-top: none;
-    border-radius: 0 0 12px 12px;
-    z-index: 1000;
-    max-height: 200px;
-    overflow-y: auto;
-    display: none;
-    box-shadow: 0 10px 25px rgba(0,0,0,0.5);
-}
-
-.autocomplete-item {
-    padding: 10px 16px;
-    cursor: pointer;
-    font-size: 0.85rem;
-    color: #a1a1aa;
-    transition: all 0.2s;
-    border-bottom: 1px solid rgba(255, 255, 255, 0.03);
-}
-
-.autocomplete-item:hover {
-    background: rgba(56, 189, 248, 0.1);
-    color: #fff;
-}
-
-.premium-highlight {
-    color: #38bdf8;
-    font-weight: 700;
-}
+            .premium-highlight {
+                color: #38bdf8;
+                font-weight: 700;
+            }
             
             .tactical-ui-root {
                 position: absolute;
@@ -697,7 +657,6 @@ applySuggestion(id, value) {
                 visibility: visible;
             }
 
-            /* SEARCH BLADE & CONNECTED DROP-DOWN */
             .top-right-actions {
                 position: absolute;
                 top: 30px;
@@ -705,7 +664,6 @@ applySuggestion(id, value) {
                 pointer-events: none;
             }
 
-            /* --- DESKTOP HEADER (FLOATERS) --- */
             .tactical-header {
                 position: absolute;
                 top: 0;
@@ -742,7 +700,6 @@ applySuggestion(id, value) {
                 pointer-events: auto;
             }
 
-            /* --- SEARCH BLADE --- */
             .search-blade {
                 background: rgba(10, 10, 10, 0.85);
                 backdrop-filter: blur(20px);
@@ -753,44 +710,26 @@ applySuggestion(id, value) {
                 display: flex;
                 align-items: center;
                 padding: 0 18px;
-                transition: width 0.25s ease, background 0.3s ease;
+                transition: width 0.25s ease, background 0.3s ease, border-color 0.3s ease, box-shadow 0.3s ease;
                 position: relative;
                 box-shadow: 0 10px 30px rgba(0,0,0,0.4);
+                z-index: 1002;
+                pointer-events: auto;
             }
-            .search-blade {
-    background: rgba(10, 10, 10, 0.85);
-    backdrop-filter: blur(20px);
-    border: 1px solid rgba(255, 255, 255, 0.15);
-    border-radius: 100px;
-    height: 44px;
-    width: 240px;
-    display: flex;
-    align-items: center;
-    padding: 0 18px;
-    /* STRICT TRANSITION: 
-       We only animate width and colors. 
-       Removing 'border-radius' or 'all' prevents the "bending" animation.
-    */
-    transition: width 0.25s ease, background 0.3s ease, border-color 0.3s ease, box-shadow 0.3s ease;
-    position: relative;
-    box-shadow: 0 10px 30px rgba(0,0,0,0.4);
-    z-index: 1002;
-    pointer-events: auto;
-}
 
-.search-blade:focus-within {
-    width: 380px;
-    border-color: #38bdf8;
-    background: #0f0f11;
-    box-shadow: 0 15px 40px rgba(0,0,0,0.6), 0 0 0 1px rgba(56, 189, 248, 0.3);
-}
+            .search-blade:focus-within {
+                width: 380px;
+                border-color: #38bdf8;
+                background: #0f0f11;
+                box-shadow: 0 15px 40px rgba(0,0,0,0.6), 0 0 0 1px rgba(56, 189, 248, 0.3);
+            }
             
             .search-blade.has-results {
-    border-bottom-left-radius: 0 !important;
-    border-bottom-right-radius: 0 !important;
-    border-top-left-radius: 20px !important;
-    border-top-right-radius: 20px !important;
-}
+                border-bottom-left-radius: 0 !important;
+                border-bottom-right-radius: 0 !important;
+                border-top-left-radius: 20px !important;
+                border-top-right-radius: 20px !important;
+            }
             #blade-search-input {
                 flex: 1;
                 background: none;
@@ -815,200 +754,121 @@ applySuggestion(id, value) {
                 margin-left: 10px;
             }
 
-            @media (max-width: 768px) {
-                .tactical-header {
-                    position: fixed;
-                    top: 0;
-                    height: 60px;
-                    background: #000;
-                    backdrop-filter: blur(20px);
-                    border-bottom: 1px solid rgba(255, 255, 255, 0.1);
-                    display: flex !important;
-                    align-items: center !important;
-                    justify-content: space-between !important;
-                    padding: 0 15px !important;
-                    pointer-events: none !important;
-                }
-
-                /* Kill all floating absolute positioning on mobile */
-                .top-branding.dropdown, 
-                .top-right-actions {
-                    position: static !important;
-                    transform: none !important;
-                    box-shadow: none !important;
-                    padding: 0 !important;
-                    margin: 0 !important;
-                    background: transparent !important;
-                    border: none !important;
-                    backdrop-filter: none !important;
-                }
-
-                .top-branding.dropdown {
-                    flex-shrink: 0;
-                    margin-right: 15px !important;
-                }
-
-                #landing-server-name {
-                    font-size: 0.7rem !important;
-                    font-weight: 800;
-                }
-
-                .top-right-actions {
-                    flex: 1;
-                    max-width: 200px; /* Constrain search so it doesn't hit branding */
-                    display: flex;
-                    justify-content: flex-end;
-                }
-
-                .search-blade {
-                    width: 100% !important;
-                    height: 36px !important;
-                    padding: 0 12px !important;
-                    background: rgba(255,255,255,0.08) !important;
-                    border-radius: 8px !important;
-                }
-
-                /* Mobile Focus Expansion */
-                .search-blade:focus-within {
-                    position: absolute !important;
-                    left: 10px !important;
-                    right: 10px !important;
-                    top: 10px !important;
-                    width: calc(100% - 20px) !important;
-                    height: 40px !important;
-                    z-index: 100 !important;
-                    max-width: none !important;
-                    background: #111 !important;
-                }
-
-                .search-shortcut { display: none !important; }
-
-                .utility-nexus { bottom: 20px !important; right: 20px !important; }
-                .orb-btn { width: 44px !important; height: 44px !important; }
-                
-                .search-results-dropdown {
-                    position: fixed !important;
-                    top: 60px !important;
-                    left: 0 !important;
-                    width: 100vw !important;
-                    height: calc(100vh - 60px) !important;
-                    max-height: none !important;
-                    border-radius: 0 !important;
-                }
+            .search-results-dropdown {
+                position: absolute;
+                top: calc(100% + 8px);
+                left: 0;
+                width: 100%;
+                background: #0f0f11;
+                border: 1px solid rgba(255, 255, 255, 0.08);
+                border-radius: 12px;
+                max-height: 440px;
+                overflow-y: auto;
+                display: none;
+                z-index: 1001;
+                box-shadow: 0 20px 50px rgba(0,0,0,0.8), 0 0 0 1px rgba(255,255,255,0.05);
+                padding: 6px;
             }
-/* --- PREMIUM MINIMALIST SEARCH --- */
 
-.search-results-dropdown {
-    position: absolute;
-    top: calc(100% + 8px);
-    left: 0;
-    width: 100%;
-    background: #0f0f11;
-    border: 1px solid rgba(255, 255, 255, 0.08);
-    border-radius: 12px;
-    max-height: 440px;
-    overflow-y: auto;
-    display: none;
-    z-index: 1001;
-    box-shadow: 0 20px 50px rgba(0,0,0,0.8), 0 0 0 1px rgba(255,255,255,0.05);
-    padding: 6px;
-}
+            .search-results-dropdown.visible { display: block; }
 
-.search-results-dropdown.visible { display: block; }
+            .premium-result-item {
+                display: flex;
+                align-items: center;
+                padding: 12px 16px;
+                gap: 16px;
+                cursor: pointer;
+                border-radius: 8px;
+                transition: all 0.15s ease;
+                margin-bottom: 2px;
+            }
 
-.premium-result-item {
-    display: flex;
-    align-items: center;
-    padding: 12px 16px;
-    gap: 16px;
-    cursor: pointer;
-    border-radius: 8px;
-    transition: all 0.15s ease;
-    margin-bottom: 2px;
-}
+            .premium-result-item:hover, 
+            .premium-result-item.selected {
+                background: rgba(255, 255, 255, 0.05);
+            }
 
-.premium-result-item:hover, 
-.premium-result-item.selected {
-    background: rgba(255, 255, 255, 0.05);
-}
+            .res-meta-icon {
+                font-size: 6px;
+                color: rgba(255, 255, 255, 0.2);
+                transition: color 0.2s;
+            }
+            .premium-result-item:hover .res-meta-icon,
+            .premium-result-item.selected .res-meta-icon {
+                color: #fff;
+            }
 
-/* Left Indicator Icon */
-.res-meta-icon {
-    font-size: 6px;
-    color: rgba(255, 255, 255, 0.2);
-    transition: color 0.2s;
-}
-.premium-result-item:hover .res-meta-icon,
-.premium-result-item.selected .res-meta-icon {
-    color: #fff;
-}
+            .res-info-main { flex: 1; }
 
-/* Center Content */
-.res-info-main { flex: 1; }
+            .res-primary-row {
+                display: flex;
+                align-items: center;
+                gap: 10px;
+                margin-bottom: 4px;
+            }
 
-.res-primary-row {
-    display: flex;
-    align-items: center;
-    gap: 10px;
-    margin-bottom: 4px;
-}
+            .res-callsign {
+                font-size: 14px;
+                font-weight: 600;
+                color: #fff;
+            }
 
-.res-callsign {
-    font-size: 14px;
-    font-weight: 600;
-    color: #fff;
-}
+            .res-pill {
+                font-size: 10px;
+                font-weight: 700;
+                text-transform: uppercase;
+                background: rgba(255, 255, 255, 0.06);
+                color: rgba(255, 255, 255, 0.5);
+                padding: 2px 6px;
+                border-radius: 4px;
+                letter-spacing: 0.02em;
+            }
 
-.res-pill {
-    font-size: 10px;
-    font-weight: 700;
-    text-transform: uppercase;
-    background: rgba(255, 255, 255, 0.06);
-    color: rgba(255, 255, 255, 0.5);
-    padding: 2px 6px;
-    border-radius: 4px;
-    letter-spacing: 0.02em;
-}
+            .res-secondary-row {
+                font-size: 12px;
+                color: rgba(255, 255, 255, 0.4);
+            }
 
-.res-secondary-row {
-    font-size: 12px;
-    color: rgba(255, 255, 255, 0.4);
-}
+            .res-stats {
+                text-align: right;
+            }
 
-/* Right Side Stats */
-.res-stats {
-    text-align: right;
-}
+            .res-altitude {
+                font-family: 'Inter', sans-serif;
+                font-weight: 600;
+                font-size: 13px;
+                color: #fff;
+            }
 
-.res-altitude {
-    font-family: 'Inter', sans-serif;
-    font-weight: 600;
-    font-size: 13px;
-    color: #fff;
-}
+            .res-altitude span {
+                font-size: 10px;
+                font-weight: 400;
+                color: rgba(255, 255, 255, 0.3);
+                margin-left: 2px;
+            }
 
-.res-altitude span {
-    font-size: 10px;
-    font-weight: 400;
-    color: rgba(255, 255, 255, 0.3);
-    margin-left: 2px;
-}
+            .premium-highlight {
+                background: rgba(255, 255, 255, 0.15);
+                color: #fff;
+                padding: 0 2px;
+                border-radius: 2px;
+            }
 
-/* Sophisticated Highlight */
-.premium-highlight {
-    background: rgba(255, 255, 255, 0.15);
-    color: #fff;
-    padding: 0 2px;
-    border-radius: 2px;
-}
+            .premium-empty-state {
+                padding: 32px;
+                text-align: center;
+                color: rgba(255, 255, 255, 0.3);
+                font-size: 13px;
+            }
 
-/* Empty State */
-.premium-empty-state {
-    padding: 32px;
-    text-align: center;
-    color: rgba(255, 255, 255, 0.3);
-    font-size: 13px;
-}
+            /* AUTH NEXUS (PROFILE ICON) */
+            .auth-nexus {
+                position: absolute;
+                bottom: 40px;
+                left: 40px;
+                pointer-events: auto;
+                z-index: 2000;
+            }
 
             /* UTILITY NEXUS STYLES */
             .utility-nexus {
@@ -1047,7 +907,6 @@ applySuggestion(id, value) {
                 box-shadow: 0 15px 30px rgba(255,255,255,0.25);
             }
 
-            /* TOOLTIPS */
             .nexus-orb-wrapper {
                 position: relative;
             }
@@ -1109,7 +968,6 @@ applySuggestion(id, value) {
                 padding-top: 10px;
             }
 
-            /* SERVER SELECTOR PANEL STYLE */
             .top-branding.dropdown {
                 position: absolute;
                 top: 30px;
@@ -1164,7 +1022,6 @@ applySuggestion(id, value) {
                 color: #38bdf8;
             }
 
-            /* WEATHER EXPANSION STYLE */
             .weather-nexus-container { position: relative; display: flex; flex-direction: column-reverse; align-items: center; gap: 15px; }
             .weather-spread {
                 display: flex;
@@ -1206,7 +1063,6 @@ applySuggestion(id, value) {
             .spread-opt:hover { background: #222; color: #fff; border-color: #38bdf8; }
             .spread-opt.active { background: rgba(56, 189, 248, 0.2); color: #38bdf8; border-color: #38bdf8; }
 
-            /* MODAL SYSTEM (TACTICAL PANEL) */
             .modal-overlay {
                 position: fixed;
                 inset: 0;
@@ -1330,7 +1186,6 @@ applySuggestion(id, value) {
             .row-label i { color: #38bdf8; opacity: 0.9; }
             .row-control { margin-top: 20px; }
 
-            /* INPUTS */
             .row-input, .row-input-select {
                 width: 100%;
                 background: #1c1c1f;
@@ -1432,9 +1287,93 @@ applySuggestion(id, value) {
                 to { opacity: 1; transform: translateY(0); }
             }
             .slide-in { animation: slideIn 0.35s forwards; }
-            /* MOBILE OVERRIDES FOR COEXISTENCE & ICON SCALING */
+
             @media (max-width: 768px) {
-                /* Shrink the Server Selector */
+                .tactical-header {
+                    position: fixed;
+                    top: 0;
+                    height: 60px;
+                    background: #000;
+                    backdrop-filter: blur(20px);
+                    border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+                    display: flex !important;
+                    align-items: center !important;
+                    justify-content: space-between !important;
+                    padding: 0 15px !important;
+                    pointer-events: none !important;
+                }
+
+                .top-branding.dropdown, 
+                .top-right-actions {
+                    position: static !important;
+                    transform: none !important;
+                    box-shadow: none !important;
+                    padding: 0 !important;
+                    margin: 0 !important;
+                    background: transparent !important;
+                    border: none !important;
+                    backdrop-filter: none !important;
+                }
+
+                .top-branding.dropdown {
+                    flex-shrink: 0;
+                    margin-right: 15px !important;
+                }
+
+                #landing-server-name {
+                    font-size: 0.7rem !important;
+                    font-weight: 800;
+                }
+
+                .top-right-actions {
+                    flex: 1;
+                    max-width: 200px; 
+                    display: flex;
+                    justify-content: flex-end;
+                }
+
+                .search-blade {
+                    width: 100% !important;
+                    height: 36px !important;
+                    padding: 0 12px !important;
+                    background: rgba(255,255,255,0.08) !important;
+                    border-radius: 8px !important;
+                }
+
+                .search-blade:focus-within {
+                    position: absolute !important;
+                    left: 10px !important;
+                    right: 10px !important;
+                    top: 10px !important;
+                    width: calc(100% - 20px) !important;
+                    height: 40px !important;
+                    z-index: 100 !important;
+                    max-width: none !important;
+                    background: #111 !important;
+                }
+
+                .search-shortcut { display: none !important; }
+
+                .utility-nexus { bottom: 20px !important; right: 20px !important; }
+                
+                /* Adjust Profile Icon container for mobile */
+                .auth-nexus {
+                    bottom: 20px !important;
+                    left: 20px !important;
+                }
+
+                .orb-btn { width: 44px !important; height: 44px !important; }
+                
+                .search-results-dropdown {
+                    position: fixed !important;
+                    top: 60px !important;
+                    left: 0 !important;
+                    width: 100vw !important;
+                    height: calc(100vh - 60px) !important;
+                    max-height: none !important;
+                    border-radius: 0 !important;
+                }
+
                 .top-branding.dropdown {
                     top: 15px !important;
                     left: 15px !important;
@@ -1442,43 +1381,39 @@ applySuggestion(id, value) {
                     gap: 8px !important;
                 }
                 #landing-server-name {
-                    font-size: 0.7rem !important; /* Smaller text */
+                    font-size: 0.7rem !important; 
                 }
                 .status-dot {
                     width: 6px !important;
                     height: 6px !important;
                 }
 
-                /* Shrink and Reposition Search Blade */
-                ..top-right-actions {
-        position: static !important;
-        flex: 1;
-        display: flex;
-        justify-content: flex-end; /* This keeps the search bar anchored to the right */
-        pointer-events: auto;
-    }
+                .top-right-actions {
+                    position: static !important;
+                    flex: 1;
+                    display: flex;
+                    justify-content: flex-end; 
+                    pointer-events: auto;
+                }
 
-    .search-blade {
-        width: 150px !important; 
-        height: 38px !important;
-        transition: width 0.3s cubic-bezier(0.4, 0, 0.2, 1); /* Smooth expansion */
-        position: relative !important; /* Keep it relative to its container */
-    }
+                .search-blade {
+                    width: 150px !important; 
+                    height: 38px !important;
+                    transition: width 0.3s cubic-bezier(0.4, 0, 0.2, 1); 
+                    position: relative !important; 
+                }
 
-    .search-blade:focus-within {
-        /* Instead of absolute positioning, we just expand the width */
-        /* calc(100vw - 120px) leaves room for the branding/server selector on the left */
-        width: calc(100vw - 120px) !important; 
-        z-index: 100 !important;
-    }
+                .search-blade:focus-within {
+                    width: calc(100vw - 120px) !important; 
+                    z-index: 100 !important;
+                }
                 #blade-search-input {
                     font-size: 13px !important;
                 }
                 .search-shortcut {
-                    display: none; /* Hide shortcut key on mobile */
+                    display: none; 
                 }
 
-                /* Shrink the Utility Orbs */
                 .utility-nexus {
                     bottom: 20px !important;
                     right: 20px !important;
@@ -1489,10 +1424,9 @@ applySuggestion(id, value) {
                 .orb-btn {
                     width: 42px !important;
                     height: 42px !important;
-                    font-size: 0.9rem !important; /* Smaller icons */
+                    font-size: 0.9rem !important; 
                 }
 
-                /* Weather expansion sizing */
                 .spread-opt {
                     padding: 8px 15px !important;
                 }
@@ -1510,5 +1444,4 @@ applySuggestion(id, value) {
             document.head.appendChild(style);
         }
     }
-    
 };

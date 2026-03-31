@@ -61,24 +61,26 @@ export function updateActiveSectors(map, layerId, atcData) {
 
     const activeIds = Array.from(activeIdsSet);
     
-    // 3. Create a prefix-matching expression (e.g., 'KZLA' matches 'KZLA-CTR')
-    const matchExpression = [
-        "match",
-        ["slice", ["get", "id"], 0, ["index-of", "-", ["concat", ["get", "id"], "-"]]],
-        activeIds.length > 0 ? activeIds : ["none"],
-        true,
-        false
-    ];
-
-    // --- STYLING: RED OUTLINE AND STRIP LABEL ---
-
-    const isLightMode = window.mapFilters?.mapStyle === 'light';
+    // 3. Create a bulletproof "any" filter expression.
+    // This explicitly checks if the map feature's ID starts with any of the active controller IDs.
+    let filterExpression;
     
-    // Set active color to bright red
-    const activeBorderColor = '#ff0000';
-    const inactiveBorderColor = isLightMode ? 'rgba(15, 23, 42, 0.15)' : 'rgba(255, 255, 255, 0.1)';
+    if (activeIds.length === 0) {
+        // If no ATC is online, apply an impossible condition to hide everything natively.
+        filterExpression = ["==", "id", "NONE_ACTIVE"];
+    } else {
+        filterExpression = ["any"];
+        activeIds.forEach(activeId => {
+            // "index-of" returns 0 if the feature's ID starts with the activeId (e.g., 'KZLA' matches 'KZLA-CTR').
+            // We use "coalesce" to prevent Mapbox from crashing if a feature has a missing ID.
+            filterExpression.push(["==", ["index-of", activeId, ["coalesce", ["get", "id"], ""]], 0]);
+        });
+    }
 
-    // Set fill to transparent
+    // --- FILTERING AND STYLING ---
+
+    // Apply the filter directly to the FILL layer to kill any default faint outlines
+    map.setFilter(layerId, filterExpression);
     map.setPaintProperty(layerId, 'fill-color', 'rgba(0, 0, 0, 0)');
     map.setPaintProperty(layerId, 'fill-opacity', 0);
 
@@ -88,24 +90,15 @@ export function updateActiveSectors(map, layerId, atcData) {
             map.moveLayer('fir-borders', 'sector-ops-live-flights-layer');
         }
 
-        // Apply dynamic colors to the boundary line
-        map.setPaintProperty('fir-borders', 'line-color', [
-            "case",
-            matchExpression,
-            activeBorderColor,   // Red for active
-            inactiveBorderColor  // Dimmed color for contrast
-        ]);
+        // Apply the exact filter to the borders layer so only active ones exist on the GPU
+        map.setFilter('fir-borders', filterExpression);
 
-        map.setPaintProperty('fir-borders', 'line-width', [
-            "case",
-            matchExpression,
-            2.0, // Thicker red line for active
-            0.5  // Hairline for inactive
-        ]);
+        // Hardcode the active styling since everything else is filtered out
+        map.setPaintProperty('fir-borders', 'line-color', '#ff0000');
+        map.setPaintProperty('fir-borders', 'line-width', 2.0);
 
         // --- ADD OR UPDATE THE LABEL STRIP LAYER ---
         
-        // Dynamically add the text layer if it doesn't exist yet
         if (!map.getLayer('fir-active-labels')) {
             const borderLayer = map.getLayer('fir-borders');
             
@@ -114,36 +107,30 @@ export function updateActiveSectors(map, layerId, atcData) {
                 type: 'symbol',
                 source: borderLayer.source,
                 layout: {
-                    'symbol-placement': 'line', // Follows the boundary line
-                    'text-field': ['get', 'id'], // Uses the FIR ID for the label
+                    'symbol-placement': 'line',
+                    'text-field': ['get', 'id'], 
                     'text-size': 14,
-                    'text-offset': [0, 1.2], // Pushes the text slightly off the line (inside)
+                    'text-offset': [0, 1.2],
                     'text-anchor': 'top',
                     'text-max-angle': 45
                 },
                 paint: {
-                    'text-color': '#ff0000', // Red text
-                    'text-halo-color': 'rgba(255, 255, 255, 0.95)', // White background strip
-                    'text-halo-width': 4, // Thickness of the background strip
-                    'text-opacity': 0 // Hidden by default
+                    'text-color': '#ff0000', 
+                    'text-halo-color': 'rgba(255, 255, 255, 0.95)', 
+                    'text-halo-width': 4,
+                    'text-opacity': 1 
                 }
             };
             
-            // If the original layer uses vector tiles, carry over the source-layer
             if (borderLayer.sourceLayer) {
                 labelLayer['source-layer'] = borderLayer.sourceLayer;
             }
 
-            // Insert labels just above the borders
             map.addLayer(labelLayer, 'sector-ops-live-flights-layer');
         }
 
-        // Show labels only on active boundaries
-        map.setPaintProperty('fir-active-labels', 'text-opacity', [
-            "case",
-            matchExpression,
-            1, // Fully visible if active
-            0  // Hidden if inactive
-        ]);
+        // Apply the exact same filter to the labels layer
+        map.setFilter('fir-active-labels', filterExpression);
+        map.setPaintProperty('fir-active-labels', 'text-opacity', 1);
     }
 }

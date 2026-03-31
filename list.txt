@@ -1,0 +1,134 @@
+1. The Banking & Financial Sector 
+
+Since running an airline requires immense capital, a banking system is essential for growth. 
+
+Credit Ratings: Every player and Virtual Airline (VA) starts with a base credit score. 
+
+Successfully completing flights and paying off small debts increases the score (e.g., from C to AAA). 
+
+Corporate Loans: Banks offer loans with dynamic interest rates based on the borrower's credit rating. 
+
+These loans are automatically deducted in daily or weekly installments. 
+
+Collateral & Repossession: To secure a massive loan (like buying an A380), a VA must put up existing assets (other planes or cash reserves) as collateral. 
+
+If they default on payments, the bank repossesses the aircraft and auctions it off to other players. 
+
+The Stock Market: Publicly traded VAs. Large, successful airlines can choose to "go public," allowing other players to buy shares. 
+
+If the airline performs well, shareholders earn dividends. 
+
+Savings & Yields: Players can store excess virtual cash in bank accounts that generate a small daily interest yield, incentivizing them to hold capital. 
+
+2. The Global Aircraft Market (New & Used) 
+
+Instead of just buying planes from a generic menu, the aircraft market should be a living ecosystem. 
+
+Manufacturers (New Planes): Buying brand new planes directly from Boeing or Airbus takes virtual time (e.g., a 3-day delivery window) and comes with a premium price tag but zero initial wear and tear. 
+
+The Used Market: A player-driven marketplace where airlines can sell older aircraft. 
+
+Buyers can snag a cheap B737, but it might have 10,000 flight hours and require expensive "C-Checks" immediately. 
+
+Leasing Agencies: For airlines that cannot afford to buy, they can dry-lease aircraft. 
+
+They pay a hefty weekly fee, but it allows rapid expansion. 
+
+If the lease isn't paid, the plane is immediately returned to the agency. 
+
+3. FBOs (Fixed Base Operators) & Player-Owned Infrastructure 
+
+Allowing players to own pieces of the airports adds a massive secondary progression loop. 
+
+FBO Ownership: Players can purchase FBO rights at specific airports. 
+
+Fuel & Maintenance: The FBO owner sets the local fuel price. 
+
+When other players or VAs land at that airport and refuel, the FBO owner takes a cut of the profit. 
+
+FBO owners can also build maintenance hangars to repair visiting aircraft. 
+
+Passenger Hubs: Upgrading an FBO adds passenger lounges, which slightly increases the ticket demand and payout for any VA operating out of that airport. 
+
+4. Contracts, Charters, and Cargo 
+
+Scheduled airline flying is great, but adding dynamic missions keeps the gameplay fresh. 
+
+The Job Board: A constantly refreshing list of one-off contracts. 
+
+VIP Charters: High-paying flights requiring business jets (like the Citation X). These have strict deadlines and heavy penalties for failure. 
+
+Heavy Cargo: Contracts to move thousands of pounds of freight between specific global hubs using freighters (e.g., B777F or MD-11F). 
+
+Humanitarian Drops: Urgent missions (often to smaller, challenging airfields) that pay highly in "Reputation" rather than cash. 
+
+5. Alliances & Code-Sharing 
+
+VAs shouldn't operate in a vacuum; they should work together to dominate regions. 
+
+Forming Alliances: Multiple VAs can group up to form global alliances (similar to Star Alliance or Oneworld). 
+
+Code-Sharing: If Airline A flies New York to London, and Airline B flies London to Dubai, they can codeshare. 
+
+Passengers can book a connected ticket, boosting demand and profits for both airlines. 
+
+Shared Hubs: Alliance members get discounts on landing fees and fuel when flying into an airport where another alliance member owns an FBO. 
+
+6. Human Resources & Crew Management
+An airline is only as good as its staff. Players shouldn't just manage metal; they need to manage people.
+
+Staff Markets: Airlines must hire virtual AI staff—Pilots, Cabin Crew, and Mechanics—each with their own stats (Experience, Efficiency, Morale).
+
+Crew Fatigue System: You cannot work a virtual crew to the bone. Flights generate fatigue. If an airline dispatches a highly fatigued crew, the risk of a "rough flight" (resulting in passenger refunds or lower reputation) skyrockets. Crews must be given rest periods at hotels, which the airline pays for.
+
+Labor Unions & Strikes: If an airline chronically underpays its staff compared to the global average, employee morale drops. If it hits rock bottom, the virtual union strikes, grounding the airline's fleet for 24-48 hours until demands are met.
+
+Training Academies: Airlines can build training centers at their hubs to take cheap, inexperienced AI rookies and train them up to highly efficient veterans.
+
+7. The Dynamic World Engine
+The game world needs to feel alive and unpredictable, forcing airline CEOs to adapt their strategies constantly.
+
+Dynamic Route Demand: Passenger demand shouldn't be static. The system should simulate seasons and events. For example, demand for flights to Munich spikes during a simulated Oktoberfest; demand for Caribbean routes jumps in the winter.
+
+Global Fuel Markets: Jet-A fuel prices fluctuate daily based on a simulated global market. Savvy airlines can buy fuel futures—locking in a low price for millions of gallons now, hedging against future price spikes.
+
+Geopolitics & Weather: Randomly generated macro-events. A severe snowstorm might close JFK for 12 hours, forcing airlines to divert flights, pay passenger compensation, and scramble to fix their network schedules.
+
+8. Advanced Cabin & Passenger Simulation
+Let players get into the weeds of how their aircraft make money.
+
+Cabin Configurations (LOPA): When an airline buys a plane, they must configure it. Will it be a high-density, all-economy layout for budget routes? Or a premium-heavy configuration with First Class suites for the London-New York run? Reconfiguring a plane takes it out of service for a few days and costs money.
+
+Catering & Amenities: Airlines negotiate contracts with catering companies. Budget airlines offer water and pretzels (low cost, low passenger satisfaction boost). Premium airlines offer gourmet meals and Wi-Fi (high cost, massive boost to ticket prices and reputation).
+
+The Ticket Pricing Algorithm: Players set their ticket prices. If they set them too high, the AI passengers will choose a competing Virtual Airline. If they set them too low, the flight sells out, but the airline loses money after fuel and crew costs.
+
+9. High-Stakes Corporate Strategy
+For the late-game players who have massive empires, the focus shifts from flying planes to dominating the market.
+
+Slot Auctions: At the world’s busiest airports (like London Heathrow or Tokyo Haneda), you cannot just show up and fly. The game limits the number of daily takeoff/landing slots. Airlines must blindly bid against each other in high-stakes auctions to secure these lucrative operational rights.
+
+Subsidiaries: A massive, mainline Virtual Airline can create a regional subsidiary (e.g., "Empire Express") operating smaller Embraer or Bombardier jets to feed passengers from small towns into their major hubs.
+
+Hostile Takeovers: With the Stock Market integrated, a massive VA can quietly buy up the majority shares of a struggling competitor. Once they own 51%, they can liquidate the rival, absorb their fleet, and steal their routes.
+
+10. The Maintenance & Salvage Yard
+A deeper dive into aircraft upkeep.
+
+Component Wear: Instead of just general "wear," specific systems degrade based on how the pilot actually files their flight reports. Heavy usage wears out tires and brakes faster, while consistent maximum thrust wears out engines faster.
+
+The Boneyard: When an aircraft is 25+ years old and too expensive to maintain, airlines can fly it to a virtual boneyard (like Victorville). They can either scrap it for a tiny cash payout or pay to have it stripped for spare parts to maintain the rest of their fleet cheaply.
+
+11. Updated UI/UX Architecture 
+
+To support this massive economy, your web app's navigation will need to be well-structured. 
+
+Dashboard: Personal bank balance, active loans, current location, next scheduled flight. 
+
+Flight Dispatch: Route planning, fuel calculation, passenger/cargo loading, and filing the final flight report. 
+
+Financial Center: Access to the Bank (loans, savings), Stock Market, and personal/VA transaction history. 
+
+Hangar & Market: Fleet management, maintenance scheduling, and the global marketplace for buying/leasing planes. 
+
+World Map: A global view of owned FBOs, active routes, and high-demand airports.
