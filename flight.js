@@ -2162,6 +2162,21 @@ function injectCustomStyles() {
             opacity: 0.9; } .phase-cruise { background: var(--color-brand); opacity: 0.9; } .phase-descent { background: var(--color-warning); opacity: 0.9;
         } .phase-approach { background: var(--color-purple); opacity: 0.9; } .phase-enroute { background: var(--text-dim); opacity: 0.9;
         }
+
+        /* Complete Window Scrolling Overrides */
+        #aircraft-info-window {
+            overflow-y: auto !important;
+            overflow-x: hidden !important;
+            display: block !important; 
+        }
+
+        /* Disable all internal scrollbars so the parent takes over */
+        #aircraft-info-window .unified-display-main-content,
+        #aircraft-info-window .info-window-content {
+            overflow-y: visible !important;
+            height: auto !important;
+            flex: none !important;
+        }
         
         .unified-display-main-content { 
             padding: 10px;
@@ -2171,6 +2186,7 @@ function injectCustomStyles() {
             gap: 10px; 
             background: linear-gradient(180deg, var(--bg-glass), var(--bg-glass));
             border-top: 1px solid var(--border-glass);
+            overflow-y: auto;
         }
 
         .ac-tab-pane { display: none; flex-direction: column; gap: 16px; animation: fadeIn 0.4s;
@@ -12400,6 +12416,18 @@ function updateAircraftInfoWindow(baseProps, plan, sortedRoutePoints) {
             vsdSummaryVS.innerHTML = `<i class="fa-solid ${vs > 100 ? 'fa-arrow-up' : vs < -100 ? 'fa-arrow-down' : 'fa-minus'}"></i> ${Math.round(vs)}<span class="unit">fpm</span>`;
         }
     });
+
+    const flightDataTabContainer = document.getElementById('ac-tab-flight-data');
+    
+    // Check if the user is Pro (replace with your actual auth/pro flag logic)
+    // Assuming true for implementation testing
+    const isProUser = true; 
+
+    if (flightDataTabContainer && isProUser) {
+        // Because populateAircraftInfoWindow resets innerHTML, we must re-init the layout engine
+        // to re-apply the grid orders and sizes to the freshly generated DOM nodes.
+    
+    }
 
     styleAll('#ac-progress-bar', 'width', `${progress.toFixed(1)}%`);
     updateAll('#ac-phase-indicator', `<i class="fa-solid ${phaseIcon}"></i> ${flightPhase}`, true);

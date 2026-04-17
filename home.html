@@ -185,15 +185,14 @@
     <!-- Navigation -->
     <nav class="fixed top-0 w-full z-50 nav-blur">
         <div class="max-w-7xl mx-auto px-6 h-20 flex items-center justify-between">
-            <a href="/" class="flex items-center gap-3 group">
-                <div class="size-10 rounded-full bg-primary/20 border border-primary/40 flex items-center justify-center ring-4 ring-primary/5 transition-all group-hover:scale-110">
-                    <span class="text-sm font-bold text-primary italic">IF</span>
-                </div>
+            <a href="#" class="flex items-center gap-3 group">
+                <img src="Images/inflight.png" alt="InFlight Logo" class="size-10 rounded-full object-cover transition-all duration-300 group-hover:scale-110 ring-2 ring-primary/20 shadow-lg shadow-primary/10" onerror="this.onerror=null; this.src='https://ui-avatars.com/api/?name=In+Flight&background=6366f1&color=fff';">
                 <span class="text-xl font-bold tracking-tight text-white">InFlight</span>
             </a>
 
             <div class="hidden md:flex items-center gap-10">
                 <a href="#features" class="text-sm font-medium text-slate-400 hover:text-white transition-colors">Capabilities</a>
+                <a href="gallery.html" class="text-sm font-medium text-slate-400 hover:text-white transition-colors">Gallery</a>
                 <a href="#community" class="text-sm font-medium text-slate-400 hover:text-white transition-colors">Community</a>
                 <a href="https://discord.gg/cNSkZtdJ" class="text-sm font-medium text-slate-400 hover:text-white transition-colors">Discord</a>
                 <a href="index.html" class="btn-premium">
@@ -227,7 +226,7 @@
             </div>
 
             <p class="text-lg text-slate-500 max-w-2xl mx-auto leading-relaxed section-animate">
-                The ultimate Electronic Flight Bag for power users. Experience the sky in high-fidelity with 3D paths, live instrumentation, and community-driven data.
+               Experience the sky in high-fidelity with 3D paths, live instrumentation, and community-driven data.
             </p>
 
             <div class="flex flex-col sm:flex-row gap-5 justify-center items-center section-animate">
@@ -239,7 +238,7 @@
                 </a>
             </div>
 
-            <!-- Updated Stats Bar -->
+            <!-- Stats Bar -->
             <div class="grid grid-cols-1 sm:grid-cols-3 gap-8 pt-20 max-w-3xl mx-auto section-animate">
                 <div class="text-center p-6 rounded-2xl bg-white/5 border border-white/10 backdrop-blur-sm">
                     <div class="text-3xl font-bold text-white mb-1">1,200+</div>
@@ -264,7 +263,7 @@
             <p class="text-slate-500 max-w-2xl mx-auto">Pushing the boundaries of simulation tracking with cutting-edge experimental features.</p>
         </div>
 
-        <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8">
+        <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8" id="features-grid">
             <div class="glow-card rounded-3xl p-8 space-y-4 group">
                 <div class="flex items-center gap-3">
                     <div class="p-2 rounded-lg bg-primary/10 text-primary"><i data-lucide="layers" class="size-5"></i></div>
@@ -344,8 +343,7 @@
                     </a>
                 </div>
 
-                <div class="relative grid grid-cols-2 gap-4 section-animate">
-                    <!-- Images remain static placeholders but wrapped in cards -->
+                <div class="relative grid grid-cols-2 gap-4 section-animate" id="community-grid">
                     <div class="glow-card p-3 rounded-2xl rotate-[-3deg] hover:rotate-0 transition-transform">
                         <div class="rounded-xl aspect-video bg-slate-800 flex items-center justify-center"><i data-lucide="image" class="text-slate-600"></i></div>
                         <div class="mt-3 flex justify-between text-[10px] font-bold text-slate-500">
@@ -384,7 +382,7 @@
         <div class="max-w-7xl mx-auto grid md:grid-cols-2 gap-20">
             <div class="space-y-8">
                 <div class="flex items-center gap-3">
-                    <div class="size-10 rounded-full bg-white/5 flex items-center justify-center font-bold italic border border-white/10">IF</div>
+                    <img src="Images/inflight.png" alt="InFlight Logo" class="size-10 rounded-full object-cover border border-white/10" onerror="this.onerror=null; this.src='https://ui-avatars.com/api/?name=In+Flight&background=6366f1&color=fff';">
                     <span class="text-2xl font-bold">InFlight</span>
                 </div>
                 <p class="text-slate-500 text-sm max-w-sm leading-relaxed">
@@ -402,21 +400,21 @@
                 <div class="space-y-4">
                     <div class="text-[10px] font-bold uppercase tracking-widest text-white">Connect</div>
                     <ul class="text-sm text-slate-500 space-y-2">
-                        <li><a href="https://discord.gg/cNSkZtdJ" class="hover:text-white transition-colors">Discord</a></li>
+                        <li><a href="https://discord.gg/MaS4JwBzyw" class="hover:text-white transition-colors">Discord</a></li>
                         <li><a href="#" class="hover:text-white transition-colors">Email</a></li>
                     </ul>
                 </div>
                 <div class="space-y-4">
                     <div class="text-[10px] font-bold uppercase tracking-widest text-white">Legal</div>
                     <ul class="text-sm text-slate-500 space-y-2">
-                        <li><a href="#" class="hover:text-white transition-colors">Terms</a></li>
-                        <li><a href="#" class="hover:text-white transition-colors">Privacy</a></li>
+                        <li><a href="terms.html" class="hover:text-white transition-colors">Terms</a></li>
+                        <li><a href="privacy.html" class="hover:text-white transition-colors">Privacy</a></li>
                     </ul>
                 </div>
             </div>
         </div>
         <div class="max-w-7xl mx-auto pt-20 mt-20 border-t border-white/5 flex justify-between items-center text-[10px] font-mono text-slate-700 tracking-widest uppercase">
-            <span>© 2025 InFlight Tracker</span>
+            <span>© 2026 InFlight Tracker</span>
         </div>
     </footer>
 
@@ -464,7 +462,7 @@
         }
         setInterval(rotate, 3000);
 
-        // 3. Levitating Particles Animation (Less white, subtle drift)
+        // 3. Levitating Particles Animation
         const canvas = document.getElementById('bg-canvas');
         const ctx = canvas.getContext('2d');
         let particles = [];
@@ -489,7 +487,6 @@
                 this.oscillationSpeed = Math.random() * 0.01 + 0.005;
             }
             update() {
-                // Floating levitation effect using sine
                 this.offset += this.oscillationSpeed;
                 this.x += this.vx + Math.sin(this.offset) * 0.2;
                 this.y += this.vy + Math.cos(this.offset) * 0.2;
@@ -521,16 +518,19 @@
         for (let i = 0; i < 100; i++) particles.push(new FloatingParticle());
         animate();
 
-        // 4. Mouse Interactive Glow
-        document.addEventListener('mousemove', e => {
-            document.querySelectorAll('.glow-card').forEach(card => {
-                const rect = card.getBoundingClientRect();
-                const x = e.clientX - rect.left;
-                const y = e.clientY - rect.top;
-                card.style.setProperty('--x', `${x}px`);
-                card.style.setProperty('--y', `${y}px`);
-            });
-        });
+        // 4. Optimized Mouse Interactive Glow (Using Event Delegation to avoid lag)
+        const handleGlow = (e) => {
+            const target = e.target.closest('.glow-card');
+            if (!target) return;
+            const rect = target.getBoundingClientRect();
+            const x = e.clientX - rect.left;
+            const y = e.clientY - rect.top;
+            target.style.setProperty('--x', `${x}px`);
+            target.style.setProperty('--y', `${y}px`);
+        };
+        
+        document.getElementById('features-grid').addEventListener('mousemove', handleGlow);
+        document.getElementById('community-grid').addEventListener('mousemove', handleGlow);
 
         // 5. Intersection Observer for Scroll Animations
         const observer = new IntersectionObserver((entries) => {

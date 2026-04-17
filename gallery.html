@@ -1,0 +1,587 @@
+<!DOCTYPE html>
+<html lang="en" class="scroll-smooth">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>InFlight | Aviation Gallery</title>
+    
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+    
+    <script src="https://unpkg.com/lucide@latest"></script>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script>
+        tailwind.config = {
+            theme: {
+                extend: {
+                    fontFamily: {
+                        sans: ['Inter', 'sans-serif'],
+                        mono: ['JetBrains Mono', 'monospace'],
+                    },
+                    colors: {
+                        background: '#020617', 
+                        surface: '#0f172a',
+                        surfaceLight: '#1e293b',
+                        primary: '#6366f1',
+                        accent: '#38bdf8',
+                    }
+                }
+            }
+        }
+    </script>
+
+    <style>
+        body {
+            background-color: #020617;
+            color: #f8fafc;
+            overflow-x: hidden;
+            min-height: 100vh;
+            display: flex;
+            flex-direction: column;
+        }
+
+        .nav-blur {
+            background: rgba(2, 6, 23, 0.75);
+            backdrop-filter: blur(16px);
+            border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+        }
+
+        .text-gradient {
+            background: linear-gradient(to bottom, #fff 30%, rgba(255, 255, 255, 0.4));
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+        }
+
+        /* Cinematic Cards */
+        .glow-card {
+            position: relative;
+            background: rgba(15, 23, 42, 0.6);
+            border: 1px solid rgba(255, 255, 255, 0.05);
+            transition: all 0.5s cubic-bezier(0.4, 0, 0.2, 1);
+            overflow: hidden;
+        }
+
+        .glow-card::before {
+            content: "";
+            position: absolute;
+            inset: -1px;
+            background: radial-gradient(circle at var(--x, 50%) var(--y, 50%), rgba(99, 102, 241, 0.3) 0%, transparent 60%);
+            border-radius: inherit;
+            z-index: 1;
+            opacity: 0;
+            pointer-events: none;
+            transition: opacity 0.3s ease;
+        }
+
+        .glow-card:hover::before { opacity: 1; }
+        .glow-card:hover {
+            border-color: rgba(99, 102, 241, 0.3);
+            transform: translateY(-6px);
+            box-shadow: 0 25px 50px -12px rgba(0,0,0,0.7);
+        }
+
+        /* Stacked Card Effect for Groups */
+        .stack-effect::after {
+            content: '';
+            position: absolute;
+            top: 6px; left: 12px; right: 12px; bottom: -6px;
+            background: rgba(30, 41, 59, 0.5);
+            border: 1px solid rgba(255,255,255,0.05);
+            border-radius: 1rem;
+            z-index: -1;
+            transition: transform 0.4s ease;
+        }
+        .stack-effect::before {
+            content: '';
+            position: absolute;
+            top: 12px; left: 24px; right: 24px; bottom: -12px;
+            background: rgba(15, 23, 42, 0.5);
+            border: 1px solid rgba(255,255,255,0.02);
+            border-radius: 1rem;
+            z-index: -2;
+            transition: transform 0.4s ease;
+        }
+        .glow-card:hover.stack-effect::after { transform: translateY(4px) scale(0.98); }
+        .glow-card:hover.stack-effect::before { transform: translateY(8px) scale(0.95); }
+
+        /* Custom Scrollbar for Modal */
+        .horizontal-scroll::-webkit-scrollbar {
+            height: 8px;
+        }
+        .horizontal-scroll::-webkit-scrollbar-track {
+            background: rgba(255, 255, 255, 0.02);
+            border-radius: 10px;
+        }
+        .horizontal-scroll::-webkit-scrollbar-thumb {
+            background: rgba(99, 102, 241, 0.3);
+            border-radius: 10px;
+        }
+        .horizontal-scroll::-webkit-scrollbar-thumb:hover {
+            background: rgba(99, 102, 241, 0.6);
+        }
+
+        /* Segmented Control */
+        .segmented-control {
+            position: relative;
+            display: inline-flex;
+            background: rgba(255, 255, 255, 0.03);
+            backdrop-filter: blur(20px);
+            padding: 6px;
+            border-radius: 9999px;
+            border: 1px solid rgba(255, 255, 255, 0.1);
+        }
+        .segment-btn {
+            position: relative;
+            z-index: 10;
+            padding: 0.75rem 2.5rem;
+            border-radius: 9999px;
+            font-size: 0.875rem;
+            font-weight: 600;
+            color: #94a3b8;
+            transition: color 0.4s ease;
+            display: flex; align-items: center; gap: 0.5rem;
+        }
+        .segment-btn.active { color: #ffffff; }
+        #tab-indicator {
+            position: absolute;
+            top: 6px; bottom: 6px; width: calc(50% - 6px);
+            background: rgba(99, 102, 241, 0.15);
+            border: 1px solid rgba(99, 102, 241, 0.3);
+            border-radius: 9999px;
+            transition: transform 0.5s cubic-bezier(0.4, 0, 0.2, 1);
+            z-index: 5;
+        }
+
+        /* Modal Transitions */
+        #fleet-modal {
+            opacity: 0;
+            pointer-events: none;
+            transition: opacity 0.4s ease;
+        }
+        #fleet-modal.open {
+            opacity: 1;
+            pointer-events: auto;
+        }
+        #fleet-modal .modal-content {
+            transform: scale(0.95) translateY(20px);
+            transition: all 0.5s cubic-bezier(0.4, 0, 0.2, 1);
+        }
+        #fleet-modal.open .modal-content {
+            transform: scale(1) translateY(0);
+        }
+        
+        .grid-container { transition: opacity 0.3s ease; }
+        .grid-container.loading { opacity: 0.5; pointer-events: none; }
+    </style>
+</head>
+<body class="antialiased selection:bg-primary/30">
+
+    <nav class="fixed top-0 w-full z-50 nav-blur">
+        <div class="max-w-7xl mx-auto px-6 h-20 flex items-center justify-between">
+            <a href="home.html" class="flex items-center gap-3 group">
+                <img src="Images/inflight.png" alt="InFlight Logo" class="size-10 rounded-full object-cover transition-all duration-300 group-hover:scale-110 ring-2 ring-primary/20 shadow-lg shadow-primary/10" onerror="this.onerror=null; this.src='https://ui-avatars.com/api/?name=In+Flight&background=6366f1&color=fff';">
+                <span class="text-xl font-bold tracking-tight text-white">InFlight</span>
+            </a>
+            <div class="hidden md:flex items-center gap-10">
+                <a href="home.html#features" class="text-sm font-medium text-slate-400 hover:text-white transition-colors">Capabilities</a>
+                <a href="gallery.html" class="text-sm font-medium text-white transition-colors">Gallery</a>
+                <a href="https://discord.gg/cNSkZtdJ" class="text-sm font-medium text-slate-400 hover:text-white transition-colors">Discord</a>
+            </div>
+        </div>
+    </nav>
+
+    <main class="flex-1 flex flex-col pt-32 pb-20 max-w-[1600px] mx-auto px-6 w-full">
+        
+        <header class="text-center mb-12 max-w-4xl mx-auto space-y-8">
+            <h1 class="text-4xl md:text-6xl font-black tracking-tighter text-gradient leading-tight">
+                Aviation Gallery
+            </h1>
+            
+            <div class="flex justify-center">
+                <div class="segmented-control">
+                    <div id="tab-indicator"></div>
+                    <button class="segment-btn active" id="btn-aircraft" onclick="setTab('aircraft')">
+                        <i data-lucide="plane" class="size-4"></i> Directory
+                    </button>
+                    <button class="segment-btn" id="btn-airports" onclick="setTab('airports')">
+                        <i data-lucide="building-2" class="size-4"></i> Terminals
+                    </button>
+                </div>
+            </div>
+        </header>
+
+        <div class="mb-10 bg-surface/40 border border-white/5 rounded-3xl p-6 backdrop-blur-md shadow-2xl flex flex-col lg:flex-row gap-8 justify-between items-center z-20 relative">
+            
+            <div class="flex-1 w-full">
+                <h3 class="text-xs font-mono text-slate-500 uppercase tracking-widest mb-3 flex items-center gap-2">
+                    <i data-lucide="award" class="size-3.5 text-accent"></i> Top Contributors
+                </h3>
+                <div id="contributors-container" class="flex flex-wrap gap-4 items-center">
+                    <div class="animate-pulse h-10 w-32 bg-white/5 rounded-full"></div>
+                </div>
+            </div>
+
+            <div class="hidden lg:block w-px h-16 bg-white/10"></div>
+
+            <div class="w-full lg:w-auto flex flex-col sm:flex-row gap-4 items-center shrink-0">
+                <div class="relative w-full sm:w-64">
+                    <div class="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
+                        <i data-lucide="search" class="size-4 text-slate-400"></i>
+                    </div>
+                    <input type="text" id="search-input" placeholder="Filter by type or livery..." 
+                        class="w-full bg-black/50 border border-white/10 rounded-full py-2.5 pl-10 pr-4 text-sm text-white placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-primary/50 focus:border-primary/50 transition-all">
+                </div>
+                <div class="text-right w-full sm:w-auto">
+                    <div class="text-2xl font-bold text-white" id="stat-total">--</div>
+                    <div class="text-[10px] font-mono text-slate-500 uppercase tracking-widest" id="stat-label">Total Assets</div>
+                </div>
+            </div>
+        </div>
+
+        <div id="gallery-grid" class="grid-container grid grid-cols-1 lg:grid-cols-2 2xl:grid-cols-3 gap-10">
+            </div>
+
+    </main>
+
+    <footer class="py-10 border-t border-white/5 bg-background text-center mt-auto">
+        <div class="text-[10px] font-mono text-slate-700 tracking-widest uppercase">
+            <span>© 2026 InFlight Tracker</span>
+        </div>
+    </footer>
+
+    <div id="fleet-modal" class="fixed inset-0 z-[100] flex items-center justify-center">
+        <div class="absolute inset-0 bg-background/80 backdrop-blur-xl transition-opacity" onclick="closeModal()"></div>
+        
+        <div class="modal-content relative w-full max-w-[90vw] h-[85vh] bg-surface/90 border border-white/10 rounded-3xl shadow-[0_0_100px_rgba(0,0,0,0.8)] overflow-hidden flex flex-col">
+            
+            <div class="px-8 py-6 border-b border-white/10 flex justify-between items-center bg-black/20">
+                <div>
+                    <h2 id="modal-title" class="text-3xl font-black tracking-tight text-white">Loading...</h2>
+                    <p id="modal-subtitle" class="text-sm text-slate-400 font-mono mt-1">Fleet Roster</p>
+                </div>
+                <button onclick="closeModal()" class="p-3 rounded-full bg-white/5 hover:bg-white/10 text-white transition-colors border border-white/10">
+                    <i data-lucide="x" class="size-6"></i>
+                </button>
+            </div>
+
+            <div id="modal-track" class="flex-1 overflow-x-auto overflow-y-hidden horizontal-scroll p-8 flex gap-8 items-center bg-gradient-to-b from-transparent to-black/30">
+                </div>
+        </div>
+    </div>
+
+    <script>
+        lucide.createIcons();
+
+        const API_BASE_URL = 'https://site--indgo-backend--6dmjph8ltlhv.code.run'; 
+        
+        // State Management
+        let currentMode = 'aircraft';
+        let rawAircraftData = [];
+        let rawAirportData = [];
+        let groupedAircraft = {};
+
+        // DOM Elements
+        const galleryGrid = document.getElementById('gallery-grid');
+        const searchInput = document.getElementById('search-input');
+        const tabIndicator = document.getElementById('tab-indicator');
+        const btnAircraft = document.getElementById('btn-aircraft');
+        const btnAirports = document.getElementById('btn-airports');
+        const modal = document.getElementById('fleet-modal');
+
+        document.addEventListener('DOMContentLoaded', () => {
+            loadData();
+        });
+
+        // Mouse glow effect delegation
+        galleryGrid.addEventListener('mousemove', e => {
+            const card = e.target.closest('.glow-card');
+            if (!card) return;
+            const rect = card.getBoundingClientRect();
+            card.style.setProperty('--x', `${e.clientX - rect.left}px`);
+            card.style.setProperty('--y', `${e.clientY - rect.top}px`);
+        });
+
+        // Search Filter Engine
+        searchInput.addEventListener('input', (e) => {
+            const term = e.target.value.toLowerCase();
+            if (currentMode === 'aircraft') {
+                renderAircraftGroups(term);
+            } else {
+                renderAirports(term);
+            }
+        });
+
+        function setTab(type) {
+            currentMode = type;
+            searchInput.value = ''; // clear search on switch
+            
+            if (type === 'aircraft') {
+                tabIndicator.style.transform = 'translateX(0)';
+                btnAircraft.classList.add('active');
+                btnAirports.classList.remove('active');
+                document.getElementById('stat-label').innerText = 'Aircraft Fleets';
+                renderAircraftGroups();
+                updateLeaderboard(rawAircraftData);
+            } else {
+                tabIndicator.style.transform = 'translateX(100%)';
+                btnAirports.classList.add('active');
+                btnAircraft.classList.remove('active');
+                document.getElementById('stat-label').innerText = 'Terminals';
+                renderAirports();
+                updateLeaderboard(rawAirportData);
+            }
+        }
+
+        async function loadData() {
+            galleryGrid.classList.add('loading');
+            galleryGrid.innerHTML = Array(6).fill(0).map(() => `
+                <div class="animate-pulse bg-surfaceLight rounded-3xl aspect-video border border-white/5"></div>
+            `).join('');
+
+            try {
+                // Fetch both datasets concurrently
+                const [acRes, apRes] = await Promise.all([
+                    fetch(`${API_BASE_URL}/api/aircraft`),
+                    fetch(`${API_BASE_URL}/api/airports`)
+                ]);
+
+                const acData = await acRes.json();
+                const apData = await apRes.json();
+
+                // Filter out entries without images
+                rawAircraftData = acData.filter(item => item.imageUrl && item.imageUrl !== null);
+                rawAirportData = apData.filter(item => item.imageUrl && item.imageUrl !== null);
+
+                // Build Fleet Groups
+                groupedAircraft = {};
+                rawAircraftData.forEach(ac => {
+                    const type = ac.aircraftType || 'Unknown Type';
+                    if (!groupedAircraft[type]) groupedAircraft[type] = [];
+                    groupedAircraft[type].push(ac);
+                });
+
+                // Initial Render
+                setTab('aircraft');
+
+            } catch (error) {
+                console.error("API Error:", error);
+                galleryGrid.innerHTML = `
+                    <div class="col-span-full py-20 text-center text-red-400 border border-red-500/10 bg-red-500/5 rounded-3xl">
+                        <i data-lucide="server-crash" class="size-10 mx-auto mb-4 opacity-80"></i>
+                        <p class="font-mono text-sm tracking-widest uppercase">Telemetry Sync Failed</p>
+                    </div>
+                `;
+                lucide.createIcons();
+            } finally {
+                galleryGrid.classList.remove('loading');
+            }
+        }
+
+        function updateLeaderboard(dataset) {
+            const container = document.getElementById('contributors-container');
+            if (!dataset || dataset.length === 0) {
+                container.innerHTML = `<span class="text-sm text-slate-500">No data available</span>`;
+                return;
+            }
+
+            // Count contributions
+            const counts = {};
+            dataset.forEach(item => {
+                const name = item.contributorName || 'Anonymous';
+                counts[name] = (counts[name] || 0) + 1;
+            });
+
+            // Sort and grab top 4
+            const sorted = Object.entries(counts).sort((a, b) => b[1] - a[1]).slice(0, 4);
+
+            container.innerHTML = sorted.map(([name, count], index) => {
+                const badgeColor = index === 0 ? 'ring-yellow-500/50 text-yellow-500' : 'ring-white/10 text-slate-300';
+                const avatarUrl = `https://ui-avatars.com/api/?name=${encodeURIComponent(name)}&background=1e293b&color=fff`;
+                
+                return `
+                <div class="flex items-center gap-3 bg-black/40 pr-4 pl-1.5 py-1.5 rounded-full border border-white/5 transition-all hover:bg-black/60">
+                    <img src="${avatarUrl}" class="size-8 rounded-full ring-2 ${badgeColor}" alt="${name}">
+                    <div class="flex flex-col">
+                        <span class="text-xs font-bold text-white leading-none">${name}</span>
+                        <span class="text-[10px] text-slate-400 font-mono mt-0.5">${count} Uploads</span>
+                    </div>
+                </div>
+                `;
+            }).join('');
+        }
+
+        // Render the main grid of grouped Aircraft
+        function renderAircraftGroups(searchTerm = '') {
+            let groupsToRender = Object.keys(groupedAircraft);
+            
+            // Apply filtering logic
+            if (searchTerm) {
+                groupsToRender = groupsToRender.filter(type => {
+                    const typeMatch = type.toLowerCase().includes(searchTerm);
+                    const liveryMatch = groupedAircraft[type].some(ac => 
+                        (ac.liveryName || '').toLowerCase().includes(searchTerm)
+                    );
+                    return typeMatch || liveryMatch;
+                });
+            }
+
+            document.getElementById('stat-total').innerText = groupsToRender.length;
+
+            if (groupsToRender.length === 0) {
+                galleryGrid.innerHTML = `<div class="col-span-full py-20 text-center text-slate-500">No fleets match your filters.</div>`;
+                return;
+            }
+
+            const cardsHtml = groupsToRender.map(type => {
+                const fleet = groupedAircraft[type];
+                
+                // Smart Cover Logic: Try to find a generic/default livery, else use the first one
+                let coverAc = fleet.find(ac => 
+                    ac.liveryName && (ac.liveryName.toLowerCase().includes('generic') || ac.liveryName.toLowerCase().includes('default'))
+                );
+                if (!coverAc) coverAc = fleet[0];
+
+                return `
+                <div onclick="openModal('${type}')" class="glow-card stack-effect group rounded-3xl aspect-video cursor-pointer bg-surface overflow-visible relative z-10">
+                    <img src="${coverAc.imageUrl}" class="absolute inset-0 w-full h-full object-cover opacity-30 blur-3xl scale-110 z-0 pointer-events-none" alt="">
+                    
+                    <div class="absolute inset-0 z-10 p-6 flex items-center justify-center">
+                        <img src="${coverAc.imageUrl}" alt="${type}" loading="lazy" 
+                            class="w-full h-full object-contain rounded-xl ring-1 ring-white/10 drop-shadow-[0_20px_30px_rgba(0,0,0,0.8)] transition-transform duration-700 ease-out group-hover:scale-[1.02]">
+                    </div>
+                    
+                    <div class="absolute bottom-4 left-4 right-4 z-20 flex justify-between items-end bg-black/60 backdrop-blur-xl border border-white/10 rounded-2xl p-5 shadow-2xl transition-all duration-300">
+                        <div class="flex flex-col gap-1">
+                            <h3 class="text-2xl font-black text-white tracking-tight leading-none">${type}</h3>
+                            <span class="text-sm text-slate-400 font-medium">Cover: ${coverAc.liveryName}</span>
+                        </div>
+                        
+                        <div class="flex flex-col items-end gap-2">
+                            <div class="flex items-center gap-1.5 bg-primary/20 text-primary px-3 py-1.5 rounded-lg border border-primary/20">
+                                <i data-lucide="layers" class="size-4"></i>
+                                <span class="text-xs font-bold uppercase tracking-widest">${fleet.length} Variants</span>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                `;
+            }).join('');
+
+            galleryGrid.innerHTML = cardsHtml;
+            lucide.createIcons();
+        }
+
+        // Render Airports (Flat list, no grouping needed as requested)
+        function renderAirports(searchTerm = '') {
+            let dataToRender = rawAirportData;
+            
+            if (searchTerm) {
+                dataToRender = dataToRender.filter(ap => 
+                    (ap.icao || '').toLowerCase().includes(searchTerm)
+                );
+            }
+
+            document.getElementById('stat-total').innerText = dataToRender.length;
+
+            if (dataToRender.length === 0) {
+                galleryGrid.innerHTML = `<div class="col-span-full py-20 text-center text-slate-500">No terminals match your filters.</div>`;
+                return;
+            }
+
+            const cardsHtml = dataToRender.map(ap => {
+                const dateObj = new Date(ap.lastUpdated);
+                const formattedDate = dateObj.toLocaleDateString(undefined, { year: 'numeric', month: 'short', day: 'numeric' });
+                
+                return `
+                <div class="glow-card group rounded-3xl aspect-video cursor-pointer bg-surface overflow-hidden relative">
+                    <img src="${ap.imageUrl}" class="absolute inset-0 w-full h-full object-cover opacity-20 blur-3xl scale-125 z-0 pointer-events-none" alt="">
+                    
+                    <div class="absolute inset-0 z-10 p-6 flex items-center justify-center">
+                        <img src="${ap.imageUrl}" alt="${ap.icao}" loading="lazy" 
+                            class="w-full h-full object-contain rounded-xl ring-1 ring-white/10 drop-shadow-[0_20px_30px_rgba(0,0,0,0.8)] transition-transform duration-700 ease-out group-hover:scale-[1.02]">
+                    </div>
+                    
+                    <div class="absolute bottom-4 left-4 right-4 z-20 flex justify-between items-end bg-black/60 backdrop-blur-xl border border-white/10 rounded-2xl p-5 shadow-2xl">
+                        <div class="flex flex-col gap-1">
+                            <h3 class="text-3xl font-black text-white tracking-widest leading-none drop-shadow-md">${ap.icao}</h3>
+                            <div class="flex items-center gap-2 text-sm text-slate-400 font-mono">
+                                <i data-lucide="clock" class="size-3.5"></i>
+                                <span>${formattedDate}</span>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                `;
+            }).join('');
+
+            galleryGrid.innerHTML = cardsHtml;
+            lucide.createIcons();
+        }
+
+        // Modal Logic
+        function openModal(aircraftType) {
+            const fleet = groupedAircraft[aircraftType];
+            if (!fleet) return;
+
+            document.getElementById('modal-title').innerText = aircraftType;
+            document.getElementById('modal-subtitle').innerText = `Viewing ${fleet.length} active configurations`;
+
+            const track = document.getElementById('modal-track');
+            
+            // Map specific planes in a horizontal flex layout
+            track.innerHTML = fleet.map(ac => `
+                <div class="relative w-[80vw] md:w-[600px] h-[60vh] shrink-0 bg-surfaceLight/50 rounded-3xl border border-white/10 overflow-hidden flex flex-col group">
+                    <div class="absolute inset-0 bg-gradient-to-t from-black/90 via-black/20 to-transparent z-10 pointer-events-none"></div>
+                    
+                    <img src="${ac.imageUrl}" class="absolute inset-0 w-full h-full object-cover opacity-20 blur-2xl z-0 pointer-events-none" alt="">
+                    
+                    <div class="absolute inset-0 z-0 p-8 pb-32 flex items-center justify-center">
+                        <img src="${ac.imageUrl}" alt="${ac.liveryName}" class="w-full h-full object-contain rounded-xl drop-shadow-2xl transition-transform duration-500 group-hover:scale-105">
+                    </div>
+
+                    <div class="absolute bottom-0 left-0 w-full p-8 z-20 flex justify-between items-end">
+                        <div>
+                            <h4 class="text-3xl font-bold text-white mb-2">${ac.tailNumber || 'No Tail Data'}</h4>
+                            <div class="flex items-center gap-2 text-accent">
+                                <i data-lucide="paint-bucket" class="size-4"></i>
+                                <span class="text-lg font-medium">${ac.liveryName}</span>
+                            </div>
+                        </div>
+                        <div class="text-right">
+                            <span class="text-xs text-slate-400 block mb-1 uppercase tracking-widest">Captured By</span>
+                            <div class="flex items-center gap-2 bg-white/10 px-3 py-1.5 rounded-full border border-white/10 backdrop-blur-sm">
+                                <i data-lucide="camera" class="size-3 text-white"></i>
+                                <span class="text-sm font-bold text-white">@${ac.contributorName || 'System'}</span>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            `).join('');
+
+            lucide.createIcons();
+            modal.classList.add('open');
+            document.body.style.overflow = 'hidden'; // Prevent background scrolling
+        }
+
+        function closeModal() {
+            modal.classList.remove('open');
+            document.body.style.overflow = '';
+            
+            // Clear contents after animation finishes
+            setTimeout(() => {
+                if(!modal.classList.contains('open')){
+                    document.getElementById('modal-track').innerHTML = '';
+                }
+            }, 400);
+        }
+
+        // Close modal on Escape key
+        document.addEventListener('keydown', (e) => {
+            if (e.key === 'Escape' && modal.classList.contains('open')) {
+                closeModal();
+            }
+        });
+    </script>
+</body>
+</html>
