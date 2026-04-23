@@ -14,15 +14,25 @@ import { ProfileUI } from './profileUI.js';
 import { PerformanceMonitor } from './performanceMonitor.js';
 import { socketDataHub } from './SocketDataHub.js';
 import { FlightDispatchService } from './FlightDispatchService.js';
+import { MobileDashboardUI } from './MobileDashboardUI.js';
+
 
 const supabaseUrl = 'https://lcgaoiqwwpyqndaucyzu.supabase.co'; 
 const supabaseKey = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImxjZ2FvaXF3d3B5cW5kYXVjeXp1Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzIwNjkyOTksImV4cCI6MjA4NzY0NTI5OX0.9TO21knXR_P9E80pea7gUOu-gTjb17sCGk7BYgRRe3U'; 
 const supabase = createClient(supabaseUrl, supabaseKey);
 
+// 1. Initialize Desktop Dashboard
 ProfileUI.init(supabase);
+
+// 2. Initialize Mobile Dashboard
+MobileDashboardUI.init(supabase);
+
+// 3. Synchronize Data State (Ensures mobile and desktop share the exact same backend data array)
+MobileDashboardUI._ifData = ProfileUI._ifData;
+
 window.AuthUI = AuthUI;
 window.AuthUI.init(supabase);
-FlightDispatchService.init(supabase);;
+FlightDispatchService.init(supabase);
 
 
 async function loadSpriteSheetAndGenerateIcons(map) {

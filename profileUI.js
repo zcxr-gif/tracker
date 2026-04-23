@@ -9,6 +9,7 @@
 import { CareerModule } from './careerModule.js';
 import { PredictiveAirspaceNetwork } from './PredictiveQueueManager.js';
 import { socketDataHub } from './SocketDataHub.js';
+import { MobileDashboardUI } from './MobileDashboardUI.js';
 
 export const ProfileUI = {
     _supabase: null,
@@ -87,6 +88,16 @@ export const ProfileUI = {
     },
 
     open(user) {
+        // --- INTERCEPT FOR MOBILE DEVICES ---
+        // If the screen is 768px or smaller, abort opening the desktop UI
+        // and route the user directly to the Mobile Dashboard instead.
+        if (window.innerWidth <= 768) {
+            if (MobileDashboardUI && typeof MobileDashboardUI.open === 'function') {
+                MobileDashboardUI.open(user);
+                return; // Stop execution here so the desktop UI does not open
+            }
+        }
+        
         this._currentUser = user;
         
         // Intercept new users for the Quick Setup Process
