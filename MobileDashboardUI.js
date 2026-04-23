@@ -1,17 +1,10 @@
 /**
- * MobileDashboardUI.js — Mobile-Optimized Full-Screen Dashboard
+ * MobileDashboardUI.js — Premium Mobile-Optimized Full-Screen Dashboard
  *
  * A full mobile counterpart to ProfileUI. Mirrors all five tabs
- * (Command Center, Pilot Dossier, Airspace Radar, Flight Dispatch, Settings)
- * in a native-feeling bottom-sheet + tab-bar architecture.
- *
- * Usage:
- *   import { MobileDashboardUI } from './MobileDashboardUI.js';
- *   MobileDashboardUI.init(supabaseClient);
- *   MobileDashboardUI.open(user);
- *
- * Shares state with ProfileUI when both are imported:
- *   MobileDashboardUI._ifData = ProfileUI._ifData;  // optional sync
+ * in a native-feeling bottom-sheet + tab-bar architecture,
+ * now featuring premium glassmorphism, cinematic live flights,
+ * and advanced airspace telemetry heatmaps.
  */
 
 import { CareerModule } from './careerModule.js';
@@ -142,7 +135,7 @@ export const MobileDashboardUI = {
         }
     },
 
-    // ─── Data Fetching (mirrors ProfileUI exactly) ────────────────────────────
+    // ─── Data Fetching ────────────────────────────────────────────────────────
 
     async _fetchSubscriptionData() {
         if (!this._currentUser || !this._supabase) return;
@@ -162,7 +155,7 @@ export const MobileDashboardUI = {
                 };
                 if (this._activeTab === 'settings' && this._isOpen) this._render();
             }
-        } catch (_) { /* use defaults */ }
+        } catch (_) { }
     },
 
     async _fetchFlightPlans() {
@@ -280,12 +273,10 @@ export const MobileDashboardUI = {
         const screen = document.getElementById('mdui-screen');
         if (!screen) return;
 
-        // Sync tab-bar active state
         document.querySelectorAll('.mdui-tab-btn').forEach(btn => {
             btn.classList.toggle('active', btn.dataset.tab === this._activeTab);
         });
 
-        // Hide tab bar during onboarding
         const tabbar = document.getElementById('mdui-tabbar');
         if (tabbar) tabbar.style.display = this._activeTab === 'onboarding' ? 'none' : '';
 
@@ -392,7 +383,6 @@ export const MobileDashboardUI = {
         const dateStr   = new Date().toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' });
         const ifUsername = user?.user_metadata?.if_username || '';
 
-        // ── Stat strip
         let statPills = '';
         if (this._ifData.stats) {
             const g = this._ifData.stats.gradeDetails?.gradeIndex;
@@ -402,13 +392,12 @@ export const MobileDashboardUI = {
                 <div class="mdui-stat-strip">
                     ${g ? `<span class="mdui-stat-pill"><i class="fa-solid fa-award"></i> Grade ${g}</span>` : ''}
                     ${x ? `<span class="mdui-stat-pill"><i class="fa-solid fa-star"></i> ${x} XP</span>` : ''}
-                    ${f ? `<span class="mdui-stat-pill"><i class="fa-solid fa-plane"></i> ${f} flights</span>` : ''}
+                    ${f ? `<span class="mdui-stat-pill"><i class="fa-solid fa-plane"></i> ${f}</span>` : ''}
                 </div>`;
         } else if (this._ifData.loading) {
             statPills = `<div class="mdui-stat-strip"><span class="mdui-stat-pill" style="opacity:0.4;">Loading pilot data…</span></div>`;
         }
 
-        // ── Recent flights
         let recentHTML = '';
         if (!ifUsername) {
             recentHTML = `<div class="mdui-empty"><i class="fa-solid fa-link-slash"></i><span>Link your IF account in Settings.</span></div>`;
@@ -419,7 +408,7 @@ export const MobileDashboardUI = {
                     <div class="mdui-skel" style="width:55px;height:10px;border-radius:4px;"></div>
                 </div>`).join('');
         } else if (this._ifData.logbook?.length > 0) {
-            recentHTML = this._ifData.logbook.slice(0, 8).map((f, i) => {
+            recentHTML = this._ifData.logbook.slice(0, 5).map((f, i) => {
                 const dep     = f.originAirport      || 'N/A';
                 const arr     = f.destinationAirport || 'N/A';
                 const hrs     = (f.totalTime / 60).toFixed(1);
@@ -442,10 +431,9 @@ export const MobileDashboardUI = {
                     </div>`;
             }).join('');
         } else {
-            recentHTML = `<div class="mdui-empty"><i class="fa-solid fa-inbox"></i><span>No recent flights found.</span></div>`;
+            recentHTML = `<div class="mdui-empty"><i class="fa-solid fa-inbox"></i><span>No recent flights.</span></div>`;
         }
 
-        // ── Next departure
         let nextDepHTML = '';
         if (this._flightPlansData?.length > 0) {
             const next    = this._flightPlansData[0];
@@ -503,7 +491,7 @@ export const MobileDashboardUI = {
             <div class="mdui-card mdui-fade-up" style="animation-delay:0.06s;">
                 ${nextDepHTML}
                 <button class="mdui-link-btn" id="mdui-goto-dispatch">
-                    View Full Schedule <i class="fa-solid fa-arrow-right"></i>
+                    View Schedule <i class="fa-solid fa-arrow-right"></i>
                 </button>
             </div>
 
@@ -626,41 +614,83 @@ export const MobileDashboardUI = {
 
     _renderAirspaceNodes() {
         if (!this._airspaceNetwork) return '';
-        const nodes = Array.from(this._airspaceNetwork._activeNodes || []);
-        if (!nodes.length) {
+        const report = this._airspaceNetwork.generateNetworkAnalytics();
+        
+        if (Object.keys(report.nodes).length === 0) {
             return `<div class="mdui-empty"><i class="fa-solid fa-satellite-dish"></i><span>No nodes monitored. Add an ICAO above.</span></div>`;
         }
-        return nodes.map(icao => {
-            const nodeData = this._airspaceNetwork._hubRegistry?.get(icao);
-            const traffic  = nodeData?.trafficCount  ?? Math.floor(Math.random() * 40 + 5);
-            const load     = nodeData?.congestionScore ?? Math.random();
-            const loadPct  = Math.round(load * 100);
-            const loadColor = load > 0.75 ? '#f43f5e' : load > 0.45 ? '#f59e0b' : '#22c55e';
-            const topOps   = nodeData?.topArrivals?.slice(0, 3) || [];
+
+        return Object.entries(report.nodes).map(([icao, data]) => {
+            let maxSat = 'NORMAL';
+            const statuses = data.arrivalQueue.map(b => b.status);
+            if (statuses.includes('CRITICAL')) maxSat = 'CRITICAL';
+            else if (statuses.includes('SATURATED')) maxSat = 'SATURATED';
+            else if (statuses.includes('HEAVY')) maxSat = 'HEAVY';
+
+            let statusColor = '#4ade80'; 
+            let statusBg = 'rgba(34,197,94,0.12)';
+
+            if (maxSat === 'CRITICAL') { 
+                statusColor = '#f87171'; 
+                statusBg = 'rgba(239,68,68,0.12)'; 
+            } else if (maxSat === 'SATURATED') { 
+                statusColor = '#f59e0b'; 
+                statusBg = 'rgba(245,158,11,0.12)'; 
+            } else if (maxSat === 'HEAVY') { 
+                statusColor = '#fbbf24'; 
+                statusBg = 'rgba(251,191,36,0.12)'; 
+            }
+
+            let firstHourInbound = 0;
+            for(let i = 0; i < Math.min(4, data.arrivalQueue.length); i++) {
+                firstHourInbound += data.arrivalQueue[i].count;
+            }
+            const firstHourCapacity = data.metrics.effectiveCapacity * 4;
+            const loadPercentage = Math.min(100, Math.round((firstHourInbound / firstHourCapacity) * 100)) || 0;
+
+            let heatmapHTML = '<div class="mdui-intel-heatmap">';
+            data.arrivalQueue.forEach((bucket, idx) => {
+                let blockColor = 'rgba(255,255,255,0.05)';
+                if (bucket.status === 'CRITICAL') blockColor = '#f87171';
+                else if (bucket.status === 'SATURATED') blockColor = '#f59e0b';
+                else if (bucket.status === 'HEAVY') blockColor = '#fbbf24';
+                else if (bucket.count > 0) blockColor = '#4ade80';
+                
+                heatmapHTML += `<div class="mdui-intel-heatblock" style="background: ${blockColor};"></div>`;
+            });
+            heatmapHTML += '</div>';
+
+            let alertsHTML = '';
+            if (data.metrics.highEnergyArrivals > 0) alertsHTML += `<span class="mdui-intel-alert warn"><i class="fa-solid fa-bolt"></i> ${data.metrics.highEnergyArrivals} HIGH ENG</span>`;
+            if (data.metrics.heavyAircraftInbound > 0) alertsHTML += `<span class="mdui-intel-alert info"><i class="fa-solid fa-weight-hanging"></i> ${data.metrics.heavyAircraftInbound} HVY</span>`;
+            if (data.metrics.holdingAircraftCount > 0) alertsHTML += `<span class="mdui-intel-alert danger"><i class="fa-solid fa-circle-notch fa-spin"></i> ${data.metrics.holdingAircraftCount} HOLD</span>`;
 
             return `
                 <div class="mdui-node-card mdui-fade-up">
                     <div class="mdui-node-header">
                         <div>
                             <span class="mdui-node-icao">${icao}</span>
-                            <span class="mdui-node-traffic">${traffic} aircraft</span>
+                            <span class="mdui-node-traffic">${data.metrics.totalInbound} Inbound · ${data.metrics.totalOutbound} Outbound</span>
                         </div>
-                        <button class="mdui-node-remove" data-icao="${icao}" aria-label="Unlink ${icao}">
-                            <i class="fa-solid fa-link-slash"></i>
-                        </button>
+                        <span class="mdui-node-badge" style="background:${statusBg};color:${statusColor};border:1px solid ${statusColor}40;">${maxSat}</span>
                     </div>
+                    
                     <div class="mdui-node-load-row">
-                        <span class="mdui-node-load-label">Network Load</span>
-                        <span class="mdui-node-load-pct" style="color:${loadColor};">${loadPct}%</span>
+                        <span class="mdui-node-load-label">1-Hour Network Load</span>
+                        <span class="mdui-node-load-pct" style="color:${statusColor};">${loadPercentage}%</span>
                     </div>
                     <div class="mdui-node-bar-track">
-                        <div class="mdui-node-bar-fill" style="width:${loadPct}%;background:${loadColor};"></div>
+                        <div class="mdui-node-bar-fill" style="width:${loadPercentage}%;background:${statusColor};"></div>
                     </div>
-                    ${topOps.length ? `
-                    <div class="mdui-node-arrivals">
-                        <span class="mdui-arrivals-label">Top Arrivals</span>
-                        ${topOps.map(o => `<span class="mdui-arrival-pill">${o}</span>`).join('')}
-                    </div>` : ''}
+
+                    ${alertsHTML ? `<div class="mdui-intel-alerts-row">${alertsHTML}</div>` : ''}
+
+                    <div class="mdui-node-heatmap-label">4-Hour Saturation Map (CAP: ${data.metrics.effectiveCapacity}/15m)</div>
+                    ${heatmapHTML}
+
+                    <button class="mdui-node-remove" data-icao="${icao}" aria-label="Unlink ${icao}">
+                        <i class="fa-solid fa-link-slash"></i> Unlink Node
+                    </button>
                 </div>`;
         }).join('');
     },
@@ -692,29 +722,29 @@ export const MobileDashboardUI = {
                 const hours   = Math.floor(f.duration_minutes / 60);
                 const mins    = f.duration_minutes % 60;
                 return `
-                    <div class="mdui-ticket mdui-fade-up" style="animation-delay:${i * 0.04}s;">
-                        <div class="mdui-ticket-header">
-                            <span class="mdui-ticket-callsign">${f.callsign || 'N/A'}</span>
-                            <span class="mdui-ticket-time">${dateStr} · ${timeStr}</span>
+                    <div class="mdui-premium-ticket mdui-fade-up" style="animation-delay:${i * 0.04}s;">
+                        <div class="mdui-pt-header">
+                            <div class="mdui-pt-date">${dateStr} <span>${timeStr}</span></div>
+                            <div class="mdui-pt-csign">${f.callsign || 'N/A'}</div>
                         </div>
-                        <div class="mdui-ticket-route">
-                            <div class="mdui-ticket-airport">
-                                <span class="mdui-ticket-icao">${f.dep_icao || '----'}</span>
-                                <span class="mdui-ticket-gate">${f.dep_gate ? 'Gate ' + f.dep_gate : ''}</span>
+                        <div class="mdui-pt-body">
+                            <div class="mdui-pt-point">
+                                <span class="icao">${f.dep_icao || '----'}</span>
+                                <span class="gate">${f.dep_gate ? 'Gate ' + f.dep_gate : 'TBD'}</span>
                             </div>
-                            <div class="mdui-ticket-mid">
-                                <span class="mdui-ticket-dur">${hours}h ${mins}m</span>
-                                <div class="mdui-ticket-line"><i class="fa-solid fa-plane"></i></div>
-                                <span class="mdui-ticket-acft">${f.aircraft_type || 'UNK'}</span>
+                            <div class="mdui-pt-path">
+                                <span class="duration">${hours}h ${mins}m</span>
+                                <div class="line"><i class="fa-solid fa-plane"></i></div>
+                                <span class="acft">${f.aircraft_type || 'UNK'}</span>
                             </div>
-                            <div class="mdui-ticket-airport" style="text-align:right;">
-                                <span class="mdui-ticket-icao">${f.arr_icao || '----'}</span>
-                                <span class="mdui-ticket-gate">${f.arr_gate ? 'Gate ' + f.arr_gate : ''}</span>
+                            <div class="mdui-pt-point">
+                                <span class="icao">${f.arr_icao || '----'}</span>
+                                <span class="gate">${f.arr_gate ? 'Gate ' + f.arr_gate : 'TBD'}</span>
                             </div>
                         </div>
-                        <div class="mdui-ticket-footer">
-                            ${f.passengers ? `<span><i class="fa-solid fa-users"></i> ${f.passengers} pax</span>` : ''}
-                            ${f.fuel_used  ? `<span><i class="fa-solid fa-gas-pump"></i> ${f.fuel_used.toLocaleString()} lbs</span>` : ''}
+                        <div class="mdui-pt-footer">
+                            <div title="Passengers"><i class="fa-solid fa-users"></i> ${f.passengers || '--'}</div>
+                            <div title="Fuel"><i class="fa-solid fa-gas-pump"></i> ${f.fuel_used ? f.fuel_used.toLocaleString() + ' lbs' : '--'}</div>
                         </div>
                     </div>`;
             }).join('');
@@ -927,21 +957,53 @@ export const MobileDashboardUI = {
 
         const f = this._liveFlights[0];
         const props = f.properties || f;
-        const alt   = props.altitude   ? Math.round(props.altitude).toLocaleString() + ' ft' : '—';
-        const spd   = props.speed      ? Math.round(props.speed)   + ' kts' : '—';
-        const hdg   = props.heading    ? Math.round(props.heading) + '°'    : '—';
+        const alt   = props.altitude   ? Math.round(props.altitude).toLocaleString() : '—';
+        const spd   = props.speed      ? Math.round(props.speed) : '—';
+        const hdg   = props.heading    ? Math.round(props.heading) : '—';
+        const dep   = props.departureIcao || '----';
+        const arr   = props.arrivalIcao   || '----';
+        const acft  = props.aircraft?.aircraftName || 'Unknown Aircraft';
+
+        let imageUrl = null;
+        if (typeof window.getLiveFlightData === 'function') {
+            const mapFlights = window.getLiveFlightData();
+            const mapFlight  = mapFlights.find(mf => mf.properties?.flightId === (f.flightId || props.flightId));
+            if (mapFlight?.properties?.communityImageUrl) {
+                imageUrl = mapFlight.properties.communityImageUrl;
+            }
+        }
 
         banner.innerHTML = `
-            <div class="mdui-live-card mdui-fade-up">
-                <div class="mdui-live-header">
-                    <span class="mdui-live-dot"></span>
-                    <span class="mdui-live-label">Live Flight</span>
-                    <span class="mdui-live-callsign">${props.callsign || props.username || '—'}</span>
-                </div>
-                <div class="mdui-live-stats">
-                    <div class="mdui-live-stat"><span>${alt}</span><span>Altitude</span></div>
-                    <div class="mdui-live-stat"><span>${spd}</span><span>Speed</span></div>
-                    <div class="mdui-live-stat"><span>${hdg}</span><span>Heading</span></div>
+            <div class="mdui-premium-flight-card mdui-fade-up">
+                ${imageUrl ? `<div class="mdui-pfc-bg" style="background-image:url('${imageUrl}')"></div>` : `<div class="mdui-pfc-bg fallback"></div>`}
+                <div class="mdui-pfc-overlay"></div>
+                <div class="mdui-pfc-content">
+                    <div class="mdui-pfc-top">
+                        <div class="mdui-pfc-route">
+                            <span class="mdui-pfc-icao">${dep}</span>
+                            <i class="fa-solid fa-plane mdui-pfc-route-icon"></i>
+                            <span class="mdui-pfc-icao">${arr}</span>
+                        </div>
+                        <div class="mdui-pfc-ident">
+                            <span class="mdui-pfc-acft">${acft}</span>
+                            <span class="mdui-pfc-cs">${props.callsign || props.username || '—'}</span>
+                        </div>
+                    </div>
+                    <div class="mdui-pfc-spacer"></div>
+                    <div class="mdui-pfc-stats-glass">
+                        <div class="mdui-pfc-stat">
+                            <span class="label">Altitude</span>
+                            <span class="value">${alt} <em>ft</em></span>
+                        </div>
+                        <div class="mdui-pfc-stat">
+                            <span class="label">Ground Spd</span>
+                            <span class="value">${spd} <em>kt</em></span>
+                        </div>
+                        <div class="mdui-pfc-stat">
+                            <span class="label">Heading</span>
+                            <span class="value">${hdg}<em>°</em></span>
+                        </div>
+                    </div>
                 </div>
             </div>`;
     },
@@ -949,13 +1011,9 @@ export const MobileDashboardUI = {
     // ─── Listeners ────────────────────────────────────────────────────────────
 
     _attachListeners() {
-        // Global close
         document.getElementById('mdui-close')?.addEventListener('click', () => this.close());
-
-        // Dashboard: goto dispatch
         document.getElementById('mdui-goto-dispatch')?.addEventListener('click', () => this.switchTab('flight-plan'));
 
-        // ── Onboarding
         if (this._activeTab === 'onboarding') {
             document.querySelectorAll('input[name="onb-theme"]').forEach(r => {
                 r.addEventListener('change', e => {
@@ -986,7 +1044,6 @@ export const MobileDashboardUI = {
             });
         }
 
-        // ── Airspace
         if (this._activeTab === 'airspace-intel') {
             document.getElementById('mdui-intel-add')?.addEventListener('click', () => {
                 const input = document.getElementById('mdui-intel-input');
@@ -1009,7 +1066,6 @@ export const MobileDashboardUI = {
             this._bindNodeRemoveButtons();
         }
 
-        // ── Flight dispatch
         if (this._activeTab === 'flight-plan') {
             const form = document.getElementById('mdui-flight-form');
 
@@ -1064,9 +1120,7 @@ export const MobileDashboardUI = {
             });
         }
 
-        // ── Settings
         if (this._activeTab === 'settings') {
-            // Theme picker
             document.querySelectorAll('input[name="mdui-theme"]').forEach(r => {
                 r.addEventListener('change', e => {
                     this._theme = e.target.value;
@@ -1077,7 +1131,6 @@ export const MobileDashboardUI = {
                 });
             });
 
-            // Save profile
             document.getElementById('mdui-save-btn')?.addEventListener('click', async () => {
                 const newName       = document.getElementById('mdui-edit-name')?.value.trim();
                 const newIfUsername = document.getElementById('mdui-edit-if')?.value.trim();
@@ -1103,7 +1156,6 @@ export const MobileDashboardUI = {
                 }
             });
 
-            // Cancel subscription
             document.getElementById('mdui-billing-cancel')?.addEventListener('click', async () => {
                 if (!confirm('Cancel your Pro Access subscription? This cannot be undone.')) return;
                 const btn    = document.getElementById('mdui-billing-cancel');
@@ -1125,7 +1177,6 @@ export const MobileDashboardUI = {
                 }
             });
 
-            // Sign out
             document.getElementById('mdui-signout')?.addEventListener('click', async () => {
                 if (this._supabase) { await this._supabase.auth.signOut(); this.close(); }
             });
@@ -1166,11 +1217,20 @@ export const MobileDashboardUI = {
                 font-family: 'DM Sans', system-ui, sans-serif;
                 color: var(--mdui-text);
 
-                /* Slide up from bottom */
                 transform: translateY(100%);
                 transition: transform 0.4s cubic-bezier(0.16, 1, 0.3, 1);
             }
             #mdui-shell.mdui-open { transform: translateY(0); }
+
+            /* Essential Structural Fix for Scrolling */
+            #mdui-screen {
+                display: flex;
+                flex-direction: column;
+                flex: 1;
+                min-height: 0;
+                overflow: hidden;
+                position: relative;
+            }
 
             /* Light themes */
             #mdui-shell[data-theme="white"] {
@@ -1205,6 +1265,7 @@ export const MobileDashboardUI = {
                 padding: 0 16px;
                 gap: 12px;
                 flex-shrink: 0;
+                z-index: 10;
             }
             .mdui-avatar {
                 width: 34px; height: 34px;
@@ -1239,6 +1300,7 @@ export const MobileDashboardUI = {
             .mdui-content {
                 flex: 1;
                 overflow-y: auto;
+                min-height: 0;
                 padding: 16px 16px calc(var(--mdui-tab-h) + env(safe-area-inset-bottom) + 16px);
                 -webkit-overflow-scrolling: touch;
                 scrollbar-width: none;
@@ -1247,7 +1309,7 @@ export const MobileDashboardUI = {
 
             /* ── Bottom Tab Bar ───────────────────────────────────────────────── */
             #mdui-tabbar {
-                position: fixed;
+                position: absolute;
                 bottom: 0; left: 0; right: 0;
                 height: calc(var(--mdui-tab-h) + env(safe-area-inset-bottom));
                 padding-bottom: env(safe-area-inset-bottom);
@@ -1446,57 +1508,130 @@ export const MobileDashboardUI = {
                 padding: 4px 10px; border-radius: 20px;
             }
 
-            /* Live flight card */
-            .mdui-live-card {
-                background: linear-gradient(135deg, rgba(56,189,248,0.08), rgba(56,189,248,0.03));
-                border: 1px solid rgba(56,189,248,0.2);
-                border-radius: var(--mdui-radius);
-                padding: 14px 16px;
-                margin-bottom: 12px;
+            /* Premium Live Flight Card (Mobile Port) */
+            .mdui-premium-flight-card {
+                position: relative;
+                height: 220px;
+                border-radius: 20px;
+                overflow: hidden;
+                box-shadow: 0 10px 30px -10px rgba(0,0,0,0.5), 0 0 0 1px rgba(255,255,255,0.05);
+                display: flex;
+                flex-direction: column;
+                margin-bottom: 16px;
+                transform: translateZ(0);
             }
-            .mdui-live-header {
-                display: flex; align-items: center; gap: 8px;
-                margin-bottom: 12px;
+            .mdui-pfc-bg {
+                position: absolute;
+                inset: -5%;
+                background-size: cover;
+                background-position: center;
+                transition: transform 12s ease;
+                z-index: 1;
             }
-            @keyframes mdui-pulse {
-                0%, 100% { opacity: 1; transform: scale(1); }
-                50%       { opacity: 0.5; transform: scale(0.85); }
+            .mdui-pfc-bg.fallback {
+                background: linear-gradient(135deg, var(--mdui-card), var(--mdui-bg));
             }
-            .mdui-live-dot {
-                width: 8px; height: 8px; border-radius: 50%;
-                background: #22c55e;
-                animation: mdui-pulse 1.5s ease-in-out infinite;
-                flex-shrink: 0;
+            .mdui-premium-flight-card:hover .mdui-pfc-bg { transform: scale(1.05); }
+            .mdui-pfc-overlay {
+                position: absolute;
+                inset: 0;
+                background: linear-gradient(to top, rgba(7,12,22,0.9) 0%, rgba(7,12,22,0.3) 50%, transparent 100%);
+                z-index: 2;
+                pointer-events: none;
             }
-            .mdui-live-label {
-                font-size: 0.65rem; font-weight: 900;
-                text-transform: uppercase; letter-spacing: 0.1em;
-                color: #22c55e;
+            .mdui-pfc-content {
+                position: relative;
+                z-index: 3;
+                height: 100%;
+                display: flex;
+                flex-direction: column;
+                padding: 16px;
             }
-            .mdui-live-callsign {
-                margin-left: auto;
+            .mdui-pfc-top {
+                display: flex;
+                justify-content: space-between;
+                align-items: flex-start;
+            }
+            .mdui-pfc-route {
+                display: flex;
+                align-items: center;
+                gap: 8px;
+                background: rgba(10,15,25,0.45);
+                backdrop-filter: blur(12px) saturate(140%);
+                -webkit-backdrop-filter: blur(12px);
+                padding: 6px 12px;
+                border-radius: 16px;
+                border: 1px solid rgba(255,255,255,0.1);
+            }
+            .mdui-pfc-icao {
                 font-family: 'JetBrains Mono', monospace;
-                font-size: 0.85rem; font-weight: 700;
-                color: var(--mdui-accent);
+                font-size: 0.9rem;
+                font-weight: 700;
+                color: #fff;
             }
-            .mdui-live-stats {
-                display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px;
+            .mdui-pfc-route-icon {
+                color: #00c8ff;
+                font-size: 0.65rem;
+                filter: drop-shadow(0 0 4px rgba(0,200,255,0.4));
             }
-            .mdui-live-stat {
-                background: rgba(255,255,255,0.04);
-                border-radius: 10px; padding: 10px 0;
-                display: flex; flex-direction: column;
-                align-items: center; gap: 3px;
+            .mdui-pfc-ident {
+                display: flex;
+                flex-direction: column;
+                align-items: flex-end;
             }
-            .mdui-live-stat span:first-child {
+            .mdui-pfc-acft {
+                font-size: 0.85rem;
+                font-weight: 800;
+                color: #fff;
+                text-shadow: 0 2px 6px rgba(0,0,0,0.8);
+            }
+            .mdui-pfc-cs {
                 font-family: 'JetBrains Mono', monospace;
-                font-size: 0.95rem; font-weight: 700;
-                color: var(--mdui-text);
+                font-size: 0.75rem;
+                color: #00c8ff;
+                font-weight: 700;
+                text-shadow: 0 2px 4px rgba(0,0,0,0.8);
             }
-            .mdui-live-stat span:last-child {
-                font-size: 0.62rem; font-weight: 700;
-                text-transform: uppercase; color: var(--mdui-muted);
-                letter-spacing: 0.05em;
+            .mdui-pfc-spacer { flex-grow: 1; }
+            .mdui-pfc-stats-glass {
+                background: linear-gradient(135deg, rgba(255,255,255,0.05), rgba(255,255,255,0.01));
+                backdrop-filter: blur(20px) saturate(120%);
+                -webkit-backdrop-filter: blur(20px);
+                border: 1px solid rgba(255,255,255,0.1);
+                border-radius: 14px;
+                display: grid;
+                grid-template-columns: repeat(3, 1fr);
+                overflow: hidden;
+            }
+            .mdui-pfc-stat {
+                display: flex;
+                flex-direction: column;
+                padding: 10px;
+                border-right: 1px solid rgba(255,255,255,0.06);
+                align-items: center;
+            }
+            .mdui-pfc-stat:last-child { border-right: none; }
+            .mdui-pfc-stat .label {
+                font-size: 0.55rem;
+                font-weight: 800;
+                text-transform: uppercase;
+                letter-spacing: 0.1em;
+                color: rgba(255,255,255,0.6);
+            }
+            .mdui-pfc-stat .value {
+                font-size: 1.05rem;
+                font-family: 'JetBrains Mono', monospace;
+                font-weight: 700;
+                color: #fff;
+                display: flex;
+                align-items: baseline;
+                gap: 4px;
+            }
+            .mdui-pfc-stat .value em {
+                font-style: normal;
+                font-size: 0.6rem;
+                color: rgba(255,255,255,0.5);
+                font-weight: 600;
             }
 
             /* Next departure */
@@ -1616,47 +1751,61 @@ export const MobileDashboardUI = {
                 font-size: 0.72rem; font-weight: 600;
                 color: var(--mdui-muted); display: block;
             }
-            .mdui-node-remove {
-                width: 32px; height: 32px; border-radius: 8px;
-                border: 1px solid var(--mdui-border);
-                background: none; color: var(--mdui-muted);
-                display: flex; align-items: center; justify-content: center;
-                cursor: pointer; font-size: 0.85rem;
-                transition: color 0.2s, border-color 0.2s;
+            .mdui-node-badge {
+                padding: 4px 8px; border-radius: 6px;
+                font-size: 0.65rem; font-weight: 800;
+                text-transform: uppercase; letter-spacing: 0.05em;
             }
-            .mdui-node-remove:hover { color: var(--mdui-danger); border-color: rgba(244,63,94,0.3); }
             .mdui-node-load-row {
                 display: flex; justify-content: space-between;
                 font-size: 0.75rem; font-weight: 600;
                 color: var(--mdui-muted);
                 margin-bottom: 6px;
             }
-            .mdui-node-load-pct { font-weight: 800; }
+            .mdui-node-load-pct { font-weight: 800; font-family: 'JetBrains Mono', monospace; }
             .mdui-node-bar-track {
                 background: rgba(255,255,255,0.06);
                 border-radius: 10px; height: 6px; overflow: hidden;
-                margin-bottom: 10px;
+                margin-bottom: 16px;
             }
             .mdui-node-bar-fill {
                 height: 100%; border-radius: 10px;
                 transition: width 0.6s ease;
             }
-            .mdui-node-arrivals { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
-            .mdui-arrivals-label {
-                font-size: 0.62rem; font-weight: 800;
-                color: var(--mdui-muted); text-transform: uppercase;
-                letter-spacing: 0.07em;
+            .mdui-intel-alerts-row {
+                display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 16px;
             }
-            .mdui-arrival-pill {
-                font-family: 'JetBrains Mono', monospace;
-                font-size: 0.7rem; font-weight: 700;
-                background: var(--mdui-accent-dim);
-                color: var(--mdui-accent);
-                padding: 3px 8px; border-radius: 6px;
+            .mdui-intel-alert {
+                padding: 4px 8px; border-radius: 6px; font-size: 0.65rem; font-weight: 800;
+                letter-spacing: 0.05em; display: flex; align-items: center; gap: 4px;
             }
+            .mdui-intel-alert.warn   { background: rgba(245,158,11,0.15); color: #f59e0b; border: 1px solid rgba(245,158,11,0.3); }
+            .mdui-intel-alert.info   { background: rgba(59,130,246,0.15); color: #60a5fa; border: 1px solid rgba(59,130,246,0.3); }
+            .mdui-intel-alert.danger { background: rgba(244,63,94,0.15);  color: #f43f5e; border: 1px solid rgba(244,63,94,0.3); }
+
+            .mdui-node-heatmap-label {
+                font-size: 0.65rem; font-weight: 800; color: var(--mdui-muted);
+                text-transform: uppercase; letter-spacing: 0.08em; margin-bottom: 6px;
+                display: flex; justify-content: space-between;
+            }
+            .mdui-intel-heatmap {
+                display: flex; gap: 3px; height: 28px; border-radius: 6px;
+                overflow: hidden; background: rgba(0,0,0,0.2); padding: 3px;
+                margin-bottom: 16px;
+            }
+            .mdui-intel-heatblock { flex: 1; border-radius: 3px; }
+
+            .mdui-node-remove {
+                width: 100%; padding: 10px; border-radius: 10px;
+                border: 1px solid var(--mdui-border); background: transparent;
+                color: var(--mdui-muted); font-size: 0.8rem; font-weight: 700;
+                cursor: pointer; transition: all 0.2s; display: flex;
+                align-items: center; justify-content: center; gap: 8px;
+            }
+            .mdui-node-remove:hover { background: rgba(244,63,94,0.1); color: #f43f5e; border-color: rgba(244,63,94,0.3); }
 
             /* ═══════════════════════════════════════════════════════════════════
-               FLIGHT DISPATCH TAB
+               FLIGHT DISPATCH TAB (Premium Ticket Port)
             ═══════════════════════════════════════════════════════════════════ */
             .mdui-form-sheet {
                 background: var(--mdui-card);
@@ -1679,57 +1828,70 @@ export const MobileDashboardUI = {
                 margin: 14px 0 10px;
             }
             .mdui-form-row { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
-            .mdui-ticket {
+
+            .mdui-premium-ticket {
                 background: var(--mdui-card);
                 border: 1px solid var(--mdui-border);
-                border-radius: var(--mdui-radius);
+                border-radius: 16px;
+                margin-bottom: 12px;
+                overflow: hidden;
+                box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+            }
+            .mdui-pt-header {
+                background: rgba(0,0,0,0.15);
                 padding: 14px 16px;
-                margin-bottom: 10px;
+                display: flex; justify-content: space-between; align-items: center;
+                border-bottom: 2px dashed var(--mdui-border);
             }
-            .mdui-ticket-header {
-                display: flex; justify-content: space-between;
-                align-items: center; margin-bottom: 12px;
+            .mdui-pt-date {
+                font-size: 0.65rem; font-weight: 700; color: var(--mdui-muted);
+                text-transform: uppercase; letter-spacing: 0.05em;
             }
-            .mdui-ticket-callsign {
-                font-family: 'JetBrains Mono', monospace;
-                font-size: 0.9rem; font-weight: 700;
-                color: var(--mdui-accent);
+            .mdui-pt-date span {
+                display: block; font-size: 1.05rem; font-family: 'JetBrains Mono', monospace;
+                color: var(--mdui-text); margin-top: 2px;
             }
-            .mdui-ticket-time {
-                font-size: 0.68rem; font-weight: 600;
-                color: var(--mdui-muted); opacity: 0.7;
+            .mdui-pt-csign {
+                background: var(--mdui-accent-dim); color: var(--mdui-accent);
+                padding: 4px 10px; border-radius: 8px; font-size: 0.8rem;
+                font-weight: 700; font-family: 'JetBrains Mono', monospace;
             }
-            .mdui-ticket-route {
-                display: flex; align-items: center;
-                justify-content: space-between;
-                padding: 10px 0;
-                border-top: 1px solid var(--mdui-border);
-                border-bottom: 1px solid var(--mdui-border);
-                margin-bottom: 10px;
+            .mdui-pt-body {
+                padding: 16px; display: flex; align-items: center; justify-content: space-between;
             }
-            .mdui-ticket-airport { display: flex; flex-direction: column; }
-            .mdui-ticket-icao {
-                font-family: 'JetBrains Mono', monospace;
-                font-size: 1.35rem; font-weight: 700;
-                color: var(--mdui-text); line-height: 1;
+            .mdui-pt-point { display: flex; flex-direction: column; align-items: center; gap: 4px; }
+            .mdui-pt-point .icao {
+                font-family: 'JetBrains Mono', monospace; font-size: 1.6rem;
+                font-weight: 700; color: var(--mdui-text); line-height: 1;
             }
-            .mdui-ticket-gate {
-                font-size: 0.62rem; color: var(--mdui-muted);
-                font-weight: 600; margin-top: 2px;
+            .mdui-pt-point .gate {
+                font-size: 0.65rem; color: var(--mdui-muted); background: rgba(255,255,255,0.05);
+                padding: 2px 6px; border-radius: 4px; font-weight: 600;
             }
-            .mdui-ticket-mid {
-                display: flex; flex-direction: column;
-                align-items: center; gap: 2px; color: var(--mdui-muted);
+            .mdui-pt-path {
+                flex-grow: 1; display: flex; flex-direction: column; align-items: center;
+                padding: 0 16px; position: relative;
             }
-            .mdui-ticket-dur  { font-size: 0.68rem; font-weight: 700; }
-            .mdui-ticket-line { font-size: 0.9rem; color: var(--mdui-accent); }
-            .mdui-ticket-acft { font-size: 0.62rem; font-weight: 700; }
-            .mdui-ticket-footer {
-                display: flex; gap: 12px;
-                font-size: 0.72rem; font-weight: 600;
-                color: var(--mdui-muted);
+            .mdui-pt-path .duration { font-size: 0.7rem; color: var(--mdui-muted); font-weight: 600; margin-bottom: 4px; }
+            .mdui-pt-path .line {
+                width: 100%; height: 2px; background: linear-gradient(90deg, transparent, var(--mdui-accent), transparent);
+                display: flex; justify-content: center; align-items: center; position: relative;
             }
-            .mdui-ticket-footer i { color: var(--mdui-accent); margin-right: 4px; }
+            .mdui-pt-path .line i {
+                position: absolute; color: var(--mdui-accent); font-size: 0.9rem;
+                background: var(--mdui-card); padding: 0 6px;
+            }
+            .mdui-pt-path .acft {
+                font-size: 0.7rem; color: var(--mdui-text); font-weight: 700;
+                margin-top: 8px; letter-spacing: 0.05em;
+            }
+            .mdui-pt-footer {
+                padding: 12px 16px; border-top: 1px solid var(--mdui-border);
+                display: flex; justify-content: space-around; font-size: 0.75rem;
+                color: var(--mdui-muted); font-weight: 600; background: rgba(0,0,0,0.05);
+            }
+            .mdui-pt-footer div { display: flex; align-items: center; gap: 6px; }
+            .mdui-pt-footer i { color: var(--mdui-accent); font-size: 0.85rem; }
 
             /* ═══════════════════════════════════════════════════════════════════
                SETTINGS TAB
