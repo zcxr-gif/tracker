@@ -1579,6 +1579,12 @@ _updateLiveFlightDOM() {
                 100% { background-position:500px 0; }
             }
 
+            .pui-wrapper-layer *,
+            .pui-wrapper-layer *::before,
+            .pui-wrapper-layer *::after {
+                box-sizing: border-box;
+            }
+
             /* ─── OVERLAY WRAPPER ─────────────────────────── */
             .pui-wrapper-layer {
                 position: fixed;
@@ -2529,23 +2535,35 @@ _updateLiveFlightDOM() {
                     padding: 12px 16px;
                     border-right: none;
                     border-bottom: 1px solid var(--pui-border);
-                    gap: 0;
+                    gap: 12px;
+                    overflow-x: auto;
+                    padding-right: 64px; /* Space for close button */
+                    scrollbar-width: none; /* Hide scrollbar Firefox */
+                    -ms-overflow-style: none;  /* IE and Edge */
+                }
+                .pui-sidebar::-webkit-scrollbar {
+                    display: none; /* Hide scrollbar Chrome/Safari */
                 }
                 .pui-sidebar-avatar { 
                     padding: 0 16px 0 0; 
                     border-bottom: none;
                     border-right: 1px solid var(--pui-border);
                     margin-bottom: 0;
-                    margin-right: 12px;
+                    margin-right: 0;
                     min-height: unset;
+                    flex-shrink: 0;
                 }
                 .pui-sidebar:hover .pui-avatar-tooltip { opacity: 1; transform: none; }
-                .pui-nav-menu { flex-direction: row; padding: 0; flex-grow: 0; }
-                .pui-nav-label { opacity: 0; width: 0; overflow: hidden; margin: 0; }
-                .pui-sidebar:hover .pui-nav-label { opacity: 0; width: 0; }
-                .pui-sidebar-footer { padding: 0; border-top: none; border-left: 1px solid var(--pui-border); padding-left: 12px; margin-left: auto; }
+                .pui-nav-menu { flex-direction: row; padding: 0; flex-grow: 0; flex-shrink: 0; gap: 8px; display: flex; }
+                .pui-nav-item { padding: 10px; flex-shrink: 0; border-radius: 10px; justify-content: center; }
+                .pui-nav-item i { width: auto; min-width: auto; margin: 0; }
+                .pui-nav-label { display: none; } /* Completely hide labels on mobile */
+                .pui-sidebar-footer { padding: 0; border-top: none; border-left: 1px solid var(--pui-border); padding-left: 16px; flex-shrink: 0; margin-left: auto; display: flex; }
+                .pui-signout-btn { padding: 10px; border-radius: 10px; justify-content: center; }
+                .pui-signout-btn i { width: auto; min-width: auto; margin: 0; }
                 .pui-settings-grid { grid-template-columns: 1fr; }
                 .pui-dashboard-split { grid-template-columns: 1fr; }
+                .pui-main-content { padding: 20px 24px; }
                 
                 .pui-flight-ticket { flex-direction: column; }
                 .pui-ticket-left { border-right: none; border-bottom: 2px dashed var(--pui-border); flex-direction: row; justify-content: space-between; align-items: center; padding: 14px 20px; }
