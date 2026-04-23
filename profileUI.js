@@ -7,8 +7,8 @@
  */
 
 import { CareerModule } from './careerModule.js';
-import { AircraftViewer3D } from './AircraftViewer3D.js';
 import { PredictiveAirspaceNetwork } from './PredictiveQueueManager.js';
+import { socketDataHub } from './SocketDataHub.js';
 
 export const ProfileUI = {
     _supabase: null,
@@ -18,16 +18,12 @@ export const ProfileUI = {
     _currentUser: null,
     _theme: 'white',
     _flightPlansData: [],
-    _pending3DInit: null, 
-    _pendingMapInit: null, 
-    _mapTimeout: null,       
-    _3dTimeout: null,        
-    _heroMapInstance: null,  
-    _is3DInitialized: false, // Track 3D state
     
     // Premium Telemetry Integration
     _airspaceNetwork: null,
     _airspaceRefreshTimer: null,
+    _liveFlights: [],
+    _socketUnsubscribe: null,
 
     _subscription: {
         status: 'Active',
@@ -46,46 +42,10 @@ export const ProfileUI = {
         error: null
     },
     _backendUrl: window.APP_CONFIG?.backendUrl || 'https://site--acars-backend--6dmjph8ltlhv.code.run',
-    
-    // Store dynamically fetched API keys
-    _config: {
-        mapboxToken: null,
-        owmApiKey: null
-    },
-    
-    _configPromise: null, 
-
-    async _fetchConfig() {
-        if (this._config.mapboxToken) return; 
-        if (this._configPromise) return this._configPromise;
-
-        this._configPromise = (async () => {
-            try {
-                const response = await fetch('/.netlify/functions/config');
-                if (response.ok) {
-                    const data = await response.json();
-                    this._config.mapboxToken = data.mapboxToken;
-                    this._config.owmApiKey = data.owmApiKey;
-                    
-                    if (typeof mapboxgl !== 'undefined' && this._config.mapboxToken) {
-                        mapboxgl.accessToken = this._config.mapboxToken;
-                    }
-                } else {
-                    console.warn("ProfileUI: Failed to fetch config from Netlify function.");
-                }
-            } catch (err) {
-                console.error("ProfileUI: Error fetching config:", err);
-            }
-        })();
-
-        return this._configPromise;
-    },
 
     init(supabaseClient) {
         this._supabase = supabaseClient;
         
-        this._fetchConfig();
-
         this._supabase.auth.onAuthStateChange((event, session) => {
             if (session?.user) {
                 this._currentUser = session.user;
@@ -105,6 +65,25 @@ export const ProfileUI = {
                 }
             }
         });
+
+        if (!this._socketUnsubscribe) {
+            this._socketUnsubscribe = socketDataHub.subscribe('all_flights_update', (payload) => {
+                const ifUsername = this._currentUser?.user_metadata?.if_username;
+                if (!ifUsername || !payload || !payload.flights) return;
+
+                const myFlights = payload.flights.filter(f => f.username?.toLowerCase() === ifUsername.toLowerCase());
+                
+                // Only update DOM if there's a live flight or the state changed
+                const previouslyHadFlights = this._liveFlights.length > 0;
+                this._liveFlights = myFlights;
+                
+                if (this._isOpen && this._activeTab === 'dashboard') {
+                    if (this._liveFlights.length > 0 || previouslyHadFlights) {
+                        this._updateLiveFlightDOM();
+                    }
+                }
+            });
+        }
     },
 
     open(user) {
@@ -113,8 +92,6 @@ export const ProfileUI = {
         // Intercept new users for the Quick Setup Process
         const needsOnboarding = !user?.user_metadata?.onboarding_complete;
         this._activeTab = needsOnboarding ? 'onboarding' : 'dashboard';
-        
-        this._fetchConfig();
         
         const savedTheme = user?.user_metadata?.theme || localStorage.getItem('pui-theme') || 'white';
         this.setTheme(savedTheme, false);
@@ -153,23 +130,6 @@ export const ProfileUI = {
         });
     },
 
-    _cleanup3D() {
-        if (this._3dTimeout) {
-            clearTimeout(this._3dTimeout);
-            this._3dTimeout = null;
-        }
-        
-        if (typeof AircraftViewer3D !== 'undefined') {
-            // Check for destroy or dispose methods to gracefully terminate the WebGL context
-            if (typeof AircraftViewer3D.destroy === 'function') {
-                AircraftViewer3D.destroy();
-            } else if (typeof AircraftViewer3D.dispose === 'function') {
-                AircraftViewer3D.dispose();
-            }
-        }
-        this._is3DInitialized = false;
-    },
-
     close() {
         document.getElementById('profile-overlay')?.classList.remove('pui-open');
         this._isOpen = false;
@@ -180,28 +140,16 @@ export const ProfileUI = {
             this._airspaceRefreshTimer = null;
         }
 
-        // Flush 3D instance before closing to prevent background memory leaks
-        this._cleanup3D();
-
         setTimeout(() => {
             // Only reset to dashboard if they completed onboarding
             if (this._currentUser?.user_metadata?.onboarding_complete) {
                 this._activeTab = 'dashboard';
-            }
-            if (this._heroMapInstance) {
-                this._heroMapInstance.remove();
-                this._heroMapInstance = null;
             }
         }, 300);
     },
 
     switchTab(tabId) {
         if (this._activeTab === tabId) return;
-        
-        // Purge heavyweight WebGL resources before leaving the live-tracker
-        if (this._activeTab === 'live-tracker') {
-            this._cleanup3D();
-        }
 
         this._activeTab = tabId;
         this._render();
@@ -287,7 +235,7 @@ export const ProfileUI = {
         
         this._ifData.loading = true;
         this._ifData.error = null;
-        if (this._isOpen && (this._activeTab === 'dashboard' || this._activeTab === 'career-deep-dive' || this._activeTab === 'live-tracker')) this._render();
+        if (this._isOpen && (this._activeTab === 'dashboard' || this._activeTab === 'career-deep-dive')) this._render();
         
         try {
             let ifUserId = null;
@@ -359,7 +307,7 @@ export const ProfileUI = {
             this._ifData.loading = false;
         }
         
-        if (this._isOpen && (this._activeTab === 'dashboard' || this._activeTab === 'career-deep-dive' || this._activeTab === 'live-tracker')) {
+        if (this._isOpen && (this._activeTab === 'dashboard' || this._activeTab === 'career-deep-dive')) {
             this._render();
         }
     },
@@ -387,20 +335,6 @@ export const ProfileUI = {
         const container = document.getElementById('pui-dashboard-container');
         if (!container) return;
 
-        // CRITICAL FIX: Flush 3D and Maps BEFORE overwriting innerHTML to prevent unlinked WebGL memory leaks
-        this._cleanup3D();
-
-        this._pending3DInit = null;
-        this._pendingMapInit = null; 
-
-        if (this._3dTimeout) clearTimeout(this._3dTimeout);
-        if (this._mapTimeout) clearTimeout(this._mapTimeout);
-
-        if (this._heroMapInstance) {
-            this._heroMapInstance.remove();
-            this._heroMapInstance = null;
-        }
-
         container.setAttribute('data-active-tab', this._activeTab);
         container.innerHTML = `
             <button class="pui-close-btn" id="pui-close-global" aria-label="Close Dashboard"><i class="fa-solid fa-xmark"></i></button>
@@ -410,84 +344,11 @@ export const ProfileUI = {
             </div>
         `;
 
+        if (this._activeTab === 'dashboard') {
+            this._updateLiveFlightDOM();
+        }
+
         this._attachListeners();
-
-        if (this._pending3DInit) {
-            this._3dTimeout = setTimeout(() => {
-                // Ensure we are strictly still on the live tracker before mounting
-                if (typeof AircraftViewer3D !== 'undefined' && this._isOpen && this._activeTab === 'live-tracker') {
-                    AircraftViewer3D.init(
-                        this._pending3DInit.name,
-                        this._pending3DInit.position
-                    );
-                    this._is3DInitialized = true;
-                }
-            }, 100);
-        }
-
-        if (this._pendingMapInit && typeof mapboxgl !== 'undefined') {
-            this._mapTimeout = setTimeout(async () => {
-                const mapEl = document.getElementById('pui-hero-map');
-                if (!mapEl || mapEl.hasChildNodes()) return;
-
-                if (!this._config.mapboxToken) {
-                    await this._fetchConfig();
-                }
-
-                const mapElPostFetch = document.getElementById('pui-hero-map');
-                if (!mapElPostFetch || mapElPostFetch.hasChildNodes() || !this._config.mapboxToken) return;
-
-                try {
-                    mapboxgl.accessToken = this._config.mapboxToken;
-
-                    this._heroMapInstance = new mapboxgl.Map({
-                        container: 'pui-hero-map',
-                        style: 'mapbox://styles/mapbox/satellite-v9',
-                        center: [this._pendingMapInit.lon, this._pendingMapInit.lat],
-                        zoom: 10, 
-                        pitch: 75, 
-                        bearing: this._pendingMapInit.heading,
-                        interactive: false,
-                        attributionControl: false,
-                        antialias: true
-                    });
-
-                    this._heroMapInstance.on('load', () => {
-                        this._heroMapInstance.addSource('mapbox-dem', {
-                            'type': 'raster-dem',
-                            'url': 'mapbox://mapbox.mapbox-terrain-dem-v1',
-                            'tileSize': 512,
-                            'maxzoom': 14
-                        });
-                        this._heroMapInstance.setTerrain({ 'source': 'mapbox-dem', 'exaggeration': 1.5 });
-
-                        this._heroMapInstance.addLayer({
-                            'id': 'sky',
-                            'type': 'sky',
-                            'paint': {
-                                'sky-type': 'atmosphere',
-                                'sky-atmosphere-sun': [0.0, 0.0],
-                                'sky-atmosphere-sun-intensity': 15
-                            }
-                        });
-                    });
-
-                    const resizeObserver = new ResizeObserver(() => {
-                        if (this._heroMapInstance) {
-                            this._heroMapInstance.resize();
-                        }
-                    });
-                    resizeObserver.observe(mapElPostFetch);
-
-                    this._heroMapInstance.on('remove', () => {
-                        resizeObserver.disconnect();
-                    });
-
-                } catch(e) { 
-                    console.warn("ProfileUI Map initialization failed", e); 
-                }
-            }, 250); 
-        }
     },
 
     _getSidebarHTML() {
@@ -497,7 +358,6 @@ export const ProfileUI = {
 
         const navItems = [
             { id: 'dashboard',       icon: 'fa-solid fa-table-cells-large',   label: 'Command Center' },
-            { id: 'live-tracker',    icon: 'fa-solid fa-earth-americas',      label: 'Live Telemetry' },
             { id: 'career-deep-dive',icon: 'fa-solid fa-id-card-clip',        label: 'Pilot Dossier'  },
             { id: 'airspace-intel',  icon: 'fa-solid fa-satellite-dish',      label: 'Airspace Radar' },
             { id: 'flight-plan',     icon: 'fa-solid fa-route',               label: 'Flight Dispatch'},
@@ -531,6 +391,90 @@ export const ProfileUI = {
                 </div>
             </div>
         `;
+    },
+    
+_updateLiveFlightDOM() {
+        const wrapper = document.getElementById('pui-live-flights-wrapper');
+        if (!wrapper) return;
+
+        if (!this._liveFlights || this._liveFlights.length === 0) {
+            wrapper.innerHTML = '';
+            wrapper.style.display = 'none';
+            return;
+        }
+
+        wrapper.style.display = 'block';
+
+        const cardsHtml = this._liveFlights.map(flight => {
+            const alt = Math.round(flight.position.alt_ft).toLocaleString();
+            const gs  = Math.round(flight.position.gs_kt);
+            const hdg = String(Math.round(flight.position.heading_deg)).padStart(3, '0');
+            const vs  = Math.round(flight.position.vs_fpm);
+            const dep = flight.departureIcao || '----';
+            const arr = flight.arrivalIcao   || '----';
+            const cs  = flight.callsign      || 'UNK';
+            const acft = flight.aircraft?.aircraftName || 'Unknown Aircraft';
+
+            const vsColor = vs > 100 ? '#4ade80' : (vs < -100 ? '#f87171' : 'rgba(255,255,255,0.5)');
+            const vsSign  = vs > 0 ? '+' : '';
+
+            let imageUrl = null;
+            let imageCredit = '';
+            if (typeof window.getLiveFlightData === 'function') {
+                const mapFlights = window.getLiveFlightData();
+                const mapFlight  = mapFlights.find(f => f.properties?.flightId === flight.flightId);
+                if (mapFlight?.properties?.communityImageUrl) {
+                    imageUrl    = mapFlight.properties.communityImageUrl;
+                    imageCredit = mapFlight.properties.contributorName || '';
+                }
+            }
+
+            return `
+                <div class="pui-premium-flight-card">
+                    ${imageUrl ? `<div class="pui-pfc-bg" style="background-image:url('${imageUrl}')"></div>` : `<div class="pui-pfc-bg" style="background: linear-gradient(135deg, var(--pui-bg-card), var(--pui-bg-base));"></div>`}
+                    <div class="pui-pfc-overlay"></div>
+                    <div class="pui-pfc-content">
+                        
+                        <div class="pui-pfc-top">
+                            <div class="pui-pfc-top-route">
+                                <span class="pui-pfc-icao">${dep}</span>
+                                <i class="fa-solid fa-plane pui-pfc-route-icon"></i>
+                                <span class="pui-pfc-icao">${arr}</span>
+                            </div>
+                            <div class="pui-pfc-ident">
+                                <span class="pui-pfc-acft">${acft}</span>
+                                <span class="pui-pfc-cs">${cs}</span>
+                            </div>
+                        </div>
+
+                        <div class="pui-pfc-spacer"></div>
+
+                        <div class="pui-pfc-stats-glass">
+                            <div class="pui-pfc-stat">
+                                <span class="label">Altitude</span>
+                                <span class="value">${alt} <em>ft</em></span>
+                            </div>
+                            <div class="pui-pfc-stat">
+                                <span class="label">Ground Spd</span>
+                                <span class="value">${gs} <em>kt</em></span>
+                            </div>
+                            <div class="pui-pfc-stat">
+                                <span class="label">Heading</span>
+                                <span class="value">${hdg}<em>°</em></span>
+                            </div>
+                            <div class="pui-pfc-stat">
+                                <span class="label">Vert Spd</span>
+                                <span class="value" style="color:${vsColor};">${vsSign}${vs} <em>fpm</em></span>
+                            </div>
+                        </div>
+
+                        ${imageCredit ? `<div class="pui-pfc-credit">© ${imageCredit}</div>` : ''}
+                    </div>
+                </div>
+            `;
+        }).join('');
+
+        wrapper.innerHTML = `<div class="pui-live-carousel">${cardsHtml}</div>`;
     },
 
     _generateAirspaceHTML() {
@@ -803,141 +747,6 @@ export const ProfileUI = {
             `;
         }
 
-        if (this._activeTab === 'live-tracker') {
-            const user = this._currentUser;
-            const ifUsername = user?.user_metadata?.if_username || '';
-            let activeFlight = null;
-
-            if (ifUsername && typeof window.getLiveFlightData === 'function') {
-                const liveFlights = window.getLiveFlightData();
-                activeFlight = liveFlights.find(f => 
-                    f.properties && 
-                    f.properties.username && 
-                    f.properties.username.toLowerCase() === ifUsername.toLowerCase()
-                );
-            }
-
-            if (activeFlight) {
-                const p = activeFlight.properties;
-                const pos = typeof p.position === 'string' ? JSON.parse(p.position) : (p.position || {});
-                const alt = Math.round(p.altitude || pos.alt_ft || 0).toLocaleString();
-                const gs = Math.round(p.speed || pos.gs_kt || 0);
-                const dep = p.departureIcao || 'KJFK';
-                const arr = p.arrivalIcao || 'EGLL';
-                const acName = p.aircraftName || 'Unknown Aircraft';
-                const imgUrl = p.communityImageUrl || 'https://images.unsplash.com/photo-1542296332-2e4473faf563?q=80&w=2000&auto=format&fit=crop';
-                
-                this._pending3DInit = {
-                    name: acName,
-                    position: {
-                        lat:       pos.lat       ?? 46.0,
-                        lon:       pos.lon       ?? 7.5,
-                        alt_ft:    p.altitude    || pos.alt_ft    || 35000,
-                        gs_kt:     p.speed       || pos.gs_kt     || 450,
-                        pitch_deg: pos.pitch_deg ?? 0,
-                        roll_deg:  pos.roll_deg  ?? 0,
-                        heading:   pos.heading_deg ?? 0 
-                    }
-                };
-                this._pendingMapInit = { lat: pos.lat || 0, lon: pos.lon || 0, heading: pos.heading_deg || 0 };
-
-                let dynamicGradient = null;
-                if (typeof window.airlineColours !== 'undefined') {
-                    const airlineKeys = Object.keys(window.airlineColours).sort((a, b) => b.length - a.length);
-                    for (let key of airlineKeys) {
-                        if (p.callsign && p.callsign.toLowerCase().includes(key.toLowerCase())) {
-                            dynamicGradient = window.airlineColours[key];
-                            break;
-                        }
-                    }
-                }
-
-                const topStripeHTML = dynamicGradient 
-                    ? `<div class="pui-hero-airline-stripe" style="background: ${dynamicGradient}; position: relative; z-index: 5;"></div>` 
-                    : '';
-                
-                const trackBtnStyle = dynamicGradient 
-                    ? `background: ${dynamicGradient}; border: none; box-shadow: 0 4px 15px rgba(0,0,0,0.4);` 
-                    : `background: rgba(255, 255, 255, 0.15); border: 1px solid rgba(255, 255, 255, 0.3);`;
-                
-                const statStripeHTML = dynamicGradient 
-                    ? `<div class="pui-hero-stat-stripe" style="background: ${dynamicGradient};"></div>` 
-                    : '';
-
-                const viewer3DHTML = AircraftViewer3D.getHTML(acName);
-
-                return `
-                    <div class="pui-hero-flight-card pui-fade-in-up" style="height: 100%; border-radius: 16px; box-shadow: 0 20px 50px rgba(0,0,0,0.5);">
-                        ${topStripeHTML}
-                        <div id="pui-hero-map" class="pui-hero-map-layer" style="background-color: #060b14; background-image: url('${imgUrl}'); background-size: cover; background-position: center;"></div>
-                        <div class="pui-hero-overlay"></div>
-                        <div class="pui-hero-3d-layer">
-                            ${viewer3DHTML}
-                        </div>
-                        <div class="pui-hero-hud">
-                            <div class="pui-hud-top">
-                                <div class="pui-hud-callsign">
-                                    <h1>${p.callsign}</h1>
-                                    <span class="pui-hud-aircraft">${acName}</span>
-                                </div>
-                                <div class="pui-hud-top-right">
-                                    <div class="pui-live-badge">
-                                        <div class="pui-live-dot"></div>
-                                        <span>LIVE</span>
-                                    </div>
-                                    <button class="pui-track-btn" style="${trackBtnStyle}" onclick="window.onSearchResultClick('${p.flightId}', ${pos.lat}, ${pos.lon}); document.getElementById('pui-close-global').click();">
-                                        <i class="fa-solid fa-crosshairs"></i> TRACK
-                                    </button>
-                                </div>
-                            </div>
-                            <div class="pui-hud-bottom">
-                                <div class="pui-hud-route">
-                                    <div class="pui-route-icao">
-                                        <span class="pui-icao-code">${dep}</span>
-                                        <span class="pui-icao-city">Departure</span>
-                                    </div>
-                                    <div class="pui-route-connector">
-                                        <div class="pui-route-line-hud"></div>
-                                        <i class="fa-solid fa-plane"></i>
-                                        <div class="pui-route-line-hud"></div>
-                                    </div>
-                                    <div class="pui-route-icao">
-                                        <span class="pui-icao-code">${arr}</span>
-                                        <span class="pui-icao-city">Arrival</span>
-                                    </div>
-                                </div>
-                                <div class="pui-hud-stats">
-                                    <div class="pui-hud-stat" style="position:relative;overflow:hidden;">
-                                        <span class="pui-hud-stat-label">ALTITUDE</span>
-                                        <span class="pui-hud-stat-value">${alt} <em>FT</em></span>
-                                        ${statStripeHTML}
-                                    </div>
-                                    <div class="pui-hud-stat" style="position:relative;overflow:hidden;">
-                                        <span class="pui-hud-stat-label">GND SPEED</span>
-                                        <span class="pui-hud-stat-value">${gs} <em>KTS</em></span>
-                                        ${statStripeHTML}
-                                    </div>
-                                    <div class="pui-hud-stat" style="position:relative;overflow:hidden;">
-                                        <span class="pui-hud-stat-label">PIC</span>
-                                        <span class="pui-hud-stat-value" style="font-size:0.95rem;">${p.username.toUpperCase()}</span>
-                                        ${statStripeHTML}
-                                    </div>
-                                </div>
-                            </div>
-                        </div>
-                    </div>
-                `;
-            } else {
-                return `
-                    <div class="pui-empty-state pui-fade-in-up" style="height: 100%; display: flex; flex-direction: column; justify-content: center; align-items: center; border: 1px dashed var(--pui-border); border-radius: 16px; background: rgba(0,0,0,0.1);">
-                        <i class="fa-solid fa-satellite-dish" style="font-size: 3rem; margin-bottom: 20px;"></i>
-                        <h4>No Active Telemetry Detected</h4>
-                        <p style="max-width: 400px; text-align: center;">You do not currently have an active flight on Infinite Flight. Link your account and launch a flight to track your 3D telemetry here.</p>
-                    </div>
-                `;
-            }
-        }
-
         if (this._activeTab === 'career-deep-dive') {
             const user = this._currentUser;
             const ifUsername = user?.user_metadata?.if_username || '';
@@ -1005,106 +814,141 @@ export const ProfileUI = {
 
         if (this._activeTab === 'dashboard') {
             const user = this._currentUser;
+            const name = user?.user_metadata?.full_name || user?.user_metadata?.name || 'Captain';
+            const firstName = name.trim().split(/\s+/)[0];
             const ifUsername = user?.user_metadata?.if_username || '';
-            let recentActivityHTML = '';
-            
-            if (!ifUsername) {
-                recentActivityHTML = `<div style="padding: 24px; text-align: center; color: var(--pui-text-secondary); font-size: 0.9rem;">No account linked.</div>`;
+
+            // Greeting
+            const hour = new Date().getHours();
+            const greeting = hour < 12 ? 'Good morning' : hour < 17 ? 'Good afternoon' : 'Good evening';
+            const dateStr = new Date().toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' });
+
+            // Stat strip
+            let statsStrip = '';
+            if (this._ifData.stats) {
+                const grade   = this._ifData.stats.gradeDetails?.gradeIndex;
+                const xp      = this._ifData.stats.totalXP?.toLocaleString();
+                const flights = this._ifData.logbookTotal?.toLocaleString();
+                statsStrip = `<div class="pui-cc-stat-strip">
+                    ${grade   ? `<span>Grade ${grade}</span><span class="pui-cc-sep">·</span>` : ''}
+                    ${xp      ? `<span>${xp} XP</span><span class="pui-cc-sep">·</span>` : ''}
+                    ${flights ? `<span>${flights} flights</span>` : ''}
+                </div>`;
             } else if (this._ifData.loading) {
-                recentActivityHTML = `
-                    <div class="pui-list-item"><div class="pui-skeleton" style="width: 40px; height: 40px; border-radius: 10px;"></div><div class="pui-list-details"><div class="pui-skeleton" style="width: 120px; height: 16px; margin-bottom: 6px;"></div><div class="pui-skeleton" style="width: 180px; height: 12px;"></div></div></div>
-                    <div class="pui-list-item"><div class="pui-skeleton" style="width: 40px; height: 40px; border-radius: 10px;"></div><div class="pui-list-details"><div class="pui-skeleton" style="width: 130px; height: 16px; margin-bottom: 6px;"></div><div class="pui-skeleton" style="width: 160px; height: 12px;"></div></div></div>
+                statsStrip = `<div class="pui-cc-stat-strip" style="opacity:0.35;">Loading pilot data…</div>`;
+            }
+
+            // Recent flights
+            let recentFlightsHTML = '';
+            if (!ifUsername) {
+                recentFlightsHTML = `<div class="pui-cc-empty">Link your Infinite Flight account in Settings to see recent activity.</div>`;
+            } else if (this._ifData.loading) {
+                recentFlightsHTML = `
+                    <div class="pui-cc-flight-row"><div class="pui-skeleton" style="width:120px;height:14px;border-radius:4px;flex:1;"></div><div class="pui-skeleton" style="width:60px;height:10px;border-radius:4px;"></div></div>
+                    <div class="pui-cc-flight-row"><div class="pui-skeleton" style="width:100px;height:14px;border-radius:4px;flex:1;"></div><div class="pui-skeleton" style="width:50px;height:10px;border-radius:4px;"></div></div>
+                    <div class="pui-cc-flight-row"><div class="pui-skeleton" style="width:130px;height:14px;border-radius:4px;flex:1;"></div><div class="pui-skeleton" style="width:55px;height:10px;border-radius:4px;"></div></div>
                 `;
-            } else if (this._ifData.logbook && this._ifData.logbook.length > 0) {
-                const topFlights = this._ifData.logbook.slice(0, 4);
-                recentActivityHTML = topFlights.map(flight => {
-                    const dep = flight.originAirport || 'N/A';
-                    const arr = flight.destinationAirport || 'N/A';
-                    const hrs = (flight.totalTime / 60).toFixed(1);
+            } else if (this._ifData.logbook?.length > 0) {
+                recentFlightsHTML = this._ifData.logbook.slice(0, 6).map((flight, i) => {
+                    const dep    = flight.originAirport      || 'N/A';
+                    const arr    = flight.destinationAirport || 'N/A';
+                    const hrs    = (flight.totalTime / 60).toFixed(1);
                     const server = flight.server || 'Unknown';
                     const dateObj = new Date(flight.created);
                     const isRecent = (Date.now() - dateObj.getTime()) < (86400000 * 2);
-                    const timeStr = isRecent ? 'Recently' : dateObj.toLocaleDateString();
-
+                    const timeStr  = isRecent ? 'Recently' : dateObj.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
                     return `
-                        <div class="pui-list-item">
-                            <div class="pui-list-icon"><i class="fa-solid fa-plane-arrival"></i></div>
-                            <div class="pui-list-details">
-                                <h4>${dep} ➔ ${arr}</h4>
-                                <p>${flight.callsign} • ${server} • ${hrs} Hours</p>
+                        <div class="pui-cc-flight-row pui-fade-in-up" style="animation-delay:${i * 0.04}s;">
+                            <div class="pui-cc-flight-row-route">
+                                <span class="pui-cc-flight-icao">${dep}</span>
+                                <span class="pui-cc-flight-arrow">→</span>
+                                <span class="pui-cc-flight-icao">${arr}</span>
                             </div>
-                            <div class="pui-list-meta">${timeStr}</div>
-                        </div>
-                    `;
+                            <div class="pui-cc-flight-row-meta">
+                                <span>${flight.callsign || 'N/A'}</span>
+                                <span>·</span>
+                                <span>${server}</span>
+                                <span>·</span>
+                                <span>${hrs}h</span>
+                            </div>
+                            <div class="pui-cc-flight-row-time">${timeStr}</div>
+                        </div>`;
                 }).join('');
             } else {
-                recentActivityHTML = `<div style="padding: 24px; text-align: center; color: var(--pui-text-secondary); font-size: 0.9rem;">No recent flights found.</div>`;
+                recentFlightsHTML = `<div class="pui-cc-empty">No recent flights found.</div>`;
+            }
+
+            // Next departure from flight plans
+            let nextDispatch = '';
+            if (this._flightPlansData?.length > 0) {
+                const next   = this._flightPlansData[0];
+                const depTime = new Date(next.dep_time);
+                const diffMs  = depTime - Date.now();
+                const diffH   = Math.floor(diffMs / 3600000);
+                const diffM   = Math.floor((diffMs % 3600000) / 60000);
+                const countdown = diffMs > 0 ? (diffH > 0 ? `In ${diffH}h ${diffM}m` : `In ${diffM}m`) : 'Departed';
+                const hours = Math.floor(next.duration_minutes / 60);
+                const mins  = next.duration_minutes % 60;
+                nextDispatch = `
+                    <div class="pui-cc-dispatch-route">
+                        <div class="pui-cc-dispatch-icao">
+                            <span class="code">${next.dep_icao || '----'}</span>
+                            ${next.dep_gate ? `<span class="gate">Gate ${next.dep_gate}</span>` : ''}
+                        </div>
+                        <div class="pui-cc-dispatch-path">
+                            <i class="fa-solid fa-plane"></i>
+                            <span>${hours}h ${mins}m</span>
+                        </div>
+                        <div class="pui-cc-dispatch-icao" style="text-align:right;">
+                            <span class="code">${next.arr_icao || '----'}</span>
+                            ${next.arr_gate ? `<span class="gate">Gate ${next.arr_gate}</span>` : ''}
+                        </div>
+                    </div>
+                    <div class="pui-cc-dispatch-info">
+                        <div class="pui-cc-dispatch-row">
+                            <span>Aircraft</span>
+                            <strong>${next.aircraft_type || 'N/A'}</strong>
+                        </div>
+                        <div class="pui-cc-dispatch-row">
+                            <span>Callsign</span>
+                            <strong style="font-family:'JetBrains Mono',monospace;">${next.callsign || 'N/A'}</strong>
+                        </div>
+                        <div class="pui-cc-dispatch-row">
+                            <span>Departure</span>
+                            <strong style="color:var(--pui-accent);">${countdown}</strong>
+                        </div>
+                        ${next.passengers ? `<div class="pui-cc-dispatch-row"><span>POB</span><strong>${next.passengers} pax</strong></div>` : ''}
+                    </div>`;
+            } else {
+                nextDispatch = `
+                    <div class="pui-cc-empty" style="flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:10px;padding:32px 0;">
+                        <i class="fa-regular fa-calendar" style="font-size:1.8rem;opacity:0.18;"></i>
+                        <span>No upcoming flights filed.</span>
+                    </div>`;
             }
 
             return `
-                <div class="pui-tab-header pui-fade-in-up">
-                    <h2>Command Center</h2>
-                    <p>Your centralized hub for pre-flight planning and recent activity.</p>
+                <div class="pui-cc-header pui-fade-in-up">
+                    <div>
+                        <h1 class="pui-cc-greeting">${greeting}, ${firstName}.</h1>
+                        ${statsStrip}
+                    </div>
+                    <div class="pui-cc-date">${dateStr}</div>
                 </div>
 
-                <div class="pui-dashboard-split pui-fade-in-up">
-                    <div style="display: flex; flex-direction: column; gap: 18px;">
-                        <div class="pui-content-card pui-weather-widget" style="padding: 20px;">
-                            <div class="pui-stat-data" style="width: 100%;">
-                                <p style="margin-bottom: 8px; color: var(--pui-text-secondary); font-size: 0.75rem; letter-spacing: 0.08em; text-transform: uppercase;"><i class="fa-solid fa-cloud-sun" style="margin-right: 6px;"></i> Current Live METAR · KJFK</p>
-                                <h4 style="margin: 0; color: var(--pui-text-primary); font-family: 'JetBrains Mono', monospace; font-size: 1rem; line-height: 1.5;">
-                                    KJFK 241551Z 31015G22KT 10SM BKN045 12/03 A2992
-                                </h4>
-                            </div>
-                        </div>
+                <div id="pui-live-flights-wrapper" style="display:none;"></div>
 
-                        <div class="pui-content-card" style="flex-grow: 1;">
-                            <div class="pui-card-header">
-                                <h3><i class="fa-solid fa-clock-rotate-left" style="margin-right: 10px; opacity:0.5;"></i>Recent Flights</h3>
-                            </div>
-                            <div class="pui-list-group">
-                                ${recentActivityHTML}
-                            </div>
-                        </div>
+                <div class="pui-cc-grid pui-fade-in-up" style="animation-delay:0.08s;">
+                    <div class="pui-cc-recent">
+                        <div class="pui-cc-section-label">Recent Flights</div>
+                        <div class="pui-cc-flights-list">${recentFlightsHTML}</div>
                     </div>
-
-                    <div class="pui-content-card">
-                        <div class="pui-card-header">
-                            <h3><i class="fa-solid fa-calendar-check" style="margin-right: 10px; opacity:0.5;"></i>Active Dispatch Plan</h3>
-                        </div>
-                        <div class="pui-dispatch-body" style="padding: 24px;">
-                            <div class="pui-route-graphic" style="margin-bottom: 30px;">
-                                <div class="pui-route-node">
-                                    <span class="pui-node-code">OMDB</span>
-                                    <span class="pui-node-city">Dubai</span>
-                                </div>
-                                <div class="pui-route-line">
-                                    <i class="fa-solid fa-plane"></i>
-                                    <span class="pui-route-distance">6,840 NM</span>
-                                </div>
-                                <div class="pui-route-node">
-                                    <span class="pui-node-code">KJFK</span>
-                                    <span class="pui-node-city">New York</span>
-                                </div>
-                            </div>
-                            <div class="pui-dispatch-details">
-                                <div class="pui-dispatch-row">
-                                    <span>AIRCRAFT</span>
-                                    <strong>Emirates A380-800</strong>
-                                </div>
-                                <div class="pui-dispatch-row">
-                                    <span>EST. FLIGHT TIME</span>
-                                    <strong>14h 20m</strong>
-                                </div>
-                                <div class="pui-dispatch-row">
-                                    <span>DEPARTURE</span>
-                                    <strong>Scheduled in 3 hours</strong>
-                                </div>
-                            </div>
-                            <button class="pui-btn-secondary" style="margin-top: 24px; width: 100%; padding: 14px;" onclick="document.querySelector('[data-tab=\\'flight-plan\\']').click()">
-                                View Upcoming Schedule
-                            </button>
-                        </div>
+                    <div class="pui-cc-dispatch">
+                        <div class="pui-cc-section-label">Next Departure</div>
+                        ${nextDispatch}
+                        <button class="pui-cc-dispatch-btn" onclick="document.querySelector('[data-tab=\\'flight-plan\\']')?.click()">
+                            View Full Schedule <i class="fa-solid fa-arrow-right"></i>
+                        </button>
                     </div>
                 </div>
             `;
@@ -2007,229 +1851,7 @@ export const ProfileUI = {
                 line-height: 1.5;
             }
 
-            /* ─── HERO FLIGHT CARD ────────────────────────── */
-            .pui-hero-flight-card {
-                position: relative;
-                overflow: hidden;
-                flex: 1;
-                min-height: 0;
-            }
-
-            .pui-hero-map-layer {
-                position: absolute;
-                inset: 0;
-                z-index: 1;
-            }
-            .pui-hero-overlay {
-                position: absolute;
-                inset: 0;
-                z-index: 2;
-                background: linear-gradient(
-                    180deg,
-                    rgba(6,11,20,0.25) 0%,
-                    rgba(6,11,20,0.1)  35%,
-                    rgba(6,11,20,0.55) 70%,
-                    rgba(6,11,20,0.92) 100%
-                );
-                pointer-events: none;
-            }
-            .pui-hero-3d-layer {
-                position: absolute;
-                inset: 0;
-                z-index: 3;
-            }
-            .pui-hero-flight-card [id^="aircraft-viewer"] {
-                background: transparent !important;
-            }
-            #pui-hero-map { z-index: 1 !important; }
-            .pui-hero-overlay { z-index: 2 !important; }
-
-            /* ─── HUD OVERLAY ──────────────────────────────── */
-            .pui-hero-hud {
-                position: absolute;
-                inset: 0;
-                z-index: 5;
-                display: flex;
-                flex-direction: column;
-                justify-content: space-between;
-                pointer-events: none;
-                color: #fff;
-            }
-            .pui-hud-top {
-                display: flex;
-                justify-content: space-between;
-                align-items: flex-start;
-                padding: 28px 32px 0;
-                pointer-events: auto;
-            }
-            .pui-hud-callsign h1 {
-                margin: 0;
-                font-family: 'Bebas Neue', 'DM Sans', sans-serif;
-                font-size: 3.8rem;
-                font-weight: 400;
-                letter-spacing: 0.04em;
-                line-height: 1;
-                text-shadow: 0 4px 20px rgba(0,0,0,0.8);
-                color: #fff;
-            }
-            .pui-hud-aircraft {
-                font-family: 'JetBrains Mono', monospace;
-                font-size: 0.78rem;
-                font-weight: 700;
-                color: var(--pui-accent);
-                text-transform: uppercase;
-                letter-spacing: 0.12em;
-                margin-top: 4px;
-                display: block;
-                text-shadow: 0 0 12px rgba(0,200,255,0.5);
-            }
-            .pui-hud-top-right {
-                display: flex;
-                align-items: flex-start;
-                gap: 12px;
-                pointer-events: auto;
-            }
-            .pui-live-badge {
-                display: flex;
-                align-items: center;
-                gap: 7px;
-                background: rgba(0,0,0,0.55);
-                backdrop-filter: blur(12px);
-                padding: 7px 14px;
-                border-radius: 99px;
-                font-size: 0.72rem;
-                font-weight: 700;
-                letter-spacing: 0.1em;
-                border: 1px solid rgba(255,255,255,0.1);
-            }
-            .pui-live-dot {
-                width: 8px;
-                height: 8px;
-                background: var(--pui-accent);
-                border-radius: 50%;
-                box-shadow: 0 0 8px var(--pui-accent);
-                animation: puiPulse 2s infinite;
-            }
-            .pui-track-btn {
-                padding: 7px 18px;
-                border-radius: 8px;
-                font-weight: 700;
-                font-size: 0.78rem;
-                color: #fff;
-                cursor: pointer;
-                display: flex;
-                align-items: center;
-                gap: 8px;
-                letter-spacing: 0.06em;
-                transition: all 0.2s;
-            }
-            .pui-track-btn:hover { 
-                transform: translateY(-1px); 
-                filter: brightness(1.15);
-            }
-
-            .pui-hud-bottom {
-                padding: 0 32px 28px;
-                display: flex;
-                justify-content: space-between;
-                align-items: flex-end;
-                pointer-events: auto;
-                gap: 24px;
-            }
-            .pui-hud-route {
-                display: flex;
-                align-items: center;
-                gap: 0;
-                background: rgba(0,0,0,0.5);
-                backdrop-filter: blur(16px);
-                border: 1px solid rgba(255,255,255,0.12);
-                border-radius: 14px;
-                padding: 14px 22px;
-            }
-            .pui-route-icao {
-                display: flex;
-                flex-direction: column;
-                align-items: center;
-                gap: 2px;
-            }
-            .pui-icao-code {
-                font-family: 'JetBrains Mono', monospace;
-                font-size: 1.6rem;
-                font-weight: 700;
-                color: #fff;
-                line-height: 1;
-            }
-            .pui-icao-city {
-                font-size: 0.68rem;
-                color: rgba(255,255,255,0.45);
-                text-transform: uppercase;
-                letter-spacing: 0.08em;
-            }
-            .pui-route-connector {
-                display: flex;
-                align-items: center;
-                gap: 8px;
-                margin: 0 20px;
-                color: var(--pui-accent);
-                font-size: 0.85rem;
-            }
-            .pui-route-line-hud {
-                width: 32px;
-                height: 1px;
-                background: rgba(0,200,255,0.4);
-            }
-
-            .pui-hud-stats {
-                display: flex;
-                gap: 10px;
-            }
-            .pui-hud-stat {
-                background: rgba(6,11,20,0.65);
-                backdrop-filter: blur(16px);
-                border: 1px solid rgba(255,255,255,0.1);
-                border-radius: 12px;
-                padding: 12px 18px 16px;
-                display: flex;
-                flex-direction: column;
-                min-width: 90px;
-                overflow: hidden;
-            }
-            .pui-hud-stat-label {
-                font-size: 0.65rem;
-                color: rgba(255,255,255,0.4);
-                font-weight: 700;
-                letter-spacing: 0.1em;
-                text-transform: uppercase;
-                margin-bottom: 3px;
-            }
-            .pui-hud-stat-value {
-                font-family: 'JetBrains Mono', monospace;
-                font-size: 1.2rem;
-                font-weight: 700;
-                color: #fff;
-                line-height: 1;
-            }
-            .pui-hud-stat-value em {
-                font-style: normal;
-                font-size: 0.65rem;
-                color: rgba(255,255,255,0.45);
-                margin-left: 3px;
-            }
-            .pui-hero-airline-stripe {
-                position: absolute;
-                top: 0; left: 0; right: 0;
-                height: 3px;
-                z-index: 6;
-            }
-            .pui-hero-stat-stripe {
-                position: absolute;
-                bottom: 0; left: 0; right: 0;
-                height: 3px;
-                z-index: 2;
-                opacity: 0.9;
-            }
-
-            /* ─── BELOW-HERO STATS GRID ───────────────────── */
+            /* ─── STATS GRID ──────────────────────────────── */
             .pui-stats-grid {
                 display: grid;
                 grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
@@ -2924,8 +2546,6 @@ export const ProfileUI = {
                 .pui-sidebar-footer { padding: 0; border-top: none; border-left: 1px solid var(--pui-border); padding-left: 12px; margin-left: auto; }
                 .pui-settings-grid { grid-template-columns: 1fr; }
                 .pui-dashboard-split { grid-template-columns: 1fr; }
-                .pui-hero-flight-card { min-height: 55vw; }
-                .pui-hud-callsign h1 { font-size: 2.4rem; }
                 
                 .pui-flight-ticket { flex-direction: column; }
                 .pui-ticket-left { border-right: none; border-bottom: 2px dashed var(--pui-border); flex-direction: row; justify-content: space-between; align-items: center; padding: 14px 20px; }
@@ -2933,6 +2553,463 @@ export const ProfileUI = {
                 .pui-ticket-right { border-left: none; border-top: 1px solid var(--pui-border-light); flex-direction: row; justify-content: space-around; padding: 14px 20px; }
                 .pui-onboarding-card { padding: 30px 20px; }
             }
+            /* ─── COMMAND CENTER REDESIGN ──────────────────── */
+            .pui-cc-header {
+                display: flex;
+                justify-content: space-between;
+                align-items: flex-end;
+                margin-bottom: 24px;
+                padding-bottom: 22px;
+                border-bottom: 1px solid var(--pui-border);
+                flex-wrap: wrap;
+                gap: 8px;
+            }
+            .pui-cc-greeting {
+                margin: 0 0 6px 0;
+                font-size: 2rem;
+                font-weight: 700;
+                color: var(--pui-text-primary);
+                letter-spacing: -0.035em;
+                line-height: 1.1;
+            }
+            .pui-cc-stat-strip {
+                display: flex;
+                align-items: center;
+                gap: 8px;
+                color: var(--pui-text-secondary);
+                font-size: 0.8rem;
+                font-weight: 500;
+            }
+            .pui-cc-sep { opacity: 0.35; }
+            .pui-cc-date {
+                font-size: 0.78rem;
+                color: var(--pui-text-secondary);
+                font-weight: 500;
+                white-space: nowrap;
+                padding-bottom: 2px;
+                opacity: 0.7;
+            }
+
+            /* ─── PREMIUM LIVE FLIGHT CAROUSEL ──────────────────── */
+            .pui-live-carousel {
+                display: flex;
+                gap: 24px;
+                overflow-x: auto;
+                scroll-snap-type: x mandatory;
+                padding-bottom: 32px; 
+                margin-bottom: 8px;
+                scrollbar-width: none; 
+                -ms-overflow-style: none;
+                scroll-behavior: smooth;
+            }
+            .pui-live-carousel::-webkit-scrollbar { 
+                display: none; 
+            }
+
+            .pui-premium-flight-card {
+                position: relative;
+                flex: 0 0 calc(100% - 10px);
+                max-width: 860px;
+                height: 360px; 
+                border-radius: 24px;
+                overflow: hidden;
+                scroll-snap-align: center;
+                box-shadow: 0 30px 60px -15px rgba(0,0,0,0.6), 0 0 0 1px rgba(255,255,255,0.05);
+                transform: translateZ(0); 
+                display: flex;
+                flex-direction: column;
+            }
+
+            /* Cinematic Background */
+            .pui-pfc-bg {
+                position: absolute;
+                inset: -5%; 
+                background-size: cover;
+                background-position: center;
+                transition: transform 12s cubic-bezier(0.25, 1, 0.5, 1);
+                z-index: 1;
+            }
+            .pui-premium-flight-card:hover .pui-pfc-bg {
+                transform: scale(1.04);
+            }
+
+            /* Premium Composite Overlay */
+            .pui-pfc-overlay {
+                position: absolute;
+                inset: 0;
+                background: linear-gradient(to top, rgba(7, 12, 22, 0.95) 0%, rgba(7, 12, 22, 0.2) 35%, transparent 100%);
+                z-index: 2;
+                pointer-events: none;
+            }
+            .pui-pfc-overlay::before {
+                content: '';
+                position: absolute;
+                inset: 0;
+                background: radial-gradient(circle at 50% 40%, transparent 40%, rgba(0, 0, 0, 0.5) 150%);
+            }
+            .pui-pfc-overlay::after {
+                content: '';
+                position: absolute;
+                inset: 0;
+                background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 200 200' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noiseFilter'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='3' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noiseFilter)' opacity='0.04'/%3E%3C/svg%3E");
+                opacity: 0.9;
+                mix-blend-mode: overlay;
+            }
+
+            .pui-pfc-content {
+                position: relative;
+                z-index: 3;
+                height: 100%;
+                display: flex;
+                flex-direction: column;
+                padding: 24px 28px;
+            }
+
+            /* Top Bar */
+            .pui-pfc-top {
+                display: flex;
+                justify-content: space-between;
+                align-items: flex-start;
+            }
+
+            /* Top Left Sleek Routing Pill */
+            .pui-pfc-top-route {
+                display: flex;
+                align-items: center;
+                gap: 10px;
+                background: rgba(10, 15, 25, 0.45);
+                backdrop-filter: blur(12px) saturate(140%);
+                -webkit-backdrop-filter: blur(12px) saturate(140%);
+                padding: 8px 14px;
+                border-radius: 20px;
+                border: 1px solid rgba(255,255,255,0.08);
+                border-top: 1px solid rgba(255,255,255,0.18);
+                box-shadow: 0 8px 16px rgba(0,0,0,0.2);
+            }
+            .pui-pfc-icao {
+                font-family: 'JetBrains Mono', monospace;
+                font-size: 1rem;
+                font-weight: 700;
+                color: #fff;
+                letter-spacing: 0.05em;
+            }
+            .pui-pfc-route-icon {
+                color: #00c8ff;
+                font-size: 0.75rem;
+                opacity: 0.8;
+                filter: drop-shadow(0 0 4px rgba(0,200,255,0.4));
+            }
+
+            /* Top Right Identification */
+            .pui-pfc-ident {
+                display: flex;
+                flex-direction: column;
+                align-items: flex-end;
+            }
+            .pui-pfc-acft {
+                font-size: 1rem;
+                font-weight: 800;
+                color: #fff;
+                text-shadow: 0 2px 8px rgba(0,0,0,0.8);
+                letter-spacing: 0.02em;
+            }
+            .pui-pfc-cs {
+                font-family: 'JetBrains Mono', monospace;
+                font-size: 0.8rem;
+                color: #00c8ff;
+                font-weight: 700;
+                text-shadow: 0 2px 6px rgba(0,0,0,0.8);
+            }
+
+            /* Pushes the stats bar to the very bottom */
+            .pui-pfc-spacer {
+                flex-grow: 1;
+            }
+
+            /* Ultra-Slim Glassmorphism Stats Grid */
+            .pui-pfc-stats-glass {
+                background: linear-gradient(135deg, rgba(255, 255, 255, 0.04) 0%, rgba(255, 255, 255, 0.01) 100%);
+                backdrop-filter: blur(24px) saturate(120%);
+                -webkit-backdrop-filter: blur(24px) saturate(120%);
+                border: 1px solid rgba(255, 255, 255, 0.06);
+                border-top: 1px solid rgba(255, 255, 255, 0.15); 
+                border-radius: 14px;
+                display: grid;
+                grid-template-columns: repeat(4, 1fr);
+                overflow: hidden;
+                box-shadow: 0 12px 32px 0 rgba(0, 0, 0, 0.4);
+            }
+            .pui-pfc-stat {
+                display: flex;
+                flex-direction: column;
+                padding: 10px 16px; /* Greatly reduced padding */
+                border-right: 1px solid rgba(255,255,255,0.06);
+                gap: 2px; /* Tighter gap between label and value */
+                position: relative;
+                justify-content: center;
+            }
+            .pui-pfc-stat:last-child {
+                border-right: none;
+            }
+            .pui-pfc-stat:hover::before {
+                content: '';
+                position: absolute;
+                inset: 0;
+                background: radial-gradient(circle at center, rgba(255,255,255,0.04) 0%, transparent 70%);
+                pointer-events: none;
+            }
+            .pui-pfc-stat .label {
+                font-size: 0.55rem; /* Smaller label */
+                font-weight: 800;
+                text-transform: uppercase;
+                letter-spacing: 0.1em;
+                color: rgba(255,255,255,0.5);
+            }
+            .pui-pfc-stat .value {
+                font-size: 1.15rem; /* Smaller value */
+                font-family: 'JetBrains Mono', monospace;
+                font-weight: 700;
+                color: #fff;
+                line-height: 1;
+                display: flex;
+                align-items: baseline;
+                gap: 4px;
+            }
+            .pui-pfc-stat .value em {
+                font-style: normal;
+                font-size: 0.65rem;
+                color: rgba(255,255,255,0.45);
+                font-weight: 600;
+            }
+
+            .pui-pfc-credit {
+                position: absolute;
+                bottom: 10px;
+                right: 16px;
+                font-size: 0.55rem;
+                color: rgba(255,255,255,0.4);
+                font-weight: 600;
+                letter-spacing: 0.05em;
+                text-shadow: 0 1px 4px rgba(0,0,0,0.8);
+                pointer-events: none;
+            }
+
+            /* Responsive Adjustments for Carousel */
+            @media (max-width: 900px) {
+                .pui-premium-flight-card {
+                    height: 320px;
+                    flex: 0 0 100%;
+                }
+                .pui-pfc-stats-glass {
+                    grid-template-columns: repeat(2, 1fr);
+                }
+                .pui-pfc-stat {
+                    border-bottom: 1px solid rgba(255,255,255,0.06);
+                }
+                .pui-pfc-stat:nth-child(even) { border-right: none; }
+                .pui-pfc-stat:nth-child(3), .pui-pfc-stat:nth-child(4) { border-bottom: none; }
+            }
+            .pui-cc-grid {
+                display: grid;
+                grid-template-columns: 1fr 320px;
+                gap: 14px;
+                flex: 1;
+                min-height: 0;
+            }
+            .pui-cc-section-label {
+                font-size: 0.65rem;
+                font-weight: 800;
+                letter-spacing: 0.13em;
+                text-transform: uppercase;
+                color: var(--pui-text-secondary);
+                opacity: 0.6;
+                margin-bottom: 12px;
+            }
+
+            /* Recent flights panel */
+            .pui-cc-recent {
+                background: var(--pui-bg-card);
+                border: 1px solid var(--pui-border);
+                border-radius: 14px;
+                padding: 20px 22px;
+                display: flex;
+                flex-direction: column;
+                overflow: hidden;
+                min-height: 0;
+            }
+            .pui-cc-flights-list {
+                display: flex;
+                flex-direction: column;
+                flex: 1;
+                overflow-y: auto;
+                scrollbar-width: none;
+            }
+            .pui-cc-flight-row {
+                display: flex;
+                align-items: center;
+                gap: 12px;
+                padding: 11px 0;
+                border-bottom: 1px solid var(--pui-border-light);
+                transition: all 0.15s;
+                border-radius: 0;
+            }
+            .pui-cc-flight-row:last-child { border-bottom: none; }
+            .pui-cc-flight-row:hover {
+                margin: 0 -22px;
+                padding-left: 22px;
+                padding-right: 22px;
+                background: var(--pui-hover);
+            }
+            .pui-cc-flight-row-route {
+                display: flex;
+                align-items: center;
+                gap: 8px;
+                flex: 1;
+                min-width: 0;
+            }
+            .pui-cc-flight-icao {
+                font-family: 'JetBrains Mono', monospace;
+                font-size: 0.9rem;
+                font-weight: 700;
+                color: var(--pui-text-primary);
+                white-space: nowrap;
+            }
+            .pui-cc-flight-arrow {
+                color: var(--pui-text-secondary);
+                font-size: 0.7rem;
+                opacity: 0.4;
+                flex-shrink: 0;
+            }
+            .pui-cc-flight-row-meta {
+                display: flex;
+                align-items: center;
+                gap: 5px;
+                font-size: 0.72rem;
+                color: var(--pui-text-secondary);
+                font-weight: 500;
+                white-space: nowrap;
+                overflow: hidden;
+                text-overflow: ellipsis;
+            }
+            .pui-cc-flight-row-time {
+                font-size: 0.68rem;
+                color: var(--pui-text-secondary);
+                font-weight: 600;
+                white-space: nowrap;
+                opacity: 0.5;
+                flex-shrink: 0;
+            }
+
+            /* Dispatch panel */
+            .pui-cc-dispatch {
+                background: var(--pui-bg-card);
+                border: 1px solid var(--pui-border);
+                border-radius: 14px;
+                padding: 20px 22px;
+                display: flex;
+                flex-direction: column;
+                overflow: hidden;
+            }
+            .pui-cc-dispatch-route {
+                display: flex;
+                align-items: center;
+                gap: 10px;
+                padding: 16px 0 18px;
+                border-bottom: 1px solid var(--pui-border-light);
+                margin-bottom: 16px;
+            }
+            .pui-cc-dispatch-icao .code {
+                font-family: 'JetBrains Mono', monospace;
+                font-size: 1.9rem;
+                font-weight: 700;
+                color: var(--pui-text-primary);
+                letter-spacing: -0.025em;
+                display: block;
+                line-height: 1;
+            }
+            .pui-cc-dispatch-icao .gate {
+                font-size: 0.65rem;
+                color: var(--pui-text-secondary);
+                font-weight: 600;
+                display: block;
+                margin-top: 4px;
+                opacity: 0.7;
+            }
+            .pui-cc-dispatch-path {
+                flex: 1;
+                display: flex;
+                flex-direction: column;
+                align-items: center;
+                gap: 5px;
+                color: var(--pui-text-secondary);
+                font-size: 0.68rem;
+                font-weight: 600;
+                opacity: 0.7;
+            }
+            .pui-cc-dispatch-path i {
+                color: var(--pui-accent);
+                font-size: 0.85rem;
+                opacity: 1;
+            }
+            .pui-cc-dispatch-info {
+                display: flex;
+                flex-direction: column;
+                gap: 11px;
+                flex: 1;
+            }
+            .pui-cc-dispatch-row {
+                display: flex;
+                justify-content: space-between;
+                align-items: center;
+                font-size: 0.8rem;
+            }
+            .pui-cc-dispatch-row span {
+                color: var(--pui-text-secondary);
+                font-weight: 500;
+                opacity: 0.8;
+            }
+            .pui-cc-dispatch-row strong {
+                color: var(--pui-text-primary);
+                font-weight: 700;
+            }
+            .pui-cc-dispatch-btn {
+                margin-top: auto;
+                padding: 14px 0 0 0;
+                background: none;
+                border: none;
+                border-top: 1px solid var(--pui-border-light);
+                color: var(--pui-accent);
+                font-size: 0.78rem;
+                font-weight: 700;
+                cursor: pointer;
+                display: flex;
+                align-items: center;
+                justify-content: space-between;
+                font-family: 'DM Sans', sans-serif;
+                transition: opacity 0.2s;
+                letter-spacing: 0.01em;
+                width: 100%;
+                text-align: left;
+            }
+            .pui-cc-dispatch-btn:hover { opacity: 0.6; }
+            .pui-cc-dispatch-btn i { font-size: 0.7rem; }
+            .pui-cc-empty {
+                color: var(--pui-text-secondary);
+                font-size: 0.82rem;
+                text-align: center;
+                padding: 20px;
+                opacity: 0.6;
+            }
+
+            /* CC responsive */
+            @media (max-width: 900px) {
+                .pui-cc-grid { grid-template-columns: 1fr; }
+                .pui-cc-live-img { display: none; }
+                .pui-cc-live-icao { font-size: 1.9rem; }
+                .pui-cc-greeting { font-size: 1.5rem; }
+                .pui-cc-live-stat-value { font-size: 1.05rem; }
+            }
+
         `;
 
         const style = document.createElement('style');
