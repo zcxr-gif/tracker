@@ -10860,7 +10860,8 @@ function populateAircraftInfoWindow(baseProps, plan, sortedRoutePoints, communit
     const reg = baseProps.aircraft?.registration || 'N/A';
     const flightPhase = baseProps.flightPhase || "CRUISE";
 
-    let totalDistanceNM = 0;
+let totalDistanceNM = 0;
+    let distanceToDestNM = 0;
     let progress = 0;
     let ete = '--:--';
 
@@ -10876,7 +10877,7 @@ function populateAircraftInfoWindow(baseProps, plan, sortedRoutePoints, communit
         if (totalDistanceNM > 0) {
             const [destLon, destLat] = originalFlatWaypoints[originalFlatWaypoints.length - 1];
             const remainingDistanceKm = getDistanceKm(baseProps.position.lat, baseProps.position.lon, destLat, destLon);
-            const distanceToDestNM = remainingDistanceKm / 1.852;
+            distanceToDestNM = remainingDistanceKm / 1.852;
             
             // Use direct distance from origin to destination to fix the sluggish scaling
             const [originLon, originLat] = originalFlatWaypoints[0];
@@ -11035,13 +11036,13 @@ function populateAircraftInfoWindow(baseProps, plan, sortedRoutePoints, communit
 
         <div class="ac-route-info-bar" style=" background: rgba(45, 45, 45, 0.9); backdrop-filter: blur(16px); margin: -32px 16px 0 16px; border-radius: 12px; padding: 14px 24px; border: 1px solid rgba(255,255,255,0.1); display: flex; align-items: center; justify-content: space-between; gap: 16px; flex-shrink: 0; position: relative; z-index: 5; box-shadow: 0 8px 32px rgba(0,0,0,0.4);">
             <div class="route-node">
-                <span class="city-name" style="color: #94a3b8; font-size: 9px; font-weight: 600; text-transform: uppercase;">${depCity}</span>
-                <span class="icao-large" style="display: flex; align-items: center; gap: 8px; color: #fff; font-size: 20px; font-weight: 800; font-family: 'JetBrains Mono', monospace; line-height: 1.1;">
-                    ${departureIcao}
-                    <img id="ac-bar-dep-flag" src="" style="height: 14px; border-radius: 2px; display: none; opacity: 0.8;" onerror="this.style.display='none'">
-                </span>
-                <span class="time-small" style="color: #38bdf8; font-size: 11px; font-weight: 600;">${atdTime}</span>
-            </div>
+        <span class="city-name" style="color: #94a3b8; font-size: 9px; font-weight: 600; text-transform: uppercase;">${depCity}</span>
+        <span class="icao-large" style="display: flex; align-items: center; gap: 8px; color: #fff; font-size: 20px; font-weight: 800; font-family: 'JetBrains Mono', monospace; line-height: 1.1;">
+            ${departureIcao}
+            <img id="ac-bar-dep-flag" src="" style="height: 14px; border-radius: 2px; display: none; opacity: 0.8;" onerror="this.style.display='none'">
+        </span>
+        <span class="time-small" id="ac-bar-atd" style="color: #38bdf8; font-size: 11px; font-weight: 600;">${atdTime}</span>
+    </div>
             
             <div class="route-visual" style="flex: 1; max-width: 240px; display: flex; flex-direction: column; justify-content: center;">
                 <div class="flight-progress-track" style="height: 4px; background: rgba(255,255,255,0.1); border-radius: 4px; position: relative;">

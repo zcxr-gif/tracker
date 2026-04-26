@@ -15,12 +15,61 @@
  * Premium Feature Updates:
  * • Live Watchlist Autocomplete: Indexes WebSocket streams for real-time pilot search.
  * • Dispatch Management: Edit and Delete capabilities for filed flight plans.
+ * • Dispatch Automation: Predictive EET (Estimated Elapsed Time) calculation.
+ * • Aircraft Selection: Dash-proof ICAO routing integration.
  */
 
 import { CareerModule } from './careerModule.js';
 import { PredictiveAirspaceNetwork } from './PredictiveQueueManager.js';
 import { socketDataHub } from './SocketDataHub.js';
 import { MobileDashboardUI } from './MobileDashboardUI.js';
+import { FlightDispatchService } from './FlightDispatchService.js';
+import { TelemetryAnalyticsEngine } from './TelemetryAnalyticsEngine.js';
+
+const AIRCRAFT_SELECTION_LIST = [
+    // Airbus
+    { value: 'A318', name: 'Airbus A318-100' },
+    { value: 'A319', name: 'Airbus A319-100' },
+    { value: 'A320', name: 'Airbus A320-200' },
+    { value: 'A20N', name: 'Airbus A320neo' },
+    { value: 'A321', name: 'Airbus A321-200' },
+    { value: 'A21N', name: 'Airbus A321neo' },
+    { value: 'A333', name: 'Airbus A330-300' },
+    { value: 'A339', name: 'Airbus A330-900neo' },
+    { value: 'A346', name: 'Airbus A340-600' },
+    { value: 'A359', name: 'Airbus A350-900' },
+    { value: 'A388', name: 'Airbus A380-800' },
+    // Boeing
+    { value: 'B712', name: 'Boeing 717-200' },
+    { value: 'B737', name: 'Boeing 737-700' },
+    { value: 'B738', name: 'Boeing 737-800' },
+    { value: 'B739', name: 'Boeing 737-900' },
+    { value: 'B38M', name: 'Boeing 737 MAX 8' },
+    { value: 'B742', name: 'Boeing 747-200B' },
+    { value: 'B744', name: 'Boeing 747-400' },
+    { value: 'B748', name: 'Boeing 747-8' },
+    { value: 'B752', name: 'Boeing 757-200' },
+    { value: 'B763', name: 'Boeing 767-300ER' },
+    { value: 'B772', name: 'Boeing 777-200ER' },
+    { value: 'B77L', name: 'Boeing 777-200LR' },
+    { value: 'B77W', name: 'Boeing 777-300ER' },
+    { value: 'B788', name: 'Boeing 787-8' },
+    { value: 'B789', name: 'Boeing 787-9' },
+    { value: 'B78X', name: 'Boeing 787-10' },
+    // Bombardier (CRJ)
+    { value: 'CRJ2', name: 'Bombardier CRJ-200' },
+    { value: 'CRJ7', name: 'Bombardier CRJ-700' },
+    { value: 'CRJ9', name: 'Bombardier CRJ-900' },
+    { value: 'CRJX', name: 'Bombardier CRJ-1000' },
+    // De Havilland
+    { value: 'DH8D', name: 'De Havilland Dash 8 Q400' },
+    // Embraer
+    { value: 'E175', name: 'Embraer E175' },
+    { value: 'E190', name: 'Embraer E190' },
+    // McDonnell Douglas
+    { value: 'DC10', name: 'McDonnell Douglas DC-10' },
+    { value: 'MD11', name: 'McDonnell Douglas MD-11' },
+];
 
 export const ProfileUI = {
     _supabase: null,
@@ -34,6 +83,9 @@ export const ProfileUI = {
     _timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
     _flightPlansData: [],
     _editingFlightId: null, // Tracks active flight plan being edited
+    
+    // Premium Caching
+    _airportCache: null, 
 
     // Premium Telemetry Integration
     _airspaceNetwork: null,
@@ -79,8 +131,9 @@ export const ProfileUI = {
         return name === 'light' || name === 'dark' ? name : 'light';
     },
 
-    init(supabaseClient) {
+init(supabaseClient) {
         this._supabase = supabaseClient;
+        FlightDispatchService.init(supabaseClient);
 
         this._supabase.auth.onAuthStateChange((event, session) => {
             if (session?.user) {
@@ -115,12 +168,10 @@ export const ProfileUI = {
             this._socketUnsubscribe = socketDataHub.subscribe('all_flights_update', (payload) => {
                 if (!payload || !payload.flights) return;
                 
-                // Keep an updated index of all airspace traffic for the search dropdown
                 this._currentAllFlights = payload.flights;
 
                 const ifUsername = this._currentUser?.user_metadata?.if_username;
 
-                // ── Own live flight tracking ──────────────────────────────────
                 if (ifUsername) {
                     const myFlights = payload.flights.filter(f => f.username?.toLowerCase() === ifUsername.toLowerCase());
                     const previouslyHadFlights = this._liveFlights.length > 0;
@@ -132,7 +183,6 @@ export const ProfileUI = {
                     }
                 }
 
-                // ── Watchlist pilot tracking ──────────────────────────────────
                 if (this._watchlist.length > 0) {
                     this._prevWatchedStatus = { ...this._watchedPilotStatus };
                     const newStatus = {};
@@ -670,7 +720,7 @@ export const ProfileUI = {
         `;
     },
 
-    _updateLiveFlightDOM() {
+async _updateLiveFlightDOM() {
         const wrapper = document.getElementById('pui-live-flights-wrapper');
         if (!wrapper) return;
 
@@ -682,7 +732,17 @@ export const ProfileUI = {
 
         wrapper.style.display = 'block';
 
-        const cardsHtml = this._liveFlights.map(flight => {
+        // Securely pre-fetch dispatch plans via the bridge service
+        const flightsWithDispatch = await Promise.all(this._liveFlights.map(async (flight) => {
+            let plan = null;
+            if (flight.username && flight.departureIcao && flight.arrivalIcao) {
+                plan = await FlightDispatchService.getFiledPlan(flight.username, flight.departureIcao, flight.arrivalIcao);
+            }
+            return { ...flight, _dispatchPlan: plan };
+        }));
+
+        // Convert to Promise.all to handle the asynchronous Analytics Engine
+        const cardsHtmlArray = await Promise.all(flightsWithDispatch.map(async flight => {
             const alt = Math.round(flight.position.alt_ft).toLocaleString();
             const gs  = Math.round(flight.position.gs_kt);
             const hdg = String(Math.round(flight.position.heading_deg)).padStart(3, '0');
@@ -691,6 +751,51 @@ export const ProfileUI = {
             const arr = flight.arrivalIcao   || '----';
             const cs  = flight.callsign      || 'UNK';
             const acft = flight.aircraft?.aircraftName || 'Unknown Aircraft';
+
+            const plan = flight._dispatchPlan;
+            const depGate = plan?.dep_gate ? `<span class="pui-live-gate">GTE ${plan.dep_gate}</span>` : '';
+            const arrGate = plan?.arr_gate ? `<span class="pui-live-gate">GTE ${plan.arr_gate}</span>` : '';
+
+            // Properly await the Analytics Engine calculation
+            const analytics = await TelemetryAnalyticsEngine.analyze(flight, plan);
+
+            let dispatchHTML = '';
+            if (plan) {
+                const hours = Math.floor(plan.duration_minutes / 60);
+                const mins = plan.duration_minutes % 60;
+                
+                // Add the new dynamic fuel and progress bars if tracking is active
+                let dynamicStatsHTML = '';
+                if (analytics.isTrackable) {
+                    dynamicStatsHTML = `
+                        <div class="pui-live-dispatch-item" style="width: 100%; margin-top: 6px;">
+                            <div style="display:flex; justify-content:space-between; width:100%; font-size:0.7rem; color:var(--pui-accent);">
+                                <span>${analytics.phaseOfFlight}</span>
+                                <span>${analytics.time.progressPercent}% Route Complete</span>
+                            </div>
+                            <div style="width:100%; height:4px; background:rgba(255,255,255,0.1); border-radius:2px; margin-top:4px;">
+                                <div style="width:${analytics.time.progressPercent}%; height:100%; background:var(--pui-pos); border-radius:2px;"></div>
+                            </div>
+                        </div>
+                        <div class="pui-live-dispatch-item" style="width: 100%; margin-top: 6px;">
+                            <div style="display:flex; justify-content:space-between; width:100%; font-size:0.7rem; color:var(--pui-text-tertiary);">
+                                <span>Est. Fuel: ${analytics.fuel.estimatedRemainingLbs.toLocaleString()} lbs rem</span>
+                                <span>${analytics.fuel.currentBurnRatePerHour.toLocaleString()} lbs/hr</span>
+                            </div>
+                        </div>
+                    `;
+                }
+
+                dispatchHTML = `
+                    <div class="pui-live-dispatch-strip">
+                        <div class="pui-live-dispatch-tag"><i class="fa-solid fa-file-signature"></i> DISPATCH VERIFIED</div>
+                        ${plan.passengers ? `<div class="pui-live-dispatch-item"><i class="fa-solid fa-users"></i> ${plan.passengers} POB</div>` : ''}
+                        ${plan.fuel_used ? `<div class="pui-live-dispatch-item"><i class="fa-solid fa-gas-pump"></i> ${plan.fuel_used.toLocaleString()} LBS BLOCK</div>` : ''}
+                        ${plan.duration_minutes ? `<div class="pui-live-dispatch-item"><i class="fa-regular fa-clock"></i> ${hours}H ${mins}M EET</div>` : ''}
+                        ${dynamicStatsHTML}
+                    </div>
+                `;
+            }
 
             const vsColor = vs > 100 ? 'var(--pui-pos)' : (vs < -100 ? 'var(--pui-neg)' : 'rgba(255,255,255,0.55)');
             const vsSign  = vs > 0 ? '+' : '';
@@ -716,8 +821,10 @@ export const ProfileUI = {
                         <div class="pui-live-top">
                             <div class="pui-live-route-pill">
                                 <span class="pui-live-icao">${dep}</span>
+                                ${depGate}
                                 <i class="fa-solid fa-plane pui-live-route-icon"></i>
                                 <span class="pui-live-icao">${arr}</span>
+                                ${arrGate}
                             </div>
                             <div class="pui-live-ident">
                                 <span class="pui-live-acft">${acft}</span>
@@ -743,13 +850,15 @@ export const ProfileUI = {
                                 <span class="value" style="color:${vsColor};">${vsSign}${vs} <em>fpm</em></span>
                             </div>
                         </div>
+                        ${dispatchHTML}
                         ${imageCredit ? `<div class="pui-live-credit">© ${imageCredit}</div>` : ''}
                     </div>
                 </div>
             `;
-        }).join('');
+        }));
 
-        wrapper.innerHTML = `<div class="pui-live-carousel">${cardsHtml}</div>`;
+        // Join the resolved HTML array 
+        wrapper.innerHTML = `<div class="pui-live-carousel">${cardsHtmlArray.join('')}</div>`;
     },
 
     _generateAirspaceHTML() {
@@ -984,6 +1093,45 @@ export const ProfileUI = {
         });
     },
 
+    /** Premium Background Processor for routing Time Estimates */
+    async _autoCalculateRouteEET(depIcao, arrIcao) {
+        if (!depIcao || !arrIcao || depIcao.length !== 4 || arrIcao.length !== 4) return null;
+
+        try {
+            // Load and cache airport dictionary dynamically if not already present
+            if (!this._airportCache) {
+                const res = await fetch('https://raw.githubusercontent.com/mwgg/Airports/master/airports.json');
+                if (!res.ok) throw new Error('Network error');
+                this._airportCache = await res.json();
+            }
+
+            const origin = this._airportCache[depIcao.toUpperCase()];
+            const dest = this._airportCache[arrIcao.toUpperCase()];
+
+            if (!origin || !dest) return null;
+
+            // Haversine Distance Calculation
+            const toRad = (value) => value * Math.PI / 180;
+            const R = 3440.065; // Earth radius in Nautical Miles
+            const dLat = toRad(dest.lat - origin.lat);
+            const dLon = toRad(dest.lon - origin.lon);
+            const a = Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+                      Math.cos(toRad(origin.lat)) * Math.cos(toRad(dest.lat)) *
+                      Math.sin(dLon / 2) * Math.sin(dLon / 2);
+            const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+            const distanceNM = R * c;
+
+            // Premium heuristic: 450kt block average + 30m padding for SID/STAR routing
+            const cruiseHours = distanceNM / 450;
+            const totalMinutes = Math.round((cruiseHours * 60) + 30);
+
+            return totalMinutes;
+        } catch (e) {
+            console.warn('[ProfileUI] Auto-EET failed:', e);
+            return null; // Silent failover back to manual input
+        }
+    },
+
     _getTabContentHTML() {
         if (this._activeTab === 'onboarding') {
             return `
@@ -1129,7 +1277,6 @@ export const ProfileUI = {
             const greeting = hour < 12 ? 'Good morning' : hour < 17 ? 'Good afternoon' : 'Good evening';
             const dateStr = new Date().toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric', timeZone: this._timezone });
 
-            // Stat strip
             let statsStrip = '';
             if (this._ifData.stats) {
                 const grade   = this._ifData.stats.gradeDetails?.gradeIndex;
@@ -1148,7 +1295,6 @@ export const ProfileUI = {
                 statsStrip = `<div class="pui-stat-strip" style="opacity:0.4;">Loading pilot data…</div>`;
             }
 
-            // Recent flights
             let recentFlightsHTML = '';
             if (!ifUsername) {
                 recentFlightsHTML = `<div class="pui-empty-inline">Link your Infinite Flight account in Settings to see recent activity.</div>`;
@@ -1188,7 +1334,6 @@ export const ProfileUI = {
                 recentFlightsHTML = `<div class="pui-empty-inline">No recent flights found.</div>`;
             }
 
-            // Next departure from flight plans
             let nextDispatch = '';
             if (this._flightPlansData?.length > 0) {
                 const next   = this._flightPlansData[0];
@@ -1281,8 +1426,8 @@ export const ProfileUI = {
                     return `
                         <div class="pui-ticket">
                             <div class="pui-ticket-actions">
-                                <button class="pui-icon-btn pui-ticket-edit-btn" data-id="${flight.id}" title="Edit Flight"><i class="fa-solid fa-pen"></i></button>
-                                <button class="pui-icon-btn pui-ticket-delete-btn" data-id="${flight.id}" title="Delete Flight"><i class="fa-solid fa-trash"></i></button>
+                                <button class="pui-icon-btn pui-ticket-edit-btn" data-id="${flight.flight_id}" title="Edit Flight"><i class="fa-solid fa-pen"></i></button>
+                                <button class="pui-icon-btn pui-ticket-delete-btn" data-id="${flight.flight_id}" title="Delete Flight"><i class="fa-solid fa-trash"></i></button>
                             </div>
                             <div class="pui-ticket-stub">
                                 <span class="pui-ticket-day">${day}</span>
@@ -1316,6 +1461,10 @@ export const ProfileUI = {
                 }).join('');
             }
 
+            const aircraftOptions = AIRCRAFT_SELECTION_LIST.map(a => 
+                `<option value="${a.value}">${a.name} (${a.value})</option>`
+            ).join('');
+
             const addFlightFormHTML = `
                 <div class="pui-card pui-dispatch-form">
                     <div class="pui-card-header">
@@ -1333,10 +1482,14 @@ export const ProfileUI = {
                                     </div>
                                 </div>
                                 <div class="pui-input-group">
-                                    <label>Aircraft</label>
+                                    <label>Aircraft Equipment</label>
                                     <div class="pui-input-wrapper">
                                         <i class="fa-solid fa-plane pui-input-icon"></i>
-                                        <input type="text" id="pui-new-aircraft" class="pui-input has-icon" placeholder="B763">
+                                        <select id="pui-new-aircraft" class="pui-input has-icon pui-select">
+                                            <option value="" disabled selected>Select equipment</option>
+                                            ${aircraftOptions}
+                                        </select>
+                                        <i class="fa-solid fa-chevron-down pui-select-chevron"></i>
                                     </div>
                                 </div>
                             </div>
@@ -1381,7 +1534,7 @@ export const ProfileUI = {
                                 </div>
                                 <div class="pui-input-group">
                                     <label>EET (minutes)</label>
-                                    <input type="number" id="pui-new-duration" class="pui-input" placeholder="420">
+                                    <input type="number" id="pui-new-duration" class="pui-input" placeholder="Auto-calculated">
                                 </div>
                             </div>
                             <div class="pui-form-row">
@@ -1599,6 +1752,77 @@ export const ProfileUI = {
         }
     },
 
+    _showDeleteConfirmation(flight) {
+        return new Promise((resolve) => {
+            // Remove existing if a stray one was left behind
+            const existing = document.getElementById('pui-custom-confirm');
+            if (existing) existing.remove();
+
+            const overlay = document.createElement('div');
+            overlay.id = 'pui-custom-confirm';
+            overlay.className = 'pui-wrapper-layer';
+            overlay.setAttribute('data-theme', this._theme);
+            overlay.setAttribute('data-density', this._density);
+            overlay.style.zIndex = '10000'; // Sit above the main shell
+
+            const route = `${flight.dep_icao || 'N/A'} &rarr; ${flight.arr_icao || 'N/A'}`;
+            const cs = flight.callsign || 'UNK';
+
+            overlay.innerHTML = `
+                <div class="pui-confirm-box pui-fade-in">
+                    <div class="pui-confirm-header">
+                        <div class="pui-confirm-icon"><i class="fa-solid fa-plane-slash"></i></div>
+                        <h3>Delete Dispatch</h3>
+                    </div>
+                    <div class="pui-confirm-body">
+                        <p>Are you sure you want to permanently delete this flight plan?</p>
+                        <div class="pui-confirm-flight-plate">
+                            <span class="pui-ticket-cs" style="margin: 0;">${cs}</span>
+                            <span class="pui-confirm-route">${route}</span>
+                        </div>
+                    </div>
+                    <div class="pui-confirm-actions">
+                        <button class="pui-btn-ghost" id="pui-confirm-cancel">Keep Flight</button>
+                        <button class="pui-btn-danger" id="pui-confirm-proceed">Delete</button>
+                    </div>
+                </div>
+            `;
+
+            document.body.appendChild(overlay);
+
+            // Force reflow to trigger the CSS transition
+            requestAnimationFrame(() => {
+                requestAnimationFrame(() => {
+                    overlay.classList.add('pui-open');
+                });
+            });
+
+            const cleanup = (result) => {
+                overlay.classList.remove('pui-open');
+                setTimeout(() => overlay.remove(), 240); // Match var(--pui-ease) timing
+                resolve(result);
+            };
+
+            // Event Listeners for the modal
+            document.getElementById('pui-confirm-cancel').addEventListener('click', () => cleanup(false));
+            document.getElementById('pui-confirm-proceed').addEventListener('click', () => cleanup(true));
+            
+            // Click background to cancel
+            overlay.addEventListener('click', (e) => {
+                if (e.target === overlay) cleanup(false);
+            });
+
+            // Escape key to cancel
+            const escHandler = (e) => {
+                if (e.key === 'Escape') {
+                    cleanup(false);
+                    document.removeEventListener('keydown', escHandler);
+                }
+            };
+            document.addEventListener('keydown', escHandler);
+        });
+    },
+
     _showMessage(msgDivId, msg, type) {
         const msgDiv = document.getElementById(msgDivId);
         if (msgDiv) {
@@ -1747,90 +1971,147 @@ export const ProfileUI = {
 
         if (this._activeTab === 'flight-plan') {
             
-            // Edit Flight Plan Population
-            document.querySelectorAll('.pui-ticket-edit-btn').forEach(btn => {
-                btn.addEventListener('click', (e) => {
-                    const flightId = e.currentTarget.dataset.id;
-                    const flight = this._flightPlansData.find(f => f.id == flightId);
-                    if (!flight) return;
+            // Premium Predictive EET Integration
+            const depInput = document.getElementById('pui-new-dep');
+            const arrInput = document.getElementById('pui-new-arr');
+            const durationInput = document.getElementById('pui-new-duration');
 
-                    this._editingFlightId = flightId;
-                    
-                    // UI Transitions
-                    const formTitle = document.getElementById('pui-dispatch-form-title');
-                    if (formTitle) formTitle.innerHTML = `<i class="fa-solid fa-pen-to-square"></i> Edit dispatch`;
-                    
-                    const submitBtn = document.getElementById('pui-submit-flight-btn');
-                    if (submitBtn) submitBtn.innerHTML = `<i class="fa-solid fa-check"></i> Update flight plan`;
-                    
-                    const cancelBtn = document.getElementById('pui-cancel-edit-btn');
-                    if (cancelBtn) cancelBtn.style.display = 'block';
+            const triggerEETCalculation = async () => {
+                const dep = depInput?.value.trim().toUpperCase();
+                const arr = arrInput?.value.trim().toUpperCase();
 
-                    // Populate form fields
-                    document.getElementById('pui-new-callsign').value = flight.callsign || '';
-                    document.getElementById('pui-new-aircraft').value = flight.aircraft_type || '';
-                    document.getElementById('pui-new-dep').value = flight.dep_icao || '';
-                    document.getElementById('pui-new-arr').value = flight.arr_icao || '';
-                    document.getElementById('pui-new-dep-gate').value = flight.dep_gate || '';
-                    document.getElementById('pui-new-arr-gate').value = flight.arr_gate || '';
+                if (dep?.length === 4 && arr?.length === 4 && !durationInput.value) {
+                    durationInput.placeholder = "Calculating route...";
+                    durationInput.style.opacity = '0.5';
 
-                    if (flight.dep_time) {
-                        const dt = new Date(flight.dep_time);
-                        // Format specifically for datetime-local (YYYY-MM-DDTHH:MM)
-                        const formatted = dt.getFullYear() + '-' +
-                            String(dt.getMonth() + 1).padStart(2, '0') + '-' +
-                            String(dt.getDate()).padStart(2, '0') + 'T' +
-                            String(dt.getHours()).padStart(2, '0') + ':' +
-                            String(dt.getMinutes()).padStart(2, '0');
-                        document.getElementById('pui-new-time').value = formatted;
+                    const calcMinutes = await this._autoCalculateRouteEET(dep, arr);
+
+                    durationInput.style.opacity = '1';
+                    if (calcMinutes) {
+                        durationInput.value = calcMinutes;
+                        // Premium visual feedback for success
+                        durationInput.style.transition = 'border-color 0.3s ease, box-shadow 0.3s ease';
+                        durationInput.style.borderColor = 'var(--pui-pos)';
+                        durationInput.style.boxShadow = '0 0 0 3px var(--pui-pos-soft)';
+                        setTimeout(() => {
+                            durationInput.style.borderColor = '';
+                            durationInput.style.boxShadow = '';
+                        }, 2000);
+                    } else {
+                        durationInput.placeholder = "Auto-calc failed, enter manually";
                     }
+                }
+            };
 
-                    document.getElementById('pui-new-duration').value = flight.duration_minutes || '';
-                    document.getElementById('pui-new-pax').value = flight.passengers || '';
-                    document.getElementById('pui-new-fuel').value = flight.fuel_used || '';
+            depInput?.addEventListener('blur', triggerEETCalculation);
+            arrInput?.addEventListener('blur', triggerEETCalculation);
 
-                    // Smooth scroll to form
-                    document.querySelector('.pui-dispatch-form')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
-                });
-            });
 
-            // Delete Flight Plan
-            document.querySelectorAll('.pui-ticket-delete-btn').forEach(btn => {
-                btn.addEventListener('click', async (e) => {
-                    const flightId = e.currentTarget.dataset.id;
-                    if (!confirm("Are you sure you want to delete this flight plan? This cannot be undone.")) return;
+            // Premium Fix: Event Delegation replaces brittle forEach bindings.
+            const dispatchList = document.querySelector('.pui-dispatch-list');
+            if (dispatchList) {
+                dispatchList.addEventListener('click', async (e) => {
+                    const editBtn = e.target.closest('.pui-ticket-edit-btn');
+                    const deleteBtn = e.target.closest('.pui-ticket-delete-btn');
 
-                    const ticketEl = e.currentTarget.closest('.pui-ticket');
-                    if (ticketEl) {
-                        ticketEl.style.opacity = '0.5';
-                        ticketEl.style.pointerEvents = 'none';
-                    }
+                    // --- Edit Logic ---
+                    if (editBtn) {
+                        const flightId = editBtn.dataset.id;
+                        const flight = this._flightPlansData.find(f => f.flight_id == flightId);
+                        if (!flight) return;
 
-                    try {
-                        const { error } = await this._supabase
-                            .from('user_flights')
-                            .delete()
-                            .eq('id', flightId);
+                        this._editingFlightId = flightId;
                         
-                        if (error) throw error;
+                        // UI Transitions
+                        const formTitle = document.getElementById('pui-dispatch-form-title');
+                        if (formTitle) formTitle.innerHTML = `<i class="fa-solid fa-pen-to-square"></i> Edit dispatch`;
                         
-                        this._showMessage('pui-add-flight-msg', 'Flight plan deleted.', 'success');
+                        const submitBtn = document.getElementById('pui-submit-flight-btn');
+                        if (submitBtn) submitBtn.innerHTML = `<i class="fa-solid fa-check"></i> Update flight plan`;
                         
-                        if (this._editingFlightId === flightId) {
-                            this._resetFlightForm();
+                        const cancelBtn = document.getElementById('pui-cancel-edit-btn');
+                        if (cancelBtn) cancelBtn.style.display = 'block';
+
+                        // Populate form fields
+                        document.getElementById('pui-new-callsign').value = flight.callsign || '';
+                        
+                        // Select dropdown fix for Edit Mode
+                        const acftSelect = document.getElementById('pui-new-aircraft');
+                        if (acftSelect) {
+                            if (Array.from(acftSelect.options).some(opt => opt.value === flight.aircraft_type)) {
+                                acftSelect.value = flight.aircraft_type;
+                            } else {
+                                // Fallback if old data has a dashed string, gracefully default
+                                acftSelect.value = "";
+                            }
                         }
                         
-                        this._fetchFlightPlans();
-                    } catch(err) {
-                        console.error("Error deleting flight plan:", err);
-                        this._showMessage('pui-add-flight-msg', err.message || 'Error deleting flight plan.', 'error');
+                        document.getElementById('pui-new-dep').value = flight.dep_icao || '';
+                        document.getElementById('pui-new-arr').value = flight.arr_icao || '';
+                        document.getElementById('pui-new-dep-gate').value = flight.dep_gate || '';
+                        document.getElementById('pui-new-arr-gate').value = flight.arr_gate || '';
+
+                        if (flight.dep_time) {
+                            const dt = new Date(flight.dep_time);
+                            // Format specifically for datetime-local (YYYY-MM-DDTHH:MM)
+                            const formatted = dt.getFullYear() + '-' +
+                                String(dt.getMonth() + 1).padStart(2, '0') + '-' +
+                                String(dt.getDate()).padStart(2, '0') + 'T' +
+                                String(dt.getHours()).padStart(2, '0') + ':' +
+                                String(dt.getMinutes()).padStart(2, '0');
+                            document.getElementById('pui-new-time').value = formatted;
+                        }
+
+                        document.getElementById('pui-new-duration').value = flight.duration_minutes || '';
+                        document.getElementById('pui-new-pax').value = flight.passengers || '';
+                        document.getElementById('pui-new-fuel').value = flight.fuel_used || '';
+
+                        // Smooth scroll to form
+                        document.querySelector('.pui-dispatch-form')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+                    }
+
+                    // --- Delete Logic ---
+                    if (deleteBtn) {
+                        const flightId = deleteBtn.dataset.id;
+                        const flight = this._flightPlansData.find(f => f.flight_id == flightId);
+                        if (!flight) return;
+
+                        // Call the custom premium confirmation instead of window.confirm
+                        const isConfirmed = await this._showDeleteConfirmation(flight);
+                        if (!isConfirmed) return;
+
+                        const ticketEl = deleteBtn.closest('.pui-ticket');
                         if (ticketEl) {
-                            ticketEl.style.opacity = '1';
-                            ticketEl.style.pointerEvents = 'auto';
+                            ticketEl.style.opacity = '0.5';
+                            ticketEl.style.pointerEvents = 'none';
+                        }
+
+                        try {
+                            const { error } = await this._supabase
+                                .from('user_flights')
+                                .delete()
+                                .eq('flight_id', flightId);
+                            
+                            if (error) throw error;
+                            
+                            this._showMessage('pui-add-flight-msg', 'Flight plan deleted.', 'success');
+                            
+                            if (this._editingFlightId === flightId) {
+                                this._resetFlightForm();
+                            }
+                            
+                            this._fetchFlightPlans();
+                        } catch(err) {
+                            console.error("Error deleting flight plan:", err);
+                            this._showMessage('pui-add-flight-msg', err.message || 'Error deleting flight plan.', 'error');
+                            if (ticketEl) {
+                                ticketEl.style.opacity = '1';
+                                ticketEl.style.pointerEvents = 'auto';
+                            }
                         }
                     }
                 });
-            });
+            }
 
             // Cancel Edit Action
             document.getElementById('pui-cancel-edit-btn')?.addEventListener('click', () => {
@@ -1840,7 +2121,7 @@ export const ProfileUI = {
             // Submit / Edit Action
             document.getElementById('pui-submit-flight-btn')?.addEventListener('click', async () => {
                 const callsign = document.getElementById('pui-new-callsign').value.trim();
-                const aircraft = document.getElementById('pui-new-aircraft').value.trim();
+                const aircraft = document.getElementById('pui-new-aircraft').value; // Grabs value (e.g. 'B738'), NO DASHES
                 const depIcao = document.getElementById('pui-new-dep').value.trim().toUpperCase();
                 const arrIcao = document.getElementById('pui-new-arr').value.trim().toUpperCase();
                 const duration = parseInt(document.getElementById('pui-new-duration').value);
@@ -1851,7 +2132,7 @@ export const ProfileUI = {
                 const fuel = parseInt(document.getElementById('pui-new-fuel').value);
 
                 if (!callsign || !aircraft || !depIcao || !arrIcao || isNaN(duration) || !depTime) {
-                    this._showMessage('pui-add-flight-msg', 'Please fill in all required fields.', 'error');
+                    this._showMessage('pui-add-flight-msg', 'Please fill in all required routing & aircraft details.', 'error');
                     return;
                 }
 
@@ -1867,7 +2148,7 @@ export const ProfileUI = {
                         if_username: this._currentUser.user_metadata?.if_username || null,
                         dep_time: new Date(depTime).toISOString(),
                         duration_minutes: duration,
-                        aircraft_type: aircraft,
+                        aircraft_type: aircraft, // Completely clean ICAO standard. E.g. 'B738'
                         callsign: callsign,
                         dep_icao: depIcao,
                         arr_icao: arrIcao,
@@ -1881,7 +2162,7 @@ export const ProfileUI = {
                         const { error } = await this._supabase
                             .from('user_flights')
                             .update(newFlightPlan)
-                            .eq('id', this._editingFlightId);
+                            .eq('flight_id', this._editingFlightId);
                         
                         if (error) throw error;
                         this._showMessage('pui-add-flight-msg', 'Flight plan updated successfully!', 'success');
@@ -3439,13 +3720,57 @@ export const ProfileUI = {
                 position: relative;
                 flex: 0 0 calc(100% - 6px);
                 max-width: 820px;
-                height: 320px;
+                min-height: 320px;
+                height: auto;
                 border-radius: var(--pui-radius-xl);
                 overflow: hidden;
                 scroll-snap-align: center;
                 box-shadow: var(--pui-shadow-pop);
                 display: flex;
                 flex-direction: column;
+            }
+
+            .pui-live-gate {
+                font-size: 0.65rem;
+                font-weight: 700;
+                letter-spacing: 0.05em;
+                color: rgba(255, 255, 255, 0.65);
+                margin: 0 4px;
+            }
+            .pui-live-dispatch-strip {
+                display: flex;
+                align-items: center;
+                gap: 14px;
+                margin-top: 12px;
+                padding: 10px 16px;
+                background: rgba(184, 133, 83, 0.15);
+                border: 1px solid rgba(184, 133, 83, 0.25);
+                border-radius: 12px;
+                flex-wrap: wrap;
+                backdrop-filter: blur(4px);
+            }
+            .pui-live-dispatch-tag {
+                font-size: 0.65rem;
+                font-weight: 800;
+                letter-spacing: 0.12em;
+                color: #e0b384;
+                display: flex;
+                align-items: center;
+                gap: 6px;
+                margin-right: auto;
+            }
+            .pui-live-dispatch-item {
+                font-size: 0.78rem;
+                color: rgba(255, 255, 255, 0.95);
+                font-weight: 600;
+                display: flex;
+                align-items: center;
+                gap: 6px;
+                font-family: var(--pui-font-mono);
+            }
+            .pui-live-dispatch-item i {
+                color: rgba(255, 255, 255, 0.5);
+                font-size: 0.75rem;
             }
             .pui-live-bg {
                 position: absolute;
@@ -3684,17 +4009,20 @@ export const ProfileUI = {
                 border-color: var(--pui-border-strong);
                 box-shadow: var(--pui-shadow-pop);
             }
-            .pui-ticket-actions {
+ .pui-ticket-actions {
                 position: absolute;
                 top: 12px;
                 right: 12px;
                 display: flex;
                 gap: 6px;
                 opacity: 0;
+                pointer-events: none;
+                z-index: 10;
                 transition: opacity var(--pui-d-fast) var(--pui-ease);
             }
             .pui-ticket:hover .pui-ticket-actions {
                 opacity: 1;
+                pointer-events: auto;
             }
             .pui-ticket-stub {
                 background: var(--pui-bg-surface);
@@ -4520,6 +4848,101 @@ export const ProfileUI = {
 
             .pui-fade-in {
                 animation: puiFadeIn 320ms var(--pui-ease-out) both;
+            }
+
+            /* ═══════════════════════════════════════════════════════════════
+               PREMIUM CONFIRMATION MODAL
+               ═══════════════════════════════════════════════════════════════ */
+            .pui-confirm-box {
+                background: var(--pui-bg-card);
+                border: 1px solid var(--pui-border);
+                border-radius: var(--pui-radius-xl);
+                box-shadow: var(--pui-shadow-modal);
+                width: 100%;
+                max-width: 420px;
+                overflow: hidden;
+            }
+            .pui-confirm-header {
+                display: flex;
+                flex-direction: column;
+                align-items: center;
+                gap: 16px;
+                padding: 32px 24px 16px;
+                text-align: center;
+            }
+            .pui-confirm-icon {
+                width: 56px;
+                height: 56px;
+                background: var(--pui-neg-soft);
+                color: var(--pui-neg);
+                border-radius: 16px;
+                display: grid;
+                place-items: center;
+                font-size: 1.6rem;
+                box-shadow: 0 8px 16px var(--pui-neg-soft);
+            }
+            .pui-confirm-header h3 {
+                margin: 0;
+                font-size: 1.35rem;
+                font-weight: 700;
+                color: var(--pui-text-primary);
+                letter-spacing: -0.01em;
+            }
+            .pui-confirm-body {
+                padding: 0 24px 24px;
+                text-align: center;
+            }
+            .pui-confirm-body p {
+                margin: 0 0 20px 0;
+                font-size: 0.9rem;
+                color: var(--pui-text-secondary);
+                line-height: 1.5;
+            }
+            .pui-confirm-flight-plate {
+                background: var(--pui-bg-surface);
+                border: 1px solid var(--pui-border-light);
+                border-radius: 12px;
+                padding: 14px;
+                display: flex;
+                align-items: center;
+                justify-content: center;
+                gap: 14px;
+            }
+            .pui-confirm-route {
+                font-family: var(--pui-font-mono);
+                font-size: 1.05rem;
+                font-weight: 700;
+                color: var(--pui-text-primary);
+                letter-spacing: 0.02em;
+            }
+            .pui-confirm-actions {
+                display: flex;
+                gap: 12px;
+                padding: 16px 24px 24px;
+                background: var(--pui-bg-surface);
+                border-top: 1px solid var(--pui-border-light);
+            }
+            .pui-confirm-actions button {
+                flex: 1;
+                padding: 12px;
+            }
+            .pui-btn-danger {
+                background: var(--pui-neg);
+                color: #fff;
+                border: 1px solid transparent;
+                border-radius: 10px;
+                font-size: 0.86rem;
+                font-weight: 600;
+                font-family: var(--pui-font-sans);
+                cursor: pointer;
+                transition: background-color var(--pui-d-fast) var(--pui-ease), transform var(--pui-d-fast) var(--pui-ease);
+                box-shadow: 0 2px 6px rgba(0,0,0,0.15);
+            }
+            .pui-btn-danger:hover {
+                background: #c24040; /* Slightly darker shade of var(--pui-neg) */
+            }
+            .pui-btn-danger:active {
+                transform: translateY(1px);
             }
 
             /* ═══════════════════════════════════════════════════════════════
