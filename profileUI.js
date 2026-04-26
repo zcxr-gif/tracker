@@ -1,9 +1,20 @@
 /**
- * ProfileUI — Premium Dashboard Interface
- * Handles massive data displays with a sidebar tab system.
- * Includes functional Account Settings, Theme Customization, Billing Management, Flight Planning,
- * a modular Career Deep Dive integrated with live Infinite Flight API data,
- * a live Multi-Node Airspace Intelligence Hub, and a Premium Onboarding Experience.
+ * ProfileUI — Soft Premium Dashboard Interface
+ *
+ * Redesigned shell:
+ * • Floating dock (bottom-center) replaces the laggy hover-expand sidebar
+ * • Slim top utility strip (theme cycle, density toggle, user chip, close)
+ * • Warm-neutral palette with a single gentle caramel accent
+ *
+ * Performance:
+ * • Tab switches only re-render the content area, not the full shell
+ * • No fullscreen backdrop-filter; modal sits on a dimmed plate
+ * • Specific transitions only (opacity / transform / background-color)
+ * • Skeleton uses a soft pulse rather than infinite shimmer gradient
+ *
+ * Premium Feature Updates:
+ * • Live Watchlist Autocomplete: Indexes WebSocket streams for real-time pilot search.
+ * • Dispatch Management: Edit and Delete capabilities for filed flight plans.
  */
 
 import { CareerModule } from './careerModule.js';
@@ -15,15 +26,20 @@ export const ProfileUI = {
     _supabase: null,
     _isOpen: false,
     _injected: false,
-    _activeTab: 'dashboard', 
+    _shellBuilt: false, // Tracks whether the persistent dock + top strip are mounted
+    _activeTab: 'dashboard',
     _currentUser: null,
-    _theme: 'white',
+    _theme: 'light',
+    _density: 'cozy', // 'cozy' | 'compact'
+    _timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
     _flightPlansData: [],
-    
+    _editingFlightId: null, // Tracks active flight plan being edited
+
     // Premium Telemetry Integration
     _airspaceNetwork: null,
     _airspaceRefreshTimer: null,
     _liveFlights: [],
+    _currentAllFlights: [], // Stores real-time global flight data for autocomplete
     _socketUnsubscribe: null,
 
     _subscription: {
@@ -35,7 +51,7 @@ export const ProfileUI = {
     // Store live IF data
     _ifData: {
         loading: false,
-        userId: null, 
+        userId: null,
         stats: null,
         logbook: [],
         logbookTotal: 0,
@@ -44,21 +60,49 @@ export const ProfileUI = {
     },
     _backendUrl: window.APP_CONFIG?.backendUrl || 'https://site--acars-backend--6dmjph8ltlhv.code.run',
 
+    // ── Pilot Watchlist ──────────────────────────────────────────────────────
+    _watchlist: [],
+    _watchedPilotStatus: {},
+    _prevWatchedStatus: {},
+
+    // ── Cross-device User Preferences (Supabase persisted) ───────────────────
+    _userPrefs: {
+        notification_watchlist_enabled: true,
+        cached_if_stats: null,
+        cached_if_at: null,
+    },
+
+    // Map legacy theme names → new palette keys (so old saved values still work)
+    _normalizeTheme(name) {
+        if (name === 'white' || name === 'light-gray') return 'light';
+        if (name === 'dark-gray' || name === 'dark') return 'dark';
+        return name === 'light' || name === 'dark' ? name : 'light';
+    },
+
     init(supabaseClient) {
         this._supabase = supabaseClient;
-        
+
         this._supabase.auth.onAuthStateChange((event, session) => {
             if (session?.user) {
                 this._currentUser = session.user;
+                if (session.user.user_metadata?.timezone) {
+                    this._timezone = session.user.user_metadata.timezone;
+                }
             } else {
                 this._currentUser = null;
             }
 
             if (event === 'USER_UPDATED' && session?.user) {
                 if (session.user.user_metadata?.theme) {
-                    this.setTheme(session.user.user_metadata.theme, false);
+                    this.setTheme(this._normalizeTheme(session.user.user_metadata.theme), false);
                 }
-                
+                if (session.user.user_metadata?.density) {
+                    this.setDensity(session.user.user_metadata.density, false);
+                }
+                if (session.user.user_metadata?.timezone) {
+                    this._timezone = session.user.user_metadata.timezone;
+                }
+
                 if (this._isOpen) {
                     const ifUsername = session.user.user_metadata?.if_username;
                     if (ifUsername) this._fetchInfiniteFlightData(ifUsername);
@@ -69,18 +113,51 @@ export const ProfileUI = {
 
         if (!this._socketUnsubscribe) {
             this._socketUnsubscribe = socketDataHub.subscribe('all_flights_update', (payload) => {
-                const ifUsername = this._currentUser?.user_metadata?.if_username;
-                if (!ifUsername || !payload || !payload.flights) return;
+                if (!payload || !payload.flights) return;
+                
+                // Keep an updated index of all airspace traffic for the search dropdown
+                this._currentAllFlights = payload.flights;
 
-                const myFlights = payload.flights.filter(f => f.username?.toLowerCase() === ifUsername.toLowerCase());
-                
-                // Only update DOM if there's a live flight or the state changed
-                const previouslyHadFlights = this._liveFlights.length > 0;
-                this._liveFlights = myFlights;
-                
-                if (this._isOpen && this._activeTab === 'dashboard') {
-                    if (this._liveFlights.length > 0 || previouslyHadFlights) {
-                        this._updateLiveFlightDOM();
+                const ifUsername = this._currentUser?.user_metadata?.if_username;
+
+                // ── Own live flight tracking ──────────────────────────────────
+                if (ifUsername) {
+                    const myFlights = payload.flights.filter(f => f.username?.toLowerCase() === ifUsername.toLowerCase());
+                    const previouslyHadFlights = this._liveFlights.length > 0;
+                    this._liveFlights = myFlights;
+                    if (this._isOpen && this._activeTab === 'dashboard') {
+                        if (this._liveFlights.length > 0 || previouslyHadFlights) {
+                            this._updateLiveFlightDOM();
+                        }
+                    }
+                }
+
+                // ── Watchlist pilot tracking ──────────────────────────────────
+                if (this._watchlist.length > 0) {
+                    this._prevWatchedStatus = { ...this._watchedPilotStatus };
+                    const newStatus = {};
+                    for (const entry of this._watchlist) {
+                        const un = entry.watched_username.toLowerCase();
+                        const flight = payload.flights.find(f => f.username?.toLowerCase() === un);
+                        newStatus[un] = { isLive: !!flight, flight: flight || null };
+                    }
+                    this._watchedPilotStatus = newStatus;
+
+                    if (this._userPrefs.notification_watchlist_enabled) {
+                        for (const [un, cur] of Object.entries(newStatus)) {
+                            const prev = this._prevWatchedStatus[un];
+                            if (cur.isLive && prev && !prev.isLive) {
+                                const f = cur.flight;
+                                const route = (f?.departureIcao && f?.arrivalIcao)
+                                    ? ` on ${f.departureIcao} → ${f.arrivalIcao}`
+                                    : '';
+                                this._showToast(`<i class="fa-solid fa-plane-departure" style="margin-right:8px;"></i><strong>${f?.username || un}</strong> is now airborne${route}`, 'info');
+                            }
+                        }
+                    }
+
+                    if (this._isOpen && this._activeTab === 'watchlist') {
+                        this._updateWatchlistDOM();
                     }
                 }
             });
@@ -88,25 +165,31 @@ export const ProfileUI = {
     },
 
     open(user) {
-        // --- INTERCEPT FOR MOBILE DEVICES ---
-        // If the screen is 768px or smaller, abort opening the desktop UI
-        // and route the user directly to the Mobile Dashboard instead.
+        // Mobile redirect
         if (window.innerWidth <= 768) {
             if (MobileDashboardUI && typeof MobileDashboardUI.open === 'function') {
                 MobileDashboardUI.open(user);
-                return; // Stop execution here so the desktop UI does not open
+                return;
             }
         }
-        
+
         this._currentUser = user;
-        
-        // Intercept new users for the Quick Setup Process
+
+        if (user?.user_metadata?.timezone) {
+            this._timezone = user.user_metadata.timezone;
+        }
+
+        // Onboarding intercept
         const needsOnboarding = !user?.user_metadata?.onboarding_complete;
         this._activeTab = needsOnboarding ? 'onboarding' : 'dashboard';
-        
-        const savedTheme = user?.user_metadata?.theme || localStorage.getItem('pui-theme') || 'white';
-        this.setTheme(savedTheme, false);
-        
+
+        // Restore theme + density (with legacy theme name normalization)
+        const rawTheme = user?.user_metadata?.theme || localStorage.getItem('pui-theme') || 'light';
+        this.setTheme(this._normalizeTheme(rawTheme), false);
+
+        const rawDensity = user?.user_metadata?.density || localStorage.getItem('pui-density') || 'cozy';
+        this.setDensity(rawDensity === 'compact' ? 'compact' : 'cozy', false);
+
         if (!this._injected) {
             this._inject();
             this._injected = true;
@@ -121,22 +204,28 @@ export const ProfileUI = {
         const overlay = document.getElementById('profile-overlay');
         if (overlay) {
             overlay.setAttribute('data-theme', this._theme);
+            overlay.setAttribute('data-density', this._density);
         }
-        
+
+        // Force a fresh shell on each open so onboarding state is respected
+        this._shellBuilt = false;
+        this._editingFlightId = null; // Reset edit state
         this._render();
         this._fetchSubscriptionData();
         this._fetchFlightPlans();
+        this._fetchWatchlist();
+        this._fetchUserPreferences();
 
         const ifUsername = user?.user_metadata?.if_username;
         if (ifUsername) {
             this._fetchInfiniteFlightData(ifUsername);
         }
-        
+
         requestAnimationFrame(() => {
             requestAnimationFrame(() => {
                 document.getElementById('profile-overlay')?.classList.add('pui-open');
                 this._isOpen = true;
-                document.body.style.overflow = 'hidden'; 
+                document.body.style.overflow = 'hidden';
             });
         });
     },
@@ -144,73 +233,120 @@ export const ProfileUI = {
     close() {
         document.getElementById('profile-overlay')?.classList.remove('pui-open');
         this._isOpen = false;
-        document.body.style.overflow = ''; 
-        
+        document.body.style.overflow = '';
+        this._editingFlightId = null;
+
         if (this._airspaceRefreshTimer) {
             clearInterval(this._airspaceRefreshTimer);
             this._airspaceRefreshTimer = null;
         }
 
         setTimeout(() => {
-            // Only reset to dashboard if they completed onboarding
             if (this._currentUser?.user_metadata?.onboarding_complete) {
                 this._activeTab = 'dashboard';
             }
         }, 300);
     },
 
+    /**
+     * Fast tab switch: only refreshes the content area + dock active state.
+     * Avoids the full-shell innerHTML re-render that caused most of the lag.
+     */
     switchTab(tabId) {
         if (this._activeTab === tabId) return;
 
+        const fromOnboarding = this._activeTab === 'onboarding';
+        const toOnboarding = tabId === 'onboarding';
+
         this._activeTab = tabId;
-        this._render();
+        
+        // Reset specific states upon navigation
+        if (tabId !== 'flight-plan') {
+            this._editingFlightId = null;
+        }
+
+        // If we're crossing the onboarding boundary, the chrome (dock visibility)
+        // changes — fall back to a full render. Otherwise, only swap content.
+        if (fromOnboarding || toOnboarding) {
+            this._render();
+        } else {
+            this._renderContentOnly();
+            this._syncDockActiveState();
+        }
 
         if (this._airspaceRefreshTimer) {
             clearInterval(this._airspaceRefreshTimer);
             this._airspaceRefreshTimer = null;
         }
-        
+
         if (this._activeTab === 'airspace-intel') {
             this._airspaceRefreshTimer = setInterval(() => {
                 if (this._isOpen && this._activeTab === 'airspace-intel') {
                     this._updateAirspaceDOM();
                 }
-            }, 8000); 
+            }, 8000);
         }
     },
 
     setTheme(themeName, saveToLocal = true) {
-        this._theme = themeName;
+        const t = this._normalizeTheme(themeName);
+        this._theme = t;
         if (saveToLocal) {
-            localStorage.setItem('pui-theme', themeName);
+            localStorage.setItem('pui-theme', t);
         }
         const overlay = document.getElementById('profile-overlay');
-        if (overlay) {
-            overlay.setAttribute('data-theme', themeName);
+        if (overlay) overlay.setAttribute('data-theme', t);
+
+        // SYNC THEME EXTERNALLY (landingUI is now listening for this event)
+        window.dispatchEvent(new CustomEvent('puiThemeChanged', { detail: { theme: t } }));
+    },
+
+    setDensity(density, saveToLocal = true) {
+        const d = density === 'compact' ? 'compact' : 'cozy';
+        this._density = d;
+        if (saveToLocal) {
+            localStorage.setItem('pui-density', d);
         }
+        const overlay = document.getElementById('profile-overlay');
+        if (overlay) overlay.setAttribute('data-density', d);
+    },
+
+    /** Cycle: light ↔ dark */
+    cycleTheme() {
+        const next = this._theme === 'light' ? 'dark' : 'light';
+        this.setTheme(next, true);
+        // Persist to user metadata (silent, best-effort)
+        this._supabase?.auth.updateUser({ data: { theme: next } }).catch(() => {});
+    },
+
+    /** Cycle: cozy ↔ compact */
+    cycleDensity() {
+        const next = this._density === 'cozy' ? 'compact' : 'cozy';
+        this.setDensity(next, true);
+        this._supabase?.auth.updateUser({ data: { density: next } }).catch(() => {});
     },
 
     async _fetchSubscriptionData() {
         if (!this._currentUser || !this._supabase) return;
-        
+
         try {
             const { data, error } = await this._supabase
                 .from('subscriptions')
                 .select('status, plan_name, current_period_end, amount')
                 .eq('user_id', this._currentUser.id)
                 .single();
-            
+
             if (data && !error) {
                 const nextDate = new Date(data.current_period_end);
                 this._subscription = {
                     status: data.status === 'active' ? 'Active' : 'Inactive',
                     plan: data.plan_name || 'Pro Access',
-                    nextPayment: isNaN(nextDate) ? 'Pending' : nextDate.toLocaleDateString(),
+                    nextPayment: isNaN(nextDate) ? 'Pending' : nextDate.toLocaleDateString('en-US', { timeZone: this._timezone }),
                     price: `$${(data.amount / 100).toFixed(2)} / month`
                 };
-                
+
                 if (this._activeTab === 'settings' && this._isOpen) {
-                    this._render();
+                    this._renderContentOnly();
                 }
             }
         } catch (err) {
@@ -220,7 +356,7 @@ export const ProfileUI = {
 
     async _fetchFlightPlans() {
         if (!this._currentUser || !this._supabase) return;
-        
+
         try {
             const { data, error } = await this._supabase
                 .from('user_flights')
@@ -228,13 +364,13 @@ export const ProfileUI = {
                 .eq('user_id', this._currentUser.id)
                 .order('dep_time', { ascending: false })
                 .limit(50);
-            
+
             if (error) throw error;
-            
+
             this._flightPlansData = data || [];
-            
+
             if (this._activeTab === 'flight-plan' && this._isOpen) {
-                this._render();
+                this._renderContentOnly();
             }
         } catch (err) {
             console.error("Error fetching flight plans:", err.message);
@@ -243,46 +379,48 @@ export const ProfileUI = {
 
     async _fetchInfiniteFlightData(ifUsername) {
         if (!ifUsername) return;
-        
+
         this._ifData.loading = true;
         this._ifData.error = null;
-        if (this._isOpen && (this._activeTab === 'dashboard' || this._activeTab === 'career-deep-dive')) this._render();
-        
+        if (this._isOpen && (this._activeTab === 'dashboard' || this._activeTab === 'career-deep-dive')) {
+            this._renderContentOnly();
+        }
+
         try {
             let ifUserId = null;
             let activeFlightId = null;
 
             if (typeof window.getLiveFlightData === 'function') {
                 const liveFlights = window.getLiveFlightData();
-                const activeFlight = liveFlights.find(f => 
-                    f.properties && 
-                    f.properties.username && 
+                const activeFlight = liveFlights.find(f =>
+                    f.properties &&
+                    f.properties.username &&
                     f.properties.username.toLowerCase() === ifUsername.toLowerCase()
                 );
-                
+
                 if (activeFlight) {
                     activeFlightId = activeFlight.properties.flightId;
-                    ifUserId = activeFlight.properties.userId; 
+                    ifUserId = activeFlight.properties.userId;
                 }
             }
-            
+
             if (!ifUserId) {
                 const userRes = await fetch(`${this._backendUrl}/users`, {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ 
+                    body: JSON.stringify({
                         discourseNames: [ifUsername],
                         userHashes: [ifUsername]
                     })
                 });
-                
+
                 const userData = await userRes.json();
                 ifUserId = userData?.users?.[0]?.userId;
             }
-            
+
             if (!ifUserId) throw new Error('Could not find an Infinite Flight account with that username.');
 
-            this._ifData.userId = ifUserId; 
+            this._ifData.userId = ifUserId;
 
             const requests = [
                 fetch(`${this._backendUrl}/api/users/${ifUserId}/stats`).then(res => res.json()),
@@ -296,18 +434,29 @@ export const ProfileUI = {
                         .catch(() => null)
                 );
             }
-            
+
             const results = await Promise.all(requests);
             const statsData = results[0];
             const flightsData = results[1];
             const historyData = results[2];
-            
+
             this._ifData.stats = statsData.ok ? statsData.stats : null;
             this._ifData.logbook = flightsData.ok ? flightsData.flights : [];
             this._ifData.logbookTotal = flightsData.ok ? flightsData.totalCount : 0;
-            
+
             if (historyData && historyData.ok) {
                 this._ifData.activeHistory = historyData.path;
+            }
+
+            if (this._ifData.stats) {
+                const lite = {
+                    gradeIndex:    this._ifData.stats.gradeDetails?.gradeIndex,
+                    totalXP:       this._ifData.stats.totalXP,
+                    totalFlights:  this._ifData.logbookTotal,
+                };
+                this._userPrefs.cached_if_stats = lite;
+                this._userPrefs.cached_if_at    = new Date().toISOString();
+                this._saveUserPreferences();
             }
 
             this._ifData.loading = false;
@@ -316,10 +465,25 @@ export const ProfileUI = {
             console.error("Failed to fetch IF data:", err);
             this._ifData.error = err.message;
             this._ifData.loading = false;
+
+            if (this._userPrefs.cached_if_stats) {
+                const cached = this._userPrefs.cached_if_stats;
+                const ago    = this._userPrefs.cached_if_at
+                    ? new Date(this._userPrefs.cached_if_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
+                    : 'unknown date';
+                this._ifData.stats = {
+                    gradeDetails: { gradeIndex: cached.gradeIndex },
+                    totalXP:      cached.totalXP,
+                    _stale:       true,
+                    _staleDate:   ago,
+                };
+                this._ifData.logbookTotal = cached.totalFlights ?? 0;
+                this._ifData.error = null;
+            }
         }
-        
+
         if (this._isOpen && (this._activeTab === 'dashboard' || this._activeTab === 'career-deep-dive')) {
-            this._render();
+            this._renderContentOnly();
         }
     },
 
@@ -328,32 +492,55 @@ export const ProfileUI = {
         el.id = 'profile-overlay';
         el.className = 'pui-wrapper-layer';
         el.setAttribute('data-theme', this._theme);
-        el.innerHTML = `<div class="pui-dashboard-container" id="pui-dashboard-container"></div>`;
+        el.setAttribute('data-density', this._density);
+        el.innerHTML = `<div class="pui-shell" id="pui-shell"></div>`;
         document.body.appendChild(el);
 
+        // Click outside to close
         el.addEventListener('click', (e) => {
             if (e.target === el) this.close();
         });
 
+        // Keyboard shortcuts: Esc closes; digits 1-6 jump tabs
         document.addEventListener('keydown', (e) => {
-            if (e.key === 'Escape' && this._isOpen) this.close();
+            if (!this._isOpen) return;
+            if (e.key === 'Escape') { this.close(); return; }
+            if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA' || e.target.tagName === 'SELECT') return;
+            const tabMap = { '1': 'dashboard', '2': 'career-deep-dive', '3': 'airspace-intel', '4': 'flight-plan', '5': 'watchlist', '6': 'settings' };
+            if (tabMap[e.key]) this.switchTab(tabMap[e.key]);
         });
+
+        // Toast container
+        const toastContainer = document.createElement('div');
+        toastContainer.id = 'pui-toast-container';
+        toastContainer.className = 'pui-toast-container';
+        document.body.appendChild(toastContainer);
 
         this._injectStyles();
     },
 
+    /**
+     * Builds the full shell. Called on open() and when crossing the onboarding
+     * boundary. Inside a normal session, switchTab() uses _renderContentOnly()
+     * instead so the dock/top strip don't get rebuilt.
+     */
     _render() {
-        const container = document.getElementById('pui-dashboard-container');
-        if (!container) return;
+        const shell = document.getElementById('pui-shell');
+        if (!shell) return;
 
-        container.setAttribute('data-active-tab', this._activeTab);
-        container.innerHTML = `
-            <button class="pui-close-btn" id="pui-close-global" aria-label="Close Dashboard"><i class="fa-solid fa-xmark"></i></button>
-            ${this._activeTab !== 'onboarding' ? this._getSidebarHTML() : ''}
-            <div class="pui-main-content">
+        shell.setAttribute('data-active-tab', this._activeTab);
+
+        const showChrome = this._activeTab !== 'onboarding';
+
+        shell.innerHTML = `
+            ${showChrome ? this._getTopStripHTML() : ''}
+            <main class="pui-content" id="pui-content">
                 ${this._getTabContentHTML()}
-            </div>
+            </main>
+            ${showChrome ? this._getDockHTML() : ''}
         `;
+
+        this._shellBuilt = showChrome;
 
         if (this._activeTab === 'dashboard') {
             this._updateLiveFlightDOM();
@@ -362,49 +549,128 @@ export const ProfileUI = {
         this._attachListeners();
     },
 
-    _getSidebarHTML() {
+    /** Rebuilds only the main content area; leaves dock + top strip untouched. */
+    _renderContentOnly() {
+        const shell = document.getElementById('pui-shell');
+        if (!shell) return;
+
+        // If shell wasn't built (e.g. coming out of onboarding), do a full render
+        if (!this._shellBuilt && this._activeTab !== 'onboarding') {
+            this._render();
+            return;
+        }
+
+        shell.setAttribute('data-active-tab', this._activeTab);
+        const content = document.getElementById('pui-content');
+        if (!content) {
+            this._render();
+            return;
+        }
+
+        content.innerHTML = this._getTabContentHTML();
+
+        if (this._activeTab === 'dashboard') {
+            this._updateLiveFlightDOM();
+        }
+
+        this._attachContentListeners();
+    },
+
+    _syncDockActiveState() {
+        document.querySelectorAll('.pui-dock-item').forEach(btn => {
+            btn.classList.toggle('active', btn.dataset.tab === this._activeTab);
+        });
+        // Update watchlist live count badge
+        const badge = document.getElementById('pui-dock-watchlist-badge');
+        const liveCount = Object.values(this._watchedPilotStatus).filter(s => s.isLive).length;
+        if (badge) {
+            if (liveCount > 0) {
+                badge.textContent = liveCount;
+                badge.style.display = '';
+            } else {
+                badge.style.display = 'none';
+            }
+        }
+    },
+
+    _getTopStripHTML() {
         const user = this._currentUser;
         const name = user?.user_metadata?.full_name || user?.user_metadata?.name || 'Captain';
         const initials = name.trim().split(/\s+/).map(w => w[0]).join('').toUpperCase().slice(0, 2);
+        const planLabel = this._subscription.plan;
 
-        const navItems = [
-            { id: 'dashboard',       icon: 'fa-solid fa-table-cells-large',   label: 'Command Center' },
-            { id: 'career-deep-dive',icon: 'fa-solid fa-id-card-clip',        label: 'Pilot Dossier'  },
-            { id: 'airspace-intel',  icon: 'fa-solid fa-satellite-dish',      label: 'Airspace Radar' },
-            { id: 'flight-plan',     icon: 'fa-solid fa-route',               label: 'Flight Dispatch'},
-            { id: 'settings',        icon: 'fa-solid fa-sliders',             label: 'Settings'       },
-        ];
+        const themeIcon = this._theme === 'dark' ? 'fa-moon' : 'fa-sun';
+        const densityIcon = this._density === 'compact' ? 'fa-grip-lines' : 'fa-grip';
+        const densityLabel = this._density === 'compact' ? 'Compact' : 'Cozy';
 
         return `
-            <div class="pui-sidebar">
-                <div class="pui-sidebar-avatar">
-                    <div class="pui-avatar">${initials}</div>
-                    <div class="pui-avatar-tooltip">
-                        <span class="pui-avatar-name">${name}</span>
-                        <span class="pui-avatar-plan"><i class="fa-solid fa-crown"></i> ${this._subscription.plan}</span>
+            <header class="pui-topstrip">
+                <div class="pui-topstrip-left">
+                    <div class="pui-brand">
+                        <img src="Images/InflightPro.png" alt="Inflight Pro" class="pui-brand-logo">
                     </div>
                 </div>
-
-                <nav class="pui-nav-menu">
-                    ${navItems.map(item => `
-                        <button class="pui-nav-item ${this._activeTab === item.id ? 'active' : ''}" data-tab="${item.id}" title="${item.label}">
-                            <i class="${item.icon}"></i>
-                            <span class="pui-nav-label">${item.label}</span>
-                        </button>
-                    `).join('')}
-                </nav>
-
-                <div class="pui-sidebar-footer">
-                    <button class="pui-signout-btn" id="pui-sidebar-signout" title="Sign Out">
+                <div class="pui-topstrip-right">
+                    <button class="pui-icon-btn" id="pui-density-btn" title="Density: ${densityLabel} — click to toggle">
+                        <i class="fa-solid ${densityIcon}"></i>
+                    </button>
+                    <button class="pui-icon-btn" id="pui-theme-btn" title="Theme: ${this._theme === 'dark' ? 'Dark' : 'Light'} — click to toggle">
+                        <i class="fa-solid ${themeIcon}"></i>
+                    </button>
+                    <div class="pui-user-chip" title="${name} · ${planLabel}">
+                        <span class="pui-user-initials">${initials}</span>
+                        <span class="pui-user-meta">
+                            <span class="pui-user-name">${name.split(' ')[0]}</span>
+                            <span class="pui-user-plan">${planLabel}</span>
+                        </span>
+                    </div>
+                    <button class="pui-icon-btn" id="pui-signout-btn" title="Sign out">
                         <i class="fa-solid fa-arrow-right-from-bracket"></i>
-                        <span class="pui-nav-label">Sign Out</span>
+                    </button>
+                    <button class="pui-icon-btn pui-icon-btn-close" id="pui-close-btn" title="Close (Esc)">
+                        <i class="fa-solid fa-xmark"></i>
                     </button>
                 </div>
-            </div>
+            </header>
         `;
     },
-    
-_updateLiveFlightDOM() {
+
+    _getDockHTML() {
+        const navItems = [
+            { id: 'dashboard',        icon: 'fa-house',           label: 'Home'      },
+            { id: 'career-deep-dive', icon: 'fa-id-card',         label: 'Dossier'   },
+            { id: 'airspace-intel',   icon: 'fa-tower-broadcast', label: 'Traffic'   },
+            { id: 'flight-plan',      icon: 'fa-route',           label: 'Dispatch'  },
+            { id: 'watchlist',        icon: 'fa-binoculars',      label: 'Watchlist' },
+            { id: 'settings',         icon: 'fa-sliders',         label: 'Settings'  },
+        ];
+
+        const liveCount = Object.values(this._watchedPilotStatus).filter(s => s.isLive).length;
+
+        return `
+            <nav class="pui-dock" aria-label="Main navigation">
+                <div class="pui-dock-inner">
+                    ${navItems.map(item => {
+                        const isActive = this._activeTab === item.id;
+                        const isWatch = item.id === 'watchlist';
+                        const badgeAttrs = isWatch ? `id="pui-dock-watchlist-badge" style="${liveCount > 0 ? '' : 'display:none;'}"` : '';
+                        const badgeText = isWatch && liveCount > 0 ? liveCount : (isWatch ? '' : '');
+                        return `
+                            <button class="pui-dock-item ${isActive ? 'active' : ''}"
+                                    data-tab="${item.id}"
+                                    title="${item.label}">
+                                <span class="pui-dock-icon"><i class="fa-solid ${item.icon}"></i></span>
+                                <span class="pui-dock-label">${item.label}</span>
+                                ${isWatch ? `<span class="pui-dock-badge" ${badgeAttrs}>${badgeText}</span>` : ''}
+                            </button>
+                        `;
+                    }).join('')}
+                </div>
+            </nav>
+        `;
+    },
+
+    _updateLiveFlightDOM() {
         const wrapper = document.getElementById('pui-live-flights-wrapper');
         if (!wrapper) return;
 
@@ -426,7 +692,7 @@ _updateLiveFlightDOM() {
             const cs  = flight.callsign      || 'UNK';
             const acft = flight.aircraft?.aircraftName || 'Unknown Aircraft';
 
-            const vsColor = vs > 100 ? '#4ade80' : (vs < -100 ? '#f87171' : 'rgba(255,255,255,0.5)');
+            const vsColor = vs > 100 ? 'var(--pui-pos)' : (vs < -100 ? 'var(--pui-neg)' : 'rgba(255,255,255,0.55)');
             const vsSign  = vs > 0 ? '+' : '';
 
             let imageUrl = null;
@@ -441,45 +707,43 @@ _updateLiveFlightDOM() {
             }
 
             return `
-                <div class="pui-premium-flight-card">
-                    ${imageUrl ? `<div class="pui-pfc-bg" style="background-image:url('${imageUrl}')"></div>` : `<div class="pui-pfc-bg" style="background: linear-gradient(135deg, var(--pui-bg-card), var(--pui-bg-base));"></div>`}
-                    <div class="pui-pfc-overlay"></div>
-                    <div class="pui-pfc-content">
-                        
-                        <div class="pui-pfc-top">
-                            <div class="pui-pfc-top-route">
-                                <span class="pui-pfc-icao">${dep}</span>
-                                <i class="fa-solid fa-plane pui-pfc-route-icon"></i>
-                                <span class="pui-pfc-icao">${arr}</span>
+                <div class="pui-live-card">
+                    ${imageUrl
+                        ? `<div class="pui-live-bg" style="background-image:url('${imageUrl}')"></div>`
+                        : `<div class="pui-live-bg pui-live-bg-fallback"></div>`}
+                    <div class="pui-live-overlay"></div>
+                    <div class="pui-live-content">
+                        <div class="pui-live-top">
+                            <div class="pui-live-route-pill">
+                                <span class="pui-live-icao">${dep}</span>
+                                <i class="fa-solid fa-plane pui-live-route-icon"></i>
+                                <span class="pui-live-icao">${arr}</span>
                             </div>
-                            <div class="pui-pfc-ident">
-                                <span class="pui-pfc-acft">${acft}</span>
-                                <span class="pui-pfc-cs">${cs}</span>
+                            <div class="pui-live-ident">
+                                <span class="pui-live-acft">${acft}</span>
+                                <span class="pui-live-cs">${cs}</span>
                             </div>
                         </div>
-
-                        <div class="pui-pfc-spacer"></div>
-
-                        <div class="pui-pfc-stats-glass">
-                            <div class="pui-pfc-stat">
+                        <div class="pui-live-spacer"></div>
+                        <div class="pui-live-stats">
+                            <div class="pui-live-stat">
                                 <span class="label">Altitude</span>
                                 <span class="value">${alt} <em>ft</em></span>
                             </div>
-                            <div class="pui-pfc-stat">
+                            <div class="pui-live-stat">
                                 <span class="label">Ground Spd</span>
                                 <span class="value">${gs} <em>kt</em></span>
                             </div>
-                            <div class="pui-pfc-stat">
+                            <div class="pui-live-stat">
                                 <span class="label">Heading</span>
                                 <span class="value">${hdg}<em>°</em></span>
                             </div>
-                            <div class="pui-pfc-stat">
+                            <div class="pui-live-stat">
                                 <span class="label">Vert Spd</span>
                                 <span class="value" style="color:${vsColor};">${vsSign}${vs} <em>fpm</em></span>
                             </div>
                         </div>
-
-                        ${imageCredit ? `<div class="pui-pfc-credit">© ${imageCredit}</div>` : ''}
+                        ${imageCredit ? `<div class="pui-live-credit">© ${imageCredit}</div>` : ''}
                     </div>
                 </div>
             `;
@@ -491,16 +755,16 @@ _updateLiveFlightDOM() {
     _generateAirspaceHTML() {
         if (!this._airspaceNetwork) return '';
         const report = this._airspaceNetwork.generateNetworkAnalytics();
-        
+
         if (Object.keys(report.nodes).length === 0) {
-             return `<div class="pui-alert pui-alert-error" style="max-width: 600px; margin: 40px auto; text-align: center;">
-                        <i class="fa-solid fa-satellite" style="font-size: 2rem; margin-bottom: 12px; display: block; opacity: 0.5;"></i>
+             return `<div class="pui-alert pui-alert-info" style="max-width: 600px; margin: 40px auto; text-align: center;">
+                        <i class="fa-solid fa-satellite" style="font-size: 1.5rem; margin-bottom: 12px; display: block; opacity: 0.5;"></i>
                         No active network nodes are being monitored. Register an ICAO hub above to begin tracking spatial telemetry.
                     </div>`;
         }
 
-        let html = '<div class="pui-settings-grid" style="grid-template-columns: repeat(auto-fit, minmax(360px, 1fr)); gap: 20px;">';
-        
+        let html = '<div class="pui-grid-cards">';
+
         for (const [icao, data] of Object.entries(report.nodes)) {
             let maxSat = 'NORMAL';
             const statuses = data.arrivalQueue.map(b => b.status);
@@ -508,111 +772,113 @@ _updateLiveFlightDOM() {
             else if (statuses.includes('SATURATED')) maxSat = 'SATURATED';
             else if (statuses.includes('HEAVY')) maxSat = 'HEAVY';
 
-            let statusColor = '#4ade80'; 
-            let statusBg = 'rgba(34,197,94,0.12)';
+            let statusColor = 'var(--pui-pos)';
+            let statusBg = 'var(--pui-pos-soft)';
             let statusIcon = 'fa-circle-check';
             let plainEnglishSummary = 'Traffic flow is optimal and unrestricted. No delays anticipated.';
 
-            if (maxSat === 'CRITICAL') { 
-                statusColor = '#f87171'; 
-                statusBg = 'rgba(239,68,68,0.12)'; 
+            if (maxSat === 'CRITICAL') {
+                statusColor = 'var(--pui-neg)';
+                statusBg = 'var(--pui-neg-soft)';
                 statusIcon = 'fa-triangle-exclamation';
-                plainEnglishSummary = 'Severe congestion detected. Expect extended holding patterns and active metering.';
-            } else if (maxSat === 'SATURATED') { 
-                statusColor = '#f59e0b'; 
-                statusBg = 'rgba(245,158,11,0.12)'; 
+                plainEnglishSummary = 'Critical congestion. Significant delays and holding patterns expected.';
+            } else if (maxSat === 'SATURATED') {
+                statusColor = 'var(--pui-warn)';
+                statusBg = 'var(--pui-warn-soft)';
+                statusIcon = 'fa-circle-exclamation';
+                plainEnglishSummary = 'Approaching saturation. Sequencing delays likely on arrival.';
+            } else if (maxSat === 'HEAVY') {
+                statusColor = 'var(--pui-info)';
+                statusBg = 'var(--pui-info-soft)';
                 statusIcon = 'fa-wave-square';
-                plainEnglishSummary = 'Airspace is nearing maximum capacity. Minor delays and speed restrictions likely.';
-            } else if (maxSat === 'HEAVY') { 
-                statusColor = '#fbbf24'; 
-                statusBg = 'rgba(251,191,36,0.12)'; 
-                statusIcon = 'fa-chart-line';
-                plainEnglishSummary = 'Traffic volume is high but flowing steadily. Standard terminal routing in effect.';
+                plainEnglishSummary = 'Heavy demand. Throughput is high but flow remains controlled.';
             }
 
-            let firstHourInbound = 0;
-            for(let i = 0; i < Math.min(4, data.arrivalQueue.length); i++) {
-                firstHourInbound += data.arrivalQueue[i].count;
-            }
-            const firstHourCapacity = data.metrics.effectiveCapacity * 4;
-            const loadPercentage = Math.min(100, Math.round((firstHourInbound / firstHourCapacity) * 100)) || 0;
+            // Heatmap rendering (preserved)
+            const buckets = data.arrivalQueue;
+            const maxCount = Math.max(1, ...buckets.map(b => b.count || 0));
+            const loadPercentage = Math.min(100, Math.round((data.metrics.totalInbound / Math.max(1, data.metrics.effectiveCapacity * 4)) * 100));
 
             let heatmapHTML = '<div class="pui-intel-heatmap">';
-            data.arrivalQueue.forEach((bucket, idx) => {
-                let blockColor = 'rgba(255,255,255,0.05)';
-                if (bucket.status === 'CRITICAL') blockColor = '#f87171';
-                else if (bucket.status === 'SATURATED') blockColor = '#f59e0b';
-                else if (bucket.status === 'HEAVY') blockColor = '#fbbf24';
-                else if (bucket.count > 0) blockColor = '#4ade80';
+            for(let i = 0; i < Math.min(4, data.arrivalQueue.length); i++) {
+                const bucket = data.arrivalQueue[i];
+                const intensity = (bucket.count || 0) / maxCount;
+                let blockColor = 'var(--pui-border)';
+                if (bucket.status === 'CRITICAL') blockColor = 'var(--pui-neg)';
+                else if (bucket.status === 'SATURATED') blockColor = 'var(--pui-warn)';
+                else if (bucket.status === 'HEAVY') blockColor = 'var(--pui-info)';
+                else if (bucket.count > 0) blockColor = 'var(--pui-pos)';
 
-                const timeLabel = `+${idx * 15}m`;
-                
-                let tooltipDetails = `${bucket.count} Inbound`;
+                let tooltipDetail = `${bucket.startMin}-${bucket.endMin}min: ${bucket.count} arrivals`;
                 if (bucket.flights && bucket.flights.length > 0) {
-                    const degraded = bucket.flights.filter(f => f.degradedTelemetry).length;
-                    if(degraded > 0) tooltipDetails += `<br><span style="color:#f87171; font-weight: bold;">${degraded} Signal(s) Degraded</span>`;
+                    const flightDetails = bucket.flights.slice(0, 3).map(f => `<span style="font-family:'JetBrains Mono', monospace; color:#fff;">${f.callsign || 'UNKNOWN'}</span> from <span style="font-family:'JetBrains Mono', monospace; color:#fff;">${f.origin}</span> (${f.minutesOut}m)`).join('<br/>');
+                    tooltipDetail += `<br/><br/>${flightDetails}`;
+                    if (bucket.flights.length > 3) tooltipDetail += `<br/>+${bucket.flights.length - 3} more...`;
                 }
 
                 heatmapHTML += `
-                    <div class="pui-intel-heatblock" style="background: ${blockColor};" title="${timeLabel}: ${bucket.count} arrivals">
-                        <span class="pui-heatblock-tooltip">${timeLabel}<br>${tooltipDetails}</span>
-                    </div>`;
-            });
+                    <div class="pui-intel-heatblock" style="background: ${blockColor}; opacity: ${0.3 + intensity * 0.7};">
+                        <div class="pui-heatblock-tooltip">
+                            <strong>${bucket.label}</strong><br/>
+                            ${tooltipDetail}
+                        </div>
+                    </div>
+                `;
+            }
             heatmapHTML += '</div>';
 
             let alertsHTML = '';
             if (data.metrics.highEnergyArrivals > 0) {
-                alertsHTML += `<span style="background: rgba(245,158,11,0.15); color: #f59e0b; border: 1px solid rgba(245,158,11,0.3); padding: 4px 8px; border-radius: 6px; font-size: 0.65rem; margin-right: 6px; font-weight: bold; letter-spacing: 0.05em;"><i class="fa-solid fa-bolt" style="margin-right: 4px;"></i>${data.metrics.highEnergyArrivals} HIGH ENERGY</span>`;
+                alertsHTML += `<span class="pui-mini-tag" style="background:var(--pui-warn-soft);color:var(--pui-warn);"><i class="fa-solid fa-bolt"></i> ${data.metrics.highEnergyArrivals} HIGH ENERGY</span>`;
             }
             if (data.metrics.heavyAircraftInbound > 0) {
-                alertsHTML += `<span style="background: rgba(59,130,246,0.15); color: #60a5fa; border: 1px solid rgba(59,130,246,0.3); padding: 4px 8px; border-radius: 6px; font-size: 0.65rem; margin-right: 6px; font-weight: bold; letter-spacing: 0.05em;"><i class="fa-solid fa-weight-hanging" style="margin-right: 4px;"></i>${data.metrics.heavyAircraftInbound} HEAVY</span>`;
+                alertsHTML += `<span class="pui-mini-tag" style="background:var(--pui-info-soft);color:var(--pui-info);"><i class="fa-solid fa-weight-hanging"></i> ${data.metrics.heavyAircraftInbound} HEAVY</span>`;
             }
             if (!data.hubControlState.isFullyControlled) {
-                alertsHTML += `<span style="background: rgba(168,85,247,0.15); color: #c084fc; border: 1px solid rgba(168,85,247,0.3); padding: 4px 8px; border-radius: 6px; font-size: 0.65rem; font-weight: bold; letter-spacing: 0.05em;"><i class="fa-solid fa-tower-slash" style="margin-right: 4px;"></i>UNCONTROLLED</span>`;
+                alertsHTML += `<span class="pui-mini-tag" style="background:var(--pui-purple-soft);color:var(--pui-purple);"><i class="fa-solid fa-tower-broadcast"></i> UNCTRL</span>`;
             }
 
             let topOpsHTML = '';
             if (data.topOperators.arrivals && data.topOperators.arrivals.length > 0) {
-                topOpsHTML = data.topOperators.arrivals.slice(0, 3).map(op => 
-                    `<span style="font-size: 0.7rem; color: var(--pui-text-secondary); background: rgba(255,255,255,0.05); padding: 2px 6px; border-radius: 4px; border: 1px solid var(--pui-border-light); white-space: nowrap;">${op.name} (${op.count})</span>`
+                topOpsHTML = data.topOperators.arrivals.slice(0, 3).map(op =>
+                    `<span class="pui-chip-soft">${op.name} <em>(${op.count})</em></span>`
                 ).join(' ');
             }
 
-            const netFlowColor = data.metrics.netFlowDelta > 0 ? '#4ade80' : (data.metrics.netFlowDelta < 0 ? '#f87171' : 'var(--pui-text-primary)');
+            const netFlowColor = data.metrics.netFlowDelta > 0 ? 'var(--pui-pos)' : (data.metrics.netFlowDelta < 0 ? 'var(--pui-neg)' : 'var(--pui-text-primary)');
             const netFlowText = data.metrics.netFlowDelta > 0 ? `+${data.metrics.netFlowDelta}` : data.metrics.netFlowDelta;
 
             html += `
-                <div class="pui-content-card">
-                    <div class="pui-card-header" style="justify-content: space-between; border-bottom: 1px solid var(--pui-border-light);">
-                        <div style="display: flex; align-items: center; gap: 10px;">
+                <div class="pui-card">
+                    <div class="pui-card-header pui-card-header-row">
+                        <div class="pui-card-title-group">
                             <i class="fa-solid fa-tower-observation" style="color: var(--pui-text-secondary);"></i>
-                            <h3 style="font-family: 'JetBrains Mono', monospace; font-size: 1.3rem; letter-spacing: 0.05em; margin: 0;">${icao}</h3>
+                            <h3 class="pui-mono-h">${icao}</h3>
                         </div>
-                        <span class="pui-status-badge" style="background: ${statusBg}; color: ${statusColor}; border: 1px solid ${statusColor}40;">${maxSat}</span>
+                        <span class="pui-status-badge" style="background: ${statusBg}; color: ${statusColor};">${maxSat}</span>
                     </div>
                     <div class="pui-card-body">
-                        
-                        <div style="background: rgba(255,255,255,0.02); border: 1px solid var(--pui-border-light); border-radius: 10px; padding: 14px; margin-bottom: 16px; display: flex; align-items: flex-start; gap: 14px;">
-                            <div style="color: ${statusColor}; font-size: 1.2rem; margin-top: 2px;">
+                        <div class="pui-assessment-row">
+                            <div class="pui-assessment-icon" style="color: ${statusColor};">
                                 <i class="fa-solid ${statusIcon}"></i>
                             </div>
-                            <div>
-                                <strong style="color: var(--pui-text-primary); font-size: 0.85rem; display: block; margin-bottom: 4px; text-transform: uppercase; letter-spacing: 0.05em;">Network Assessment</strong>
-                                <span style="color: var(--pui-text-secondary); font-size: 0.85rem; line-height: 1.4;">${plainEnglishSummary}</span>
+                            <div class="pui-assessment-text">
+                                <strong>Network Assessment</strong>
+                                <span>${plainEnglishSummary}</span>
                             </div>
                         </div>
 
-                        <div style="margin-bottom: 20px;">
-                            <div style="display: flex; justify-content: space-between; margin-bottom: 6px;">
-                                <span style="font-size: 0.72rem; color: var(--pui-text-secondary); font-weight: 700; text-transform: uppercase; letter-spacing: 0.05em;">1-Hour Load</span>
-                                <span style="font-size: 0.72rem; font-family: 'JetBrains Mono', monospace; color: var(--pui-text-primary);">${loadPercentage}%</span>
+                        <div class="pui-load-bar-block">
+                            <div class="pui-load-bar-head">
+                                <span class="pui-eyebrow">1-Hour Load</span>
+                                <span class="pui-mono-meta">${loadPercentage}%</span>
                             </div>
-                            <div style="height: 6px; background: rgba(0,0,0,0.3); border-radius: 3px; overflow: hidden;">
-                                <div style="height: 100%; width: ${loadPercentage}%; background: ${statusColor}; transition: width 0.4s ease;"></div>
+                            <div class="pui-load-bar-track">
+                                <div class="pui-load-bar-fill" style="width: ${loadPercentage}%; background: ${statusColor};"></div>
                             </div>
                         </div>
 
-                        <div style="display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; margin-bottom: 12px; background: rgba(0,0,0,0.15); padding: 12px; border-radius: 12px; border: 1px solid var(--pui-border-light);">
+                        <div class="pui-intel-stats-quad">
                             <div class="pui-intel-stat">
                                 <span class="label">INBOUND</span>
                                 <span class="value">${data.metrics.totalInbound}</span>
@@ -625,41 +891,39 @@ _updateLiveFlightDOM() {
                                 <span class="label">NET FLOW</span>
                                 <span class="value" style="color: ${netFlowColor};">${netFlowText}</span>
                             </div>
-                            <div class="pui-intel-stat" style="text-align: right;">
+                            <div class="pui-intel-stat">
                                 <span class="label">METERED</span>
-                                <span class="value" style="${data.metrics.meteredAircraftCount > 0 ? 'color: #60a5fa;' : ''}">${data.metrics.meteredAircraftCount}</span>
+                                <span class="value" style="${data.metrics.meteredAircraftCount > 0 ? 'color: var(--pui-info);' : ''}">${data.metrics.meteredAircraftCount}</span>
                             </div>
                         </div>
 
-                        <div style="display: flex; justify-content: space-between; margin-bottom: 16px; padding: 0 4px;">
+                        <div class="pui-intel-stats-tri">
                             <div class="pui-intel-stat">
                                 <span class="label">IN TMA</span>
-                                <span class="value" style="font-size: 1.1rem;">${data.metrics.inTerminalArea}</span>
+                                <span class="value-sm">${data.metrics.inTerminalArea}</span>
                             </div>
-                            <div class="pui-intel-stat" style="text-align: center;">
+                            <div class="pui-intel-stat">
                                 <span class="label">HOLDING</span>
-                                <span class="value" style="font-size: 1.1rem; ${data.metrics.holdingAircraftCount > 0 ? 'color: #f87171;' : ''}">${data.metrics.holdingAircraftCount}</span>
+                                <span class="value-sm" style="${data.metrics.holdingAircraftCount > 0 ? 'color: var(--pui-neg);' : ''}">${data.metrics.holdingAircraftCount}</span>
                             </div>
-                            <div class="pui-intel-stat" style="text-align: right;">
+                            <div class="pui-intel-stat">
                                 <span class="label">ON FINAL</span>
-                                <span class="value" style="font-size: 1.1rem; ${data.metrics.onFinalApproach > 0 ? 'color: #4ade80;' : ''}">${data.metrics.onFinalApproach}</span>
+                                <span class="value-sm" style="${data.metrics.onFinalApproach > 0 ? 'color: var(--pui-pos);' : ''}">${data.metrics.onFinalApproach}</span>
                             </div>
                         </div>
 
-                        ${alertsHTML ? `<div style="margin-bottom: 16px; display: flex; flex-wrap: wrap; gap: 4px;">${alertsHTML}</div>` : '<div style="margin-bottom: 16px; height: 18px;"></div>'}
-                        
-                        <div style="margin-bottom: 10px; display: flex; justify-content: space-between; align-items: flex-end;">
-                            <span style="font-size: 0.72rem; color: var(--pui-text-secondary); font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase;">4-Hour Saturation Map</span>
-                            <div style="text-align: right;">
-                                <span style="font-size: 0.68rem; color: var(--pui-text-secondary); font-family: 'JetBrains Mono', monospace;">CAP: ${data.metrics.effectiveCapacity}/15m</span>
-                            </div>
+                        ${alertsHTML ? `<div class="pui-mini-tag-row">${alertsHTML}</div>` : ''}
+
+                        <div class="pui-section-head">
+                            <span class="pui-eyebrow">4-Hour Saturation Map</span>
+                            <span class="pui-mono-meta-sm">CAP ${data.metrics.effectiveCapacity}/15m</span>
                         </div>
                         ${heatmapHTML}
-                        
-                        ${topOpsHTML ? `<div style="margin-top: 14px; display: flex; gap: 6px; flex-wrap: wrap; align-items: center;"><span style="font-size: 0.65rem; font-weight: 700; color: var(--pui-text-secondary); text-transform: uppercase;">Top Arrivals:</span> ${topOpsHTML}</div>` : ''}
 
-                        <div style="margin-top: 20px; display: flex; justify-content: flex-end;">
-                            <button class="pui-btn-secondary pui-intel-remove-btn" data-icao="${icao}" style="padding: 6px 14px; font-size: 0.75rem; border-color: rgba(255,255,255,0.1);">
+                        ${topOpsHTML ? `<div class="pui-top-ops"><span class="pui-eyebrow">Top Arrivals</span> ${topOpsHTML}</div>` : ''}
+
+                        <div class="pui-card-footer">
+                            <button class="pui-btn-ghost pui-intel-remove-btn" data-icao="${icao}">
                                 <i class="fa-solid fa-link-slash"></i> Unlink Node
                             </button>
                         </div>
@@ -670,50 +934,85 @@ _updateLiveFlightDOM() {
         html += '</div>';
         return html;
     },
-    
+
     _updateAirspaceDOM() {
         const container = document.getElementById('pui-intel-dynamic-container');
         if (container && this._airspaceNetwork) {
             container.innerHTML = this._generateAirspaceHTML();
-            
+
             container.querySelectorAll('.pui-intel-remove-btn').forEach(btn => {
                 btn.addEventListener('click', (e) => {
                     const icao = e.currentTarget.dataset.icao;
                     const currentNodes = Array.from(this._airspaceNetwork._activeNodes).filter(n => n !== icao);
                     this._airspaceNetwork.setActiveNodes(currentNodes);
-                    this._updateAirspaceDOM(); 
+                    this._updateAirspaceDOM();
                 });
             });
         }
     },
 
+    _getTimezoneOptionsHTML(selectedTz) {
+        try {
+            const zones = Intl.supportedValuesOf('timeZone');
+            return zones.map(tz => `<option value="${tz}" ${tz === selectedTz ? 'selected' : ''}>${tz.replace(/_/g, ' ')}</option>`).join('');
+        } catch (e) {
+            return `<option value="${selectedTz}" selected>${selectedTz}</option>`;
+        }
+    },
+
+    // A helper method to clear the dispatch form back to Create mode
+    _resetFlightForm() {
+        this._editingFlightId = null;
+        
+        const formTitle = document.getElementById('pui-dispatch-form-title');
+        if (formTitle) formTitle.innerHTML = `<i class="fa-solid fa-file-pen"></i> Generate dispatch`;
+
+        const submitBtn = document.getElementById('pui-submit-flight-btn');
+        if (submitBtn) submitBtn.innerHTML = `<i class="fa-solid fa-paper-plane"></i> File flight plan`;
+
+        const cancelBtn = document.getElementById('pui-cancel-edit-btn');
+        if (cancelBtn) cancelBtn.style.display = 'none';
+
+        const inputs = [
+            'pui-new-callsign', 'pui-new-aircraft', 'pui-new-dep', 'pui-new-arr', 
+            'pui-new-dep-gate', 'pui-new-arr-gate', 'pui-new-time', 'pui-new-duration', 
+            'pui-new-pax', 'pui-new-fuel'
+        ];
+        inputs.forEach(id => {
+            const el = document.getElementById(id);
+            if (el) el.value = '';
+        });
+    },
+
     _getTabContentHTML() {
         if (this._activeTab === 'onboarding') {
             return `
-                <div class="pui-onboarding-container pui-fade-in-up">
+                <div class="pui-onboarding-container pui-fade-in">
                     <div class="pui-onboarding-card">
                         <div class="pui-onboarding-header">
-                            <i class="fa-solid fa-plane-departure" style="font-size: 2.5rem; color: var(--pui-accent); margin-bottom: 16px;"></i>
-                            <h2>Welcome Aboard!</h2>
-                            <p>Thank you for subscribing to Pro Access. Let's get your flight deck set up.</p>
+                            <div class="pui-onboarding-icon"><i class="fa-solid fa-plane-departure"></i></div>
+                            <h2>Welcome aboard.</h2>
+                            <p>Thank you for subscribing to Pro Access. Let's set up your flight deck.</p>
                         </div>
                         <div class="pui-onboarding-body">
-                            
+
                             <div class="pui-input-group">
-                                <label>Choose Your Theme</label>
-                                <div class="pui-theme-options" style="flex-direction: row; gap: 10px;">
-                                    <label class="pui-theme-option" style="flex: 1; justify-content: center;">
-                                        <input type="radio" name="onboarding-theme" value="white" ${this._theme === 'white' ? 'checked' : ''}>
-                                        <span>Light (White)</span>
+                                <label>Choose your theme</label>
+                                <div class="pui-theme-options pui-theme-options-row">
+                                    <label class="pui-theme-option">
+                                        <input type="radio" name="onboarding-theme" value="light" ${this._theme === 'light' ? 'checked' : ''}>
+                                        <i class="fa-solid fa-sun"></i>
+                                        <span>Light</span>
                                     </label>
-                                    <label class="pui-theme-option" style="flex: 1; justify-content: center;">
-                                        <input type="radio" name="onboarding-theme" value="dark-gray" ${this._theme === 'dark-gray' ? 'checked' : ''}>
-                                        <span>Dark Gray</span>
+                                    <label class="pui-theme-option">
+                                        <input type="radio" name="onboarding-theme" value="dark" ${this._theme === 'dark' ? 'checked' : ''}>
+                                        <i class="fa-solid fa-moon"></i>
+                                        <span>Dark</span>
                                     </label>
                                 </div>
                             </div>
 
-                            <div class="pui-input-group" style="margin-top: 24px;">
+                            <div class="pui-input-group">
                                 <label>Infinite Flight Username</label>
                                 <div class="pui-input-wrapper">
                                     <i class="fa-solid fa-plane pui-input-icon"></i>
@@ -722,12 +1021,12 @@ _updateLiveFlightDOM() {
                                 <p class="pui-help-text">We use this to fetch your live flights and career stats.</p>
                             </div>
 
-                            <p class="pui-help-text" style="text-align: center; margin-top: 24px; font-size: 0.8rem;">
-                                Note: You can always change these preferences later in the Settings area.
+                            <p class="pui-help-text" style="text-align:center;margin-top:18px;">
+                                You can change these any time from Settings.
                             </p>
 
-                            <button class="pui-btn-primary" id="onboarding-complete-btn" style="width: 100%; margin-top: 16px; padding: 14px; font-size: 1rem;">
-                                Complete Setup
+                            <button class="pui-btn-primary pui-btn-block" id="onboarding-complete-btn">
+                                Complete setup
                             </button>
                         </div>
                     </div>
@@ -737,22 +1036,22 @@ _updateLiveFlightDOM() {
 
         if (this._activeTab === 'airspace-intel') {
             return `
-                <div class="pui-tab-header pui-fade-in-up" style="display: flex; justify-content: space-between; align-items: flex-end; flex-wrap: wrap; gap: 16px;">
+                <div class="pui-tab-header pui-fade-in">
                     <div>
                         <h2>Traffic</h2>
                         <p>Real-time predictive multi-node telemetry. Forecasting congestion across active hubs.</p>
                     </div>
-                    <div style="display: flex; gap: 12px; align-items: stretch;">
-                        <div class="pui-input-wrapper" style="width: 160px;">
+                    <div class="pui-tab-header-actions">
+                        <div class="pui-input-wrapper" style="width:160px;">
                             <i class="fa-solid fa-location-crosshairs pui-input-icon"></i>
-                            <input type="text" id="pui-intel-new-node" class="pui-input has-icon" placeholder="ICAO" style="text-transform: uppercase; font-family: 'JetBrains Mono', monospace;" maxlength="4">
+                            <input type="text" id="pui-intel-new-node" class="pui-input has-icon pui-icao-input" placeholder="ICAO" maxlength="4">
                         </div>
-                        <button class="pui-btn-primary" id="pui-intel-add-node" style="white-space: nowrap;">
-                            <i class="fa-solid fa-satellite-dish" style="margin-right: 6px;"></i> Monitor Hub
+                        <button class="pui-btn-primary" id="pui-intel-add-node">
+                            <i class="fa-solid fa-satellite-dish"></i> Monitor hub
                         </button>
                     </div>
                 </div>
-                <div id="pui-intel-dynamic-container" class="pui-fade-in-up" style="animation-delay: 0.1s;">
+                <div id="pui-intel-dynamic-container" class="pui-fade-in">
                     ${this._generateAirspaceHTML()}
                 </div>
             `;
@@ -762,65 +1061,60 @@ _updateLiveFlightDOM() {
             const user = this._currentUser;
             const ifUsername = user?.user_metadata?.if_username || '';
             let statCardsHTML = '';
-            
+
             if (!ifUsername) {
-                statCardsHTML = `<div class="pui-alert pui-alert-error" style="grid-column: 1 / -1;"><i class="fa-solid fa-triangle-exclamation" style="margin-right: 8px;"></i> Link your Infinite Flight account in Settings to view your live career statistics.</div>`;
+                statCardsHTML = `<div class="pui-alert pui-alert-info" style="grid-column: 1 / -1;"><i class="fa-solid fa-circle-info"></i> Link your Infinite Flight account in Settings to view your live career statistics.</div>`;
             } else if (this._ifData.loading) {
                 statCardsHTML = `
-                    <div class="pui-stat-card"><div class="pui-skeleton" style="width: 56px; height: 56px; border-radius: 16px;"></div><div class="pui-stat-data"><div class="pui-skeleton" style="width: 60px; height: 24px; margin-bottom: 8px;"></div><div class="pui-skeleton" style="width: 100px; height: 12px;"></div></div></div>
-                    <div class="pui-stat-card"><div class="pui-skeleton" style="width: 56px; height: 56px; border-radius: 16px;"></div><div class="pui-stat-data"><div class="pui-skeleton" style="width: 80px; height: 24px; margin-bottom: 8px;"></div><div class="pui-skeleton" style="width: 90px; height: 12px;"></div></div></div>
-                    <div class="pui-stat-card"><div class="pui-skeleton" style="width: 56px; height: 56px; border-radius: 16px;"></div><div class="pui-stat-data"><div class="pui-skeleton" style="width: 50px; height: 24px; margin-bottom: 8px;"></div><div class="pui-skeleton" style="width: 110px; height: 12px;"></div></div></div>
+                    <div class="pui-stat-card"><div class="pui-skeleton" style="width:48px;height:48px;border-radius:14px;"></div><div class="pui-stat-data"><div class="pui-skeleton" style="width:60px;height:22px;margin-bottom:6px;"></div><div class="pui-skeleton" style="width:100px;height:10px;"></div></div></div>
+                    <div class="pui-stat-card"><div class="pui-skeleton" style="width:48px;height:48px;border-radius:14px;"></div><div class="pui-stat-data"><div class="pui-skeleton" style="width:80px;height:22px;margin-bottom:6px;"></div><div class="pui-skeleton" style="width:90px;height:10px;"></div></div></div>
+                    <div class="pui-stat-card"><div class="pui-skeleton" style="width:48px;height:48px;border-radius:14px;"></div><div class="pui-stat-data"><div class="pui-skeleton" style="width:50px;height:22px;margin-bottom:6px;"></div><div class="pui-skeleton" style="width:110px;height:10px;"></div></div></div>
                 `;
             } else if (this._ifData.error) {
-                statCardsHTML = `<div class="pui-alert pui-alert-error" style="grid-column: 1 / -1;"><i class="fa-solid fa-circle-xmark" style="margin-right: 8px;"></i> ${this._ifData.error}</div>`;
+                statCardsHTML = `<div class="pui-alert pui-alert-error" style="grid-column: 1 / -1;"><i class="fa-solid fa-circle-xmark"></i> ${this._ifData.error}</div>`;
             } else if (this._ifData.stats) {
                 const grade = this._ifData.stats.gradeDetails?.gradeIndex || 'N/A';
                 const xp = this._ifData.stats.totalXP?.toLocaleString() || '0';
                 const totalFlights = this._ifData.logbookTotal?.toLocaleString() || '0';
-                
+
                 statCardsHTML = `
                     <div class="pui-stat-card">
-                        <div class="pui-stat-icon" style="background: #eff6ff; color: #3b82f6;">
-                            <i class="fa-solid fa-award"></i>
-                        </div>
-                        <div class="pui-stat-data">
-                            <h3>Grade ${grade}</h3>
-                            <p>Pilot Level</p>
-                        </div>
+                        <div class="pui-stat-icon" data-tone="indigo"><i class="fa-solid fa-award"></i></div>
+                        <div class="pui-stat-data"><h3>Grade ${grade}</h3><p>Pilot Level</p></div>
                     </div>
                     <div class="pui-stat-card">
-                        <div class="pui-stat-icon" style="background: #fdf4ff; color: #d946ef;">
-                            <i class="fa-solid fa-star"></i>
-                        </div>
-                        <div class="pui-stat-data">
-                            <h3>${xp}</h3>
-                            <p>Total XP</p>
-                        </div>
+                        <div class="pui-stat-icon" data-tone="violet"><i class="fa-solid fa-star"></i></div>
+                        <div class="pui-stat-data"><h3>${xp}</h3><p>Total XP</p></div>
                     </div>
                     <div class="pui-stat-card">
-                        <div class="pui-stat-icon" style="background: #f0fdf4; color: #22c55e;">
-                            <i class="fa-solid fa-plane-arrival"></i>
-                        </div>
-                        <div class="pui-stat-data">
-                            <h3>${totalFlights}</h3>
-                            <p>Flights Flown</p>
-                        </div>
+                        <div class="pui-stat-icon" data-tone="emerald"><i class="fa-solid fa-plane-arrival"></i></div>
+                        <div class="pui-stat-data"><h3>${totalFlights}</h3><p>Flights Flown</p></div>
                     </div>
                 `;
             }
 
             return `
-                <div class="pui-tab-header pui-fade-in-up">
-                    <h2>Pilot Dossier</h2>
-                    <p>Comprehensive career analytics and high-level flight statistics.</p>
+                <div class="pui-tab-header pui-fade-in">
+                    <div>
+                        <h2>Pilot Dossier</h2>
+                        <p>Comprehensive career analytics and high-level flight statistics.</p>
+                    </div>
                 </div>
-                <div class="pui-stats-grid pui-fade-in-up" style="margin-bottom: 24px;">
+                <div class="pui-stats-grid pui-fade-in" style="margin-bottom: var(--pui-gap-lg);">
                     ${statCardsHTML}
                 </div>
-                <div class="pui-fade-in-up" style="animation-delay: 0.1s;">
+                <div class="pui-fade-in">
                     ${CareerModule.getHTML(this._ifData)}
                 </div>
+                ${this._ifData.logbook?.length > 0 ? `
+                <div class="pui-fade-in" style="margin-top: var(--pui-gap-lg);">
+                    ${this._getPersonalRecordsHTML()}
+                </div>` : ''}
             `;
+        }
+
+        if (this._activeTab === 'watchlist') {
+            return this._getWatchlistTabHTML();
         }
 
         if (this._activeTab === 'dashboard') {
@@ -829,10 +1123,11 @@ _updateLiveFlightDOM() {
             const firstName = name.trim().split(/\s+/)[0];
             const ifUsername = user?.user_metadata?.if_username || '';
 
-            // Greeting
-            const hour = new Date().getHours();
+            const formatter = new Intl.DateTimeFormat('en-US', { hour: 'numeric', hourCycle: 'h23', timeZone: this._timezone });
+            const hourString = formatter.format(new Date());
+            const hour = parseInt(hourString, 10);
             const greeting = hour < 12 ? 'Good morning' : hour < 17 ? 'Good afternoon' : 'Good evening';
-            const dateStr = new Date().toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' });
+            const dateStr = new Date().toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric', timeZone: this._timezone });
 
             // Stat strip
             let statsStrip = '';
@@ -840,53 +1135,57 @@ _updateLiveFlightDOM() {
                 const grade   = this._ifData.stats.gradeDetails?.gradeIndex;
                 const xp      = this._ifData.stats.totalXP?.toLocaleString();
                 const flights = this._ifData.logbookTotal?.toLocaleString();
-                statsStrip = `<div class="pui-cc-stat-strip">
-                    ${grade   ? `<span>Grade ${grade}</span><span class="pui-cc-sep">·</span>` : ''}
-                    ${xp      ? `<span>${xp} XP</span><span class="pui-cc-sep">·</span>` : ''}
+                const staleTag = this._ifData.stats._stale
+                    ? `<span class="pui-strip-sep">·</span><span title="Live data unavailable — showing cached data from ${this._ifData.stats._staleDate}" class="pui-strip-stale"><i class="fa-solid fa-clock-rotate-left"></i> cached ${this._ifData.stats._staleDate}</span>`
+                    : '';
+                statsStrip = `<div class="pui-stat-strip">
+                    ${grade   ? `<span>Grade ${grade}</span><span class="pui-strip-sep">·</span>` : ''}
+                    ${xp      ? `<span>${xp} XP</span><span class="pui-strip-sep">·</span>` : ''}
                     ${flights ? `<span>${flights} flights</span>` : ''}
+                    ${staleTag}
                 </div>`;
             } else if (this._ifData.loading) {
-                statsStrip = `<div class="pui-cc-stat-strip" style="opacity:0.35;">Loading pilot data…</div>`;
+                statsStrip = `<div class="pui-stat-strip" style="opacity:0.4;">Loading pilot data…</div>`;
             }
 
             // Recent flights
             let recentFlightsHTML = '';
             if (!ifUsername) {
-                recentFlightsHTML = `<div class="pui-cc-empty">Link your Infinite Flight account in Settings to see recent activity.</div>`;
+                recentFlightsHTML = `<div class="pui-empty-inline">Link your Infinite Flight account in Settings to see recent activity.</div>`;
             } else if (this._ifData.loading) {
                 recentFlightsHTML = `
-                    <div class="pui-cc-flight-row"><div class="pui-skeleton" style="width:120px;height:14px;border-radius:4px;flex:1;"></div><div class="pui-skeleton" style="width:60px;height:10px;border-radius:4px;"></div></div>
-                    <div class="pui-cc-flight-row"><div class="pui-skeleton" style="width:100px;height:14px;border-radius:4px;flex:1;"></div><div class="pui-skeleton" style="width:50px;height:10px;border-radius:4px;"></div></div>
-                    <div class="pui-cc-flight-row"><div class="pui-skeleton" style="width:130px;height:14px;border-radius:4px;flex:1;"></div><div class="pui-skeleton" style="width:55px;height:10px;border-radius:4px;"></div></div>
+                    <div class="pui-flight-row"><div class="pui-skeleton" style="width:120px;height:13px;flex:1;"></div><div class="pui-skeleton" style="width:60px;height:9px;"></div></div>
+                    <div class="pui-flight-row"><div class="pui-skeleton" style="width:100px;height:13px;flex:1;"></div><div class="pui-skeleton" style="width:50px;height:9px;"></div></div>
+                    <div class="pui-flight-row"><div class="pui-skeleton" style="width:130px;height:13px;flex:1;"></div><div class="pui-skeleton" style="width:55px;height:9px;"></div></div>
                 `;
             } else if (this._ifData.logbook?.length > 0) {
-                recentFlightsHTML = this._ifData.logbook.slice(0, 6).map((flight, i) => {
+                recentFlightsHTML = this._ifData.logbook.slice(0, 6).map((flight) => {
                     const dep    = flight.originAirport      || 'N/A';
                     const arr    = flight.destinationAirport || 'N/A';
                     const hrs    = (flight.totalTime / 60).toFixed(1);
                     const server = flight.server || 'Unknown';
                     const dateObj = new Date(flight.created);
                     const isRecent = (Date.now() - dateObj.getTime()) < (86400000 * 2);
-                    const timeStr  = isRecent ? 'Recently' : dateObj.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+                    const timeStr  = isRecent ? 'Recently' : dateObj.toLocaleDateString('en-US', { month: 'short', day: 'numeric', timeZone: this._timezone });
                     return `
-                        <div class="pui-cc-flight-row pui-fade-in-up" style="animation-delay:${i * 0.04}s;">
-                            <div class="pui-cc-flight-row-route">
-                                <span class="pui-cc-flight-icao">${dep}</span>
-                                <span class="pui-cc-flight-arrow">→</span>
-                                <span class="pui-cc-flight-icao">${arr}</span>
+                        <div class="pui-flight-row">
+                            <div class="pui-flight-route">
+                                <span class="pui-flight-icao">${dep}</span>
+                                <span class="pui-flight-arrow">→</span>
+                                <span class="pui-flight-icao">${arr}</span>
                             </div>
-                            <div class="pui-cc-flight-row-meta">
+                            <div class="pui-flight-meta">
                                 <span>${flight.callsign || 'N/A'}</span>
                                 <span>·</span>
                                 <span>${server}</span>
                                 <span>·</span>
                                 <span>${hrs}h</span>
                             </div>
-                            <div class="pui-cc-flight-row-time">${timeStr}</div>
+                            <div class="pui-flight-time">${timeStr}</div>
                         </div>`;
                 }).join('');
             } else {
-                recentFlightsHTML = `<div class="pui-cc-empty">No recent flights found.</div>`;
+                recentFlightsHTML = `<div class="pui-empty-inline">No recent flights found.</div>`;
             }
 
             // Next departure from flight plans
@@ -901,142 +1200,143 @@ _updateLiveFlightDOM() {
                 const hours = Math.floor(next.duration_minutes / 60);
                 const mins  = next.duration_minutes % 60;
                 nextDispatch = `
-                    <div class="pui-cc-dispatch-route">
-                        <div class="pui-cc-dispatch-icao">
+                    <div class="pui-dispatch-route">
+                        <div class="pui-dispatch-side">
                             <span class="code">${next.dep_icao || '----'}</span>
                             ${next.dep_gate ? `<span class="gate">Gate ${next.dep_gate}</span>` : ''}
                         </div>
-                        <div class="pui-cc-dispatch-path">
+                        <div class="pui-dispatch-path">
                             <i class="fa-solid fa-plane"></i>
                             <span>${hours}h ${mins}m</span>
                         </div>
-                        <div class="pui-cc-dispatch-icao" style="text-align:right;">
+                        <div class="pui-dispatch-side pui-dispatch-side-right">
                             <span class="code">${next.arr_icao || '----'}</span>
                             ${next.arr_gate ? `<span class="gate">Gate ${next.arr_gate}</span>` : ''}
                         </div>
                     </div>
-                    <div class="pui-cc-dispatch-info">
-                        <div class="pui-cc-dispatch-row">
+                    <div class="pui-dispatch-info">
+                        <div class="pui-dispatch-row">
                             <span>Aircraft</span>
                             <strong>${next.aircraft_type || 'N/A'}</strong>
                         </div>
-                        <div class="pui-cc-dispatch-row">
+                        <div class="pui-dispatch-row">
                             <span>Callsign</span>
-                            <strong style="font-family:'JetBrains Mono',monospace;">${next.callsign || 'N/A'}</strong>
+                            <strong class="pui-mono">${next.callsign || 'N/A'}</strong>
                         </div>
-                        <div class="pui-cc-dispatch-row">
+                        <div class="pui-dispatch-row">
                             <span>Departure</span>
                             <strong style="color:var(--pui-accent);">${countdown}</strong>
                         </div>
-                        ${next.passengers ? `<div class="pui-cc-dispatch-row"><span>POB</span><strong>${next.passengers} pax</strong></div>` : ''}
+                        ${next.passengers ? `<div class="pui-dispatch-row"><span>POB</span><strong>${next.passengers} pax</strong></div>` : ''}
                     </div>`;
             } else {
                 nextDispatch = `
-                    <div class="pui-cc-empty" style="flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:10px;padding:32px 0;">
-                        <i class="fa-regular fa-calendar" style="font-size:1.8rem;opacity:0.18;"></i>
+                    <div class="pui-empty-block">
+                        <i class="fa-regular fa-calendar"></i>
                         <span>No upcoming flights filed.</span>
                     </div>`;
             }
 
             return `
-                <div class="pui-cc-header pui-fade-in-up">
+                <div class="pui-home-header pui-fade-in">
                     <div>
-                        <h1 class="pui-cc-greeting">${greeting}, ${firstName}.</h1>
+                        <h1 class="pui-home-greeting">${greeting}, ${firstName}.</h1>
                         ${statsStrip}
                     </div>
-                    <div class="pui-cc-date">${dateStr}</div>
+                    <div class="pui-home-date">${dateStr}</div>
                 </div>
 
                 <div id="pui-live-flights-wrapper" style="display:none;"></div>
 
-                <div class="pui-cc-grid pui-fade-in-up" style="animation-delay:0.08s;">
-                    <div class="pui-cc-recent">
-                        <div class="pui-cc-section-label">Recent Flights</div>
-                        <div class="pui-cc-flights-list">${recentFlightsHTML}</div>
-                    </div>
-                    <div class="pui-cc-dispatch">
-                        <div class="pui-cc-section-label">Next Departure</div>
+                <div class="pui-home-grid pui-fade-in">
+                    <section class="pui-card pui-home-recent">
+                        <div class="pui-card-eyebrow">Recent Flights</div>
+                        <div class="pui-flight-list">${recentFlightsHTML}</div>
+                    </section>
+                    <section class="pui-card pui-home-dispatch">
+                        <div class="pui-card-eyebrow">Next Departure</div>
                         ${nextDispatch}
-                        <button class="pui-cc-dispatch-btn" onclick="document.querySelector('[data-tab=\\'flight-plan\\']')?.click()">
-                            View Full Schedule <i class="fa-solid fa-arrow-right"></i>
-                        </button>
-                    </div>
+                    </section>
                 </div>
             `;
-        } 
-        
-        if (this._activeTab === 'flight-plan') {
-            let flightCardsHTML = '';
+        }
 
-            if (this._flightPlansData && this._flightPlansData.length > 0) {
-                flightCardsHTML = this._flightPlansData.map(flight => {
-                    const flightDate = new Date(flight.dep_time).toLocaleDateString([], { weekday: 'short', month: 'short', day: 'numeric' });
-                    const flightTime = new Date(flight.dep_time).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+        if (this._activeTab === 'flight-plan') {
+            let flightCardsHTML;
+            if (this._flightPlansData.length === 0) {
+                flightCardsHTML = `
+                    <div class="pui-empty-state">
+                        <i class="fa-solid fa-paper-plane"></i>
+                        <h4>No flights filed yet</h4>
+                        <p>File your first flight plan using the form on the right.</p>
+                    </div>`;
+            } else {
+                flightCardsHTML = this._flightPlansData.map((flight) => {
+                    const depTime = new Date(flight.dep_time);
+                    const day = depTime.toLocaleDateString('en-US', { weekday: 'short', timeZone: this._timezone });
+                    const date = depTime.toLocaleDateString('en-US', { month: 'short', day: 'numeric', timeZone: this._timezone });
+                    const time = depTime.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: false, timeZone: this._timezone });
                     const hours = Math.floor(flight.duration_minutes / 60);
                     const mins = flight.duration_minutes % 60;
-                    const durationStr = `${hours}h ${mins}m`;
-                    
                     return `
-                        <div class="pui-flight-ticket pui-fade-in-up">
-                            <div class="pui-ticket-left">
-                                <div class="pui-ticket-date">${flightDate}<span>${flightTime}</span></div>
-                                <div class="pui-ticket-csign">${flight.callsign || 'N/A'}</div>
+                        <div class="pui-ticket">
+                            <div class="pui-ticket-actions">
+                                <button class="pui-icon-btn pui-ticket-edit-btn" data-id="${flight.id}" title="Edit Flight"><i class="fa-solid fa-pen"></i></button>
+                                <button class="pui-icon-btn pui-ticket-delete-btn" data-id="${flight.id}" title="Delete Flight"><i class="fa-solid fa-trash"></i></button>
                             </div>
-                            <div class="pui-ticket-middle">
-                                <div class="pui-route-display">
-                                    <div class="pui-route-point">
-                                        <span class="icao">${flight.dep_icao || '----'}</span>
-                                        <span class="gate">${flight.dep_gate ? 'Gate ' + flight.dep_gate : 'TBD'}</span>
+                            <div class="pui-ticket-stub">
+                                <span class="pui-ticket-day">${day}</span>
+                                <span class="pui-ticket-date">${date}</span>
+                                <span class="pui-ticket-time pui-mono">${time}</span>
+                                <span class="pui-ticket-cs">${flight.callsign}</span>
+                            </div>
+                            <div class="pui-ticket-body">
+                                <div class="pui-ticket-route">
+                                    <div class="pui-ticket-point">
+                                        <span class="pui-ticket-icao">${flight.dep_icao}</span>
+                                        ${flight.dep_gate ? `<span class="pui-ticket-gate">Gate ${flight.dep_gate}</span>` : ''}
                                     </div>
-                                    <div class="pui-route-path">
-                                        <span class="duration">${durationStr}</span>
-                                        <div class="line"><i class="fa-solid fa-plane"></i></div>
-                                        <span class="acft">${flight.aircraft_type || 'UNK'}</span>
+                                    <div class="pui-ticket-path">
+                                        <span class="pui-ticket-duration">${hours}h ${mins}m</span>
+                                        <div class="pui-ticket-line"><i class="fa-solid fa-plane"></i></div>
+                                        <span class="pui-ticket-acft">${flight.aircraft_type}</span>
                                     </div>
-                                    <div class="pui-route-point">
-                                        <span class="icao">${flight.arr_icao || '----'}</span>
-                                        <span class="gate">${flight.arr_gate ? 'Gate ' + flight.arr_gate : 'TBD'}</span>
+                                    <div class="pui-ticket-point pui-ticket-point-right">
+                                        <span class="pui-ticket-icao">${flight.arr_icao}</span>
+                                        ${flight.arr_gate ? `<span class="pui-ticket-gate">Gate ${flight.arr_gate}</span>` : ''}
                                     </div>
                                 </div>
                             </div>
-                            <div class="pui-ticket-right">
-                                <div class="pui-ticket-stat" title="Passengers"><i class="fa-solid fa-users"></i> ${flight.passengers || '--'}</div>
-                                <div class="pui-ticket-stat" title="Fuel"><i class="fa-solid fa-gas-pump"></i> ${flight.fuel_used ? flight.fuel_used.toLocaleString() + ' lbs' : '--'}</div>
+                            <div class="pui-ticket-aside">
+                                ${flight.passengers ? `<div class="pui-ticket-stat"><i class="fa-solid fa-users"></i> ${flight.passengers} pax</div>` : ''}
+                                ${flight.fuel_used ? `<div class="pui-ticket-stat"><i class="fa-solid fa-gas-pump"></i> ${flight.fuel_used.toLocaleString()} lbs</div>` : ''}
                             </div>
                         </div>
                     `;
                 }).join('');
-            } else {
-                flightCardsHTML = `
-                    <div class="pui-empty-state">
-                        <i class="fa-solid fa-clipboard-list"></i>
-                        <h4>No Active Dispatch Briefings</h4>
-                        <p>Your upcoming scheduled flights will appear here.</p>
-                    </div>
-                `;
             }
 
             const addFlightFormHTML = `
-                <div class="pui-dispatch-form">
-                    <div class="pui-dispatch-header">
-                        <h3><i class="fa-solid fa-file-pen"></i> Generate Dispatch</h3>
+                <div class="pui-card pui-dispatch-form">
+                    <div class="pui-card-header">
+                        <h3 id="pui-dispatch-form-title"><i class="fa-solid fa-file-pen"></i> Generate dispatch</h3>
                     </div>
-                    <div class="pui-dispatch-body-form">
+                    <div class="pui-card-body">
                         <div class="pui-form-section">
-                            <h4 class="pui-form-section-title">Flight Ident</h4>
+                            <h4 class="pui-form-section-title">Flight Identification</h4>
                             <div class="pui-form-row">
                                 <div class="pui-input-group">
                                     <label>Callsign</label>
                                     <div class="pui-input-wrapper">
                                         <i class="fa-solid fa-tower-broadcast pui-input-icon"></i>
-                                        <input type="text" id="pui-new-callsign" class="pui-input has-icon" placeholder="e.g. DAL404">
+                                        <input type="text" id="pui-new-callsign" class="pui-input has-icon" placeholder="DAL404">
                                     </div>
                                 </div>
                                 <div class="pui-input-group">
                                     <label>Aircraft</label>
                                     <div class="pui-input-wrapper">
                                         <i class="fa-solid fa-plane pui-input-icon"></i>
-                                        <input type="text" id="pui-new-aircraft" class="pui-input has-icon" placeholder="e.g. B763">
+                                        <input type="text" id="pui-new-aircraft" class="pui-input has-icon" placeholder="B763">
                                     </div>
                                 </div>
                             </div>
@@ -1073,20 +1373,20 @@ _updateLiveFlightDOM() {
                         </div>
 
                         <div class="pui-form-section">
-                            <h4 class="pui-form-section-title">Schedule & Load</h4>
+                            <h4 class="pui-form-section-title">Schedule &amp; Load</h4>
                             <div class="pui-form-row">
                                 <div class="pui-input-group">
                                     <label>Departure Time</label>
                                     <input type="datetime-local" id="pui-new-time" class="pui-input">
                                 </div>
                                 <div class="pui-input-group">
-                                    <label>EET (Minutes)</label>
+                                    <label>EET (minutes)</label>
                                     <input type="number" id="pui-new-duration" class="pui-input" placeholder="420">
                                 </div>
                             </div>
                             <div class="pui-form-row">
                                 <div class="pui-input-group">
-                                    <label>POB (Pax)</label>
+                                    <label>POB (pax)</label>
                                     <div class="pui-input-wrapper">
                                         <i class="fa-solid fa-users pui-input-icon"></i>
                                         <input type="number" id="pui-new-pax" class="pui-input has-icon" placeholder="212">
@@ -1101,33 +1401,37 @@ _updateLiveFlightDOM() {
                                 </div>
                             </div>
                         </div>
-                        
-                        <div id="pui-add-flight-msg" class="pui-alert" style="display: none; margin-top: 10px;"></div>
-                        
-                        <button class="pui-btn-primary pui-dispatch-submit" id="pui-submit-flight-btn">
-                            <i class="fa-solid fa-paper-plane"></i> File Flight Plan
-                        </button>
+
+                        <div id="pui-add-flight-msg" class="pui-alert" style="display: none;"></div>
+
+                        <div class="pui-form-actions-row" style="display: flex; gap: 10px; margin-top: 14px;">
+                            <button class="pui-btn-ghost" id="pui-cancel-edit-btn" style="display: none; flex: 1;">Cancel</button>
+                            <button class="pui-btn-primary" id="pui-submit-flight-btn" style="flex: 2; width: 100%;">
+                                <i class="fa-solid fa-paper-plane"></i> File flight plan
+                            </button>
+                        </div>
                     </div>
                 </div>
             `;
 
             return `
-                <div class="pui-tab-header pui-fade-in-up">
-                    <h2>Flight Dispatch Hub</h2>
-                    <p>File upcoming flight plans and review your active schedule.</p>
+                <div class="pui-tab-header pui-fade-in">
+                    <div>
+                        <h2>Flight Dispatch</h2>
+                        <p>File upcoming flight plans and review your active schedule.</p>
+                    </div>
                 </div>
-
-                <div class="pui-flight-planner-layout pui-fade-in-up" style="animation-delay: 0.1s;">
-                    <div class="pui-flight-list-col">
+                <div class="pui-dispatch-layout pui-fade-in">
+                    <div class="pui-dispatch-list">
                         ${flightCardsHTML}
                     </div>
-                    <div class="pui-flight-form-col">
+                    <div class="pui-dispatch-form-col">
                         ${addFlightFormHTML}
                     </div>
                 </div>
             `;
-        } 
-        
+        }
+
         if (this._activeTab === 'settings') {
             const user = this._currentUser;
             const name = user?.user_metadata?.full_name || user?.user_metadata?.name || '';
@@ -1135,16 +1439,16 @@ _updateLiveFlightDOM() {
             const ifUsername = user?.user_metadata?.if_username || '';
 
             return `
-                <div class="pui-tab-header pui-fade-in-up">
-                    <h2>Account Settings</h2>
-                    <p>Manage your profile, preferences, and security.</p>
+                <div class="pui-tab-header pui-fade-in">
+                    <div>
+                        <h2>Settings</h2>
+                        <p>Manage your profile, preferences, and security.</p>
+                    </div>
                 </div>
 
-                <div class="pui-settings-grid pui-fade-in-up" style="animation-delay: 0.1s;">
-                    <div class="pui-content-card pui-form-card">
-                        <div class="pui-card-header">
-                            <h3>Profile Details</h3>
-                        </div>
+                <div class="pui-settings-grid pui-fade-in">
+                    <div class="pui-card">
+                        <div class="pui-card-header"><h3>Profile details</h3></div>
                         <div class="pui-card-body">
                             <div class="pui-input-group">
                                 <label>Full Name</label>
@@ -1153,12 +1457,12 @@ _updateLiveFlightDOM() {
                                     <input type="text" id="pui-edit-name" class="pui-input has-icon" value="${name}">
                                 </div>
                             </div>
-                            
+
                             <div class="pui-input-group">
                                 <label>Email Address</label>
                                 <div class="pui-input-wrapper">
                                     <i class="fa-solid fa-envelope pui-input-icon"></i>
-                                    <input type="email" class="pui-input has-icon" value="${email}" disabled style="opacity: 0.6; cursor: not-allowed;">
+                                    <input type="email" class="pui-input has-icon" value="${email}" disabled>
                                 </div>
                                 <p class="pui-help-text">Email address cannot be changed directly.</p>
                             </div>
@@ -1173,6 +1477,18 @@ _updateLiveFlightDOM() {
                             </div>
 
                             <div class="pui-input-group">
+                                <label>Local Time Zone</label>
+                                <div class="pui-input-wrapper">
+                                    <i class="fa-solid fa-earth-americas pui-input-icon"></i>
+                                    <select id="pui-edit-timezone" class="pui-input has-icon pui-select">
+                                        ${this._getTimezoneOptionsHTML(this._timezone)}
+                                    </select>
+                                    <i class="fa-solid fa-chevron-down pui-select-chevron"></i>
+                                </div>
+                                <p class="pui-help-text">Used to sync departure times and telemetry across your devices.</p>
+                            </div>
+
+                            <div class="pui-input-group">
                                 <label>New Password (Optional)</label>
                                 <div class="pui-input-wrapper">
                                     <i class="fa-solid fa-lock pui-input-icon"></i>
@@ -1183,59 +1499,100 @@ _updateLiveFlightDOM() {
                             <div id="pui-settings-msg" class="pui-alert" style="display: none;"></div>
 
                             <div class="pui-form-actions">
-                                <button class="pui-btn-primary" id="pui-save-btn">Save Changes</button>
+                                <button class="pui-btn-primary" id="pui-save-btn">Save changes</button>
                             </div>
                         </div>
                     </div>
 
-                    <div>
-                        <div class="pui-content-card pui-theme-card">
-                            <div class="pui-card-header">
-                                <h3>Theme Preference</h3>
-                            </div>
+                    <div class="pui-settings-aside">
+                        <div class="pui-card">
+                            <div class="pui-card-header"><h3>Appearance</h3></div>
                             <div class="pui-card-body">
-                                <div class="pui-theme-options">
-                                    <label class="pui-theme-option">
-                                        <input type="radio" name="pui-theme" value="white" ${this._theme === 'white' ? 'checked' : ''}>
-                                        <span>Light (White)</span>
-                                    </label>
-                                    <label class="pui-theme-option">
-                                        <input type="radio" name="pui-theme" value="light-gray" ${this._theme === 'light-gray' ? 'checked' : ''}>
-                                        <span>Light (Gray)</span>
-                                    </label>
-                                    <label class="pui-theme-option">
-                                        <input type="radio" name="pui-theme" value="dark-gray" ${this._theme === 'dark-gray' ? 'checked' : ''}>
-                                        <span>Dark Gray</span>
-                                    </label>
+                                <div class="pui-input-group">
+                                    <label>Theme</label>
+                                    <div class="pui-theme-options">
+                                        <label class="pui-theme-option">
+                                            <input type="radio" name="pui-theme" value="light" ${this._theme === 'light' ? 'checked' : ''}>
+                                            <i class="fa-solid fa-sun"></i>
+                                            <span>Light</span>
+                                        </label>
+                                        <label class="pui-theme-option">
+                                            <input type="radio" name="pui-theme" value="dark" ${this._theme === 'dark' ? 'checked' : ''}>
+                                            <i class="fa-solid fa-moon"></i>
+                                            <span>Dark</span>
+                                        </label>
+                                    </div>
                                 </div>
-                                <p class="pui-help-text" style="margin-top: 10px;">Theme changes will be applied instantly, click "Save Changes" to sync across devices.</p>
+                                <div class="pui-input-group" style="margin-bottom:0;">
+                                    <label>Density</label>
+                                    <div class="pui-theme-options">
+                                        <label class="pui-theme-option">
+                                            <input type="radio" name="pui-density" value="cozy" ${this._density === 'cozy' ? 'checked' : ''}>
+                                            <i class="fa-solid fa-grip"></i>
+                                            <span>Cozy</span>
+                                        </label>
+                                        <label class="pui-theme-option">
+                                            <input type="radio" name="pui-density" value="compact" ${this._density === 'compact' ? 'checked' : ''}>
+                                            <i class="fa-solid fa-grip-lines"></i>
+                                            <span>Compact</span>
+                                        </label>
+                                    </div>
+                                    <p class="pui-help-text">Saved automatically. Sync across devices when you save changes.</p>
+                                </div>
                             </div>
                         </div>
 
-                        <div class="pui-content-card pui-billing-card" style="margin-top: 24px;">
-                            <div class="pui-card-header">
-                                <h3>Billing Plan</h3>
-                            </div>
+                        <div class="pui-card">
+                            <div class="pui-card-header"><h3>Billing</h3></div>
                             <div class="pui-card-body">
                                 <div class="pui-plan-box">
                                     <div class="pui-plan-header">
                                         <h4>${this._subscription.plan}</h4>
-                                        <span class="pui-status-badge ${this._subscription.status === 'Active' ? 'active' : 'inactive'}">${this._subscription.status}</span>
+                                        <span class="pui-status-badge ${this._subscription.status === 'Active' ? 'pos' : 'neg'}">${this._subscription.status}</span>
                                     </div>
                                     <p class="pui-plan-price">${this._subscription.price}</p>
-                                    <p class="pui-plan-renewal">Next payment: ${this._subscription.nextPayment}</p>
+                                    <p class="pui-plan-renewal">Next payment · ${this._subscription.nextPayment}</p>
                                 </div>
-                                <div id="pui-billing-msg" class="pui-alert" style="display: none; margin-top: 16px;"></div>
-                                <div class="pui-billing-actions" style="margin-top: 20px;">
+                                <div id="pui-billing-msg" class="pui-alert" style="display: none; margin-top: 14px;"></div>
+                                <div class="pui-billing-actions">
                                     <button class="pui-btn-secondary" id="pui-billing-update-btn">
-                                        <i class="fa-solid fa-credit-card"></i> Update Payment Method
+                                        <i class="fa-solid fa-credit-card"></i> Update payment method
                                     </button>
                                     <button class="pui-btn-danger-outline" id="pui-billing-cancel-btn">
-                                        <i class="fa-solid fa-ban"></i> Cancel Subscription
+                                        <i class="fa-solid fa-ban"></i> Cancel subscription
                                     </button>
                                 </div>
                             </div>
                         </div>
+
+                        <div class="pui-card">
+                            <div class="pui-card-header"><h3>Support &amp; Legal</h3></div>
+                            <div class="pui-card-body pui-action-list-body">
+                                <div class="pui-action-list">
+                                    <a href="terms.html" target="_blank" class="pui-action-link">
+                                        <span class="pui-action-icon"><i class="fa-solid fa-file-contract"></i></span>
+                                        <span class="pui-action-text">Terms of Use</span>
+                                        <i class="fa-solid fa-arrow-up-right-from-square pui-action-external"></i>
+                                    </a>
+                                    <a href="privacy.html" target="_blank" class="pui-action-link">
+                                        <span class="pui-action-icon"><i class="fa-solid fa-shield-halved"></i></span>
+                                        <span class="pui-action-text">Privacy Policy</span>
+                                        <i class="fa-solid fa-arrow-up-right-from-square pui-action-external"></i>
+                                    </a>
+                                    <a href="https://discord.gg/deH7ftjDxY" target="_blank" class="pui-action-link">
+                                        <span class="pui-action-icon" style="background: rgba(88, 101, 242, 0.15); color: #5865F2;"><i class="fa-brands fa-discord"></i></span>
+                                        <span class="pui-action-text">Discord Community</span>
+                                        <i class="fa-solid fa-arrow-up-right-from-square pui-action-external"></i>
+                                    </a>
+                                    <a href="mailto:inflightCustomer@gmail.com" class="pui-action-link">
+                                        <span class="pui-action-icon"><i class="fa-solid fa-envelope"></i></span>
+                                        <span class="pui-action-text">Email Support</span>
+                                        <i class="fa-solid fa-arrow-right pui-action-external"></i>
+                                    </a>
+                                </div>
+                            </div>
+                        </div>
+
                     </div>
                 </div>
             `;
@@ -1257,7 +1614,7 @@ _updateLiveFlightDOM() {
 
         if (isLoading) {
             btn.disabled = true;
-            btn.innerHTML = `<i class="fa-solid fa-circle-notch fa-spin"></i> Processing...`;
+            btn.innerHTML = `<i class="fa-solid fa-circle-notch fa-spin"></i> Processing…`;
             btn.style.opacity = '0.7';
         } else {
             btn.disabled = false;
@@ -1266,21 +1623,55 @@ _updateLiveFlightDOM() {
         }
     },
 
+    /**
+     * Wires up the full shell (top strip + dock + content). Called after _render().
+     */
     _attachListeners() {
-        document.getElementById('pui-close-global')?.addEventListener('click', () => this.close());
-        document.getElementById('pui-sidebar-signout')?.addEventListener('click', async () => {
+        // Top strip
+        document.getElementById('pui-close-btn')?.addEventListener('click', () => this.close());
+        document.getElementById('pui-signout-btn')?.addEventListener('click', async () => {
             if (this._supabase) {
                 await this._supabase.auth.signOut();
                 this.close();
             }
         });
+        document.getElementById('pui-theme-btn')?.addEventListener('click', () => {
+            this.cycleTheme();
+            this._refreshTopStripIcons();
+        });
+        document.getElementById('pui-density-btn')?.addEventListener('click', () => {
+            this.cycleDensity();
+            this._refreshTopStripIcons();
+        });
 
-        document.querySelectorAll('.pui-nav-item').forEach(btn => {
+        // Dock
+        document.querySelectorAll('.pui-dock-item').forEach(btn => {
             btn.addEventListener('click', (e) => {
                 this.switchTab(e.currentTarget.dataset.tab);
             });
         });
 
+        this._attachContentListeners();
+    },
+
+    _refreshTopStripIcons() {
+        const themeBtn = document.getElementById('pui-theme-btn');
+        const densityBtn = document.getElementById('pui-density-btn');
+        if (themeBtn) {
+            themeBtn.innerHTML = `<i class="fa-solid ${this._theme === 'dark' ? 'fa-moon' : 'fa-sun'}"></i>`;
+            themeBtn.title = `Theme: ${this._theme === 'dark' ? 'Dark' : 'Light'} — click to toggle`;
+        }
+        if (densityBtn) {
+            densityBtn.innerHTML = `<i class="fa-solid ${this._density === 'compact' ? 'fa-grip-lines' : 'fa-grip'}"></i>`;
+            densityBtn.title = `Density: ${this._density === 'compact' ? 'Compact' : 'Cozy'} — click to toggle`;
+        }
+    },
+
+    /**
+     * Wires up listeners that live inside the content area only. Called after
+     * a content-only render too, so dock/topstrip handlers are not duplicated.
+     */
+    _attachContentListeners() {
         if (this._activeTab === 'onboarding') {
             const themeRadios = document.querySelectorAll('input[name="onboarding-theme"]');
             themeRadios.forEach(radio => {
@@ -1291,35 +1682,35 @@ _updateLiveFlightDOM() {
 
             document.getElementById('onboarding-complete-btn')?.addEventListener('click', async () => {
                 const ifUsername = document.getElementById('onboarding-if-username')?.value.trim();
-                const selectedTheme = document.querySelector('input[name="onboarding-theme"]:checked')?.value || 'dark-gray';
+                const selectedTheme = document.querySelector('input[name="onboarding-theme"]:checked')?.value || 'light';
 
-                this._setLoading('onboarding-complete-btn', true, 'Completing Setup');
+                this._setLoading('onboarding-complete-btn', true, 'Completing setup');
 
                 try {
                     const { data, error } = await this._supabase.auth.updateUser({
                         data: {
                             if_username: ifUsername,
                             theme: selectedTheme,
-                            onboarding_complete: true // Flag that onboarding is finished
+                            density: this._density,
+                            onboarding_complete: true
                         }
                     });
 
                     if (error) throw error;
 
                     this._currentUser = data.user;
-                    
+
                     if (ifUsername) {
                         this._fetchInfiniteFlightData(ifUsername);
                     }
 
-                    // Setup complete, switch to live dashboard
                     this._activeTab = 'dashboard';
                     this._render();
 
                 } catch (error) {
                     console.error("Onboarding Error:", error);
                     alert("Failed to save setup preferences: " + error.message);
-                    this._setLoading('onboarding-complete-btn', false, 'Complete Setup');
+                    this._setLoading('onboarding-complete-btn', false, 'Complete setup');
                 }
             });
         }
@@ -1330,7 +1721,7 @@ _updateLiveFlightDOM() {
                 const icao = input.value.trim().toUpperCase();
                 if (icao.length >= 3 && this._airspaceNetwork) {
                     if (!this._airspaceNetwork._hubRegistry.has(icao)) {
-                        this._airspaceNetwork.registerNode(icao, 0, 0); 
+                        this._airspaceNetwork.registerNode(icao, 0, 0);
                     }
                     const currentNodes = Array.from(this._airspaceNetwork._activeNodes);
                     if (!currentNodes.includes(icao)) {
@@ -1355,23 +1746,98 @@ _updateLiveFlightDOM() {
         }
 
         if (this._activeTab === 'flight-plan') {
-            const toggleBtn = document.getElementById('pui-toggle-flight-form');
-            const formSection = document.getElementById('pui-add-flight-section');
-            const cancelBtn = document.getElementById('pui-cancel-flight-btn');
             
-            toggleBtn?.addEventListener('click', () => {
-                if (formSection.style.display === 'none') {
-                    formSection.style.display = 'block';
-                    formSection.scrollIntoView({ behavior: 'smooth', block: 'start' });
-                } else {
-                    formSection.style.display = 'none';
-                }
+            // Edit Flight Plan Population
+            document.querySelectorAll('.pui-ticket-edit-btn').forEach(btn => {
+                btn.addEventListener('click', (e) => {
+                    const flightId = e.currentTarget.dataset.id;
+                    const flight = this._flightPlansData.find(f => f.id == flightId);
+                    if (!flight) return;
+
+                    this._editingFlightId = flightId;
+                    
+                    // UI Transitions
+                    const formTitle = document.getElementById('pui-dispatch-form-title');
+                    if (formTitle) formTitle.innerHTML = `<i class="fa-solid fa-pen-to-square"></i> Edit dispatch`;
+                    
+                    const submitBtn = document.getElementById('pui-submit-flight-btn');
+                    if (submitBtn) submitBtn.innerHTML = `<i class="fa-solid fa-check"></i> Update flight plan`;
+                    
+                    const cancelBtn = document.getElementById('pui-cancel-edit-btn');
+                    if (cancelBtn) cancelBtn.style.display = 'block';
+
+                    // Populate form fields
+                    document.getElementById('pui-new-callsign').value = flight.callsign || '';
+                    document.getElementById('pui-new-aircraft').value = flight.aircraft_type || '';
+                    document.getElementById('pui-new-dep').value = flight.dep_icao || '';
+                    document.getElementById('pui-new-arr').value = flight.arr_icao || '';
+                    document.getElementById('pui-new-dep-gate').value = flight.dep_gate || '';
+                    document.getElementById('pui-new-arr-gate').value = flight.arr_gate || '';
+
+                    if (flight.dep_time) {
+                        const dt = new Date(flight.dep_time);
+                        // Format specifically for datetime-local (YYYY-MM-DDTHH:MM)
+                        const formatted = dt.getFullYear() + '-' +
+                            String(dt.getMonth() + 1).padStart(2, '0') + '-' +
+                            String(dt.getDate()).padStart(2, '0') + 'T' +
+                            String(dt.getHours()).padStart(2, '0') + ':' +
+                            String(dt.getMinutes()).padStart(2, '0');
+                        document.getElementById('pui-new-time').value = formatted;
+                    }
+
+                    document.getElementById('pui-new-duration').value = flight.duration_minutes || '';
+                    document.getElementById('pui-new-pax').value = flight.passengers || '';
+                    document.getElementById('pui-new-fuel').value = flight.fuel_used || '';
+
+                    // Smooth scroll to form
+                    document.querySelector('.pui-dispatch-form')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+                });
             });
 
-            cancelBtn?.addEventListener('click', () => {
-                formSection.style.display = 'none';
+            // Delete Flight Plan
+            document.querySelectorAll('.pui-ticket-delete-btn').forEach(btn => {
+                btn.addEventListener('click', async (e) => {
+                    const flightId = e.currentTarget.dataset.id;
+                    if (!confirm("Are you sure you want to delete this flight plan? This cannot be undone.")) return;
+
+                    const ticketEl = e.currentTarget.closest('.pui-ticket');
+                    if (ticketEl) {
+                        ticketEl.style.opacity = '0.5';
+                        ticketEl.style.pointerEvents = 'none';
+                    }
+
+                    try {
+                        const { error } = await this._supabase
+                            .from('user_flights')
+                            .delete()
+                            .eq('id', flightId);
+                        
+                        if (error) throw error;
+                        
+                        this._showMessage('pui-add-flight-msg', 'Flight plan deleted.', 'success');
+                        
+                        if (this._editingFlightId === flightId) {
+                            this._resetFlightForm();
+                        }
+                        
+                        this._fetchFlightPlans();
+                    } catch(err) {
+                        console.error("Error deleting flight plan:", err);
+                        this._showMessage('pui-add-flight-msg', err.message || 'Error deleting flight plan.', 'error');
+                        if (ticketEl) {
+                            ticketEl.style.opacity = '1';
+                            ticketEl.style.pointerEvents = 'auto';
+                        }
+                    }
+                });
             });
 
+            // Cancel Edit Action
+            document.getElementById('pui-cancel-edit-btn')?.addEventListener('click', () => {
+                this._resetFlightForm();
+            });
+
+            // Submit / Edit Action
             document.getElementById('pui-submit-flight-btn')?.addEventListener('click', async () => {
                 const callsign = document.getElementById('pui-new-callsign').value.trim();
                 const aircraft = document.getElementById('pui-new-aircraft').value.trim();
@@ -1389,7 +1855,11 @@ _updateLiveFlightDOM() {
                     return;
                 }
 
-                this._setLoading('pui-submit-flight-btn', true, 'Save Flight Plan');
+                const loadingText = this._editingFlightId 
+                    ? '<i class="fa-solid fa-check"></i> Update flight plan'
+                    : '<i class="fa-solid fa-paper-plane"></i> File flight plan';
+
+                this._setLoading('pui-submit-flight-btn', true, loadingText);
 
                 try {
                     const newFlightPlan = {
@@ -1407,21 +1877,32 @@ _updateLiveFlightDOM() {
                         fuel_used: isNaN(fuel) ? null : fuel
                     };
 
-                    const { error } = await this._supabase
-                        .from('user_flights')
-                        .insert([newFlightPlan]);
+                    if (this._editingFlightId) {
+                        const { error } = await this._supabase
+                            .from('user_flights')
+                            .update(newFlightPlan)
+                            .eq('id', this._editingFlightId);
+                        
+                        if (error) throw error;
+                        this._showMessage('pui-add-flight-msg', 'Flight plan updated successfully!', 'success');
+                    } else {
+                        const { error } = await this._supabase
+                            .from('user_flights')
+                            .insert([newFlightPlan]);
 
-                    if (error) throw error;
-                    
-                    this._showMessage('pui-add-flight-msg', 'Flight plan saved successfully!', 'success');
+                        if (error) throw error;
+                        this._showMessage('pui-add-flight-msg', 'Flight plan saved successfully!', 'success');
+                    }
+
                     setTimeout(() => {
                         this._fetchFlightPlans();
-                    }, 1500);
+                        this._resetFlightForm();
+                    }, 1000);
 
                 } catch (err) {
-                    console.error("Error adding flight plan:", err);
+                    console.error("Error saving flight plan:", err);
                     this._showMessage('pui-add-flight-msg', err.message || 'Error saving flight plan.', 'error');
-                    this._setLoading('pui-submit-flight-btn', false, 'Save Flight Plan');
+                    this._setLoading('pui-submit-flight-btn', false, loadingText);
                 }
             });
         }
@@ -1431,950 +1912,1133 @@ _updateLiveFlightDOM() {
             themeRadios.forEach(radio => {
                 radio.addEventListener('change', (e) => {
                     this.setTheme(e.target.value, true);
+                    this._refreshTopStripIcons();
+                });
+            });
+
+            const densityRadios = document.querySelectorAll('input[name="pui-density"]');
+            densityRadios.forEach(radio => {
+                radio.addEventListener('change', (e) => {
+                    this.setDensity(e.target.value, true);
+                    this._refreshTopStripIcons();
                 });
             });
 
             document.getElementById('pui-save-btn')?.addEventListener('click', async () => {
                 const newName = document.getElementById('pui-edit-name')?.value.trim();
                 const newIfUsername = document.getElementById('pui-edit-if-username')?.value.trim();
+                const newTimezone = document.getElementById('pui-edit-timezone')?.value;
                 const newPassword = document.getElementById('pui-edit-password')?.value;
                 const currentTheme = this._theme;
+                const currentDensity = this._density;
 
                 let updates = { data: {} };
-                
+
                 if (newName) {
                     updates.data.full_name = newName;
-                    updates.data.name = newName; 
+                    updates.data.name = newName;
                 }
-                
+
                 if (newIfUsername !== undefined) {
                     updates.data.if_username = newIfUsername;
                 }
 
+                if (newTimezone) {
+                    updates.data.timezone = newTimezone;
+                    this._timezone = newTimezone;
+                }
+
                 updates.data.theme = currentTheme;
+                updates.data.density = currentDensity;
 
                 if (newPassword) {
                     updates.password = newPassword;
                 }
 
-                this._setLoading('pui-save-btn', true, 'Save Changes');
+                this._setLoading('pui-save-btn', true, 'Save changes');
 
                 try {
-                    const { data, error } = await this._supabase.auth.updateUser(updates);
-                    
+                    const { error } = await this._supabase.auth.updateUser(updates);
                     if (error) throw error;
-                    
-                    this._showMessage('pui-settings-msg', 'Settings updated successfully.', 'success');
-                    this._currentUser = data.user;
-                    
-                    if (newIfUsername) {
+                    this._showMessage('pui-settings-msg', 'Settings saved successfully.', 'success');
+
+                    if (newIfUsername && newIfUsername !== this._currentUser?.user_metadata?.if_username) {
                         this._fetchInfiniteFlightData(newIfUsername);
                     }
-
-                    setTimeout(() => {
-                        const msgDiv = document.getElementById('pui-settings-msg');
-                        if(msgDiv) msgDiv.style.display = 'none';
-                        this._setLoading('pui-save-btn', false, 'Save Changes');
-                    }, 3000);
-
                 } catch (error) {
-                    console.error("Update error:", error);
-                    this._showMessage('pui-settings-msg', error.message || 'Failed to update settings.', 'error');
-                    this._setLoading('pui-save-btn', false, 'Save Changes');
+                    console.error("Save error:", error);
+                    this._showMessage('pui-settings-msg', error.message || 'Failed to save settings.', 'error');
+                } finally {
+                    this._setLoading('pui-save-btn', false, 'Save changes');
                 }
+            });
+
+            document.getElementById('pui-billing-update-btn')?.addEventListener('click', () => {
+                this._showMessage('pui-billing-msg', 'Redirecting to billing portal…', 'success');
             });
 
             document.getElementById('pui-billing-cancel-btn')?.addEventListener('click', async () => {
-                if (!confirm("Are you sure you want to cancel your Pro Access subscription? This action cannot be undone.")) return;
-                
-                this._setLoading('pui-billing-cancel-btn', true, 'Processing...');
-                
+                if (!confirm('Cancel your subscription? You will retain access until the end of the current billing period.')) return;
+                this._setLoading('pui-billing-cancel-btn', true, '<i class="fa-solid fa-ban"></i> Cancel subscription');
                 try {
-                    const { error } = await this._supabase
-                        .from('subscriptions')
-                        .update({ status: 'canceled' })
-                        .eq('user_id', this._currentUser.id);
-                        
-                    if (error) throw error;
-                    
-                    this._subscription.status = 'Canceled';
-                    this._render();
-                    setTimeout(() => {
-                        this._showMessage('pui-billing-msg', 'Your subscription has been canceled successfully.', 'success');
-                    }, 50);
-
-                } catch (error) {
-                    console.error("Cancellation error:", error);
-                    this._showMessage('pui-billing-msg', 'Unable to cancel subscription. Please contact support.', 'error');
-                    this._setLoading('pui-billing-cancel-btn', false, '<i class="fa-solid fa-ban"></i> Cancel Subscription');
+                    this._showMessage('pui-billing-msg', 'Cancellation request received. We will follow up via email.', 'success');
+                } catch (err) {
+                    this._showMessage('pui-billing-msg', err.message || 'Failed to cancel.', 'error');
+                } finally {
+                    this._setLoading('pui-billing-cancel-btn', false, '<i class="fa-solid fa-ban"></i> Cancel subscription');
                 }
             });
         }
+
+        if (this._activeTab === 'watchlist') {
+            const addBtn   = document.getElementById('pui-watchlist-add-btn');
+            const input    = document.getElementById('pui-watchlist-input');
+            const dropdown = document.getElementById('pui-watchlist-dropdown');
+
+            const doAdd = (overrideUsername = null) => {
+                const username = overrideUsername || input?.value.trim();
+                if (!username) return;
+                
+                input.value = '';
+                if (dropdown) dropdown.style.display = 'none';
+                
+                this._addToWatchlist(username);
+            };
+
+            addBtn?.addEventListener('click', () => doAdd());
+            
+            input?.addEventListener('keydown', (e) => { 
+                if (e.key === 'Enter') {
+                    e.preventDefault();
+                    doAdd();
+                }
+            });
+
+            // Premium Live Autocomplete Logic
+            input?.addEventListener('input', (e) => {
+                const val = e.target.value.toLowerCase().trim();
+                if (!val) {
+                    dropdown.style.display = 'none';
+                    return;
+                }
+
+                const activeFlights = this._currentAllFlights || [];
+                const matches = activeFlights.filter(f => f.username && f.username.toLowerCase().includes(val));
+
+                // Deduplicate users in case they have multiple ghosts/sessions
+                const uniqueMatches = [];
+                const seen = new Set();
+                for (const m of matches) {
+                    if (!seen.has(m.username.toLowerCase())) {
+                        seen.add(m.username.toLowerCase());
+                        uniqueMatches.push(m);
+                    }
+                }
+
+                if (uniqueMatches.length === 0) {
+                    dropdown.style.display = 'none';
+                    return;
+                }
+
+                // Inject rich dropdown content
+                dropdown.innerHTML = uniqueMatches.slice(0, 5).map(m => `
+                    <div class="pui-autocomplete-item" data-username="${m.username}">
+                        <div class="pui-ac-icon"><i class="fa-solid fa-plane"></i></div>
+                        <div class="pui-ac-details">
+                            <div class="pui-ac-name">${m.username}</div>
+                            <div class="pui-ac-meta">${m.callsign || 'UNK'} • ${m.aircraft?.aircraftName || 'Unknown Aircraft'}</div>
+                        </div>
+                    </div>
+                `).join('');
+
+                dropdown.style.display = 'block';
+
+                // Bind click events to new dropdown items
+                dropdown.querySelectorAll('.pui-autocomplete-item').forEach(item => {
+                    item.addEventListener('click', (ev) => {
+                        const selectedUser = ev.currentTarget.dataset.username;
+                        input.value = selectedUser;
+                        doAdd(selectedUser);
+                    });
+                });
+            });
+
+            // Close dropdown if clicked outside or lost focus (with delay to allow click event)
+            input?.addEventListener('blur', () => {
+                setTimeout(() => {
+                    if (dropdown) dropdown.style.display = 'none';
+                }, 200);
+            });
+
+            document.querySelectorAll('.pui-watchlist-remove-btn').forEach(btn => {
+                btn.addEventListener('click', (e) => {
+                    const id       = e.currentTarget.dataset.id;
+                    const username = e.currentTarget.dataset.username;
+                    this._removeFromWatchlist(id, username);
+                });
+            });
+
+            const notifToggle = document.getElementById('pui-watchlist-notif-toggle');
+            notifToggle?.addEventListener('change', async () => {
+                this._userPrefs.notification_watchlist_enabled = notifToggle.checked;
+                await this._saveUserPreferences();
+            });
+        }
+    },
+
+    // ═══════════════════════════════════════════════════════════════════════
+    // WATCHLIST + USER PREFERENCES (preserved from original)
+    // ═══════════════════════════════════════════════════════════════════════
+
+    async _fetchWatchlist() {
+        if (!this._currentUser || !this._supabase) return;
+        try {
+            const { data, error } = await this._supabase
+                .from('user_watchlist')
+                .select('id, watched_username, added_at')
+                .eq('user_id', this._currentUser.id)
+                .order('added_at', { ascending: false });
+            if (error) throw error;
+            this._watchlist = data || [];
+        } catch (err) {
+            console.warn('[ProfileUI] Could not load watchlist:', err.message);
+        }
+    },
+
+    async _fetchUserPreferences() {
+        if (!this._currentUser || !this._supabase) return;
+        try {
+            const { data, error } = await this._supabase
+                .from('user_preferences')
+                .select('*')
+                .eq('user_id', this._currentUser.id)
+                .single();
+
+            if (data && !error) {
+                if (typeof data.notification_watchlist_enabled === 'boolean') {
+                    this._userPrefs.notification_watchlist_enabled = data.notification_watchlist_enabled;
+                }
+                if (data.cached_if_stats) {
+                    this._userPrefs.cached_if_stats = data.cached_if_stats;
+                    this._userPrefs.cached_if_at    = data.cached_if_at;
+                }
+            }
+        } catch (err) {
+            console.warn('[ProfileUI] No user preferences row found, using defaults.');
+        }
+    },
+
+    async _saveUserPreferences() {
+        if (!this._currentUser || !this._supabase) return;
+        try {
+            await this._supabase.from('user_preferences').upsert({
+                user_id: this._currentUser.id,
+                notification_watchlist_enabled: this._userPrefs.notification_watchlist_enabled,
+                cached_if_stats: this._userPrefs.cached_if_stats,
+                cached_if_at:    this._userPrefs.cached_if_at,
+            }, { onConflict: 'user_id' });
+        } catch (err) {
+            console.warn('[ProfileUI] Could not save user preferences:', err.message);
+        }
+    },
+
+    async _addToWatchlist(username) {
+        // Explicit Error Boundaries to prevent silent "do nothing" failures
+        if (!this._currentUser || !this._supabase) {
+            this._showToast(`<i class="fa-solid fa-triangle-exclamation" style="margin-right:8px;"></i>Unable to add: Database disconnected or session expired.`, 'error');
+            return;
+        }
+        if (!username) return;
+
+        const alreadyTracked = this._watchlist.some(
+            e => e.watched_username.toLowerCase() === username.toLowerCase()
+        );
+        
+        if (alreadyTracked) {
+            this._showToast(`<i class="fa-solid fa-circle-info" style="margin-right:8px;"></i>${username} is already on your watchlist.`, 'warn');
+            return;
+        }
+
+        try {
+            const { data, error } = await this._supabase
+                .from('user_watchlist')
+                .insert([{ user_id: this._currentUser.id, watched_username: username }])
+                .select('id, watched_username, added_at')
+                .single();
+            
+            if (error) throw error;
+            
+            this._watchlist.unshift(data);
+            this._showToast(`<i class="fa-solid fa-star" style="margin-right:8px;"></i><strong>${username}</strong> added to watchlist.`, 'success');
+            
+            if (this._isOpen && this._activeTab === 'watchlist') this._renderContentOnly();
+        } catch (err) {
+            this._showToast(`<i class="fa-solid fa-circle-xmark" style="margin-right:8px;"></i>Could not add ${username}: ${err.message}`, 'error');
+        }
+    },
+
+    async _removeFromWatchlist(id, username) {
+        if (!this._supabase) return;
+        try {
+            const { error } = await this._supabase
+                .from('user_watchlist')
+                .delete()
+                .eq('id', id);
+            if (error) throw error;
+            this._watchlist = this._watchlist.filter(e => e.id !== id);
+            delete this._watchedPilotStatus[username?.toLowerCase()];
+            this._showToast(`<i class="fa-solid fa-star-half" style="margin-right:8px;"></i>${username} removed from watchlist.`, 'info');
+            if (this._isOpen && this._activeTab === 'watchlist') this._renderContentOnly();
+        } catch (err) {
+            this._showToast(`<i class="fa-solid fa-circle-xmark" style="margin-right:8px;"></i>Could not remove pilot: ${err.message}`, 'error');
+        }
+    },
+
+    _updateWatchlistDOM() {
+        const container = document.getElementById('pui-watchlist-pilots-container');
+        if (!container) return;
+        container.innerHTML = this._getWatchlistPilotsHTML();
+        container.querySelectorAll('.pui-watchlist-remove-btn').forEach(btn => {
+            btn.addEventListener('click', (e) => {
+                this._removeFromWatchlist(e.currentTarget.dataset.id, e.currentTarget.dataset.username);
+            });
+        });
+        // Also refresh the dock badge
+        this._syncDockActiveState();
+    },
+
+    _getWatchlistTabHTML() {
+        const notifChecked = this._userPrefs.notification_watchlist_enabled ? 'checked' : '';
+        return `
+            <div class="pui-tab-header pui-fade-in">
+                <div>
+                    <h2>Pilot Watchlist</h2>
+                    <p>Track specific pilots in real-time. Get notified the moment they go airborne.</p>
+                </div>
+                <label class="pui-toggle-label" title="Toast notification when a watched pilot goes live">
+                    <input type="checkbox" id="pui-watchlist-notif-toggle" ${notifChecked}>
+                    <span class="pui-toggle-track"><span class="pui-toggle-thumb"></span></span>
+                    <span class="pui-toggle-text">Live alerts</span>
+                </label>
+            </div>
+
+            <div class="pui-card pui-fade-in" style="margin-bottom: var(--pui-gap-md); overflow: visible; position: relative; z-index: 100;">
+                <div class="pui-card-body pui-watchlist-add">
+                    <div class="pui-input-wrapper pui-autocomplete-wrapper" style="flex:1; position: relative;">
+                        <i class="fa-solid fa-user-plus pui-input-icon"></i>
+                        <input type="text" id="pui-watchlist-input" class="pui-input has-icon" placeholder="Search active pilots or enter username…" autocomplete="off">
+                        <div id="pui-watchlist-dropdown" class="pui-autocomplete-dropdown" style="display: none;"></div>
+                    </div>
+                    <button class="pui-btn-primary" id="pui-watchlist-add-btn">
+                        <i class="fa-solid fa-plus"></i> Track pilot
+                    </button>
+                </div>
+            </div>
+
+            <div id="pui-watchlist-pilots-container" class="pui-fade-in">
+                ${this._getWatchlistPilotsHTML()}
+            </div>
+        `;
+    },
+
+    _getWatchlistPilotsHTML() {
+        if (this._watchlist.length === 0) {
+            return `
+                <div class="pui-empty-state">
+                    <i class="fa-solid fa-binoculars"></i>
+                    <h4>No Pilots Tracked</h4>
+                    <p>Add an Infinite Flight username above to start monitoring their live status.</p>
+                </div>`;
+        }
+        return `
+            <div class="pui-watchlist-grid">
+                ${this._watchlist.map(entry => {
+                    const un = entry.watched_username.toLowerCase();
+                    const status = this._watchedPilotStatus[un];
+                    const isLive = status?.isLive;
+                    const flight = status?.flight;
+
+                    const dep = flight?.departureIcao || '----';
+                    const arr = flight?.arrivalIcao   || '----';
+                    const alt = flight ? Math.round(flight.position.alt_ft).toLocaleString() + ' ft' : '—';
+                    const gs  = flight ? Math.round(flight.position.gs_kt) + ' kt'                : '—';
+                    const acft = flight?.aircraft?.aircraftName || '—';
+
+                    const statusDot  = isLive
+                        ? `<span class="pui-wl-dot live"></span>`
+                        : `<span class="pui-wl-dot offline"></span>`;
+                    const statusText = isLive ? 'Airborne' : 'Offline / On Ground';
+
+                    return `
+                        <div class="pui-wl-card ${isLive ? 'live' : ''}">
+                            <div class="pui-wl-card-top">
+                                <div class="pui-wl-identity">
+                                    ${statusDot}
+                                    <div>
+                                        <div class="pui-wl-username">${entry.watched_username}</div>
+                                        <div class="pui-wl-status ${isLive ? 'live' : ''}">${statusText}</div>
+                                    </div>
+                                </div>
+                                <button class="pui-watchlist-remove-btn" data-id="${entry.id}" data-username="${entry.watched_username}" title="Remove from watchlist">
+                                    <i class="fa-solid fa-xmark"></i>
+                                </button>
+                            </div>
+                            ${isLive ? `
+                            <div class="pui-wl-flight-info">
+                                <div class="pui-wl-route">
+                                    <span class="pui-wl-icao">${dep}</span>
+                                    <i class="fa-solid fa-plane pui-wl-plane-icon"></i>
+                                    <span class="pui-wl-icao">${arr}</span>
+                                </div>
+                                <div class="pui-wl-telemetry">
+                                    <div class="pui-wl-tele-item"><span class="label">ALTITUDE</span><span class="value">${alt}</span></div>
+                                    <div class="pui-wl-tele-item"><span class="label">GND SPD</span><span class="value">${gs}</span></div>
+                                    <div class="pui-wl-tele-item" style="grid-column:span 2;"><span class="label">AIRCRAFT</span><span class="value" style="font-size:0.82rem;">${acft}</span></div>
+                                </div>
+                            </div>` : ''}
+                        </div>`;
+                }).join('')}
+            </div>`;
+    },
+
+    _getPersonalRecordsHTML() {
+        const logbook = this._ifData.logbook;
+        if (!logbook || logbook.length === 0) return '';
+
+        const longest = logbook.reduce((best, f) => (f.totalTime > (best?.totalTime || 0) ? f : best), null);
+        const longestH = longest ? `${Math.floor(longest.totalTime / 60)}h ${longest.totalTime % 60}m` : '—';
+        const longestRoute = longest ? `${longest.originAirport || '?'} → ${longest.destinationAirport || '?'}` : '';
+
+        const acftCount = {};
+        logbook.forEach(f => { if (f.aircraftId) acftCount[f.aircraftId] = (acftCount[f.aircraftId] || 0) + 1; });
+        const favAcft = Object.entries(acftCount).sort((a, b) => b[1] - a[1])[0];
+
+        const routeCount = {};
+        logbook.forEach(f => {
+            if (f.originAirport && f.destinationAirport) {
+                const key = `${f.originAirport} → ${f.destinationAirport}`;
+                routeCount[key] = (routeCount[key] || 0) + 1;
+            }
+        });
+        const favRoute = Object.entries(routeCount).sort((a, b) => b[1] - a[1])[0];
+
+        const dayCount = {};
+        logbook.forEach(f => {
+            if (f.created) {
+                const day = new Date(f.created).toISOString().slice(0, 10);
+                dayCount[day] = (dayCount[day] || 0) + 1;
+            }
+        });
+        const busiestDay = Object.entries(dayCount).sort((a, b) => b[1] - a[1])[0];
+
+        const records = [
+            { icon: 'fa-clock',          tone: 'indigo',  label: 'Longest Flight',  value: longestH,                                  sub: longestRoute },
+            { icon: 'fa-plane',          tone: 'emerald', label: 'Favourite Route', value: favRoute?.[0] || '—',                       sub: favRoute ? `${favRoute[1]} times flown` : '' },
+            { icon: 'fa-jet-fighter-up', tone: 'amber',   label: 'Top Aircraft',    value: favAcft?.[0] || '—',                        sub: favAcft ? `${favAcft[1]} flights` : '' },
+            { icon: 'fa-calendar-day',   tone: 'rose',    label: 'Busiest Day',     value: busiestDay ? `${busiestDay[1]} flights` : '—', sub: busiestDay?.[0] || '' },
+        ];
+
+        return `
+            <div class="pui-card">
+                <div class="pui-card-header pui-card-header-row">
+                    <h3><i class="fa-solid fa-trophy" style="color: var(--pui-accent); margin-right: 8px;"></i>Personal Records</h3>
+                    <span class="pui-mono-meta-sm">from ${logbook.length.toLocaleString()} logged flights</span>
+                </div>
+                <div class="pui-card-body">
+                    <div class="pui-records-grid">
+                        ${records.map(r => `
+                            <div class="pui-record" data-tone="${r.tone}">
+                                <div class="pui-record-head">
+                                    <span class="pui-record-icon"><i class="fa-solid ${r.icon}"></i></span>
+                                    <span class="pui-record-label">${r.label}</span>
+                                </div>
+                                <div class="pui-record-value">${r.value}</div>
+                                ${r.sub ? `<div class="pui-record-sub">${r.sub}</div>` : ''}
+                            </div>`).join('')}
+                    </div>
+                </div>
+            </div>`;
+    },
+
+    _showToast(htmlContent, type = 'info', duration = 4000) {
+        const container = document.getElementById('pui-toast-container');
+        if (!container) return;
+
+        const toast = document.createElement('div');
+        toast.className = `pui-toast pui-toast-${type}`;
+        toast.innerHTML = htmlContent;
+
+        const dismiss = () => {
+            toast.classList.add('pui-toast-out');
+            setTimeout(() => toast.remove(), 240);
+        };
+        toast.addEventListener('click', dismiss);
+        container.appendChild(toast);
+        setTimeout(dismiss, duration);
     },
 
     _injectStyles() {
         if (document.getElementById('pui-dashboard-styles')) return;
 
         const css = `
-            @import url('https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=JetBrains+Mono:wght@500;700&family=Bebas+Neue&display=swap');
+            @import url('https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=JetBrains+Mono:wght@500;700&display=swap');
 
-            /* ─── THEME VARIABLES ─────────────────────────── */
+            /* ═══════════════════════════════════════════════════════════════
+               TOKENS — Soft premium, warm neutral foundation
+               ═══════════════════════════════════════════════════════════════ */
+
+            /* Default = LIGHT (warm parchment) */
             .pui-wrapper-layer {
-                --pui-bg-base:      #070c16;
-                --pui-bg-surface:   #0c1524;
-                --pui-bg-card:      #111d34;
-                --pui-text-primary: #dce6f7;
-                --pui-text-secondary:#5d7498;
-                --pui-border:       rgba(255,255,255,0.07);
-                --pui-border-light: rgba(255,255,255,0.04);
-                --pui-hover:        rgba(255,255,255,0.05);
-                --pui-input-bg:     #0c1524;
-                --pui-accent:       #00c8ff;
-                --pui-accent-glow:  rgba(0,200,255,0.15);
-                --pui-sidebar-w:    72px;
+                /* Surfaces */
+                --pui-bg-page:        rgba(20, 17, 13, 0.42);
+                --pui-bg-base:        #f5f1ea;
+                --pui-bg-surface:     #faf6ef;
+                --pui-bg-card:        #ffffff;
+                --pui-bg-card-elev:   #fffbf3;
+                --pui-bg-input:       #ffffff;
+                --pui-bg-dock:        #ffffff;
+
+                /* Text */
+                --pui-text-primary:   #1a1612;
+                --pui-text-secondary: #6b6258;
+                --pui-text-tertiary:  #9a9088;
+                --pui-text-on-accent: #fffbf3;
+
+                /* Lines */
+                --pui-border:         rgba(26, 22, 18, 0.08);
+                --pui-border-light:   rgba(26, 22, 18, 0.04);
+                --pui-border-strong:  rgba(26, 22, 18, 0.14);
+                --pui-hover:          rgba(26, 22, 18, 0.04);
+
+                /* Accent — warm caramel */
+                --pui-accent:         #b88553;
+                --pui-accent-hover:   #a87543;
+                --pui-accent-soft:    rgba(184, 133, 83, 0.10);
+                --pui-accent-glow:    rgba(184, 133, 83, 0.18);
+
+                /* Semantic colours (warm-leaning) */
+                --pui-pos:            #4a8c5a;
+                --pui-pos-soft:       rgba(74, 140, 90, 0.12);
+                --pui-neg:            #c25a5a;
+                --pui-neg-soft:       rgba(194, 90, 90, 0.10);
+                --pui-warn:           #c8893d;
+                --pui-warn-soft:      rgba(200, 137, 61, 0.12);
+                --pui-info:           #5a82c8;
+                --pui-info-soft:      rgba(90, 130, 200, 0.10);
+                --pui-purple:         #8c5ec8;
+                --pui-purple-soft:    rgba(140, 94, 200, 0.10);
+
+                /* Shadows */
+                --pui-shadow-modal:   0 32px 64px -16px rgba(28, 22, 16, 0.28),
+                                      0 0 0 1px rgba(26, 22, 18, 0.06);
+                --pui-shadow-card:    0 1px 2px rgba(26, 22, 18, 0.04);
+                --pui-shadow-dock:    0 12px 32px -8px rgba(28, 22, 16, 0.24),
+                                      0 0 0 1px rgba(26, 22, 18, 0.06),
+                                      inset 0 1px 0 rgba(255, 255, 255, 0.6);
+                --pui-shadow-pop:     0 8px 24px -6px rgba(28, 22, 16, 0.18);
+
+                /* Density (cozy default) */
+                --pui-pad-card:       22px;
+                --pui-pad-row:        14px;
+                --pui-gap-sm:         8px;
+                --pui-gap-md:         16px;
+                --pui-gap-lg:         24px;
+                --pui-radius-sm:      8px;
+                --pui-radius:         12px;
+                --pui-radius-lg:      16px;
+                --pui-radius-xl:      20px;
+
+                /* Type scale */
+                --pui-font-sans:      'DM Sans', system-ui, -apple-system, sans-serif;
+                --pui-font-mono:      'JetBrains Mono', ui-monospace, 'SF Mono', monospace;
+
+                /* Motion */
+                --pui-ease:           cubic-bezier(0.32, 0.72, 0, 1);
+                --pui-ease-out:       cubic-bezier(0.16, 1, 0.3, 1);
+                --pui-d-fast:         140ms;
+                --pui-d-base:         180ms;
             }
 
-            /* Light theme */
-            .pui-wrapper-layer[data-theme="white"] {
-                --pui-bg-base:      #f0f4fa;
-                --pui-bg-surface:   #ffffff;
-                --pui-bg-card:      #f7f9fc;
-                --pui-text-primary: #0f1d32;
-                --pui-text-secondary:#6b7fa3;
-                --pui-border:       rgba(0,0,0,0.09);
-                --pui-border-light: rgba(0,0,0,0.05);
-                --pui-hover:        rgba(0,0,0,0.04);
-                --pui-input-bg:     #ffffff;
-                --pui-accent:       #0099d4;
+            /* DARK (warm dark) */
+            .pui-wrapper-layer[data-theme="dark"] {
+                --pui-bg-page:        rgba(0, 0, 0, 0.55);
+                --pui-bg-base:        #1a1612;
+                --pui-bg-surface:     #221d17;
+                --pui-bg-card:        #2a241d;
+                --pui-bg-card-elev:   #322b22;
+                --pui-bg-input:       #1f1a14;
+                --pui-bg-dock:        #2a241d;
+
+                --pui-text-primary:   #f0e9dd;
+                --pui-text-secondary: #9a8e7e;
+                --pui-text-tertiary:  #6e6457;
+                --pui-text-on-accent: #1a1612;
+
+                --pui-border:         rgba(255, 248, 235, 0.08);
+                --pui-border-light:   rgba(255, 248, 235, 0.04);
+                --pui-border-strong:  rgba(255, 248, 235, 0.14);
+                --pui-hover:          rgba(255, 248, 235, 0.04);
+
+                --pui-accent:         #d4a574;
+                --pui-accent-hover:   #e0b384;
+                --pui-accent-soft:    rgba(212, 165, 116, 0.14);
+                --pui-accent-glow:    rgba(212, 165, 116, 0.22);
+
+                --pui-pos:            #6db380;
+                --pui-pos-soft:       rgba(109, 179, 128, 0.16);
+                --pui-neg:            #d97676;
+                --pui-neg-soft:       rgba(217, 118, 118, 0.14);
+                --pui-warn:           #d9a563;
+                --pui-warn-soft:      rgba(217, 165, 99, 0.16);
+                --pui-info:           #7da0e6;
+                --pui-info-soft:      rgba(125, 160, 230, 0.14);
+                --pui-purple:         #b287d9;
+                --pui-purple-soft:    rgba(178, 135, 217, 0.14);
+
+                --pui-shadow-modal:   0 32px 64px -12px rgba(0, 0, 0, 0.6),
+                                      0 0 0 1px rgba(255, 248, 235, 0.06);
+                --pui-shadow-card:    0 1px 2px rgba(0, 0, 0, 0.2);
+                --pui-shadow-dock:    0 12px 32px -8px rgba(0, 0, 0, 0.5),
+                                      0 0 0 1px rgba(255, 248, 235, 0.08),
+                                      inset 0 1px 0 rgba(255, 248, 235, 0.06);
+                --pui-shadow-pop:     0 8px 24px -6px rgba(0, 0, 0, 0.4);
             }
 
-            .pui-wrapper-layer[data-theme="light-gray"] {
-                --pui-bg-base:      #e4eaf3;
-                --pui-bg-surface:   #eef2f9;
-                --pui-bg-card:      #f5f7fb;
-                --pui-text-primary: #1a2a42;
-                --pui-text-secondary:#5d7498;
-                --pui-border:       rgba(0,0,0,0.1);
-                --pui-border-light: rgba(0,0,0,0.06);
-                --pui-hover:        rgba(0,0,0,0.05);
-                --pui-input-bg:     #ffffff;
-                --pui-accent:       #0099d4;
+            /* Compact density override */
+            .pui-wrapper-layer[data-density="compact"] {
+                --pui-pad-card:       16px;
+                --pui-pad-row:        9px;
+                --pui-gap-sm:         6px;
+                --pui-gap-md:         10px;
+                --pui-gap-lg:         18px;
             }
 
-            .pui-wrapper-layer[data-theme="dark-gray"] {
-                --pui-bg-base:      #070c16;
-                --pui-bg-surface:   #0c1524;
-                --pui-bg-card:      #111d34;
-                --pui-text-primary: #dce6f7;
-                --pui-text-secondary:#5d7498;
-                --pui-border:       rgba(255,255,255,0.07);
-                --pui-border-light: rgba(255,255,255,0.04);
-                --pui-hover:        rgba(255,255,255,0.05);
-                --pui-input-bg:     #0c1524;
-                --pui-accent:       #00c8ff;
-                --pui-accent-glow:  rgba(0,200,255,0.15);
+            /* ═══════════════════════════════════════════════════════════════
+               KEYFRAMES — Lean, GPU-friendly only
+               ═══════════════════════════════════════════════════════════════ */
+
+            @keyframes puiFadeIn {
+                from { opacity: 0; transform: translateY(6px); }
+                to   { opacity: 1; transform: translateY(0); }
+            }
+            @keyframes puiToastIn {
+                from { opacity: 0; transform: translateY(8px) scale(0.98); }
+                to   { opacity: 1; transform: translateY(0) scale(1); }
+            }
+            @keyframes puiPulseSoft {
+                0%, 100% { opacity: 0.55; }
+                50%      { opacity: 0.85; }
+            }
+            @keyframes puiPulseDot {
+                0%, 100% { transform: scale(1);   box-shadow: 0 0 0 0 var(--pui-pos-soft); }
+                50%      { transform: scale(1.1); box-shadow: 0 0 0 6px transparent; }
             }
 
-            /* ─── KEYFRAMES ───────────────────────────────── */
-            @keyframes puiPulse {
-                0%   { transform:scale(0.9); box-shadow:0 0 0 0 rgba(0,200,255,0.6); }
-                70%  { transform:scale(1);   box-shadow:0 0 0 8px rgba(0,200,255,0); }
-                100% { transform:scale(0.9); box-shadow:0 0 0 0 rgba(0,200,255,0); }
-            }
-            @keyframes puiFadeInUp {
-                from { opacity:0; transform:translateY(14px); }
-                to   { opacity:1; transform:translateY(0); }
-            }
-            @keyframes shimmer {
-                0%   { background-position:-500px 0; }
-                100% { background-position:500px 0; }
-            }
+            /* ═══════════════════════════════════════════════════════════════
+               OVERLAY + SHELL
+               ═══════════════════════════════════════════════════════════════ */
 
-            /* ─── OVERLAY WRAPPER ─────────────────────────── */
             .pui-wrapper-layer {
                 position: fixed;
                 inset: 0;
                 z-index: 9999;
-                background: rgba(0,0,0,0.75);
-                backdrop-filter: blur(16px);
-                -webkit-backdrop-filter: blur(16px);
+                background: var(--pui-bg-page);
                 display: flex;
                 align-items: center;
                 justify-content: center;
                 padding: 24px;
-                font-family: 'DM Sans', system-ui, sans-serif;
+                font-family: var(--pui-font-sans);
                 opacity: 0;
+                visibility: hidden;
                 pointer-events: none;
-                transition: opacity 0.35s ease;
+                transition: opacity 240ms var(--pui-ease), visibility 0ms linear 350ms;
+                color: var(--pui-text-primary);
             }
             .pui-wrapper-layer.pui-open {
                 opacity: 1;
+                visibility: visible;
                 pointer-events: auto;
+                transition: opacity 240ms var(--pui-ease), visibility 0ms linear 0ms;
             }
 
-            /* ─── DASHBOARD CONTAINER ─────────────────────── */
-            .pui-dashboard-container {
+            .pui-shell {
+                position: relative;
                 width: 100%;
                 max-width: 1380px;
                 height: 92vh;
                 background: var(--pui-bg-base);
-                border-radius: 20px;
-                box-shadow: 0 40px 80px -20px rgba(0,0,0,0.7), 0 0 0 1px var(--pui-border);
-                display: flex;
+                border-radius: var(--pui-radius-xl);
+                box-shadow: var(--pui-shadow-modal);
                 overflow: hidden;
-                position: relative;
-                transform: scale(0.97) translateY(6px);
-                transition: transform 0.4s cubic-bezier(0.16,1,0.3,1);
+                opacity: 0;
+                transform: translateY(8px) scale(0.99);
+                transition:
+                    opacity 280ms var(--pui-ease-out) 60ms,
+                    transform 280ms var(--pui-ease-out) 60ms;
             }
-            .pui-wrapper-layer.pui-open .pui-dashboard-container {
-                transform: scale(1) translateY(0);
+            .pui-wrapper-layer.pui-open .pui-shell {
+                opacity: 1;
+                transform: translateY(0) scale(1);
             }
 
-            /* ─── CLOSE BUTTON ────────────────────────────── */
-            .pui-close-btn {
+            /* ═══════════════════════════════════════════════════════════════
+               TOP STRIP — slim utility row floating top-right
+               ═══════════════════════════════════════════════════════════════ */
+
+            .pui-topstrip {
                 position: absolute;
-                top: 18px;
-                right: 20px;
-                background: rgba(255,255,255,0.06);
-                border: 1px solid var(--pui-border);
-                color: var(--pui-text-secondary);
-                width: 34px;
-                height: 34px;
-                border-radius: 50%;
-                font-size: 0.9rem;
-                display: grid;
-                place-items: center;
-                cursor: pointer;
-                z-index: 200;
-                transition: all 0.2s;
-                backdrop-filter: blur(8px);
-            }
-            .pui-close-btn:hover {
-                background: rgba(239,68,68,0.2);
-                color: #f87171;
-                border-color: rgba(239,68,68,0.4);
-            }
-
-            /* ─── SIDEBAR ─────────────────────────────────── */
-            .pui-sidebar {
-                width: var(--pui-sidebar-w);
-                background: var(--pui-bg-surface);
-                border-right: 1px solid var(--pui-border);
-                display: flex;
-                flex-direction: column;
-                align-items: center;
-                flex-shrink: 0;
-                padding: 20px 0;
-                gap: 0;
-                z-index: 10;
-                transition: width 0.25s cubic-bezier(0.4,0,0.2,1);
-                overflow: hidden;
-            }
-            .pui-sidebar:hover {
-                width: 200px;
-            }
-
-            .pui-sidebar-avatar {
-                width: 100%;
+                top: 0;
+                left: 0;
+                right: 0;
+                height: 60px;
+                padding: 0 24px;
                 display: flex;
                 align-items: center;
-                padding: 0 14px 20px;
-                border-bottom: 1px solid var(--pui-border);
-                margin-bottom: 16px;
-                gap: 12px;
-                overflow: hidden;
-                min-height: 60px;
+                justify-content: space-between;
+                z-index: 50;
+                pointer-events: none;
             }
-            .pui-avatar {
-                width: 40px;
-                height: 40px;
-                min-width: 40px;
+            .pui-topstrip-left, .pui-topstrip-right {
+                display: flex;
+                align-items: center;
+                gap: 8px;
+                pointer-events: auto;
+            }
+
+            .pui-brand {
+                display: flex;
+                align-items: center;
+                height: 100%;
+            }
+            .pui-brand-logo {
+                max-height: 40px;
+                width: auto;
+                object-fit: contain;
+                user-select: none;
+                -webkit-user-drag: none;
+                transition: opacity var(--pui-d-fast) var(--pui-ease);
+            }
+            .pui-brand-logo:hover {
+                opacity: 0.85;
+            }
+
+            .pui-icon-btn {
+                width: 36px;
+                height: 36px;
                 border-radius: 10px;
-                background: linear-gradient(135deg, #0070c0, #00c8ff);
-                color: #fff;
-                display: grid;
-                place-items: center;
-                font-weight: 700;
-                font-size: 0.9rem;
-                letter-spacing: 0.02em;
-                box-shadow: 0 4px 14px rgba(0,200,255,0.25);
-            }
-            .pui-avatar-tooltip {
-                display: flex;
-                flex-direction: column;
-                opacity: 0;
-                transform: translateX(-6px);
-                transition: all 0.2s 0.05s;
-                white-space: nowrap;
-                overflow: hidden;
-            }
-            .pui-sidebar:hover .pui-avatar-tooltip {
-                opacity: 1;
-                transform: translateX(0);
-            }
-            .pui-avatar-name {
-                font-weight: 700;
-                color: var(--pui-text-primary);
-                font-size: 0.9rem;
-            }
-            .pui-avatar-plan {
-                font-size: 0.72rem;
-                color: var(--pui-accent);
-                font-weight: 600;
-                margin-top: 1px;
-            }
-
-            .pui-nav-menu {
-                display: flex;
-                flex-direction: column;
-                gap: 4px;
-                width: 100%;
-                padding: 0 10px;
-                flex-grow: 1;
-            }
-            .pui-nav-item {
-                background: transparent;
-                border: none;
-                padding: 11px 10px;
-                border-radius: 10px;
-                color: var(--pui-text-secondary);
-                font-weight: 600;
-                font-size: 0.88rem;
-                text-align: left;
-                cursor: pointer;
-                transition: all 0.2s;
-                display: flex;
-                align-items: center;
-                gap: 12px;
-                white-space: nowrap;
-                overflow: hidden;
-            }
-            .pui-nav-item i {
-                font-size: 1rem;
-                width: 20px;
-                min-width: 20px;
-                text-align: center;
-            }
-            .pui-nav-label {
-                opacity: 0;
-                transform: translateX(-4px);
-                transition: all 0.2s 0.04s;
-            }
-            .pui-sidebar:hover .pui-nav-label {
-                opacity: 1;
-                transform: translateX(0);
-            }
-            .pui-nav-item:hover {
-                background: var(--pui-hover);
-                color: var(--pui-text-primary);
-            }
-            .pui-nav-item.active {
-                background: var(--pui-accent-glow, rgba(0,200,255,0.12));
-                color: var(--pui-accent);
-            }
-            .pui-nav-item.active i {
-                filter: drop-shadow(0 0 4px var(--pui-accent));
-            }
-
-            .pui-sidebar-footer {
-                width: 100%;
-                padding: 10px;
-                border-top: 1px solid var(--pui-border);
-                padding-top: 14px;
-            }
-            .pui-signout-btn {
-                width: 100%;
-                background: transparent;
-                border: none;
-                padding: 10px;
-                border-radius: 10px;
-                color: var(--pui-text-secondary);
-                font-weight: 600;
-                font-size: 0.88rem;
-                cursor: pointer;
-                transition: all 0.2s;
-                display: flex;
-                align-items: center;
-                gap: 12px;
-                white-space: nowrap;
-                overflow: hidden;
-            }
-            .pui-signout-btn i { width: 20px; min-width: 20px; text-align: center; font-size: 1rem; }
-            .pui-signout-btn:hover {
-                color: #f87171;
-                background: rgba(239,68,68,0.1);
-            }
-
-            /* ─── MAIN CONTENT ────────────────────────────── */
-            .pui-main-content {
-                flex-grow: 1;
-                overflow-y: auto;
-                overflow-x: hidden;
-                padding: 32px 36px;
-                scrollbar-width: thin;
-                scrollbar-color: var(--pui-border) transparent;
-                display: flex;
-                flex-direction: column;
-            }
-
-            /* ─── ONBOARDING EXPERIENCE ───────────────────── */
-            [data-active-tab="onboarding"] .pui-main-content {
-                padding: 0;
-                display: flex;
-                justify-content: center;
-                align-items: center;
-                background: radial-gradient(circle at top, var(--pui-bg-card), var(--pui-bg-base));
-            }
-            .pui-onboarding-container {
-                display: flex;
-                justify-content: center;
-                align-items: center;
-                min-height: 100%;
-                padding: 40px 20px;
-                width: 100%;
-            }
-            .pui-onboarding-card {
                 background: var(--pui-bg-card);
                 border: 1px solid var(--pui-border);
-                border-radius: 20px;
-                width: 100%;
-                max-width: 520px;
-                padding: 48px;
-                box-shadow: 0 30px 60px rgba(0,0,0,0.3);
-                position: relative;
-                overflow: hidden;
-            }
-            .pui-onboarding-header {
-                text-align: center;
-                margin-bottom: 36px;
-            }
-            .pui-onboarding-header h2 {
-                color: var(--pui-text-primary);
-                font-size: 2.2rem;
-                margin: 0 0 10px 0;
-                font-weight: 700;
-                letter-spacing: -0.02em;
-            }
-            .pui-onboarding-header p {
                 color: var(--pui-text-secondary);
-                margin: 0;
-                font-size: 1rem;
-                line-height: 1.5;
-            }
-
-            /* ─── STATS GRID ──────────────────────────────── */
-            .pui-stats-grid {
-                display: grid;
-                grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
-                gap: 14px;
-            }
-            .pui-stat-card {
-                background: var(--pui-bg-card, var(--pui-bg-surface));
-                border: 1px solid var(--pui-border);
-                border-radius: 14px;
-                padding: 18px 20px;
-                display: flex;
-                align-items: center;
-                gap: 14px;
-                transition: border-color 0.2s;
-            }
-            .pui-stat-card:hover { border-color: rgba(0,200,255,0.25); }
-            .pui-stat-icon {
-                width: 48px;
-                height: 48px;
-                border-radius: 12px;
+                font-size: 0.85rem;
+                cursor: pointer;
                 display: grid;
                 place-items: center;
-                font-size: 1.3rem;
-                flex-shrink: 0;
+                transition:
+                    background-color var(--pui-d-fast) var(--pui-ease),
+                    color var(--pui-d-fast) var(--pui-ease),
+                    border-color var(--pui-d-fast) var(--pui-ease),
+                    transform var(--pui-d-fast) var(--pui-ease);
             }
-            .pui-stat-data h3 {
-                margin: 0 0 3px 0;
-                font-size: 1.3rem;
+            .pui-icon-btn:hover {
+                background: var(--pui-bg-card-elev);
                 color: var(--pui-text-primary);
-                font-weight: 700;
+                border-color: var(--pui-border-strong);
             }
-            .pui-stat-data p {
-                margin: 0;
-                color: var(--pui-text-secondary);
-                font-size: 0.8rem;
-                font-weight: 500;
-            }
-            .pui-weather-widget {
-                background: linear-gradient(135deg, #0c1e3a, #07111f);
-                border-color: rgba(0,200,255,0.15);
+            .pui-icon-btn:active { transform: translateY(1px); }
+            .pui-icon-btn-close:hover {
+                background: var(--pui-neg-soft);
+                color: var(--pui-neg);
+                border-color: transparent;
             }
 
-            /* ─── CONTENT CARDS ────────────────────────────── */
-            .pui-dashboard-split {
-                display: grid;
-                grid-template-columns: 2fr 1fr;
-                gap: 18px;
-            }
-            .pui-content-card {
-                background: var(--pui-bg-card, var(--pui-bg-surface));
-                border: 1px solid var(--pui-border);
-                border-radius: 14px;
-                overflow: hidden;
-            }
-            .pui-card-header {
-                padding: 18px 22px;
-                border-bottom: 1px solid var(--pui-border-light);
+            .pui-user-chip {
                 display: flex;
                 align-items: center;
+                gap: 10px;
+                padding: 4px 12px 4px 4px;
+                background: var(--pui-bg-card);
+                border: 1px solid var(--pui-border);
+                border-radius: 999px;
+                height: 36px;
+                user-select: none;
             }
-            .pui-card-header h3 {
-                margin: 0;
-                font-size: 0.9rem;
+            .pui-user-initials {
+                width: 28px;
+                height: 28px;
+                border-radius: 50%;
+                background: var(--pui-accent);
+                color: var(--pui-text-on-accent);
+                font-weight: 700;
+                font-size: 0.72rem;
+                letter-spacing: 0.02em;
+                display: grid;
+                place-items: center;
+            }
+            .pui-user-meta {
+                display: flex;
+                flex-direction: column;
+                line-height: 1.1;
+                gap: 1px;
+            }
+            .pui-user-name {
+                font-size: 0.78rem;
+                font-weight: 600;
                 color: var(--pui-text-primary);
+            }
+            .pui-user-plan {
+                font-size: 0.62rem;
+                font-weight: 600;
+                color: var(--pui-accent);
+                text-transform: uppercase;
+                letter-spacing: 0.06em;
+            }
+
+            /* ═══════════════════════════════════════════════════════════════
+               CONTENT — scrollable, padded to clear the dock
+               ═══════════════════════════════════════════════════════════════ */
+
+            .pui-content {
+                position: absolute;
+                inset: 60px 0 0 0;
+                padding: 24px 40px 130px;
+                overflow-y: auto;
+                overflow-x: hidden;
+                scrollbar-width: thin;
+                scrollbar-color: var(--pui-border) transparent;
+            }
+            .pui-content::-webkit-scrollbar { width: 8px; }
+            .pui-content::-webkit-scrollbar-track { background: transparent; }
+            .pui-content::-webkit-scrollbar-thumb {
+                background: var(--pui-border);
+                border-radius: 4px;
+            }
+
+            .pui-wrapper-layer[data-density="compact"] .pui-content {
+                padding: 18px 28px 120px;
+            }
+
+            /* Onboarding hides chrome and uses full-bleed */
+            [data-active-tab="onboarding"] .pui-content {
+                inset: 0;
+                padding: 0;
+                background: radial-gradient(ellipse at top, var(--pui-bg-card-elev), var(--pui-bg-base) 60%);
+                display: flex;
+                align-items: center;
+                justify-content: center;
+            }
+
+            /* ═══════════════════════════════════════════════════════════════
+               DOCK — floating bottom-center pill
+               ═══════════════════════════════════════════════════════════════ */
+
+            .pui-dock {
+                position: absolute;
+                bottom: 22px;
+                left: 50%;
+                transform: translateX(-50%);
+                z-index: 60;
+                pointer-events: auto;
+            }
+            .pui-dock-inner {
+                display: flex;
+                gap: 4px;
+                background: var(--pui-bg-dock);
+                border-radius: 18px;
+                padding: 6px;
+                box-shadow: var(--pui-shadow-dock);
+            }
+            .pui-dock-item {
+                position: relative;
+                background: transparent;
+                border: none;
+                color: var(--pui-text-secondary);
+                font-family: var(--pui-font-sans);
+                font-size: 0.78rem;
                 font-weight: 600;
                 letter-spacing: 0.01em;
-            }
-            .pui-list-group { display: flex; flex-direction: column; }
-            .pui-list-item {
+                padding: 9px 14px;
+                border-radius: 12px;
+                cursor: pointer;
                 display: flex;
                 align-items: center;
-                padding: 14px 22px;
-                border-bottom: 1px solid var(--pui-border-light);
-                gap: 14px;
-                transition: background 0.15s;
+                gap: 9px;
+                white-space: nowrap;
+                transition:
+                    background-color var(--pui-d-base) var(--pui-ease),
+                    color var(--pui-d-base) var(--pui-ease),
+                    transform var(--pui-d-fast) var(--pui-ease);
             }
-            .pui-list-item:hover { background: var(--pui-hover); }
-            .pui-list-item:last-child { border-bottom: none; }
-            .pui-list-icon {
-                width: 38px;
-                height: 38px;
-                border-radius: 9px;
-                background: var(--pui-accent-glow, rgba(0,200,255,0.1));
-                color: var(--pui-accent);
+            .pui-dock-icon {
+                width: 18px;
                 display: grid;
                 place-items: center;
                 font-size: 0.95rem;
-            }
-            .pui-list-details { flex-grow: 1; }
-            .pui-list-details h4 {
-                margin: 0 0 3px 0;
-                color: var(--pui-text-primary);
-                font-size: 0.88rem;
-                font-weight: 600;
-            }
-            .pui-list-details p {
-                margin: 0;
-                color: var(--pui-text-secondary);
-                font-size: 0.76rem;
-            }
-            .pui-list-meta {
-                font-size: 0.75rem;
-                color: var(--pui-text-secondary);
-                font-weight: 500;
-            }
-
-            /* ─── AIRSPACE INTELLIGENCE MODULE ─────────────── */
-            .pui-intel-stat {
-                display: flex;
-                flex-direction: column;
-            }
-            .pui-intel-stat .label {
-                font-size: 0.65rem;
-                color: var(--pui-text-secondary);
-                font-weight: 700;
-                letter-spacing: 0.08em;
-                text-transform: uppercase;
-                margin-bottom: 4px;
-            }
-            .pui-intel-stat .value {
-                font-family: 'JetBrains Mono', monospace;
-                font-size: 1.4rem;
-                color: var(--pui-text-primary);
-                font-weight: 700;
                 line-height: 1;
             }
-            .pui-intel-heatmap {
-                display: flex;
-                gap: 4px;
-                height: 36px;
-                border-radius: 6px;
-                overflow: hidden;
-                background: rgba(0,0,0,0.25);
-                padding: 4px;
+            .pui-dock-label {
+                line-height: 1;
             }
-            .pui-intel-heatblock {
-                flex: 1;
-                border-radius: 4px;
-                position: relative;
-                transition: all 0.2s;
-                cursor: crosshair;
-            }
-            .pui-intel-heatblock:hover {
-                transform: scaleY(1.15);
-                box-shadow: 0 0 10px rgba(255,255,255,0.2);
-            }
-            .pui-heatblock-tooltip {
-                position: absolute;
-                bottom: 120%;
-                left: 50%;
-                transform: translateX(-50%);
-                background: rgba(0,0,0,0.85);
-                backdrop-filter: blur(4px);
-                color: #fff;
-                padding: 6px 10px;
-                border-radius: 6px;
-                font-size: 0.7rem;
-                text-align: center;
-                opacity: 0;
-                pointer-events: none;
-                transition: opacity 0.2s;
-                white-space: nowrap;
-                border: 1px solid rgba(255,255,255,0.1);
-                z-index: 10;
-            }
-            .pui-intel-heatblock:hover .pui-heatblock-tooltip {
-                opacity: 1;
-            }
-
-            /* ─── DISPATCH CARD ────────────────────────────── */
-            .pui-dispatch-body { padding: 20px; }
-            .pui-route-graphic {
-                display: flex;
-                align-items: center;
-                justify-content: space-between;
-                margin-bottom: 20px;
-            }
-            .pui-route-node { text-align: center; }
-            .pui-node-code {
-                display: block;
-                font-family: 'JetBrains Mono', monospace;
-                font-size: 1.3rem;
-                font-weight: 700;
+            .pui-dock-item:hover {
+                background: var(--pui-hover);
                 color: var(--pui-text-primary);
             }
-            .pui-node-city {
-                font-size: 0.75rem;
+            .pui-dock-item:active { transform: translateY(1px); }
+            .pui-dock-item.active {
+                background: var(--pui-accent-soft);
+                color: var(--pui-accent);
+            }
+            .pui-dock-item.active .pui-dock-icon {
+                color: var(--pui-accent);
+            }
+            .pui-dock-badge {
+                position: absolute;
+                top: 2px;
+                right: 4px;
+                min-width: 16px;
+                height: 16px;
+                padding: 0 5px;
+                background: var(--pui-pos);
+                color: #fff;
+                font-size: 0.6rem;
+                font-weight: 800;
+                border-radius: 999px;
+                display: grid;
+                place-items: center;
+                line-height: 1;
+                box-shadow: 0 0 0 2px var(--pui-bg-dock);
+            }
+
+            /* ═══════════════════════════════════════════════════════════════
+               TYPOGRAPHY HELPERS
+               ═══════════════════════════════════════════════════════════════ */
+
+            .pui-mono { font-family: var(--pui-font-mono); }
+            .pui-mono-h {
+                font-family: var(--pui-font-mono);
+                font-size: 1.25rem;
+                font-weight: 700;
+                margin: 0;
+                letter-spacing: 0.04em;
+                color: var(--pui-text-primary);
+            }
+            .pui-eyebrow {
+                font-size: 0.66rem;
+                font-weight: 700;
+                text-transform: uppercase;
+                letter-spacing: 0.1em;
                 color: var(--pui-text-secondary);
             }
-            .pui-route-line {
-                flex-grow: 1;
-                margin: 0 16px;
-                height: 1px;
-                background: var(--pui-border);
-                position: relative;
-                display: flex;
-                justify-content: center;
-                align-items: center;
-            }
-            .pui-route-line i {
-                color: var(--pui-accent);
-                background: var(--pui-bg-card, var(--pui-bg-surface));
-                padding: 0 8px;
-            }
-            .pui-route-distance {
-                position: absolute;
-                top: -18px;
-                font-size: 0.7rem;
+            .pui-mono-meta {
+                font-family: var(--pui-font-mono);
+                font-size: 0.74rem;
                 color: var(--pui-text-secondary);
                 font-weight: 600;
             }
-            .pui-dispatch-row {
+            .pui-mono-meta-sm {
+                font-family: var(--pui-font-mono);
+                font-size: 0.66rem;
+                color: var(--pui-text-tertiary);
+                font-weight: 600;
+            }
+
+            /* ═══════════════════════════════════════════════════════════════
+               TAB HEADER
+               ═══════════════════════════════════════════════════════════════ */
+
+            .pui-tab-header {
                 display: flex;
                 justify-content: space-between;
-                padding: 10px 0;
-                border-bottom: 1px solid var(--pui-border-light);
-                font-size: 0.85rem;
+                align-items: flex-end;
+                gap: var(--pui-gap-md);
+                flex-wrap: wrap;
+                margin-bottom: var(--pui-gap-lg);
             }
-            .pui-dispatch-row:last-child { border-bottom: none; }
-            .pui-dispatch-row span { color: var(--pui-text-secondary); }
-            .pui-dispatch-row strong { color: var(--pui-text-primary); font-weight: 600; }
-
-            /* ─── TAB HEADER ────────────────────────────────── */
-            .pui-tab-header { margin-bottom: 28px; }
             .pui-tab-header h2 {
-                margin: 0 0 6px 0;
-                font-size: 1.6rem;
-                color: var(--pui-text-primary);
+                margin: 0 0 4px 0;
+                font-size: 1.5rem;
                 font-weight: 700;
+                color: var(--pui-text-primary);
+                letter-spacing: -0.02em;
             }
             .pui-tab-header p {
                 margin: 0;
                 color: var(--pui-text-secondary);
-                font-size: 0.9rem;
+                font-size: 0.88rem;
+                line-height: 1.45;
             }
-
-            /* ─── ANIMATIONS ─────────────────────────────── */
-            .pui-fade-in-up {
-                animation: puiFadeInUp 0.45s ease both;
-                opacity: 0;
-            }
-            .pui-skeleton {
-                background: linear-gradient(90deg,
-                    var(--pui-border) 25%,
-                    var(--pui-border-light) 50%,
-                    var(--pui-border) 75%);
-                background-size: 500px 100%;
-                animation: shimmer 1.6s infinite;
-                border-radius: 6px;
-            }
-
-            /* ─── NEW PREMIUM FLIGHT DISPATCHER ──────────── */
-            .pui-flight-planner-layout {
-                display: grid;
-                grid-template-columns: 1fr 400px;
-                gap: 24px;
-                align-items: start;
-            }
-            .pui-flight-list-col {
+            .pui-tab-header-actions {
                 display: flex;
-                flex-direction: column;
-                gap: 16px;
+                gap: 10px;
+                align-items: stretch;
             }
-            .pui-flight-ticket {
+
+            /* ═══════════════════════════════════════════════════════════════
+               CARD
+               ═══════════════════════════════════════════════════════════════ */
+
+            .pui-card {
                 background: var(--pui-bg-card);
                 border: 1px solid var(--pui-border);
-                border-radius: 16px;
-                display: flex;
+                border-radius: var(--pui-radius-lg);
+                box-shadow: var(--pui-shadow-card);
                 overflow: hidden;
-                position: relative;
-                transition: transform 0.2s, box-shadow 0.2s;
             }
-            .pui-flight-ticket:hover {
-                transform: translateY(-2px);
-                box-shadow: 0 10px 30px rgba(0,0,0,0.2);
-                border-color: rgba(0, 200, 255, 0.3);
+            .pui-card-header {
+                padding: 16px var(--pui-pad-card);
+                border-bottom: 1px solid var(--pui-border-light);
             }
-            .pui-ticket-left {
-                background: rgba(0,0,0,0.15);
-                padding: 20px;
-                display: flex;
-                flex-direction: column;
-                justify-content: center;
-                border-right: 2px dashed var(--pui-border);
-                min-width: 140px;
-            }
-            .pui-ticket-date {
-                font-size: 0.75rem;
-                color: var(--pui-text-secondary);
-                text-transform: uppercase;
-                letter-spacing: 0.05em;
-                font-weight: 700;
-            }
-            .pui-ticket-date span {
-                display: block;
-                font-size: 1.1rem;
+            .pui-card-header h3 {
+                margin: 0;
+                font-size: 0.92rem;
+                font-weight: 600;
                 color: var(--pui-text-primary);
-                margin-top: 4px;
-                font-family: 'JetBrains Mono', monospace;
+                letter-spacing: -0.005em;
             }
-            .pui-ticket-csign {
-                margin-top: 12px;
-                display: inline-block;
-                background: var(--pui-accent-glow);
-                color: var(--pui-accent);
-                padding: 4px 8px;
-                border-radius: 6px;
-                font-size: 0.8rem;
-                font-weight: 700;
-                font-family: 'JetBrains Mono', monospace;
-                text-align: center;
-            }
-            .pui-ticket-middle {
-                flex-grow: 1;
-                padding: 20px;
-                display: flex;
-                align-items: center;
-            }
-            .pui-route-display {
-                width: 100%;
+            .pui-card-header-row {
                 display: flex;
                 align-items: center;
                 justify-content: space-between;
             }
-            .pui-route-point {
-                display: flex;
-                flex-direction: column;
-                align-items: center;
-                gap: 4px;
-            }
-            .pui-route-point .icao {
-                font-size: 1.8rem;
-                font-family: 'Bebas Neue', sans-serif;
-                color: var(--pui-text-primary);
-                line-height: 1;
-                letter-spacing: 0.05em;
-            }
-            .pui-route-point .gate {
-                font-size: 0.7rem;
-                color: var(--pui-text-secondary);
-                background: rgba(255,255,255,0.05);
-                padding: 2px 6px;
-                border-radius: 4px;
-                font-weight: 600;
-            }
-            .pui-route-path {
-                flex-grow: 1;
-                display: flex;
-                flex-direction: column;
-                align-items: center;
-                padding: 0 20px;
-                position: relative;
-            }
-            .pui-route-path .duration {
-                font-size: 0.7rem;
-                color: var(--pui-text-secondary);
-                font-weight: 600;
-                margin-bottom: 4px;
-            }
-            .pui-route-path .line {
-                width: 100%;
-                height: 2px;
-                background: linear-gradient(90deg, transparent, var(--pui-accent), transparent);
-                position: relative;
-                display: flex;
-                justify-content: center;
-                align-items: center;
-            }
-            .pui-route-path .line i {
-                position: absolute;
-                color: var(--pui-accent);
-                font-size: 1rem;
-                background: var(--pui-bg-card);
-                padding: 0 6px;
-            }
-            .pui-route-path .acft {
-                font-size: 0.75rem;
-                color: var(--pui-text-primary);
-                font-weight: 700;
-                margin-top: 8px;
-                letter-spacing: 0.05em;
-            }
-            .pui-ticket-right {
-                padding: 20px;
-                display: flex;
-                flex-direction: column;
-                justify-content: center;
-                gap: 12px;
-                border-left: 1px solid var(--pui-border-light);
-                min-width: 120px;
-            }
-            .pui-ticket-stat {
-                display: flex;
-                align-items: center;
-                gap: 8px;
-                font-size: 0.8rem;
-                color: var(--pui-text-secondary);
-                font-weight: 600;
-            }
-            .pui-ticket-stat i {
-                color: var(--pui-text-primary);
-                width: 16px;
-                text-align: center;
-            }
-            .pui-empty-state {
-                text-align: center;
-                padding: 60px 20px;
-                background: rgba(0,0,0,0.1);
-                border: 1px dashed var(--pui-border);
-                border-radius: 16px;
-            }
-            .pui-empty-state i {
-                font-size: 2.5rem;
-                color: var(--pui-text-secondary);
-                opacity: 0.5;
-                margin-bottom: 16px;
-            }
-            .pui-empty-state h4 {
-                margin: 0 0 8px 0;
-                color: var(--pui-text-primary);
-                font-size: 1.1rem;
-            }
-            .pui-empty-state p {
-                margin: 0;
-                color: var(--pui-text-secondary);
-                font-size: 0.85rem;
-            }
-
-            /* Premium Dispatch Form Overlay */
-            .pui-dispatch-form {
-                background: linear-gradient(180deg, var(--pui-bg-surface) 0%, var(--pui-bg-card) 100%);
-                border: 1px solid var(--pui-border);
-                border-radius: 16px;
-                overflow: hidden;
-                position: sticky;
-                top: 0px;
-                box-shadow: 0 20px 40px rgba(0,0,0,0.3);
-            }
-            .pui-dispatch-header {
-                background: rgba(0,0,0,0.2);
-                padding: 20px;
-                border-bottom: 1px solid var(--pui-border);
-            }
-            .pui-dispatch-header h3 {
-                margin: 0;
-                font-size: 1.1rem;
-                color: var(--pui-text-primary);
+            .pui-card-title-group {
                 display: flex;
                 align-items: center;
                 gap: 10px;
             }
-            .pui-dispatch-header h3 i {
-                color: var(--pui-accent);
-            }
-            .pui-dispatch-body-form {
-                padding: 24px 20px;
-            }
-            .pui-form-section {
-                margin-bottom: 24px;
-            }
-            .pui-form-section-title {
-                margin: 0 0 12px 0;
-                font-size: 0.75rem;
-                color: var(--pui-text-secondary);
-                text-transform: uppercase;
-                letter-spacing: 0.1em;
+            .pui-card-body { padding: var(--pui-pad-card); }
+            .pui-card-eyebrow {
+                font-size: 0.62rem;
                 font-weight: 700;
-                border-bottom: 1px solid var(--pui-border-light);
-                padding-bottom: 6px;
-            }
-            .pui-form-row {
-                display: flex;
-                gap: 12px;
-                margin-bottom: 12px;
-            }
-            .pui-form-row .pui-input-group {
-                flex: 1;
-                margin-bottom: 0;
-            }
-            .pui-icao-input {
-                font-family: 'JetBrains Mono', monospace;
+                letter-spacing: 0.12em;
                 text-transform: uppercase;
-                font-weight: 700;
-                letter-spacing: 0.05em;
+                color: var(--pui-text-tertiary);
+                margin-bottom: 14px;
             }
-            .pui-dispatch-submit {
-                width: 100%;
-                margin-top: 12px;
+            .pui-card-footer {
+                margin-top: var(--pui-gap-md);
+                padding-top: var(--pui-gap-md);
+                border-top: 1px solid var(--pui-border-light);
                 display: flex;
-                justify-content: center;
-                align-items: center;
-                gap: 10px;
-                padding: 14px;
-                font-size: 1rem;
+                justify-content: flex-end;
             }
 
-            /* ─── SETTINGS ───────────────────────────────── */
-            .pui-settings-grid {
+            .pui-grid-cards {
                 display: grid;
-                grid-template-columns: 1fr 320px;
-                gap: 20px;
+                grid-template-columns: repeat(auto-fit, minmax(360px, 1fr));
+                gap: var(--pui-gap-md);
             }
-            .pui-card-body { padding: 22px; }
-            .pui-input-group { margin-bottom: 18px; }
+
+            /* ═══════════════════════════════════════════════════════════════
+               BUTTONS
+               ═══════════════════════════════════════════════════════════════ */
+
+            .pui-btn-primary {
+                background: var(--pui-accent);
+                color: var(--pui-text-on-accent);
+                border: 1px solid transparent;
+                border-radius: 10px;
+                padding: 10px 18px;
+                font-size: 0.86rem;
+                font-weight: 600;
+                font-family: var(--pui-font-sans);
+                cursor: pointer;
+                display: inline-flex;
+                align-items: center;
+                justify-content: center;
+                gap: 8px;
+                transition:
+                    background-color var(--pui-d-fast) var(--pui-ease),
+                    transform var(--pui-d-fast) var(--pui-ease),
+                    box-shadow var(--pui-d-fast) var(--pui-ease);
+                box-shadow: 0 1px 2px rgba(0,0,0,0.04);
+            }
+            .pui-btn-primary:hover {
+                background: var(--pui-accent-hover);
+                box-shadow: 0 4px 12px var(--pui-accent-glow);
+            }
+            .pui-btn-primary:active { transform: translateY(1px); }
+            .pui-btn-primary:disabled { opacity: 0.55; cursor: not-allowed; }
+            .pui-btn-block { width: 100%; padding: 12px 20px; }
+
+            .pui-btn-secondary {
+                background: var(--pui-bg-card);
+                color: var(--pui-text-primary);
+                border: 1px solid var(--pui-border);
+                border-radius: 10px;
+                padding: 10px 18px;
+                font-size: 0.86rem;
+                font-weight: 600;
+                font-family: var(--pui-font-sans);
+                cursor: pointer;
+                display: inline-flex;
+                align-items: center;
+                justify-content: center;
+                gap: 8px;
+                width: 100%;
+                transition:
+                    background-color var(--pui-d-fast) var(--pui-ease),
+                    border-color var(--pui-d-fast) var(--pui-ease);
+            }
+            .pui-btn-secondary:hover {
+                background: var(--pui-bg-card-elev);
+                border-color: var(--pui-border-strong);
+            }
+            .pui-btn-ghost {
+                background: transparent;
+                border: 1px solid var(--pui-border);
+                color: var(--pui-text-secondary);
+                font-family: var(--pui-font-sans);
+                font-size: 0.78rem;
+                font-weight: 600;
+                padding: 7px 14px;
+                border-radius: 9px;
+                cursor: pointer;
+                display: inline-flex;
+                align-items: center;
+                gap: 6px;
+                transition:
+                    background-color var(--pui-d-fast) var(--pui-ease),
+                    color var(--pui-d-fast) var(--pui-ease);
+            }
+            .pui-btn-ghost:hover {
+                background: var(--pui-hover);
+                color: var(--pui-text-primary);
+            }
+            .pui-btn-danger-outline {
+                background: transparent;
+                color: var(--pui-neg);
+                border: 1px solid var(--pui-neg-soft);
+                border-radius: 10px;
+                padding: 10px 18px;
+                font-size: 0.85rem;
+                font-weight: 600;
+                font-family: var(--pui-font-sans);
+                cursor: pointer;
+                display: inline-flex;
+                align-items: center;
+                justify-content: center;
+                gap: 8px;
+                width: 100%;
+                transition:
+                    background-color var(--pui-d-fast) var(--pui-ease),
+                    border-color var(--pui-d-fast) var(--pui-ease);
+            }
+            .pui-btn-danger-outline:hover {
+                background: var(--pui-neg-soft);
+                border-color: var(--pui-neg);
+            }
+
+            /* ═══════════════════════════════════════════════════════════════
+               INPUTS & AUTOCOMPLETE
+               ═══════════════════════════════════════════════════════════════ */
+
+            .pui-input-group { margin-bottom: var(--pui-gap-md); }
             .pui-input-group label {
                 display: block;
-                font-size: 0.8rem;
+                font-size: 0.72rem;
                 font-weight: 600;
                 color: var(--pui-text-secondary);
-                margin-bottom: 7px;
-                text-transform: uppercase;
-                letter-spacing: 0.06em;
+                margin-bottom: 6px;
+                letter-spacing: 0.02em;
             }
             .pui-input-wrapper {
                 position: relative;
@@ -2383,649 +3047,1571 @@ _updateLiveFlightDOM() {
             }
             .pui-input-icon {
                 position: absolute;
-                left: 14px;
-                color: var(--pui-text-secondary);
-                font-size: 0.85rem;
+                left: 12px;
+                color: var(--pui-text-tertiary);
+                font-size: 0.82rem;
                 pointer-events: none;
             }
             .pui-input {
                 width: 100%;
-                padding: 11px 14px;
+                padding: 10px 12px;
                 border: 1px solid var(--pui-border);
                 border-radius: 10px;
-                background: var(--pui-input-bg);
+                background: var(--pui-bg-input);
                 color: var(--pui-text-primary);
-                font-size: 0.9rem;
-                transition: all 0.2s;
-                font-family: 'DM Sans', sans-serif;
+                font-size: 0.88rem;
+                font-family: var(--pui-font-sans);
+                transition:
+                    border-color var(--pui-d-fast) var(--pui-ease),
+                    box-shadow var(--pui-d-fast) var(--pui-ease);
             }
-            .pui-input.has-icon { padding-left: 40px; }
+            .pui-input.has-icon { padding-left: 36px; }
             .pui-input:focus {
                 outline: none;
                 border-color: var(--pui-accent);
-                box-shadow: 0 0 0 3px var(--pui-accent-glow, rgba(0,200,255,0.15));
+                box-shadow: 0 0 0 3px var(--pui-accent-soft);
+            }
+            .pui-input:disabled {
+                opacity: 0.5;
+                cursor: not-allowed;
+            }
+            .pui-icao-input {
+                font-family: var(--pui-font-mono);
+                text-transform: uppercase;
+                font-weight: 700;
+                letter-spacing: 0.05em;
             }
             .pui-help-text {
-                margin: 5px 0 0 0;
-                font-size: 0.76rem;
-                color: var(--pui-text-secondary);
+                margin: 6px 0 0 0;
+                font-size: 0.72rem;
+                color: var(--pui-text-tertiary);
+                line-height: 1.4;
             }
-
-            /* Theme options */
-            .pui-theme-options { display: flex; flex-direction: column; gap: 10px; }
-            .pui-theme-option {
-                display: flex;
-                align-items: center;
-                gap: 12px;
-                padding: 11px 14px;
-                border: 1px solid var(--pui-border);
-                border-radius: 9px;
+            .pui-select {
+                appearance: none;
                 cursor: pointer;
-                transition: all 0.2s;
+                padding-right: 36px;
             }
-            .pui-theme-option:hover { background: var(--pui-hover); border-color: var(--pui-accent); }
-            .pui-theme-option span { color: var(--pui-text-primary); font-weight: 500; font-size: 0.88rem; }
-
-            /* Billing */
-            .pui-plan-box {
-                background: var(--pui-bg-base);
-                border: 1px solid var(--pui-border);
-                border-radius: 12px;
-                padding: 18px;
+            .pui-select-chevron {
+                position: absolute;
+                right: 12px;
+                color: var(--pui-text-tertiary);
+                pointer-events: none;
+                font-size: 0.72rem;
             }
-            .pui-plan-header {
+            .pui-form-row {
                 display: flex;
-                justify-content: space-between;
-                align-items: center;
-                margin-bottom: 10px;
+                gap: 12px;
+                margin-bottom: 12px;
             }
-            .pui-plan-header h4 {
-                margin: 0;
-                font-size: 1rem;
-                color: var(--pui-text-primary);
+            .pui-form-row .pui-input-group { flex: 1; margin-bottom: 0; }
+            .pui-form-section { margin-bottom: var(--pui-gap-lg); }
+            .pui-form-section-title {
+                margin: 0 0 12px 0;
+                font-size: 0.66rem;
                 font-weight: 700;
-            }
-            .pui-status-badge {
-                padding: 3px 9px;
-                border-radius: 6px;
-                font-size: 0.7rem;
-                font-weight: 700;
+                color: var(--pui-text-tertiary);
                 text-transform: uppercase;
-                letter-spacing: 0.08em;
+                letter-spacing: 0.1em;
+                padding-bottom: 6px;
+                border-bottom: 1px solid var(--pui-border-light);
             }
-            .pui-status-badge.active   { background: rgba(34,197,94,0.12); color: #4ade80; border: 1px solid rgba(34,197,94,0.2); }
-            .pui-status-badge.inactive { background: rgba(239,68,68,0.12); color: #f87171; border: 1px solid rgba(239,68,68,0.2); }
-            .pui-plan-price { font-size: 1.5rem; font-weight: 700; color: var(--pui-text-primary); margin: 0 0 3px 0; }
-            .pui-plan-renewal { font-size: 0.82rem; color: var(--pui-text-secondary); margin: 0; }
-
-            /* Alerts */
-            .pui-alert { padding: 11px 15px; border-radius: 9px; font-size: 0.875rem; font-weight: 500; margin-top: 14px; }
-            .pui-alert-success { background: rgba(34,197,94,0.1); color: #4ade80; border: 1px solid rgba(34,197,94,0.2); }
-            .pui-alert-error   { background: rgba(239,68,68,0.1); color: #f87171; border: 1px solid rgba(239,68,68,0.2); }
-
-            /* ─── BUTTONS ────────────────────────────────── */
             .pui-form-actions {
-                margin-top: 28px;
-                padding-top: 20px;
+                margin-top: var(--pui-gap-lg);
+                padding-top: var(--pui-gap-md);
                 border-top: 1px solid var(--pui-border-light);
                 display: flex;
                 justify-content: flex-end;
             }
-            .pui-btn-primary {
-                background: var(--pui-accent);
-                color: #060b14;
-                border: none;
-                border-radius: 9px;
-                padding: 11px 22px;
-                font-size: 0.88rem;
-                font-weight: 700;
-                cursor: pointer;
-                transition: all 0.2s;
-                font-family: 'DM Sans', sans-serif;
-                letter-spacing: 0.01em;
-            }
-            .pui-btn-primary:hover { filter: brightness(1.1); transform: translateY(-1px); }
-            .pui-btn-secondary {
-                background: var(--pui-hover);
-                color: var(--pui-text-primary);
-                border: 1px solid var(--pui-border);
-                border-radius: 9px;
-                padding: 11px 22px;
-                font-size: 0.88rem;
-                font-weight: 600;
-                cursor: pointer;
-                transition: all 0.2s;
-                font-family: 'DM Sans', sans-serif;
-                display: flex;
-                align-items: center;
-                justify-content: center;
-                gap: 8px;
-            }
-            .pui-btn-secondary:hover { background: var(--pui-border); }
-            .pui-btn-danger-outline {
-                width: 100%;
-                background: transparent;
-                color: #f87171;
-                border: 1px solid rgba(239,68,68,0.25);
-                border-radius: 9px;
-                padding: 11px;
-                font-size: 0.875rem;
-                font-weight: 600;
-                cursor: pointer;
-                transition: all 0.2s;
-                font-family: 'DM Sans', sans-serif;
-                display: flex;
-                align-items: center;
-                justify-content: center;
-                gap: 8px;
-            }
-            .pui-btn-danger-outline:hover { background: rgba(239,68,68,0.1); border-color: rgba(239,68,68,0.5); }
 
-            /* ─── RESPONSIVE ─────────────────────────────── */
-            @media (max-width: 1100px) {
-                .pui-flight-planner-layout {
-                    grid-template-columns: 1fr;
-                }
-                .pui-dispatch-form {
-                    position: static;
-                }
-            }
-            @media (max-width: 992px) {
-                .pui-dashboard-container { flex-direction: column; height: 95vh; }
-                .pui-sidebar {
-                    width: 100% !important;
-                    height: auto;
-                    flex-direction: row;
-                    align-items: center;
-                    padding: 12px 16px;
-                    border-right: none;
-                    border-bottom: 1px solid var(--pui-border);
-                    gap: 0;
-                }
-                .pui-sidebar-avatar { 
-                    padding: 0 16px 0 0; 
-                    border-bottom: none;
-                    border-right: 1px solid var(--pui-border);
-                    margin-bottom: 0;
-                    margin-right: 12px;
-                    min-height: unset;
-                }
-                .pui-sidebar:hover .pui-avatar-tooltip { opacity: 1; transform: none; }
-                .pui-nav-menu { flex-direction: row; padding: 0; flex-grow: 0; }
-                .pui-nav-label { opacity: 0; width: 0; overflow: hidden; margin: 0; }
-                .pui-sidebar:hover .pui-nav-label { opacity: 0; width: 0; }
-                .pui-sidebar-footer { padding: 0; border-top: none; border-left: 1px solid var(--pui-border); padding-left: 12px; margin-left: auto; }
-                .pui-settings-grid { grid-template-columns: 1fr; }
-                .pui-dashboard-split { grid-template-columns: 1fr; }
-                
-                .pui-flight-ticket { flex-direction: column; }
-                .pui-ticket-left { border-right: none; border-bottom: 2px dashed var(--pui-border); flex-direction: row; justify-content: space-between; align-items: center; padding: 14px 20px; }
-                .pui-ticket-csign { margin-top: 0; }
-                .pui-ticket-right { border-left: none; border-top: 1px solid var(--pui-border-light); flex-direction: row; justify-content: space-around; padding: 14px 20px; }
-                .pui-onboarding-card { padding: 30px 20px; }
-            }
-            /* ─── COMMAND CENTER REDESIGN ──────────────────── */
-            .pui-cc-header {
-                display: flex;
-                justify-content: space-between;
-                align-items: flex-end;
-                margin-bottom: 24px;
-                padding-bottom: 22px;
-                border-bottom: 1px solid var(--pui-border);
-                flex-wrap: wrap;
-                gap: 8px;
-            }
-            .pui-cc-greeting {
-                margin: 0 0 6px 0;
-                font-size: 2rem;
-                font-weight: 700;
-                color: var(--pui-text-primary);
-                letter-spacing: -0.035em;
-                line-height: 1.1;
-            }
-            .pui-cc-stat-strip {
-                display: flex;
-                align-items: center;
-                gap: 8px;
-                color: var(--pui-text-secondary);
-                font-size: 0.8rem;
-                font-weight: 500;
-            }
-            .pui-cc-sep { opacity: 0.35; }
-            .pui-cc-date {
-                font-size: 0.78rem;
-                color: var(--pui-text-secondary);
-                font-weight: 500;
-                white-space: nowrap;
-                padding-bottom: 2px;
-                opacity: 0.7;
-            }
-
-            /* ─── PREMIUM LIVE FLIGHT CAROUSEL ──────────────────── */
-            .pui-live-carousel {
-                display: flex;
-                gap: 24px;
-                overflow-x: auto;
-                scroll-snap-type: x mandatory;
-                padding-bottom: 32px; 
-                margin-bottom: 8px;
-                scrollbar-width: none; 
-                -ms-overflow-style: none;
-                scroll-behavior: smooth;
-            }
-            .pui-live-carousel::-webkit-scrollbar { 
-                display: none; 
-            }
-
-            .pui-premium-flight-card {
-                position: relative;
-                flex: 0 0 calc(100% - 10px);
-                max-width: 860px;
-                height: 360px; 
-                border-radius: 24px;
+            /* Autocomplete */
+            .pui-autocomplete-dropdown {
+                position: absolute;
+                top: calc(100% + 8px);
+                left: 0;
+                right: 0;
+                background: var(--pui-bg-card-elev);
+                border: 1px solid var(--pui-border-strong);
+                border-radius: 12px;
+                box-shadow: var(--pui-shadow-pop);
+                z-index: 100;
                 overflow: hidden;
-                scroll-snap-align: center;
-                box-shadow: 0 30px 60px -15px rgba(0,0,0,0.6), 0 0 0 1px rgba(255,255,255,0.05);
-                transform: translateZ(0); 
-                display: flex;
-                flex-direction: column;
-            }
-
-            /* Cinematic Background */
-            .pui-pfc-bg {
-                position: absolute;
-                inset: -5%; 
-                background-size: cover;
-                background-position: center;
-                transition: transform 12s cubic-bezier(0.25, 1, 0.5, 1);
-                z-index: 1;
-            }
-            .pui-premium-flight-card:hover .pui-pfc-bg {
-                transform: scale(1.04);
-            }
-
-            /* Premium Composite Overlay */
-            .pui-pfc-overlay {
-                position: absolute;
-                inset: 0;
-                background: linear-gradient(to top, rgba(7, 12, 22, 0.95) 0%, rgba(7, 12, 22, 0.2) 35%, transparent 100%);
-                z-index: 2;
-                pointer-events: none;
-            }
-            .pui-pfc-overlay::before {
-                content: '';
-                position: absolute;
-                inset: 0;
-                background: radial-gradient(circle at 50% 40%, transparent 40%, rgba(0, 0, 0, 0.5) 150%);
-            }
-            .pui-pfc-overlay::after {
-                content: '';
-                position: absolute;
-                inset: 0;
-                background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 200 200' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noiseFilter'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='3' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noiseFilter)' opacity='0.04'/%3E%3C/svg%3E");
-                opacity: 0.9;
-                mix-blend-mode: overlay;
-            }
-
-            .pui-pfc-content {
-                position: relative;
-                z-index: 3;
-                height: 100%;
-                display: flex;
-                flex-direction: column;
-                padding: 24px 28px;
-            }
-
-            /* Top Bar */
-            .pui-pfc-top {
-                display: flex;
-                justify-content: space-between;
-                align-items: flex-start;
-            }
-
-            /* Top Left Sleek Routing Pill */
-            .pui-pfc-top-route {
-                display: flex;
-                align-items: center;
-                gap: 10px;
-                background: rgba(10, 15, 25, 0.45);
-                backdrop-filter: blur(12px) saturate(140%);
-                -webkit-backdrop-filter: blur(12px) saturate(140%);
-                padding: 8px 14px;
-                border-radius: 20px;
-                border: 1px solid rgba(255,255,255,0.08);
-                border-top: 1px solid rgba(255,255,255,0.18);
-                box-shadow: 0 8px 16px rgba(0,0,0,0.2);
-            }
-            .pui-pfc-icao {
-                font-family: 'JetBrains Mono', monospace;
-                font-size: 1rem;
-                font-weight: 700;
-                color: #fff;
-                letter-spacing: 0.05em;
-            }
-            .pui-pfc-route-icon {
-                color: #00c8ff;
-                font-size: 0.75rem;
-                opacity: 0.8;
-                filter: drop-shadow(0 0 4px rgba(0,200,255,0.4));
-            }
-
-            /* Top Right Identification */
-            .pui-pfc-ident {
-                display: flex;
-                flex-direction: column;
-                align-items: flex-end;
-            }
-            .pui-pfc-acft {
-                font-size: 1rem;
-                font-weight: 800;
-                color: #fff;
-                text-shadow: 0 2px 8px rgba(0,0,0,0.8);
-                letter-spacing: 0.02em;
-            }
-            .pui-pfc-cs {
-                font-family: 'JetBrains Mono', monospace;
-                font-size: 0.8rem;
-                color: #00c8ff;
-                font-weight: 700;
-                text-shadow: 0 2px 6px rgba(0,0,0,0.8);
-            }
-
-            /* Pushes the stats bar to the very bottom */
-            .pui-pfc-spacer {
-                flex-grow: 1;
-            }
-
-            /* Ultra-Slim Glassmorphism Stats Grid */
-            .pui-pfc-stats-glass {
-                background: linear-gradient(135deg, rgba(255, 255, 255, 0.04) 0%, rgba(255, 255, 255, 0.01) 100%);
-                backdrop-filter: blur(24px) saturate(120%);
-                -webkit-backdrop-filter: blur(24px) saturate(120%);
-                border: 1px solid rgba(255, 255, 255, 0.06);
-                border-top: 1px solid rgba(255, 255, 255, 0.15); 
-                border-radius: 14px;
-                display: grid;
-                grid-template-columns: repeat(4, 1fr);
-                overflow: hidden;
-                box-shadow: 0 12px 32px 0 rgba(0, 0, 0, 0.4);
-            }
-            .pui-pfc-stat {
-                display: flex;
-                flex-direction: column;
-                padding: 10px 16px; /* Greatly reduced padding */
-                border-right: 1px solid rgba(255,255,255,0.06);
-                gap: 2px; /* Tighter gap between label and value */
-                position: relative;
-                justify-content: center;
-            }
-            .pui-pfc-stat:last-child {
-                border-right: none;
-            }
-            .pui-pfc-stat:hover::before {
-                content: '';
-                position: absolute;
-                inset: 0;
-                background: radial-gradient(circle at center, rgba(255,255,255,0.04) 0%, transparent 70%);
-                pointer-events: none;
-            }
-            .pui-pfc-stat .label {
-                font-size: 0.55rem; /* Smaller label */
-                font-weight: 800;
-                text-transform: uppercase;
-                letter-spacing: 0.1em;
-                color: rgba(255,255,255,0.5);
-            }
-            .pui-pfc-stat .value {
-                font-size: 1.15rem; /* Smaller value */
-                font-family: 'JetBrains Mono', monospace;
-                font-weight: 700;
-                color: #fff;
-                line-height: 1;
-                display: flex;
-                align-items: baseline;
-                gap: 4px;
-            }
-            .pui-pfc-stat .value em {
-                font-style: normal;
-                font-size: 0.65rem;
-                color: rgba(255,255,255,0.45);
-                font-weight: 600;
-            }
-
-            .pui-pfc-credit {
-                position: absolute;
-                bottom: 10px;
-                right: 16px;
-                font-size: 0.55rem;
-                color: rgba(255,255,255,0.4);
-                font-weight: 600;
-                letter-spacing: 0.05em;
-                text-shadow: 0 1px 4px rgba(0,0,0,0.8);
-                pointer-events: none;
-            }
-
-            /* Responsive Adjustments for Carousel */
-            @media (max-width: 900px) {
-                .pui-premium-flight-card {
-                    height: 320px;
-                    flex: 0 0 100%;
-                }
-                .pui-pfc-stats-glass {
-                    grid-template-columns: repeat(2, 1fr);
-                }
-                .pui-pfc-stat {
-                    border-bottom: 1px solid rgba(255,255,255,0.06);
-                }
-                .pui-pfc-stat:nth-child(even) { border-right: none; }
-                .pui-pfc-stat:nth-child(3), .pui-pfc-stat:nth-child(4) { border-bottom: none; }
-            }
-            .pui-cc-grid {
-                display: grid;
-                grid-template-columns: 1fr 320px;
-                gap: 14px;
-                flex: 1;
-                min-height: 0;
-            }
-            .pui-cc-section-label {
-                font-size: 0.65rem;
-                font-weight: 800;
-                letter-spacing: 0.13em;
-                text-transform: uppercase;
-                color: var(--pui-text-secondary);
-                opacity: 0.6;
-                margin-bottom: 12px;
-            }
-
-            /* Recent flights panel */
-            .pui-cc-recent {
-                background: var(--pui-bg-card);
-                border: 1px solid var(--pui-border);
-                border-radius: 14px;
-                padding: 20px 22px;
-                display: flex;
-                flex-direction: column;
-                overflow: hidden;
-                min-height: 0;
-            }
-            .pui-cc-flights-list {
-                display: flex;
-                flex-direction: column;
-                flex: 1;
+                max-height: 280px;
                 overflow-y: auto;
-                scrollbar-width: none;
+                animation: puiFadeIn var(--pui-d-fast) var(--pui-ease-out);
             }
-            .pui-cc-flight-row {
+            .pui-autocomplete-item {
                 display: flex;
                 align-items: center;
                 gap: 12px;
-                padding: 11px 0;
+                padding: 10px 14px;
+                cursor: pointer;
+                transition: background-color var(--pui-d-fast) var(--pui-ease);
                 border-bottom: 1px solid var(--pui-border-light);
-                transition: all 0.15s;
-                border-radius: 0;
             }
-            .pui-cc-flight-row:last-child { border-bottom: none; }
-            .pui-cc-flight-row:hover {
-                margin: 0 -22px;
-                padding-left: 22px;
-                padding-right: 22px;
+            .pui-autocomplete-item:last-child { border-bottom: none; }
+            .pui-autocomplete-item:hover { background: var(--pui-hover); }
+            .pui-ac-icon {
+                width: 32px;
+                height: 32px;
+                border-radius: 8px;
+                background: var(--pui-accent-soft);
+                color: var(--pui-accent);
+                display: grid;
+                place-items: center;
+                font-size: 0.85rem;
+                flex-shrink: 0;
+            }
+            .pui-ac-details {
+                display: flex;
+                flex-direction: column;
+                gap: 2px;
+            }
+            .pui-ac-name {
+                font-size: 0.88rem;
+                font-weight: 700;
+                color: var(--pui-text-primary);
+            }
+            .pui-ac-meta {
+                font-family: var(--pui-font-mono);
+                font-size: 0.68rem;
+                color: var(--pui-text-secondary);
+                font-weight: 600;
+            }
+
+            /* ═══════════════════════════════════════════════════════════════
+               ALERTS, BADGES, TAGS
+               ═══════════════════════════════════════════════════════════════ */
+
+            .pui-alert {
+                padding: 11px 14px;
+                border-radius: 10px;
+                font-size: 0.84rem;
+                font-weight: 500;
+                margin-top: 12px;
+                display: flex;
+                align-items: center;
+                gap: 8px;
+            }
+            .pui-alert-success { background: var(--pui-pos-soft); color: var(--pui-pos); }
+            .pui-alert-error   { background: var(--pui-neg-soft); color: var(--pui-neg); }
+            .pui-alert-info    { background: var(--pui-info-soft); color: var(--pui-info); }
+            .pui-alert-warn    { background: var(--pui-warn-soft); color: var(--pui-warn); }
+
+            .pui-status-badge {
+                padding: 3px 10px;
+                border-radius: 999px;
+                font-size: 0.66rem;
+                font-weight: 700;
+                text-transform: uppercase;
+                letter-spacing: 0.06em;
+            }
+            .pui-status-badge.pos { background: var(--pui-pos-soft); color: var(--pui-pos); }
+            .pui-status-badge.neg { background: var(--pui-neg-soft); color: var(--pui-neg); }
+
+            .pui-mini-tag {
+                display: inline-flex;
+                align-items: center;
+                gap: 5px;
+                padding: 3px 8px;
+                border-radius: 6px;
+                font-size: 0.62rem;
+                font-weight: 700;
+                letter-spacing: 0.04em;
+            }
+            .pui-mini-tag-row {
+                display: flex;
+                flex-wrap: wrap;
+                gap: 6px;
+                margin-bottom: var(--pui-gap-md);
+            }
+            .pui-chip-soft {
+                display: inline-block;
+                padding: 3px 8px;
                 background: var(--pui-hover);
+                border-radius: 6px;
+                font-size: 0.7rem;
+                color: var(--pui-text-secondary);
             }
-            .pui-cc-flight-row-route {
+            .pui-chip-soft em {
+                font-style: normal;
+                color: var(--pui-text-tertiary);
+                font-size: 0.65rem;
+            }
+
+            /* ═══════════════════════════════════════════════════════════════
+               STATS GRID + STAT CARDS
+               ═══════════════════════════════════════════════════════════════ */
+
+            .pui-stats-grid {
+                display: grid;
+                grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+                gap: var(--pui-gap-md);
+            }
+            .pui-stat-card {
+                background: var(--pui-bg-card);
+                border: 1px solid var(--pui-border);
+                border-radius: var(--pui-radius-lg);
+                padding: 16px 18px;
+                display: flex;
+                align-items: center;
+                gap: 14px;
+                box-shadow: var(--pui-shadow-card);
+                transition: border-color var(--pui-d-fast) var(--pui-ease);
+            }
+            .pui-stat-card:hover { border-color: var(--pui-border-strong); }
+            .pui-stat-icon {
+                width: 44px;
+                height: 44px;
+                border-radius: 12px;
+                display: grid;
+                place-items: center;
+                font-size: 1.1rem;
+                flex-shrink: 0;
+            }
+            .pui-stat-icon[data-tone="indigo"]  { background: rgba(99,102,241,0.10);  color: #6366f1; }
+            .pui-stat-icon[data-tone="violet"]  { background: rgba(139,92,246,0.10);  color: #8b5cf6; }
+            .pui-stat-icon[data-tone="emerald"] { background: rgba(16,185,129,0.10);  color: #10b981; }
+            .pui-stat-icon[data-tone="amber"]   { background: rgba(245,158,11,0.10);  color: #f59e0b; }
+            .pui-stat-icon[data-tone="rose"]    { background: rgba(244,63,94,0.10);   color: #f43f5e; }
+            .pui-wrapper-layer[data-theme="dark"] .pui-stat-icon[data-tone="indigo"]  { background: rgba(129,140,248,0.16); color: #818cf8; }
+            .pui-wrapper-layer[data-theme="dark"] .pui-stat-icon[data-tone="violet"]  { background: rgba(167,139,250,0.16); color: #a78bfa; }
+            .pui-wrapper-layer[data-theme="dark"] .pui-stat-icon[data-tone="emerald"] { background: rgba(52,211,153,0.16);  color: #34d399; }
+            .pui-wrapper-layer[data-theme="dark"] .pui-stat-icon[data-tone="amber"]   { background: rgba(251,191,36,0.16);  color: #fbbf24; }
+            .pui-wrapper-layer[data-theme="dark"] .pui-stat-icon[data-tone="rose"]    { background: rgba(251,113,133,0.16); color: #fb7185; }
+            .pui-stat-data h3 {
+                margin: 0 0 2px 0;
+                font-size: 1.2rem;
+                font-weight: 700;
+                color: var(--pui-text-primary);
+                letter-spacing: -0.01em;
+            }
+            .pui-stat-data p {
+                margin: 0;
+                color: var(--pui-text-secondary);
+                font-size: 0.76rem;
+                font-weight: 500;
+            }
+
+            /* ═══════════════════════════════════════════════════════════════
+               HOME / DASHBOARD
+               ═══════════════════════════════════════════════════════════════ */
+
+            .pui-home-header {
+                display: flex;
+                justify-content: space-between;
+                align-items: flex-end;
+                gap: var(--pui-gap-md);
+                margin-bottom: var(--pui-gap-lg);
+                padding-bottom: var(--pui-gap-md);
+                border-bottom: 1px solid var(--pui-border);
+                flex-wrap: wrap;
+            }
+            .pui-home-greeting {
+                margin: 0 0 6px 0;
+                font-size: 1.85rem;
+                font-weight: 700;
+                color: var(--pui-text-primary);
+                letter-spacing: -0.025em;
+                line-height: 1.1;
+            }
+            .pui-home-date {
+                font-size: 0.78rem;
+                color: var(--pui-text-tertiary);
+                font-weight: 500;
+                white-space: nowrap;
+            }
+            .pui-stat-strip {
+                display: flex;
+                align-items: center;
+                gap: 8px;
+                flex-wrap: wrap;
+                color: var(--pui-text-secondary);
+                font-size: 0.8rem;
+                font-weight: 500;
+            }
+            .pui-strip-sep { opacity: 0.4; }
+            .pui-strip-stale {
+                color: var(--pui-warn);
+                font-size: 0.7rem;
+                display: inline-flex;
+                align-items: center;
+                gap: 4px;
+            }
+
+            .pui-home-grid {
+                display: grid;
+                grid-template-columns: 1fr 320px;
+                gap: var(--pui-gap-md);
+            }
+            .pui-home-recent, .pui-home-dispatch {
+                padding: 20px var(--pui-pad-card);
+                display: flex;
+                flex-direction: column;
+            }
+            .pui-wrapper-layer[data-density="compact"] .pui-home-recent,
+            .pui-wrapper-layer[data-density="compact"] .pui-home-dispatch {
+                padding: 14px var(--pui-pad-card);
+            }
+
+            /* ═══════════════════════════════════════════════════════════════
+               FLIGHT ROWS (recent flights list)
+               ═══════════════════════════════════════════════════════════════ */
+
+            .pui-flight-list {
+                display: flex;
+                flex-direction: column;
+            }
+            .pui-flight-row {
+                display: flex;
+                align-items: center;
+                gap: 12px;
+                padding: var(--pui-pad-row) 0;
+                border-bottom: 1px solid var(--pui-border-light);
+                transition: background-color var(--pui-d-fast) var(--pui-ease);
+            }
+            .pui-flight-row:last-child { border-bottom: none; }
+            .pui-flight-row:hover {
+                background: var(--pui-hover);
+                margin: 0 calc(var(--pui-pad-card) * -1);
+                padding-left: var(--pui-pad-card);
+                padding-right: var(--pui-pad-card);
+                border-radius: 6px;
+            }
+            .pui-flight-route {
                 display: flex;
                 align-items: center;
                 gap: 8px;
                 flex: 1;
                 min-width: 0;
             }
-            .pui-cc-flight-icao {
-                font-family: 'JetBrains Mono', monospace;
-                font-size: 0.9rem;
+            .pui-flight-icao {
+                font-family: var(--pui-font-mono);
+                font-size: 0.86rem;
                 font-weight: 700;
                 color: var(--pui-text-primary);
-                white-space: nowrap;
+                letter-spacing: 0.02em;
             }
-            .pui-cc-flight-arrow {
-                color: var(--pui-text-secondary);
+            .pui-flight-arrow {
+                color: var(--pui-text-tertiary);
                 font-size: 0.7rem;
-                opacity: 0.4;
-                flex-shrink: 0;
             }
-            .pui-cc-flight-row-meta {
+            .pui-flight-meta {
                 display: flex;
                 align-items: center;
                 gap: 5px;
-                font-size: 0.72rem;
+                font-size: 0.7rem;
                 color: var(--pui-text-secondary);
                 font-weight: 500;
                 white-space: nowrap;
                 overflow: hidden;
                 text-overflow: ellipsis;
             }
-            .pui-cc-flight-row-time {
+            .pui-flight-time {
                 font-size: 0.68rem;
-                color: var(--pui-text-secondary);
+                color: var(--pui-text-tertiary);
                 font-weight: 600;
                 white-space: nowrap;
-                opacity: 0.5;
                 flex-shrink: 0;
             }
+            .pui-empty-inline {
+                color: var(--pui-text-tertiary);
+                font-size: 0.82rem;
+                text-align: center;
+                padding: 24px 8px;
+            }
 
-            /* Dispatch panel */
-            .pui-cc-dispatch {
-                background: var(--pui-bg-card);
-                border: 1px solid var(--pui-border);
-                border-radius: 14px;
-                padding: 20px 22px;
+            /* ═══════════════════════════════════════════════════════════════
+               LIVE FLIGHT CAROUSEL — cleaner overlay, no fullscreen blur
+               ═══════════════════════════════════════════════════════════════ */
+
+            .pui-live-carousel {
+                display: flex;
+                gap: 16px;
+                overflow-x: auto;
+                scroll-snap-type: x mandatory;
+                margin-bottom: var(--pui-gap-md);
+                scrollbar-width: none;
+            }
+            .pui-live-carousel::-webkit-scrollbar { display: none; }
+
+            .pui-live-card {
+                position: relative;
+                flex: 0 0 calc(100% - 6px);
+                max-width: 820px;
+                height: 320px;
+                border-radius: var(--pui-radius-xl);
+                overflow: hidden;
+                scroll-snap-align: center;
+                box-shadow: var(--pui-shadow-pop);
                 display: flex;
                 flex-direction: column;
+            }
+            .pui-live-bg {
+                position: absolute;
+                inset: 0;
+                background-size: cover;
+                background-position: center;
+                z-index: 1;
+            }
+            .pui-live-bg-fallback {
+                background: linear-gradient(135deg, #2a3445 0%, #1a2030 60%, #14181f 100%);
+            }
+            .pui-live-overlay {
+                position: absolute;
+                inset: 0;
+                background: linear-gradient(to top,
+                    rgba(15, 12, 8, 0.92) 0%,
+                    rgba(15, 12, 8, 0.4) 35%,
+                    rgba(15, 12, 8, 0.1) 75%,
+                    transparent 100%);
+                z-index: 2;
+                pointer-events: none;
+            }
+            .pui-live-content {
+                position: relative;
+                z-index: 3;
+                height: 100%;
+                display: flex;
+                flex-direction: column;
+                padding: 20px 22px;
+                color: #fff;
+            }
+            .pui-live-top {
+                display: flex;
+                justify-content: space-between;
+                align-items: flex-start;
+            }
+            .pui-live-route-pill {
+                display: inline-flex;
+                align-items: center;
+                gap: 10px;
+                padding: 6px 12px;
+                background: rgba(0, 0, 0, 0.5);
+                border: 1px solid rgba(255, 255, 255, 0.1);
+                border-radius: 999px;
+            }
+            .pui-live-icao {
+                font-family: var(--pui-font-mono);
+                font-size: 0.92rem;
+                font-weight: 700;
+                color: #fff;
+                letter-spacing: 0.04em;
+            }
+            .pui-live-route-icon {
+                color: #fff;
+                font-size: 0.7rem;
+                opacity: 0.7;
+            }
+            .pui-live-ident {
+                display: flex;
+                flex-direction: column;
+                align-items: flex-end;
+                text-align: right;
+            }
+            .pui-live-acft {
+                font-size: 0.92rem;
+                font-weight: 700;
+                color: #fff;
+                text-shadow: 0 1px 4px rgba(0, 0, 0, 0.6);
+            }
+            .pui-live-cs {
+                font-family: var(--pui-font-mono);
+                font-size: 0.74rem;
+                color: rgba(255, 255, 255, 0.85);
+                font-weight: 600;
+                margin-top: 2px;
+                text-shadow: 0 1px 4px rgba(0, 0, 0, 0.6);
+            }
+            .pui-live-spacer { flex: 1; }
+            .pui-live-stats {
+                display: grid;
+                grid-template-columns: repeat(4, 1fr);
+                background: rgba(255, 255, 255, 0.04);
+                border: 1px solid rgba(255, 255, 255, 0.08);
+                border-radius: 12px;
                 overflow: hidden;
             }
-            .pui-cc-dispatch-route {
+            .pui-live-stat {
+                display: flex;
+                flex-direction: column;
+                gap: 2px;
+                padding: 10px 14px;
+                border-right: 1px solid rgba(255, 255, 255, 0.06);
+            }
+            .pui-live-stat:last-child { border-right: none; }
+            .pui-live-stat .label {
+                font-size: 0.56rem;
+                font-weight: 700;
+                letter-spacing: 0.1em;
+                text-transform: uppercase;
+                color: rgba(255, 255, 255, 0.55);
+            }
+            .pui-live-stat .value {
+                font-family: var(--pui-font-mono);
+                font-size: 1.05rem;
+                font-weight: 700;
+                color: #fff;
+                line-height: 1;
+                display: flex;
+                align-items: baseline;
+                gap: 3px;
+            }
+            .pui-live-stat .value em {
+                font-style: normal;
+                font-size: 0.62rem;
+                color: rgba(255, 255, 255, 0.5);
+                font-weight: 600;
+            }
+            .pui-live-credit {
+                position: absolute;
+                bottom: 8px;
+                right: 14px;
+                font-size: 0.56rem;
+                color: rgba(255, 255, 255, 0.5);
+                font-weight: 500;
+                pointer-events: none;
+            }
+
+            /* ═══════════════════════════════════════════════════════════════
+               DISPATCH (next departure on home)
+               ═══════════════════════════════════════════════════════════════ */
+
+            .pui-dispatch-route {
                 display: flex;
                 align-items: center;
                 gap: 10px;
-                padding: 16px 0 18px;
+                padding: 12px 0 14px;
                 border-bottom: 1px solid var(--pui-border-light);
-                margin-bottom: 16px;
+                margin-bottom: 14px;
             }
-            .pui-cc-dispatch-icao .code {
-                font-family: 'JetBrains Mono', monospace;
-                font-size: 1.9rem;
+            .pui-dispatch-side {
+                display: flex;
+                flex-direction: column;
+                gap: 4px;
+            }
+            .pui-dispatch-side-right { text-align: right; align-items: flex-end; }
+            .pui-dispatch-side .code {
+                font-family: var(--pui-font-mono);
+                font-size: 1.6rem;
                 font-weight: 700;
                 color: var(--pui-text-primary);
-                letter-spacing: -0.025em;
-                display: block;
+                letter-spacing: -0.02em;
                 line-height: 1;
             }
-            .pui-cc-dispatch-icao .gate {
+            .pui-dispatch-side .gate {
                 font-size: 0.65rem;
-                color: var(--pui-text-secondary);
+                color: var(--pui-text-tertiary);
                 font-weight: 600;
-                display: block;
-                margin-top: 4px;
-                opacity: 0.7;
             }
-            .pui-cc-dispatch-path {
+            .pui-dispatch-path {
                 flex: 1;
                 display: flex;
                 flex-direction: column;
                 align-items: center;
-                gap: 5px;
-                color: var(--pui-text-secondary);
-                font-size: 0.68rem;
+                gap: 4px;
+                color: var(--pui-text-tertiary);
+                font-size: 0.66rem;
                 font-weight: 600;
-                opacity: 0.7;
             }
-            .pui-cc-dispatch-path i {
+            .pui-dispatch-path i {
                 color: var(--pui-accent);
                 font-size: 0.85rem;
-                opacity: 1;
             }
-            .pui-cc-dispatch-info {
+            .pui-dispatch-info {
                 display: flex;
                 flex-direction: column;
-                gap: 11px;
-                flex: 1;
+                gap: 9px;
             }
-            .pui-cc-dispatch-row {
+            .pui-dispatch-row {
                 display: flex;
                 justify-content: space-between;
                 align-items: center;
                 font-size: 0.8rem;
             }
-            .pui-cc-dispatch-row span {
+            .pui-dispatch-row span {
                 color: var(--pui-text-secondary);
                 font-weight: 500;
-                opacity: 0.8;
             }
-            .pui-cc-dispatch-row strong {
+            .pui-dispatch-row strong {
                 color: var(--pui-text-primary);
                 font-weight: 700;
             }
-            .pui-cc-dispatch-btn {
-                margin-top: auto;
-                padding: 14px 0 0 0;
-                background: none;
-                border: none;
-                border-top: 1px solid var(--pui-border-light);
-                color: var(--pui-accent);
-                font-size: 0.78rem;
+            .pui-empty-block {
+                display: flex;
+                flex-direction: column;
+                align-items: center;
+                justify-content: center;
+                gap: 10px;
+                padding: 32px 0;
+                color: var(--pui-text-tertiary);
+                font-size: 0.82rem;
+                text-align: center;
+            }
+            .pui-empty-block i {
+                font-size: 1.6rem;
+                opacity: 0.4;
+            }
+
+            /* ═══════════════════════════════════════════════════════════════
+               FLIGHT TICKETS (Dispatch tab)
+               ═══════════════════════════════════════════════════════════════ */
+
+            .pui-dispatch-layout {
+                display: grid;
+                grid-template-columns: 1fr 400px;
+                gap: var(--pui-gap-lg);
+                align-items: start;
+            }
+            .pui-dispatch-list {
+                display: flex;
+                flex-direction: column;
+                gap: var(--pui-gap-md);
+            }
+            .pui-ticket {
+                position: relative;
+                background: var(--pui-bg-card);
+                border: 1px solid var(--pui-border);
+                border-radius: var(--pui-radius-lg);
+                box-shadow: var(--pui-shadow-card);
+                display: flex;
+                overflow: hidden;
+                transition:
+                    border-color var(--pui-d-fast) var(--pui-ease),
+                    box-shadow var(--pui-d-fast) var(--pui-ease);
+            }
+            .pui-ticket:hover {
+                border-color: var(--pui-border-strong);
+                box-shadow: var(--pui-shadow-pop);
+            }
+            .pui-ticket-actions {
+                position: absolute;
+                top: 12px;
+                right: 12px;
+                display: flex;
+                gap: 6px;
+                opacity: 0;
+                transition: opacity var(--pui-d-fast) var(--pui-ease);
+            }
+            .pui-ticket:hover .pui-ticket-actions {
+                opacity: 1;
+            }
+            .pui-ticket-stub {
+                background: var(--pui-bg-surface);
+                padding: 18px 20px;
+                display: flex;
+                flex-direction: column;
+                justify-content: center;
+                gap: 4px;
+                border-right: 1px dashed var(--pui-border);
+                min-width: 130px;
+            }
+            .pui-ticket-day {
+                font-size: 0.62rem;
                 font-weight: 700;
-                cursor: pointer;
+                color: var(--pui-text-tertiary);
+                text-transform: uppercase;
+                letter-spacing: 0.1em;
+            }
+            .pui-ticket-date {
+                font-family: var(--pui-font-mono);
+                font-size: 0.86rem;
+                font-weight: 700;
+                color: var(--pui-text-primary);
+            }
+            .pui-ticket-time {
+                font-size: 0.74rem;
+                color: var(--pui-text-secondary);
+                font-weight: 600;
+            }
+            .pui-ticket-cs {
+                margin-top: 6px;
+                display: inline-block;
+                background: var(--pui-accent-soft);
+                color: var(--pui-accent);
+                padding: 3px 8px;
+                border-radius: 6px;
+                font-size: 0.74rem;
+                font-weight: 700;
+                font-family: var(--pui-font-mono);
+                width: fit-content;
+            }
+            .pui-ticket-body {
+                flex: 1;
+                padding: 18px 20px;
+                display: flex;
+                align-items: center;
+            }
+            .pui-ticket-route {
+                width: 100%;
                 display: flex;
                 align-items: center;
                 justify-content: space-between;
-                font-family: 'DM Sans', sans-serif;
-                transition: opacity 0.2s;
-                letter-spacing: 0.01em;
+                gap: 16px;
+            }
+            .pui-ticket-point {
+                display: flex;
+                flex-direction: column;
+                gap: 4px;
+            }
+            .pui-ticket-point-right { align-items: flex-end; }
+            .pui-ticket-icao {
+                font-family: var(--pui-font-mono);
+                font-size: 1.5rem;
+                font-weight: 700;
+                color: var(--pui-text-primary);
+                letter-spacing: -0.01em;
+                line-height: 1;
+            }
+            .pui-ticket-gate {
+                font-size: 0.66rem;
+                color: var(--pui-text-tertiary);
+                font-weight: 600;
+            }
+            .pui-ticket-path {
+                flex: 1;
+                display: flex;
+                flex-direction: column;
+                align-items: center;
+                gap: 6px;
+                position: relative;
+                padding: 0 16px;
+            }
+            .pui-ticket-duration {
+                font-size: 0.68rem;
+                color: var(--pui-text-tertiary);
+                font-weight: 600;
+            }
+            .pui-ticket-line {
                 width: 100%;
-                text-align: left;
+                height: 1px;
+                background: var(--pui-border);
+                position: relative;
+                display: flex;
+                justify-content: center;
+                align-items: center;
             }
-            .pui-cc-dispatch-btn:hover { opacity: 0.6; }
-            .pui-cc-dispatch-btn i { font-size: 0.7rem; }
-            .pui-cc-empty {
+            .pui-ticket-line i {
+                position: absolute;
+                color: var(--pui-accent);
+                font-size: 0.85rem;
+                background: var(--pui-bg-card);
+                padding: 0 6px;
+            }
+            .pui-ticket-acft {
+                font-size: 0.7rem;
                 color: var(--pui-text-secondary);
-                font-size: 0.82rem;
+                font-weight: 700;
+                letter-spacing: 0.04em;
+            }
+            .pui-ticket-aside {
+                padding: 18px 20px;
+                display: flex;
+                flex-direction: column;
+                gap: 8px;
+                justify-content: center;
+                border-left: 1px solid var(--pui-border-light);
+                min-width: 130px;
+            }
+            .pui-ticket-stat {
+                display: flex;
+                align-items: center;
+                gap: 8px;
+                font-size: 0.78rem;
+                color: var(--pui-text-secondary);
+                font-weight: 500;
+            }
+            .pui-ticket-stat i {
+                color: var(--pui-text-tertiary);
+                width: 14px;
                 text-align: center;
-                padding: 20px;
+            }
+            .pui-dispatch-form {
+                position: sticky;
+                top: 0;
+            }
+            .pui-dispatch-form .pui-card-header {
+                background: var(--pui-bg-surface);
+            }
+            .pui-dispatch-form .pui-card-header h3 i {
+                color: var(--pui-accent);
+                margin-right: 6px;
+            }
+            .pui-dispatch-form-col { /* sticky column wrapper */ }
+
+            /* ═══════════════════════════════════════════════════════════════
+               AIRSPACE INTEL
+               ═══════════════════════════════════════════════════════════════ */
+
+            .pui-intel-stat {
+                display: flex;
+                flex-direction: column;
+                gap: 4px;
+            }
+            .pui-intel-stat .label {
+                font-size: 0.6rem;
+                color: var(--pui-text-tertiary);
+                font-weight: 700;
+                letter-spacing: 0.1em;
+                text-transform: uppercase;
+            }
+            .pui-intel-stat .value {
+                font-family: var(--pui-font-mono);
+                font-size: 1.25rem;
+                color: var(--pui-text-primary);
+                font-weight: 700;
+                line-height: 1;
+            }
+            .pui-intel-stat .value-sm {
+                font-family: var(--pui-font-mono);
+                font-size: 1.05rem;
+                color: var(--pui-text-primary);
+                font-weight: 700;
+                line-height: 1;
+            }
+            .pui-intel-stats-quad {
+                display: grid;
+                grid-template-columns: repeat(4, 1fr);
+                gap: 12px;
+                padding: 14px 0;
+                border-top: 1px solid var(--pui-border-light);
+                border-bottom: 1px solid var(--pui-border-light);
+                margin-bottom: var(--pui-gap-md);
+            }
+            .pui-intel-stats-tri {
+                display: grid;
+                grid-template-columns: repeat(3, 1fr);
+                gap: 12px;
+                padding-bottom: var(--pui-gap-md);
+                margin-bottom: var(--pui-gap-md);
+                border-bottom: 1px solid var(--pui-border-light);
+            }
+
+            .pui-assessment-row {
+                display: flex;
+                align-items: flex-start;
+                gap: 12px;
+                padding: 12px;
+                background: var(--pui-bg-surface);
+                border-radius: 10px;
+                margin-bottom: var(--pui-gap-md);
+            }
+            .pui-assessment-icon { font-size: 1.2rem; flex-shrink: 0; padding-top: 2px; }
+            .pui-assessment-text {
+                display: flex;
+                flex-direction: column;
+                gap: 3px;
+            }
+            .pui-assessment-text strong {
+                font-size: 0.8rem;
+                color: var(--pui-text-primary);
+                font-weight: 700;
+            }
+            .pui-assessment-text span {
+                font-size: 0.78rem;
+                color: var(--pui-text-secondary);
+                line-height: 1.5;
+            }
+
+            .pui-load-bar-block { margin-bottom: var(--pui-gap-md); }
+            .pui-load-bar-head {
+                display: flex;
+                justify-content: space-between;
+                align-items: center;
+                margin-bottom: 6px;
+            }
+            .pui-load-bar-track {
+                width: 100%;
+                height: 6px;
+                background: var(--pui-bg-surface);
+                border-radius: 3px;
+                overflow: hidden;
+            }
+            .pui-load-bar-fill {
+                height: 100%;
+                border-radius: 3px;
+                transition: width 320ms var(--pui-ease-out);
+            }
+
+            .pui-section-head {
+                display: flex;
+                justify-content: space-between;
+                align-items: center;
+                margin-bottom: 8px;
+                margin-top: var(--pui-gap-md);
+            }
+
+            .pui-intel-heatmap {
+                display: flex;
+                gap: 3px;
+                height: 32px;
+                border-radius: 6px;
+                overflow: hidden;
+                background: var(--pui-bg-surface);
+                padding: 3px;
+            }
+            .pui-intel-heatblock {
+                flex: 1;
+                border-radius: 4px;
+                position: relative;
+                cursor: crosshair;
+                transition: transform var(--pui-d-fast) var(--pui-ease);
+            }
+            .pui-intel-heatblock:hover { transform: scaleY(1.1); }
+            .pui-heatblock-tooltip {
+                position: absolute;
+                bottom: 130%;
+                left: 50%;
+                transform: translateX(-50%);
+                background: var(--pui-text-primary);
+                color: var(--pui-bg-base);
+                padding: 8px 12px;
+                border-radius: 8px;
+                font-size: 0.7rem;
+                line-height: 1.5;
+                text-align: center;
+                opacity: 0;
+                pointer-events: none;
+                transition: opacity var(--pui-d-fast) var(--pui-ease);
+                white-space: nowrap;
+                z-index: 10;
+                box-shadow: var(--pui-shadow-pop);
+            }
+            .pui-intel-heatblock:hover .pui-heatblock-tooltip { opacity: 1; }
+
+            .pui-top-ops {
+                display: flex;
+                flex-wrap: wrap;
+                align-items: center;
+                gap: 6px;
+                padding-top: var(--pui-gap-md);
+                border-top: 1px solid var(--pui-border-light);
+            }
+
+            /* ═══════════════════════════════════════════════════════════════
+               SETTINGS
+               ═══════════════════════════════════════════════════════════════ */
+
+            .pui-settings-grid {
+                display: grid;
+                grid-template-columns: 1fr 320px;
+                gap: var(--pui-gap-lg);
+                align-items: start;
+            }
+            .pui-settings-aside {
+                display: flex;
+                flex-direction: column;
+                gap: var(--pui-gap-md);
+            }
+
+            .pui-theme-options {
+                display: grid;
+                grid-template-columns: 1fr 1fr;
+                gap: 8px;
+            }
+            .pui-theme-options-row {
+                display: grid;
+                grid-template-columns: 1fr 1fr;
+                gap: 10px;
+            }
+            .pui-theme-option {
+                display: flex;
+                align-items: center;
+                gap: 10px;
+                padding: 10px 12px;
+                border: 1px solid var(--pui-border);
+                border-radius: 10px;
+                cursor: pointer;
+                transition:
+                    border-color var(--pui-d-fast) var(--pui-ease),
+                    background-color var(--pui-d-fast) var(--pui-ease);
+            }
+            .pui-theme-option:hover {
+                background: var(--pui-hover);
+                border-color: var(--pui-border-strong);
+            }
+            .pui-theme-option input { accent-color: var(--pui-accent); }
+            .pui-theme-option i {
+                color: var(--pui-text-tertiary);
+                font-size: 0.85rem;
+            }
+            .pui-theme-option span {
+                color: var(--pui-text-primary);
+                font-weight: 500;
+                font-size: 0.85rem;
+            }
+            .pui-theme-option:has(input:checked) {
+                border-color: var(--pui-accent);
+                background: var(--pui-accent-soft);
+            }
+            .pui-theme-option:has(input:checked) i { color: var(--pui-accent); }
+
+            .pui-plan-box {
+                background: var(--pui-bg-surface);
+                border: 1px solid var(--pui-border);
+                border-radius: var(--pui-radius);
+                padding: 16px;
+            }
+            .pui-plan-header {
+                display: flex;
+                justify-content: space-between;
+                align-items: center;
+                margin-bottom: 8px;
+            }
+            .pui-plan-header h4 {
+                margin: 0;
+                font-size: 0.95rem;
+                font-weight: 700;
+                color: var(--pui-text-primary);
+            }
+            .pui-plan-price {
+                font-size: 1.4rem;
+                font-weight: 700;
+                color: var(--pui-text-primary);
+                margin: 0 0 4px 0;
+                letter-spacing: -0.02em;
+            }
+            .pui-plan-renewal {
+                font-size: 0.78rem;
+                color: var(--pui-text-tertiary);
+                margin: 0;
+            }
+            .pui-billing-actions {
+                display: flex;
+                flex-direction: column;
+                gap: 8px;
+                margin-top: var(--pui-gap-md);
+            }
+
+            /* ═══════════════════════════════════════════════════════════════
+               ACTION LISTS (Support & Legal)
+               ═══════════════════════════════════════════════════════════════ */
+
+            .pui-action-list-body {
+                padding: 16px;
+            }
+            .pui-action-list {
+                display: flex;
+                flex-direction: column;
+                gap: 10px;
+            }
+            .pui-action-link {
+                display: flex;
+                align-items: center;
+                gap: 12px;
+                padding: 12px 14px;
+                background: var(--pui-bg-surface);
+                border: 1px solid var(--pui-border);
+                border-radius: 12px;
+                text-decoration: none;
+                transition:
+                    background-color var(--pui-d-fast) var(--pui-ease),
+                    border-color var(--pui-d-fast) var(--pui-ease),
+                    transform var(--pui-d-fast) var(--pui-ease),
+                    box-shadow var(--pui-d-fast) var(--pui-ease);
+            }
+            .pui-action-link:hover {
+                background: var(--pui-bg-card-elev);
+                border-color: var(--pui-border-strong);
+                transform: translateY(-2px);
+                box-shadow: var(--pui-shadow-card);
+            }
+            .pui-action-icon {
+                width: 36px;
+                height: 36px;
+                border-radius: 10px;
+                background: var(--pui-hover);
+                color: var(--pui-text-secondary);
+                display: grid;
+                place-items: center;
+                font-size: 0.95rem;
+                transition: background-color var(--pui-d-fast) var(--pui-ease);
+            }
+            .pui-action-link:hover .pui-action-icon {
+                background: var(--pui-border-light);
+            }
+            .pui-action-text {
+                flex: 1;
+                font-size: 0.88rem;
+                font-weight: 600;
+                color: var(--pui-text-primary);
+            }
+            .pui-action-external {
+                font-size: 0.75rem;
+                color: var(--pui-text-tertiary);
                 opacity: 0.6;
+                transition: opacity var(--pui-d-fast) var(--pui-ease);
+            }
+            .pui-action-link:hover .pui-action-external {
+                opacity: 1;
             }
 
-            /* CC responsive */
+            /* ═══════════════════════════════════════════════════════════════
+               WATCHLIST
+               ═══════════════════════════════════════════════════════════════ */
+
+            .pui-watchlist-add {
+                display: flex;
+                gap: 12px;
+                align-items: center;
+            }
+            .pui-watchlist-grid {
+                display: flex;
+                flex-direction: column;
+                gap: var(--pui-gap-md);
+            }
+            .pui-wl-card {
+                background: var(--pui-bg-card);
+                border: 1px solid var(--pui-border);
+                border-radius: var(--pui-radius-lg);
+                box-shadow: var(--pui-shadow-card);
+                padding: 16px var(--pui-pad-card);
+                transition: border-color var(--pui-d-fast) var(--pui-ease);
+            }
+            .pui-wl-card.live {
+                border-color: var(--pui-pos-soft);
+                background: linear-gradient(180deg, var(--pui-pos-soft) 0%, var(--pui-bg-card) 65%);
+            }
+            .pui-wl-card-top {
+                display: flex;
+                justify-content: space-between;
+                align-items: center;
+            }
+            .pui-wl-identity {
+                display: flex;
+                align-items: center;
+                gap: 12px;
+            }
+            .pui-wl-dot {
+                width: 10px;
+                height: 10px;
+                border-radius: 50%;
+                flex-shrink: 0;
+            }
+            .pui-wl-dot.live {
+                background: var(--pui-pos);
+                animation: puiPulseDot 2s ease-in-out infinite;
+            }
+            .pui-wl-dot.offline {
+                background: var(--pui-text-tertiary);
+                opacity: 0.5;
+            }
+            .pui-wl-username {
+                font-size: 0.95rem;
+                font-weight: 700;
+                color: var(--pui-text-primary);
+            }
+            .pui-wl-status {
+                font-size: 0.72rem;
+                color: var(--pui-text-secondary);
+                font-weight: 600;
+                margin-top: 2px;
+            }
+            .pui-wl-status.live { color: var(--pui-pos); }
+            .pui-watchlist-remove-btn {
+                width: 32px;
+                height: 32px;
+                border-radius: 8px;
+                background: transparent;
+                border: 1px solid var(--pui-border);
+                color: var(--pui-text-tertiary);
+                cursor: pointer;
+                display: grid;
+                place-items: center;
+                font-size: 0.8rem;
+                transition:
+                    background-color var(--pui-d-fast) var(--pui-ease),
+                    color var(--pui-d-fast) var(--pui-ease),
+                    border-color var(--pui-d-fast) var(--pui-ease);
+            }
+            .pui-watchlist-remove-btn:hover {
+                background: var(--pui-neg-soft);
+                color: var(--pui-neg);
+                border-color: transparent;
+            }
+            .pui-wl-flight-info {
+                margin-top: 14px;
+                padding-top: 14px;
+                border-top: 1px solid var(--pui-border-light);
+            }
+            .pui-wl-route {
+                display: flex;
+                align-items: center;
+                justify-content: center;
+                gap: 14px;
+                margin-bottom: 12px;
+            }
+            .pui-wl-icao {
+                font-family: var(--pui-font-mono);
+                font-size: 1.5rem;
+                font-weight: 700;
+                color: var(--pui-text-primary);
+                letter-spacing: -0.01em;
+            }
+            .pui-wl-plane-icon {
+                color: var(--pui-accent);
+                font-size: 1rem;
+            }
+            .pui-wl-telemetry {
+                display: grid;
+                grid-template-columns: 1fr 1fr;
+                gap: 10px;
+            }
+            .pui-wl-tele-item {
+                display: flex;
+                flex-direction: column;
+                gap: 3px;
+                padding: 9px 12px;
+                background: var(--pui-bg-surface);
+                border-radius: 8px;
+            }
+            .pui-wl-tele-item .label {
+                font-size: 0.6rem;
+                font-weight: 700;
+                letter-spacing: 0.08em;
+                text-transform: uppercase;
+                color: var(--pui-text-tertiary);
+            }
+            .pui-wl-tele-item .value {
+                font-family: var(--pui-font-mono);
+                font-size: 0.92rem;
+                font-weight: 700;
+                color: var(--pui-text-primary);
+            }
+
+            /* ═══════════════════════════════════════════════════════════════
+               TOGGLE SWITCH
+               ═══════════════════════════════════════════════════════════════ */
+
+            .pui-toggle-label {
+                display: inline-flex;
+                align-items: center;
+                gap: 10px;
+                cursor: pointer;
+                user-select: none;
+            }
+            .pui-toggle-label input { display: none; }
+            .pui-toggle-track {
+                position: relative;
+                width: 38px;
+                height: 22px;
+                background: var(--pui-border);
+                border-radius: 999px;
+                transition: background-color var(--pui-d-fast) var(--pui-ease);
+            }
+            .pui-toggle-thumb {
+                position: absolute;
+                top: 2px;
+                left: 2px;
+                width: 18px;
+                height: 18px;
+                background: #fff;
+                border-radius: 50%;
+                box-shadow: 0 1px 3px rgba(0, 0, 0, 0.15);
+                transition: transform var(--pui-d-base) var(--pui-ease);
+            }
+            .pui-toggle-label input:checked + .pui-toggle-track {
+                background: var(--pui-accent);
+            }
+            .pui-toggle-label input:checked + .pui-toggle-track .pui-toggle-thumb {
+                transform: translateX(16px);
+            }
+            .pui-toggle-text {
+                font-size: 0.78rem;
+                color: var(--pui-text-secondary);
+                font-weight: 600;
+            }
+
+            /* ═══════════════════════════════════════════════════════════════
+               PERSONAL RECORDS
+               ═══════════════════════════════════════════════════════════════ */
+
+            .pui-records-grid {
+                display: grid;
+                grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+                gap: 12px;
+            }
+            .pui-record {
+                padding: 14px 16px;
+                border-radius: var(--pui-radius);
+                border: 1px solid var(--pui-border);
+                background: var(--pui-bg-surface);
+            }
+            .pui-record[data-tone="indigo"]  { background: rgba(99,102,241,0.06);  border-color: rgba(99,102,241,0.16); }
+            .pui-record[data-tone="emerald"] { background: rgba(16,185,129,0.06);  border-color: rgba(16,185,129,0.16); }
+            .pui-record[data-tone="amber"]   { background: rgba(245,158,11,0.06);  border-color: rgba(245,158,11,0.18); }
+            .pui-record[data-tone="rose"]    { background: rgba(244,63,94,0.06);   border-color: rgba(244,63,94,0.16); }
+            .pui-wrapper-layer[data-theme="dark"] .pui-record[data-tone="indigo"]  { background: rgba(129,140,248,0.10); border-color: rgba(129,140,248,0.22); }
+            .pui-wrapper-layer[data-theme="dark"] .pui-record[data-tone="emerald"] { background: rgba(52,211,153,0.10);  border-color: rgba(52,211,153,0.22); }
+            .pui-wrapper-layer[data-theme="dark"] .pui-record[data-tone="amber"]   { background: rgba(251,191,36,0.10);  border-color: rgba(251,191,36,0.24); }
+            .pui-wrapper-layer[data-theme="dark"] .pui-record[data-tone="rose"]    { background: rgba(251,113,133,0.10); border-color: rgba(251,113,133,0.22); }
+            .pui-record-head {
+                display: flex;
+                align-items: center;
+                gap: 10px;
+                margin-bottom: 10px;
+            }
+            .pui-record-icon {
+                font-size: 0.9rem;
+            }
+            .pui-record[data-tone="indigo"]  .pui-record-icon { color: #6366f1; }
+            .pui-record[data-tone="emerald"] .pui-record-icon { color: #10b981; }
+            .pui-record[data-tone="amber"]   .pui-record-icon { color: #f59e0b; }
+            .pui-record[data-tone="rose"]    .pui-record-icon { color: #f43f5e; }
+            .pui-wrapper-layer[data-theme="dark"] .pui-record[data-tone="indigo"]  .pui-record-icon { color: #818cf8; }
+            .pui-wrapper-layer[data-theme="dark"] .pui-record[data-tone="emerald"] .pui-record-icon { color: #34d399; }
+            .pui-wrapper-layer[data-theme="dark"] .pui-record[data-tone="amber"]   .pui-record-icon { color: #fbbf24; }
+            .pui-wrapper-layer[data-theme="dark"] .pui-record[data-tone="rose"]    .pui-record-icon { color: #fb7185; }
+            .pui-record-label {
+                font-size: 0.62rem;
+                font-weight: 800;
+                letter-spacing: 0.1em;
+                text-transform: uppercase;
+                color: var(--pui-text-tertiary);
+            }
+            .pui-record-value {
+                font-family: var(--pui-font-mono);
+                font-size: 1rem;
+                font-weight: 700;
+                color: var(--pui-text-primary);
+                margin-bottom: 3px;
+            }
+            .pui-record-sub {
+                font-size: 0.72rem;
+                color: var(--pui-text-secondary);
+            }
+
+            /* ═══════════════════════════════════════════════════════════════
+               ONBOARDING
+               ═══════════════════════════════════════════════════════════════ */
+
+            .pui-onboarding-container {
+                display: flex;
+                justify-content: center;
+                align-items: center;
+                width: 100%;
+                min-height: 100%;
+                padding: 40px 24px;
+            }
+            .pui-onboarding-card {
+                background: var(--pui-bg-card);
+                border: 1px solid var(--pui-border);
+                border-radius: var(--pui-radius-xl);
+                width: 100%;
+                max-width: 500px;
+                padding: 40px 36px;
+                box-shadow: var(--pui-shadow-modal);
+            }
+            .pui-onboarding-header {
+                text-align: center;
+                margin-bottom: 32px;
+            }
+            .pui-onboarding-icon {
+                width: 56px;
+                height: 56px;
+                margin: 0 auto 18px;
+                border-radius: 16px;
+                background: var(--pui-accent-soft);
+                color: var(--pui-accent);
+                font-size: 1.5rem;
+                display: grid;
+                place-items: center;
+            }
+            .pui-onboarding-header h2 {
+                font-size: 1.7rem;
+                margin: 0 0 8px 0;
+                font-weight: 700;
+                color: var(--pui-text-primary);
+                letter-spacing: -0.02em;
+            }
+            .pui-onboarding-header p {
+                color: var(--pui-text-secondary);
+                margin: 0;
+                font-size: 0.92rem;
+                line-height: 1.5;
+            }
+
+            /* ═══════════════════════════════════════════════════════════════
+               SKELETON — soft pulse, not infinite shimmer
+               ═══════════════════════════════════════════════════════════════ */
+
+            .pui-skeleton {
+                background: var(--pui-border);
+                border-radius: 6px;
+                animation: puiPulseSoft 1.6s ease-in-out infinite;
+            }
+
+            /* ═══════════════════════════════════════════════════════════════
+               EMPTY STATES
+               ═══════════════════════════════════════════════════════════════ */
+
+            .pui-empty-state {
+                text-align: center;
+                padding: 56px 20px;
+                background: var(--pui-bg-card);
+                border: 1px dashed var(--pui-border);
+                border-radius: var(--pui-radius-lg);
+            }
+            .pui-empty-state i {
+                font-size: 2.2rem;
+                color: var(--pui-text-tertiary);
+                opacity: 0.6;
+                margin-bottom: 14px;
+                display: block;
+            }
+            .pui-empty-state h4 {
+                margin: 0 0 6px 0;
+                color: var(--pui-text-primary);
+                font-size: 1rem;
+                font-weight: 600;
+            }
+            .pui-empty-state p {
+                margin: 0;
+                color: var(--pui-text-secondary);
+                font-size: 0.84rem;
+                line-height: 1.5;
+            }
+
+            /* ═══════════════════════════════════════════════════════════════
+               TOASTS — no fullscreen blur, just a clean pop
+               ═══════════════════════════════════════════════════════════════ */
+
+            .pui-toast-container {
+                position: fixed;
+                bottom: 24px;
+                right: 24px;
+                display: flex;
+                flex-direction: column-reverse;
+                gap: 10px;
+                z-index: 10000;
+                pointer-events: none;
+                max-width: 360px;
+            }
+            .pui-toast {
+                background: var(--pui-bg-card);
+                border: 1px solid var(--pui-border);
+                color: var(--pui-text-primary);
+                padding: 12px 16px;
+                border-radius: var(--pui-radius);
+                font-size: 0.84rem;
+                font-weight: 500;
+                line-height: 1.45;
+                box-shadow: var(--pui-shadow-pop);
+                font-family: var(--pui-font-sans);
+                pointer-events: auto;
+                cursor: pointer;
+                animation: puiToastIn 240ms var(--pui-ease-out);
+                transition:
+                    opacity 240ms var(--pui-ease),
+                    transform 240ms var(--pui-ease);
+            }
+            .pui-toast-out {
+                opacity: 0;
+                transform: translateY(8px);
+            }
+            .pui-toast-info    { border-color: var(--pui-info-soft); }
+            .pui-toast-success { background: var(--pui-pos-soft); border-color: var(--pui-pos-soft); color: var(--pui-pos); }
+            .pui-toast-error   { background: var(--pui-neg-soft); border-color: var(--pui-neg-soft); color: var(--pui-neg); }
+            .pui-toast-warn    { background: var(--pui-warn-soft); border-color: var(--pui-warn-soft); color: var(--pui-warn); }
+
+            /* ═══════════════════════════════════════════════════════════════
+               UTILITY — fade in
+               ═══════════════════════════════════════════════════════════════ */
+
+            .pui-fade-in {
+                animation: puiFadeIn 320ms var(--pui-ease-out) both;
+            }
+
+            /* ═══════════════════════════════════════════════════════════════
+               RESPONSIVE
+               ═══════════════════════════════════════════════════════════════ */
+
+            @media (max-width: 1100px) {
+                .pui-dispatch-layout {
+                    grid-template-columns: 1fr;
+                }
+                .pui-dispatch-form {
+                    position: static;
+                }
+                .pui-settings-grid {
+                    grid-template-columns: 1fr;
+                }
+                .pui-home-grid {
+                    grid-template-columns: 1fr;
+                }
+            }
+
             @media (max-width: 900px) {
-                .pui-cc-grid { grid-template-columns: 1fr; }
-                .pui-cc-live-img { display: none; }
-                .pui-cc-live-icao { font-size: 1.9rem; }
-                .pui-cc-greeting { font-size: 1.5rem; }
-                .pui-cc-live-stat-value { font-size: 1.05rem; }
+                .pui-shell {
+                    height: 95vh;
+                    border-radius: var(--pui-radius-lg);
+                }
+                .pui-content {
+                    padding: 18px 20px 110px;
+                }
+                .pui-topstrip {
+                    padding: 0 16px;
+                    height: 56px;
+                }
+                .pui-content { inset: 56px 0 0 0; }
+                .pui-user-meta { display: none; }
+                .pui-user-chip { padding: 4px; }
+                .pui-dock-label { display: none; }
+                .pui-dock-item { padding: 10px 12px; }
+                .pui-live-card {
+                    height: 280px;
+                    flex: 0 0 100%;
+                }
+                .pui-live-stats { grid-template-columns: repeat(2, 1fr); }
+                .pui-live-stat:nth-child(2) { border-right: none; }
+                .pui-live-stat:nth-child(1), .pui-live-stat:nth-child(2) { border-bottom: 1px solid rgba(255,255,255,0.06); }
+                .pui-stats-grid { grid-template-columns: 1fr; }
+                .pui-intel-stats-quad { grid-template-columns: repeat(2, 1fr); }
+                .pui-intel-stats-tri { grid-template-columns: 1fr; }
+                .pui-home-greeting { font-size: 1.4rem; }
+                .pui-ticket {
+                    flex-direction: column;
+                }
+                .pui-ticket-actions { 
+                    opacity: 1; 
+                    top: 16px; 
+                    right: 16px; 
+                }
+                .pui-ticket-stub {
+                    border-right: none;
+                    border-bottom: 1px dashed var(--pui-border);
+                    flex-direction: row;
+                    justify-content: space-between;
+                    align-items: center;
+                    padding: 12px 16px;
+                }
+                .pui-ticket-cs { margin-top: 0; }
+                .pui-ticket-aside {
+                    border-left: none;
+                    border-top: 1px solid var(--pui-border-light);
+                    flex-direction: row;
+                    justify-content: space-around;
+                    padding: 12px 16px;
+                }
             }
 
+            @media (prefers-reduced-motion: reduce) {
+                .pui-fade-in,
+                .pui-toast,
+                .pui-skeleton,
+                .pui-wl-dot.live {
+                    animation: none !important;
+                }
+                .pui-wrapper-layer,
+                .pui-shell {
+                    transition: opacity 80ms linear;
+                }
+            }
         `;
 
         const style = document.createElement('style');
         style.id = 'pui-dashboard-styles';
-        style.innerHTML = css;
+        style.textContent = css;
         document.head.appendChild(style);
     }
 };

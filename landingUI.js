@@ -6,6 +6,7 @@ export const LandingUI = {
     _currentServer: 'Expert', 
     _searchCursorIndex: -1, 
     _currentMatches: [],
+    _theme: localStorage.getItem('pui-theme') || 'dark',
 
     filterGroups: {
         flight: {
@@ -40,6 +41,9 @@ export const LandingUI = {
 
     async init() {
         window.LandingUI = this;
+
+        // Fetch theme again just in case it loaded late
+        this._theme = localStorage.getItem('pui-theme') || 'dark';
 
         await this.loadPrefixData(); 
         this.injectStyles();
@@ -145,12 +149,8 @@ export const LandingUI = {
     },
 
     executeSearchClick(id, lat, lon) {
-        console.log(`[LandingUI] Executing Search Click. ID: ${id}, Lat: ${lat}, Lon: ${lon}`);
-
         if (typeof window.onSearchResultClick === 'function') {
             window.onSearchResultClick(id, lat, lon);
-        } else {
-            console.error("[LandingUI] Global onSearchResultClick not found! Ensure flight.js is loaded correctly.");
         }
 
         const searchInput = document.getElementById('blade-search-input');
@@ -176,7 +176,7 @@ export const LandingUI = {
         Object.values(this.filterGroups).forEach(group => this.allFilters.push(...group.filters));
 
         const html = `
-            <div id="inflight-tactical-ui" class="tactical-ui-root">
+            <div id="inflight-tactical-ui" class="tactical-ui-root" data-theme="${this._theme}">
                 <header class="tactical-header">
                     <div class="top-branding dropdown" id="server-selector">
                         <div class="status-dot"></div>
@@ -303,6 +303,15 @@ export const LandingUI = {
         const weatherWrapper = document.getElementById('weather-menu-wrapper');
         const authBtn = document.getElementById('open-auth-btn');
         
+        // Listen for live theme updates from profileUI.js
+        window.addEventListener('puiThemeChanged', (e) => {
+            this._theme = e.detail.theme;
+            const root = document.getElementById('inflight-tactical-ui');
+            if (root) {
+                root.setAttribute('data-theme', this._theme);
+            }
+        });
+
         const toggleModal = (state) => {
             this._modalOpen = state;
             modalOverlay?.classList.toggle('open', state);
@@ -583,9 +592,75 @@ export const LandingUI = {
         const css = `
             @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap');
 
+            :root {
+                --lui-bg-main: #0a0a0b;
+                --lui-bg-card: #141416;
+                --lui-bg-input: #1c1c1f;
+                --lui-bg-panel: #0d0d0e;
+                --lui-bg-menu: #18181b;
+
+                --lui-text-main: #fff;
+                --lui-text-muted: rgba(255, 255, 255, 0.4);
+                --lui-text-dim: rgba(255, 255, 255, 0.3);
+                --lui-text-inverse: #000;
+                --lui-text-gray-1: #a1a1aa;
+                --lui-text-gray-2: #71717a;
+                --lui-text-gray-3: #3f3f46;
+
+                --lui-border-light: rgba(255, 255, 255, 0.05);
+                --lui-border-base: rgba(255, 255, 255, 0.08);
+                --lui-border-strong: rgba(255, 255, 255, 0.15);
+                --lui-border-solid: #2d2d30;
+                --lui-border-menu: #3f3f46;
+
+                --lui-hover-bg: rgba(255, 255, 255, 0.05);
+                --lui-active-bg: rgba(255, 255, 255, 0.12);
+
+                --lui-accent: #38bdf8;
+                --lui-accent-hover: rgba(56, 189, 248, 0.1);
+                --lui-accent-active: rgba(56, 189, 248, 0.2);
+
+                --lui-glass-bg: rgba(10, 10, 10, 0.85);
+                --lui-glass-heavy: rgba(0, 0, 0, 0.85);
+                --lui-glass-btn: rgba(15, 15, 15, 0.7);
+            }
+
+            .tactical-ui-root[data-theme="light"] {
+                --lui-bg-main: #f3f4f6;
+                --lui-bg-card: #ffffff;
+                --lui-bg-input: #ffffff;
+                --lui-bg-panel: #e5e7eb;
+                --lui-bg-menu: #ffffff;
+
+                --lui-text-main: #111827;
+                --lui-text-muted: rgba(0, 0, 0, 0.5);
+                --lui-text-dim: rgba(0, 0, 0, 0.4);
+                --lui-text-inverse: #ffffff;
+                --lui-text-gray-1: #4b5563;
+                --lui-text-gray-2: #6b7280;
+                --lui-text-gray-3: #9ca3af;
+
+                --lui-border-light: rgba(0, 0, 0, 0.05);
+                --lui-border-base: rgba(0, 0, 0, 0.08);
+                --lui-border-strong: rgba(0, 0, 0, 0.15);
+                --lui-border-solid: #d1d5db;
+                --lui-border-menu: #e5e7eb;
+
+                --lui-hover-bg: rgba(0, 0, 0, 0.05);
+                --lui-active-bg: rgba(0, 0, 0, 0.08);
+
+                --lui-accent: #0284c7;
+                --lui-accent-hover: rgba(2, 132, 199, 0.1);
+                --lui-accent-active: rgba(2, 132, 199, 0.2);
+
+                --lui-glass-bg: rgba(255, 255, 255, 0.85);
+                --lui-glass-heavy: rgba(243, 244, 246, 0.85);
+                --lui-glass-btn: rgba(255, 255, 255, 0.7);
+            }
+
             .modal-filter-card {
-                background: #141416;
-                border: 1px solid rgba(255, 255, 255, 0.08);
+                background: var(--lui-bg-card);
+                border: 1px solid var(--lui-border-base);
                 border-radius: 20px;
                 display: flex;
                 overflow: visible !important; 
@@ -595,7 +670,7 @@ export const LandingUI = {
 
             .modal-filter-card:focus-within {
                 z-index: 10;
-                border-color: rgba(56, 189, 248, 0.5);
+                border-color: var(--lui-accent);
             }
 
             .card-content {
@@ -614,8 +689,8 @@ export const LandingUI = {
                 top: calc(100% + 5px);
                 left: 0;
                 right: 0;
-                background: #1c1c1f;
-                border: 1px solid #38bdf8;
+                background: var(--lui-bg-input);
+                border: 1px solid var(--lui-accent);
                 border-radius: 12px;
                 z-index: 9999;
                 max-height: 200px;
@@ -628,17 +703,17 @@ export const LandingUI = {
                 padding: 12px 16px;
                 cursor: pointer;
                 font-size: 0.9rem;
-                color: #fff;
-                border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+                color: var(--lui-text-main);
+                border-bottom: 1px solid var(--lui-border-light);
             }
 
             .autocomplete-item:hover {
-                background: #38bdf8;
-                color: #000;
+                background: var(--lui-accent);
+                color: var(--lui-text-inverse);
             }
 
             .premium-highlight {
-                color: #38bdf8;
+                color: var(--lui-accent);
                 font-weight: 700;
             }
             
@@ -678,13 +753,13 @@ export const LandingUI = {
                 top: 30px;
                 left: 40px;
                 pointer-events: auto;
-                background: rgba(0, 0, 0, 0.7);
+                background: var(--lui-glass-btn);
                 padding: 10px 24px;
                 border-radius: 100px;
                 backdrop-filter: blur(15px);
-                border: 1px solid rgba(255, 255, 255, 0.1);
+                border: 1px solid var(--lui-border-base);
                 cursor: pointer;
-                color: #fff;
+                color: var(--lui-text-main);
                 display: flex;
                 align-items: center;
                 gap: 12px;
@@ -693,17 +768,10 @@ export const LandingUI = {
                 white-space: nowrap;
             }
 
-            .top-right-actions {
-                position: absolute;
-                top: 30px;
-                right: 40px;
-                pointer-events: auto;
-            }
-
             .search-blade {
-                background: rgba(10, 10, 10, 0.85);
+                background: var(--lui-glass-bg);
                 backdrop-filter: blur(20px);
-                border: 1px solid rgba(255, 255, 255, 0.15);
+                border: 1px solid var(--lui-border-strong);
                 border-radius: 100px;
                 height: 44px;
                 width: 240px;
@@ -719,9 +787,9 @@ export const LandingUI = {
 
             .search-blade:focus-within {
                 width: 380px;
-                border-color: #38bdf8;
-                background: #0f0f11;
-                box-shadow: 0 15px 40px rgba(0,0,0,0.6), 0 0 0 1px rgba(56, 189, 248, 0.3);
+                border-color: var(--lui-accent);
+                background: var(--lui-bg-main);
+                box-shadow: 0 15px 40px rgba(0,0,0,0.6), 0 0 0 1px var(--lui-accent-hover);
             }
             
             .search-blade.has-results {
@@ -734,22 +802,22 @@ export const LandingUI = {
                 flex: 1;
                 background: none;
                 border: none;
-                color: #fff;
+                color: var(--lui-text-main);
                 margin-left: 10px;
                 outline: none;
                 font-size: 15px;
                 font-weight: 500;
             }
             .search-icon {
-                color: rgba(255, 255, 255, 0.4);
+                color: var(--lui-text-muted);
                 font-size: 14px;
             }
             .search-shortcut {
-                background: rgba(255, 255, 255, 0.08);
+                background: var(--lui-border-base);
                 padding: 3px 8px;
                 border-radius: 6px;
                 font-size: 0.65rem;
-                color: rgba(255, 255, 255, 0.4);
+                color: var(--lui-text-muted);
                 font-weight: 800;
                 margin-left: 10px;
             }
@@ -759,14 +827,14 @@ export const LandingUI = {
                 top: calc(100% + 8px);
                 left: 0;
                 width: 100%;
-                background: #0f0f11;
-                border: 1px solid rgba(255, 255, 255, 0.08);
+                background: var(--lui-bg-main);
+                border: 1px solid var(--lui-border-base);
                 border-radius: 12px;
                 max-height: 440px;
                 overflow-y: auto;
                 display: none;
                 z-index: 1001;
-                box-shadow: 0 20px 50px rgba(0,0,0,0.8), 0 0 0 1px rgba(255,255,255,0.05);
+                box-shadow: 0 20px 50px rgba(0,0,0,0.8), 0 0 0 1px var(--lui-border-light);
                 padding: 6px;
             }
 
@@ -785,17 +853,17 @@ export const LandingUI = {
 
             .premium-result-item:hover, 
             .premium-result-item.selected {
-                background: rgba(255, 255, 255, 0.05);
+                background: var(--lui-hover-bg);
             }
 
             .res-meta-icon {
                 font-size: 6px;
-                color: rgba(255, 255, 255, 0.2);
+                color: var(--lui-text-dim);
                 transition: color 0.2s;
             }
             .premium-result-item:hover .res-meta-icon,
             .premium-result-item.selected .res-meta-icon {
-                color: #fff;
+                color: var(--lui-text-main);
             }
 
             .res-info-main { flex: 1; }
@@ -810,15 +878,15 @@ export const LandingUI = {
             .res-callsign {
                 font-size: 14px;
                 font-weight: 600;
-                color: #fff;
+                color: var(--lui-text-main);
             }
 
             .res-pill {
                 font-size: 10px;
                 font-weight: 700;
                 text-transform: uppercase;
-                background: rgba(255, 255, 255, 0.06);
-                color: rgba(255, 255, 255, 0.5);
+                background: var(--lui-hover-bg);
+                color: var(--lui-text-muted);
                 padding: 2px 6px;
                 border-radius: 4px;
                 letter-spacing: 0.02em;
@@ -826,42 +894,32 @@ export const LandingUI = {
 
             .res-secondary-row {
                 font-size: 12px;
-                color: rgba(255, 255, 255, 0.4);
+                color: var(--lui-text-muted);
             }
 
-            .res-stats {
-                text-align: right;
-            }
+            .res-stats { text-align: right; }
 
             .res-altitude {
                 font-family: 'Inter', sans-serif;
                 font-weight: 600;
                 font-size: 13px;
-                color: #fff;
+                color: var(--lui-text-main);
             }
 
             .res-altitude span {
                 font-size: 10px;
                 font-weight: 400;
-                color: rgba(255, 255, 255, 0.3);
+                color: var(--lui-text-dim);
                 margin-left: 2px;
-            }
-
-            .premium-highlight {
-                background: rgba(255, 255, 255, 0.15);
-                color: #fff;
-                padding: 0 2px;
-                border-radius: 2px;
             }
 
             .premium-empty-state {
                 padding: 32px;
                 text-align: center;
-                color: rgba(255, 255, 255, 0.3);
+                color: var(--lui-text-dim);
                 font-size: 13px;
             }
 
-            /* AUTH NEXUS (PROFILE ICON) */
             .auth-nexus {
                 position: absolute;
                 bottom: 40px;
@@ -870,7 +928,6 @@ export const LandingUI = {
                 z-index: 2000;
             }
 
-            /* UTILITY NEXUS STYLES */
             .utility-nexus {
                 position: absolute;
                 bottom: 40px;
@@ -887,10 +944,10 @@ export const LandingUI = {
                 width: 52px;
                 height: 52px;
                 border-radius: 50%;
-                background: rgba(15, 15, 15, 0.7);
+                background: var(--lui-glass-btn);
                 backdrop-filter: blur(15px);
-                border: 1px solid rgba(255, 255, 255, 0.12);
-                color: rgba(255, 255, 255, 0.7);
+                border: 1px solid var(--lui-border-base);
+                color: var(--lui-text-main);
                 cursor: pointer;
                 display: grid;
                 place-items: center;
@@ -901,26 +958,24 @@ export const LandingUI = {
             }
             .orb-btn:hover {
                 transform: translateY(-5px);
-                background: #fff;
-                color: #000;
-                border-color: #fff;
-                box-shadow: 0 15px 30px rgba(255,255,255,0.25);
+                background: var(--lui-text-main);
+                color: var(--lui-text-inverse);
+                border-color: var(--lui-text-main);
+                box-shadow: 0 15px 30px rgba(0,0,0,0.2);
             }
 
-            .nexus-orb-wrapper {
-                position: relative;
-            }
+            .nexus-orb-wrapper { position: relative; }
             .nexus-preview-tooltip {
                 position: absolute;
                 bottom: calc(100% + 20px);
                 right: 0;
                 width: 260px;
-                background: rgba(10, 10, 12, 0.95);
+                background: var(--lui-glass-bg);
                 backdrop-filter: blur(30px);
-                border: 1px solid rgba(255, 255, 255, 0.15);
+                border: 1px solid var(--lui-border-strong);
                 border-radius: 18px;
                 padding: 20px;
-                color: #fff;
+                color: var(--lui-text-main);
                 opacity: 0;
                 visibility: hidden;
                 transform: translateY(15px);
@@ -937,10 +992,10 @@ export const LandingUI = {
             .preview-header {
                 font-size: 0.65rem;
                 font-weight: 900;
-                color: #71717a;
+                color: var(--lui-text-gray-2);
                 letter-spacing: 1.5px;
                 margin-bottom: 14px;
-                border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+                border-bottom: 1px solid var(--lui-border-base);
                 padding-bottom: 8px;
                 text-transform: uppercase;
             }
@@ -952,43 +1007,25 @@ export const LandingUI = {
                 margin-bottom: 10px;
             }
             .preview-line i {
-                color: #38bdf8;
+                color: var(--lui-accent);
                 width: 18px;
                 text-align: center;
                 font-size: 0.8rem;
             }
-            .preview-label { color: #a1a1aa; }
-            .preview-value { font-weight: 700; color: #fff; margin-left: auto; }
+            .preview-label { color: var(--lui-text-gray-1); }
+            .preview-value { font-weight: 700; color: var(--lui-text-main); margin-left: auto; }
             .preview-footer {
                 margin-top: 14px;
                 font-size: 0.65rem;
-                color: #38bdf8;
+                color: var(--lui-accent);
                 font-weight: 600;
-                border-top: 1px solid rgba(255, 255, 255, 0.05);
+                border-top: 1px solid var(--lui-border-light);
                 padding-top: 10px;
             }
 
-            .top-branding.dropdown {
-                position: absolute;
-                top: 30px;
-                left: 40px;
-                pointer-events: auto;
-                background: rgba(0, 0, 0, 0.7);
-                padding: 10px 24px;
-                border-radius: 100px;
-                backdrop-filter: blur(15px);
-                border: 1px solid rgba(255, 255, 255, 0.1);
-                cursor: pointer;
-                color: #fff;
-                display: flex;
-                align-items: center;
-                gap: 12px;
-                box-shadow: 0 10px 20px rgba(0,0,0,0.3);
-                transition: all 0.3s;
-            }
             .top-branding.dropdown:hover {
-                background: rgba(20, 20, 20, 0.9);
-                border-color: rgba(255,255,255,0.2);
+                background: var(--lui-glass-heavy);
+                border-color: var(--lui-border-strong);
             }
             .status-dot { width: 8px; height: 8px; background: #10b981; border-radius: 50%; box-shadow: 0 0 12px #10b981; }
             #landing-server-name { font-size: 0.8rem; font-weight: 800; letter-spacing: 1px; }
@@ -1000,8 +1037,8 @@ export const LandingUI = {
                 top: calc(100% + 12px);
                 left: 0;
                 width: 100%;
-                background: #18181b;
-                border: 1px solid #3f3f46;
+                background: var(--lui-bg-menu);
+                border: 1px solid var(--lui-border-menu);
                 border-radius: 16px;
                 display: none;
                 flex-direction: column;
@@ -1014,12 +1051,12 @@ export const LandingUI = {
                 padding: 14px 24px;
                 font-size: 0.85rem;
                 font-weight: 600;
-                color: #a1a1aa;
+                color: var(--lui-text-gray-1);
                 transition: all 0.2s;
             }
             .server-option:hover {
-                background: rgba(56, 189, 248, 0.1);
-                color: #38bdf8;
+                background: var(--lui-accent-hover);
+                color: var(--lui-accent);
             }
 
             .weather-nexus-container { position: relative; display: flex; flex-direction: column-reverse; align-items: center; gap: 15px; }
@@ -1046,10 +1083,10 @@ export const LandingUI = {
             .spread-opt {
                 padding: 12px 20px;
                 border-radius: 100px;
-                background: rgba(15, 15, 15, 0.95);
+                background: var(--lui-glass-bg);
                 backdrop-filter: blur(20px);
-                border: 1px solid rgba(255, 255, 255, 0.15);
-                color: rgba(255, 255, 255, 0.6);
+                border: 1px solid var(--lui-border-strong);
+                color: var(--lui-text-muted);
                 cursor: pointer;
                 display: flex;
                 align-items: center;
@@ -1060,13 +1097,13 @@ export const LandingUI = {
             }
             .spread-opt i { font-size: 0.95rem; }
             .spread-label { font-size: 0.8rem; font-weight: 700; }
-            .spread-opt:hover { background: #222; color: #fff; border-color: #38bdf8; }
-            .spread-opt.active { background: rgba(56, 189, 248, 0.2); color: #38bdf8; border-color: #38bdf8; }
+            .spread-opt:hover { background: var(--lui-hover-bg); color: var(--lui-text-main); border-color: var(--lui-accent); }
+            .spread-opt.active { background: var(--lui-accent-active); color: var(--lui-accent); border-color: var(--lui-accent); }
 
             .modal-overlay {
                 position: fixed;
                 inset: 0;
-                background: rgba(0, 0, 0, 0.85);
+                background: var(--lui-glass-heavy);
                 backdrop-filter: blur(15px);
                 display: flex;
                 align-items: center;
@@ -1080,12 +1117,12 @@ export const LandingUI = {
             .modal-overlay.open { opacity: 1; visibility: visible; }
             
             .filter-modal {
-                background: #0a0a0b;
+                background: var(--lui-bg-main);
                 width: 940px;
                 height: 660px;
                 max-width: 95vw;
                 max-height: 90vh;
-                border: 1px solid rgba(255, 255, 255, 0.12);
+                border: 1px solid var(--lui-border-base);
                 border-radius: 28px;
                 display: flex;
                 flex-direction: column;
@@ -1099,8 +1136,8 @@ export const LandingUI = {
             .modal-header {
                 height: 90px;
                 padding: 0 40px;
-                background: rgba(255, 255, 255, 0.02);
-                border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+                background: var(--lui-hover-bg);
+                border-bottom: 1px solid var(--lui-border-base);
                 display: flex;
                 justify-content: space-between;
                 align-items: center;
@@ -1109,30 +1146,30 @@ export const LandingUI = {
             .header-icon-box {
                 width: 50px;
                 height: 50px;
-                background: rgba(56, 189, 248, 0.12);
+                background: var(--lui-accent-hover);
                 border-radius: 14px;
-                color: #38bdf8;
+                color: var(--lui-accent);
                 display: grid;
                 place-items: center;
                 font-size: 1.3rem;
             }
-            .header-text h2 { margin: 0; font-size: 1.4rem; font-weight: 800; color: #fff; }
-            .header-text span { font-size: 0.9rem; color: #71717a; font-weight: 500; }
-            .close-modal { background: none; border: none; color: #71717a; font-size: 2.2rem; cursor: pointer; transition: 0.2s; }
-            .close-modal:hover { color: #fff; transform: rotate(90deg); }
+            .header-text h2 { margin: 0; font-size: 1.4rem; font-weight: 800; color: var(--lui-text-main); }
+            .header-text span { font-size: 0.9rem; color: var(--lui-text-gray-2); font-weight: 500; }
+            .close-modal { background: none; border: none; color: var(--lui-text-gray-2); font-size: 2.2rem; cursor: pointer; transition: 0.2s; }
+            .close-modal:hover { color: var(--lui-text-main); transform: rotate(90deg); }
 
             .modal-body { display: flex; flex: 1; overflow: hidden; }
             .filter-selection-pane {
                 width: 300px;
-                background: rgba(0, 0, 0, 0.3);
-                border-right: 1px solid rgba(255, 255, 255, 0.08);
+                background: var(--lui-hover-bg);
+                border-right: 1px solid var(--lui-border-base);
                 padding: 30px;
                 overflow-y: auto;
             }
             .filter-group-header {
                 font-size: 0.7rem;
                 font-weight: 900;
-                color: #3f3f46;
+                color: var(--lui-text-gray-3);
                 text-transform: uppercase;
                 letter-spacing: 2px;
                 margin-bottom: 18px;
@@ -1147,7 +1184,7 @@ export const LandingUI = {
                 border: none;
                 padding: 14px 18px;
                 border-radius: 14px;
-                color: #71717a;
+                color: var(--lui-text-gray-2);
                 cursor: pointer;
                 display: flex;
                 align-items: center;
@@ -1155,62 +1192,62 @@ export const LandingUI = {
                 transition: all 0.25s;
                 margin-bottom: 6px;
             }
-            .nexus-item:hover { background: rgba(255, 255, 255, 0.05); color: #fff; }
-            .nexus-item.active { background: rgba(56, 189, 248, 0.12); color: #38bdf8; font-weight: 700; }
+            .nexus-item:hover { background: var(--lui-hover-bg); color: var(--lui-text-main); }
+            .nexus-item.active { background: var(--lui-accent-hover); color: var(--lui-accent); font-weight: 700; }
             .nexus-icon { width: 24px; text-align: center; font-size: 1rem; }
 
             .filter-config-pane {
                 flex: 1;
                 padding: 40px;
-                background: #0d0d0e;
+                background: var(--lui-bg-panel);
                 display: flex;
                 flex-direction: column;
                 position: relative;
             }
             .config-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 28px; }
-            .config-header label { font-size: 0.8rem; font-weight: 900; color: #3f3f46; text-transform: uppercase; letter-spacing: 2.5px; }
-            #active-count-badge { background: #38bdf8; color: #000; padding: 6px 14px; border-radius: 100px; font-size: 0.75rem; font-weight: 800; }
+            .config-header label { font-size: 0.8rem; font-weight: 900; color: var(--lui-text-gray-3); text-transform: uppercase; letter-spacing: 2.5px; }
+            #active-count-badge { background: var(--lui-accent); color: var(--lui-text-inverse); padding: 6px 14px; border-radius: 100px; font-size: 0.75rem; font-weight: 800; }
 
             .modal-active-list { flex: 1; overflow-y: auto; display: flex; flex-direction: column; gap: 20px; padding-bottom: 120px; }
             .modal-filter-card {
-                background: #141416;
-                border: 1px solid rgba(255, 255, 255, 0.08);
+                background: var(--lui-bg-card);
+                border: 1px solid var(--lui-border-base);
                 border-radius: 20px;
                 display: flex;
                 overflow: hidden;
                 box-shadow: 0 8px 30px rgba(0,0,0,0.3);
             }
-            .card-left-strip { width: 6px; background: #38bdf8; }
+            .card-left-strip { width: 6px; background: var(--lui-accent); }
             .card-content { flex: 1; padding: 24px; }
-            .row-label { display: flex; align-items: center; gap: 14px; font-size: 1rem; font-weight: 700; color: #fff; }
-            .row-label i { color: #38bdf8; opacity: 0.9; }
+            .row-label { display: flex; align-items: center; gap: 14px; font-size: 1rem; font-weight: 700; color: var(--lui-text-main); }
+            .row-label i { color: var(--lui-accent); opacity: 0.9; }
             .row-control { margin-top: 20px; }
 
             .row-input, .row-input-select {
                 width: 100%;
-                background: #1c1c1f;
-                border: 1px solid #2d2d30;
+                background: var(--lui-bg-input);
+                border: 1px solid var(--lui-border-solid);
                 border-radius: 12px;
-                color: #fff;
+                color: var(--lui-text-main);
                 padding: 14px 18px;
                 font-size: 0.95rem;
                 font-family: inherit;
                 outline: none;
                 transition: all 0.2s;
             }
-            .row-input:focus, .row-input-select:focus { border-color: #38bdf8; background: #232326; box-shadow: 0 0 0 4px rgba(56, 189, 248, 0.1); }
+            .row-input:focus, .row-input-select:focus { border-color: var(--lui-accent); background: var(--lui-hover-bg); box-shadow: 0 0 0 4px var(--lui-accent-hover); }
 
             .range-pill-container {
                 display: flex;
-                background: #1c1c1f;
-                border: 1px solid #2d2d30;
+                background: var(--lui-bg-input);
+                border: 1px solid var(--lui-border-solid);
                 border-radius: 12px;
                 overflow: hidden;
             }
             .range-half { flex: 1; display: flex; align-items: center; padding: 0 16px; }
-            .range-label { font-size: 0.65rem; font-weight: 900; color: #3f3f46; margin-right: 14px; }
-            .range-input { background: none; border: none; color: #fff; width: 100%; padding: 14px 0; outline: none; font-size: 1rem; font-weight: 600; }
-            .range-divider { width: 1px; height: 28px; background: #2d2d30; align-self: center; }
+            .range-label { font-size: 0.65rem; font-weight: 900; color: var(--lui-text-gray-3); margin-right: 14px; }
+            .range-input { background: none; border: none; color: var(--lui-text-main); width: 100%; padding: 14px 0; outline: none; font-size: 1rem; font-weight: 600; }
+            .range-divider { width: 1px; height: 28px; background: var(--lui-border-solid); align-self: center; }
 
             .modal-footer-embedded {
                 position: absolute;
@@ -1218,9 +1255,9 @@ export const LandingUI = {
                 left: 0;
                 right: 0;
                 padding: 30px 40px;
-                background: rgba(13, 13, 14, 0.95);
+                background: var(--lui-glass-bg);
                 backdrop-filter: blur(12px);
-                border-top: 1px solid rgba(255, 255, 255, 0.08);
+                border-top: 1px solid var(--lui-border-base);
                 display: flex;
                 justify-content: flex-end;
                 gap: 20px;
@@ -1234,10 +1271,10 @@ export const LandingUI = {
                 transition: all 0.3s cubic-bezier(0.16, 1, 0.3, 1);
                 border: none;
             }
-            .modal-btn.primary { background: #38bdf8; color: #000; }
-            .modal-btn.primary:hover { transform: translateY(-3px); box-shadow: 0 12px 25px rgba(56, 189, 248, 0.35); }
-            .modal-btn.secondary { background: rgba(255, 255, 255, 0.06); color: #fff; border: 1px solid rgba(255, 255, 255, 0.12); }
-            .modal-btn.secondary:hover { background: rgba(255, 255, 255, 0.12); }
+            .modal-btn.primary { background: var(--lui-accent); color: var(--lui-text-inverse); }
+            .modal-btn.primary:hover { transform: translateY(-3px); box-shadow: 0 12px 25px var(--lui-accent-hover); }
+            .modal-btn.secondary { background: var(--lui-hover-bg); color: var(--lui-text-main); border: 1px solid var(--lui-border-base); }
+            .modal-btn.secondary:hover { background: var(--lui-active-bg); }
 
             .empty-state {
                 flex: 1;
@@ -1245,7 +1282,7 @@ export const LandingUI = {
                 flex-direction: column;
                 align-items: center;
                 justify-content: center;
-                color: #3f3f46;
+                color: var(--lui-text-gray-3);
                 text-align: center;
                 padding: 40px;
             }
@@ -1253,14 +1290,14 @@ export const LandingUI = {
                 width: 90px;
                 height: 90px;
                 border-radius: 50%;
-                background: rgba(255, 255, 255, 0.03);
-                border: 2px dashed rgba(255, 255, 255, 0.08);
+                background: var(--lui-hover-bg);
+                border: 2px dashed var(--lui-border-base);
                 display: grid;
                 place-items: center;
                 font-size: 2.2rem;
                 margin-bottom: 24px;
             }
-            .empty-state p { margin: 0; color: #a1a1aa; font-weight: 700; font-size: 1.2rem; }
+            .empty-state p { margin: 0; color: var(--lui-text-gray-1); font-weight: 700; font-size: 1.2rem; }
             .empty-state span { font-size: 0.95rem; margin-top: 10px; max-width: 260px; line-height: 1.5; }
 
             .active-pulse-dot {
@@ -1269,18 +1306,18 @@ export const LandingUI = {
                 right: 0;
                 width: 12px;
                 height: 12px;
-                background: #38bdf8;
+                background: var(--lui-accent);
                 border-radius: 50%;
-                border: 2px solid #0a0a0b;
+                border: 2px solid var(--lui-bg-main);
                 opacity: 0;
                 transition: opacity 0.3s;
-                box-shadow: 0 0 15px #38bdf8;
+                box-shadow: 0 0 15px var(--lui-accent);
             }
 
             .custom-scroll::-webkit-scrollbar { width: 8px; }
             .custom-scroll::-webkit-scrollbar-track { background: transparent; }
-            .custom-scroll::-webkit-scrollbar-thumb { background: rgba(255, 255, 255, 0.12); border-radius: 10px; border: 2px solid transparent; background-clip: content-box; }
-            .custom-scroll::-webkit-scrollbar-thumb:hover { background: rgba(255, 255, 255, 0.2); border: 2px solid transparent; background-clip: content-box; }
+            .custom-scroll::-webkit-scrollbar-thumb { background: var(--lui-border-base); border-radius: 10px; border: 2px solid transparent; background-clip: content-box; }
+            .custom-scroll::-webkit-scrollbar-thumb:hover { background: var(--lui-border-strong); border: 2px solid transparent; background-clip: content-box; }
 
             @keyframes slideIn {
                 from { opacity: 0; transform: translateY(12px); }
@@ -1293,9 +1330,9 @@ export const LandingUI = {
                     position: fixed;
                     top: 0;
                     height: 60px;
-                    background: #000;
+                    background: var(--lui-bg-main);
                     backdrop-filter: blur(20px);
-                    border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+                    border-bottom: 1px solid var(--lui-border-base);
                     display: flex !important;
                     align-items: center !important;
                     justify-content: space-between !important;
@@ -1336,7 +1373,7 @@ export const LandingUI = {
                     width: 100% !important;
                     height: 36px !important;
                     padding: 0 12px !important;
-                    background: rgba(255,255,255,0.08) !important;
+                    background: var(--lui-border-base) !important;
                     border-radius: 8px !important;
                 }
 
@@ -1349,14 +1386,13 @@ export const LandingUI = {
                     height: 40px !important;
                     z-index: 100 !important;
                     max-width: none !important;
-                    background: #111 !important;
+                    background: var(--lui-bg-card) !important;
                 }
 
                 .search-shortcut { display: none !important; }
 
                 .utility-nexus { bottom: 20px !important; right: 20px !important; }
                 
-                /* Adjust Profile Icon container for mobile */
                 .auth-nexus {
                     bottom: 20px !important;
                     left: 20px !important;

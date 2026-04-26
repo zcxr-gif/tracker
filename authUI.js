@@ -6,6 +6,27 @@ export const AuthUI = {
 
     init(supabaseClient) {
         this._supabase = supabaseClient;
+        this.setupRecoveryListener();
+    },
+
+    setupRecoveryListener() {
+        // Listen for Supabase's official password recovery event
+        this._supabase.auth.onAuthStateChange((event, session) => {
+            if (event === 'PASSWORD_RECOVERY') {
+                this.open('update_password');
+            }
+        });
+
+        // Failsafe: Check the URL hash directly on load just in case the event fires before init
+        if (window.location.hash && window.location.hash.includes('type=recovery')) {
+            // Remove the hash from the URL for cleanliness 
+            window.history.replaceState(null, '', window.location.pathname);
+            
+            // Give Supabase a fraction of a second to establish the temporary session, then open the UI
+            setTimeout(() => {
+                this.open('update_password');
+            }, 500);
+        }
     },
 
     async open(mode = 'signin') {
@@ -16,7 +37,9 @@ export const AuthUI = {
 
         const { data } = await this._supabase.auth.getSession();
         
-        if (data?.session?.user) {
+        // If user is logged in, normally redirect to ProfileUI. 
+        // We MUST bypass this if they are in the middle of a 'update_password' recovery flow.
+        if (data?.session?.user && mode !== 'update_password') {
             import('./profileUI.js').then(module => {
                 if (!module.ProfileUI._supabase) {
                     module.ProfileUI.init(this._supabase);
@@ -73,14 +96,17 @@ export const AuthUI = {
         const isSignIn = this._mode === 'signin';
         const isSignUp = this._mode === 'signup';
         const isPayment = this._mode === 'payment';
+        const isForgot = this._mode === 'forgot';
+        const isUpdatePassword = this._mode === 'update_password';
 
         let html = `
+            <div class="auth-premium-accent"></div>
             <button class="auth-close-btn" id="close-auth-ui" aria-label="Close">&times;</button>
             <div class="auth-header-section">
-                <img src="Images/inflight.png" alt="InFlight Logo" class="auth-brand-logo" onerror="this.style.display='none'">
+                <img src="Images/InflightPro.png" alt="InFlight Pro Logo" class="auth-brand-logo" onerror="this.style.display='none'">
         `;
 
-        if (!isPayment) {
+        if (!isPayment && !isForgot && !isUpdatePassword) {
             html += `
                 <div class="auth-toggle-container">
                     <div class="auth-toggle-pill">
@@ -89,11 +115,25 @@ export const AuthUI = {
                     </div>
                 </div>
             `;
-        } else {
+        } else if (isPayment) {
             html += `
                 <div class="auth-payment-header">
-                    <h3 style="margin: 0; color: #0f172a; font-size: 1.2rem;">Complete Setup</h3>
-                    <p style="margin: 4px 0 0; color: #64748b; font-size: 0.85rem;">Monthly payment of $1 for full access</p>
+                    <h3 style="margin: 0; color: #0f172a; font-size: 1.25rem; font-weight: 700;">Complete Pro Setup</h3>
+                    <p style="margin: 6px 0 0; color: #64748b; font-size: 0.9rem;">Secure monthly subscription of $1.99</p>
+                </div>
+            `;
+        } else if (isForgot) {
+            html += `
+                <div class="auth-payment-header">
+                    <h3 style="margin: 0; color: #0f172a; font-size: 1.25rem; font-weight: 700;">Reset Password</h3>
+                    <p style="margin: 6px 0 0; color: #64748b; font-size: 0.9rem;">Enter your email to receive recovery instructions</p>
+                </div>
+            `;
+        } else if (isUpdatePassword) {
+            html += `
+                <div class="auth-payment-header">
+                    <h3 style="margin: 0; color: #0f172a; font-size: 1.25rem; font-weight: 700;">Set New Password</h3>
+                    <p style="margin: 6px 0 0; color: #64748b; font-size: 0.9rem;">Please enter your new secure password</p>
                 </div>
             `;
         }
@@ -105,16 +145,63 @@ export const AuthUI = {
                 <div id="paypal-button-container" style="min-height: 200px; margin-bottom: 20px;"></div>
                 <div id="auth-error-message" class="auth-error" style="display: none;"></div>
                 <div id="auth-loading-message" style="display: none; text-align: center; color: #64748b; margin-bottom: 20px;">
-                    <i class="fa-solid fa-circle-notch fa-spin" style="font-size: 1.5rem; margin-bottom: 10px;"></i>
-                    <p style="margin: 0; font-size: 0.9rem; font-weight: 600;">Processing your account...</p>
+                    <i class="fa-solid fa-circle-notch fa-spin" style="font-size: 1.5rem; margin-bottom: 12px; color: #2563eb;"></i>
+                    <p style="margin: 0; font-size: 0.95rem; font-weight: 600;">Processing your Pro account...</p>
                 </div>
-                <button class="auth-back-btn" id="auth-back-to-signup">Back</button>
+                <button class="auth-back-btn" id="auth-back-to-signup">Back to Details</button>
+            `;
+        } else if (isForgot) {
+            html += `
+                <div class="auth-input-group" id="auth-forgot-input-group">
+                    <label>Email Address</label>
+                    <div class="auth-field-wrapper">
+                        <i class="fa-solid fa-envelope auth-field-icon"></i>
+                        <input type="email" id="auth-forgot-email" placeholder="pilot@example.com" class="auth-input" required>
+                    </div>
+                </div>
+                
+                <div id="auth-error-message" class="auth-error" style="display: none;"></div>
+                <div id="auth-success-message" class="auth-success" style="display: none;">
+                    <i class="fa-solid fa-circle-check" style="margin-bottom: 8px; font-size: 1.5rem; color: #16a34a; display: block;"></i>
+                    Reset link sent! Please check your inbox and follow the instructions.
+                </div>
+
+                <button class="auth-submit-btn" id="auth-submit-forgot-btn">Send Reset Link</button>
+                <button class="auth-back-btn" id="auth-back-to-signin">Back to Sign In</button>
+            `;
+        } else if (isUpdatePassword) {
+            html += `
+                <div class="auth-input-group" id="auth-update-password-group">
+                    <label>New Password</label>
+                    <div class="auth-field-wrapper">
+                        <i class="fa-solid fa-lock auth-field-icon"></i>
+                        <input type="password" id="auth-new-password" placeholder="••••••••" class="auth-input" required>
+                    </div>
+                </div>
+                <div class="auth-input-group" id="auth-update-confirm-group">
+                    <label>Confirm Password</label>
+                    <div class="auth-field-wrapper">
+                        <i class="fa-solid fa-lock auth-field-icon"></i>
+                        <input type="password" id="auth-confirm-password" placeholder="••••••••" class="auth-input" required>
+                    </div>
+                </div>
+                
+                <div id="auth-error-message" class="auth-error" style="display: none;"></div>
+                <div id="auth-success-message" class="auth-success" style="display: none;"></div>
+
+                <button class="auth-submit-btn" id="auth-submit-update-btn">Save New Password</button>
             `;
         } else {
             let formFields = '';
             
             if (isSignUp) {
                 formFields += `
+                    <div class="auth-premium-notice">
+                        <i class="fa-solid fa-gem auth-premium-icon"></i>
+                        <div class="auth-premium-text">
+                            <strong>InFlight Pro</strong> requires a $1.99/month subscription for full access.
+                        </div>
+                    </div>
                     <div class="auth-input-group">
                         <label>Full Name</label>
                         <div class="auth-field-wrapper">
@@ -125,12 +212,17 @@ export const AuthUI = {
                 `;
             }
 
+            // Remember me logic for pre-filling email
+            const storedEmail = localStorage.getItem('inflight_remembered_email');
+            const defaultEmail = isSignIn && storedEmail ? storedEmail : '';
+            const defaultRememberChecked = (isSignIn && storedEmail) || localStorage.getItem('inflight_remember_preference') !== 'false' ? 'checked' : '';
+
             formFields += `
                 <div class="auth-input-group">
                     <label>Email Address</label>
                     <div class="auth-field-wrapper">
                         <i class="fa-solid fa-envelope auth-field-icon"></i>
-                        <input type="email" id="auth-email" placeholder="pilot@example.com" class="auth-input" required>
+                        <input type="email" id="auth-email" placeholder="pilot@example.com" class="auth-input" value="${defaultEmail}" required>
                     </div>
                 </div>
                 
@@ -148,7 +240,7 @@ export const AuthUI = {
                 optionsHtml = `
                     <div class="auth-options">
                         <label class="auth-checkbox">
-                            <input type="checkbox" id="auth-remember" checked>
+                            <input type="checkbox" id="auth-remember" ${defaultRememberChecked}>
                             <span>Remember me</span>
                         </label>
                         <a href="#" class="auth-forgot-link" id="auth-forgot-password">Forgot password?</a>
@@ -165,7 +257,7 @@ export const AuthUI = {
                 `;
             }
 
-            const submitText = isSignIn ? "Sign In" : "Continue to Payment";
+            const submitText = isSignIn ? "Sign In" : "Continue to Payment ($1.99/mo)";
 
             html += `
                 ${formFields}
@@ -173,7 +265,7 @@ export const AuthUI = {
                 
                 <div id="auth-error-message" class="auth-error" style="display: none;"></div>
 
-                <button class="auth-submit-btn" id="auth-submit-btn">${submitText}</button>
+                <button class="auth-submit-btn ${isSignUp ? 'auth-submit-pro' : ''}" id="auth-submit-btn">${submitText}</button>
             `;
         }
 
@@ -201,6 +293,13 @@ export const AuthUI = {
         }
     },
 
+    showSuccess() {
+        const successDiv = document.getElementById('auth-success-message');
+        if (successDiv) {
+            successDiv.style.display = 'block';
+        }
+    },
+
     setLoading(buttonId, isLoading, originalText) {
         const btn = document.getElementById(buttonId);
         if (!btn) return;
@@ -219,7 +318,6 @@ export const AuthUI = {
     async loadPayPalAndRender() {
         if (!window.paypal) {
             const script = document.createElement('script');
-            // Added &enable-funding=applepay to explicitly render the Apple Pay button
             script.src = "https://www.paypal.com/sdk/js?client-id=AdTwNEAJlyx8dQ-NiJJdnCFL9cC8HuJ78Xe-ve9hqv0YxysE6eSbkHc2NuCSKoNd3DmLE-qxp9v2iRVM&currency=USD&vault=true&intent=subscription&enable-funding=applepay";
             script.async = true;
             document.body.appendChild(script);
@@ -317,6 +415,7 @@ export const AuthUI = {
             });
         });
 
+        // Sign In / Sign Up Submit
         document.getElementById('auth-submit-btn')?.addEventListener('click', async () => {
             this.hideError();
             const email = document.getElementById('auth-email')?.value;
@@ -351,29 +450,107 @@ export const AuthUI = {
                 if (error) {
                     this.showError(error.message);
                 } else {
+                    // Remember Me UI Logic execution
+                    const rememberCheckbox = document.getElementById('auth-remember');
+                    if (rememberCheckbox) {
+                        localStorage.setItem('inflight_remember_preference', rememberCheckbox.checked);
+                        if (rememberCheckbox.checked) {
+                            localStorage.setItem('inflight_remembered_email', email);
+                        } else {
+                            localStorage.removeItem('inflight_remembered_email');
+                        }
+                    }
+
                     this.close();
                     this.open();
                 }
             }
         });
 
-        document.getElementById('auth-back-to-signup')?.addEventListener('click', () => {
-            this.switchMode('signup');
+        // Forgot Password Listeners
+        document.getElementById('auth-forgot-password')?.addEventListener('click', (e) => {
+            e.preventDefault();
+            this.switchMode('forgot');
         });
 
-        document.getElementById('auth-forgot-password')?.addEventListener('click', async (e) => {
-            e.preventDefault();
-            const email = document.getElementById('auth-email')?.value;
+        document.getElementById('auth-back-to-signin')?.addEventListener('click', () => {
+            this.switchMode('signin');
+        });
+
+        document.getElementById('auth-submit-forgot-btn')?.addEventListener('click', async () => {
+            this.hideError();
+            const email = document.getElementById('auth-forgot-email')?.value;
+            
             if (!email) {
                 this.showError("Please enter your email address first.");
                 return;
             }
-            const { data, error } = await this._supabase.auth.resetPasswordForEmail(email);
+
+            this.setLoading('auth-submit-forgot-btn', true, 'Send Reset Link');
+            
+            const { data, error } = await this._supabase.auth.resetPasswordForEmail(email, {
+                // Ensure this maps back to your app URL
+                redirectTo: window.location.origin
+            });
+            
+            this.setLoading('auth-submit-forgot-btn', false, 'Send Reset Link');
+
             if (error) {
                 this.showError(error.message);
             } else {
-                alert("Password reset instructions sent to your email.");
+                document.getElementById('auth-forgot-input-group').style.display = 'none';
+                document.getElementById('auth-submit-forgot-btn').style.display = 'none';
+                this.showSuccess();
             }
+        });
+
+        // Save New Password Listener (During Recovery)
+        document.getElementById('auth-submit-update-btn')?.addEventListener('click', async () => {
+            this.hideError();
+            const newPassword = document.getElementById('auth-new-password')?.value;
+            const confirmPassword = document.getElementById('auth-confirm-password')?.value;
+
+            if (!newPassword || !confirmPassword) {
+                this.showError("Please fill in both fields.");
+                return;
+            }
+
+            if (newPassword !== confirmPassword) {
+                this.showError("Passwords do not match.");
+                return;
+            }
+
+            this.setLoading('auth-submit-update-btn', true, 'Save New Password');
+
+            // Update user's password utilizing the temporary session token passed via URL
+            const { data, error } = await this._supabase.auth.updateUser({
+                password: newPassword
+            });
+
+            this.setLoading('auth-submit-update-btn', false, 'Save New Password');
+
+            if (error) {
+                this.showError(error.message);
+            } else {
+                document.getElementById('auth-update-password-group').style.display = 'none';
+                document.getElementById('auth-update-confirm-group').style.display = 'none';
+                document.getElementById('auth-submit-update-btn').style.display = 'none';
+                
+                const successDiv = document.getElementById('auth-success-message');
+                successDiv.innerHTML = '<i class="fa-solid fa-circle-check" style="margin-bottom: 8px; font-size: 1.5rem; color: #16a34a; display: block;"></i>Password updated successfully! Redirecting you...';
+                this.showSuccess();
+                
+                // Close and reload into the user's profile automatically
+                setTimeout(() => {
+                    this.close();
+                    this.open();
+                }, 2000);
+            }
+        });
+
+        // Payment back button
+        document.getElementById('auth-back-to-signup')?.addEventListener('click', () => {
+            this.switchMode('signup');
         });
     },
 
@@ -384,15 +561,15 @@ export const AuthUI = {
             .auth-wrapper-layer {
                 position: fixed;
                 inset: 0;
-                background: rgba(15, 23, 42, 0.65);
-                backdrop-filter: blur(8px);
-                -webkit-backdrop-filter: blur(8px);
+                background: rgba(15, 23, 42, 0.75);
+                backdrop-filter: blur(12px);
+                -webkit-backdrop-filter: blur(12px);
                 display: flex;
                 align-items: center;
                 justify-content: center;
                 opacity: 0;
                 visibility: hidden;
-                transition: all 0.3s ease-in-out;
+                transition: all 0.4s cubic-bezier(0.16, 1, 0.3, 1);
                 z-index: 9999;
                 font-family: 'Inter', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
                 padding: 20px;
@@ -407,34 +584,46 @@ export const AuthUI = {
 
             .auth-modal-card {
                 background: #ffffff;
-                width: 400px; 
+                width: 420px; 
                 max-width: 100%;
-                border: 1px solid #e2e8f0;
-                border-radius: 16px;
+                border-radius: 20px;
                 position: relative;
-                box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.1), 0 8px 10px -6px rgba(0, 0, 0, 0.1);
-                transform: scale(0.98) translateY(10px);
-                transition: all 0.3s cubic-bezier(0.16, 1, 0.3, 1);
+                box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.25), 0 0 0 1px rgba(0, 0, 0, 0.05);
+                transform: scale(0.95) translateY(15px);
+                transition: all 0.4s cubic-bezier(0.16, 1, 0.3, 1);
                 margin: auto; 
+                overflow: hidden;
             }
 
             .auth-wrapper-layer.open .auth-modal-card {
                 transform: scale(1) translateY(0);
             }
 
+            .auth-premium-accent {
+                height: 4px;
+                width: 100%;
+                background: linear-gradient(90deg, #2563eb, #38bdf8, #2563eb);
+                background-size: 200% auto;
+                animation: shine 3s linear infinite;
+            }
+
+            @keyframes shine {
+                to { background-position: 200% center; }
+            }
+
             .auth-close-btn {
                 position: absolute;
-                top: 12px;
-                right: 12px;
-                background: transparent;
+                top: 16px;
+                right: 16px;
+                background: rgba(241, 245, 249, 0.5);
                 border: none;
-                color: #94a3b8;
+                color: #64748b;
                 width: 32px;
                 height: 32px;
-                border-radius: 8px;
-                font-size: 1.4rem;
+                border-radius: 50%;
+                font-size: 1.2rem;
                 cursor: pointer;
-                transition: all 0.2s;
+                transition: all 0.2s ease;
                 display: grid;
                 place-items: center;
                 line-height: 1;
@@ -442,19 +631,20 @@ export const AuthUI = {
             }
 
             .auth-close-btn:hover {
-                background: #f1f5f9;
-                color: #334155;
+                background: #e2e8f0;
+                color: #0f172a;
+                transform: rotate(90deg);
             }
 
             .auth-header-section {
-                padding: 24px 24px 16px;
+                padding: 32px 28px 20px;
                 text-align: center;
             }
 
             .auth-brand-logo {
-                height: 36px;
+                height: 42px;
                 width: auto;
-                margin: 0 auto 16px;
+                margin: 0 auto 20px;
                 display: block;
                 object-fit: contain;
             }
@@ -467,7 +657,8 @@ export const AuthUI = {
 
             .auth-toggle-pill {
                 display: flex;
-                background: #f1f5f9;
+                background: #f8fafc;
+                border: 1px solid #e2e8f0;
                 border-radius: 999px;
                 padding: 4px;
                 width: 100%;
@@ -475,7 +666,7 @@ export const AuthUI = {
 
             .auth-toggle-btn {
                 flex: 1;
-                padding: 8px 16px;
+                padding: 10px 16px;
                 border: none;
                 background: transparent;
                 border-radius: 999px;
@@ -494,15 +685,43 @@ export const AuthUI = {
             .auth-toggle-btn.active {
                 background: #ffffff;
                 color: #0f172a;
-                box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1), 0 1px 2px rgba(0, 0, 0, 0.06);
+                box-shadow: 0 2px 8px rgba(0, 0, 0, 0.08), 0 1px 2px rgba(0, 0, 0, 0.04);
             }
 
             .auth-form-body {
-                padding: 0 24px 24px;
+                padding: 0 28px 32px;
+            }
+
+            .auth-premium-notice {
+                display: flex;
+                align-items: flex-start;
+                gap: 12px;
+                background: linear-gradient(145deg, #f0f9ff, #e0f2fe);
+                border: 1px solid #bae6fd;
+                padding: 14px 16px;
+                border-radius: 12px;
+                margin-bottom: 20px;
+                box-shadow: inset 0 2px 4px rgba(255, 255, 255, 0.5);
+            }
+
+            .auth-premium-icon {
+                color: #0284c7;
+                font-size: 1.1rem;
+                margin-top: 2px;
+            }
+
+            .auth-premium-text {
+                color: #0369a1;
+                font-size: 0.85rem;
+                line-height: 1.4;
+            }
+
+            .auth-premium-text strong {
+                color: #075985;
             }
 
             .auth-input-group {
-                margin-bottom: 12px;
+                margin-bottom: 16px;
             }
 
             .auth-input-group label {
@@ -510,7 +729,7 @@ export const AuthUI = {
                 color: #334155;
                 font-size: 0.85rem;
                 font-weight: 600;
-                margin-bottom: 6px;
+                margin-bottom: 8px;
             }
 
             .auth-field-wrapper {
@@ -519,35 +738,42 @@ export const AuthUI = {
 
             .auth-field-icon {
                 position: absolute;
-                left: 14px;
+                left: 16px;
                 top: 50%;
                 transform: translateY(-50%);
                 color: #94a3b8;
                 font-size: 0.9rem;
+                transition: color 0.2s;
             }
 
             .auth-input {
                 width: 100%;
-                background: #ffffff;
-                border: 1px solid #cbd5e1;
-                border-radius: 8px;
-                padding: 10px 14px 10px 38px;
+                background: #f8fafc;
+                border: 1px solid #e2e8f0;
+                border-radius: 10px;
+                padding: 12px 16px 12px 42px;
                 color: #0f172a;
                 font-family: inherit;
-                font-size: 0.9rem;
-                transition: all 0.2s;
+                font-size: 0.95rem;
+                transition: all 0.2s ease;
                 outline: none;
                 box-sizing: border-box;
-                box-shadow: 0 1px 2px rgba(0, 0, 0, 0.05);
             }
 
             .auth-input:hover {
-                border-color: #94a3b8;
+                border-color: #cbd5e1;
+                background: #ffffff;
             }
 
             .auth-input:focus {
                 border-color: #2563eb;
-                box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.15);
+                background: #ffffff;
+                box-shadow: 0 0 0 4px rgba(37, 99, 235, 0.1);
+            }
+
+            .auth-input:focus + .auth-field-icon,
+            .auth-input:not(:placeholder-shown) + .auth-field-icon {
+                color: #2563eb;
             }
 
             .auth-input::placeholder {
@@ -558,7 +784,7 @@ export const AuthUI = {
                 display: flex;
                 justify-content: space-between;
                 align-items: center;
-                margin-bottom: 20px;
+                margin-bottom: 24px;
                 font-size: 0.85rem;
             }
 
@@ -573,8 +799,8 @@ export const AuthUI = {
             
             .auth-checkbox input {
                 accent-color: #2563eb;
-                width: 14px;
-                height: 14px;
+                width: 16px;
+                height: 16px;
                 cursor: pointer;
             }
 
@@ -597,59 +823,89 @@ export const AuthUI = {
                 background: #fef2f2;
                 color: #dc2626;
                 border: 1px solid #fecaca;
-                padding: 10px;
-                border-radius: 6px;
+                padding: 12px;
+                border-radius: 8px;
                 font-size: 0.85rem;
-                margin-bottom: 16px;
+                margin-bottom: 20px;
                 text-align: center;
+                font-weight: 500;
+            }
+
+            .auth-success {
+                background: #f0fdf4;
+                color: #166534;
+                border: 1px solid #bbf7d0;
+                padding: 16px;
+                border-radius: 12px;
+                font-size: 0.95rem;
+                margin-bottom: 20px;
+                text-align: center;
+                font-weight: 500;
+                line-height: 1.5;
             }
 
             .auth-submit-btn {
                 width: 100%;
-                background: #2563eb;
+                background: #0f172a;
                 color: #ffffff;
                 border: none;
-                border-radius: 8px;
-                padding: 12px;
+                border-radius: 10px;
+                padding: 14px;
                 font-size: 0.95rem;
                 font-weight: 600;
                 cursor: pointer;
-                transition: background-color 0.2s, box-shadow 0.2s;
-                margin-bottom: 4px;
-                box-shadow: 0 1px 2px rgba(0, 0, 0, 0.05);
+                transition: all 0.2s ease;
+                margin-bottom: 8px;
+                box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06);
+            }
+
+            .auth-submit-pro {
+                background: linear-gradient(135deg, #2563eb, #1d4ed8);
             }
 
             .auth-submit-btn:hover:not(:disabled) {
-                background: #1d4ed8;
-                box-shadow: 0 4px 6px -1px rgba(37, 99, 235, 0.2), 0 2px 4px -1px rgba(37, 99, 235, 0.1);
+                transform: translateY(-1px);
+                box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -2px rgba(0, 0, 0, 0.05);
+            }
+
+            .auth-submit-pro:hover:not(:disabled) {
+                background: linear-gradient(135deg, #3b82f6, #2563eb);
+                box-shadow: 0 10px 15px -3px rgba(37, 99, 235, 0.25), 0 4px 6px -2px rgba(37, 99, 235, 0.1);
+            }
+
+            .auth-submit-btn:active:not(:disabled) {
+                transform: translateY(0);
             }
 
             .auth-submit-btn:disabled {
                 cursor: not-allowed;
+                opacity: 0.7;
             }
 
             .auth-back-btn {
                 width: 100%;
                 background: transparent;
                 color: #64748b;
-                border: 1px solid transparent;
-                border-radius: 8px;
-                padding: 10px;
+                border: 1px solid #e2e8f0;
+                border-radius: 10px;
+                padding: 12px;
                 font-size: 0.9rem;
                 font-weight: 600;
                 cursor: pointer;
                 transition: all 0.2s;
-                margin-top: 8px;
+                margin-top: 12px;
             }
 
             .auth-back-btn:hover {
-                background: #f1f5f9;
-                color: #334155;
+                background: #f8fafc;
+                color: #0f172a;
+                border-color: #cbd5e1;
             }
             
             @media (max-width: 480px) {
-                .auth-header-section { padding: 20px 20px 16px; }
-                .auth-form-body { padding: 0 20px 20px; }
+                .auth-header-section { padding: 24px 20px 16px; }
+                .auth-form-body { padding: 0 20px 24px; }
+                .auth-modal-card { border-radius: 16px; width: 95%; }
             }
         `;
         
