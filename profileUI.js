@@ -25,6 +25,7 @@ import { socketDataHub } from './SocketDataHub.js';
 import { MobileDashboardUI } from './MobileDashboardUI.js';
 import { FlightDispatchService } from './FlightDispatchService.js';
 import { TelemetryAnalyticsEngine } from './TelemetryAnalyticsEngine.js';
+import { AircraftViewer3D } from './AircraftViewer3D.js';
 
 const AIRCRAFT_SELECTION_LIST = [
     // Airbus
@@ -94,6 +95,12 @@ export const ProfileUI = {
     _currentAllFlights: [], // Stores real-time global flight data for autocomplete
     _socketUnsubscribe: null,
 
+    // ── 3D Hero Viewer (CesiumJS forward-view, behind the live flight card) ─
+    // Tracks which flight the currently-mounted Cesium viewer was initialised
+    // for, so we can preserve its scene across DOM rebuilds and only re-init
+    // when the active flight actually changes.
+    _3dViewerHostKey: null,
+
     _subscription: {
         status: 'Active',
         plan: 'Pro Access',
@@ -124,6 +131,356 @@ export const ProfileUI = {
         cached_if_at: null,
     },
 
+    // ── Personalization & Localization state ─────────────────────────────────
+    _locale:    'en',          // 'en' | 'es' | 'pt-BR' | 'fr' | 'de' | 'ja'
+    _accent:    'caramel',     // key into _ACCENT_PRESETS
+    _bio:       '',            // pilot tagline / bio (max ~140 chars)
+    _coverUrl:  '',            // optional cover banner image URL
+    _dockOrder: null,          // array of tab ids overriding default order, or null
+
+    // Default tab order — _dockOrder may override this
+    _DEFAULT_DOCK_ORDER: ['dashboard', 'career-deep-dive', 'airspace-intel', 'flight-plan', 'watchlist', 'settings'],
+
+    // Accent color presets — applied as CSS variable overrides on the wrapper layer.
+    // Each preset supplies the same four vars used throughout the stylesheet.
+    _ACCENT_PRESETS: {
+        caramel: { label: 'Caramel', light: { c: '#b88553', h: '#a87543', s: 'rgba(184,133,83,0.10)',  g: 'rgba(184,133,83,0.18)'  },
+                                     dark:  { c: '#d4a574', h: '#e0b384', s: 'rgba(212,165,116,0.14)', g: 'rgba(212,165,116,0.22)' } },
+        ocean:   { label: 'Ocean',   light: { c: '#3b7ea8', h: '#2f6c93', s: 'rgba(59,126,168,0.10)',  g: 'rgba(59,126,168,0.18)'  },
+                                     dark:  { c: '#5fa8d3', h: '#7ab8de', s: 'rgba(95,168,211,0.14)', g: 'rgba(95,168,211,0.22)'  } },
+        forest:  { label: 'Forest',  light: { c: '#3f8c5a', h: '#327547', s: 'rgba(63,140,90,0.10)',   g: 'rgba(63,140,90,0.18)'   },
+                                     dark:  { c: '#7bbf91', h: '#8fcca3', s: 'rgba(123,191,145,0.14)',g: 'rgba(123,191,145,0.22)' } },
+        rose:    { label: 'Rose',    light: { c: '#c25a7e', h: '#a8466a', s: 'rgba(194,90,126,0.10)',  g: 'rgba(194,90,126,0.18)'  },
+                                     dark:  { c: '#e08aa8', h: '#e89cb6', s: 'rgba(224,138,168,0.14)',g: 'rgba(224,138,168,0.22)' } },
+        violet:  { label: 'Violet',  light: { c: '#7e57c2', h: '#6845a8', s: 'rgba(126,87,194,0.10)',  g: 'rgba(126,87,194,0.18)'  },
+                                     dark:  { c: '#b287d9', h: '#c099e0', s: 'rgba(178,135,217,0.14)',g: 'rgba(178,135,217,0.22)' } },
+        slate:   { label: 'Slate',   light: { c: '#5a6878', h: '#475363', s: 'rgba(90,104,120,0.10)', g: 'rgba(90,104,120,0.18)'  },
+                                     dark:  { c: '#94a3b3', h: '#a8b5c2', s: 'rgba(148,163,179,0.14)',g: 'rgba(148,163,179,0.22)' } },
+    },
+
+    // ── Localization (i18n) ──────────────────────────────────────────────────
+    // Strings the UI renders. Unknown keys fall back to English; unknown locales
+    // fall back to English. Adding a new locale is purely additive.
+    _LOCALES: {
+        en:      { label: 'English',           flag: '🇬🇧' },
+        es:      { label: 'Español',           flag: '🇪🇸' },
+        'pt-BR': { label: 'Português (Brasil)',flag: '🇧🇷' },
+        fr:      { label: 'Français',          flag: '🇫🇷' },
+        de:      { label: 'Deutsch',           flag: '🇩🇪' },
+        ja:      { label: '日本語',            flag: '🇯🇵' },
+    },
+    _i18n: {
+        en: {
+            // Tabs
+            'tab.dashboard': 'Home',
+            'tab.dossier': 'Dossier',
+            'tab.traffic': 'Traffic',
+            'tab.dispatch': 'Dispatch',
+            'tab.watchlist': 'Watchlist',
+            'tab.settings': 'Settings',
+            // Headers
+            'header.dossier.title': 'Pilot Dossier',
+            'header.dossier.sub': 'Comprehensive career analytics and high-level flight statistics.',
+            'header.watchlist.title': 'Pilot Watchlist',
+            'header.watchlist.sub': 'Track specific pilots in real-time. Get notified the moment they go airborne.',
+            'header.settings.title': 'Settings',
+            'header.settings.sub': 'Manage your profile, preferences, and security.',
+            'header.dispatch.title': 'Flight Dispatch',
+            'header.traffic.title': 'Traffic',
+            // Greetings
+            'greet.morning': 'Good morning',
+            'greet.afternoon': 'Good afternoon',
+            'greet.evening': 'Good evening',
+            // Common
+            'common.save': 'Save changes',
+            'common.cancel': 'Cancel',
+            'common.delete': 'Delete',
+            'common.close': 'Close',
+            'common.loading': 'Loading…',
+            'common.processing': 'Processing…',
+            'common.none': 'None',
+            'common.reset': 'Reset',
+            // Stats
+            'stat.grade': 'Pilot Level',
+            'stat.xp': 'Total XP',
+            'stat.flights': 'Flights Flown',
+            // Empty states
+            'empty.watchlist.title': 'No Pilots Tracked',
+            'empty.watchlist.body': 'Add an Infinite Flight username above to start monitoring their live status.',
+            'empty.dispatch': 'No upcoming flights filed.',
+            'empty.recent': 'No recent flights found.',
+            // Settings labels
+            'set.appearance': 'Appearance',
+            'set.theme': 'Theme',
+            'set.density': 'Density',
+            'set.theme.light': 'Light',
+            'set.theme.dark': 'Dark',
+            'set.density.cozy': 'Cozy',
+            'set.density.compact': 'Compact',
+            'set.profile': 'Profile details',
+            'set.fullName': 'Full Name',
+            'set.email': 'Email Address',
+            'set.ifUsername': 'Infinite Flight Username',
+            'set.timezone': 'Local Time Zone',
+            'set.password': 'New Password (Optional)',
+            'set.billing': 'Billing',
+            'set.support': 'Support & Legal',
+            'set.language': 'Language',
+            'set.languageHelp': 'Affects core labels across the app. Synced across devices.',
+            'set.accent': 'Accent color',
+            'set.accentHelp': 'A subtle highlight color used for buttons, links, and active states.',
+            'set.personality': 'Pilot identity',
+            'set.bio': 'Tagline',
+            'set.bioPlaceholder': 'e.g. Long-haul addict · 787 type rating · KJFK home base',
+            'set.bioHelp': 'A short line shown on your Dossier. Up to 140 characters.',
+            'set.cover': 'Cover image URL',
+            'set.coverPlaceholder': 'https://…',
+            'set.coverHelp': 'Optional banner image displayed on your Dossier.',
+            'set.dockOrder': 'Tab order',
+            'set.dockOrderHelp': 'Drag tabs in the dock to reorder them. Saved across devices.',
+            // Drill-down
+            'drill.title.grade': 'Pilot Grade Detail',
+            'drill.title.xp': 'XP Breakdown',
+            'drill.title.flights': 'Flights by Aircraft',
+            'drill.title.icao': 'Airport',
+            'drill.gotoTraffic': 'Open in Traffic',
+            'drill.addToWatchlist': 'Add to Watchlist',
+            // Trends
+            'trend.title': 'Trends',
+            'trend.sub': 'Comparing this period to the previous period — no flight records, just direction.',
+            'trend.hoursMonth': 'Hours this month',
+            'trend.flightsWeek': 'Flights this week',
+            'trend.activeDays': 'Active days this week',
+            'trend.fleetVariety': 'Aircraft types this month',
+            'trend.vsLast': 'vs. previous',
+            'trend.empty': 'Trends will appear once we have at least two periods of data.',
+        },
+        es: {
+            'tab.dashboard': 'Inicio', 'tab.dossier': 'Dossier', 'tab.traffic': 'Tráfico',
+            'tab.dispatch': 'Despacho', 'tab.watchlist': 'Seguimiento', 'tab.settings': 'Ajustes',
+            'header.dossier.title': 'Dossier del Piloto',
+            'header.dossier.sub': 'Análisis de carrera y estadísticas de vuelo completas.',
+            'header.watchlist.title': 'Lista de Pilotos',
+            'header.watchlist.sub': 'Sigue pilotos en tiempo real y recibe avisos cuando despeguen.',
+            'header.settings.title': 'Ajustes', 'header.settings.sub': 'Gestiona tu perfil y preferencias.',
+            'header.dispatch.title': 'Despacho de Vuelo', 'header.traffic.title': 'Tráfico',
+            'greet.morning': 'Buenos días', 'greet.afternoon': 'Buenas tardes', 'greet.evening': 'Buenas noches',
+            'common.save': 'Guardar cambios', 'common.cancel': 'Cancelar', 'common.delete': 'Eliminar',
+            'common.close': 'Cerrar', 'common.loading': 'Cargando…', 'common.processing': 'Procesando…',
+            'common.none': 'Ninguno', 'common.reset': 'Restablecer',
+            'stat.grade': 'Nivel de Piloto', 'stat.xp': 'XP Total', 'stat.flights': 'Vuelos Realizados',
+            'empty.watchlist.title': 'Sin Pilotos',
+            'empty.watchlist.body': 'Añade un usuario de Infinite Flight para empezar.',
+            'empty.dispatch': 'No hay vuelos programados.', 'empty.recent': 'No hay vuelos recientes.',
+            'set.appearance': 'Apariencia', 'set.theme': 'Tema', 'set.density': 'Densidad',
+            'set.theme.light': 'Claro', 'set.theme.dark': 'Oscuro',
+            'set.density.cozy': 'Cómoda', 'set.density.compact': 'Compacta',
+            'set.profile': 'Detalles del perfil', 'set.fullName': 'Nombre Completo',
+            'set.email': 'Correo Electrónico', 'set.ifUsername': 'Usuario de Infinite Flight',
+            'set.timezone': 'Zona Horaria', 'set.password': 'Nueva Contraseña (Opcional)',
+            'set.billing': 'Facturación', 'set.support': 'Soporte y Legal',
+            'set.language': 'Idioma', 'set.languageHelp': 'Afecta a las etiquetas principales. Se sincroniza entre dispositivos.',
+            'set.accent': 'Color de acento', 'set.accentHelp': 'Color sutil usado en botones y enlaces.',
+            'set.personality': 'Identidad de piloto', 'set.bio': 'Eslogan',
+            'set.bioPlaceholder': 'p. ej. Vuelos largos · 787 · Base KJFK',
+            'set.bioHelp': 'Una línea corta en tu Dossier. Hasta 140 caracteres.',
+            'set.cover': 'URL de imagen de portada', 'set.coverPlaceholder': 'https://…',
+            'set.coverHelp': 'Imagen opcional mostrada en tu Dossier.',
+            'set.dockOrder': 'Orden de pestañas',
+            'set.dockOrderHelp': 'Arrastra las pestañas para reordenarlas. Guardado entre dispositivos.',
+            'drill.title.grade': 'Detalle de Grado', 'drill.title.xp': 'Desglose de XP',
+            'drill.title.flights': 'Vuelos por Aeronave', 'drill.title.icao': 'Aeropuerto',
+            'drill.gotoTraffic': 'Abrir en Tráfico', 'drill.addToWatchlist': 'Añadir a Lista',
+            'trend.title': 'Tendencias',
+            'trend.sub': 'Comparando este período con el anterior — solo dirección, sin historial.',
+            'trend.hoursMonth': 'Horas este mes', 'trend.flightsWeek': 'Vuelos esta semana',
+            'trend.activeDays': 'Días activos esta semana', 'trend.fleetVariety': 'Tipos de aeronave este mes',
+            'trend.vsLast': 'vs. anterior',
+            'trend.empty': 'Las tendencias aparecerán con al menos dos períodos de datos.',
+        },
+        'pt-BR': {
+            'tab.dashboard': 'Início', 'tab.dossier': 'Dossiê', 'tab.traffic': 'Tráfego',
+            'tab.dispatch': 'Despacho', 'tab.watchlist': 'Observação', 'tab.settings': 'Configurações',
+            'header.dossier.title': 'Dossiê do Piloto',
+            'header.dossier.sub': 'Análise de carreira e estatísticas de voo completas.',
+            'header.watchlist.title': 'Lista de Pilotos',
+            'header.watchlist.sub': 'Acompanhe pilotos em tempo real e seja notificado ao decolar.',
+            'header.settings.title': 'Configurações', 'header.settings.sub': 'Gerencie seu perfil e preferências.',
+            'header.dispatch.title': 'Despacho de Voo', 'header.traffic.title': 'Tráfego',
+            'greet.morning': 'Bom dia', 'greet.afternoon': 'Boa tarde', 'greet.evening': 'Boa noite',
+            'common.save': 'Salvar', 'common.cancel': 'Cancelar', 'common.delete': 'Excluir',
+            'common.close': 'Fechar', 'common.loading': 'Carregando…', 'common.processing': 'Processando…',
+            'common.none': 'Nenhum', 'common.reset': 'Redefinir',
+            'stat.grade': 'Nível do Piloto', 'stat.xp': 'XP Total', 'stat.flights': 'Voos Realizados',
+            'empty.watchlist.title': 'Sem Pilotos',
+            'empty.watchlist.body': 'Adicione um usuário do Infinite Flight para começar.',
+            'empty.dispatch': 'Nenhum voo programado.', 'empty.recent': 'Nenhum voo recente.',
+            'set.appearance': 'Aparência', 'set.theme': 'Tema', 'set.density': 'Densidade',
+            'set.theme.light': 'Claro', 'set.theme.dark': 'Escuro',
+            'set.density.cozy': 'Confortável', 'set.density.compact': 'Compacta',
+            'set.profile': 'Perfil', 'set.fullName': 'Nome Completo',
+            'set.email': 'E-mail', 'set.ifUsername': 'Usuário Infinite Flight',
+            'set.timezone': 'Fuso Horário', 'set.password': 'Nova Senha (Opcional)',
+            'set.billing': 'Cobrança', 'set.support': 'Suporte e Legal',
+            'set.language': 'Idioma', 'set.languageHelp': 'Afeta os rótulos principais. Sincronizado entre dispositivos.',
+            'set.accent': 'Cor de destaque', 'set.accentHelp': 'Cor sutil usada em botões e links.',
+            'set.personality': 'Identidade do piloto', 'set.bio': 'Slogan',
+            'set.bioPlaceholder': 'ex. Long-haul · 787 · Base SBGR',
+            'set.bioHelp': 'Linha curta no Dossiê. Até 140 caracteres.',
+            'set.cover': 'URL da imagem de capa', 'set.coverPlaceholder': 'https://…',
+            'set.coverHelp': 'Imagem opcional exibida no Dossiê.',
+            'set.dockOrder': 'Ordem das abas',
+            'set.dockOrderHelp': 'Arraste as abas para reordenar. Salvo entre dispositivos.',
+            'drill.title.grade': 'Detalhe de Grade', 'drill.title.xp': 'Detalhamento de XP',
+            'drill.title.flights': 'Voos por Aeronave', 'drill.title.icao': 'Aeroporto',
+            'drill.gotoTraffic': 'Abrir em Tráfego', 'drill.addToWatchlist': 'Adicionar à Lista',
+            'trend.title': 'Tendências',
+            'trend.sub': 'Comparando este período ao anterior — só direção, sem histórico.',
+            'trend.hoursMonth': 'Horas este mês', 'trend.flightsWeek': 'Voos esta semana',
+            'trend.activeDays': 'Dias ativos esta semana', 'trend.fleetVariety': 'Tipos de aeronave este mês',
+            'trend.vsLast': 'vs. anterior',
+            'trend.empty': 'Tendências aparecerão com pelo menos dois períodos de dados.',
+        },
+        fr: {
+            'tab.dashboard': 'Accueil', 'tab.dossier': 'Dossier', 'tab.traffic': 'Trafic',
+            'tab.dispatch': 'Dispatch', 'tab.watchlist': 'Suivi', 'tab.settings': 'Paramètres',
+            'header.dossier.title': 'Dossier Pilote',
+            'header.dossier.sub': 'Analyses de carrière et statistiques de vol détaillées.',
+            'header.watchlist.title': 'Suivi de Pilotes',
+            'header.watchlist.sub': 'Suivez des pilotes en temps réel et soyez alerté au décollage.',
+            'header.settings.title': 'Paramètres', 'header.settings.sub': 'Gérez votre profil et vos préférences.',
+            'header.dispatch.title': 'Dispatch de Vol', 'header.traffic.title': 'Trafic',
+            'greet.morning': 'Bonjour', 'greet.afternoon': 'Bon après-midi', 'greet.evening': 'Bonsoir',
+            'common.save': 'Enregistrer', 'common.cancel': 'Annuler', 'common.delete': 'Supprimer',
+            'common.close': 'Fermer', 'common.loading': 'Chargement…', 'common.processing': 'Traitement…',
+            'common.none': 'Aucun', 'common.reset': 'Réinitialiser',
+            'stat.grade': 'Niveau Pilote', 'stat.xp': 'XP Total', 'stat.flights': 'Vols Effectués',
+            'empty.watchlist.title': 'Aucun Pilote Suivi',
+            'empty.watchlist.body': 'Ajoutez un utilisateur Infinite Flight pour commencer.',
+            'empty.dispatch': 'Aucun vol programmé.', 'empty.recent': 'Aucun vol récent.',
+            'set.appearance': 'Apparence', 'set.theme': 'Thème', 'set.density': 'Densité',
+            'set.theme.light': 'Clair', 'set.theme.dark': 'Sombre',
+            'set.density.cozy': 'Confortable', 'set.density.compact': 'Compacte',
+            'set.profile': 'Profil', 'set.fullName': 'Nom complet', 'set.email': 'Adresse e-mail',
+            'set.ifUsername': "Nom d'utilisateur IF", 'set.timezone': 'Fuseau horaire',
+            'set.password': 'Nouveau mot de passe (Optionnel)',
+            'set.billing': 'Facturation', 'set.support': 'Support et Mentions',
+            'set.language': 'Langue', 'set.languageHelp': 'Affecte les libellés principaux. Synchronisé entre appareils.',
+            'set.accent': 'Couleur d\'accent', 'set.accentHelp': 'Couleur subtile pour boutons et liens.',
+            'set.personality': 'Identité du pilote', 'set.bio': 'Slogan',
+            'set.bioPlaceholder': 'ex. Long-courrier · 787 · Base LFPG',
+            'set.bioHelp': 'Ligne courte sur votre Dossier. Jusqu\'à 140 caractères.',
+            'set.cover': 'URL de l\'image de couverture', 'set.coverPlaceholder': 'https://…',
+            'set.coverHelp': 'Image optionnelle affichée sur votre Dossier.',
+            'set.dockOrder': 'Ordre des onglets',
+            'set.dockOrderHelp': 'Glissez les onglets pour les réorganiser. Sauvé entre appareils.',
+            'drill.title.grade': 'Détail du Grade', 'drill.title.xp': 'Détail XP',
+            'drill.title.flights': 'Vols par Avion', 'drill.title.icao': 'Aéroport',
+            'drill.gotoTraffic': 'Ouvrir dans Trafic', 'drill.addToWatchlist': 'Ajouter au Suivi',
+            'trend.title': 'Tendances',
+            'trend.sub': 'Période actuelle vs précédente — direction seulement, pas d\'historique.',
+            'trend.hoursMonth': 'Heures ce mois-ci', 'trend.flightsWeek': 'Vols cette semaine',
+            'trend.activeDays': 'Jours actifs cette semaine', 'trend.fleetVariety': 'Types d\'avions ce mois-ci',
+            'trend.vsLast': 'vs. précédent',
+            'trend.empty': 'Les tendances apparaîtront avec au moins deux périodes de données.',
+        },
+        de: {
+            'tab.dashboard': 'Start', 'tab.dossier': 'Dossier', 'tab.traffic': 'Verkehr',
+            'tab.dispatch': 'Dispatch', 'tab.watchlist': 'Beobachtung', 'tab.settings': 'Einstellungen',
+            'header.dossier.title': 'Pilotendossier',
+            'header.dossier.sub': 'Karriereanalysen und Flugstatistiken.',
+            'header.watchlist.title': 'Pilotenliste',
+            'header.watchlist.sub': 'Verfolge Piloten in Echtzeit und werde beim Start benachrichtigt.',
+            'header.settings.title': 'Einstellungen', 'header.settings.sub': 'Profil und Einstellungen verwalten.',
+            'header.dispatch.title': 'Flugdispatch', 'header.traffic.title': 'Verkehr',
+            'greet.morning': 'Guten Morgen', 'greet.afternoon': 'Guten Tag', 'greet.evening': 'Guten Abend',
+            'common.save': 'Speichern', 'common.cancel': 'Abbrechen', 'common.delete': 'Löschen',
+            'common.close': 'Schließen', 'common.loading': 'Lade…', 'common.processing': 'Verarbeite…',
+            'common.none': 'Keine', 'common.reset': 'Zurücksetzen',
+            'stat.grade': 'Pilotenstufe', 'stat.xp': 'Gesamt-XP', 'stat.flights': 'Flüge',
+            'empty.watchlist.title': 'Keine Piloten',
+            'empty.watchlist.body': 'Füge einen Infinite Flight-Namen hinzu, um zu starten.',
+            'empty.dispatch': 'Keine geplanten Flüge.', 'empty.recent': 'Keine neuen Flüge.',
+            'set.appearance': 'Erscheinungsbild', 'set.theme': 'Thema', 'set.density': 'Dichte',
+            'set.theme.light': 'Hell', 'set.theme.dark': 'Dunkel',
+            'set.density.cozy': 'Gemütlich', 'set.density.compact': 'Kompakt',
+            'set.profile': 'Profil', 'set.fullName': 'Vollständiger Name', 'set.email': 'E-Mail',
+            'set.ifUsername': 'IF-Benutzername', 'set.timezone': 'Zeitzone',
+            'set.password': 'Neues Passwort (Optional)',
+            'set.billing': 'Abrechnung', 'set.support': 'Support & Rechtliches',
+            'set.language': 'Sprache', 'set.languageHelp': 'Betrifft Hauptbezeichnungen. Geräteübergreifend synchronisiert.',
+            'set.accent': 'Akzentfarbe', 'set.accentHelp': 'Subtile Farbe für Buttons und Links.',
+            'set.personality': 'Pilotenidentität', 'set.bio': 'Slogan',
+            'set.bioPlaceholder': 'z. B. Langstrecke · 787 · Heimat EDDF',
+            'set.bioHelp': 'Kurze Zeile im Dossier. Bis zu 140 Zeichen.',
+            'set.cover': 'Cover-Bild URL', 'set.coverPlaceholder': 'https://…',
+            'set.coverHelp': 'Optionales Bild im Dossier.',
+            'set.dockOrder': 'Tab-Reihenfolge',
+            'set.dockOrderHelp': 'Tabs zum Sortieren ziehen. Geräteübergreifend gespeichert.',
+            'drill.title.grade': 'Grade-Details', 'drill.title.xp': 'XP-Aufschlüsselung',
+            'drill.title.flights': 'Flüge nach Flugzeug', 'drill.title.icao': 'Flughafen',
+            'drill.gotoTraffic': 'In Verkehr öffnen', 'drill.addToWatchlist': 'Zur Liste hinzufügen',
+            'trend.title': 'Trends',
+            'trend.sub': 'Vergleich zur Vorperiode — nur Richtung, keine Historie.',
+            'trend.hoursMonth': 'Stunden diesen Monat', 'trend.flightsWeek': 'Flüge diese Woche',
+            'trend.activeDays': 'Aktive Tage', 'trend.fleetVariety': 'Flugzeugtypen',
+            'trend.vsLast': 'vs. zuvor',
+            'trend.empty': 'Trends erscheinen mit mindestens zwei Datenperioden.',
+        },
+        ja: {
+            'tab.dashboard': 'ホーム', 'tab.dossier': 'ドシエ', 'tab.traffic': '交通',
+            'tab.dispatch': 'ディスパッチ', 'tab.watchlist': 'ウォッチリスト', 'tab.settings': '設定',
+            'header.dossier.title': 'パイロット・ドシエ',
+            'header.dossier.sub': 'キャリア分析と詳細な飛行統計。',
+            'header.watchlist.title': 'パイロット・ウォッチリスト',
+            'header.watchlist.sub': 'リアルタイムでパイロットを追跡し、離陸時に通知を受け取ります。',
+            'header.settings.title': '設定', 'header.settings.sub': 'プロファイルと設定を管理します。',
+            'header.dispatch.title': 'フライト・ディスパッチ', 'header.traffic.title': '交通',
+            'greet.morning': 'おはようございます', 'greet.afternoon': 'こんにちは', 'greet.evening': 'こんばんは',
+            'common.save': '変更を保存', 'common.cancel': 'キャンセル', 'common.delete': '削除',
+            'common.close': '閉じる', 'common.loading': '読込中…', 'common.processing': '処理中…',
+            'common.none': 'なし', 'common.reset': 'リセット',
+            'stat.grade': 'パイロット・レベル', 'stat.xp': '総XP', 'stat.flights': '飛行回数',
+            'empty.watchlist.title': 'パイロット未追跡',
+            'empty.watchlist.body': 'Infinite Flightのユーザー名を追加して開始します。',
+            'empty.dispatch': '予定されている飛行はありません。', 'empty.recent': '最近の飛行はありません。',
+            'set.appearance': '外観', 'set.theme': 'テーマ', 'set.density': '密度',
+            'set.theme.light': 'ライト', 'set.theme.dark': 'ダーク',
+            'set.density.cozy': 'ゆとり', 'set.density.compact': 'コンパクト',
+            'set.profile': 'プロフィール', 'set.fullName': '氏名', 'set.email': 'メールアドレス',
+            'set.ifUsername': 'IFユーザー名', 'set.timezone': 'タイムゾーン',
+            'set.password': '新しいパスワード(任意)',
+            'set.billing': '請求', 'set.support': 'サポートと法的情報',
+            'set.language': '言語', 'set.languageHelp': '主なラベルに反映されます。デバイス間で同期。',
+            'set.accent': 'アクセントカラー', 'set.accentHelp': 'ボタンやリンクに使う控えめな色。',
+            'set.personality': 'パイロットの個性', 'set.bio': 'スローガン',
+            'set.bioPlaceholder': '例: 長距離専門・787・RJTT拠点',
+            'set.bioHelp': 'ドシエに表示される短い一行。140文字まで。',
+            'set.cover': 'カバー画像URL', 'set.coverPlaceholder': 'https://…',
+            'set.coverHelp': 'ドシエに表示される任意の画像。',
+            'set.dockOrder': 'タブの順序',
+            'set.dockOrderHelp': 'ドラッグして並び替え。デバイス間で保存。',
+            'drill.title.grade': 'グレード詳細', 'drill.title.xp': 'XP内訳',
+            'drill.title.flights': '機種別フライト', 'drill.title.icao': '空港',
+            'drill.gotoTraffic': '交通で開く', 'drill.addToWatchlist': 'ウォッチに追加',
+            'trend.title': 'トレンド',
+            'trend.sub': '前期間との比較 — 方向のみ、履歴なし。',
+            'trend.hoursMonth': '今月の時間', 'trend.flightsWeek': '今週のフライト',
+            'trend.activeDays': '今週の活動日', 'trend.fleetVariety': '今月の機種',
+            'trend.vsLast': '前期間比',
+            'trend.empty': '2期間分のデータが揃うとトレンドが表示されます。',
+        },
+    },
+
+    /** Translate a key. Falls back to English, then to the key itself. */
+    t(key, fallback) {
+        const dict = this._i18n[this._locale];
+        if (dict && dict[key] != null) return dict[key];
+        const en = this._i18n.en;
+        if (en && en[key] != null) return en[key];
+        return fallback != null ? fallback : key;
+    },
+
     // Map legacy theme names → new palette keys (so old saved values still work)
     _normalizeTheme(name) {
         if (name === 'white' || name === 'light-gray') return 'light';
@@ -141,8 +498,29 @@ init(supabaseClient) {
                 if (session.user.user_metadata?.timezone) {
                     this._timezone = session.user.user_metadata.timezone;
                 }
+
+                // --- PREMIUM PLANE COLOR BOOTSTRAP ---
+                // Trigger an immediate map re-tag now that we know who the
+                // logged-in pilot is (their own plane should turn gold).
+                if (typeof window !== 'undefined' && typeof window.refreshPilotRelations === 'function') {
+                    window.refreshPilotRelations();
+                }
+
+                // Fetch the watchlist eagerly on auth resolve, not only when
+                // the profile overlay is opened — otherwise watchlist colors
+                // won't appear on the map until the user manually opens
+                // their profile.
+                this._fetchWatchlist().then(() => {
+                    if (typeof window !== 'undefined' && typeof window.refreshPilotRelations === 'function') {
+                        window.refreshPilotRelations();
+                    }
+                }).catch(() => { /* already logged inside _fetchWatchlist */ });
             } else {
                 this._currentUser = null;
+                this._watchlist = [];
+                if (typeof window !== 'undefined' && typeof window.refreshPilotRelations === 'function') {
+                    window.refreshPilotRelations();
+                }
             }
 
             if (event === 'USER_UPDATED' && session?.user) {
@@ -240,6 +618,17 @@ init(supabaseClient) {
         const rawDensity = user?.user_metadata?.density || localStorage.getItem('pui-density') || 'cozy';
         this.setDensity(rawDensity === 'compact' ? 'compact' : 'cozy', false);
 
+        // Restore personalization + locale
+        const rawLocale = user?.user_metadata?.locale || localStorage.getItem('pui-locale') || 'en';
+        this._locale = this._LOCALES[rawLocale] ? rawLocale : 'en';
+
+        const rawAccent = user?.user_metadata?.accent_color || localStorage.getItem('pui-accent') || 'caramel';
+        this._accent = this._ACCENT_PRESETS[rawAccent] ? rawAccent : 'caramel';
+
+        this._bio       = user?.user_metadata?.pilot_bio || '';
+        this._coverUrl  = user?.user_metadata?.cover_url || '';
+        this._dockOrder = Array.isArray(user?.user_metadata?.dock_order) ? user.user_metadata.dock_order : null;
+
         if (!this._injected) {
             this._inject();
             this._injected = true;
@@ -256,6 +645,8 @@ init(supabaseClient) {
             overlay.setAttribute('data-theme', this._theme);
             overlay.setAttribute('data-density', this._density);
         }
+        // Apply accent CSS variable overrides on top of the theme palette
+        this._applyAccent();
 
         // Force a fresh shell on each open so onboarding state is respected
         this._shellBuilt = false;
@@ -347,6 +738,9 @@ init(supabaseClient) {
         const overlay = document.getElementById('profile-overlay');
         if (overlay) overlay.setAttribute('data-theme', t);
 
+        // Accent variant depends on theme — re-apply so colors stay consistent.
+        this._applyAccent();
+
         // SYNC THEME EXTERNALLY (landingUI is now listening for this event)
         window.dispatchEvent(new CustomEvent('puiThemeChanged', { detail: { theme: t } }));
     },
@@ -374,6 +768,445 @@ init(supabaseClient) {
         const next = this._density === 'cozy' ? 'compact' : 'cozy';
         this.setDensity(next, true);
         this._supabase?.auth.updateUser({ data: { density: next } }).catch(() => {});
+    },
+
+    /**
+     * Re-render the accent swatch colors in the Settings panel — used when
+     * the theme changes, since each preset has separate light/dark variants
+     * and the swatch should preview the variant the user will actually see.
+     */
+    _refreshAccentSwatches() {
+        document.querySelectorAll('.pui-accent-swatch').forEach(btn => {
+            const key = btn.dataset.accent;
+            const preset = this._ACCENT_PRESETS[key];
+            if (!preset) return;
+            const variant = this._theme === 'dark' ? preset.dark : preset.light;
+            btn.style.background = variant.c;
+            btn.classList.toggle('active', key === this._accent);
+            btn.innerHTML = key === this._accent ? '<i class="fa-solid fa-check"></i>' : '';
+        });
+    },
+
+    // ═══════════════════════════════════════════════════════════════════════
+    // PERSONALIZATION — accent color, locale, dock order
+    // ═══════════════════════════════════════════════════════════════════════
+
+    /**
+     * Apply an accent preset to the live overlay by overriding the four
+     * --pui-accent* CSS variables. Called whenever theme or accent changes,
+     * since the chosen variant depends on the active theme.
+     */
+    _applyAccent() {
+        const overlay = document.getElementById('profile-overlay');
+        if (!overlay) return;
+        const preset = this._ACCENT_PRESETS[this._accent] || this._ACCENT_PRESETS.caramel;
+        const variant = this._theme === 'dark' ? preset.dark : preset.light;
+        overlay.style.setProperty('--pui-accent', variant.c);
+        overlay.style.setProperty('--pui-accent-hover', variant.h);
+        overlay.style.setProperty('--pui-accent-soft', variant.s);
+        overlay.style.setProperty('--pui-accent-glow', variant.g);
+    },
+
+    /** Set accent color preset (key into _ACCENT_PRESETS). */
+    setAccent(accentKey, persist = true) {
+        if (!this._ACCENT_PRESETS[accentKey]) accentKey = 'caramel';
+        this._accent = accentKey;
+        this._applyAccent();
+        if (persist) {
+            localStorage.setItem('pui-accent', accentKey);
+            this._supabase?.auth.updateUser({ data: { accent_color: accentKey } }).catch(() => {});
+        }
+    },
+
+    /** Set the active locale and re-render so all t() calls pick it up. */
+    setLocale(locale, persist = true) {
+        if (!this._LOCALES[locale]) locale = 'en';
+        const changed = this._locale !== locale;
+        this._locale = locale;
+        if (persist) {
+            localStorage.setItem('pui-locale', locale);
+            this._supabase?.auth.updateUser({ data: { locale } }).catch(() => {});
+        }
+        if (changed && this._isOpen) {
+            // Full re-render so dock labels, headers, and content all refresh.
+            this._shellBuilt = false;
+            this._render();
+        }
+    },
+
+    /** Save pilot bio to user_metadata. Stored in this._bio for fast access. */
+    async setBio(bio) {
+        const trimmed = (bio || '').slice(0, 140);
+        this._bio = trimmed;
+        try {
+            await this._supabase?.auth.updateUser({ data: { pilot_bio: trimmed } });
+        } catch (err) {
+            console.warn('[ProfileUI] Failed to save bio:', err.message);
+        }
+    },
+
+    /** Save cover banner image URL. Caller validates the URL shape upstream. */
+    async setCoverUrl(url) {
+        const trimmed = (url || '').trim().slice(0, 500);
+        this._coverUrl = trimmed;
+        try {
+            await this._supabase?.auth.updateUser({ data: { cover_url: trimmed } });
+        } catch (err) {
+            console.warn('[ProfileUI] Failed to save cover_url:', err.message);
+        }
+    },
+
+    /**
+     * Resolve the effective dock order — merges saved order with the default,
+     * dropping unknown ids and appending any new defaults that the user hasn't
+     * seen yet. Always returns the full set of valid tab ids.
+     */
+    _resolveDockOrder() {
+        const valid = new Set(this._DEFAULT_DOCK_ORDER);
+        const saved = Array.isArray(this._dockOrder) ? this._dockOrder.filter(id => valid.has(id)) : [];
+        const seen  = new Set(saved);
+        const tail  = this._DEFAULT_DOCK_ORDER.filter(id => !seen.has(id));
+        return saved.length ? [...saved, ...tail] : [...this._DEFAULT_DOCK_ORDER];
+    },
+
+    /** Persist the current dock order to user_metadata. */
+    async setDockOrder(order) {
+        const valid = new Set(this._DEFAULT_DOCK_ORDER);
+        const cleaned = (order || []).filter(id => valid.has(id));
+        this._dockOrder = cleaned.length ? cleaned : null;
+        try {
+            await this._supabase?.auth.updateUser({ data: { dock_order: this._dockOrder } });
+        } catch (err) {
+            console.warn('[ProfileUI] Failed to save dock_order:', err.message);
+        }
+    },
+
+    /** Reset dock to default order. */
+    async resetDockOrder() {
+        this._dockOrder = null;
+        try {
+            await this._supabase?.auth.updateUser({ data: { dock_order: null } });
+        } catch (err) {
+            console.warn('[ProfileUI] Failed to reset dock_order:', err.message);
+        }
+        // Re-render dock area in place
+        const dock = document.querySelector('.pui-dock');
+        if (dock) {
+            const tmp = document.createElement('div');
+            tmp.innerHTML = this._getDockHTML();
+            dock.replaceWith(tmp.firstElementChild);
+            this._wireDockListeners();
+        }
+    },
+
+    // ═══════════════════════════════════════════════════════════════════════
+    // COMPARATIVE STATS — period-vs-period deltas (no flight history surface)
+    // ═══════════════════════════════════════════════════════════════════════
+
+    /**
+     * Compute "this period vs previous period" deltas from the IF logbook.
+     * Returns null when we don't have enough data (need at least one prior
+     * period to compare against). Crucially, this surface does NOT expose any
+     * individual flight records — only aggregate directional change.
+     */
+    _computeComparativeStats() {
+        const logbook = this._ifData?.logbook;
+        if (!Array.isArray(logbook) || logbook.length === 0) return null;
+
+        const now = new Date();
+        const ms = (d) => d.getTime();
+
+        const startOfThisMonth = new Date(now.getFullYear(), now.getMonth(), 1);
+        const startOfLastMonth = new Date(now.getFullYear(), now.getMonth() - 1, 1);
+
+        const sevenDaysAgo  = new Date(ms(now) - 7  * 86400000);
+        const fourteenDaysAgo = new Date(ms(now) - 14 * 86400000);
+
+        let hoursThisMonth = 0, hoursLastMonth = 0;
+        let flightsThisWeek = 0, flightsLastWeek = 0;
+        const acftThisMonth = new Set(), acftLastMonth = new Set();
+        const daysThisWeek  = new Set(), daysLastWeek  = new Set();
+
+        for (const f of logbook) {
+            if (!f?.created) continue;
+            const d  = new Date(f.created);
+            const dT = ms(d);
+            const minutes = typeof f.totalTime === 'number' ? f.totalTime : 0;
+
+            if (dT >= ms(startOfThisMonth)) {
+                hoursThisMonth += minutes / 60;
+                if (f.aircraftId) acftThisMonth.add(f.aircraftId);
+            } else if (dT >= ms(startOfLastMonth) && dT < ms(startOfThisMonth)) {
+                hoursLastMonth += minutes / 60;
+                if (f.aircraftId) acftLastMonth.add(f.aircraftId);
+            }
+
+            if (dT >= ms(sevenDaysAgo)) {
+                flightsThisWeek += 1;
+                daysThisWeek.add(d.toISOString().slice(0, 10));
+            } else if (dT >= ms(fourteenDaysAgo) && dT < ms(sevenDaysAgo)) {
+                flightsLastWeek += 1;
+                daysLastWeek.add(d.toISOString().slice(0, 10));
+            }
+        }
+
+        const anyData = hoursThisMonth || hoursLastMonth || flightsThisWeek || flightsLastWeek
+                     || acftThisMonth.size || acftLastMonth.size || daysThisWeek.size || daysLastWeek.size;
+        if (!anyData) return null;
+
+        const buildDelta = (current, previous) => {
+            const diff = current - previous;
+            let pct = null;
+            if (previous > 0) {
+                pct = Math.round((diff / previous) * 100);
+            } else if (current > 0) {
+                pct = 100;
+            }
+            return { current, previous, diff, pct };
+        };
+
+        return {
+            hoursMonth:   buildDelta(+hoursThisMonth.toFixed(1), +hoursLastMonth.toFixed(1)),
+            flightsWeek:  buildDelta(flightsThisWeek, flightsLastWeek),
+            activeDays:   buildDelta(daysThisWeek.size, daysLastWeek.size),
+            fleetVariety: buildDelta(acftThisMonth.size, acftLastMonth.size),
+        };
+    },
+
+    /**
+     * Render the Trends card for the Dossier tab. Pure function of _ifData.
+     * Returns a non-empty card always — uses an empty-state when not enough data.
+     */
+    _getTrendsCardHTML() {
+        const stats = this._computeComparativeStats();
+        if (!stats) {
+            return `
+                <div class="pui-card">
+                    <div class="pui-card-header"><h3><i class="fa-solid fa-chart-line" style="color: var(--pui-accent); margin-right:8px;"></i>${this.t('trend.title')}</h3></div>
+                    <div class="pui-card-body">
+                        <div class="pui-empty-inline">${this.t('trend.empty')}</div>
+                    </div>
+                </div>`;
+        }
+
+        const fmtDelta = (d) => {
+            if (d.pct == null) return `<span class="pui-trend-neutral">—</span>`;
+            const arrow = d.diff > 0 ? '▲' : d.diff < 0 ? '▼' : '●';
+            const cls   = d.diff > 0 ? 'pui-trend-up' : d.diff < 0 ? 'pui-trend-down' : 'pui-trend-neutral';
+            const sign  = d.pct > 0 ? '+' : '';
+            return `<span class="${cls}"><span class="pui-trend-arrow">${arrow}</span>${sign}${d.pct}%</span>`;
+        };
+
+        const row = (labelKey, d, fmtCurrent) => `
+            <div class="pui-trend-row">
+                <div class="pui-trend-label">${this.t(labelKey)}</div>
+                <div class="pui-trend-current">${fmtCurrent(d.current)}</div>
+                <div class="pui-trend-delta">${fmtDelta(d)}</div>
+                <div class="pui-trend-prev">${this.t('trend.vsLast')} ${fmtCurrent(d.previous)}</div>
+            </div>`;
+
+        return `
+            <div class="pui-card">
+                <div class="pui-card-header pui-card-header-row">
+                    <h3><i class="fa-solid fa-chart-line" style="color: var(--pui-accent); margin-right:8px;"></i>${this.t('trend.title')}</h3>
+                    <span class="pui-mono-meta-sm">${this.t('trend.sub')}</span>
+                </div>
+                <div class="pui-card-body">
+                    <div class="pui-trends-grid">
+                        ${row('trend.hoursMonth',   stats.hoursMonth,   v => `${v}h`)}
+                        ${row('trend.flightsWeek',  stats.flightsWeek,  v => `${v}`)}
+                        ${row('trend.activeDays',   stats.activeDays,   v => `${v}`)}
+                        ${row('trend.fleetVariety', stats.fleetVariety, v => `${v}`)}
+                    </div>
+                </div>
+            </div>`;
+    },
+
+    // ═══════════════════════════════════════════════════════════════════════
+    // DRILL-DOWN — generic detail modal triggered by data-drill attributes
+    // ═══════════════════════════════════════════════════════════════════════
+
+    /**
+     * Show a detail modal for a stat or entity. type = 'grade' | 'xp' |
+     * 'flights' | 'icao' | 'callsign'. payload carries any context.
+     */
+    _showDrillDown(type, payload = {}) {
+        const existing = document.getElementById('pui-drill-modal');
+        if (existing) existing.remove();
+
+        const overlay = document.createElement('div');
+        overlay.id = 'pui-drill-modal';
+        overlay.className = 'pui-wrapper-layer';
+        overlay.setAttribute('data-theme', this._theme);
+        overlay.setAttribute('data-density', this._density);
+        overlay.style.zIndex = '10001';
+
+        // Inherit accent overrides on the modal layer too
+        const preset = this._ACCENT_PRESETS[this._accent] || this._ACCENT_PRESETS.caramel;
+        const variant = this._theme === 'dark' ? preset.dark : preset.light;
+        overlay.style.setProperty('--pui-accent', variant.c);
+        overlay.style.setProperty('--pui-accent-hover', variant.h);
+        overlay.style.setProperty('--pui-accent-soft', variant.s);
+        overlay.style.setProperty('--pui-accent-glow', variant.g);
+
+        const body = this._getDrillDownBody(type, payload);
+
+        overlay.innerHTML = `
+            <div class="pui-drill-box pui-fade-in">
+                <div class="pui-drill-header">
+                    <h3>${body.title}</h3>
+                    <button class="pui-icon-btn" id="pui-drill-close" title="${this.t('common.close')}">
+                        <i class="fa-solid fa-xmark"></i>
+                    </button>
+                </div>
+                <div class="pui-drill-body">${body.html}</div>
+                ${body.actions ? `<div class="pui-drill-actions">${body.actions}</div>` : ''}
+            </div>
+        `;
+
+        document.body.appendChild(overlay);
+        requestAnimationFrame(() => requestAnimationFrame(() => overlay.classList.add('pui-open')));
+
+        const cleanup = () => {
+            overlay.classList.remove('pui-open');
+            setTimeout(() => overlay.remove(), 240);
+            document.removeEventListener('keydown', escHandler);
+        };
+        const escHandler = (e) => { if (e.key === 'Escape') cleanup(); };
+        document.addEventListener('keydown', escHandler);
+
+        document.getElementById('pui-drill-close')?.addEventListener('click', cleanup);
+        overlay.addEventListener('click', (e) => { if (e.target === overlay) cleanup(); });
+
+        document.getElementById('pui-drill-goto-traffic')?.addEventListener('click', () => {
+            cleanup();
+            if (payload.icao) {
+                window.dispatchEvent(new CustomEvent('puiFocusHub', { detail: { icao: payload.icao } }));
+            }
+            this.switchTab('airspace-intel');
+        });
+        document.getElementById('pui-drill-watch-pilot')?.addEventListener('click', () => {
+            cleanup();
+            this.switchTab('watchlist');
+            setTimeout(() => {
+                const input = document.getElementById('pui-watchlist-input');
+                if (input && payload.callsign) {
+                    input.value = payload.callsign;
+                    input.focus();
+                }
+            }, 120);
+        });
+    },
+
+    /**
+     * Build the title + body HTML + (optional) action buttons for a given
+     * drill-down type. Returns { title, html, actions }.
+     */
+    _getDrillDownBody(type, payload) {
+        const stats = this._ifData?.stats;
+        const logbook = this._ifData?.logbook || [];
+
+        if (type === 'grade') {
+            const grade      = stats?.gradeDetails?.gradeIndex ?? '—';
+            const violations = stats?.violations ?? '—';
+            const landings   = stats?.landingCount ?? '—';
+            const onlineHrs  = stats?.onlineFlightTime ? (stats.onlineFlightTime / 60).toFixed(1) + 'h' : '—';
+            return {
+                title: this.t('drill.title.grade'),
+                html: `
+                    <div class="pui-drill-stat-row"><span>Current grade</span><strong>${grade}</strong></div>
+                    <div class="pui-drill-stat-row"><span>Online flight time</span><strong>${onlineHrs}</strong></div>
+                    <div class="pui-drill-stat-row"><span>Landing count</span><strong>${typeof landings === 'number' ? landings.toLocaleString() : landings}</strong></div>
+                    <div class="pui-drill-stat-row"><span>Violations</span><strong>${violations}</strong></div>
+                    <p class="pui-drill-note">Grade requirements update at the start of each Infinite Flight rolling period.</p>
+                `,
+            };
+        }
+
+        if (type === 'xp') {
+            const xp = stats?.totalXP ?? 0;
+            const total = logbook.length;
+            const totalMins = logbook.reduce((s, f) => s + (f.totalTime || 0), 0);
+            const totalHours = (totalMins / 60).toFixed(1);
+            const xpPerFlight = total > 0 ? Math.round(xp / total) : 0;
+            const xpPerHour   = totalMins > 0 ? Math.round(xp / (totalMins / 60)) : 0;
+            return {
+                title: this.t('drill.title.xp'),
+                html: `
+                    <div class="pui-drill-stat-row"><span>Total XP</span><strong>${xp.toLocaleString()}</strong></div>
+                    <div class="pui-drill-stat-row"><span>Across</span><strong>${total.toLocaleString()} flights · ${totalHours}h</strong></div>
+                    <div class="pui-drill-stat-row"><span>Avg XP / flight</span><strong>${xpPerFlight.toLocaleString()}</strong></div>
+                    <div class="pui-drill-stat-row"><span>Avg XP / hour</span><strong>${xpPerHour.toLocaleString()}</strong></div>
+                `,
+            };
+        }
+
+        if (type === 'flights') {
+            const byAcft = {};
+            for (const f of logbook) {
+                if (!f.aircraftId) continue;
+                if (!byAcft[f.aircraftId]) byAcft[f.aircraftId] = { count: 0, minutes: 0 };
+                byAcft[f.aircraftId].count   += 1;
+                byAcft[f.aircraftId].minutes += (f.totalTime || 0);
+            }
+            const rows = Object.entries(byAcft)
+                .sort((a, b) => b[1].count - a[1].count)
+                .slice(0, 8);
+
+            const totalCount = logbook.length || 1;
+            const html = rows.length
+                ? rows.map(([id, agg]) => {
+                    const pct = Math.round((agg.count / totalCount) * 100);
+                    const hrs = (agg.minutes / 60).toFixed(1);
+                    return `
+                        <div class="pui-drill-bar-row">
+                            <div class="pui-drill-bar-label">
+                                <span class="pui-drill-bar-name">${id}</span>
+                                <span class="pui-drill-bar-meta">${agg.count} · ${hrs}h</span>
+                            </div>
+                            <div class="pui-drill-bar-track">
+                                <div class="pui-drill-bar-fill" style="width:${pct}%"></div>
+                            </div>
+                        </div>`;
+                }).join('')
+                : `<div class="pui-empty-inline">${this.t('common.none')}</div>`;
+
+            return { title: this.t('drill.title.flights'), html };
+        }
+
+        if (type === 'icao') {
+            const icao = (payload.icao || '').toUpperCase();
+            const flights = this._currentAllFlights || [];
+            const inbound  = flights.filter(f => (f.arrivalIcao   || '').toUpperCase() === icao).length;
+            const outbound = flights.filter(f => (f.departureIcao || '').toUpperCase() === icao).length;
+            return {
+                title: `${this.t('drill.title.icao')} · ${icao}`,
+                html: `
+                    <div class="pui-drill-stat-row"><span>Live inbound</span><strong>${inbound}</strong></div>
+                    <div class="pui-drill-stat-row"><span>Live outbound</span><strong>${outbound}</strong></div>
+                `,
+                actions: `
+                    <button class="pui-btn-primary" id="pui-drill-goto-traffic">
+                        <i class="fa-solid fa-tower-broadcast"></i> ${this.t('drill.gotoTraffic')}
+                    </button>
+                `,
+            };
+        }
+
+        if (type === 'callsign') {
+            const cs = payload.callsign || '';
+            return {
+                title: cs,
+                html: `<p class="pui-drill-note">${cs}</p>`,
+                actions: `
+                    <button class="pui-btn-primary" id="pui-drill-watch-pilot">
+                        <i class="fa-solid fa-binoculars"></i> ${this.t('drill.addToWatchlist')}
+                    </button>
+                `,
+            };
+        }
+
+        return { title: '', html: '' };
     },
 
     async _fetchSubscriptionData() {
@@ -686,14 +1519,18 @@ init(supabaseClient) {
     },
 
     _getDockHTML() {
-        const navItems = [
-            { id: 'dashboard',        icon: 'fa-house',           label: 'Home'      },
-            { id: 'career-deep-dive', icon: 'fa-id-card',         label: 'Dossier'   },
-            { id: 'airspace-intel',   icon: 'fa-tower-broadcast', label: 'Traffic'   },
-            { id: 'flight-plan',      icon: 'fa-route',           label: 'Dispatch'  },
-            { id: 'watchlist',        icon: 'fa-binoculars',      label: 'Watchlist' },
-            { id: 'settings',         icon: 'fa-sliders',         label: 'Settings'  },
-        ];
+        const allItems = {
+            'dashboard':        { icon: 'fa-house',           labelKey: 'tab.dashboard' },
+            'career-deep-dive': { icon: 'fa-id-card',         labelKey: 'tab.dossier'   },
+            'airspace-intel':   { icon: 'fa-tower-broadcast', labelKey: 'tab.traffic'   },
+            'flight-plan':      { icon: 'fa-route',           labelKey: 'tab.dispatch'  },
+            'watchlist':        { icon: 'fa-binoculars',      labelKey: 'tab.watchlist' },
+            'settings':         { icon: 'fa-sliders',         labelKey: 'tab.settings'  },
+        };
+        const order = this._resolveDockOrder();
+        const navItems = order
+            .filter(id => allItems[id])
+            .map(id => ({ id, icon: allItems[id].icon, label: this.t(allItems[id].labelKey) }));
 
         const liveCount = Object.values(this._watchedPilotStatus).filter(s => s.isLive).length;
 
@@ -708,6 +1545,7 @@ init(supabaseClient) {
                         return `
                             <button class="pui-dock-item ${isActive ? 'active' : ''}"
                                     data-tab="${item.id}"
+                                    draggable="true"
                                     title="${item.label}">
                                 <span class="pui-dock-icon"><i class="fa-solid ${item.icon}"></i></span>
                                 <span class="pui-dock-label">${item.label}</span>
@@ -720,6 +1558,66 @@ init(supabaseClient) {
         `;
     },
 
+    /**
+     * Wire the dock listeners — both tab switching (click) and reordering
+     * (drag & drop). Extracted so resetDockOrder() can re-bind after replacing
+     * the dock node in place.
+     */
+    _wireDockListeners() {
+        const dock = document.querySelector('.pui-dock');
+        if (!dock) return;
+
+        // Click to switch tab
+        dock.querySelectorAll('.pui-dock-item').forEach(btn => {
+            btn.addEventListener('click', (e) => {
+                // Ignore clicks that are the tail end of a drag
+                if (btn.classList.contains('dragging')) return;
+                this.switchTab(e.currentTarget.dataset.tab);
+            });
+        });
+
+        // Drag & drop to reorder
+        let dragSrc = null;
+        dock.querySelectorAll('.pui-dock-item').forEach(item => {
+            item.addEventListener('dragstart', (e) => {
+                dragSrc = item;
+                item.classList.add('dragging');
+                // Required for Firefox
+                try { e.dataTransfer.effectAllowed = 'move'; e.dataTransfer.setData('text/plain', item.dataset.tab); } catch (_) {}
+            });
+            item.addEventListener('dragend', () => {
+                item.classList.remove('dragging');
+                dock.querySelectorAll('.pui-dock-item.drop-target').forEach(el => el.classList.remove('drop-target'));
+                dragSrc = null;
+            });
+            item.addEventListener('dragover', (e) => {
+                if (!dragSrc || dragSrc === item) return;
+                e.preventDefault();
+                try { e.dataTransfer.dropEffect = 'move'; } catch (_) {}
+                item.classList.add('drop-target');
+            });
+            item.addEventListener('dragleave', () => {
+                item.classList.remove('drop-target');
+            });
+            item.addEventListener('drop', (e) => {
+                e.preventDefault();
+                item.classList.remove('drop-target');
+                if (!dragSrc || dragSrc === item) return;
+                const inner = dock.querySelector('.pui-dock-inner');
+                if (!inner) return;
+
+                // Insert before/after based on horizontal midpoint
+                const rect = item.getBoundingClientRect();
+                const after = (e.clientX - rect.left) > rect.width / 2;
+                inner.insertBefore(dragSrc, after ? item.nextSibling : item);
+
+                // Persist new order
+                const newOrder = Array.from(inner.querySelectorAll('.pui-dock-item')).map(el => el.dataset.tab);
+                this.setDockOrder(newOrder);
+            });
+        });
+    },
+
 async _updateLiveFlightDOM() {
         const wrapper = document.getElementById('pui-live-flights-wrapper');
         if (!wrapper) return;
@@ -727,6 +1625,10 @@ async _updateLiveFlightDOM() {
         if (!this._liveFlights || this._liveFlights.length === 0) {
             wrapper.innerHTML = '';
             wrapper.style.display = 'none';
+            // The 3D viewer's MutationObserver detects its container leaving
+            // the DOM and tears down the Cesium.Viewer for us — we just need
+            // to clear the host key so the next active flight gets a fresh init.
+            this._3dViewerHostKey = null;
             return;
         }
 
@@ -742,7 +1644,7 @@ async _updateLiveFlightDOM() {
         }));
 
         // Convert to Promise.all to handle the asynchronous Analytics Engine
-        const cardsHtmlArray = await Promise.all(flightsWithDispatch.map(async flight => {
+        const cardsHtmlArray = await Promise.all(flightsWithDispatch.map(async (flight, idx) => {
             const alt = Math.round(flight.position.alt_ft).toLocaleString();
             const gs  = Math.round(flight.position.gs_kt);
             const hdg = String(Math.round(flight.position.heading_deg)).padStart(3, '0');
@@ -811,11 +1713,20 @@ async _updateLiveFlightDOM() {
                 }
             }
 
+            // Only the FIRST card gets the 3D forward-view backdrop. The viewer
+            // uses a hardcoded container id (`pui-hero-3d-container`), so only
+            // one instance can live in the DOM at a time. Secondary cards (rare
+            // — most pilots fly one aircraft at a time) keep the image fallback.
+            const useThreeDBg = idx === 0;
+            const bgHTML = useThreeDBg
+                ? `<div class="pui-live-bg pui-live-bg-3d" data-3d-host></div>`
+                : (imageUrl
+                    ? `<div class="pui-live-bg" style="background-image:url('${imageUrl}')"></div>`
+                    : `<div class="pui-live-bg pui-live-bg-fallback"></div>`);
+
             return `
                 <div class="pui-live-card">
-                    ${imageUrl
-                        ? `<div class="pui-live-bg" style="background-image:url('${imageUrl}')"></div>`
-                        : `<div class="pui-live-bg pui-live-bg-fallback"></div>`}
+                    ${bgHTML}
                     <div class="pui-live-overlay"></div>
                     <div class="pui-live-content">
                         <div class="pui-live-top">
@@ -851,14 +1762,88 @@ async _updateLiveFlightDOM() {
                             </div>
                         </div>
                         ${dispatchHTML}
-                        ${imageCredit ? `<div class="pui-live-credit">© ${imageCredit}</div>` : ''}
+                        ${imageCredit && !useThreeDBg ? `<div class="pui-live-credit">© ${imageCredit}</div>` : ''}
                     </div>
                 </div>
             `;
         }));
 
-        // Join the resolved HTML array 
+        // ── 3D viewer mount/preserve dance ──────────────────────────────────
+        // Capture the currently-mounted 3D host (if any) BEFORE we blow away
+        // the wrapper's innerHTML. Holding a JS reference keeps it (and the
+        // live Cesium scene inside) alive while we rebuild the DOM tree.
+        const oldHost = document.querySelector('[data-3d-host]');
+
+        // Determine reuse eligibility BEFORE rebuild, based on whether the
+        // primary flight is the same one the existing viewer was init'd for.
+        const firstFlight = flightsWithDispatch[0];
+        const hostKey     = firstFlight?.flightId || firstFlight?.username || 'live-0';
+        const canReuse    = !!oldHost && this._3dViewerHostKey === hostKey;
+
+        // Rebuild the carousel.
         wrapper.innerHTML = `<div class="pui-live-carousel">${cardsHtmlArray.join('')}</div>`;
+
+        // Locate the placeholder host in the freshly-rendered card[0].
+        const newHost = wrapper.querySelector('[data-3d-host]');
+
+        if (newHost) {
+            if (canReuse) {
+                // Swap the empty placeholder for the live, fully-mounted host.
+                // The viewer's MutationObserver runs asynchronously — by the
+                // time it fires, the container is back in the document, so
+                // `document.contains(container)` is true and destroy() does
+                // not run. Scene state, tile cache, and camera are preserved.
+                newHost.replaceWith(oldHost);
+                AircraftViewer3D.updateFlightData(this._extractPositionForViewer(firstFlight));
+            } else {
+                // Fresh mount: render the viewer's HTML into the host slot,
+                // then init Cesium. If a stale viewer exists from a previous
+                // flight, its container has now been detached (innerHTML wipe
+                // above) and its MutationObserver will tear it down for us.
+                newHost.innerHTML = AircraftViewer3D.getHTML();
+                AircraftViewer3D
+                    .init(firstFlight.aircraft?.aircraftName, this._extractPositionForViewer(firstFlight))
+                    .catch(err => console.warn('[ProfileUI] AircraftViewer3D init failed:', err));
+                this._3dViewerHostKey = hostKey;
+            }
+        } else {
+            // No first card / no 3D slot → no viewer should be alive.
+            this._3dViewerHostKey = null;
+        }
+    },
+
+    /**
+     * Normalises a SocketDataHub flight into the position shape that
+     * AircraftViewer3D.init / updateFlightData expect. Falls back to map-layer
+     * coordinates if the socket payload doesn't carry lat/lon directly, and
+     * to safe defaults (Alps, FL350, 450 kt) so the viewer always boots.
+     */
+    _extractPositionForViewer(flight) {
+        const pos = flight?.position || {};
+        let lat = pos.lat ?? pos.latitude  ?? null;
+        let lon = pos.lon ?? pos.longitude ?? null;
+
+        if ((lat == null || lon == null) && typeof window.getLiveFlightData === 'function') {
+            try {
+                const mapFlights = window.getLiveFlightData();
+                const mapFlight  = mapFlights.find(f => f.properties?.flightId === flight.flightId);
+                const coords     = mapFlight?.geometry?.coordinates;
+                if (Array.isArray(coords) && coords.length >= 2) {
+                    if (lon == null) lon = coords[0];
+                    if (lat == null) lat = coords[1];
+                }
+            } catch (_) { /* defensive: never let coord lookup break the viewer */ }
+        }
+
+        return {
+            lat:         lat ?? 46.0,
+            lon:         lon ?? 7.5,
+            alt_ft:      pos.alt_ft      ?? 35000,
+            gs_kt:       pos.gs_kt       ?? 450,
+            pitch_deg:   pos.pitch_deg   ?? 0,
+            roll_deg:    pos.roll_deg    ?? 0,
+            heading_deg: pos.heading_deg ?? pos.track ?? 45,
+        };
     },
 
     _generateAirspaceHTML() {
@@ -1208,6 +2193,7 @@ async _updateLiveFlightDOM() {
         if (this._activeTab === 'career-deep-dive') {
             const user = this._currentUser;
             const ifUsername = user?.user_metadata?.if_username || '';
+            const fullName = user?.user_metadata?.full_name || user?.user_metadata?.name || 'Captain';
             let statCardsHTML = '';
 
             if (!ifUsername) {
@@ -1225,31 +2211,55 @@ async _updateLiveFlightDOM() {
                 const xp = this._ifData.stats.totalXP?.toLocaleString() || '0';
                 const totalFlights = this._ifData.logbookTotal?.toLocaleString() || '0';
 
+                // Stat cards are drill-down targets — see _showDrillDown(). The
+                // delegated handler in _attachContentListeners reads data-drill.
                 statCardsHTML = `
-                    <div class="pui-stat-card">
+                    <button class="pui-stat-card pui-stat-card-clickable" data-drill="grade" type="button" title="${this.t('drill.title.grade')}">
                         <div class="pui-stat-icon" data-tone="indigo"><i class="fa-solid fa-award"></i></div>
-                        <div class="pui-stat-data"><h3>Grade ${grade}</h3><p>Pilot Level</p></div>
-                    </div>
-                    <div class="pui-stat-card">
+                        <div class="pui-stat-data"><h3>Grade ${grade}</h3><p>${this.t('stat.grade')}</p></div>
+                        <span class="pui-stat-drill-hint"><i class="fa-solid fa-arrow-right"></i></span>
+                    </button>
+                    <button class="pui-stat-card pui-stat-card-clickable" data-drill="xp" type="button" title="${this.t('drill.title.xp')}">
                         <div class="pui-stat-icon" data-tone="violet"><i class="fa-solid fa-star"></i></div>
-                        <div class="pui-stat-data"><h3>${xp}</h3><p>Total XP</p></div>
-                    </div>
-                    <div class="pui-stat-card">
+                        <div class="pui-stat-data"><h3>${xp}</h3><p>${this.t('stat.xp')}</p></div>
+                        <span class="pui-stat-drill-hint"><i class="fa-solid fa-arrow-right"></i></span>
+                    </button>
+                    <button class="pui-stat-card pui-stat-card-clickable" data-drill="flights" type="button" title="${this.t('drill.title.flights')}">
                         <div class="pui-stat-icon" data-tone="emerald"><i class="fa-solid fa-plane-arrival"></i></div>
-                        <div class="pui-stat-data"><h3>${totalFlights}</h3><p>Flights Flown</p></div>
-                    </div>
+                        <div class="pui-stat-data"><h3>${totalFlights}</h3><p>${this.t('stat.flights')}</p></div>
+                        <span class="pui-stat-drill-hint"><i class="fa-solid fa-arrow-right"></i></span>
+                    </button>
                 `;
             }
 
+            // Optional cover banner with the user's identity overlay
+            const coverHTML = this._coverUrl ? `
+                <div class="pui-cover-banner pui-fade-in" style="background-image:url('${this._coverUrl.replace(/'/g, "&apos;")}')">
+                    <div class="pui-cover-overlay">
+                        <div class="pui-cover-name">${fullName}</div>
+                        ${this._bio ? `<div class="pui-cover-bio">${this._bio}</div>` : ''}
+                    </div>
+                </div>
+            ` : (this._bio ? `
+                <div class="pui-bio-strip pui-fade-in">
+                    <i class="fa-solid fa-quote-left"></i>
+                    <span>${this._bio}</span>
+                </div>
+            ` : '');
+
             return `
+                ${coverHTML}
                 <div class="pui-tab-header pui-fade-in">
                     <div>
-                        <h2>Pilot Dossier</h2>
-                        <p>Comprehensive career analytics and high-level flight statistics.</p>
+                        <h2>${this.t('header.dossier.title')}</h2>
+                        <p>${this.t('header.dossier.sub')}</p>
                     </div>
                 </div>
                 <div class="pui-stats-grid pui-fade-in" style="margin-bottom: var(--pui-gap-lg);">
                     ${statCardsHTML}
+                </div>
+                <div class="pui-fade-in" style="margin-bottom: var(--pui-gap-lg);">
+                    ${this._getTrendsCardHTML()}
                 </div>
                 <div class="pui-fade-in">
                     ${CareerModule.getHTML(this._ifData)}
@@ -1274,8 +2284,9 @@ async _updateLiveFlightDOM() {
             const formatter = new Intl.DateTimeFormat('en-US', { hour: 'numeric', hourCycle: 'h23', timeZone: this._timezone });
             const hourString = formatter.format(new Date());
             const hour = parseInt(hourString, 10);
-            const greeting = hour < 12 ? 'Good morning' : hour < 17 ? 'Good afternoon' : 'Good evening';
-            const dateStr = new Date().toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric', timeZone: this._timezone });
+            const greeting = hour < 12 ? this.t('greet.morning') : hour < 17 ? this.t('greet.afternoon') : this.t('greet.evening');
+            const dateLocale = this._locale === 'en' ? 'en-US' : this._locale;
+            const dateStr = new Date().toLocaleDateString(dateLocale, { weekday: 'long', month: 'long', day: 'numeric', timeZone: this._timezone });
 
             let statsStrip = '';
             if (this._ifData.stats) {
@@ -1292,7 +2303,7 @@ async _updateLiveFlightDOM() {
                     ${staleTag}
                 </div>`;
             } else if (this._ifData.loading) {
-                statsStrip = `<div class="pui-stat-strip" style="opacity:0.4;">Loading pilot data…</div>`;
+                statsStrip = `<div class="pui-stat-strip" style="opacity:0.4;">${this.t('common.loading')}</div>`;
             }
 
             let recentFlightsHTML = '';
@@ -1312,16 +2323,22 @@ async _updateLiveFlightDOM() {
                     const server = flight.server || 'Unknown';
                     const dateObj = new Date(flight.created);
                     const isRecent = (Date.now() - dateObj.getTime()) < (86400000 * 2);
-                    const timeStr  = isRecent ? 'Recently' : dateObj.toLocaleDateString('en-US', { month: 'short', day: 'numeric', timeZone: this._timezone });
+                    const timeStr  = isRecent ? 'Recently' : dateObj.toLocaleDateString(dateLocale, { month: 'short', day: 'numeric', timeZone: this._timezone });
+                    // ICAOs are drill-down targets: clicking opens the airport detail.
+                    // Callsigns are drill-down targets: clicking offers to add to watchlist.
+                    const depAttr = dep !== 'N/A' ? `data-drill="icao" data-icao="${dep}"` : '';
+                    const arrAttr = arr !== 'N/A' ? `data-drill="icao" data-icao="${arr}"` : '';
+                    const cs = flight.callsign || 'N/A';
+                    const csAttr = cs !== 'N/A' ? `data-drill="callsign" data-callsign="${cs}"` : '';
                     return `
                         <div class="pui-flight-row">
                             <div class="pui-flight-route">
-                                <span class="pui-flight-icao">${dep}</span>
+                                <span class="pui-flight-icao pui-drillable" ${depAttr}>${dep}</span>
                                 <span class="pui-flight-arrow">→</span>
-                                <span class="pui-flight-icao">${arr}</span>
+                                <span class="pui-flight-icao pui-drillable" ${arrAttr}>${arr}</span>
                             </div>
                             <div class="pui-flight-meta">
-                                <span>${flight.callsign || 'N/A'}</span>
+                                <span class="pui-drillable" ${csAttr}>${cs}</span>
                                 <span>·</span>
                                 <span>${server}</span>
                                 <span>·</span>
@@ -1331,7 +2348,7 @@ async _updateLiveFlightDOM() {
                         </div>`;
                 }).join('');
             } else {
-                recentFlightsHTML = `<div class="pui-empty-inline">No recent flights found.</div>`;
+                recentFlightsHTML = `<div class="pui-empty-inline">${this.t('empty.recent')}</div>`;
             }
 
             let nextDispatch = '';
@@ -1347,7 +2364,7 @@ async _updateLiveFlightDOM() {
                 nextDispatch = `
                     <div class="pui-dispatch-route">
                         <div class="pui-dispatch-side">
-                            <span class="code">${next.dep_icao || '----'}</span>
+                            <span class="code pui-drillable" ${next.dep_icao ? `data-drill="icao" data-icao="${next.dep_icao}"` : ''}>${next.dep_icao || '----'}</span>
                             ${next.dep_gate ? `<span class="gate">Gate ${next.dep_gate}</span>` : ''}
                         </div>
                         <div class="pui-dispatch-path">
@@ -1355,7 +2372,7 @@ async _updateLiveFlightDOM() {
                             <span>${hours}h ${mins}m</span>
                         </div>
                         <div class="pui-dispatch-side pui-dispatch-side-right">
-                            <span class="code">${next.arr_icao || '----'}</span>
+                            <span class="code pui-drillable" ${next.arr_icao ? `data-drill="icao" data-icao="${next.arr_icao}"` : ''}>${next.arr_icao || '----'}</span>
                             ${next.arr_gate ? `<span class="gate">Gate ${next.arr_gate}</span>` : ''}
                         </div>
                     </div>
@@ -1378,7 +2395,7 @@ async _updateLiveFlightDOM() {
                 nextDispatch = `
                     <div class="pui-empty-block">
                         <i class="fa-regular fa-calendar"></i>
-                        <span>No upcoming flights filed.</span>
+                        <span>${this.t('empty.dispatch')}</span>
                     </div>`;
             }
 
@@ -1591,20 +2608,51 @@ async _updateLiveFlightDOM() {
             const email = user?.email || '';
             const ifUsername = user?.user_metadata?.if_username || '';
 
+            // Language options
+            const langOptionsHTML = Object.entries(this._LOCALES).map(([code, info]) => {
+                const sel = code === this._locale ? 'selected' : '';
+                return `<option value="${code}" ${sel}>${info.flag} ${info.label}</option>`;
+            }).join('');
+
+            // Accent swatches — render the active variant for the current theme
+            // so the swatch you click matches what you'd see applied.
+            const accentSwatchesHTML = Object.entries(this._ACCENT_PRESETS).map(([key, preset]) => {
+                const variant = this._theme === 'dark' ? preset.dark : preset.light;
+                const isActive = key === this._accent;
+                return `
+                    <button type="button"
+                            class="pui-accent-swatch ${isActive ? 'active' : ''}"
+                            data-accent="${key}"
+                            title="${preset.label}"
+                            style="background:${variant.c};">
+                        ${isActive ? '<i class="fa-solid fa-check"></i>' : ''}
+                    </button>`;
+            }).join('');
+
+            // Dock order preview — small chips showing the current resolved order
+            const dockPreviewHTML = this._resolveDockOrder().map(id => {
+                const labelKeys = {
+                    'dashboard': 'tab.dashboard', 'career-deep-dive': 'tab.dossier',
+                    'airspace-intel': 'tab.traffic', 'flight-plan': 'tab.dispatch',
+                    'watchlist': 'tab.watchlist', 'settings': 'tab.settings',
+                };
+                return `<span class="pui-dock-chip">${this.t(labelKeys[id] || id)}</span>`;
+            }).join('');
+
             return `
                 <div class="pui-tab-header pui-fade-in">
                     <div>
-                        <h2>Settings</h2>
-                        <p>Manage your profile, preferences, and security.</p>
+                        <h2>${this.t('header.settings.title')}</h2>
+                        <p>${this.t('header.settings.sub')}</p>
                     </div>
                 </div>
 
                 <div class="pui-settings-grid pui-fade-in">
                     <div class="pui-card">
-                        <div class="pui-card-header"><h3>Profile details</h3></div>
+                        <div class="pui-card-header"><h3>${this.t('set.profile')}</h3></div>
                         <div class="pui-card-body">
                             <div class="pui-input-group">
-                                <label>Full Name</label>
+                                <label>${this.t('set.fullName')}</label>
                                 <div class="pui-input-wrapper">
                                     <i class="fa-solid fa-user pui-input-icon"></i>
                                     <input type="text" id="pui-edit-name" class="pui-input has-icon" value="${name}">
@@ -1612,7 +2660,7 @@ async _updateLiveFlightDOM() {
                             </div>
 
                             <div class="pui-input-group">
-                                <label>Email Address</label>
+                                <label>${this.t('set.email')}</label>
                                 <div class="pui-input-wrapper">
                                     <i class="fa-solid fa-envelope pui-input-icon"></i>
                                     <input type="email" class="pui-input has-icon" value="${email}" disabled>
@@ -1621,7 +2669,7 @@ async _updateLiveFlightDOM() {
                             </div>
 
                             <div class="pui-input-group">
-                                <label>Infinite Flight Username</label>
+                                <label>${this.t('set.ifUsername')}</label>
                                 <div class="pui-input-wrapper">
                                     <i class="fa-solid fa-plane pui-input-icon"></i>
                                     <input type="text" id="pui-edit-if-username" class="pui-input has-icon" value="${ifUsername}" placeholder="Infinite Flight Community Forum Name">
@@ -1630,7 +2678,7 @@ async _updateLiveFlightDOM() {
                             </div>
 
                             <div class="pui-input-group">
-                                <label>Local Time Zone</label>
+                                <label>${this.t('set.timezone')}</label>
                                 <div class="pui-input-wrapper">
                                     <i class="fa-solid fa-earth-americas pui-input-icon"></i>
                                     <select id="pui-edit-timezone" class="pui-input has-icon pui-select">
@@ -1642,7 +2690,7 @@ async _updateLiveFlightDOM() {
                             </div>
 
                             <div class="pui-input-group">
-                                <label>New Password (Optional)</label>
+                                <label>${this.t('set.password')}</label>
                                 <div class="pui-input-wrapper">
                                     <i class="fa-solid fa-lock pui-input-icon"></i>
                                     <input type="password" id="pui-edit-password" class="pui-input has-icon" placeholder="Leave blank to keep current">
@@ -1652,51 +2700,112 @@ async _updateLiveFlightDOM() {
                             <div id="pui-settings-msg" class="pui-alert" style="display: none;"></div>
 
                             <div class="pui-form-actions">
-                                <button class="pui-btn-primary" id="pui-save-btn">Save changes</button>
+                                <button class="pui-btn-primary" id="pui-save-btn">${this.t('common.save')}</button>
                             </div>
                         </div>
                     </div>
 
                     <div class="pui-settings-aside">
                         <div class="pui-card">
-                            <div class="pui-card-header"><h3>Appearance</h3></div>
+                            <div class="pui-card-header"><h3>${this.t('set.appearance')}</h3></div>
                             <div class="pui-card-body">
                                 <div class="pui-input-group">
-                                    <label>Theme</label>
+                                    <label>${this.t('set.theme')}</label>
                                     <div class="pui-theme-options">
                                         <label class="pui-theme-option">
                                             <input type="radio" name="pui-theme" value="light" ${this._theme === 'light' ? 'checked' : ''}>
                                             <i class="fa-solid fa-sun"></i>
-                                            <span>Light</span>
+                                            <span>${this.t('set.theme.light')}</span>
                                         </label>
                                         <label class="pui-theme-option">
                                             <input type="radio" name="pui-theme" value="dark" ${this._theme === 'dark' ? 'checked' : ''}>
                                             <i class="fa-solid fa-moon"></i>
-                                            <span>Dark</span>
+                                            <span>${this.t('set.theme.dark')}</span>
                                         </label>
                                     </div>
                                 </div>
-                                <div class="pui-input-group" style="margin-bottom:0;">
-                                    <label>Density</label>
+                                <div class="pui-input-group">
+                                    <label>${this.t('set.density')}</label>
                                     <div class="pui-theme-options">
                                         <label class="pui-theme-option">
                                             <input type="radio" name="pui-density" value="cozy" ${this._density === 'cozy' ? 'checked' : ''}>
                                             <i class="fa-solid fa-grip"></i>
-                                            <span>Cozy</span>
+                                            <span>${this.t('set.density.cozy')}</span>
                                         </label>
                                         <label class="pui-theme-option">
                                             <input type="radio" name="pui-density" value="compact" ${this._density === 'compact' ? 'checked' : ''}>
                                             <i class="fa-solid fa-grip-lines"></i>
-                                            <span>Compact</span>
+                                            <span>${this.t('set.density.compact')}</span>
                                         </label>
                                     </div>
-                                    <p class="pui-help-text">Saved automatically. Sync across devices when you save changes.</p>
+                                </div>
+                                <div class="pui-input-group" style="margin-bottom:0;">
+                                    <label>${this.t('set.accent')}</label>
+                                    <div class="pui-accent-grid" id="pui-accent-grid">${accentSwatchesHTML}</div>
+                                    <p class="pui-help-text">${this.t('set.accentHelp')}</p>
                                 </div>
                             </div>
                         </div>
 
                         <div class="pui-card">
-                            <div class="pui-card-header"><h3>Billing</h3></div>
+                            <div class="pui-card-header"><h3>${this.t('set.language')}</h3></div>
+                            <div class="pui-card-body">
+                                <div class="pui-input-group" style="margin-bottom:0;">
+                                    <div class="pui-input-wrapper">
+                                        <i class="fa-solid fa-language pui-input-icon"></i>
+                                        <select id="pui-edit-locale" class="pui-input has-icon pui-select">
+                                            ${langOptionsHTML}
+                                        </select>
+                                        <i class="fa-solid fa-chevron-down pui-select-chevron"></i>
+                                    </div>
+                                    <p class="pui-help-text">${this.t('set.languageHelp')}</p>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div class="pui-card">
+                            <div class="pui-card-header"><h3>${this.t('set.personality')}</h3></div>
+                            <div class="pui-card-body">
+                                <div class="pui-input-group">
+                                    <label>${this.t('set.bio')}</label>
+                                    <div class="pui-input-wrapper">
+                                        <i class="fa-solid fa-quote-left pui-input-icon"></i>
+                                        <input type="text" id="pui-edit-bio" class="pui-input has-icon" maxlength="140"
+                                               value="${(this._bio || '').replace(/"/g, '&quot;')}"
+                                               placeholder="${this.t('set.bioPlaceholder')}">
+                                    </div>
+                                    <p class="pui-help-text">
+                                        <span id="pui-bio-counter">${(this._bio || '').length}</span>/140 — ${this.t('set.bioHelp')}
+                                    </p>
+                                </div>
+                                <div class="pui-input-group" style="margin-bottom:0;">
+                                    <label>${this.t('set.cover')}</label>
+                                    <div class="pui-input-wrapper">
+                                        <i class="fa-solid fa-image pui-input-icon"></i>
+                                        <input type="url" id="pui-edit-cover" class="pui-input has-icon"
+                                               value="${(this._coverUrl || '').replace(/"/g, '&quot;')}"
+                                               placeholder="${this.t('set.coverPlaceholder')}">
+                                    </div>
+                                    <p class="pui-help-text">${this.t('set.coverHelp')}</p>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div class="pui-card">
+                            <div class="pui-card-header pui-card-header-row">
+                                <h3>${this.t('set.dockOrder')}</h3>
+                                <button class="pui-btn-ghost pui-btn-sm" id="pui-dock-reset-btn" type="button">
+                                    <i class="fa-solid fa-rotate-left"></i> ${this.t('common.reset')}
+                                </button>
+                            </div>
+                            <div class="pui-card-body">
+                                <div class="pui-dock-preview">${dockPreviewHTML}</div>
+                                <p class="pui-help-text">${this.t('set.dockOrderHelp')}</p>
+                            </div>
+                        </div>
+
+                        <div class="pui-card">
+                            <div class="pui-card-header"><h3>${this.t('set.billing')}</h3></div>
                             <div class="pui-card-body">
                                 <div class="pui-plan-box">
                                     <div class="pui-plan-header">
@@ -1719,7 +2828,7 @@ async _updateLiveFlightDOM() {
                         </div>
 
                         <div class="pui-card">
-                            <div class="pui-card-header"><h3>Support &amp; Legal</h3></div>
+                            <div class="pui-card-header"><h3>${this.t('set.support')}</h3></div>
                             <div class="pui-card-body pui-action-list-body">
                                 <div class="pui-action-list">
                                     <a href="terms.html" target="_blank" class="pui-action-link">
@@ -1868,12 +2977,9 @@ async _updateLiveFlightDOM() {
             this._refreshTopStripIcons();
         });
 
-        // Dock
-        document.querySelectorAll('.pui-dock-item').forEach(btn => {
-            btn.addEventListener('click', (e) => {
-                this.switchTab(e.currentTarget.dataset.tab);
-            });
-        });
+        // Dock — clicks + drag/drop reorder. Centralized in _wireDockListeners
+        // so resetDockOrder() can re-bind after replacing the dock node.
+        this._wireDockListeners();
 
         this._attachContentListeners();
     },
@@ -1896,6 +3002,28 @@ async _updateLiveFlightDOM() {
      * a content-only render too, so dock/topstrip handlers are not duplicated.
      */
     _attachContentListeners() {
+        // ─── Delegated drill-down handler ─────────────────────────────────
+        // Any element with data-drill="<type>" inside the content area opens
+        // the corresponding detail modal. payload reads from sibling data-*
+        // attributes (data-icao, data-callsign). One handler covers all tabs.
+        const contentRoot = document.getElementById('pui-content');
+        if (contentRoot && !contentRoot.dataset.drillBound) {
+            contentRoot.dataset.drillBound = '1';
+            contentRoot.addEventListener('click', (e) => {
+                const target = e.target.closest('[data-drill]');
+                if (!target || !contentRoot.contains(target)) return;
+                // Stop the event from also triggering nested click handlers
+                // (e.g. flight-row clicks). The drill-down is the canonical action.
+                e.stopPropagation();
+                const type = target.dataset.drill;
+                const payload = {
+                    icao:     target.dataset.icao,
+                    callsign: target.dataset.callsign,
+                };
+                this._showDrillDown(type, payload);
+            });
+        }
+
         if (this._activeTab === 'onboarding') {
             const themeRadios = document.querySelectorAll('input[name="onboarding-theme"]');
             themeRadios.forEach(radio => {
@@ -2194,6 +3322,9 @@ async _updateLiveFlightDOM() {
                 radio.addEventListener('change', (e) => {
                     this.setTheme(e.target.value, true);
                     this._refreshTopStripIcons();
+                    // Refresh accent swatches so the visible swatch color matches
+                    // the new theme's variant (each preset has light/dark variants).
+                    this._refreshAccentSwatches();
                 });
             });
 
@@ -2205,11 +3336,53 @@ async _updateLiveFlightDOM() {
                 });
             });
 
+            // ─── Accent color swatches ─────────────────────────────────────
+            document.querySelectorAll('.pui-accent-swatch').forEach(btn => {
+                btn.addEventListener('click', () => {
+                    const key = btn.dataset.accent;
+                    if (!key) return;
+                    this.setAccent(key, true);
+                    this._refreshAccentSwatches();
+                });
+            });
+
+            // ─── Language selector (live re-render on change) ──────────────
+            document.getElementById('pui-edit-locale')?.addEventListener('change', (e) => {
+                this.setLocale(e.target.value, true);
+                // setLocale triggers a full re-render — no further wiring needed
+            });
+
+            // ─── Pilot bio (live counter + save to local state on input) ───
+            const bioInput = document.getElementById('pui-edit-bio');
+            const bioCounter = document.getElementById('pui-bio-counter');
+            bioInput?.addEventListener('input', () => {
+                if (bioCounter) bioCounter.textContent = String(bioInput.value.length);
+            });
+
+            // ─── Dock order reset ──────────────────────────────────────────
+            document.getElementById('pui-dock-reset-btn')?.addEventListener('click', async () => {
+                await this.resetDockOrder();
+                // Refresh the dock-order preview chips inline
+                const preview = document.querySelector('.pui-dock-preview');
+                if (preview) {
+                    const labelKeys = {
+                        'dashboard': 'tab.dashboard', 'career-deep-dive': 'tab.dossier',
+                        'airspace-intel': 'tab.traffic', 'flight-plan': 'tab.dispatch',
+                        'watchlist': 'tab.watchlist', 'settings': 'tab.settings',
+                    };
+                    preview.innerHTML = this._resolveDockOrder()
+                        .map(id => `<span class="pui-dock-chip">${this.t(labelKeys[id] || id)}</span>`)
+                        .join('');
+                }
+            });
+
             document.getElementById('pui-save-btn')?.addEventListener('click', async () => {
                 const newName = document.getElementById('pui-edit-name')?.value.trim();
                 const newIfUsername = document.getElementById('pui-edit-if-username')?.value.trim();
                 const newTimezone = document.getElementById('pui-edit-timezone')?.value;
                 const newPassword = document.getElementById('pui-edit-password')?.value;
+                const newBio   = document.getElementById('pui-edit-bio')?.value || '';
+                const newCover = document.getElementById('pui-edit-cover')?.value.trim() || '';
                 const currentTheme = this._theme;
                 const currentDensity = this._density;
 
@@ -2232,11 +3405,21 @@ async _updateLiveFlightDOM() {
                 updates.data.theme = currentTheme;
                 updates.data.density = currentDensity;
 
+                // Personalization fields — bundled with the main Save button so
+                // the user can edit bio + cover and submit them along with the
+                // rest. Trim bio to 140 chars (matches input maxlength).
+                updates.data.pilot_bio   = newBio.slice(0, 140);
+                updates.data.cover_url   = newCover.slice(0, 500);
+                updates.data.locale      = this._locale;
+                updates.data.accent_color= this._accent;
+                this._bio      = updates.data.pilot_bio;
+                this._coverUrl = updates.data.cover_url;
+
                 if (newPassword) {
                     updates.password = newPassword;
                 }
 
-                this._setLoading('pui-save-btn', true, 'Save changes');
+                this._setLoading('pui-save-btn', true, this.t('common.save'));
 
                 try {
                     const { error } = await this._supabase.auth.updateUser(updates);
@@ -2250,7 +3433,7 @@ async _updateLiveFlightDOM() {
                     console.error("Save error:", error);
                     this._showMessage('pui-settings-msg', error.message || 'Failed to save settings.', 'error');
                 } finally {
-                    this._setLoading('pui-save-btn', false, 'Save changes');
+                    this._setLoading('pui-save-btn', false, this.t('common.save'));
                 }
             });
 
@@ -2451,7 +3634,13 @@ async _updateLiveFlightDOM() {
             
             this._watchlist.unshift(data);
             this._showToast(`<i class="fa-solid fa-star" style="margin-right:8px;"></i><strong>${username}</strong> added to watchlist.`, 'success');
-            
+
+            // Push the new relation to the live map so the pilot's plane
+            // turns purple immediately, without waiting for the next poll.
+            if (typeof window !== 'undefined' && typeof window.refreshPilotRelations === 'function') {
+                window.refreshPilotRelations();
+            }
+
             if (this._isOpen && this._activeTab === 'watchlist') this._renderContentOnly();
         } catch (err) {
             this._showToast(`<i class="fa-solid fa-circle-xmark" style="margin-right:8px;"></i>Could not add ${username}: ${err.message}`, 'error');
@@ -2469,6 +3658,13 @@ async _updateLiveFlightDOM() {
             this._watchlist = this._watchlist.filter(e => e.id !== id);
             delete this._watchedPilotStatus[username?.toLowerCase()];
             this._showToast(`<i class="fa-solid fa-star-half" style="margin-right:8px;"></i>${username} removed from watchlist.`, 'info');
+
+            // Re-tag features so the removed pilot's plane drops back to the
+            // default color immediately.
+            if (typeof window !== 'undefined' && typeof window.refreshPilotRelations === 'function') {
+                window.refreshPilotRelations();
+            }
+
             if (this._isOpen && this._activeTab === 'watchlist') this._renderContentOnly();
         } catch (err) {
             this._showToast(`<i class="fa-solid fa-circle-xmark" style="margin-right:8px;"></i>Could not remove pilot: ${err.message}`, 'error');
@@ -2493,8 +3689,8 @@ async _updateLiveFlightDOM() {
         return `
             <div class="pui-tab-header pui-fade-in">
                 <div>
-                    <h2>Pilot Watchlist</h2>
-                    <p>Track specific pilots in real-time. Get notified the moment they go airborne.</p>
+                    <h2>${this.t('header.watchlist.title')}</h2>
+                    <p>${this.t('header.watchlist.sub')}</p>
                 </div>
                 <label class="pui-toggle-label" title="Toast notification when a watched pilot goes live">
                     <input type="checkbox" id="pui-watchlist-notif-toggle" ${notifChecked}>
@@ -2527,8 +3723,8 @@ async _updateLiveFlightDOM() {
             return `
                 <div class="pui-empty-state">
                     <i class="fa-solid fa-binoculars"></i>
-                    <h4>No Pilots Tracked</h4>
-                    <p>Add an Infinite Flight username above to start monitoring their live status.</p>
+                    <h4>${this.t('empty.watchlist.title')}</h4>
+                    <p>${this.t('empty.watchlist.body')}</p>
                 </div>`;
         }
         return `
@@ -2657,6 +3853,76 @@ async _updateLiveFlightDOM() {
         container.appendChild(toast);
         setTimeout(dismiss, duration);
     },
+
+    getPremiumColorExpression() {
+    const activeColor = (mapFilters.iconColorMode === 'default') ? mapFilters.proCustomColor : '#ffffff';
+    
+    // Safely retrieve username and watchlist, falling back to empty arrays/strings
+    const myIfName = (ProfileUI._currentUser && ProfileUI._currentUser.user_metadata && ProfileUI._currentUser.user_metadata.if_username) 
+        ? ProfileUI._currentUser.user_metadata.if_username.toLowerCase() 
+        : '';
+        
+    const watchlistArray = (ProfileUI._watchlist) 
+        ? ProfileUI._watchlist.map(w => w.watched_username.toLowerCase()) 
+        : [];
+
+    // Mapbox requires literal arrays for 'in' expressions to not be empty
+    const safeWatchlist = watchlistArray.length > 0 ? watchlistArray : ['__empty_watchlist__'];
+
+    return [
+        'case',
+        // 1. User's Plane (Premium Amber/Gold)
+        ['==', ['downcase', ['coalesce', ['get', 'username'], '']], myIfName], '#fbbf24',
+        
+        // 2. Friends/Watchlist Planes (Premium Amethyst/Purple)
+        ['in', ['downcase', ['coalesce', ['get', 'username'], '']], ['literal', safeWatchlist]], '#c084fc',
+        
+        // 3. Traffic Highlighting or Default Color
+        ['match',
+            ['coalesce', ['get', 'trafficType'], 'none'],
+            'inbound', '#38bdf8', 
+            'outbound', '#f59e0b', 
+            activeColor 
+        ]
+    ];
+},
+
+    /**
+     * Determines the premium highlight styling for a given pilot on the map.
+     * Returns a styling object if they are the user or a watched pilot, otherwise null.
+     */
+    getPilotHighlightInfo(username) {
+        if (!username || !this._currentUser) return null;
+        
+        const target = username.toLowerCase();
+        
+        // 1. Identify Personal Aircraft -> Neon Green (HUD Match)
+        const me = this._currentUser?.user_metadata?.if_username?.toLowerCase();
+        if (me && target === me) {
+            return {
+                role: 'self',
+                color: '#39ff14',
+                glow: 'rgba(57, 255, 20, 0.6)',
+                scale: 1.2,
+                zIndex: 1000
+            };
+        }
+        
+        // 2. Identify Watchlist Pilots -> Caramel Gold (Premium Accent)
+        const isWatched = this._watchlist.some(w => w.watched_username.toLowerCase() === target);
+        if (isWatched) {
+            return {
+                role: 'watched',
+                color: '#e0b384',
+                glow: 'rgba(224, 179, 132, 0.6)',
+                scale: 1.1,
+                zIndex: 900
+            };
+        }
+        
+        return null;
+    },
+    
 
     _injectStyles() {
         if (document.getElementById('pui-dashboard-styles')) return;
@@ -3782,6 +5048,18 @@ async _updateLiveFlightDOM() {
             .pui-live-bg-fallback {
                 background: linear-gradient(135deg, #2a3445 0%, #1a2030 60%, #14181f 100%);
             }
+            /* 3D forward-view backdrop (CesiumJS). The viewer is mounted into
+               this slot in place of the static image background for the user's
+               primary live flight. The dark fill is what shows during the
+               brief tile/imagery boot before Cesium starts rendering. */
+            .pui-live-bg-3d {
+                background: #0a1628;
+                overflow: hidden;
+            }
+            .pui-live-bg-3d > * {
+                width: 100%;
+                height: 100%;
+            }
             .pui-live-overlay {
                 position: absolute;
                 inset: 0;
@@ -4841,6 +6119,299 @@ async _updateLiveFlightDOM() {
             .pui-toast-success { background: var(--pui-pos-soft); border-color: var(--pui-pos-soft); color: var(--pui-pos); }
             .pui-toast-error   { background: var(--pui-neg-soft); border-color: var(--pui-neg-soft); color: var(--pui-neg); }
             .pui-toast-warn    { background: var(--pui-warn-soft); border-color: var(--pui-warn-soft); color: var(--pui-warn); }
+
+            /* ═══════════════════════════════════════════════════════════════
+               PERSONALIZATION + DRILL-DOWN + TRENDS — added components
+               ═══════════════════════════════════════════════════════════════ */
+
+            /* Cover banner on the Dossier tab */
+            .pui-cover-banner {
+                position: relative;
+                width: 100%;
+                height: 160px;
+                margin-bottom: var(--pui-gap-lg);
+                border-radius: var(--pui-radius-lg);
+                background-size: cover;
+                background-position: center;
+                background-repeat: no-repeat;
+                overflow: hidden;
+                border: 1px solid var(--pui-border);
+            }
+            .pui-cover-overlay {
+                position: absolute;
+                inset: 0;
+                display: flex;
+                flex-direction: column;
+                justify-content: flex-end;
+                padding: 18px 22px;
+                background: linear-gradient(to top, rgba(0,0,0,0.62) 0%, rgba(0,0,0,0.18) 55%, rgba(0,0,0,0) 100%);
+                color: #fff;
+            }
+            .pui-cover-name {
+                font-size: 1.4rem;
+                font-weight: 700;
+                letter-spacing: -0.01em;
+                text-shadow: 0 1px 4px rgba(0,0,0,0.4);
+            }
+            .pui-cover-bio {
+                margin-top: 4px;
+                font-size: 0.88rem;
+                opacity: 0.92;
+                text-shadow: 0 1px 3px rgba(0,0,0,0.4);
+            }
+            .pui-bio-strip {
+                display: flex;
+                align-items: center;
+                gap: 10px;
+                padding: 12px 16px;
+                margin-bottom: var(--pui-gap-md);
+                background: var(--pui-accent-soft);
+                border: 1px solid var(--pui-accent-soft);
+                border-radius: var(--pui-radius);
+                color: var(--pui-text-secondary);
+                font-size: 0.92rem;
+                font-style: italic;
+            }
+            .pui-bio-strip i { color: var(--pui-accent); opacity: 0.7; }
+
+            /* Accent picker swatches */
+            .pui-accent-grid {
+                display: flex;
+                flex-wrap: wrap;
+                gap: 10px;
+                margin-top: 4px;
+            }
+            .pui-accent-swatch {
+                width: 36px;
+                height: 36px;
+                border-radius: 50%;
+                border: 2px solid var(--pui-border);
+                cursor: pointer;
+                display: flex;
+                align-items: center;
+                justify-content: center;
+                color: #fff;
+                font-size: 0.78rem;
+                transition: transform var(--pui-d-fast) var(--pui-ease),
+                            border-color var(--pui-d-fast) var(--pui-ease),
+                            box-shadow var(--pui-d-fast) var(--pui-ease);
+                padding: 0;
+            }
+            .pui-accent-swatch:hover { transform: scale(1.08); }
+            .pui-accent-swatch.active {
+                border-color: var(--pui-text-primary);
+                box-shadow: 0 0 0 2px var(--pui-bg-card), 0 0 0 4px var(--pui-accent-glow);
+            }
+            .pui-accent-swatch i { text-shadow: 0 1px 2px rgba(0,0,0,0.3); }
+
+            /* Dock chips & drag states */
+            .pui-dock-preview {
+                display: flex;
+                flex-wrap: wrap;
+                gap: 6px;
+                margin-bottom: 8px;
+            }
+            .pui-dock-chip {
+                padding: 4px 10px;
+                background: var(--pui-bg-input);
+                border: 1px solid var(--pui-border);
+                border-radius: 100px;
+                font-size: 0.78rem;
+                color: var(--pui-text-secondary);
+            }
+            .pui-dock-item.dragging {
+                opacity: 0.45;
+                cursor: grabbing;
+            }
+            .pui-dock-item.drop-target {
+                box-shadow: inset 0 0 0 2px var(--pui-accent);
+                background: var(--pui-accent-soft);
+            }
+            .pui-dock-item { cursor: grab; }
+
+            /* Small ghost button variant */
+            .pui-btn-sm {
+                padding: 5px 10px !important;
+                font-size: 0.78rem !important;
+            }
+
+            /* Drillable inline text (ICAOs, callsigns) */
+            .pui-drillable {
+                cursor: pointer;
+                transition: color var(--pui-d-fast) var(--pui-ease);
+                position: relative;
+            }
+            .pui-drillable:hover {
+                color: var(--pui-accent);
+            }
+            .pui-drillable:hover::after {
+                content: '';
+                position: absolute;
+                left: 0; right: 0; bottom: -2px;
+                height: 1px;
+                background: var(--pui-accent);
+                opacity: 0.5;
+            }
+
+            /* Stat-card drill targets */
+            .pui-stat-card-clickable {
+                position: relative;
+                cursor: pointer;
+                width: 100%;
+                text-align: left;
+                font: inherit;
+                color: inherit;
+                background: var(--pui-bg-card);
+                border: 1px solid var(--pui-border);
+                transition: transform var(--pui-d-fast) var(--pui-ease),
+                            box-shadow var(--pui-d-fast) var(--pui-ease),
+                            border-color var(--pui-d-fast) var(--pui-ease);
+            }
+            .pui-stat-card-clickable:hover {
+                transform: translateY(-1px);
+                box-shadow: 0 4px 12px var(--pui-accent-glow);
+                border-color: var(--pui-accent-soft);
+            }
+            .pui-stat-drill-hint {
+                position: absolute;
+                top: 50%;
+                right: 14px;
+                transform: translateY(-50%);
+                color: var(--pui-text-tertiary);
+                opacity: 0;
+                transition: opacity var(--pui-d-fast) var(--pui-ease),
+                            color var(--pui-d-fast) var(--pui-ease);
+                font-size: 0.85rem;
+            }
+            .pui-stat-card-clickable:hover .pui-stat-drill-hint {
+                opacity: 1;
+                color: var(--pui-accent);
+            }
+
+            /* Trends card grid */
+            .pui-trends-grid {
+                display: grid;
+                gap: 4px;
+            }
+            .pui-trend-row {
+                display: grid;
+                grid-template-columns: 1.6fr 1fr 1fr 1.4fr;
+                align-items: center;
+                gap: 12px;
+                padding: 10px 0;
+                border-bottom: 1px solid var(--pui-border-light);
+            }
+            .pui-trend-row:last-child { border-bottom: none; }
+            .pui-trend-label {
+                font-size: 0.88rem;
+                color: var(--pui-text-secondary);
+            }
+            .pui-trend-current {
+                font-size: 1.05rem;
+                font-weight: 600;
+                color: var(--pui-text-primary);
+            }
+            .pui-trend-delta {
+                font-size: 0.92rem;
+                font-weight: 600;
+            }
+            .pui-trend-prev {
+                font-size: 0.78rem;
+                color: var(--pui-text-tertiary);
+                text-align: right;
+            }
+            .pui-trend-up      { color: var(--pui-pos); }
+            .pui-trend-down    { color: var(--pui-neg); }
+            .pui-trend-neutral { color: var(--pui-text-tertiary); }
+            .pui-trend-arrow {
+                margin-right: 4px;
+                font-size: 0.75rem;
+            }
+
+            /* Drill-down modal */
+            .pui-drill-box {
+                background: var(--pui-bg-card);
+                border: 1px solid var(--pui-border);
+                border-radius: var(--pui-radius-xl);
+                box-shadow: var(--pui-shadow-modal);
+                width: 100%;
+                max-width: 480px;
+                margin: auto;
+                overflow: hidden;
+            }
+            .pui-drill-header {
+                display: flex;
+                align-items: center;
+                justify-content: space-between;
+                padding: 18px 22px;
+                border-bottom: 1px solid var(--pui-border-light);
+            }
+            .pui-drill-header h3 {
+                margin: 0;
+                font-size: 1.05rem;
+                font-weight: 600;
+                color: var(--pui-text-primary);
+            }
+            .pui-drill-body {
+                padding: 18px 22px;
+            }
+            .pui-drill-stat-row {
+                display: flex;
+                justify-content: space-between;
+                align-items: center;
+                padding: 10px 0;
+                border-bottom: 1px solid var(--pui-border-light);
+            }
+            .pui-drill-stat-row:last-child { border-bottom: none; }
+            .pui-drill-stat-row span {
+                font-size: 0.88rem;
+                color: var(--pui-text-secondary);
+            }
+            .pui-drill-stat-row strong {
+                font-size: 0.98rem;
+                color: var(--pui-text-primary);
+                font-variant-numeric: tabular-nums;
+            }
+            .pui-drill-bar-row {
+                margin-bottom: 12px;
+            }
+            .pui-drill-bar-label {
+                display: flex;
+                justify-content: space-between;
+                font-size: 0.84rem;
+                margin-bottom: 4px;
+            }
+            .pui-drill-bar-name { color: var(--pui-text-primary); font-weight: 500; }
+            .pui-drill-bar-meta { color: var(--pui-text-tertiary); }
+            .pui-drill-bar-track {
+                width: 100%;
+                height: 6px;
+                background: var(--pui-bg-input);
+                border-radius: 3px;
+                overflow: hidden;
+            }
+            .pui-drill-bar-fill {
+                height: 100%;
+                background: var(--pui-accent);
+                border-radius: 3px;
+                transition: width var(--pui-d-base) var(--pui-ease);
+            }
+            .pui-drill-note {
+                margin: 12px 0 0 0;
+                padding: 10px 12px;
+                background: var(--pui-info-soft);
+                border-radius: var(--pui-radius-sm);
+                color: var(--pui-text-secondary);
+                font-size: 0.82rem;
+                line-height: 1.5;
+            }
+            .pui-drill-actions {
+                display: flex;
+                justify-content: flex-end;
+                gap: 8px;
+                padding: 14px 22px 18px;
+                border-top: 1px solid var(--pui-border-light);
+            }
 
             /* ═══════════════════════════════════════════════════════════════
                UTILITY — fade in

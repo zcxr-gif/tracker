@@ -90,105 +90,13 @@ async function loadSpriteSheetAndGenerateIcons(map) {
     }
 }
 
-function updateMapFilters() {
-    if (!sectorOpsMap) return;
-
-    const currentProjection = sectorOpsMap.getProjection().name;
-    const targetProjection = mapFilters.useFlatMap ? 'mercator' : 'globe';
-    if (currentProjection !== targetProjection) {
-        sectorOpsMap.setProjection(targetProjection);
-    }
-
-    const styleUrls = {
-        'dark': 'mapbox://styles/mapbox/dark-v11',
-        'light': 'mapbox://styles/servernoob/cmg3wq7an002p01s17kbx7lqk',
-        'satellite': 'mapbox://styles/mapbox/satellite-streets-v12'
-    };
-    const targetStyle = styleUrls[mapFilters.mapStyle || 'dark'];
-
-    if (currentFlightInWindow && liveTrailCache.has(currentFlightInWindow)) {
-        FlownPath3D.updatePath(
-            sectorOpsMap, 
-            currentFlightInWindow, 
-            liveTrailCache.get(currentFlightInWindow), 
-            mapFilters.show3DPath 
-        );
-    }
-    
-    if (currentMapStyle !== targetStyle) {
-        currentMapStyle = targetStyle;
-        sectorOpsMap.setStyle(targetStyle);
-    }
-
-    if (window.globalNatTracks) {
-        window.globalNatTracks.setOptions({
-            showTracks: mapFilters.showNatTracks,
-            showLabels: mapFilters.showNatLabels
-        });
-    }
-
-    if (sectorOpsMap.getLayer('sector-ops-live-flights-layer')) {
-    
-        // 1. DYNAMIC COLOR RESOLUTION (SDF GPU TINTING)
-        let baseColor = '#ffffff'; 
-        if (mapFilters.iconColorMode === 'default') {
-            baseColor = mapFilters.proCustomColor || '#38bdf8';
-        } else if (mapFilters.iconColorMode === 'blue') {
-            baseColor = '#38bdf8';
-        } else if (mapFilters.iconColorMode === 'orange') {
-            baseColor = '#f59e0b';
-        }
-
-        const iconColorExpression = [
-            'match',
-            ['get', 'trafficType'],
-            'inbound', '#38bdf8', 
-            'outbound', '#f59e0b', 
-            baseColor 
-        ];
-
-        const iconSize = parseFloat(mapFilters.planeIconSize) || 0.05;
-        const iconImageExpression = getIconImageExpression();
-
-        // 2. APPLY TO MAIN LAYER
-        sectorOpsMap.setLayoutProperty(
-            'sector-ops-live-flights-layer', 
-            'icon-image', 
-            iconImageExpression
-        );
-        sectorOpsMap.setPaintProperty(
-            'sector-ops-live-flights-layer', 
-            'icon-color', 
-            iconColorExpression
-        );
-        sectorOpsMap.setLayoutProperty(
-            'sector-ops-live-flights-layer', 
-            'icon-size',
-            iconSize
-        );
-
-        // 3. APPLY TO HOVER LAYER
-        if (sectorOpsMap.getLayer('sector-ops-live-flights-hover-layer')) {
-            sectorOpsMap.setLayoutProperty('sector-ops-live-flights-hover-layer', 'icon-image', getHoverIconImageExpression());
-            sectorOpsMap.setPaintProperty('sector-ops-live-flights-hover-layer', 'icon-color', iconColorExpression);
-            sectorOpsMap.setLayoutProperty('sector-ops-live-flights-hover-layer', 'icon-size', iconSize);
-        }
-    }
-
-    GroupFlightManager.toggle(mapFilters.showGroupFlights);
-    GroupFlightManager.update(currentMapFeatures);
-
-    updateAircraftLayerFilter();
-    updateAircraftLabelVisibility();
-    renderAirportMarkers();
-    updateToolbarButtonStates();
-}
 
 function applyTrafficHighlighting() {
     const { in: inbounds, out: outbounds } = window.currentAirportTraffic || { in: [], out: [] };
     const inSet = new Set(inbounds);
     const outSet = new Set(outbounds);
 
+    // Update feature properties in the cache
     Object.values(currentMapFeatures).forEach(f => {
         const fid = f.properties.flightId;
         if (isTrafficHighlightActive) {
@@ -200,22 +108,29 @@ function applyTrafficHighlighting() {
         }
     });
 
+    // 1. Update the layer's icon-image expression
     if (sectorOpsMap && sectorOpsMap.getLayer('sector-ops-live-flights-layer')) {
-        let baseColor = '#ffffff'; 
-        if (mapFilters.iconColorMode === 'default') {
-            baseColor = mapFilters.proCustomColor || '#38bdf8';
-        } else if (mapFilters.iconColorMode === 'blue') {
-            baseColor = '#38bdf8';
-        } else if (mapFilters.iconColorMode === 'orange') {
-            baseColor = '#f59e0b';
-        }
+        sectorOpsMap.setLayoutProperty(
+            'sector-ops-live-flights-layer', 
+            'icon-image', 
+            getIconImageExpression(mapFilters.iconColorMode)
+        );
+
+        // --- NEW PREMIUM COLORS ---
+        const activeColor = (mapFilters.iconColorMode === 'default') ? mapFilters.proCustomColor : '#ffffff';
+        const userColor = '#fbbf24'; // Premium Amber/Gold for User
+        const friendColor = '#c084fc'; // Premium Amethyst/Purple for Watchlist
 
         const iconColorExpression = [
-            'match',
-            ['get', 'trafficType'],
-            'inbound', '#38bdf8',
-            'outbound', '#f59e0b',
-            baseColor
+            'case',
+            ['==', ['get', 'pilotRelation'], 'user'], userColor,
+            ['==', ['get', 'pilotRelation'], 'watchlist'], friendColor,
+            ['match',
+                ['get', 'trafficType'],
+                'inbound', '#38bdf8', 
+                'outbound', '#f59e0b', 
+                activeColor 
+            ]
         ];
 
         sectorOpsMap.setPaintProperty(
@@ -233,6 +148,7 @@ function applyTrafficHighlighting() {
         }
     }
 
+    // 2. Sync the updated data to the Mapbox source
     if (sectorOpsMap && sectorOpsMap.getSource('sector-ops-live-flights-source')) {
         sectorOpsMap.getSource('sector-ops-live-flights-source').setData({
             type: 'FeatureCollection',
@@ -334,6 +250,8 @@ window.currentAirportTraffic = { in: [], out: [] }; // Stores IDs for the curren
     let cachedFlightDataForStatsView = { flightProps: null, plan: null };
 let mapFilters = {
         proCustomColor: '#38bdf8',
+        userPlaneColor: '#f97316',     // Orange — color of the logged-in pilot's own plane
+        friendPlaneColor: '#c084fc',   // Purple — color of pilots on the watchlist
         proMapConfig: {
             showBorders: true,
             showRoads: true,
@@ -463,6 +381,78 @@ function scheduleMapSourceUpdate() {
         mapSourceUpdateTimeout = null;
     }, 400); // Batches all image resolutions into a single update every 400ms
 }
+
+// --- PREMIUM PLANE COLOR EXPRESSION ---
+// Single source of truth for the layer's icon-color paint expression.
+// Priority order:
+//   1. Logged-in user's own plane  -> amber/gold
+//   2. Pilots on the user's watchlist -> amethyst/purple
+//   3. Airport traffic highlighting (inbound/outbound) when active
+//   4. Default active color from mapFilters
+function getPremiumColorExpression() {
+    const activeColor = (mapFilters.iconColorMode === 'default')
+        ? (mapFilters.proCustomColor || '#38bdf8')
+        : '#ffffff';
+    // User-configurable user/friend colors (with sensible fallbacks). These
+    // are independent of the global "Custom Plane Color" setting — that only
+    // controls the fallback color for everyone else.
+    const userColor = mapFilters.userPlaneColor || '#f97316';
+    const friendColor = mapFilters.friendPlaneColor || '#c084fc';
+
+    return [
+        'case',
+        ['==', ['get', 'pilotRelation'], 'user'], userColor,
+        ['==', ['get', 'pilotRelation'], 'watchlist'], friendColor,
+        ['match',
+            ['get', 'trafficType'],
+            'inbound', '#38bdf8',
+            'outbound', '#f59e0b',
+            activeColor
+        ]
+    ];
+}
+
+// Re-tag every cached feature with its current pilotRelation, then push the
+// updated source to Mapbox. Call this whenever the logged-in user, their IF
+// username, or their watchlist changes so colors update without waiting for
+// the next polling tick.
+function refreshPilotRelations() {
+    try {
+        const profile = (typeof ProfileUI !== 'undefined') ? ProfileUI : null;
+        const myIfName = profile?._currentUser?.user_metadata?.if_username?.toLowerCase() || null;
+        const watchlist = profile?._watchlist || [];
+        const watchSet = new Set(
+            watchlist
+                .map(w => w?.watched_username?.toLowerCase())
+                .filter(Boolean)
+        );
+
+        Object.values(currentMapFeatures).forEach(f => {
+            const flightUser = f?.properties?.username?.toLowerCase();
+            let relation = 'none';
+            if (myIfName && flightUser === myIfName) {
+                relation = 'user';
+            } else if (flightUser && watchSet.has(flightUser)) {
+                relation = 'watchlist';
+            }
+            f.properties.pilotRelation = relation;
+        });
+
+        // Push the re-tagged features so Mapbox re-evaluates the color expression.
+        if (typeof sectorOpsMap !== 'undefined' && sectorOpsMap && sectorOpsMap.getSource && sectorOpsMap.getSource('sector-ops-live-flights-source')) {
+            sectorOpsMap.getSource('sector-ops-live-flights-source').setData({
+                type: 'FeatureCollection',
+                features: Object.values(currentMapFeatures)
+            });
+        }
+    } catch (err) {
+        console.warn('refreshPilotRelations failed:', err);
+    }
+}
+
+// Expose so profileUI.js (and anywhere else) can trigger an immediate refresh
+// when the user logs in or edits their watchlist.
+window.refreshPilotRelations = refreshPilotRelations;
 
     /**
      * --- [NEW] Saves the current mapFilters state to local storage.
@@ -5340,9 +5330,7 @@ window.addEventListener('serverChange', (e) => {
         switchServer(fullServerName);
     }
 });
-/**
- * --- [FIXED] Applies all active map filters and visual settings instantly. ---
- */
+
 function updateMapFilters() {
     if (!sectorOpsMap) return;
 
@@ -5369,7 +5357,7 @@ function updateMapFilters() {
             mapFilters.show3DPath // Pass the current setting state
         );
     }
-    
+
     if (currentMapStyle !== targetStyle) {
         currentMapStyle = targetStyle;
         sectorOpsMap.setStyle(targetStyle);
@@ -5383,38 +5371,35 @@ function updateMapFilters() {
     }
 
     if (sectorOpsMap.getLayer('sector-ops-live-flights-layer')) {
-    
-    // 1. DECLARE VARIABLES FIRST (Fixes the ReferenceError crash)
-    const activeColor = (mapFilters.iconColorMode === 'default') 
-        ? mapFilters.proCustomColor 
-        : '#ffffff';
+        const iconSize = parseFloat(mapFilters.planeIconSize) || 0.05;
 
-    const iconSize = parseFloat(mapFilters.planeIconSize) || 0.05;
+        // DYNAMIC COLOR RESOLUTION
+        const iconColorExpression = getPremiumColorExpression();
 
-    // 2. APPLY TO MAIN LAYER
-    sectorOpsMap.setLayoutProperty(
-        'sector-ops-live-flights-layer', 
-        'icon-image', 
-        getIconImageExpression(mapFilters.iconColorMode)
-    );
-    sectorOpsMap.setPaintProperty(
-        'sector-ops-live-flights-layer', 
-        'icon-color', 
-        activeColor
-    );
-    sectorOpsMap.setLayoutProperty(
-        'sector-ops-live-flights-layer', 
-        'icon-size',
-        iconSize
-    );
+        // APPLY TO MAIN LAYER
+        sectorOpsMap.setLayoutProperty(
+            'sector-ops-live-flights-layer', 
+            'icon-image', 
+            getIconImageExpression(mapFilters.iconColorMode)
+        );
+        sectorOpsMap.setPaintProperty(
+            'sector-ops-live-flights-layer', 
+            'icon-color', 
+            iconColorExpression
+        );
+        sectorOpsMap.setLayoutProperty(
+            'sector-ops-live-flights-layer', 
+            'icon-size', 
+            iconSize
+        );
 
-    // 3. APPLY TO HOVER LAYER
-    if (sectorOpsMap.getLayer('sector-ops-live-flights-hover-layer')) {
-        sectorOpsMap.setLayoutProperty('sector-ops-live-flights-hover-layer', 'icon-image', getHoverIconImageExpression());
-        sectorOpsMap.setPaintProperty('sector-ops-live-flights-hover-layer', 'icon-color', activeColor);
-        sectorOpsMap.setLayoutProperty('sector-ops-live-flights-hover-layer', 'icon-size', iconSize);
+        // APPLY TO HOVER LAYER
+        if (sectorOpsMap.getLayer('sector-ops-live-flights-hover-layer')) {
+            sectorOpsMap.setLayoutProperty('sector-ops-live-flights-hover-layer', 'icon-image', getHoverIconImageExpression());
+            sectorOpsMap.setPaintProperty('sector-ops-live-flights-hover-layer', 'icon-color', iconColorExpression);
+            sectorOpsMap.setLayoutProperty('sector-ops-live-flights-hover-layer', 'icon-size', iconSize);
+        }
     }
-}
 
     // 4. Existing Logic
     GroupFlightManager.toggle(mapFilters.showGroupFlights);
@@ -6141,6 +6126,7 @@ function handleSocketFlightUpdate(data) {
     }
 
     lastSocketUpdateTimestamp = new Date(data.timestamp).getTime();
+
     const isMapReady = (sectorOpsMap && sectorOpsMap.isStyleLoaded() && mapAnimator);
     const flights = data.flights;
     const updatedFlightIds = new Set();
@@ -6219,6 +6205,24 @@ function handleSocketFlightUpdate(data) {
                 }
                 return 'none';
             })(),
+
+            // --- PREMIUM VISIBILITY FEATURE ---
+            // Tag relation (user vs friend) for Mapbox color masking
+            pilotRelation: (() => {
+                const myIfName = ProfileUI._currentUser?.user_metadata?.if_username?.toLowerCase();
+                const flightUser = flight.username?.toLowerCase();
+                
+                if (myIfName && flightUser === myIfName) {
+                    return 'user';
+                }
+                
+                if (ProfileUI._watchlist && ProfileUI._watchlist.some(w => w.watched_username.toLowerCase() === flightUser)) {
+                    return 'watchlist';
+                }
+                
+                return 'none';
+            })(),
+
             communityImageUrl: existingProps.communityImageUrl || null,
             contributorName: existingProps.contributorName || null,
             tailNumber: existingProps.tailNumber || null
@@ -6240,7 +6244,6 @@ function handleSocketFlightUpdate(data) {
                             currentMapFeatures[flightId].properties.communityImageUrl = result.communityImageUrl;
                             currentMapFeatures[flightId].properties.contributorName = result.contributorName;
                             currentMapFeatures[flightId].properties.tailNumber = result.tailNumber;
-                            
                             // Replaced rapid-fire setData with the debounced map source updater
                             scheduleMapSourceUpdate();
                         }
@@ -6291,8 +6294,13 @@ function handleSocketFlightUpdate(data) {
 
             // 4. Update Trail Cache
             const localTrail = liveTrailCache.get(flightId);
-            const fullFlightProps = { ...newProperties, position: flight.position, aircraft: aircraftData };
-
+            
+            const fullFlightProps = {
+                ...newProperties,
+                position: flight.position,
+                aircraft: aircraftData
+            };
+            
             FlownPath3D.updatePath(sectorOpsMap, flightId, localTrail, mapFilters.show3DPath);
 
             if (localTrail) {
@@ -6306,29 +6314,29 @@ function handleSocketFlightUpdate(data) {
                 };
                 localTrail.push(newRoutePoint);
                 liveTrailCache.set(flightId, localTrail);
-                
+
                 // --- [NEW] Update Simple Iframe if Active ---
                 const simpleIframe = document.getElementById('simple-flight-window-frame');
                 if (mapFilters.useSimpleFlightWindow && simpleIframe && simpleIframe.contentWindow) {
-                    const freshData = formatDataForSimpleWindow(
-                        fullFlightProps, 
-                        cachedFlightDataForStatsView.plan, 
-                        liveTrailCache.get(flightId),
-                        { 
-                            imageUrl: fullFlightProps.communityImageUrl, 
-                            contributorName: fullFlightProps.contributorName,
-                            tailNumber: fullFlightProps.tailNumber
-                        }
-                    );
-                    simpleIframe.contentWindow.postMessage({ type: 'FLIGHT_DATA_UPDATE', payload: freshData }, '*');
+                     const freshData = formatDataForSimpleWindow(
+                         fullFlightProps, 
+                         cachedFlightDataForStatsView.plan, 
+                         liveTrailCache.get(flightId),
+                         {
+                             imageUrl: fullFlightProps.communityImageUrl,
+                             contributorName: fullFlightProps.contributorName,
+                             tailNumber: fullFlightProps.tailNumber
+                         }
+                     );
+                     simpleIframe.contentWindow.postMessage({ type: 'FLIGHT_DATA_UPDATE', payload: freshData }, '*');
                 } else if (!mapFilters.useSimpleFlightWindow) {
                     updatePfdDisplay(flight.position);
                     updateNavPanelData(
                         flight.position.lat, 
                         flight.position.lon, 
-                        flight.position.heading_deg, 
-                        cachedOat, 
-                        cachedWindDir, 
+                        flight.position.heading_deg,
+                        cachedOat,
+                        cachedWindDir,
                         cachedWindSpd
                     );
                     updateAircraftInfoWindow(fullFlightProps, cachedFlightDataForStatsView.plan, localTrail);
@@ -8140,9 +8148,6 @@ function updateBaseMapLayerVisibility() {
     });
 }
 
-/**
- * --- [NEW] Applies traffic highlighting to map features ---
- */
 function applyTrafficHighlighting() {
     const { in: inbounds, out: outbounds } = window.currentAirportTraffic || { in: [], out: [] };
     const inSet = new Set(inbounds);
@@ -8160,13 +8165,30 @@ function applyTrafficHighlighting() {
         }
     });
 
-    // 1. Update the layer's icon-image expression
+    // 1. Update the layer's expressions
     if (sectorOpsMap && sectorOpsMap.getLayer('sector-ops-live-flights-layer')) {
         sectorOpsMap.setLayoutProperty(
             'sector-ops-live-flights-layer', 
             'icon-image', 
             getIconImageExpression(mapFilters.iconColorMode)
         );
+
+        // DYNAMIC COLOR RESOLUTION
+        const iconColorExpression = getPremiumColorExpression();
+
+        sectorOpsMap.setPaintProperty(
+            'sector-ops-live-flights-layer', 
+            'icon-color', 
+            iconColorExpression
+        );
+
+        if (sectorOpsMap.getLayer('sector-ops-live-flights-hover-layer')) {
+            sectorOpsMap.setPaintProperty(
+                'sector-ops-live-flights-hover-layer', 
+                'icon-color', 
+                iconColorExpression
+            );
+        }
     }
 
     // 2. Sync the updated data to the Mapbox source
@@ -8452,7 +8474,11 @@ function initializeAircraftLayer() {
                     'icon-rotate': ['get', 'heading']
                 },
                 'paint': {
-                    'icon-color': (mapFilters.iconColorMode === 'default') ? (mapFilters.proCustomColor || '#38bdf8') : '#ffffff'
+                    // Use the premium expression from the start so the
+                    // logged-in user (gold) and watchlist pilots (purple)
+                    // are colored correctly on first render, not just after
+                    // a traffic-highlight toggle.
+                    'icon-color': getPremiumColorExpression()
                 }
             });
 
@@ -8470,9 +8496,15 @@ function initializeAircraftLayer() {
                     'icon-rotate': ['get', 'heading']
                 },
                 'paint': {
-                    'icon-color': (mapFilters.iconColorMode === 'default') ? (mapFilters.proCustomColor || '#38bdf8') : '#ffffff'
+                    'icon-color': getPremiumColorExpression()
                 }
             });
+
+            // Bootstrap pilot-relation colors. Covers the case where flight
+            // features were already cached (or where ProfileUI populated
+            // before the layer existed) — the auth handler in profileUI.js
+            // covers the opposite race direction.
+            refreshPilotRelations();
 
             sectorOpsMap.on('click', (e) => {
                 console.log("📍 Raw map tap at:", e.point);
@@ -9065,32 +9097,169 @@ const SettingsUI = {
 
             case 'visuals':
                 html = `
-                    <div class="settings-row pro-feature-row" style="border-left: 3px solid #38bdf8; background: rgba(56, 189, 248, 0.05);">
-                        <div class="row-label">
-                            <i class="fa-solid fa-wand-magic-sparkles" style="color: #38bdf8;"></i> Custom Plane Color
-                            <span style="background: #38bdf8; color: #000; font-size: 0.6rem; padding: 2px 6px; border-radius: 4px; margin-left: 8px; font-weight: 800;">PRO</span>
-                        </div>
-                        <input type="color" id="set-pro-color" class="settings-color-input" value="${mapFilters.proCustomColor || '#38bdf8'}">
-                    </div>
-                    <p style="font-size: 0.65rem; color: #71717a; margin: -10px 0 12px 42px;">
-                        Unlock arbitrary colors for all aircraft icons. (Coming Soon)
-                    </p>
+                    <!-- ── Pro Upsell Banner ────────────────────────────────────── -->
+                    <div class="pro-upsell-card" style="
+                        position: relative;
+                        margin-bottom: 22px;
+                        padding: 16px 18px;
+                        border-radius: 12px;
+                        background:
+                            linear-gradient(135deg, rgba(56, 189, 248, 0.18), rgba(168, 85, 247, 0.14) 55%, rgba(249, 115, 22, 0.12)),
+                            #0b1220;
+                        border: 1px solid rgba(56, 189, 248, 0.35);
+                        box-shadow: 0 8px 28px rgba(56, 189, 248, 0.10), inset 0 1px 0 rgba(255,255,255,0.04);
+                        overflow: hidden;
+                    ">
+                        <div style="
+                            position: absolute; top: -40px; right: -40px;
+                            width: 160px; height: 160px;
+                            background: radial-gradient(circle, rgba(56,189,248,0.35), transparent 70%);
+                            pointer-events: none;
+                        "></div>
 
+                        <div style="display: flex; align-items: center; gap: 10px; margin-bottom: 6px;">
+                            <span style="
+                                display: inline-flex; align-items: center; justify-content: center;
+                                width: 28px; height: 28px; border-radius: 8px;
+                                background: linear-gradient(135deg, #38bdf8, #a855f7);
+                                color: #fff; font-size: 0.85rem;
+                                box-shadow: 0 4px 12px rgba(56, 189, 248, 0.4);
+                            "><i class="fa-solid fa-gem"></i></span>
+                            <h4 style="margin: 0; color: #fff; font-size: 0.95rem; font-weight: 700; letter-spacing: 0.2px;">
+                                Go Pro · Personalize the Sky
+                            </h4>
+                        </div>
+                        <p style="margin: 0 0 12px 0; font-size: 0.75rem; color: #94a3b8; line-height: 1.5;">
+                            You're using the standard visual layer. Pro unlocks the rest of it.
+                        </p>
+
+                        <ul style="list-style: none; padding: 0; margin: 0 0 14px 0; display: flex; flex-direction: column; gap: 6px;">
+                            <li style="display: flex; align-items: center; gap: 10px; font-size: 0.78rem; color: #cbd5e1;">
+                                <i class="fa-solid fa-palette" style="color: #38bdf8; width: 16px; text-align: center;"></i>
+                                Custom color for <strong style="color:#fff;">every aircraft</strong> on the map
+                            </li>
+                            <li style="display: flex; align-items: center; gap: 10px; font-size: 0.78rem; color: #cbd5e1;">
+                                <i class="fa-solid fa-mountain" style="color: #a855f7; width: 16px; text-align: center;"></i>
+                                3D terrain, buildings, and day/night terminator
+                            </li>
+                            <li style="display: flex; align-items: center; gap: 10px; font-size: 0.78rem; color: #cbd5e1;">
+                                <i class="fa-solid fa-droplet" style="color: #f97316; width: 16px; text-align: center;"></i>
+                                Custom theme gradients and premium map styles
+                            </li>
+                            <li style="display: flex; align-items: center; gap: 10px; font-size: 0.78rem; color: #cbd5e1;">
+                                <i class="fa-solid fa-bolt" style="color: #fbbf24; width: 16px; text-align: center;"></i>
+                                Priority data refresh and smooth radar
+                            </li>
+                        </ul>
+
+                        <button id="set-pro-upgrade-btn" style="
+                            display: inline-flex; align-items: center; gap: 8px;
+                            padding: 9px 16px;
+                            background: linear-gradient(135deg, #38bdf8, #a855f7);
+                            color: #fff;
+                            border: none; border-radius: 8px;
+                            cursor: pointer;
+                            font-size: 0.8rem; font-weight: 700;
+                            letter-spacing: 0.3px;
+                            box-shadow: 0 4px 14px rgba(56, 189, 248, 0.35);
+                            transition: transform 0.15s ease, box-shadow 0.15s ease;
+                        " onmouseover="this.style.transform='translateY(-1px)';this.style.boxShadow='0 6px 18px rgba(56,189,248,0.5)';"
+                           onmouseout="this.style.transform='';this.style.boxShadow='0 4px 14px rgba(56, 189, 248, 0.35)';">
+                            <i class="fa-solid fa-arrow-up-right-from-square"></i> Upgrade to Pro
+                        </button>
+                    </div>
+
+                    <!-- ── Pilot Identity ───────────────────────────────────────── -->
                     <div class="settings-section">
-                        <label class="config-header">Map & Assets</label>
-                        
+                        <label class="config-header">Pilot Identity</label>
+
+                        <div class="settings-row" style="border-left: 3px solid ${mapFilters.userPlaneColor || '#f97316'}; background: rgba(249, 115, 22, 0.05);">
+                            <div class="row-label">
+                                <i class="fa-solid fa-user-astronaut" style="color: ${mapFilters.userPlaneColor || '#f97316'};"></i> Your Plane Color
+                            </div>
+                            <input type="color" id="set-user-plane-color" class="settings-color-input" value="${mapFilters.userPlaneColor || '#f97316'}">
+                        </div>
+                        <p style="font-size: 0.65rem; color: #71717a; margin: -10px 0 12px 16px;">
+                            How your own aircraft is highlighted on the live map.
+                        </p>
+
+                        <div class="settings-row" style="border-left: 3px solid ${mapFilters.friendPlaneColor || '#c084fc'}; background: rgba(192, 132, 252, 0.05);">
+                            <div class="row-label">
+                                <i class="fa-solid fa-user-group" style="color: ${mapFilters.friendPlaneColor || '#c084fc'};"></i> Watchlist Plane Color
+                            </div>
+                            <input type="color" id="set-friend-plane-color" class="settings-color-input" value="${mapFilters.friendPlaneColor || '#c084fc'}">
+                        </div>
+                        <p style="font-size: 0.65rem; color: #71717a; margin: -10px 0 12px 16px;">
+                            Color used for pilots on your watchlist.
+                        </p>
+
+                        <div class="settings-row pro-feature-row" style="border-left: 3px solid #38bdf8; background: rgba(56, 189, 248, 0.05);">
+                            <div class="row-label">
+                                <i class="fa-solid fa-wand-magic-sparkles" style="color: #38bdf8;"></i> Custom Plane Color
+                                <span style="background: #38bdf8; color: #000; font-size: 0.6rem; padding: 2px 6px; border-radius: 4px; margin-left: 8px; font-weight: 800;">PRO</span>
+                            </div>
+                            <input type="color" id="set-pro-color" class="settings-color-input" value="${mapFilters.proCustomColor || '#38bdf8'}">
+                        </div>
+                        <p style="font-size: 0.65rem; color: #71717a; margin: -10px 0 4px 16px;">
+                            Recolor every other aircraft on the map. Doesn't affect your colors above.
+                        </p>
+                    </div>
+
+                    <!-- ── Aircraft Display ─────────────────────────────────────── -->
+                    <div class="settings-section">
+                        <label class="config-header">Aircraft Display</label>
+
                         <div class="settings-row">
                             <div class="row-label"><i class="fa-solid fa-tags"></i> Aircraft Labels</div>
                             <label class="toggle-switch"><input type="checkbox" id="set-labels" ${mapFilters.showAircraftLabels ? 'checked' : ''}><span class="toggle-slider"></span></label>
+                        </div>
+
+                        <div class="settings-row" style="flex-direction: column; align-items: flex-start; gap: 8px;">
+                            <div style="display: flex; justify-content: space-between; width: 100%; align-items: center;">
+                                <div class="row-label"><i class="fa-solid fa-plane-up"></i> Aircraft Scale</div>
+                                <span id="plane-size-display" style="font-family: 'JetBrains Mono', monospace; color: #38bdf8; font-weight: 800; font-size: 0.9rem;">
+                                    ${Math.round(mapFilters.planeIconSize * 100)}%
+                                </span>
+                            </div>
+                            <input type="range" id="set-plane-size" min="0.1" max="1.0" step="0.05" value="${mapFilters.planeIconSize}" style="width: 100%;">
+                        </div>
+
+                        <div class="settings-row">
+                            <div class="row-label">Icon Color Preset</div>
+                            <div class="input-wrapper select-wrapper">
+                                <select id="set-icon-color" class="row-input-select">
+                                    <option value="default" ${mapFilters.iconColorMode === 'default' ? 'selected' : ''}>Default (White)</option>
+                                    <option value="blue" ${mapFilters.iconColorMode === 'blue' ? 'selected' : ''}>Blue</option>
+                                    <option value="orange" ${mapFilters.iconColorMode === 'orange' ? 'selected' : ''}>Orange</option>
+                                </select>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- ── Map & Projection ─────────────────────────────────────── -->
+                    <div class="settings-section">
+                        <label class="config-header">Map & Projection</label>
+
+                        <div class="settings-row">
+                            <div class="row-label">Map Style</div>
+                            <div class="input-wrapper select-wrapper">
+                                <select id="set-map-style" class="row-input-select">
+                                    <option value="dark" ${mapFilters.mapStyle === 'dark' ? 'selected' : ''}>Dark (Default)</option>
+                                    <option value="light" ${mapFilters.mapStyle === 'light' ? 'selected' : ''}>Light</option>
+                                    <option value="satellite" ${mapFilters.mapStyle === 'satellite' ? 'selected' : ''}>Satellite</option>
+                                </select>
+                            </div>
                         </div>
 
                         <div class="settings-row">
                             <div class="row-label"><i class="fa-solid fa-map"></i> Flat Map Projection</div>
                             <label class="toggle-switch"><input type="checkbox" id="set-flat-map" ${mapFilters.useFlatMap ? 'checked' : ''}><span class="toggle-slider"></span></label>
                         </div>
-                    
+                    </div>
+
+                    <!-- ── Routes & Tracks ──────────────────────────────────────── -->
                     <div class="settings-section">
-                        <label class="config-header">Map & Assets</label>
+                        <label class="config-header">Routes & Tracks</label>
 
                         <div class="settings-row">
                             <div class="row-label"><i class="fa-solid fa-route"></i> North Atlantic Tracks</div>
@@ -9107,7 +9276,7 @@ const SettingsUI = {
                                 <span class="toggle-slider"></span>
                             </label>
                         </div>
-                        
+
                         <div class="settings-row" style="margin-bottom: 4px;">
                             <div class="row-label">
                                 <i class="fa-solid fa-cube"></i> 3D Path Trail
@@ -9118,43 +9287,10 @@ const SettingsUI = {
                                 <span class="toggle-slider"></span>
                             </label>
                         </div>
-                        <p style="font-size: 0.7rem; color: #71717a; margin: 0 0 12px 16px; line-height: 1.4;">
+                        <p style="font-size: 0.7rem; color: #71717a; margin: 0 0 4px 16px; line-height: 1.4;">
                             <i class="fa-solid fa-circle-info" style="font-size: 0.6rem; margin-right: 4px;"></i>
                             Note: This feature is experimental and may be broken at times.
                         </p>
-
-                        <div class="settings-row">
-                            <div class="row-label">Map Style</div>
-                            <div class="input-wrapper select-wrapper">
-                                <select id="set-map-style" class="row-input-select">
-                                    <option value="dark" ${mapFilters.mapStyle === 'dark' ? 'selected' : ''}>Dark (Default)</option>
-                                    <option value="light" ${mapFilters.mapStyle === 'light' ? 'selected' : ''}>Light</option>
-                                    <option value="satellite" ${mapFilters.mapStyle === 'satellite' ? 'selected' : ''}>Satellite</option>
-                                </select>
-                            </div>
-                        </div>
-
-                        <div class="settings-row" style="flex-direction: column; align-items: flex-start; gap: 8px;">
-                            <div style="display: flex; justify-content: space-between; width: 100%; align-items: center;">
-                                <div class="row-label"><i class="fa-solid fa-plane-up"></i> Aircraft Scale</div>
-                                <span id="plane-size-display" style="font-family: 'JetBrains Mono', monospace; color: #38bdf8; font-weight: 800; font-size: 0.9rem;">
-                                    ${Math.round(mapFilters.planeIconSize * 100)}%
-                                </span>
-                            </div>
-                            // Change the range from 0.02-0.15 to 0.1-1.0
-<input type="range" id="set-plane-size" min="0.1" max="1.0" step="0.05" value="${mapFilters.planeIconSize}" style="width: 100%;">
-                        </div>
-
-                        <div class="settings-row">
-                            <div class="row-label">Icon Color</div>
-                            <div class="input-wrapper select-wrapper">
-                                <select id="set-icon-color" class="row-input-select">
-                                    <option value="default" ${mapFilters.iconColorMode === 'default' ? 'selected' : ''}>Default (White)</option>
-                                    <option value="blue" ${mapFilters.iconColorMode === 'blue' ? 'selected' : ''}>Blue</option>
-                                    <option value="orange" ${mapFilters.iconColorMode === 'orange' ? 'selected' : ''}>Orange</option>
-                                </select>
-                            </div>
-                        </div>
                     </div>
                 `;
                 break;
@@ -9362,6 +9498,52 @@ case 'pro_layers':
         if (proColorInput) {
             proColorInput.addEventListener('input', (e) => {
                 update('proCustomColor', e.target.value);
+            });
+        }
+
+        // User Plane Color Picker (logged-in pilot's own plane)
+        const userPlaneColorInput = document.getElementById('set-user-plane-color');
+        if (userPlaneColorInput) {
+            userPlaneColorInput.addEventListener('input', (e) => {
+                update('userPlaneColor', e.target.value);
+            });
+        }
+
+        // Watchlist (Friends) Plane Color Picker
+        const friendPlaneColorInput = document.getElementById('set-friend-plane-color');
+        if (friendPlaneColorInput) {
+            friendPlaneColorInput.addEventListener('input', (e) => {
+                update('friendPlaneColor', e.target.value);
+            });
+        }
+
+        // Pro Upgrade CTA — fires a custom event so you can hook your
+        // checkout/billing flow, and falls back to opening the profile
+        // overlay (which already surfaces subscription info).
+        const upgradeBtn = document.getElementById('set-pro-upgrade-btn');
+        if (upgradeBtn) {
+            upgradeBtn.addEventListener('click', () => {
+                let handled = false;
+                try {
+                    const evt = new CustomEvent('pro-upgrade-requested', {
+                        bubbles: true,
+                        cancelable: true,
+                        detail: { source: 'visuals-settings' }
+                    });
+                    handled = !window.dispatchEvent(evt) || evt.defaultPrevented;
+                } catch (_) { /* CustomEvent unavailable, ignore */ }
+
+                // Fallback: open the profile overlay so the user lands on a
+                // surface that already shows subscription / plan details.
+                if (!handled) {
+                    try {
+                        if (typeof ProfileUI !== 'undefined' && typeof ProfileUI.open === 'function') {
+                            ProfileUI.open(ProfileUI._currentUser);
+                        }
+                    } catch (err) {
+                        console.warn('Pro upgrade fallback failed:', err);
+                    }
+                }
             });
         }
 
