@@ -1,8 +1,17 @@
+// ─── Stripe configuration ─────────────────────────────────────────────────
+// Replace with your Stripe publishable key. Use pk_test_... while testing.
+const STRIPE_PUBLISHABLE_KEY = 'pk_test_REPLACE_ME';
+// ──────────────────────────────────────────────────────────────────────────
+
 export const AuthUI = {
     _isOpen: false,
     _mode: 'signin',
     _supabase: null,
     _tempSignUpData: null,
+    _stripe: null,
+    _stripeElements: null,
+    _stripeClientSecret: null,
+    _stripeSubscriptionId: null,
 
     init(supabaseClient) {
         this._supabase = supabaseClient;
@@ -72,6 +81,9 @@ export const AuthUI = {
         if (overlay) overlay.classList.remove('open');
         this._isOpen = false;
         this._tempSignUpData = null;
+        this._stripeElements = null;
+        this._stripeClientSecret = null;
+        this._stripeSubscriptionId = null;
     },
 
     switchMode(mode) {
@@ -142,7 +154,19 @@ export const AuthUI = {
 
         if (isPayment) {
             html += `
-                <div id="paypal-button-container" style="min-height: 200px; margin-bottom: 20px;"></div>
+                <div id="stripe-payment-section" class="stripe-section">
+                    <div id="stripe-express-checkout-element"></div>
+                    <div id="stripe-card-divider" class="stripe-divider"><span>or pay with card</span></div>
+                    <div id="stripe-payment-element"></div>
+                    <button class="auth-submit-btn auth-submit-pro" id="stripe-pay-btn" style="margin-top: 16px;">
+                        Pay $1.99/mo
+                    </button>
+                </div>
+
+                <div class="payment-or-divider"><span>OR</span></div>
+
+                <div id="paypal-button-container" style="min-height: 50px; margin-bottom: 8px;"></div>
+
                 <div id="auth-error-message" class="auth-error" style="display: none;"></div>
                 <div id="auth-loading-message" style="display: none; text-align: center; color: #64748b; margin-bottom: 20px;">
                     <i class="fa-solid fa-circle-notch fa-spin" style="font-size: 1.5rem; margin-bottom: 12px; color: #2563eb;"></i>
@@ -275,6 +299,7 @@ export const AuthUI = {
 
         if (isPayment) {
             this.loadPayPalAndRender();
+            this.loadStripeAndRender();
         }
     },
 
@@ -391,6 +416,233 @@ export const AuthUI = {
                 this.showError("PayPal encountered an error. Please try again or use a different payment method.");
             }
         }).render('#paypal-button-container');
+    },
+
+    async loadStripeAndRender() {
+        if (!this._tempSignUpData) {
+            console.warn('Stripe: no signup data — aborting init.');
+            return;
+        }
+
+        // 1. Load Stripe.js once
+        if (!window.Stripe) {
+            try {
+                const script = document.createElement('script');
+                script.src = 'https://js.stripe.com/v3/';
+                script.async = true;
+                document.head.appendChild(script);
+                await new Promise((resolve, reject) => {
+                    script.onload = resolve;
+                    script.onerror = () => reject(new Error('Failed to load Stripe.js'));
+                });
+            } catch (err) {
+                console.error('Stripe.js load failed:', err);
+                this._hideStripeSection();
+                return;
+            }
+        }
+
+        if (!this._stripe) {
+            try {
+                this._stripe = window.Stripe(STRIPE_PUBLISHABLE_KEY);
+            } catch (err) {
+                console.error('Stripe init failed (check publishable key):', err);
+                this._hideStripeSection();
+                return;
+            }
+        }
+
+        // 2. Ask the server for a subscription + clientSecret
+        try {
+            const { data, error } = await this._supabase.functions.invoke(
+                'create-stripe-subscription',
+                {
+                    body: {
+                        email: this._tempSignUpData.email,
+                        name: this._tempSignUpData.name || '',
+                    },
+                }
+            );
+
+            if (error || !data?.clientSecret) {
+                throw new Error(
+                    data?.error || error?.message || 'Could not initialize Stripe.'
+                );
+            }
+
+            this._stripeClientSecret = data.clientSecret;
+            this._stripeSubscriptionId = data.subscriptionId;
+        } catch (err) {
+            console.error('create-stripe-subscription failed:', err);
+            this._hideStripeSection();
+            return;
+        }
+
+        // 3. Build Elements (one instance shared by both ECE and Payment Element)
+        this._stripeElements = this._stripe.elements({
+            clientSecret: this._stripeClientSecret,
+            appearance: {
+                theme: 'stripe',
+                variables: {
+                    colorPrimary: '#2563eb',
+                    colorBackground: '#ffffff',
+                    colorText: '#0f172a',
+                    colorDanger: '#dc2626',
+                    fontFamily: 'Inter, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif',
+                    borderRadius: '10px',
+                },
+            },
+        });
+
+        // 4. Express Checkout Element — renders Apple Pay / Google Pay / Link
+        const eceContainer = document.getElementById('stripe-express-checkout-element');
+        const cardDivider = document.getElementById('stripe-card-divider');
+
+        if (eceContainer) {
+            const ece = this._stripeElements.create('expressCheckout', {
+                buttonHeight: 48,
+                buttonTheme: { applePay: 'black', googlePay: 'black' },
+            });
+
+            ece.on('ready', ({ availablePaymentMethods }) => {
+                // If no wallets are available on this device, hide the ECE
+                // wrapper and the "or pay with card" divider — leave the
+                // Payment Element + Pay button visible.
+                if (!availablePaymentMethods) {
+                    eceContainer.style.display = 'none';
+                    if (cardDivider) cardDivider.style.display = 'none';
+                }
+            });
+
+            ece.on('confirm', () => {
+                this.confirmStripePayment();
+            });
+
+            try {
+                ece.mount('#stripe-express-checkout-element');
+            } catch (err) {
+                console.error('ECE mount failed:', err);
+            }
+        }
+
+        // 5. Payment Element — card form (wallets disabled here since ECE handles them)
+        const peContainer = document.getElementById('stripe-payment-element');
+        if (peContainer) {
+            const pe = this._stripeElements.create('payment', {
+                layout: 'tabs',
+                wallets: { applePay: 'never', googlePay: 'never' },
+                defaultValues: {
+                    billingDetails: {
+                        email: this._tempSignUpData.email || '',
+                        name: this._tempSignUpData.name || '',
+                    },
+                },
+            });
+            try {
+                pe.mount('#stripe-payment-element');
+            } catch (err) {
+                console.error('Payment Element mount failed:', err);
+            }
+        }
+    },
+
+    _hideStripeSection() {
+        const section = document.getElementById('stripe-payment-section');
+        const orDivider = document.querySelector('.payment-or-divider');
+        if (section) section.style.display = 'none';
+        if (orDivider) orDivider.style.display = 'none';
+    },
+
+    async confirmStripePayment() {
+        if (!this._stripe || !this._stripeElements || !this._stripeClientSecret) {
+            this.showError('Stripe is not ready yet. Please wait a moment and try again.');
+            return;
+        }
+
+        this.hideError();
+
+        const loadingDiv = document.getElementById('auth-loading-message');
+        const stripeSection = document.getElementById('stripe-payment-section');
+        const orDivider = document.querySelector('.payment-or-divider');
+        const paypalContainer = document.getElementById('paypal-button-container');
+        const backBtn = document.getElementById('auth-back-to-signup');
+
+        if (loadingDiv) loadingDiv.style.display = 'block';
+        if (stripeSection) stripeSection.style.display = 'none';
+        if (orDivider) orDivider.style.display = 'none';
+        if (paypalContainer) paypalContainer.style.display = 'none';
+        if (backBtn) backBtn.style.display = 'none';
+
+        const restoreUI = () => {
+            if (loadingDiv) loadingDiv.style.display = 'none';
+            if (stripeSection) stripeSection.style.display = 'block';
+            if (orDivider) orDivider.style.display = 'flex';
+            if (paypalContainer) paypalContainer.style.display = 'block';
+            if (backBtn) backBtn.style.display = 'block';
+        };
+
+        try {
+            // 1. Confirm the PaymentIntent with Stripe.
+            const { error: confirmError } = await this._stripe.confirmPayment({
+                elements: this._stripeElements,
+                clientSecret: this._stripeClientSecret,
+                confirmParams: {
+                    return_url: window.location.href,
+                    payment_method_data: {
+                        billing_details: {
+                            email: this._tempSignUpData.email,
+                            name: this._tempSignUpData.name || undefined,
+                        },
+                    },
+                },
+                redirect: 'if_required',
+            });
+
+            if (confirmError) {
+                throw new Error(confirmError.message || 'Payment failed.');
+            }
+
+            // 2. Have the server verify status server-side and create the user.
+            const payload = {
+                email: this._tempSignUpData.email,
+                password: this._tempSignUpData.password,
+                name: this._tempSignUpData.name,
+                subscriptionId: this._stripeSubscriptionId,
+            };
+
+            const { data: result, error: functionError } =
+                await this._supabase.functions.invoke('process-stripe-payment', {
+                    body: payload,
+                });
+
+            if (functionError) {
+                throw new Error(
+                    result?.error || functionError.message || 'Payment verification failed.'
+                );
+            }
+
+            // 3. Auto-sign-in (mirrors the PayPal flow).
+            const { error: loginError } = await this._supabase.auth.signInWithPassword({
+                email: this._tempSignUpData.email,
+                password: this._tempSignUpData.password,
+            });
+
+            if (loginError) {
+                throw new Error('Account created, but automatic login failed: ' + loginError.message);
+            }
+
+            const overlay = document.getElementById('auth-modal-overlay');
+            if (overlay) overlay.classList.remove('open');
+            this._isOpen = false;
+            this._tempSignUpData = null;
+            this._stripeClientSecret = null;
+            this._stripeSubscriptionId = null;
+
+            this.open();
+        } catch (err) {
+            restoreUI();
+            this.showError(err.message || 'Payment failed. Please try again.');
+        }
     },
 
     attachGlobalListeners() {
@@ -551,6 +803,11 @@ export const AuthUI = {
         // Payment back button
         document.getElementById('auth-back-to-signup')?.addEventListener('click', () => {
             this.switchMode('signup');
+        });
+
+        // Stripe pay button (card path; Apple Pay / Google Pay confirm via ECE event)
+        document.getElementById('stripe-pay-btn')?.addEventListener('click', () => {
+            this.confirmStripePayment();
         });
     },
 
@@ -902,6 +1159,61 @@ export const AuthUI = {
                 border-color: #cbd5e1;
             }
             
+            .stripe-section {
+                margin-bottom: 8px;
+            }
+
+            #stripe-express-checkout-element:empty {
+                display: none;
+            }
+
+            #stripe-express-checkout-element {
+                margin-bottom: 16px;
+            }
+
+            #stripe-payment-element {
+                margin-bottom: 4px;
+            }
+
+            .stripe-divider {
+                display: flex;
+                align-items: center;
+                gap: 12px;
+                color: #94a3b8;
+                font-size: 0.75rem;
+                font-weight: 600;
+                letter-spacing: 0.05em;
+                text-transform: uppercase;
+                margin: 16px 0;
+            }
+
+            .stripe-divider::before,
+            .stripe-divider::after {
+                content: '';
+                flex: 1;
+                height: 1px;
+                background: #e2e8f0;
+            }
+
+            .payment-or-divider {
+                display: flex;
+                align-items: center;
+                gap: 12px;
+                color: #64748b;
+                font-size: 0.7rem;
+                font-weight: 700;
+                letter-spacing: 0.1em;
+                margin: 20px 0 16px;
+            }
+
+            .payment-or-divider::before,
+            .payment-or-divider::after {
+                content: '';
+                flex: 1;
+                height: 1px;
+                background: #e2e8f0;
+            }
+
             @media (max-width: 480px) {
                 .auth-header-section { padding: 24px 20px 16px; }
                 .auth-form-body { padding: 0 20px 24px; }
