@@ -1,6 +1,6 @@
 // ─── Stripe configuration ─────────────────────────────────────────────────
 // Replace with your Stripe publishable key. Use pk_test_... while testing.
-const STRIPE_PUBLISHABLE_KEY = 'pk_test_REPLACE_ME';
+const STRIPE_PUBLISHABLE_KEY = 'pk_test_51TRhge6y7GsJq8x03msaDldYeLpaQWEdZ26Pf32IwWcU1KGeSbu5MhhE5h1nWIcNtUMRzJOGgHuGy4cVJXY6fcFG00OoJDbppz';
 // ──────────────────────────────────────────────────────────────────────────
 
 export const AuthUI = {
