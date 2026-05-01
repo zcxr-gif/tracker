@@ -15,6 +15,7 @@ import { PerformanceMonitor } from './performanceMonitor.js';
 import { socketDataHub } from './SocketDataHub.js';
 import { FlightDispatchService } from './FlightDispatchService.js';
 import { MobileDashboardUI } from './MobileDashboardUI.js';
+import { trackManager } from './proTrackManager.js';
 
 
 const supabaseUrl = 'https://lcgaoiqwwpyqndaucyzu.supabase.co'; 
@@ -204,6 +205,97 @@ window.currentAirportTraffic = { in: [], out: [] }; // Stores IDs for the curren
     let activeFirIds = new Set(); // Globally track which FIRs are staffed
     window.getLiveFlightData = () => Object.values(currentMapFeatures);
     let natTracksLayerInstance = null;
+
+    window.pinnedFlights = new Set();
+    
+    window.toggleFlightPin = function(flightId) {
+        if (window.pinnedFlights.has(flightId)) {
+            window.unpinFlight(flightId);
+        } else {
+            window.pinFlight(flightId);
+        }
+    };
+
+    function createMiniWindowsContainer() {
+        let container = document.getElementById('mini-windows-container');
+        if (!container) {
+            container = document.createElement('div');
+            container.id = 'mini-windows-container';
+            document.body.appendChild(container);
+        }
+        return container;
+    }
+
+window.pinFlight = function(flightId) {
+        window.pinnedFlights.add(flightId);
+        const container = createMiniWindowsContainer();
+        const flightProps = currentMapFeatures[flightId]?.properties;
+        if (!flightProps) return;
+        
+        let pos = flightProps.position;
+        if (typeof pos === 'string') pos = JSON.parse(pos);
+        
+        // Grab the community image with a fallback placeholder
+        const imageUrl = flightProps.communityImageUrl || 'Images/default_ac.png';
+        
+        const card = document.createElement('div');
+        card.id = `pinned-flight-${flightId}`;
+        card.className = 'pinned-flight-card';
+        
+        card.innerHTML = `
+            <div class="pinned-image-flush">
+                <img src="${imageUrl}" alt="Aircraft" onerror="this.src='Images/default_ac.png'" />
+                <div class="pinned-image-gradient"></div>
+            </div>
+            <div class="pinned-content">
+                <button class="pinned-close" onclick="window.unpinFlight('${flightId}')" title="Unpin Flight">
+                    <i class="fa-solid fa-xmark"></i>
+                </button>
+                <div class="pinned-header">
+                    <span class="pinned-callsign">${flightProps.callsign || 'N/A'}</span>
+                </div>
+                <div class="pinned-stats">
+                    <div class="p-stat">
+                        <span class="p-label">ALT</span>
+                        <span class="p-val">${Math.round(pos.alt_ft || 0)} <small>FT</small></span>
+                    </div>
+                    <div class="p-stat">
+                        <span class="p-label">SPD</span>
+                        <span class="p-val">${Math.round(pos.gs_kt || 0)} <small>KTS</small></span>
+                    </div>
+                    <div class="p-stat">
+                        <span class="p-label">DEST</span>
+                        <span class="p-val dest-val">${flightProps.arrivalIcao || '---'}</span>
+                    </div>
+                </div>
+            </div>
+        `;
+        container.appendChild(card);
+        
+        const pinBtn = document.getElementById('pin-flight-btn');
+        if (pinBtn && currentFlightInWindow === flightId) {
+            pinBtn.classList.add('active-pin');
+            pinBtn.style.color = '#38bdf8';
+        }
+        if (typeof showNotification === 'function') showNotification("Multi-Track Active: Flight Pinned.", "success");
+    };
+
+    window.unpinFlight = function(flightId) {
+        window.pinnedFlights.delete(flightId);
+        const card = document.getElementById(`pinned-flight-${flightId}`);
+        if (card) card.remove();
+        
+        if (currentFlightInWindow !== flightId) {
+            if (typeof clearLiveFlightPath === 'function') clearLiveFlightPath(flightId);
+            if (typeof liveTrailCache !== 'undefined') liveTrailCache.delete(flightId);
+        } else {
+            const pinBtn = document.getElementById('pin-flight-btn');
+            if (pinBtn) {
+                pinBtn.classList.remove('active-pin');
+                pinBtn.style.color = '#94a3b8';
+            }
+        }
+    };
 
     // --- [NEW] Map Style Constants & State ---
     const MAP_STYLE_DARK = 'mapbox://styles/mapbox/dark-v11';
@@ -3756,6 +3848,144 @@ function injectCustomStyles() {
 .atc-supervisor .hero-rank-tag { color: #fbbf24; }
 .atc-supervisor .grade-badge { background: #fbbf24; }
 
+/* --- MULTI-TRACK / PINNED FLIGHTS (PRO FEATURE) --- */
+        #mini-windows-container {
+            position: fixed;
+            bottom: 24px;
+            left: 24px;
+            display: flex;
+            flex-direction: column-reverse;
+            gap: 12px;
+            z-index: 2000;
+            pointer-events: none;
+        }
+
+.pinned-flight-card {
+            width: 360px;
+            height: 92px;
+            background: rgba(20, 20, 25, 0.85);
+            backdrop-filter: blur(16px);
+            -webkit-backdrop-filter: blur(16px);
+            border: 1px solid rgba(255, 255, 255, 0.08);
+            border-radius: 12px;
+            overflow: hidden;
+            box-shadow: 0 12px 30px rgba(0,0,0,0.6), inset 0 1px 1px rgba(255, 255, 255, 0.05);
+            pointer-events: auto;
+            animation: slideInLeft 0.3s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+            transition: all 0.3s cubic-bezier(0.16, 1, 0.3, 1);
+            font-family: 'Inter', sans-serif;
+            display: flex;
+            align-items: stretch;
+            position: relative;
+        }
+
+        .pinned-flight-card:hover {
+            background: rgba(30, 30, 35, 0.9);
+            border-color: rgba(255, 255, 255, 0.2);
+            transform: translateX(6px);
+            box-shadow: 0 16px 40px rgba(0,0,0,0.7), inset 0 1px 1px rgba(255, 255, 255, 0.1);
+        }
+
+        .pinned-image-flush {
+            width: 140px;
+            flex-shrink: 0;
+            position: relative;
+            background: #000;
+        }
+
+        .pinned-image-flush img {
+            width: 100%;
+            height: 100%;
+            object-fit: cover;
+            object-position: center;
+        }
+
+        /* Premium detail: A gradient overlay that fades the right edge of the image into the dark card */
+        .pinned-image-gradient {
+            position: absolute;
+            top: 0;
+            right: 0;
+            bottom: 0;
+            left: 0;
+            background: linear-gradient(to right, transparent 60%, rgba(20, 20, 25, 0.85) 100%);
+            pointer-events: none;
+        }
+
+        .pinned-content {
+            flex: 1;
+            padding: 12px 16px;
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            position: relative;
+        }
+
+        .pinned-close {
+            position: absolute;
+            top: 8px;
+            right: 12px;
+            background: transparent;
+            border: none;
+            color: #64748b;
+            font-size: 0.85rem;
+            cursor: pointer;
+            transition: all 0.2s ease;
+            padding: 4px;
+            display: grid;
+            place-items: center;
+        }
+
+        .pinned-close:hover {
+            color: #ef4444;
+            transform: scale(1.15);
+        }
+
+        .pinned-header {
+            margin-bottom: 8px;
+        }
+
+        .pinned-callsign {
+            font-size: 1.15rem;
+            font-weight: 800;
+            color: #ffffff;
+            letter-spacing: -0.2px;
+        }
+
+        .pinned-stats {
+            display: grid;
+            grid-template-columns: repeat(3, 1fr);
+            gap: 8px;
+        }
+
+        .p-stat {
+            display: flex;
+            flex-direction: column;
+        }
+
+        .p-label {
+            font-size: 0.55rem;
+            color: #94a3b8;
+            font-weight: 800;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            margin-bottom: 3px;
+        }
+
+        .p-val {
+            font-size: 0.85rem;
+            color: #f1f5f9;
+            font-family: 'JetBrains Mono', monospace;
+            font-weight: 700;
+        }
+
+        .p-val small {
+            font-size: 0.55rem;
+            color: #64748b;
+        }
+
+        .dest-val {
+            color: #38bdf8;
+        }
     `;
 
     const style = document.createElement('style');
@@ -6369,6 +6599,51 @@ function handleSocketFlightUpdate(data) {
             }
         }
 
+        // === NEW: PINNED AIRCRAFT UPDATE LOGIC ===
+        if (window.pinnedFlights && window.pinnedFlights.has(flightId) && flightId !== currentFlightInWindow) {
+            let localTrail = liveTrailCache.get(flightId) || [];
+            
+            const newRoutePoint = {
+                latitude: flight.position.lat,
+                longitude: flight.position.lon,
+                altitude: flight.position.alt_ft,
+                groundSpeed: flight.position.gs_kt,
+                track: flight.position.heading_deg,
+                date: new Date(flight.position.lastReport || Date.now()).toISOString()
+            };
+            localTrail.push(newRoutePoint);
+            liveTrailCache.set(flightId, localTrail);
+            
+            if (typeof FlownPath3D !== 'undefined') {
+                FlownPath3D.updatePath(sectorOpsMap, flightId, localTrail, mapFilters.show3DPath);
+            }
+            
+            let rawCoords = localTrail.map(p => [p.lon ?? p.longitude, p.lat ?? p.latitude]);
+            rawCoords.push([flight.position.lon, flight.position.lat]);
+            
+            if (typeof unwrapLineCoordinates === 'function' && typeof densifyRoute === 'function') {
+                const unwrappedCoords = unwrapLineCoordinates(rawCoords);
+                const sortedCoordinates = densifyRoute(unwrappedCoords, 100);
+                
+                const flownLayerId = `flown-path-${flightId}`;
+                if (sectorOpsMap && sectorOpsMap.getSource(flownLayerId)) {
+                    sectorOpsMap.getSource(flownLayerId).setData({
+                        type: 'Feature',
+                        geometry: { type: 'LineString', coordinates: sortedCoordinates }
+                    });
+                }
+            }
+
+            // Update Mini Card Stats
+            const card = document.getElementById(`pinned-flight-${flightId}`);
+            if (card) {
+                const altEl = card.querySelector('.pinned-stat:nth-child(1) .pinned-val');
+                const spdEl = card.querySelector('.pinned-stat:nth-child(2) .pinned-val');
+                if (altEl) altEl.innerHTML = `${Math.round(flight.position.alt_ft || 0)} <small>FT</small>`;
+                if (spdEl) spdEl.innerHTML = `${Math.round(flight.position.gs_kt || 0)} <small>KTS</small>`;
+            }
+        }
+
         // Only update the Map Animation/Icons if the map is actually ready.
         if (isMapReady) {
             mapAnimator.updateFlight(flight.position, newProperties);
@@ -8311,7 +8586,7 @@ function setupAircraftWindowEvents() {
 
         aircraftInfoWindow.addEventListener('click', async (e) => {
             const closeBtn = e.target.closest('.aircraft-window-close-btn');
-            const hideBtn = e.target.closest('.aircraft-window-hide-btn');
+            const pinBtn = e.target.closest('.aircraft-window-pin-btn');
             const shareBtn = e.target.closest('.aircraft-window-share-btn');
             const tabBtn = e.target.closest('.ac-info-tab-btn');
             const planBtn = e.target.closest('#plan-this-flight-btn');
@@ -8406,6 +8681,14 @@ function setupAircraftWindowEvents() {
                     }
                 }
             }
+
+            if (pinBtn) {
+            e.preventDefault();
+            if (currentFlightInWindow) {
+                window.toggleFlightPin(currentFlightInWindow);
+            }
+            return;
+        }
 
             if (closeBtn) {
                 closeAircraftWindow();
@@ -10744,8 +11027,10 @@ async function handleAircraftClick(flightProps, optionalSessionId = null, event 
     if (typeof resetPfdState === 'function') resetPfdState();
 
     if (currentFlightInWindow && currentFlightInWindow !== flightProps.flightId) {
-        if (typeof clearLiveFlightPath === 'function') clearLiveFlightPath(currentFlightInWindow);
-        if (typeof liveTrailCache !== 'undefined') liveTrailCache.delete(currentFlightInWindow);
+        if (!window.pinnedFlights || !window.pinnedFlights.has(currentFlightInWindow)) {
+            if (typeof clearLiveFlightPath === 'function') clearLiveFlightPath(currentFlightInWindow);
+            if (typeof liveTrailCache !== 'undefined') liveTrailCache.delete(currentFlightInWindow);
+        }
     }
 
     currentFlightInWindow = flightProps.flightId;
@@ -10983,8 +11268,10 @@ function closeAircraftWindow() {
     aircraftInfoWindow.classList.remove('visible');
     if (window.MobileUIHandler) window.MobileUIHandler.closeActiveWindow();
     
-    // Clear the map layers using the ID tracker
-    clearLiveFlightPath(currentFlightInWindow);
+    // Clear the map layers using the ID tracker ONLY IF NOT PINNED
+    if (!window.pinnedFlights || !window.pinnedFlights.has(currentFlightInWindow)) {
+        clearLiveFlightPath(currentFlightInWindow);
+    }
 
     // Reset intervals
     if (activePfdUpdateInterval) clearInterval(activePfdUpdateInterval);
@@ -11210,7 +11497,9 @@ let totalDistanceNM = 0;
 
             <div class="overview-actions" style="top: 20px; right: 20px; position: absolute; z-index: 10; display: flex; gap: 8px;">
                 <button class="hero-btn aircraft-window-share-btn" title="Fullscreen Trip Card" style="background: rgba(0,0,0,0.4); backdrop-filter: blur(4px); border: 1px solid rgba(255,255,255,0.1);"><i class="fa-solid fa-expand"></i></button>
-                <button class="hero-btn aircraft-window-hide-btn" title="Minimize" style="background: rgba(0,0,0,0.4); backdrop-filter: blur(4px); border: 1px solid rgba(255,255,255,0.1);"><i class="fa-solid fa-minus"></i></button>
+                <button class="hero-btn aircraft-window-pin-btn" title="Pin Flight (Multi-Track)">
+    <i class="fa-solid fa-thumbtack"></i>
+</button>
                 <button class="hero-btn aircraft-window-close-btn" title="Close" style="background: rgba(0,0,0,0.4); backdrop-filter: blur(4px); border: 1px solid rgba(255,255,255,0.1);"><i class="fa-solid fa-xmark"></i></button>
             </div>
 
@@ -11820,7 +12109,19 @@ let totalDistanceNM = 0;
     } catch (err) {
         console.warn('Initial phase update pass failed:', err);
     }
-}
+
+    // --- POST-RENDER LOGIC: Inject Multi-Track Pin Button ---
+    const actionsContainer = windowEl.querySelector('.info-window-actions');
+    if (actionsContainer && !document.getElementById('pin-flight-btn')) {
+        const isPinned = window.pinnedFlights.has(baseProps.flightId);
+        const pinBtnHTML = `
+            <button id="pin-flight-btn" class="pin-btn ${isPinned ? 'active-pin' : ''}" title="Pin Flight (Multi-Track)" onclick="window.toggleFlightPin('${baseProps.flightId}')" style="background: transparent; border: none; font-size: 0.9rem; margin-right: 8px; cursor: pointer; transition: all 0.2s; color: ${isPinned ? '#38bdf8' : '#94a3b8'};">
+                <i class="fa-solid fa-thumbtack"></i>
+            </button>
+        `;
+        actionsContainer.insertAdjacentHTML('afterbegin', pinBtnHTML);
+    }
+} // <-- End of populateAircraftInfoWindow
 
 /**
  * --- [UPDATED] Updates the Navigation Data Panel ---
