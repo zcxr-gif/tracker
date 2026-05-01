@@ -1625,16 +1625,12 @@ async _updateLiveFlightDOM() {
         if (!this._liveFlights || this._liveFlights.length === 0) {
             wrapper.innerHTML = '';
             wrapper.style.display = 'none';
-            // The 3D viewer's MutationObserver detects its container leaving
-            // the DOM and tears down the Cesium.Viewer for us — we just need
-            // to clear the host key so the next active flight gets a fresh init.
             this._3dViewerHostKey = null;
             return;
         }
 
         wrapper.style.display = 'block';
 
-        // Securely pre-fetch dispatch plans via the bridge service
         const flightsWithDispatch = await Promise.all(this._liveFlights.map(async (flight) => {
             let plan = null;
             if (flight.username && flight.departureIcao && flight.arrivalIcao) {
@@ -1643,7 +1639,6 @@ async _updateLiveFlightDOM() {
             return { ...flight, _dispatchPlan: plan };
         }));
 
-        // Convert to Promise.all to handle the asynchronous Analytics Engine
         const cardsHtmlArray = await Promise.all(flightsWithDispatch.map(async (flight, idx) => {
             const alt = Math.round(flight.position.alt_ft).toLocaleString();
             const gs  = Math.round(flight.position.gs_kt);
@@ -1658,7 +1653,6 @@ async _updateLiveFlightDOM() {
             const depGate = plan?.dep_gate ? `<span class="pui-live-gate">GTE ${plan.dep_gate}</span>` : '';
             const arrGate = plan?.arr_gate ? `<span class="pui-live-gate">GTE ${plan.arr_gate}</span>` : '';
 
-            // Properly await the Analytics Engine calculation
             const analytics = await TelemetryAnalyticsEngine.analyze(flight, plan);
 
             let dispatchHTML = '';
@@ -1666,7 +1660,6 @@ async _updateLiveFlightDOM() {
                 const hours = Math.floor(plan.duration_minutes / 60);
                 const mins = plan.duration_minutes % 60;
                 
-                // Add the new dynamic fuel and progress bars if tracking is active
                 let dynamicStatsHTML = '';
                 if (analytics.isTrackable) {
                     dynamicStatsHTML = `
@@ -1713,10 +1706,6 @@ async _updateLiveFlightDOM() {
                 }
             }
 
-            // Only the FIRST card gets the 3D forward-view backdrop. The viewer
-            // uses a hardcoded container id (`pui-hero-3d-container`), so only
-            // one instance can live in the DOM at a time. Secondary cards (rare
-            // — most pilots fly one aircraft at a time) keep the image fallback.
             const useThreeDBg = idx === 0;
             const bgHTML = useThreeDBg
                 ? `<div class="pui-live-bg pui-live-bg-3d" data-3d-host></div>`
@@ -1768,46 +1757,36 @@ async _updateLiveFlightDOM() {
             `;
         }));
 
-        // ── 3D viewer mount/preserve dance ──────────────────────────────────
-        // Capture the currently-mounted 3D host (if any) BEFORE we blow away
-        // the wrapper's innerHTML. Holding a JS reference keeps it (and the
-        // live Cesium scene inside) alive while we rebuild the DOM tree.
         const oldHost = document.querySelector('[data-3d-host]');
-
-        // Determine reuse eligibility BEFORE rebuild, based on whether the
-        // primary flight is the same one the existing viewer was init'd for.
         const firstFlight = flightsWithDispatch[0];
         const hostKey     = firstFlight?.flightId || firstFlight?.username || 'live-0';
         const canReuse    = !!oldHost && this._3dViewerHostKey === hostKey;
 
-        // Rebuild the carousel.
         wrapper.innerHTML = `<div class="pui-live-carousel">${cardsHtmlArray.join('')}</div>`;
 
-        // Locate the placeholder host in the freshly-rendered card[0].
         const newHost = wrapper.querySelector('[data-3d-host]');
 
         if (newHost) {
             if (canReuse) {
-                // Swap the empty placeholder for the live, fully-mounted host.
-                // The viewer's MutationObserver runs asynchronously — by the
-                // time it fires, the container is back in the document, so
-                // `document.contains(container)` is true and destroy() does
-                // not run. Scene state, tile cache, and camera are preserved.
                 newHost.replaceWith(oldHost);
                 AircraftViewer3D.updateFlightData(this._extractPositionForViewer(firstFlight));
             } else {
-                // Fresh mount: render the viewer's HTML into the host slot,
-                // then init Cesium. If a stale viewer exists from a previous
-                // flight, its container has now been detached (innerHTML wipe
-                // above) and its MutationObserver will tear it down for us.
                 newHost.innerHTML = AircraftViewer3D.getHTML();
-                AircraftViewer3D
-                    .init(firstFlight.aircraft?.aircraftName, this._extractPositionForViewer(firstFlight))
-                    .catch(err => console.warn('[ProfileUI] AircraftViewer3D init failed:', err));
+                
+                // STAGGERED INITIALIZATION:
+                // Wait 350ms for CSS transition animations to finish before locking the main thread with WebGL compilation
+                setTimeout(() => {
+                    // Safety check: ensure user hasn't closed the tab/menu while we were waiting
+                    if (document.contains(newHost)) {
+                        AircraftViewer3D
+                            .init(firstFlight.aircraft?.aircraftName, this._extractPositionForViewer(firstFlight))
+                            .catch(err => console.warn('[ProfileUI] AircraftViewer3D init failed:', err));
+                    }
+                }, 350);
+                
                 this._3dViewerHostKey = hostKey;
             }
         } else {
-            // No first card / no 3D slot → no viewer should be alive.
             this._3dViewerHostKey = null;
         }
     },

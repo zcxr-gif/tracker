@@ -486,7 +486,7 @@ export const AircraftViewer3D = {
         });
     },
 
-    async init(aircraftName, positionOrAlt = 35000, speedArg = 450) {
+async init(aircraftName, positionOrAlt = 35000, speedArg = 450) {
         const container = document.getElementById("pui-hero-3d-container");
         if (!container) return;
 
@@ -536,26 +536,24 @@ export const AircraftViewer3D = {
             terrainProvider:      terrainProvider 
         });
 
-        // 1. Replace the default starfield with the Premium Procedural SkyBox
         viewer.scene.skyBox = this._generatePremiumSkybox(Cesium);
         viewer.scene.backgroundColor = Cesium.Color.fromCssColorString('#7ea8d9');
 
-        // Premium visual enhancements for terrain
         viewer.scene.globe.terrainExaggeration = 1.25; 
         viewer.scene.globe.depthTestAgainstTerrain = true;
         viewer.scene.globe.showGroundAtmosphere = true;
-        viewer.scene.globe.dynamicAtmosphereLighting = true; // Ensures the atmosphere is lit
+        viewer.scene.globe.dynamicAtmosphereLighting = true; 
         
         viewer.scene.screenSpaceCameraController.enableInputs = false;
-        viewer.resolutionScale                = Math.min(window.devicePixelRatio || 1.0, 2.0);
-        viewer.scene.msaaSamples              = 4;
-        viewer.scene.globe.maximumScreenSpaceError = 4.0;
-        viewer.scene.globe.tileCacheSize      = 1000;
-        viewer.scene.globe.preloadAncestors   = true;
-        viewer.scene.globe.preloadSiblings    = true;
+        
+        // PROGRESSIVE FIDELITY: Stage 1 (Fast Boot)
+        viewer.resolutionScale                = Math.min(window.devicePixelRatio || 1.0, 1.5);
+        viewer.scene.msaaSamples              = 1; // No MSAA during shader compile
+        viewer.scene.globe.maximumScreenSpaceError = 8.0; // Looser geometry to start
+        viewer.scene.globe.tileCacheSize      = 500;
+        viewer.scene.globe.preloadAncestors   = false;
+        viewer.scene.globe.preloadSiblings    = false;
         viewer.targetFrameRate                = 60;
-
-        try { viewer.scene.postProcessStages.fxaa.enabled = true; } catch (_) {}
         viewer.scene.requestRenderMode = false;
 
         try {
@@ -568,55 +566,65 @@ export const AircraftViewer3D = {
             console.warn('[AircraftViewer3D] Imagery resources unavailable:', e.message);
         }
 
-        // 2. Enhance SkyAtmosphere and Fog parameters to blend seamlessly into the new sky
         viewer.scene.skyAtmosphere.show   = true;
         viewer.scene.skyAtmosphere.hueShift = -0.05; 
         viewer.scene.skyAtmosphere.saturationShift = 0.2; 
         viewer.scene.skyAtmosphere.brightnessShift = 0.2;
         
         viewer.scene.fog.enabled          = true;
-        viewer.scene.fog.density          = 0.00015; // Thicker fog for high-altitude depth perception
-        viewer.scene.fog.minimumBrightness = 0.8; // Prevent fog from turning black
+        viewer.scene.fog.density          = 0.00015; 
+        viewer.scene.fog.minimumBrightness = 0.8; 
         
-        // 3. Lighting & Time - Calculate 'Local Noon' based on current longitude to ensure it's always bright day
-        const offsetHours = lon / 15.0; // 15 degrees per timezone hour
+        const offsetHours = lon / 15.0;
         const noonUTC = new Cesium.JulianDate();
-        Cesium.JulianDate.fromDate(new Date(`2026-06-21T12:00:00Z`), noonUTC); // Summer solstice
+        Cesium.JulianDate.fromDate(new Date(`2026-06-21T12:00:00Z`), noonUTC);
         Cesium.JulianDate.addHours(noonUTC, -offsetHours, noonUTC); 
         viewer.clock.currentTime = noonUTC;
-        viewer.clock.shouldAnimate = false; // Lock the time so the scene remains brightly lit
+        viewer.clock.shouldAnimate = false;
 
-        // 4. Inject Custom Directional Light to enhance terrain shadows independent of time
         viewer.scene.light = new Cesium.DirectionalLight({
             direction: new Cesium.Cartesian3(0.5, -0.3, -0.8),
-            color: Cesium.Color.fromCssColorString('#fff6ed'), // Warm, realistic sunlight
+            color: Cesium.Color.fromCssColorString('#fff6ed'),
             intensity: 2.2
         });
 
-        try { viewer.scene.highDynamicRange = true; } catch (_) {}
+        // PROGRESSIVE FIDELITY: Stage 2 (Heavy Assets Injection)
+        // Wait 1.2s to inject volumetric clouds and MSAA post-processing after the globe has stabilized
+        setTimeout(() => {
+            if (viewer.isDestroyed()) return;
 
-        try {
-            const altMetersInit = this._currentAlt * 0.3048;
-            const clouds = viewer.scene.primitives.add(new Cesium.CloudCollection({
-                noiseDetail: 16.0,
-                noiseOffset: Cesium.Cartesian3.ZERO,
-            }));
-            for (let i = 0; i < 32; i++) {
-                clouds.add({
-                    position: Cesium.Cartesian3.fromDegrees(
-                        lon + (Math.random() - 0.5) * 0.5,
-                        lat + (Math.random() - 0.5) * 0.5,
-                        altMetersInit + (Math.random() - 0.5) * 600
-                    ),
-                    scale:       new Cesium.Cartesian2(2000 + Math.random() * 5000, 400 + Math.random() * 600),
-                    maximumSize: new Cesium.Cartesian3(60, 30, 18),
-                    slice:       0.30 + Math.random() * 0.15,
-                    brightness:  0.85 + Math.random() * 0.15,
-                });
+            viewer.scene.msaaSamples = 4;
+            viewer.scene.globe.maximumScreenSpaceError = 4.0;
+            viewer.scene.globe.preloadAncestors = true;
+            viewer.scene.globe.preloadSiblings = true;
+            viewer.scene.globe.tileCacheSize = 1000;
+            
+            try { viewer.scene.postProcessStages.fxaa.enabled = true; } catch (_) {}
+            try { viewer.scene.highDynamicRange = true; } catch (_) {}
+
+            try {
+                const altMetersInit = this._currentAlt * 0.3048;
+                const clouds = viewer.scene.primitives.add(new Cesium.CloudCollection({
+                    noiseDetail: 16.0,
+                    noiseOffset: Cesium.Cartesian3.ZERO,
+                }));
+                for (let i = 0; i < 32; i++) {
+                    clouds.add({
+                        position: Cesium.Cartesian3.fromDegrees(
+                            lon + (Math.random() - 0.5) * 0.5,
+                            lat + (Math.random() - 0.5) * 0.5,
+                            altMetersInit + (Math.random() - 0.5) * 600
+                        ),
+                        scale:       new Cesium.Cartesian2(2000 + Math.random() * 5000, 400 + Math.random() * 600),
+                        maximumSize: new Cesium.Cartesian3(60, 30, 18),
+                        slice:       0.30 + Math.random() * 0.15,
+                        brightness:  0.85 + Math.random() * 0.15,
+                    });
+                }
+            } catch (e) {
+                console.warn('[AircraftViewer3D] CloudCollection unavailable:', e.message);
             }
-        } catch (e) {
-            console.warn('[AircraftViewer3D] CloudCollection unavailable:', e.message);
-        }
+        }, 1200);
 
         let animAlt   = this._currentAlt * 0.3048;
         let animPitch = pitch;

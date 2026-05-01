@@ -7656,7 +7656,6 @@ async function createAirportInfoWindowHTML(icao) {
     const profilePictureElem = document.getElementById('profile-picture');
     const logoutButton = document.getElementById('logout-button');
     const mainContentContainer = document.querySelector('.main-content');
-    const mainContentLoader = document.getElementById('main-content-loader');
     const sidebarNav = document.querySelector('.sidebar-nav');
     const dashboardContainer = document.querySelector('.dashboard-container');
     const sidebarToggleBtn = document.getElementById('sidebar-toggle');
@@ -9591,7 +9590,6 @@ case 'pro_layers':
     
     if (!viewContainer || !mapContainer) return;
     
-    mainContentLoader.classList.add('active');
 
     try {
         // --- 2. Initialize Map ---
@@ -9966,15 +9964,10 @@ window.globalNatTracks = natTracks;
             panelContentWrapper.innerHTML = `<p class="error-text" style="padding: 20px;">${error.message}</p>`;
         }
     } finally {
-        // Ensure the loading screen lasts for at least 6 seconds (6000ms)
-        const minLoadingTime = 8000;
-        const timeElapsed = Date.now() - window.loadingStartTime;
-        const remainingTime = Math.max(0, minLoadingTime - timeElapsed);
-
-        setTimeout(() => {
-            mainContentLoader.classList.remove('active');
-            console.log("Loading complete after 8 seconds.");
-        }, remainingTime);
+        // [PERF FIX] Removed the 8-second artificial minimum loader.
+        // The loader now hides as soon as the app is actually ready.
+        mainContentLoader.classList.remove('active');
+        console.log(`Loading complete in ${Date.now() - window.loadingStartTime}ms.`);
     }
 }
 
@@ -10032,8 +10025,11 @@ function initializeSectorOpsMap(centerICAO) {
         fadeDuration: 0,           // Instant rendering
         maxTileCacheSize: 500,     // Broad tile caching
         crossSourceCollisions: false,
-        localIdeographFontFamily: "'Inter', 'sans-serif'",
-        preserveDrawingBuffer: true 
+        localIdeographFontFamily: "'Inter', 'sans-serif'"
+        // [PERF FIX] Removed `preserveDrawingBuffer: true` — it forces an
+        // extra GPU framebuffer copy on every frame and degrades FPS noticeably.
+        // Only re-enable temporarily if you need to capture a screenshot via
+        // map.getCanvas().toDataURL().
     });
 
     sectorOpsMap.on('style.load', async () => {
@@ -10053,8 +10049,9 @@ function initializeSectorOpsMap(centerICAO) {
         sectorOpsMap.on('load', async () => {
             GroupFlightManager.init(sectorOpsMap);
             await setupMapLayersAndFog();
-            setTimeout(() => initializeMapBoundaries(sectorOpsMap), 2000);
-            await initializeMapBoundaries(sectorOpsMap);
+            // [PERF FIX] Removed two redundant initializeMapBoundaries calls
+            // here — setupMapLayersAndFog() already invokes it internally,
+            // so previously the boundaries were being computed 3× on cold start.
             resolve();
         });
     });
@@ -11046,6 +11043,7 @@ let totalDistanceNM = 0;
     let distanceToDestNM = 0;
     let progress = 0;
     let ete = '--:--';
+    let eta = '--:--';
 
     if (hasPlan && originalFlatWaypoints.length >= 2) {
         let totalDistanceKm = 0;
@@ -11073,6 +11071,12 @@ let totalDistanceNM = 0;
                 const hours = Math.floor(timeHours);
                 const minutes = Math.round((timeHours - hours) * 60);
                 ete = `${String(hours).padStart(2, '0')}:${String(minutes).padStart(2, '0')}`;
+
+                // Compute the actual clock time the user will arrive (UTC HH:MM)
+                if (timeHours > 0 && timeHours < 48) {
+                    const arrivalDate = new Date(Date.now() + (timeHours * 3600000));
+                    eta = arrivalDate.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit', timeZone: 'UTC' });
+                }
             }
         }
     }
@@ -11211,12 +11215,12 @@ let totalDistanceNM = 0;
             </div>
 
             <div class="phase-badge-hero" style=" position: absolute; bottom: 45px; left: 24px; z-index: 2; background: rgba(0,0,0,0.6); backdrop-filter: blur(8px); padding: 4px 10px; border-radius: 20px; border: 1px solid rgba(255,255,255,0.15); display: flex; align-items: center; gap: 6px;">
-                <div class="phase-dot" style="width: 6px; height: 6px; border-radius: 50%; background: ${statusColor}; box-shadow: 0 0 8px ${statusColor}; animation: ${statusPulse} 2s infinite;"></div>
-                <span style="font-size: 9px; font-weight: 700; color: #fff; letter-spacing: 0.5px;">${flightPhase}</span>
+                <div class="phase-dot" id="ac-phase-dot" style="width: 6px; height: 6px; border-radius: 50%; background: ${statusColor}; box-shadow: 0 0 8px ${statusColor}; animation: ${statusPulse} 2s infinite;"></div>
+                <span id="ac-phase-text" style="font-size: 9px; font-weight: 700; color: #fff; letter-spacing: 0.5px;">${flightPhase}</span>
             </div>
         </div>
 
-        <div class="ac-route-info-bar" style=" background: rgba(45, 45, 45, 0.9); backdrop-filter: blur(16px); margin: -32px 16px 0 16px; border-radius: 12px; padding: 14px 24px; border: 1px solid rgba(255,255,255,0.1); display: flex; align-items: center; justify-content: space-between; gap: 16px; flex-shrink: 0; position: relative; z-index: 5; box-shadow: 0 8px 32px rgba(0,0,0,0.4);">
+        <div class="ac-route-info-bar" style=" background: #3a3a3a; backdrop-filter: blur(16px); margin: -32px 16px 0 16px; border-radius: 12px; padding: 14px 24px; border: 1px solid rgba(255,255,255,0.1); display: flex; align-items: center; justify-content: space-between; gap: 16px; flex-shrink: 0; position: relative; z-index: 5; box-shadow: 0 8px 32px rgba(0,0,0,0.4);">
             <div class="route-node">
         <span class="city-name" style="color: #94a3b8; font-size: 9px; font-weight: 600; text-transform: uppercase;">${depCity}</span>
         <span class="icao-large" style="display: flex; align-items: center; gap: 8px; color: #fff; font-size: 20px; font-weight: 800; font-family: 'JetBrains Mono', monospace; line-height: 1.1;">
@@ -11229,7 +11233,7 @@ let totalDistanceNM = 0;
             <div class="route-visual" style="flex: 1; max-width: 240px; display: flex; flex-direction: column; justify-content: center;">
                 <div class="flight-progress-track" style="height: 4px; background: rgba(255,255,255,0.1); border-radius: 4px; position: relative;">
                     <div class="flight-progress-fill" id="ac-progress-bar" style="width: ${progress}%; background: #38bdf8; height: 100%; border-radius: 4px; position: relative; transition: width 0.5s ease;">
-                        <i class="fa-solid fa-plane flight-progress-plane" style="position: absolute; right: -6px; top: 50%; transform: translateY(-50%) rotate(90deg); color: #fff; font-size: 10px; filter: drop-shadow(0 0 4px #38bdf8);"></i>
+                        <i class="fa-solid fa-plane flight-progress-plane" style="position: absolute; right: -6px; top: 50%; transform: translateY(-50%) rotate(45deg); color: #fff; font-size: 10px; filter: drop-shadow(0 0 4px #38bdf8);"></i>
                     </div>
                 </div>
                 <div style="display: flex; justify-content: space-between; width: 100%; margin-top: 6px; font-size: 9px; color: #cbd5e1; font-weight: 700;">
@@ -11244,7 +11248,7 @@ let totalDistanceNM = 0;
                     ${arrivalIcao}
                     <img id="ac-bar-arr-flag" src="" style="height: 14px; border-radius: 2px; display: none; opacity: 0.8;" onerror="this.style.display='none'">
                 </span>
-                <span class="time-small" id="ac-ete" style="color: #38bdf8; font-size: 11px; font-weight: 600;">${ete}</span>
+                <span class="time-small" id="ac-bar-eta" style="color: #38bdf8; font-size: 11px; font-weight: 600;">${eta}</span>
             </div>
         </div>
 
@@ -11805,6 +11809,17 @@ let totalDistanceNM = 0;
         });
         if (btn.classList.contains('active')) btn.style.color = '#fff';
     });
+
+    // --- Run an immediate update pass so the phase badge / live data
+    // render correctly on first paint instead of lingering on the
+    // "CRUISE" default for several seconds.
+    try {
+        if (typeof updateAircraftInfoWindow === 'function') {
+            updateAircraftInfoWindow(baseProps, plan, sortedRoutePoints);
+        }
+    } catch (err) {
+        console.warn('Initial phase update pass failed:', err);
+    }
 }
 
 /**
@@ -12274,18 +12289,57 @@ function updateAircraftInfoWindow(baseProps, plan, sortedRoutePoints) {
             const closeRunwayInfo = getNearestRunway(aircraftPos, relevantIcao, 0.15);
             const isLinedUp = closeRunwayInfo && closeRunwayInfo.headingDiff < 10;
 
+            // --- PUSHBACK DETECTION ---
+            // Look at the flown path: if the aircraft is moving slowly at the start
+            // of its route and recent travel is roughly opposite to its heading
+            // (tug pushing tail-first), it's pushing back from the gate.
+            let isPushingBack = false;
+            if (progress < 10 && gs > 0.3 && gs < 10 && hasPlan && !closeRunwayInfo &&
+                sortedRoutePoints && sortedRoutePoints.length >= 2) {
+
+                const lastPoint = sortedRoutePoints[sortedRoutePoints.length - 1];
+                // Reference a point a few samples back to smooth GPS jitter at low speeds
+                const refIdx = Math.max(0, sortedRoutePoints.length - 4);
+                const refPoint = sortedRoutePoints[refIdx];
+                const lastLat = lastPoint.lat ?? lastPoint.latitude;
+                const lastLon = lastPoint.lon ?? lastPoint.longitude;
+                const refLat = refPoint.lat ?? refPoint.latitude;
+                const refLon = refPoint.lon ?? refPoint.longitude;
+
+                if (lastLat != null && refLat != null && refIdx !== sortedRoutePoints.length - 1) {
+                    const recentDistKm = getDistanceKm(refLat, refLon, lastLat, lastLon);
+                    // Require a meaningful displacement (>1m) to trust the bearing
+                    if (recentDistKm > 0.001) {
+                        const movementBearing = getBearing(refLat, refLon, lastLat, lastLon);
+                        const heading = baseProps.position.heading_deg || 0;
+                        const bearingDiff = Math.abs(normalizeBearingDiff(heading - movementBearing));
+                        // Moving roughly opposite to where the nose is pointing
+                        if (bearingDiff > 120) isPushingBack = true;
+                    }
+                }
+            }
+
             if (isLinedUp) {
                 flightPhase = `LINED UP RWY ${closeRunwayInfo.ident}`;
                 phaseIcon = 'fa-arrow-up';
                 phaseClass = 'phase-climb';
+            } else if (isPushingBack) {
+                flightPhase = 'PUSHBACK';
+                phaseIcon = 'fa-truck';
+                phaseClass = 'phase-enroute';
             } else if (isStopped) {
                 if (closeRunwayInfo) {
                     flightPhase = `HOLDING SHORT RWY ${closeRunwayInfo.ident}`;
                     phaseIcon = 'fa-pause-circle';
                     phaseClass = 'phase-enroute';
                 } else if (isAtTerminal) {
-                    flightPhase = 'PARKED';
-                    phaseIcon = 'fa-parking';
+                    if (progress < 50 && hasPlan) {
+                        flightPhase = 'BOARDING';
+                        phaseIcon = 'fa-door-open';
+                    } else {
+                        flightPhase = 'PARKED';
+                        phaseIcon = 'fa-parking';
+                    }
                     phaseClass = 'phase-enroute';
                 } else {
                     flightPhase = 'HOLDING POSITION';
@@ -12628,6 +12682,28 @@ function updateAircraftInfoWindow(baseProps, plan, sortedRoutePoints) {
     const phaseIndicators = document.querySelectorAll('#ac-phase-indicator');
     phaseIndicators.forEach(el => {
         el.className = `flight-phase-indicator ${phaseClass}`;
+    });
+
+    // --- Update floating route bar phase badge (text + dot color) ---
+    let badgeStatusColor = '#4ade80'; // default green
+    let badgeStatusPulse = 'pulse';
+    if (flightPhase.includes('CRUISE')) badgeStatusColor = '#38bdf8';
+    else if (flightPhase.includes('DESCENT') || flightPhase.includes('APPROACH') || flightPhase.includes('FINAL') || flightPhase.includes('FLARE') || flightPhase.includes('LANDING')) badgeStatusColor = '#fbbf24';
+    else if (flightPhase.includes('PUSHBACK')) badgeStatusColor = '#fb923c'; // orange, pulsing (transition out of gate)
+    else if (flightPhase.includes('BOARDING')) badgeStatusColor = '#4ade80'; // green, pulsing (active prep)
+    else if (flightPhase.includes('CLIMB') || flightPhase.includes('LIFTOFF') || flightPhase.includes('TAKEOFF')) badgeStatusColor = '#4ade80';
+    else if (flightPhase.includes('GROUND') || flightPhase.includes('PARKED') || flightPhase.includes('TAXI') || flightPhase.includes('HOLDING')) {
+        badgeStatusColor = '#94a3b8';
+        badgeStatusPulse = 'none';
+    }
+
+    document.querySelectorAll('#ac-phase-text').forEach(el => {
+        el.textContent = flightPhase;
+    });
+    document.querySelectorAll('#ac-phase-dot').forEach(el => {
+        el.style.background = badgeStatusColor;
+        el.style.boxShadow = `0 0 8px ${badgeStatusColor}`;
+        el.style.animation = badgeStatusPulse === 'none' ? 'none' : `${badgeStatusPulse} 2s infinite`;
     });
 
     const atdTimestamp = (sortedRoutePoints && sortedRoutePoints.length > 0) ? sortedRoutePoints[0].date : null;
@@ -14099,7 +14175,6 @@ async function updateSectorOpsSecondaryData() {
 
     // --- Initial Load ---
 async function initializeApp() {
-        mainContentLoader.classList.add('active');
 
         PerformanceMonitor.init();
 
@@ -14109,15 +14184,20 @@ async function initializeApp() {
         injectCustomStyles();
         
 
-        // Fetch essential data in parallel
-        await Promise.all([
-            fetchApiKeys(),
-            fetchAirportsData(),
-            fetchRunwaysData()
-        ]);
-        
-        // Initialize the Sector Ops view
+        // [PERF FIX] Parallelize: kick off all 3 fetches at once, but only
+        // block on the two the map actually needs (token + airport coords).
+        // Runways finish in the background while the map is rendering.
+        const apiKeysPromise = fetchApiKeys();
+        const airportsPromise = fetchAirportsData();
+        const runwaysPromise = fetchRunwaysData();
+
+        await Promise.all([apiKeysPromise, airportsPromise]);
+
+        // Initialize the Sector Ops view (map render starts now)
         await initializeSectorOpsView();
+
+        // Make sure runways finished too before we move on to anything that needs them
+        await runwaysPromise;
 
         await LandingUI.init();
         SettingsUI.init();
@@ -14150,7 +14230,7 @@ async function initializeApp() {
             updateMapFilters();
         });
         
-        mainContentLoader.classList.remove('active');
+
     }
 
     window.displayPilotStats = displayPilotStats;
@@ -14164,10 +14244,14 @@ async function initializeApp() {
  * Features an elevated UI, segmented progress, and direct Sign Up integration.
  * ============================================================================
  */
-(function setupInflightProSuggestion() {
+(async function setupInflightProSuggestion() {
     const styleId = 'inflight-pro-loader-styles';
     if (document.getElementById(styleId)) return;
-    
+
+    // Check if the user is already signed in
+    const { data: sessionData } = await supabase.auth.getSession();
+    const isSignedIn = !!sessionData?.session?.user;
+
     const style = document.createElement('style');
     style.id = styleId;
     style.innerHTML = `
@@ -14200,10 +14284,7 @@ async function initializeApp() {
             max-width: 100%;
             border-radius: 24px;
             position: relative;
-            box-shadow: 
-                0 0 0 1px rgba(0, 0, 0, 0.03),
-                0 30px 60px -12px rgba(0, 0, 0, 0.25), 
-                0 18px 36px -18px rgba(0, 0, 0, 0.15);
+            box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.03), 0 30px 60px -12px rgba(0, 0, 0, 0.25), 0 18px 36px -18px rgba(0, 0, 0, 0.15);
             overflow: hidden;
             transform: scale(0.95) translateY(20px);
             animation: proModalScaleIn 0.6s cubic-bezier(0.16, 1, 0.3, 1) forwards;
@@ -14212,6 +14293,15 @@ async function initializeApp() {
         }
 
         #inflight-pro-loader-overlay.closing .pro-modal-card {
+            animation: proModalScaleOut 0.5s cubic-bezier(0.16, 1, 0.3, 1) forwards !important;
+        }
+
+        /* Logo Only Animation */
+        .logo-only-container {
+            animation: proModalScaleIn 0.6s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+        }
+        
+        #inflight-pro-loader-overlay.closing .logo-only-container {
             animation: proModalScaleOut 0.5s cubic-bezier(0.16, 1, 0.3, 1) forwards !important;
         }
 
@@ -14240,6 +14330,7 @@ async function initializeApp() {
             background-size: 300% auto;
             animation: proShine 4s linear infinite;
         }
+
         @keyframes proShine { to { background-position: 300% center; } }
 
         /* Close Button */
@@ -14261,6 +14352,7 @@ async function initializeApp() {
             line-height: 1;
             z-index: 10;
         }
+
         .pro-close-btn:hover {
             background: #e2e8f0;
             color: #0f172a;
@@ -14333,7 +14425,7 @@ async function initializeApp() {
             position: relative;
             box-shadow: inset 0 2px 4px rgba(255, 255, 255, 0.5);
         }
-        
+
         .pro-icon-ring::after {
             content: '';
             position: absolute;
@@ -14430,7 +14522,31 @@ async function initializeApp() {
     `;
     document.head.appendChild(style);
 
-    // 2. High-End Feature Definitions
+    const overlay = document.createElement('div');
+    overlay.id = 'inflight-pro-loader-overlay';
+
+    // 1. Signed-In Scenario: Render Only Logo
+    if (isSignedIn) {
+        overlay.innerHTML = `
+            <div class="logo-only-container">
+                <img src="Images/InflightPro.png" alt="InFlight Pro Logo" style="height: 60px; object-fit: contain;" onerror="this.style.display='none'">
+            </div>
+        `;
+        document.body.appendChild(overlay);
+
+        // Teardown after 6 seconds
+        setTimeout(() => {
+            if (overlay.classList.contains('closing')) return;
+            overlay.classList.add('closing');
+            setTimeout(() => {
+                if (overlay.parentElement) overlay.parentElement.removeChild(overlay);
+            }, 500);
+        }, 6000);
+
+        return; // Abort the carousel logic if logged in
+    }
+
+    // 2. High-End Feature Definitions (Original functionality for logged-out users)
     const features = [
         {
             icon: 'fa-gauge-high',
@@ -14463,14 +14579,11 @@ async function initializeApp() {
     ];
 
     // 3. Inject HTML Structure
-    const overlay = document.createElement('div');
-    overlay.id = 'inflight-pro-loader-overlay';
-    
     let slidesHtml = '';
     let segmentsHtml = '';
-
+    
     features.forEach((feature, index) => {
-        const glowStyle = `background: ${feature.color};`;
+        const glowStyle = `box-shadow: 0 0 25px ${feature.color}, inset 0 0 15px ${feature.color};`;
         
         slidesHtml += `
             <div class="pro-feature-slide ${index === 0 ? 'active' : ''}">
@@ -14494,20 +14607,16 @@ async function initializeApp() {
         <div class="pro-modal-card">
             <div class="pro-premium-accent"></div>
             <button class="pro-close-btn" id="pro-close-carousel" aria-label="Close">&times;</button>
-            
             <div class="pro-header-section">
                 <img src="Images/InflightPro.png" alt="InFlight Pro Logo" class="pro-brand-logo" onerror="this.style.display='none'">
                 <p class="pro-subtitle"><i class="fa-solid fa-gem"></i> Premium Access</p>
             </div>
-
             <div class="pro-carousel-viewport">
                 ${slidesHtml}
             </div>
-
             <div class="pro-pagination">
                 ${segmentsHtml}
             </div>
-
             <div class="pro-action-footer">
                 <button class="pro-cta-btn" id="pro-signup-trigger">
                     Create Pro Account <i class="fa-solid fa-arrow-right"></i>
@@ -14536,25 +14645,26 @@ async function initializeApp() {
 
     function animateCarousel() {
         if (isClosing) return;
-        
+
         const elapsed = Date.now() - startTime;
         const progress = Math.min((elapsed / SLIDE_DURATION_MS) * 100, 100);
-        
+
         // Update current segment
         const currentFill = document.getElementById(`pro-segment-${currentIndex}`);
         if (currentFill) currentFill.style.width = `${progress}%`;
 
         if (progress >= 100) {
-            slides.forEach(slide => slide.classList.remove('active'));
+            slides[currentIndex].classList.remove('active');
             currentIndex = (currentIndex + 1) % features.length;
-            
-            // If we loop back to 0, reset the bars visually
-            if (currentIndex === 0) resetSegments();
-            
             slides[currentIndex].classList.add('active');
+            
             startTime = Date.now();
+            
+            if (currentIndex === 0) {
+                resetSegments();
+            }
         }
-        
+
         animationFrameId = requestAnimationFrame(animateCarousel);
     }
     
