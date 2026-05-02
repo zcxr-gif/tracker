@@ -16,7 +16,7 @@ export const AuthUI = {
         this.checkPaymentStatus();
     },
 
-    checkPaymentStatus() {
+    async checkPaymentStatus() {
         const urlParams = new URLSearchParams(window.location.search);
         const paymentStatus = urlParams.get('payment');
 
@@ -24,19 +24,65 @@ export const AuthUI = {
             const newUrl = window.location.pathname;
             window.history.replaceState({}, document.title, newUrl);
 
-            setTimeout(() => {
-                if (paymentStatus === 'success') {
+            if (paymentStatus === 'success') {
+                const pendingData = sessionStorage.getItem('inflight_pending_signup');
+                
+                if (pendingData) {
+                    try {
+                        const userData = JSON.parse(pendingData);
+                        
+                        // 1. Force account creation on the frontend just in case the backend missed it
+                        await this._supabase.auth.signUp({
+                            email: userData.email,
+                            password: userData.password,
+                            options: {
+                                data: { name: userData.name }
+                            }
+                        });
+
+                        // 2. Attempt to automatically log them in
+                        const { error: loginError } = await this._supabase.auth.signInWithPassword({
+                            email: userData.email,
+                            password: userData.password
+                        });
+
+                        sessionStorage.removeItem('inflight_pending_signup');
+
+                        if (!loginError) {
+                            // Automatically launch into the app/ProfileUI
+                            this.open();
+                            return; 
+                        } else if (loginError.message.toLowerCase().includes("email not confirmed")) {
+                            setTimeout(() => {
+                                this.open('signin');
+                                setTimeout(() => {
+                                    this.showSuccess("Payment successful! Please check your email to verify your account before signing in.");
+                                }, 50);
+                            }, 500);
+                            return;
+                        }
+                    } catch (e) {
+                        console.error("Auto-signup post-payment failed:", e);
+                    }
+                }
+
+                // Fallback if sessionStorage was lost or login failed
+                setTimeout(() => {
                     this.open('signin');
                     setTimeout(() => {
                         this.showSuccess("Payment successful! Your Pro account is ready. Please sign in.");
                     }, 50);
-                } else if (paymentStatus === 'cancel') {
+                }, 500);
+
+            } else if (paymentStatus === 'cancel') {
+                sessionStorage.removeItem('inflight_pending_signup');
+                setTimeout(() => {
                     this.open('signup');
                     setTimeout(() => {
                         this.showError("Payment was cancelled. You can complete your registration when you're ready.");
                     }, 50);
-                }
-            }, 500);
+                }, 500);
+            }
         }
     },
 
@@ -483,6 +529,13 @@ showError(message) {
         if (backBtn) backBtn.style.display = 'none';
 
         try {
+            // Save the data temporarily so it survives the Stripe redirect
+            sessionStorage.setItem('inflight_pending_signup', JSON.stringify({
+                email: this._tempSignUpData.email,
+                name: this._tempSignUpData.name,
+                password: this._tempSignUpData.password
+            }));
+
             // Invoke server function to create a Stripe Checkout Session
             const { data, error } = await this._supabase.functions.invoke('create-stripe-checkout', {
                 body: {
@@ -502,6 +555,9 @@ showError(message) {
             window.location.href = data.url;
 
         } catch (err) {
+            // Clean up storage if it failed before redirect
+            sessionStorage.removeItem('inflight_pending_signup');
+            
             if (loadingDiv) loadingDiv.style.display = 'none';
             if (checkoutSection) checkoutSection.style.display = 'block';
             if (orDivider) orDivider.style.display = 'flex';
