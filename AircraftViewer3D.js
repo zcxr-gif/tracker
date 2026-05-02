@@ -486,7 +486,7 @@ export const AircraftViewer3D = {
         });
     },
 
-async init(aircraftName, positionOrAlt = 35000, speedArg = 450) {
+async init(aircraftName, positionOrAlt = 35000, speedArg = 450, timeOverride = 'realtime') {
         const container = document.getElementById("pui-hero-3d-container");
         if (!container) return;
 
@@ -499,6 +499,7 @@ async init(aircraftName, positionOrAlt = 35000, speedArg = 450) {
             pitch    = positionOrAlt.pitch_deg ?? 0;
             roll     = positionOrAlt.roll_deg  ?? 0;
             heading  = positionOrAlt.track     ?? positionOrAlt.heading ?? positionOrAlt.heading_deg ?? 45;
+            if (positionOrAlt.timeOfDay) timeOverride = positionOrAlt.timeOfDay;
         } else {
             altitude = positionOrAlt;
             speed    = speedArg;
@@ -536,20 +537,20 @@ async init(aircraftName, positionOrAlt = 35000, speedArg = 450) {
             terrainProvider:      terrainProvider 
         });
 
-        viewer.scene.skyBox = this._generatePremiumSkybox(Cesium);
-        viewer.scene.backgroundColor = Cesium.Color.fromCssColorString('#7ea8d9');
+        viewer.scene.backgroundColor = Cesium.Color.BLACK;
 
         viewer.scene.globe.terrainExaggeration = 1.25; 
         viewer.scene.globe.depthTestAgainstTerrain = true;
         viewer.scene.globe.showGroundAtmosphere = true;
         viewer.scene.globe.dynamicAtmosphereLighting = true; 
+        viewer.scene.globe.enableLighting = true; 
         
         viewer.scene.screenSpaceCameraController.enableInputs = false;
         
         // PROGRESSIVE FIDELITY: Stage 1 (Fast Boot)
         viewer.resolutionScale                = Math.min(window.devicePixelRatio || 1.0, 1.5);
-        viewer.scene.msaaSamples              = 1; // No MSAA during shader compile
-        viewer.scene.globe.maximumScreenSpaceError = 8.0; // Looser geometry to start
+        viewer.scene.msaaSamples              = 1;
+        viewer.scene.globe.maximumScreenSpaceError = 8.0;
         viewer.scene.globe.tileCacheSize      = 500;
         viewer.scene.globe.preloadAncestors   = false;
         viewer.scene.globe.preloadSiblings    = false;
@@ -574,22 +575,46 @@ async init(aircraftName, positionOrAlt = 35000, speedArg = 450) {
         viewer.scene.fog.enabled          = true;
         viewer.scene.fog.density          = 0.00015; 
         viewer.scene.fog.minimumBrightness = 0.8; 
-        
-        const offsetHours = lon / 15.0;
-        const noonUTC = new Cesium.JulianDate();
-        Cesium.JulianDate.fromDate(new Date(`2026-06-21T12:00:00Z`), noonUTC);
-        Cesium.JulianDate.addHours(noonUTC, -offsetHours, noonUTC); 
-        viewer.clock.currentTime = noonUTC;
-        viewer.clock.shouldAnimate = false;
 
-        viewer.scene.light = new Cesium.DirectionalLight({
-            direction: new Cesium.Cartesian3(0.5, -0.3, -0.8),
-            color: Cesium.Color.fromCssColorString('#fff6ed'),
-            intensity: 2.2
-        });
+        // --- PREMIUM SOLAR TIME CALCULATOR ---
+        if (timeOverride !== 'realtime') {
+            const date = new Date();
+            const hourMap = {
+                'sunrise': 6.5,
+                'morning': 9.0,
+                'noon': 12.0,
+                'afternoon': 15.0,
+                'sunset': 18.5,
+                'evening': 20.0,
+                'night': 2.0,
+                'midnight': 0.0
+            };
+            
+            const targetLocalHour = hourMap[timeOverride.toLowerCase()] ?? 12.0;
+            const lonOffsetHours = lon / 15.0;
+            let utcDecimalHours = targetLocalHour - lonOffsetHours;
+            
+            while (utcDecimalHours < 0) utcDecimalHours += 24;
+            while (utcDecimalHours >= 24) utcDecimalHours -= 24;
+            
+            const utcHours = Math.floor(utcDecimalHours);
+            const utcMinutes = Math.floor((utcDecimalHours - utcHours) * 60);
+            
+            date.setUTCFullYear(date.getUTCFullYear(), date.getUTCMonth(), date.getUTCDate());
+            date.setUTCHours(utcHours, utcMinutes, 0, 0);
+            
+            viewer.clock.currentTime = Cesium.JulianDate.fromDate(date);
+            viewer.clock.shouldAnimate = false; 
+            viewer.scene.globe.enableLighting = true;
+        } else {
+            viewer.clock.currentTime = Cesium.JulianDate.now();
+            viewer.clock.shouldAnimate = true;
+            viewer.clock.multiplier = 1.0;
+        }
+
+        viewer.scene.light = new Cesium.SunLight();
 
         // PROGRESSIVE FIDELITY: Stage 2 (Heavy Assets Injection)
-        // Wait 1.2s to inject volumetric clouds and MSAA post-processing after the globe has stabilized
         setTimeout(() => {
             if (viewer.isDestroyed()) return;
 

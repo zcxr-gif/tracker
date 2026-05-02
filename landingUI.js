@@ -42,6 +42,15 @@ export const LandingUI = {
     async init() {
         window.LandingUI = this;
 
+        // Idempotent guard — flight.js calls LandingUI.init() twice (once inside
+        // initializeSectorOpsView, once at the bootstrap level). Without this,
+        // the entire UI markup gets injected twice, producing duplicate IDs
+        // (#tile-settings, etc.) and breaking every click handler bound by id.
+        if (this._initialized) {
+            return;
+        }
+        this._initialized = true;
+
         // Fetch theme again just in case it loaded late
         this._theme = localStorage.getItem('pui-theme') || 'dark';
 

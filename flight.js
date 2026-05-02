@@ -17,6 +17,12 @@ import { FlightDispatchService } from './FlightDispatchService.js';
 import { MobileDashboardUI } from './MobileDashboardUI.js';
 import { trackManager } from './proTrackManager.js';
 
+console.log(
+    "%cInflight %cdesigned by and property of _Servernoob",
+    "color: #38bdf8; font-size: 16px; font-weight: 800; font-family: monospace; text-shadow: 0px 0px 8px rgba(56, 189, 248, 0.6);",
+    "color: #cbd5e1; font-size: 12px; font-style: italic;"
+);
+
 
 const supabaseUrl = 'https://lcgaoiqwwpyqndaucyzu.supabase.co'; 
 const supabaseKey = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImxjZ2FvaXF3d3B5cW5kYXVjeXp1Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzIwNjkyOTksImV4cCI6MjA4NzY0NTI5OX0.9TO21knXR_P9E80pea7gUOu-gTjb17sCGk7BYgRRe3U'; 
@@ -207,13 +213,51 @@ window.currentAirportTraffic = { in: [], out: [] }; // Stores IDs for the curren
     let natTracksLayerInstance = null;
 
     window.pinnedFlights = new Set();
+
+    // --- PRO GATE: Clear pinned flights when the user signs out ---
+    // Multi-Track is a signed-in-only feature, so any cards left over from a
+    // previous session must be torn down when the auth state flips to logged-out.
+    try {
+        supabase.auth.onAuthStateChange((event, session) => {
+            if (event === 'SIGNED_OUT' || !session?.user) {
+                if (window.pinnedFlights && window.pinnedFlights.size > 0) {
+                    // Copy the set to an array first because unpinFlight mutates it
+                    const ids = Array.from(window.pinnedFlights);
+                    ids.forEach(id => {
+                        if (typeof window.unpinFlight === 'function') {
+                            window.unpinFlight(id);
+                        }
+                    });
+                }
+            }
+        });
+    } catch (err) {
+        console.warn('Multi-Track sign-out cleanup could not be registered:', err);
+    }
     
     window.toggleFlightPin = function(flightId) {
+        // --- PRO GATE: Multi-Track pinned flights require a signed-in account ---
+        // Allow unpinning regardless (so a user who somehow has stale pins can clear them),
+        // but block any new pin attempts from non-signed-in users.
+        const isSignedIn = !!(typeof ProfileUI !== 'undefined' && ProfileUI?._currentUser);
+
         if (window.pinnedFlights.has(flightId)) {
             window.unpinFlight(flightId);
-        } else {
-            window.pinFlight(flightId);
+            return;
         }
+
+        if (!isSignedIn) {
+            if (typeof showNotification === 'function') {
+                showNotification("Multi-Track is a Pro feature — sign in to pin flights.", "error");
+            }
+            // Surface the signup modal so the user can convert immediately
+            if (window.AuthUI && typeof window.AuthUI.open === 'function') {
+                window.AuthUI.open('signup');
+            }
+            return;
+        }
+
+        window.pinFlight(flightId);
     };
 
     function createMiniWindowsContainer() {
@@ -227,6 +271,20 @@ window.currentAirportTraffic = { in: [], out: [] }; // Stores IDs for the curren
     }
 
 window.pinFlight = function(flightId) {
+        // --- PRO GATE (defense-in-depth): bail if the user is not signed in ---
+        // toggleFlightPin already enforces this, but we re-check here so that any
+        // future direct callers of pinFlight cannot bypass the paywall.
+        const isSignedIn = !!(typeof ProfileUI !== 'undefined' && ProfileUI?._currentUser);
+        if (!isSignedIn) {
+            if (typeof showNotification === 'function') {
+                showNotification("Multi-Track is a Pro feature — sign in to pin flights.", "error");
+            }
+            if (window.AuthUI && typeof window.AuthUI.open === 'function') {
+                window.AuthUI.open('signup');
+            }
+            return;
+        }
+
         window.pinnedFlights.add(flightId);
         const container = createMiniWindowsContainer();
         const flightProps = currentMapFeatures[flightId]?.properties;
@@ -341,6 +399,7 @@ window.pinFlight = function(flightId) {
     // --- NEW: To cache flight data when switching to stats view ---
     let cachedFlightDataForStatsView = { flightProps: null, plan: null };
 let mapFilters = {
+        activeAirportStyle: 'default',
         proCustomColor: '#38bdf8',
         userPlaneColor: '#f97316',     // Orange — color of the logged-in pilot's own plane
         friendPlaneColor: '#c084fc',   // Purple — color of pilots on the watchlist
@@ -575,8 +634,6 @@ window.refreshPilotRelations = refreshPilotRelations;
                     currentMapStyle = MAP_STYLE_DARK;
                 }
             }
-            
-            console.log("Loaded map filters from local storage.", mapFilters);
         } catch (e) {
             console.warn("Could not parse saved filters from local storage.", e);
             // On error, just use the defaults
@@ -1435,6 +1492,30 @@ function injectCustomStyles() {
                 margin-bottom: 4px;
                 border-bottom-width: 1px;
             }
+        }
+
+        .apt-simple-marker {
+            cursor: pointer;
+            pointer-events: auto;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            transition: all 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+            background: rgba(15, 23, 42, 0.65);
+            backdrop-filter: blur(4px);
+            border: 1px solid rgba(255, 255, 255, 0.15);
+            border-radius: 50%;
+            width: 32px;
+            height: 32px;
+            box-shadow: 0 4px 12px rgba(0,0,0,0.5);
+            box-sizing: border-box;
+        }
+        .apt-simple-marker:hover {
+            transform: scale(1.2) translateY(-2px);
+            background: rgba(15, 23, 42, 0.95);
+            border-color: #38bdf8;
+            box-shadow: 0 8px 20px rgba(56, 189, 248, 0.4);
+            z-index: 9999 !important;
         }
 
         .apt-tag-base {
@@ -5369,10 +5450,6 @@ function onSearchResultClick(arg1, arg2, arg3) {
     // CRITICAL: Make function globally available to landingUI.js
     window.onSearchResultClick = onSearchResultClick;
 
-/**
- * --- [NEW FUNCTION] ---
- * Toggles the visibility of the aircraft label layer based on mapFilters.showAircraftLabels state.
- */
 function updateAircraftLabelVisibility() {
     if (!sectorOpsMap || !sectorOpsMap.getLayer('sector-ops-live-flights-labels')) {
         return;
@@ -5384,8 +5461,6 @@ function updateAircraftLabelVisibility() {
         'visibility',
         mapFilters.showAircraftLabels ? 'visible' : 'none'
     );
-    
-    console.log('Aircraft label visibility set to:', mapFilters.showAircraftLabels ? 'visible' : 'none');
 }
 
 /**
@@ -6618,20 +6693,12 @@ function handleSocketFlightUpdate(data) {
                 FlownPath3D.updatePath(sectorOpsMap, flightId, localTrail, mapFilters.show3DPath);
             }
             
-            let rawCoords = localTrail.map(p => [p.lon ?? p.longitude, p.lat ?? p.latitude]);
-            rawCoords.push([flight.position.lon, flight.position.lat]);
-            
-            if (typeof unwrapLineCoordinates === 'function' && typeof densifyRoute === 'function') {
-                const unwrappedCoords = unwrapLineCoordinates(rawCoords);
-                const sortedCoordinates = densifyRoute(unwrappedCoords, 100);
-                
-                const flownLayerId = `flown-path-${flightId}`;
-                if (sectorOpsMap && sectorOpsMap.getSource(flownLayerId)) {
-                    sectorOpsMap.getSource(flownLayerId).setData({
-                        type: 'Feature',
-                        geometry: { type: 'LineString', coordinates: sortedCoordinates }
-                    });
-                }
+            const flownLayerId = `flown-path-${flightId}`;
+
+            if (sectorOpsMap && sectorOpsMap.getSource(flownLayerId)) {
+                // Use the exact same segmented generator for pinned flights so the altitude colors update smoothly
+                const newPinnedRouteData = generateAltitudeColoredRoute(localTrail, flight.position);
+                sectorOpsMap.getSource(flownLayerId).setData(newPinnedRouteData);
             }
 
             // Update Mini Card Stats
@@ -9250,14 +9317,256 @@ const SettingsUI = {
         theme: { label: "Theme", icon: "fa-palette" }
     },
 
+    _injectStyles() {
+        // Idempotent: only inject once
+        if (document.getElementById('settings-ui-modal-styles')) return;
+
+        const style = document.createElement('style');
+        style.id = 'settings-ui-modal-styles';
+        style.textContent = `
+            /* === Global Settings Modal — backdrop & visibility === */
+            #global-settings-modal-overlay.modal-overlay {
+                position: fixed;
+                inset: 0;
+                background: rgba(8, 10, 16, 0.65);
+                backdrop-filter: blur(10px);
+                -webkit-backdrop-filter: blur(10px);
+                display: none;
+                align-items: center;
+                justify-content: center;
+                z-index: 99999;
+                font-family: 'Inter', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+                padding: 24px;
+                box-sizing: border-box;
+                opacity: 0;
+                transition: opacity 0.25s ease;
+            }
+            #global-settings-modal-overlay.modal-overlay.open {
+                display: flex;
+                opacity: 1;
+            }
+
+            /* === The card === */
+            #global-settings-modal-overlay .filter-modal.settings-modal {
+                width: min(960px, 100%);
+                max-height: min(720px, 90vh);
+                background: #18181b;
+                border: 1px solid rgba(255, 255, 255, 0.08);
+                border-radius: 16px;
+                box-shadow: 0 30px 80px rgba(0, 0, 0, 0.6), 0 0 0 1px rgba(255, 255, 255, 0.02);
+                display: flex;
+                flex-direction: column;
+                overflow: hidden;
+                transform: scale(0.96) translateY(8px);
+                transition: transform 0.25s cubic-bezier(0.16, 1, 0.3, 1);
+            }
+            #global-settings-modal-overlay.modal-overlay.open .filter-modal.settings-modal {
+                transform: scale(1) translateY(0);
+            }
+
+            /* === Header === */
+            #global-settings-modal-overlay .modal-header {
+                display: flex;
+                align-items: center;
+                justify-content: space-between;
+                padding: 18px 22px;
+                border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+                background: linear-gradient(180deg, rgba(56, 189, 248, 0.04), transparent);
+                flex-shrink: 0;
+            }
+            #global-settings-modal-overlay .header-main {
+                display: flex;
+                align-items: center;
+                gap: 14px;
+            }
+            #global-settings-modal-overlay .header-icon-box {
+                width: 40px;
+                height: 40px;
+                border-radius: 10px;
+                background: rgba(56, 189, 248, 0.12);
+                color: #38bdf8;
+                display: grid;
+                place-items: center;
+                font-size: 1rem;
+                border: 1px solid rgba(56, 189, 248, 0.25);
+            }
+            #global-settings-modal-overlay .header-text h2 {
+                margin: 0;
+                color: #fafafa;
+                font-size: 1.05rem;
+                font-weight: 700;
+                letter-spacing: -0.2px;
+            }
+            #global-settings-modal-overlay .header-text span {
+                display: block;
+                margin-top: 2px;
+                color: #71717a;
+                font-size: 0.75rem;
+                font-weight: 500;
+            }
+            #global-settings-modal-overlay .close-modal {
+                background: transparent;
+                border: none;
+                color: #71717a;
+                font-size: 1.5rem;
+                cursor: pointer;
+                width: 32px;
+                height: 32px;
+                border-radius: 8px;
+                display: grid;
+                place-items: center;
+                transition: all 0.15s ease;
+                line-height: 1;
+            }
+            #global-settings-modal-overlay .close-modal:hover {
+                background: rgba(239, 68, 68, 0.1);
+                color: #ef4444;
+            }
+
+            /* === Body: two-pane layout === */
+            #global-settings-modal-overlay .modal-body {
+                display: grid;
+                grid-template-columns: 220px 1fr;
+                flex: 1;
+                min-height: 0;
+            }
+
+            /* Left pane — category list */
+            #global-settings-modal-overlay .filter-selection-pane {
+                background: #131316;
+                border-right: 1px solid rgba(255, 255, 255, 0.05);
+                padding: 16px 12px;
+                overflow-y: auto;
+            }
+            #global-settings-modal-overlay .filter-group-wrapper { display: flex; flex-direction: column; gap: 6px; }
+            #global-settings-modal-overlay .filter-group-header {
+                font-size: 0.65rem;
+                font-weight: 700;
+                letter-spacing: 0.08em;
+                text-transform: uppercase;
+                color: #52525b;
+                padding: 6px 10px 10px;
+            }
+            #global-settings-modal-overlay .filter-options-list {
+                display: flex;
+                flex-direction: column;
+                gap: 2px;
+            }
+            #global-settings-modal-overlay .nexus-item {
+                display: flex;
+                align-items: center;
+                gap: 10px;
+                padding: 9px 10px;
+                background: transparent;
+                border: 1px solid transparent;
+                border-radius: 8px;
+                color: #a1a1aa;
+                font-size: 0.82rem;
+                font-weight: 500;
+                cursor: pointer;
+                text-align: left;
+                transition: all 0.15s ease;
+                font-family: inherit;
+            }
+            #global-settings-modal-overlay .nexus-item:hover {
+                background: rgba(255, 255, 255, 0.03);
+                color: #e4e4e7;
+            }
+            #global-settings-modal-overlay .nexus-item.active {
+                background: rgba(56, 189, 248, 0.08);
+                border-color: rgba(56, 189, 248, 0.2);
+                color: #38bdf8;
+            }
+            #global-settings-modal-overlay .nexus-icon {
+                width: 22px;
+                height: 22px;
+                display: grid;
+                place-items: center;
+                font-size: 0.85rem;
+                flex-shrink: 0;
+            }
+            #global-settings-modal-overlay .nexus-label { flex: 1; }
+
+            /* Right pane — config content (overrides existing orphan rule) */
+            #global-settings-modal-overlay .filter-config-pane {
+                background: #121214;
+                padding: 20px 24px;
+                overflow-y: auto;
+            }
+            #global-settings-modal-overlay .settings-content-wrapper { display: flex; flex-direction: column; gap: 22px; }
+            #global-settings-modal-overlay .settings-section { display: flex; flex-direction: column; gap: 8px; }
+            #global-settings-modal-overlay .config-header {
+                font-size: 0.7rem;
+                font-weight: 700;
+                letter-spacing: 0.08em;
+                text-transform: uppercase;
+                color: #71717a;
+                margin-bottom: 4px;
+            }
+            #global-settings-modal-overlay .row-input,
+            #global-settings-modal-overlay .row-input-select {
+                background: #18181b;
+                border: 1px solid rgba(255, 255, 255, 0.08);
+                color: #e4e4e7;
+                padding: 6px 10px;
+                border-radius: 6px;
+                font-size: 0.8rem;
+                font-family: inherit;
+            }
+            #global-settings-modal-overlay .row-input-select { min-width: 160px; cursor: pointer; }
+            #global-settings-modal-overlay .input-wrapper.select-wrapper { display: inline-flex; }
+            #global-settings-modal-overlay input[type="range"] { accent-color: #38bdf8; }
+            #global-settings-modal-overlay .modal-btn {
+                padding: 9px 14px;
+                border-radius: 8px;
+                border: 1px solid rgba(255, 255, 255, 0.08);
+                font-size: 0.8rem;
+                font-weight: 600;
+                cursor: pointer;
+                font-family: inherit;
+                transition: all 0.15s ease;
+            }
+            #global-settings-modal-overlay .modal-btn.secondary { background: rgba(255,255,255,0.04); color: #e4e4e7; }
+            #global-settings-modal-overlay .modal-btn.secondary:hover { background: rgba(255,255,255,0.08); }
+
+            /* Custom scrollbars inside the modal */
+            #global-settings-modal-overlay .custom-scroll::-webkit-scrollbar { width: 8px; }
+            #global-settings-modal-overlay .custom-scroll::-webkit-scrollbar-track { background: transparent; }
+            #global-settings-modal-overlay .custom-scroll::-webkit-scrollbar-thumb {
+                background: rgba(255, 255, 255, 0.08);
+                border-radius: 4px;
+            }
+            #global-settings-modal-overlay .custom-scroll::-webkit-scrollbar-thumb:hover { background: rgba(255, 255, 255, 0.15); }
+
+            /* Mobile: stack the panes (the modal still renders < 768px on tablets) */
+            @media (max-width: 720px) {
+                #global-settings-modal-overlay .modal-body { grid-template-columns: 1fr; }
+                #global-settings-modal-overlay .filter-selection-pane {
+                    border-right: none;
+                    border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+                }
+                #global-settings-modal-overlay .filter-options-list {
+                    flex-direction: row;
+                    overflow-x: auto;
+                }
+                #global-settings-modal-overlay .nexus-item { flex-shrink: 0; }
+            }
+        `;
+        document.head.appendChild(style);
+    },
+
     init() {
+        this._injectStyles();
         this.render();
         this.attachListeners();
 
         // The logic to decide which UI to show
         const handleSettingsOpen = (e) => {
             // Prevent the button from keeping focus state during the transition
-            e.currentTarget.blur();
+            // (only available when triggered by a real click event)
+            if (e && e.currentTarget && typeof e.currentTarget.blur === 'function') {
+                e.currentTarget.blur();
+            }
             
             if (window.innerWidth <= 768) {
                 // Trigger the Mobile Bottom Sheet
@@ -9268,13 +9577,15 @@ const SettingsUI = {
             }
         };
 
-        // 1. Hook into the LandingUI 'Settings' Tile
-        const tileSettings = document.getElementById('tile-settings');
-        if (tileSettings) {
-            tileSettings.addEventListener('click', handleSettingsOpen);
-        }
+        // Primary wiring: listen for the 'openSettings' custom event that
+        // LandingUI.js dispatches when the gear tile is clicked. This is more
+        // robust than binding directly to #tile-settings, because LandingUI
+        // re-renders its markup and any direct click listener on the old node
+        // gets dropped on the floor.
+        window.addEventListener('openSettings', handleSettingsOpen);
 
-        // 2. Hook into the standard toolbar button
+        // Fallback wiring (defensive): also bind to the toolbar gear button,
+        // which is owned by initializeSectorOpsView and isn't re-rendered.
         const toolbarSettings = document.getElementById('open-filter-settings-btn');
         if (toolbarSettings) {
             toolbarSettings.addEventListener('click', handleSettingsOpen);
@@ -9347,353 +9658,351 @@ const SettingsUI = {
         });
     },
 
-    renderCategory(catId) {
-        const container = document.getElementById('settings-category-content');
-        if (!container) return;
+renderCategory(catId) {
+            const container = document.getElementById('settings-category-content');
+            if (!container) return;
 
-        let html = '';
-        switch(catId) {
-            case 'airspace':
-                html = `
-                    <div class="settings-section">
-                        <label class="config-header">Network Visibility</label>
-                        <div class="settings-row">
-                            <div class="row-label"><i class="fa-solid fa-tower-broadcast"></i> Hide Staffed Airports</div>
-                            <label class="toggle-switch"><input type="checkbox" id="set-hide-atc" ${mapFilters.hideAtcMarkers ? 'checked' : ''}><span class="toggle-slider"></span></label>
-                        </div>
-                        <div class="settings-row">
-                            <div class="row-label"><i class="fa-solid fa-map-marked-alt"></i> Show Unstaffed Airports</div>
-                            <label class="toggle-switch"><input type="checkbox" id="set-show-unstaffed" ${mapFilters.showUnstaffedAirports ? 'checked' : ''}><span class="toggle-slider"></span></label>
-                        </div>
-                        <div class="settings-row">
-                            <div class="row-label"><i class="fa-solid fa-user-shield"></i> Show Staff Only</div>
-                            <label class="toggle-switch"><input type="checkbox" id="set-staff-only" ${mapFilters.showStaffOnly ? 'checked' : ''}><span class="toggle-slider"></span></label>
-                        </div>
-                        <div class="settings-row">
-                            <div class="row-label"><i class="fa-solid fa-medal"></i> Show VA Only</div>
-                            <label class="toggle-switch"><input type="checkbox" id="set-va-only" ${mapFilters.showVaOnly ? 'checked' : ''}><span class="toggle-slider"></span></label>
-                        </div>
-                    </div>
-                `;
-                break;
+            // Check if the user is currently signed in
+            const isSignedIn = !!(typeof ProfileUI !== 'undefined' && ProfileUI?._currentUser);
 
-            case 'visuals':
-                html = `
-                    <!-- ── Pro Upsell Banner ────────────────────────────────────── -->
-                    <div class="pro-upsell-card" style="
-                        position: relative;
-                        margin-bottom: 22px;
-                        padding: 16px 18px;
-                        border-radius: 12px;
-                        background:
-                            linear-gradient(135deg, rgba(56, 189, 248, 0.18), rgba(168, 85, 247, 0.14) 55%, rgba(249, 115, 22, 0.12)),
-                            #0b1220;
-                        border: 1px solid rgba(56, 189, 248, 0.35);
-                        box-shadow: 0 8px 28px rgba(56, 189, 248, 0.10), inset 0 1px 0 rgba(255,255,255,0.04);
-                        overflow: hidden;
-                    ">
-                        <div style="
-                            position: absolute; top: -40px; right: -40px;
-                            width: 160px; height: 160px;
-                            background: radial-gradient(circle, rgba(56,189,248,0.35), transparent 70%);
-                            pointer-events: none;
-                        "></div>
+            let html = '';
 
-                        <div style="display: flex; align-items: center; gap: 10px; margin-bottom: 6px;">
-                            <span style="
-                                display: inline-flex; align-items: center; justify-content: center;
-                                width: 28px; height: 28px; border-radius: 8px;
-                                background: linear-gradient(135deg, #38bdf8, #a855f7);
-                                color: #fff; font-size: 0.85rem;
-                                box-shadow: 0 4px 12px rgba(56, 189, 248, 0.4);
-                            "><i class="fa-solid fa-gem"></i></span>
-                            <h4 style="margin: 0; color: #fff; font-size: 0.95rem; font-weight: 700; letter-spacing: 0.2px;">
-                                Go Pro · Personalize the Sky
-                            </h4>
-                        </div>
-                        <p style="margin: 0 0 12px 0; font-size: 0.75rem; color: #94a3b8; line-height: 1.5;">
-                            You're using the standard visual layer. Pro unlocks the rest of it.
-                        </p>
-
-                        <ul style="list-style: none; padding: 0; margin: 0 0 14px 0; display: flex; flex-direction: column; gap: 6px;">
-                            <li style="display: flex; align-items: center; gap: 10px; font-size: 0.78rem; color: #cbd5e1;">
-                                <i class="fa-solid fa-palette" style="color: #38bdf8; width: 16px; text-align: center;"></i>
-                                Custom color for <strong style="color:#fff;">every aircraft</strong> on the map
-                            </li>
-                            <li style="display: flex; align-items: center; gap: 10px; font-size: 0.78rem; color: #cbd5e1;">
-                                <i class="fa-solid fa-mountain" style="color: #a855f7; width: 16px; text-align: center;"></i>
-                                3D terrain, buildings, and day/night terminator
-                            </li>
-                            <li style="display: flex; align-items: center; gap: 10px; font-size: 0.78rem; color: #cbd5e1;">
-                                <i class="fa-solid fa-droplet" style="color: #f97316; width: 16px; text-align: center;"></i>
-                                Custom theme gradients and premium map styles
-                            </li>
-                            <li style="display: flex; align-items: center; gap: 10px; font-size: 0.78rem; color: #cbd5e1;">
-                                <i class="fa-solid fa-bolt" style="color: #fbbf24; width: 16px; text-align: center;"></i>
-                                Priority data refresh and smooth radar
-                            </li>
-                        </ul>
-
-                        <button id="set-pro-upgrade-btn" style="
-                            display: inline-flex; align-items: center; gap: 8px;
-                            padding: 9px 16px;
-                            background: linear-gradient(135deg, #38bdf8, #a855f7);
-                            color: #fff;
-                            border: none; border-radius: 8px;
-                            cursor: pointer;
-                            font-size: 0.8rem; font-weight: 700;
-                            letter-spacing: 0.3px;
-                            box-shadow: 0 4px 14px rgba(56, 189, 248, 0.35);
-                            transition: transform 0.15s ease, box-shadow 0.15s ease;
-                        " onmouseover="this.style.transform='translateY(-1px)';this.style.boxShadow='0 6px 18px rgba(56,189,248,0.5)';"
-                           onmouseout="this.style.transform='';this.style.boxShadow='0 4px 14px rgba(56, 189, 248, 0.35)';">
-                            <i class="fa-solid fa-arrow-up-right-from-square"></i> Upgrade to Pro
-                        </button>
-                    </div>
-
-                    <!-- ── Pilot Identity ───────────────────────────────────────── -->
-                    <div class="settings-section">
-                        <label class="config-header">Pilot Identity</label>
-
-                        <div class="settings-row" style="border-left: 3px solid ${mapFilters.userPlaneColor || '#f97316'}; background: rgba(249, 115, 22, 0.05);">
-                            <div class="row-label">
-                                <i class="fa-solid fa-user-astronaut" style="color: ${mapFilters.userPlaneColor || '#f97316'};"></i> Your Plane Color
+            switch(catId) {
+                case 'airspace':
+                    html = `
+                        <div class="settings-section">
+                            <label class="config-header">Network Visibility</label>
+                            <div class="settings-row">
+                                <div class="row-label"><i class="fa-solid fa-tower-broadcast"></i> Hide Staffed Airports</div>
+                                <label class="toggle-switch"><input type="checkbox" id="set-hide-atc" ${mapFilters.hideAtcMarkers ? 'checked' : ''}><span class="toggle-slider"></span></label>
                             </div>
-                            <input type="color" id="set-user-plane-color" class="settings-color-input" value="${mapFilters.userPlaneColor || '#f97316'}">
-                        </div>
-                        <p style="font-size: 0.65rem; color: #71717a; margin: -10px 0 12px 16px;">
-                            How your own aircraft is highlighted on the live map.
-                        </p>
-
-                        <div class="settings-row" style="border-left: 3px solid ${mapFilters.friendPlaneColor || '#c084fc'}; background: rgba(192, 132, 252, 0.05);">
-                            <div class="row-label">
-                                <i class="fa-solid fa-user-group" style="color: ${mapFilters.friendPlaneColor || '#c084fc'};"></i> Watchlist Plane Color
+                            <div class="settings-row">
+                                <div class="row-label"><i class="fa-solid fa-map-marked-alt"></i> Show Unstaffed Airports</div>
+                                <label class="toggle-switch"><input type="checkbox" id="set-show-unstaffed" ${mapFilters.showUnstaffedAirports ? 'checked' : ''}><span class="toggle-slider"></span></label>
                             </div>
-                            <input type="color" id="set-friend-plane-color" class="settings-color-input" value="${mapFilters.friendPlaneColor || '#c084fc'}">
+                            
                         </div>
-                        <p style="font-size: 0.65rem; color: #71717a; margin: -10px 0 12px 16px;">
-                            Color used for pilots on your watchlist.
-                        </p>
-
-                        <div class="settings-row pro-feature-row" style="border-left: 3px solid #38bdf8; background: rgba(56, 189, 248, 0.05);">
-                            <div class="row-label">
-                                <i class="fa-solid fa-wand-magic-sparkles" style="color: #38bdf8;"></i> Custom Plane Color
-                                <span style="background: #38bdf8; color: #000; font-size: 0.6rem; padding: 2px 6px; border-radius: 4px; margin-left: 8px; font-weight: 800;">PRO</span>
+                    `;
+                    break;
+                case 'visuals':
+                    html = '';
+                    
+                    // Only show the ad banner if the user is NOT signed in
+                    if (!isSignedIn) {
+                        html += `
+                            <div class="pro-upsell-card" style="
+                                position: relative;
+                                margin-bottom: 22px;
+                                padding: 16px 18px;
+                                border-radius: 12px;
+                                background: linear-gradient(135deg, rgba(56, 189, 248, 0.18), rgba(168, 85, 247, 0.14) 55%, rgba(249, 115, 22, 0.12)), #0b1220;
+                                border: 1px solid rgba(56, 189, 248, 0.35);
+                                box-shadow: 0 8px 28px rgba(56, 189, 248, 0.10), inset 0 1px 0 rgba(255,255,255,0.04);
+                                overflow: hidden;
+                            ">
+                                <div style="
+                                    position: absolute;
+                                    top: -40px;
+                                    right: -40px;
+                                    width: 160px;
+                                    height: 160px;
+                                    background: radial-gradient(circle, rgba(56,189,248,0.35), transparent 70%);
+                                    pointer-events: none;
+                                "></div>
+                                
+                                <div style="display: flex; align-items: center; gap: 10px; margin-bottom: 6px;">
+                                    <span style="
+                                        display: inline-flex;
+                                        align-items: center;
+                                        justify-content: center;
+                                        width: 28px;
+                                        height: 28px;
+                                        border-radius: 8px;
+                                        background: linear-gradient(135deg, #38bdf8, #a855f7);
+                                        color: #fff;
+                                        font-size: 0.85rem;
+                                        box-shadow: 0 4px 12px rgba(56, 189, 248, 0.4);
+                                    "><i class="fa-solid fa-gem"></i></span>
+                                    <h4 style="margin: 0; color: #fff; font-size: 0.95rem; font-weight: 700; letter-spacing: 0.2px;">
+                                        Go Pro · Personalize the Sky
+                                    </h4>
+                                </div>
+                                
+                                <p style="margin: 0 0 12px 0; font-size: 0.75rem; color: #94a3b8; line-height: 1.5;">
+                                    You're using the standard visual layer. Pro unlocks the rest of it.
+                                </p>
+                                
+                                <ul style="list-style: none; padding: 0; margin: 0 0 14px 0; display: flex; flex-direction: column; gap: 6px;">
+                                    <li style="display: flex; align-items: center; gap: 10px; font-size: 0.78rem; color: #cbd5e1;">
+                                        <i class="fa-solid fa-palette" style="color: #38bdf8; width: 16px; text-align: center;"></i> Custom color for <strong style="color:#fff;">every aircraft</strong> on the map
+                                    </li>
+                                    <li style="display: flex; align-items: center; gap: 10px; font-size: 0.78rem; color: #cbd5e1;">
+                                        <i class="fa-solid fa-mountain" style="color: #a855f7; width: 16px; text-align: center;"></i> 3D terrain, buildings, and day/night terminator
+                                    </li>
+                                    <li style="display: flex; align-items: center; gap: 10px; font-size: 0.78rem; color: #cbd5e1;">
+                                        <i class="fa-solid fa-droplet" style="color: #f97316; width: 16px; text-align: center;"></i> Custom theme gradients and premium map styles
+                                    </li>
+                                    <li style="display: flex; align-items: center; gap: 10px; font-size: 0.78rem; color: #cbd5e1;">
+                                        <i class="fa-solid fa-bolt" style="color: #fbbf24; width: 16px; text-align: center;"></i> Priority data refresh and smooth radar
+                                    </li>
+                                </ul>
+                                
+                                <button id="set-pro-upgrade-btn" style="
+                                    display: inline-flex;
+                                    align-items: center;
+                                    gap: 8px;
+                                    padding: 9px 16px;
+                                    background: linear-gradient(135deg, #38bdf8, #a855f7);
+                                    color: #fff;
+                                    border: none;
+                                    border-radius: 8px;
+                                    cursor: pointer;
+                                    font-size: 0.8rem;
+                                    font-weight: 700;
+                                    letter-spacing: 0.3px;
+                                    box-shadow: 0 4px 14px rgba(56, 189, 248, 0.35);
+                                    transition: transform 0.15s ease, box-shadow 0.15s ease;
+                                " onmouseover="this.style.transform='translateY(-1px)';this.style.boxShadow='0 6px 18px rgba(56,189,248,0.5)';" onmouseout="this.style.transform='';this.style.boxShadow='0 4px 14px rgba(56, 189, 248, 0.35)';">
+                                    <i class="fa-solid fa-arrow-up-right-from-square"></i> Upgrade to Pro
+                                </button>
                             </div>
-                            <input type="color" id="set-pro-color" class="settings-color-input" value="${mapFilters.proCustomColor || '#38bdf8'}">
-                        </div>
-                        <p style="font-size: 0.65rem; color: #71717a; margin: -10px 0 4px 16px;">
-                            Recolor every other aircraft on the map. Doesn't affect your colors above.
-                        </p>
-                    </div>
+                        `;
+                    }
 
-                    <!-- ── Aircraft Display ─────────────────────────────────────── -->
-                    <div class="settings-section">
-                        <label class="config-header">Aircraft Display</label>
-
-                        <div class="settings-row">
-                            <div class="row-label"><i class="fa-solid fa-tags"></i> Aircraft Labels</div>
-                            <label class="toggle-switch"><input type="checkbox" id="set-labels" ${mapFilters.showAircraftLabels ? 'checked' : ''}><span class="toggle-slider"></span></label>
-                        </div>
-
-                        <div class="settings-row" style="flex-direction: column; align-items: flex-start; gap: 8px;">
-                            <div style="display: flex; justify-content: space-between; width: 100%; align-items: center;">
-                                <div class="row-label"><i class="fa-solid fa-plane-up"></i> Aircraft Scale</div>
-                                <span id="plane-size-display" style="font-family: 'JetBrains Mono', monospace; color: #38bdf8; font-weight: 800; font-size: 0.9rem;">
-                                    ${Math.round(mapFilters.planeIconSize * 100)}%
-                                </span>
+                    html += `
+                        <div class="settings-section">
+                            <label class="config-header">Pilot Identity</label>
+                            
+                            <div class="settings-row" style="border-left: 3px solid ${mapFilters.userPlaneColor || '#f97316'}; background: rgba(249, 115, 22, 0.05);">
+                                <div class="row-label">
+                                    <i class="fa-solid fa-user-astronaut" style="color: ${mapFilters.userPlaneColor || '#f97316'};"></i> Your Plane Color
+                                </div>
+                                <input type="color" id="set-user-plane-color" class="settings-color-input" value="${mapFilters.userPlaneColor || '#f97316'}">
                             </div>
-                            <input type="range" id="set-plane-size" min="0.1" max="1.0" step="0.05" value="${mapFilters.planeIconSize}" style="width: 100%;">
-                        </div>
-
-                        <div class="settings-row">
-                            <div class="row-label">Icon Color Preset</div>
-                            <div class="input-wrapper select-wrapper">
-                                <select id="set-icon-color" class="row-input-select">
-                                    <option value="default" ${mapFilters.iconColorMode === 'default' ? 'selected' : ''}>Default (White)</option>
-                                    <option value="blue" ${mapFilters.iconColorMode === 'blue' ? 'selected' : ''}>Blue</option>
-                                    <option value="orange" ${mapFilters.iconColorMode === 'orange' ? 'selected' : ''}>Orange</option>
-                                </select>
+                            <p style="font-size: 0.65rem; color: #71717a; margin: -10px 0 12px 16px;">
+                                How your own aircraft is highlighted on the live map.
+                            </p>
+                            
+                            <div class="settings-row" style="border-left: 3px solid ${mapFilters.friendPlaneColor || '#c084fc'}; background: rgba(192, 132, 252, 0.05);">
+                                <div class="row-label">
+                                    <i class="fa-solid fa-user-group" style="color: ${mapFilters.friendPlaneColor || '#c084fc'};"></i> Watchlist Plane Color
+                                </div>
+                                <input type="color" id="set-friend-plane-color" class="settings-color-input" value="${mapFilters.friendPlaneColor || '#c084fc'}">
                             </div>
+                            <p style="font-size: 0.65rem; color: #71717a; margin: -10px 0 12px 16px;">
+                                Color used for pilots on your watchlist.
+                            </p>
+
+                            <div class="settings-row pro-feature-row" style="border-left: 3px solid #38bdf8; background: rgba(56, 189, 248, 0.05); ${!isSignedIn ? 'opacity: 0.5; pointer-events: none;' : ''}">
+                                <div class="row-label">
+                                    <i class="fa-solid fa-wand-magic-sparkles" style="color: #38bdf8;"></i> Custom Plane Color <span style="background: #38bdf8; color: #000; font-size: 0.6rem; padding: 2px 6px; border-radius: 4px; margin-left: 8px; font-weight: 800;">PRO</span>
+                                </div>
+                                <input type="color" id="set-pro-color" class="settings-color-input" value="${mapFilters.proCustomColor || '#38bdf8'}" ${!isSignedIn ? 'disabled' : ''}>
+                            </div>
+                            <p style="font-size: 0.65rem; color: #71717a; margin: -10px 0 4px 16px;">
+                                Recolor every other aircraft on the map. Doesn't affect your colors above.
+                            </p>
                         </div>
-                    </div>
 
-                    <!-- ── Map & Projection ─────────────────────────────────────── -->
-                    <div class="settings-section">
-                        <label class="config-header">Map & Projection</label>
-
-                        <div class="settings-row">
-                            <div class="row-label">Map Style</div>
-                            <div class="input-wrapper select-wrapper">
-                                <select id="set-map-style" class="row-input-select">
-                                    <option value="dark" ${mapFilters.mapStyle === 'dark' ? 'selected' : ''}>Dark (Default)</option>
-                                    <option value="light" ${mapFilters.mapStyle === 'light' ? 'selected' : ''}>Light</option>
-                                    <option value="satellite" ${mapFilters.mapStyle === 'satellite' ? 'selected' : ''}>Satellite</option>
-                                </select>
+                        <div class="settings-section">
+                            <label class="config-header">Aircraft Display</label>
+                            
+                            <div class="settings-row">
+                                <div class="row-label"><i class="fa-solid fa-tags"></i> Aircraft Labels</div>
+                                <label class="toggle-switch"><input type="checkbox" id="set-labels" ${mapFilters.showAircraftLabels ? 'checked' : ''}><span class="toggle-slider"></span></label>
+                            </div>
+                            
+                            <div class="settings-row" style="flex-direction: column; align-items: flex-start; gap: 8px;">
+                                <div style="display: flex; justify-content: space-between; width: 100%; align-items: center;">
+                                    <div class="row-label"><i class="fa-solid fa-plane-up"></i> Aircraft Scale</div>
+                                    <span id="plane-size-display" style="font-family: 'JetBrains Mono', monospace; color: #38bdf8; font-weight: 800; font-size: 0.9rem;">
+                                        ${Math.round(mapFilters.planeIconSize * 100)}%
+                                    </span>
+                                </div>
+                                <input type="range" id="set-plane-size" min="0.1" max="1.0" step="0.05" value="${mapFilters.planeIconSize}" style="width: 100%;">
+                            </div>
+                            
+                            <div class="settings-row">
+                                <div class="row-label">Icon Color Preset</div>
+                                <div class="input-wrapper select-wrapper">
+                                    <select id="set-icon-color" class="row-input-select">
+                                        <option value="default" ${mapFilters.iconColorMode === 'default' ? 'selected' : ''}>Default (White)</option>
+                                        <option value="blue" ${mapFilters.iconColorMode === 'blue' ? 'selected' : ''}>Blue</option>
+                                        <option value="orange" ${mapFilters.iconColorMode === 'orange' ? 'selected' : ''}>Orange</option>
+                                    </select>
+                                </div>
                             </div>
                         </div>
 
-                        <div class="settings-row">
-                            <div class="row-label"><i class="fa-solid fa-map"></i> Flat Map Projection</div>
-                            <label class="toggle-switch"><input type="checkbox" id="set-flat-map" ${mapFilters.useFlatMap ? 'checked' : ''}><span class="toggle-slider"></span></label>
-                        </div>
-                    </div>
-
-                    <!-- ── Routes & Tracks ──────────────────────────────────────── -->
-                    <div class="settings-section">
-                        <label class="config-header">Routes & Tracks</label>
-
-                        <div class="settings-row">
-                            <div class="row-label"><i class="fa-solid fa-route"></i> North Atlantic Tracks</div>
-                            <label class="toggle-switch">
-                                <input type="checkbox" id="set-nat-tracks" ${mapFilters.showNatTracks ? 'checked' : ''}>
-                                <span class="toggle-slider"></span>
-                            </label>
-                        </div>
-
-                        <div class="settings-row">
-                            <div class="row-label"><i class="fa-solid fa-font"></i> Track Labels</div>
-                            <label class="toggle-switch">
-                                <input type="checkbox" id="set-nat-labels" ${mapFilters.showNatLabels ? 'checked' : ''}>
-                                <span class="toggle-slider"></span>
-                            </label>
-                        </div>
-
-                        <div class="settings-row" style="margin-bottom: 4px;">
-                            <div class="row-label">
-                                <i class="fa-solid fa-cube"></i> 3D Path Trail
-                                <span style="background: #f59e0b; color: #000; font-size: 0.6rem; padding: 2px 6px; border-radius: 4px; margin-left: 10px; font-weight: 800; letter-spacing: 0.5px;">EXPERIMENTAL</span>
+                        <div class="settings-section">
+                            <label class="config-header">Map & Projection</label>
+                            <div class="settings-row">
+                                <div class="row-label">Map Style</div>
+                                <div class="input-wrapper select-wrapper">
+                                    <select id="set-map-style" class="row-input-select">
+                                        <option value="dark" ${mapFilters.mapStyle === 'dark' ? 'selected' : ''}>Dark (Default)</option>
+                                        <option value="light" ${mapFilters.mapStyle === 'light' ? 'selected' : ''}>Light</option>
+                                        <option value="satellite" ${mapFilters.mapStyle === 'satellite' ? 'selected' : ''}>Satellite</option>
+                                    </select>
+                                </div>
                             </div>
-                            <label class="toggle-switch">
-                                <input type="checkbox" id="setting-toggle-3dpath" ${mapFilters.show3DPath ? 'checked' : ''}>
-                                <span class="toggle-slider"></span>
-                            </label>
-                        </div>
-                        <p style="font-size: 0.7rem; color: #71717a; margin: 0 0 4px 16px; line-height: 1.4;">
-                            <i class="fa-solid fa-circle-info" style="font-size: 0.6rem; margin-right: 4px;"></i>
-                            Note: This feature is experimental and may be broken at times.
-                        </p>
-                    </div>
-                `;
-                break;
-
-            case 'interface':
-                html = `
-                    <div class="settings-section">
-                        <label class="config-header">User Interface</label>
-                        <div class="settings-row">
-                            <div class="row-label"><i class="fa-solid fa-tablet-button"></i> Simple Flight Window</div>
-                            <label class="toggle-switch"><input type="checkbox" id="set-simple-win" ${mapFilters.useSimpleFlightWindow ? 'checked' : ''}><span class="toggle-slider"></span></label>
-                        </div>
-                        <div class="settings-row">
-                            <div class="row-label">Flight Plan Mode</div>
-                            <div class="input-wrapper select-wrapper">
-                                <select id="set-plan-mode" class="row-input-select">
-                                    <option value="none" ${mapFilters.planDisplayMode === 'none' ? 'selected' : ''}>Hide Plan</option>
-                                    <option value="direct" ${mapFilters.planDisplayMode === 'direct' ? 'selected' : ''}>Direct to Destination</option>
-                                    <option value="full" ${mapFilters.planDisplayMode === 'full' ? 'selected' : ''}>Full Filed Plan</option>
-                                </select>
+                            <div class="settings-row">
+                                <div class="row-label"><i class="fa-solid fa-map"></i> Flat Map Projection</div>
+                                <label class="toggle-switch"><input type="checkbox" id="set-flat-map" ${mapFilters.useFlatMap ? 'checked' : ''}><span class="toggle-slider"></span></label>
                             </div>
                         </div>
-                    </div>
-                `;
-                break;
 
-            // FIND SettingsUI.renderCategory -> switch(catId) -> case 'pro_layers':
-case 'pro_layers':
-    html = `
-    <div class="settings-section">
-        <div class="pro-feature-banner" style="background: linear-gradient(90deg, rgba(56, 189, 248, 0.1), transparent); padding: 12px; border-left: 3px solid #38bdf8; margin-bottom: 20px; border-radius: 0 8px 8px 0;">
-            <h4 style="margin: 0; color: #38bdf8; display: flex; align-items: center; gap: 8px;">
-                <i class="fa-solid fa-star"></i> PRO MAP CONTROL
-            </h4>
-            <p style="margin: 4px 0 0 0; font-size: 0.75rem; color: #94a3b8;">
-                High-fidelity map layers and 3D visualization tools.
-            </p>
-        </div>
-
-        <label class="config-header">3D Environment</label>
-        <div class="settings-row">
-            <div class="row-label"><i class="fa-solid fa-mountain"></i> 3D Terrain (Elevation)</div>
-            <label class="toggle-switch">
-                <input type="checkbox" id="pro-toggle-terrain" ${mapFilters.proMapConfig.showTerrain ? 'checked' : ''}>
-                <span class="toggle-slider"></span>
-            </label>
-        </div>
-        <div class="settings-row">
-            <div class="row-label"><i class="fa-solid fa-city"></i> 3D Buildings</div>
-            <label class="toggle-switch">
-                <input type="checkbox" id="pro-toggle-buildings" ${mapFilters.proMapConfig.showBuildings ? 'checked' : ''}>
-                <span class="toggle-slider"></span>
-            </label>
-        </div>
-        <div class="settings-row">
-            <div class="row-label"><i class="fa-solid fa-moon"></i> Day/Night Terminator</div>
-            <label class="toggle-switch">
-                <input type="checkbox" id="pro-toggle-daynight" ${mapFilters.proMapConfig.showDayNight ? 'checked' : ''}>
-                <span class="toggle-slider"></span>
-            </label>
-        </div>
-
-        <label class="config-header" style="margin-top: 20px;">Base Map Elements</label>
-        <div class="settings-row">
-            <div class="row-label"><i class="fa-solid fa-earth-americas"></i> Political Borders</div>
-            <label class="toggle-switch">
-                <input type="checkbox" id="pro-toggle-borders" ${mapFilters.proMapConfig.showBorders ? 'checked' : ''}>
-                <span class="toggle-slider"></span>
-            </label>
-        </div>
-        <div class="settings-row">
-            <div class="row-label"><i class="fa-solid fa-road"></i> Roads & Highways</div>
-            <label class="toggle-switch">
-                <input type="checkbox" id="pro-toggle-roads" ${mapFilters.proMapConfig.showRoads ? 'checked' : ''}>
-                <span class="toggle-slider"></span>
-            </label>
-        </div>
-        <div class="settings-row">
-            <div class="row-label"><i class="fa-solid fa-font"></i> City & Place Labels</div>
-            <label class="toggle-switch">
-                <input type="checkbox" id="pro-toggle-labels" ${mapFilters.proMapConfig.showLabels ? 'checked' : ''}>
-                <span class="toggle-slider"></span>
-            </label>
-        </div>
-        <div class="settings-row">
-            <div class="row-label"><i class="fa-solid fa-plane-arrival"></i> Airport Layout</div>
-            <label class="toggle-switch">
-                <input type="checkbox" id="pro-toggle-layout" ${mapFilters.proMapConfig.showAirportLayout !== false ? 'checked' : ''}>
-                <span class="toggle-slider"></span>
-            </label>
-        </div>
-    </div>
-    `;
-    break;
-
-            case 'theme':
-                html = `
-                    <div class="settings-section">
-                        <label class="config-header">Window Appearance</label>
-                        <div class="settings-row">
-                            <div class="row-label">Gradient Start Color</div>
-                            <input type="color" id="set-theme-start" class="settings-color-input" value="${mapFilters.themeStartColor || '#18181b'}">
+                        <div class="settings-section">
+                            <label class="config-header">Routes & Tracks</label>
+                            <div class="settings-row">
+                                <div class="row-label"><i class="fa-solid fa-route"></i> North Atlantic Tracks</div>
+                                <label class="toggle-switch">
+                                    <input type="checkbox" id="set-nat-tracks" ${mapFilters.showNatTracks ? 'checked' : ''}>
+                                    <span class="toggle-slider"></span>
+                                </label>
+                            </div>
+                            <div class="settings-row">
+                                <div class="row-label"><i class="fa-solid fa-font"></i> Track Labels</div>
+                                <label class="toggle-switch">
+                                    <input type="checkbox" id="set-nat-labels" ${mapFilters.showNatLabels ? 'checked' : ''}>
+                                    <span class="toggle-slider"></span>
+                                </label>
+                            </div>
+                            <div class="settings-row" style="margin-bottom: 4px;">
+                                <div class="row-label">
+                                    <i class="fa-solid fa-cube"></i> 3D Path Trail
+                                    <span style="background: #f59e0b; color: #000; font-size: 0.6rem; padding: 2px 6px; border-radius: 4px; margin-left: 10px; font-weight: 800; letter-spacing: 0.5px;">EXPERIMENTAL</span>
+                                </div>
+                                <label class="toggle-switch">
+                                    <input type="checkbox" id="setting-toggle-3dpath" ${mapFilters.show3DPath ? 'checked' : ''}>
+                                    <span class="toggle-slider"></span>
+                                </label>
+                            </div>
+                            <p style="font-size: 0.7rem; color: #71717a; margin: 0 0 4px 16px; line-height: 1.4;">
+                                <i class="fa-solid fa-circle-info" style="font-size: 0.6rem; margin-right: 4px;"></i>
+                                Note: This feature is experimental and may be broken at times.
+                            </p>
                         </div>
-                        <div class="settings-row">
-                            <div class="row-label">Gradient End Color</div>
-                            <input type="color" id="set-theme-end" class="settings-color-input" value="${mapFilters.themeEndColor || '#18181b'}">
+                    `;
+                    break;
+                case 'interface':
+                    html = `
+                        <div class="settings-section">
+                            <label class="config-header">User Interface</label>
+                            <div class="settings-row">
+                                <div class="row-label"><i class="fa-solid fa-tablet-button"></i> Simple Flight Window</div>
+                                <label class="toggle-switch"><input type="checkbox" id="set-simple-win" ${mapFilters.useSimpleFlightWindow ? 'checked' : ''}><span class="toggle-slider"></span></label>
+                            </div>
+                            <div class="settings-row">
+                                <div class="row-label">Flight Plan Mode</div>
+                                <div class="input-wrapper select-wrapper">
+                                    <select id="set-plan-mode" class="row-input-select">
+                                        <option value="none" ${mapFilters.planDisplayMode === 'none' ? 'selected' : ''}>Hide Plan</option>
+                                        <option value="direct" ${mapFilters.planDisplayMode === 'direct' ? 'selected' : ''}>Direct to Destination</option>
+                                        <option value="full" ${mapFilters.planDisplayMode === 'full' ? 'selected' : ''}>Full Filed Plan</option>
+                                    </select>
+                                </div>
+                            </div>
                         </div>
-                        <div class="settings-row">
-                            <div class="row-label">Theme Opacity (%)</div>
-                            <input type="number" id="set-theme-opacity" class="row-input" style="width: 80px;" value="${mapFilters.themeOpacity || 90}">
+                    `;
+                    break;
+                case 'pro_layers':
+                    html = `
+                        <div class="settings-section">
+                            <div class="pro-feature-banner" style="background: linear-gradient(90deg, rgba(56, 189, 248, 0.1), transparent); padding: 12px; border-left: 3px solid #38bdf8; margin-bottom: 20px; border-radius: 0 8px 8px 0;">
+                                <h4 style="margin: 0; color: #38bdf8; display: flex; align-items: center; gap: 8px;">
+                                    <i class="fa-solid fa-star"></i> PRO MAP CONTROL
+                                </h4>
+                                <p style="margin: 4px 0 0 0; font-size: 0.75rem; color: #94a3b8;">
+                                    High-fidelity map layers and 3D visualization tools.
+                                </p>
+                            </div>
+                            
+                            <div style="${!isSignedIn ? 'opacity: 0.5; pointer-events: none;' : ''}">
+                                <label class="config-header">3D Environment</label>
+                                <div class="settings-row">
+                                    <div class="row-label"><i class="fa-solid fa-mountain"></i> 3D Terrain (Elevation)</div>
+                                    <label class="toggle-switch">
+                                        <input type="checkbox" id="pro-toggle-terrain" ${mapFilters.proMapConfig.showTerrain ? 'checked' : ''} ${!isSignedIn ? 'disabled' : ''}>
+                                        <span class="toggle-slider"></span>
+                                    </label>
+                                </div>
+                                <div class="settings-row">
+                                    <div class="row-label"><i class="fa-solid fa-city"></i> 3D Buildings</div>
+                                    <label class="toggle-switch">
+                                        <input type="checkbox" id="pro-toggle-buildings" ${mapFilters.proMapConfig.showBuildings ? 'checked' : ''} ${!isSignedIn ? 'disabled' : ''}>
+                                        <span class="toggle-slider"></span>
+                                    </label>
+                                </div>
+                                <div class="settings-row">
+                                    <div class="row-label"><i class="fa-solid fa-moon"></i> Day/Night Terminator</div>
+                                    <label class="toggle-switch">
+                                        <input type="checkbox" id="pro-toggle-daynight" ${mapFilters.proMapConfig.showDayNight ? 'checked' : ''} ${!isSignedIn ? 'disabled' : ''}>
+                                        <span class="toggle-slider"></span>
+                                    </label>
+                                </div>
+                                
+                                <label class="config-header" style="margin-top: 20px;">Base Map Elements</label>
+                                <div class="settings-row">
+                                    <div class="row-label"><i class="fa-solid fa-earth-americas"></i> Political Borders</div>
+                                    <label class="toggle-switch">
+                                        <input type="checkbox" id="pro-toggle-borders" ${mapFilters.proMapConfig.showBorders ? 'checked' : ''} ${!isSignedIn ? 'disabled' : ''}>
+                                        <span class="toggle-slider"></span>
+                                    </label>
+                                </div>
+                                <div class="settings-row">
+                                    <div class="row-label"><i class="fa-solid fa-road"></i> Roads & Highways</div>
+                                    <label class="toggle-switch">
+                                        <input type="checkbox" id="pro-toggle-roads" ${mapFilters.proMapConfig.showRoads ? 'checked' : ''} ${!isSignedIn ? 'disabled' : ''}>
+                                        <span class="toggle-slider"></span>
+                                    </label>
+                                </div>
+                                <div class="settings-row">
+                                    <div class="row-label"><i class="fa-solid fa-font"></i> City & Place Labels</div>
+                                    <label class="toggle-switch">
+                                        <input type="checkbox" id="pro-toggle-labels" ${mapFilters.proMapConfig.showLabels ? 'checked' : ''} ${!isSignedIn ? 'disabled' : ''}>
+                                        <span class="toggle-slider"></span>
+                                    </label>
+                                </div>
+                                <div class="settings-row">
+                                    <div class="row-label"><i class="fa-solid fa-plane-arrival"></i> Airport Layout</div>
+                                    <label class="toggle-switch">
+                                        <input type="checkbox" id="pro-toggle-layout" ${mapFilters.proMapConfig.showAirportLayout !== false ? 'checked' : ''} ${!isSignedIn ? 'disabled' : ''}>
+                                        <span class="toggle-slider"></span>
+                                    </label>
+                                </div>
+                            </div>
                         </div>
+                    `;
+                    break;
+                case 'theme':
+                    html = `
+                        <div class="settings-section">
+                            <label class="config-header">Window Appearance</label>
+                            
+                            <div style="${!isSignedIn ? 'opacity: 0.5; pointer-events: none;' : ''}">
+                                <div class="settings-row">
+                                    <div class="row-label">Gradient Start Color</div>
+                                    <input type="color" id="set-theme-start" class="settings-color-input" value="${mapFilters.themeStartColor || '#18181b'}" ${!isSignedIn ? 'disabled' : ''}>
+                                </div>
+                                <div class="settings-row">
+                                    <div class="row-label">Gradient End Color</div>
+                                    <input type="color" id="set-theme-end" class="settings-color-input" value="${mapFilters.themeEndColor || '#18181b'}" ${!isSignedIn ? 'disabled' : ''}>
+                                </div>
+                                <div class="settings-row">
+                                    <div class="row-label">Theme Opacity (%)</div>
+                                    <input type="number" id="set-theme-opacity" class="row-input" style="width: 80px;" value="${mapFilters.themeOpacity || 90}" ${!isSignedIn ? 'disabled' : ''}>
+                                </div>
+                                <button id="set-theme-reset" class="modal-btn secondary" style="width: 100%; margin-top: 20px;" ${!isSignedIn ? 'disabled' : ''}>Reset Default Theme</button>
+                            </div>
+                        </div>
+                    `;
+                    break;
+            }
 
-                        <button id="set-theme-reset" class="modal-btn secondary" style="width: 100%; margin-top: 20px;">Reset Default Theme</button>
-                    </div>
-                `;
-                break;
-        }
-
-        container.innerHTML = html;
-        this.attachConfigListeners();
-    },
+            container.innerHTML = html;
+            this.attachConfigListeners();
+        },
 
     attachConfigListeners() {
         const update = (key, val) => {
@@ -10249,7 +10558,19 @@ window.globalNatTracks = natTracks;
     } finally {
         // [PERF FIX] Removed the 8-second artificial minimum loader.
         // The loader now hides as soon as the app is actually ready.
-        mainContentLoader.classList.remove('active');
+        //
+        // NOTE: The `mainContentLoader` variable that used to live here was
+        // never declared in this file — referencing it threw a ReferenceError
+        // from inside a `finally` block, which crashed initializeSectorOpsView
+        // on every load and halted the rest of initializeApp (including
+        // SettingsUI.init), making the gear button do nothing.
+        // The actual current loader is `#inflight-pro-loader-overlay`, which
+        // is dismissed elsewhere; we look it up defensively here just in case
+        // a `#main-content-loader` element exists in some build of index.html.
+        const mainContentLoader = document.getElementById('main-content-loader');
+        if (mainContentLoader) {
+            mainContentLoader.classList.remove('active');
+        }
         console.log(`Loading complete in ${Date.now() - window.loadingStartTime}ms.`);
     }
 }
@@ -10464,22 +10785,25 @@ if (flightProps) {
     });
 
     sectorOpsMap.addLayer({
-        id: `flown-path-${flightId}`,
-        type: 'line',
-        source: `flown-path-${flightId}`,
-        paint: {
-            'line-width': 4,
-            'line-opacity': 1,
-            'line-gradient': [
-                'interpolate',
-                ['linear'],
-                ['line-progress'],
-                0, '#e6e600', // Start
-                0.5, '#ff3300', // Mid
-                1, '#9400D3' // Current
-            ]
-        }
-    }, 'sector-ops-live-flights-layer');
+                id: `flown-path-${flightId}`,
+                type: 'line',
+                source: `flown-path-${flightId}`,
+                paint: {
+                    'line-width': 4,
+                    'line-opacity': 1,
+                    'line-color': [
+                        'interpolate',
+                        ['linear'],
+                        ['get', 'altitude'],
+                        0, '#94a3b8',       // Ground / Taxi / Parked (Grey)
+                        3000, '#c084fc',    // Approach / Initial Climb (Purple)
+                        12000, '#f59e0b',   // Lower Descent / Climb (Orange)
+                        20000, '#10b981',   // Climb / High Descent (Green)
+                        30000, '#38bdf8',   // Cruise (Blue)
+                        45000, '#0284c7'    // High Cruise (Darker Blue)
+                    ]
+                }
+            }, 'sector-ops-live-flights-layer');
 
     sectorOpsLiveFlightPathLayers[flightId] = { flown: `flown-path-${flightId}` };
 }
@@ -10889,59 +11213,67 @@ function generateSmoothPath(points, tension = 0.5) {
     return result;
 }
 
-function generateAltitudeColoredRoute(history, currentPos, flightPlan = null) {
-    if (!history || history.length === 0) return { type: 'Feature', geometry: { type: 'LineString', coordinates: [] } };
+function generateAltitudeColoredRoute(trailPoints, currentPosition, plan) {
+    const features = [];
+    const allPoints = [...(trailPoints || [])];
 
-    // 1. Prepare and sanitize points
-    let points = history.map(p => {
-        const lat = p.lat ?? p.latitude;
-        const lon = p.lon ?? p.longitude;
-        return { lat: parseFloat(Number(lat).toFixed(6)), lon: parseFloat(Number(lon).toFixed(6)), alt: p.altitude || 0 };
+    // Push the live current position to complete the line
+    if (currentPosition) {
+        allPoints.push({
+            latitude: currentPosition.lat,
+            longitude: currentPosition.lon,
+            altitude: currentPosition.alt_ft || 0
+        });
+    }
+
+    if (allPoints.length < 2) {
+        return { type: 'FeatureCollection', features: [] };
+    }
+
+    // Unwrap longitudes to prevent the line from stretching across the globe at the anti-meridian
+    const unwrappedPoints = [];
+    let prevLon = allPoints[0].longitude || allPoints[0].lon;
+    
+    unwrappedPoints.push({
+        lat: allPoints[0].latitude || allPoints[0].lat,
+        lon: prevLon,
+        alt: allPoints[0].altitude || allPoints[0].alt || 0
     });
-    points.push({ lat: parseFloat(currentPos.lat.toFixed(6)), lon: parseFloat(currentPos.lon.toFixed(6)), alt: currentPos.alt_ft || 0 });
 
-    // 2. Unwrapping for Date Line continuity
-    let refLon = points[0].lon;
-    points[0].unwrappedLon = refLon;
-    for (let i = 1; i < points.length; i++) {
-        let delta = points[i].lon - (refLon % 360);
-        while (delta > 180) delta -= 360;
-        while (delta < -180) delta += 360;
-        points[i].unwrappedLon = refLon + delta;
-        refLon = points[i].unwrappedLon;
+    for (let i = 1; i < allPoints.length; i++) {
+        let lon = allPoints[i].longitude || allPoints[i].lon;
+        const lat = allPoints[i].latitude || allPoints[i].lat;
+        const alt = allPoints[i].altitude || allPoints[i].alt || 0;
+
+        while (lon - prevLon > 180) lon -= 360;
+        while (prevLon - lon > 180) lon += 360;
+
+        unwrappedPoints.push({ lat, lon, alt });
+        prevLon = lon;
     }
 
-    // 3. Smoothing
-    const isPolar = points.some(p => Math.abs(p.lat) > 70);
-    const finalPoints = (points.length > 1 && !isPolar) ? generateSmoothPath(points) : points;
+    // Create a distinct LineString feature for EVERY segment
+    for (let i = 0; i < unwrappedPoints.length - 1; i++) {
+        const p1 = unwrappedPoints[i];
+        const p2 = unwrappedPoints[i + 1];
 
-    // 4. Compile into a Single LineString with Densification
-    const allCoordinates = [];
-    const MAX_SEG_KM = 200; 
-
-    for (let i = 0; i < finalPoints.length - 1; i++) {
-        const start = finalPoints[i];
-        const end = finalPoints[i + 1];
-        const dist = getDistanceKm(start.lat, start.unwrappedLon, end.lat, end.unwrappedLon);
-        const steps = Math.ceil(dist / MAX_SEG_KM);
-        
-        for (let j = 0; j < steps; j++) {
-            const fraction = j / steps;
-            const intermediate = getIntermediatePoint(start.lat, start.unwrappedLon, end.lat, end.unwrappedLon, fraction);
-            const lon = start.unwrappedLon + (end.unwrappedLon - start.unwrappedLon) * fraction;
-            allCoordinates.push([lon, intermediate.lat]);
-        }
+        features.push({
+            type: 'Feature',
+            geometry: {
+                type: 'LineString',
+                coordinates: [
+                    [p1.lon, p1.lat],
+                    [p2.lon, p2.lat]
+                ]
+            },
+            properties: {
+                // Assign the altitude so Mapbox can color it!
+                altitude: p1.alt
+            }
+        });
     }
-    allCoordinates.push([finalPoints[finalPoints.length - 1].unwrappedLon, finalPoints[finalPoints.length - 1].lat]);
 
-    return {
-        type: 'Feature',
-        geometry: {
-            type: 'LineString',
-            coordinates: allCoordinates
-        },
-        properties: {}
-    };
+    return { type: 'FeatureCollection', features: features };
 }
 
 /**
@@ -11173,40 +11505,38 @@ async function handleAircraftClick(flightProps, optionalSessionId = null, event 
             }
         }
 
-        let rawCoords = sortedRoutePoints.map(p => [p.lon ?? p.longitude, p.lat ?? p.latitude]);
-        rawCoords.push([flightProps.position.lon, flightProps.position.lat]);
-        const unwrappedCoords = unwrapLineCoordinates(rawCoords);
-        const sortedCoordinates = densifyRoute(unwrappedCoords, 100);
-
         const flownLayerId = `flown-path-${flightProps.flightId}`;
+        
+        // Generate the segmented FeatureCollection using our new function
+        const initialRouteData = generateAltitudeColoredRoute(sortedRoutePoints, flightProps.position, plan);
+
         if (!sectorOpsMap.getSource(flownLayerId)) {
             sectorOpsMap.addSource(flownLayerId, {
                 type: 'geojson',
-                data: {
-                    type: 'Feature',
-                    geometry: {
-                        type: 'LineString',
-                        coordinates: sortedCoordinates
-                    }
-                },
-                lineMetrics: true
+                data: initialRouteData // Feed it the FeatureCollection segments
             });
-
+            
             sectorOpsMap.addLayer({
                 id: flownLayerId,
                 type: 'line',
                 source: flownLayerId,
+                layout: {
+                    'line-join': 'round',
+                    'line-cap': 'round'
+                },
                 paint: {
-                    'line-width': 2,
+                    'line-width': 3,
                     'line-opacity': 1,
-                    'line-gradient': [
+                    'line-color': [
                         'interpolate',
                         ['linear'],
-                        ['line-progress'],
-                        0.0, '#FFCC80',
-                        0.1, '#FFF59D',
-                        0.4, '#81D4FA',
-                        1.0, '#1565C0'
+                        ['get', 'altitude'],
+                        0, '#94a3b8',       
+                        3000, '#c084fc',    
+                        12000, '#f59e0b',   
+                        20000, '#10b981',   
+                        30000, '#38bdf8',   
+                        45000, '#0284c7'    
                     ]
                 }
             }, 'sector-ops-live-flights-layer');
@@ -11495,13 +11825,19 @@ let totalDistanceNM = 0;
                 </div>
             </div>
 
-            <div class="overview-actions" style="top: 20px; right: 20px; position: absolute; z-index: 10; display: flex; gap: 8px;">
-                <button class="hero-btn aircraft-window-share-btn" title="Fullscreen Trip Card" style="background: rgba(0,0,0,0.4); backdrop-filter: blur(4px); border: 1px solid rgba(255,255,255,0.1);"><i class="fa-solid fa-expand"></i></button>
-                <button class="hero-btn aircraft-window-pin-btn" title="Pin Flight (Multi-Track)">
-    <i class="fa-solid fa-thumbtack"></i>
-</button>
-                <button class="hero-btn aircraft-window-close-btn" title="Close" style="background: rgba(0,0,0,0.4); backdrop-filter: blur(4px); border: 1px solid rgba(255,255,255,0.1);"><i class="fa-solid fa-xmark"></i></button>
-            </div>
+            <div class="overview-actions">
+    <button id="pin-flight-btn" class="hero-btn aircraft-window-pin-btn" title="Pin Flight">
+        <i class="fa-solid fa-thumbtack"></i>
+    </button>
+
+    <button class="hero-btn aircraft-window-share-btn" title="Trip Card">
+        <i class="fa-solid fa-camera"></i>
+    </button>
+
+    <button class="hero-btn aircraft-window-close-btn" title="Close Window">
+        <i class="fa-solid fa-xmark"></i>
+    </button>
+</div>
 
             <div class="phase-badge-hero" style=" position: absolute; bottom: 45px; left: 24px; z-index: 2; background: rgba(0,0,0,0.6); backdrop-filter: blur(8px); padding: 4px 10px; border-radius: 20px; border: 1px solid rgba(255,255,255,0.15); display: flex; align-items: center; gap: 6px;">
                 <div class="phase-dot" id="ac-phase-dot" style="width: 6px; height: 6px; border-radius: 50%; background: ${statusColor}; box-shadow: 0 0 8px ${statusColor}; animation: ${statusPulse} 2s infinite;"></div>
@@ -13341,15 +13677,12 @@ function setupSectorOpsEventListeners() {
     }
 
     // --- Filter Settings ---
-    const openFilterBtn = document.getElementById('open-filter-settings-btn');
-    if (openFilterBtn) {
-        openFilterBtn.addEventListener('click', () => {
-            if (filterSettingsWindow) {
-                const isVisible = filterSettingsWindow.classList.toggle('visible');
-                if (isVisible && typeof MobileUIHandler !== 'undefined') MobileUIHandler.openWindow(filterSettingsWindow);
-            }
-        });
-    }
+    // NOTE: The gear button (#open-filter-settings-btn) is now wired up exclusively
+    // by SettingsUI.init() to open the new global settings modal. The legacy
+    // floating panel (#filter-settings-window) used to be toggled here, but having
+    // two click handlers on the same button caused the legacy panel to pop up
+    // on top of (or instead of) the new modal — that's why settings appeared
+    // not to open. Binding intentionally removed.
 
     const unstaffedToggle = document.getElementById('filter-toggle-unstaffed');
     if (unstaffedToggle) {

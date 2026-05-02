@@ -100,6 +100,7 @@ export const ProfileUI = {
     // for, so we can preserve its scene across DOM rebuilds and only re-init
     // when the active flight actually changes.
     _3dViewerHostKey: null,
+    _active3DFlightId: null,
 
     _subscription: {
         status: 'Active',
@@ -1626,6 +1627,12 @@ async _updateLiveFlightDOM() {
             wrapper.innerHTML = '';
             wrapper.style.display = 'none';
             this._3dViewerHostKey = null;
+            this._active3DFlightId = null;
+            
+            // Premium memory management: Destroy lingering 3D instance if flights clear
+            if (typeof AircraftViewer3D !== 'undefined' && typeof AircraftViewer3D.destroy === 'function') {
+                AircraftViewer3D.destroy();
+            }
             return;
         }
 
@@ -1639,11 +1646,12 @@ async _updateLiveFlightDOM() {
             return { ...flight, _dispatchPlan: plan };
         }));
 
-        const cardsHtmlArray = await Promise.all(flightsWithDispatch.map(async (flight, idx) => {
-            const alt = Math.round(flight.position.alt_ft).toLocaleString();
-            const gs  = Math.round(flight.position.gs_kt);
-            const hdg = String(Math.round(flight.position.heading_deg)).padStart(3, '0');
-            const vs  = Math.round(flight.position.vs_fpm);
+        const cardsHtmlArray = await Promise.all(flightsWithDispatch.map(async (flight) => {
+            const altRaw = flight.position?.alt_ft || 0;
+            const alt = Math.round(altRaw).toLocaleString();
+            const gs  = Math.round(flight.position?.gs_kt || 0);
+            const hdg = String(Math.round(flight.position?.heading_deg || 0)).padStart(3, '0');
+            const vs  = Math.round(flight.position?.vs_fpm || 0);
             const dep = flight.departureIcao || '----';
             const arr = flight.arrivalIcao   || '----';
             const cs  = flight.callsign      || 'UNK';
@@ -1706,12 +1714,52 @@ async _updateLiveFlightDOM() {
                 }
             }
 
-            const useThreeDBg = idx === 0;
-            const bgHTML = useThreeDBg
+            const flightIdStr = String(flight.flightId);
+            const is3DActive = (this._active3DFlightId === flightIdStr);
+            const canLaunch3D = altRaw > 3000;
+
+            const bgHTML = is3DActive
                 ? `<div class="pui-live-bg pui-live-bg-3d" data-3d-host></div>`
                 : (imageUrl
                     ? `<div class="pui-live-bg" style="background-image:url('${imageUrl}')"></div>`
                     : `<div class="pui-live-bg pui-live-bg-fallback"></div>`);
+
+            // Integrated Action Buttons inside the layout flow instead of absolute positioning
+            const actionButtonHTML = is3DActive ? `
+                <button class="pui-btn-ghost pui-close-3d-btn" 
+                        style="background: rgba(220, 38, 38, 0.8); color: #fff; border: 1px solid rgba(255,255,255,0.2); backdrop-filter: blur(4px); padding: 6px 12px; height: 34px;">
+                    <i class="fa-solid fa-xmark"></i> Close HUD
+                </button>
+            ` : `
+                <button class="pui-btn-ghost pui-launch-3d-btn" 
+                        style="background: rgba(0,0,0,0.6); color: #fff; border: 1px solid rgba(255,255,255,0.2); backdrop-filter: blur(4px); padding: 6px 12px; height: 34px;" 
+                        data-flight-id="${flightIdStr}" 
+                        ${!canLaunch3D ? 'disabled title="Requires altitude over 3,000 ft"' : ''}>
+                    <i class="fa-solid fa-vr-cardboard"></i> ${canLaunch3D ? 'Launch 3D HUD' : '3D HUD (Alt > 3k ft)'}
+                </button>
+            `;
+
+            // Completely hide redundant statistics if the 3D HUD is rendering the PFD
+            const statsHTML = is3DActive ? '' : `
+                <div class="pui-live-stats">
+                    <div class="pui-live-stat">
+                        <span class="label">Altitude</span>
+                        <span class="value">${alt} <em>ft</em></span>
+                    </div>
+                    <div class="pui-live-stat">
+                        <span class="label">Ground Spd</span>
+                        <span class="value">${gs} <em>kt</em></span>
+                    </div>
+                    <div class="pui-live-stat">
+                        <span class="label">Heading</span>
+                        <span class="value">${hdg}<em>°</em></span>
+                    </div>
+                    <div class="pui-live-stat">
+                        <span class="label">Vert Spd</span>
+                        <span class="value" style="color:${vsColor};">${vsSign}${vs} <em>fpm</em></span>
+                    </div>
+                </div>
+            `;
 
             return `
                 <div class="pui-live-card">
@@ -1726,60 +1774,152 @@ async _updateLiveFlightDOM() {
                                 <span class="pui-live-icao">${arr}</span>
                                 ${arrGate}
                             </div>
-                            <div class="pui-live-ident">
-                                <span class="pui-live-acft">${acft}</span>
-                                <span class="pui-live-cs">${cs}</span>
+                            <div style="display: flex; align-items: center; gap: 14px;">
+                                <div class="pui-live-ident" style="text-align: right;">
+                                    <span class="pui-live-acft">${acft}</span>
+                                    <span class="pui-live-cs">${cs}</span>
+                                </div>
+                                ${actionButtonHTML}
                             </div>
                         </div>
                         <div class="pui-live-spacer"></div>
-                        <div class="pui-live-stats">
-                            <div class="pui-live-stat">
-                                <span class="label">Altitude</span>
-                                <span class="value">${alt} <em>ft</em></span>
-                            </div>
-                            <div class="pui-live-stat">
-                                <span class="label">Ground Spd</span>
-                                <span class="value">${gs} <em>kt</em></span>
-                            </div>
-                            <div class="pui-live-stat">
-                                <span class="label">Heading</span>
-                                <span class="value">${hdg}<em>°</em></span>
-                            </div>
-                            <div class="pui-live-stat">
-                                <span class="label">Vert Spd</span>
-                                <span class="value" style="color:${vsColor};">${vsSign}${vs} <em>fpm</em></span>
-                            </div>
-                        </div>
+                        ${statsHTML}
                         ${dispatchHTML}
-                        ${imageCredit && !useThreeDBg ? `<div class="pui-live-credit">© ${imageCredit}</div>` : ''}
+                        ${imageCredit && !is3DActive ? `<div class="pui-live-credit">© ${imageCredit}</div>` : ''}
                     </div>
                 </div>
             `;
         }));
 
         const oldHost = document.querySelector('[data-3d-host]');
-        const firstFlight = flightsWithDispatch[0];
-        const hostKey     = firstFlight?.flightId || firstFlight?.username || 'live-0';
-        const canReuse    = !!oldHost && this._3dViewerHostKey === hostKey;
+        const targetFlight = flightsWithDispatch.find(f => String(f.flightId) === this._active3DFlightId);
+        const hostKey = targetFlight ? String(targetFlight.flightId) : null;
+        const canReuse = !!oldHost && this._3dViewerHostKey === hostKey && hostKey !== null;
 
-        wrapper.innerHTML = `<div class="pui-live-carousel">${cardsHtmlArray.join('')}</div>`;
+        // --- PREVENT SCROLL RESET ---
+        const existingCarousel = wrapper.querySelector('.pui-live-carousel');
+        const currentScrollPos = existingCarousel ? existingCarousel.scrollLeft : 0;
+
+        wrapper.innerHTML = `<div class="pui-live-carousel" style="cursor: grab;">${cardsHtmlArray.join('')}</div>`;
+
+        // --- 3D WINDOW STRICT SINGLETON LOGIC ---
+        wrapper.querySelectorAll('.pui-launch-3d-btn').forEach(btn => {
+            btn.addEventListener('click', (e) => {
+                const targetId = e.currentTarget.dataset.flightId;
+                
+                if (this._active3DFlightId && this._active3DFlightId !== targetId) {
+                    if (typeof AircraftViewer3D !== 'undefined' && typeof AircraftViewer3D.destroy === 'function') {
+                        AircraftViewer3D.destroy();
+                    }
+                    this._3dViewerHostKey = null;
+                }
+                
+                this._active3DFlightId = targetId;
+                this._updateLiveFlightDOM(); 
+            });
+        });
+
+        wrapper.querySelectorAll('.pui-close-3d-btn').forEach(btn => {
+            btn.addEventListener('click', () => {
+                if (typeof AircraftViewer3D !== 'undefined' && typeof AircraftViewer3D.destroy === 'function') {
+                    AircraftViewer3D.destroy();
+                }
+                this._active3DFlightId = null;
+                this._updateLiveFlightDOM(); 
+            });
+        });
+
+        // --- PREMIUM KINETIC SCROLLING ---
+        const newCarousel = wrapper.querySelector('.pui-live-carousel');
+        if (newCarousel) {
+            newCarousel.scrollLeft = currentScrollPos;
+
+            let isDown = false;
+            let startX;
+            let scrollLeft;
+            let velocity = 0;
+            let momentumID;
+            let lastTimestamp;
+            let lastX;
+            
+            const cancelMomentum = () => {
+                if (momentumID) cancelAnimationFrame(momentumID);
+            };
+
+            const applyMomentum = () => {
+                if (Math.abs(velocity) > 0.5) {
+                    newCarousel.scrollLeft -= velocity;
+                    velocity *= 0.94; 
+                    momentumID = requestAnimationFrame(applyMomentum);
+                } else {
+                    newCarousel.style.scrollSnapType = 'x mandatory'; 
+                }
+            };
+
+            newCarousel.addEventListener('mousedown', (e) => {
+                if (e.target.closest('button')) return; 
+                
+                isDown = true;
+                cancelMomentum(); 
+                newCarousel.style.cursor = 'grabbing';
+                newCarousel.style.scrollSnapType = 'none'; 
+                
+                startX = e.pageX;
+                lastX = e.pageX;
+                scrollLeft = newCarousel.scrollLeft;
+                lastTimestamp = performance.now();
+                velocity = 0;
+            });
+
+            const handleMouseUpOrLeave = () => {
+                if (!isDown) return;
+                isDown = false;
+                newCarousel.style.cursor = 'grab';
+                
+                if (Math.abs(velocity) > 2) {
+                    applyMomentum();
+                } else {
+                    newCarousel.style.scrollSnapType = 'x mandatory';
+                }
+            };
+
+            newCarousel.addEventListener('mouseleave', handleMouseUpOrLeave);
+            newCarousel.addEventListener('mouseup', handleMouseUpOrLeave);
+
+            newCarousel.addEventListener('mousemove', (e) => {
+                if (!isDown) return;
+                e.preventDefault(); 
+                
+                const currentX = e.pageX;
+                const walk = (currentX - startX); 
+                newCarousel.scrollLeft = scrollLeft - walk;
+                
+                const currentTimestamp = performance.now();
+                const deltaT = currentTimestamp - lastTimestamp;
+                const deltaX = currentX - lastX;
+                
+                if (deltaT > 0) {
+                    velocity = (velocity * 0.4) + ((deltaX / deltaT) * 16 * 0.6); 
+                }
+                
+                lastX = currentX;
+                lastTimestamp = currentTimestamp;
+            });
+        }
 
         const newHost = wrapper.querySelector('[data-3d-host]');
 
-        if (newHost) {
+        if (newHost && targetFlight) {
             if (canReuse) {
                 newHost.replaceWith(oldHost);
-                AircraftViewer3D.updateFlightData(this._extractPositionForViewer(firstFlight));
+                AircraftViewer3D.updateFlightData(this._extractPositionForViewer(targetFlight));
             } else {
                 newHost.innerHTML = AircraftViewer3D.getHTML();
                 
-                // STAGGERED INITIALIZATION:
-                // Wait 350ms for CSS transition animations to finish before locking the main thread with WebGL compilation
                 setTimeout(() => {
-                    // Safety check: ensure user hasn't closed the tab/menu while we were waiting
                     if (document.contains(newHost)) {
                         AircraftViewer3D
-                            .init(firstFlight.aircraft?.aircraftName, this._extractPositionForViewer(firstFlight))
+                            .init(targetFlight.aircraft?.aircraftName, this._extractPositionForViewer(targetFlight))
                             .catch(err => console.warn('[ProfileUI] AircraftViewer3D init failed:', err));
                     }
                 }, 350);
