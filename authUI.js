@@ -13,6 +13,31 @@ export const AuthUI = {
     init(supabaseClient) {
         this._supabase = supabaseClient;
         this.setupRecoveryListener();
+        this.checkPaymentStatus();
+    },
+
+    checkPaymentStatus() {
+        const urlParams = new URLSearchParams(window.location.search);
+        const paymentStatus = urlParams.get('payment');
+
+        if (paymentStatus) {
+            const newUrl = window.location.pathname;
+            window.history.replaceState({}, document.title, newUrl);
+
+            setTimeout(() => {
+                if (paymentStatus === 'success') {
+                    this.open('signin');
+                    setTimeout(() => {
+                        this.showSuccess("Payment successful! Your Pro account is ready. Please sign in.");
+                    }, 50);
+                } else if (paymentStatus === 'cancel') {
+                    this.open('signup');
+                    setTimeout(() => {
+                        this.showError("Payment was cancelled. You can complete your registration when you're ready.");
+                    }, 50);
+                }
+            }, 500);
+        }
     },
 
     setupRecoveryListener() {
@@ -285,6 +310,7 @@ export const AuthUI = {
                 ${formFields}
                 ${optionsHtml}
                 
+                <div id="auth-success-message" class="auth-success" style="display: none;"></div>
                 <div id="auth-error-message" class="auth-error" style="display: none;"></div>
 
                 <button class="auth-submit-btn ${isSignUp ? 'auth-submit-pro' : ''}" id="auth-submit-btn">${submitText}</button>
@@ -301,11 +327,14 @@ export const AuthUI = {
         }
     },
 
-    showError(message) {
+showError(message) {
         const errorDiv = document.getElementById('auth-error-message');
         if (errorDiv) {
             errorDiv.textContent = message;
             errorDiv.style.display = 'block';
+            
+            const successDiv = document.getElementById('auth-success-message');
+            if (successDiv) successDiv.style.display = 'none';
         }
     },
 
@@ -316,10 +345,16 @@ export const AuthUI = {
         }
     },
 
-    showSuccess() {
+    showSuccess(message) {
         const successDiv = document.getElementById('auth-success-message');
         if (successDiv) {
+            if (message) {
+                successDiv.innerHTML = `<i class="fa-solid fa-circle-check" style="margin-bottom: 8px; font-size: 1.5rem; color: #16a34a; display: block;"></i>${message}`;
+            }
             successDiv.style.display = 'block';
+            
+            const errorDiv = document.getElementById('auth-error-message');
+            if (errorDiv) errorDiv.style.display = 'none';
         }
     },
 
