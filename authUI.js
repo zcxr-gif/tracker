@@ -16,66 +16,67 @@ export const AuthUI = {
         this.checkPaymentStatus();
     },
 
-    async checkPaymentStatus() {
+async checkPaymentStatus() {
         const urlParams = new URLSearchParams(window.location.search);
         const paymentStatus = urlParams.get('payment');
+        const sessionId = urlParams.get('session_id');
 
         if (paymentStatus) {
             const newUrl = window.location.pathname;
             window.history.replaceState({}, document.title, newUrl);
 
             if (paymentStatus === 'success') {
-                const pendingData = sessionStorage.getItem('inflight_pending_signup');
+                const pendingData = localStorage.getItem('inflight_pending_signup');
                 
-                if (pendingData) {
+                if (sessionId && pendingData) {
                     try {
                         const userData = JSON.parse(pendingData);
                         
-                        // 1. Force account creation on the frontend just in case the backend missed it
-                        await this._supabase.auth.signUp({
-                            email: userData.email,
-                            password: userData.password,
-                            options: {
-                                data: { name: userData.name }
-                            }
+                        // 1. Invoke the Stripe Edge Function to create the user securely via Admin API
+                        const { data: result, error: functionError } = await this._supabase.functions.invoke('process-stripe-payment', {
+                            body: { sessionId: sessionId }
                         });
 
-                        // 2. Attempt to automatically log them in
+                        if (functionError || (result && result.error)) {
+                            throw new Error(result?.error || functionError?.message || "Failed to verify Stripe payment on the server.");
+                        }
+
+                        // 2. Log the user in since the Edge Function created and auto-confirmed them
                         const { error: loginError } = await this._supabase.auth.signInWithPassword({
                             email: userData.email,
                             password: userData.password
                         });
 
-                        sessionStorage.removeItem('inflight_pending_signup');
+                        localStorage.removeItem('inflight_pending_signup');
 
                         if (!loginError) {
-                            // Automatically launch into the app/ProfileUI
                             this.open();
                             return; 
-                        } else if (loginError.message.toLowerCase().includes("email not confirmed")) {
-                            setTimeout(() => {
-                                this.open('signin');
-                                setTimeout(() => {
-                                    this.showSuccess("Payment successful! Please check your email to verify your account before signing in.");
-                                }, 50);
-                            }, 500);
-                            return;
+                        } else {
+                            throw new Error("Account created, but auto-login failed: " + loginError.message);
                         }
                     } catch (e) {
-                        console.error("Auto-signup post-payment failed:", e);
+                        console.error("Stripe auto-signup failed:", e);
+                        setTimeout(() => {
+                            this.open('signin');
+                            setTimeout(() => {
+                                this.showError(`Error finalizing account: ${e.message}. If you were charged, please contact support or try signing in.`);
+                            }, 50);
+                        }, 500);
+                        return;
                     }
                 }
 
-                // Fallback if sessionStorage was lost or login failed
+                // Fallback if storage was lost or session_id is missing
                 setTimeout(() => {
                     this.open('signin');
                     setTimeout(() => {
-                        this.showSuccess("Payment successful! Your Pro account is ready. Please sign in.");
+                        this.showSuccess("Payment successful! If your account was created, please sign in.");
                     }, 50);
                 }, 500);
 
             } else if (paymentStatus === 'cancel') {
-                sessionStorage.removeItem('inflight_pending_signup');
+                localStorage.removeItem('inflight_pending_signup');
                 setTimeout(() => {
                     this.open('signup');
                     setTimeout(() => {
@@ -509,7 +510,7 @@ showError(message) {
         }
     },
 
-    async handleStripeHostedCheckout() {
+async handleStripeHostedCheckout() {
         if (!this._tempSignUpData) {
             this.showError("Sign-up data missing. Please go back and try again.");
             return;
@@ -529,8 +530,8 @@ showError(message) {
         if (backBtn) backBtn.style.display = 'none';
 
         try {
-            // Save the data temporarily so it survives the Stripe redirect
-            sessionStorage.setItem('inflight_pending_signup', JSON.stringify({
+            // Save the data to localStorage so it survives the cross-domain Stripe redirect
+            localStorage.setItem('inflight_pending_signup', JSON.stringify({
                 email: this._tempSignUpData.email,
                 name: this._tempSignUpData.name,
                 password: this._tempSignUpData.password
@@ -542,7 +543,8 @@ showError(message) {
                     email: this._tempSignUpData.email,
                     name: this._tempSignUpData.name,
                     password: this._tempSignUpData.password,
-                    success_url: window.location.origin + '?payment=success',
+                    // Inject the session ID into the return URL so the frontend can retrieve it
+                    success_url: window.location.origin + '?payment=success&session_id={CHECKOUT_SESSION_ID}',
                     cancel_url: window.location.origin + '?payment=cancel'
                 }
             });
@@ -555,8 +557,7 @@ showError(message) {
             window.location.href = data.url;
 
         } catch (err) {
-            // Clean up storage if it failed before redirect
-            sessionStorage.removeItem('inflight_pending_signup');
+            localStorage.removeItem('inflight_pending_signup');
             
             if (loadingDiv) loadingDiv.style.display = 'none';
             if (checkoutSection) checkoutSection.style.display = 'block';
