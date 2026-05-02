@@ -23,20 +23,18 @@ export class PredictiveAirspaceNetwork {
             
             terminalRadiusNm: 40,         
             terminalAltFt: 18000,         
-            finalRadiusNm: 12,            
-            finalAltFt: 5000,             
             
             levelFlightThresholdFpm: 200, 
             speedRestrictionAltFt: 10000, 
             speedRestrictionKts: 260,     
             glideSlopeDegrees: 3.0,       
-            holdingTurnRateDegSec: 1.5,   
             
             emaAlphaVelocity: 0.4,        
             emaAlphaAltitude: 0.6,
             
-            tmaExpansionFactor: 1.25,     
-            enrouteExpansionFactor: 1.05, 
+            // DOCILE EXPANSION FACTORS
+            tmaExpansionFactor: 1.05,     
+            enrouteExpansionFactor: 1.0, 
 
             bucketSizeMinutes: 15,        
             forecastHours: 4,             
@@ -191,10 +189,6 @@ export class PredictiveAirspaceNetwork {
                 target.accelerationKtsPerMin = (target.currentGs - prevGs) / timeDeltaMinutes;
 
                 const newTrack = this._calculateBearing(target.currentLat, target.currentLon, currentLat, currentLon);
-                let trackDelta = newTrack - target.derivedTrack;
-                if (trackDelta > 180) trackDelta -= 360;
-                if (trackDelta < -180) trackDelta += 360;
-                target.rateOfTurnDegSec = Math.abs(trackDelta) / timeDeltaSeconds;
                 target.derivedTrack = newTrack;
 
                 let drift = Math.abs(target.derivedTrack - rawHeading);
@@ -233,7 +227,6 @@ export class PredictiveAirspaceNetwork {
                 accelerationKtsPerMin: 0,
                 derivedTrack: rawHeading,
                 aerodynamicDriftDeg: 0,
-                rateOfTurnDegSec: 0,
                 distToArrival_nm: distToArrival_nm,
                 distFromDeparture_nm: distFromDeparture_nm,
                 lastSeen: now,
@@ -243,7 +236,6 @@ export class PredictiveAirspaceNetwork {
                     isMonitoredDeparture: isMonitoredDeparture,
                     isMonitoredArrival: isMonitoredArrival,
                     isATCMetered: false,
-                    isHolding: false,
                     highEnergyState: false,
                     telemetryDegraded: false
                 }
@@ -260,16 +252,13 @@ export class PredictiveAirspaceNetwork {
         const node = this._hubRegistry.get(target.arrIcao);
         const elevationFt = node ? (node.elevationFt || 0) : 0;
 
-        if (target.distToArrival_nm <= this._config.finalRadiusNm && target.currentAlt <= this._config.finalAltFt) {
-            target.phase = 'FINAL_APPROACH';
-        } else if (target.distToArrival_nm <= this._config.terminalRadiusNm && target.currentAlt <= this._config.terminalAltFt) {
+        if (target.distToArrival_nm <= this._config.terminalRadiusNm && target.currentAlt <= this._config.terminalAltFt) {
             target.phase = 'TERMINAL_AREA';
         } else {
             target.phase = 'ENROUTE';
         }
 
         target.flags.isATCMetered = (target.phase === 'TERMINAL_AREA' && Math.abs(target.verticalSpeedFpm) < this._config.levelFlightThresholdFpm);
-        target.flags.isHolding = (target.rateOfTurnDegSec >= this._config.holdingTurnRateDegSec && target.phase !== 'FINAL_APPROACH');
 
         const requiredAltFt = elevationFt + (target.distToArrival_nm * 6076.115 * Math.tan(this._config.glideSlopeDegrees * (Math.PI / 180)));
         if (target.currentAlt > (requiredAltFt + 2000) && target.currentGs > 250) {
@@ -290,7 +279,6 @@ export class PredictiveAirspaceNetwork {
         }
 
         let hoursEnroute = actualTrackMiles / effectiveSpeed;
-        if (target.flags.isHolding) hoursEnroute += (5 / 60);
 
         target.eta_epoch = Date.now() + (hoursEnroute * 60 * 60 * 1000);
     }
@@ -327,9 +315,7 @@ export class PredictiveAirspaceNetwork {
                     totalOutbound: 0,
                     netFlowDelta: 0,
                     inTerminalArea: 0,   
-                    onFinalApproach: 0,  
                     meteredAircraftCount: 0, 
-                    holdingAircraftCount: 0,
                     highEnergyArrivals: 0,
                     heavyAircraftInbound: 0,
                     baseCapacity: nodeData.capacity_15m,
@@ -363,9 +349,7 @@ export class PredictiveAirspaceNetwork {
                 agg.arrLiv.set(target.livery, (agg.arrLiv.get(target.livery) || 0) + 1);
                 
                 if (target.phase === 'TERMINAL_AREA') nodeReport.metrics.inTerminalArea++;
-                if (target.phase === 'FINAL_APPROACH') nodeReport.metrics.onFinalApproach++;
                 if (target.flags.isATCMetered) nodeReport.metrics.meteredAircraftCount++;
-                if (target.flags.isHolding) nodeReport.metrics.holdingAircraftCount++;
                 if (target.flags.highEnergyState) nodeReport.metrics.highEnergyArrivals++;
                 if (target.wakeCategory === 'HEAVY' || target.wakeCategory === 'SUPER') nodeReport.metrics.heavyAircraftInbound++;
 

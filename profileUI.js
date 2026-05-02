@@ -105,8 +105,7 @@ export const ProfileUI = {
     _subscription: {
         status: 'Active',
         plan: 'Pro Access',
-        nextPayment: 'Upcoming',
-        price: '$1.00 / month'
+        price: '$1.99 / month'
     },
     // Store live IF data
     _ifData: {
@@ -1965,7 +1964,7 @@ async _updateLiveFlightDOM() {
         };
     },
 
-    _generateAirspaceHTML() {
+_generateAirspaceHTML() {
         if (!this._airspaceNetwork) return '';
         const report = this._airspaceNetwork.generateNetworkAnalytics();
 
@@ -2010,7 +2009,12 @@ async _updateLiveFlightDOM() {
             // Heatmap rendering (preserved)
             const buckets = data.arrivalQueue;
             const maxCount = Math.max(1, ...buckets.map(b => b.count || 0));
-            const loadPercentage = Math.min(100, Math.round((data.metrics.totalInbound / Math.max(1, data.metrics.effectiveCapacity * 4)) * 100));
+            
+            // Isolate the traffic arriving strictly within the next hour (first 4 buckets)
+            const firstHourInbound = buckets.slice(0, 4).reduce((sum, b) => sum + (b.count || 0), 0);
+            
+            // Calculate 1-Hour Load against the isolated traffic, not global enroute traffic
+            const loadPercentage = Math.min(100, Math.round((firstHourInbound / Math.max(1, data.metrics.effectiveCapacity * 4)) * 100));
 
             let heatmapHTML = '<div class="pui-intel-heatmap">';
             for(let i = 0; i < Math.min(4, data.arrivalQueue.length); i++) {
@@ -2110,18 +2114,10 @@ async _updateLiveFlightDOM() {
                             </div>
                         </div>
 
-                        <div class="pui-intel-stats-tri">
+                        <div class="pui-intel-stats-tri" style="grid-template-columns: 1fr;">
                             <div class="pui-intel-stat">
-                                <span class="label">IN TMA</span>
-                                <span class="value-sm">${data.metrics.inTerminalArea}</span>
-                            </div>
-                            <div class="pui-intel-stat">
-                                <span class="label">HOLDING</span>
-                                <span class="value-sm" style="${data.metrics.holdingAircraftCount > 0 ? 'color: var(--pui-neg);' : ''}">${data.metrics.holdingAircraftCount}</span>
-                            </div>
-                            <div class="pui-intel-stat">
-                                <span class="label">ON FINAL</span>
-                                <span class="value-sm" style="${data.metrics.onFinalApproach > 0 ? 'color: var(--pui-pos);' : ''}">${data.metrics.onFinalApproach}</span>
+                                <span class="label">TERMINAL AREA DENSITY (TMA)</span>
+                                <span class="value-sm">${data.metrics.inTerminalArea} aircraft tracking</span>
                             </div>
                         </div>
 
@@ -3560,16 +3556,35 @@ async _updateLiveFlightDOM() {
                 this._showMessage('pui-billing-msg', 'Redirecting to billing portal…', 'success');
             });
 
-            document.getElementById('pui-billing-cancel-btn')?.addEventListener('click', async () => {
-                if (!confirm('Cancel your subscription? You will retain access until the end of the current billing period.')) return;
-                this._setLoading('pui-billing-cancel-btn', true, '<i class="fa-solid fa-ban"></i> Cancel subscription');
-                try {
-                    this._showMessage('pui-billing-msg', 'Cancellation request received. We will follow up via email.', 'success');
-                } catch (err) {
-                    this._showMessage('pui-billing-msg', err.message || 'Failed to cancel.', 'error');
-                } finally {
-                    this._setLoading('pui-billing-cancel-btn', false, '<i class="fa-solid fa-ban"></i> Cancel subscription');
-                }
+            document.getElementById('pui-billing-cancel-btn')?.addEventListener('click', () => {
+                // Gather the user's data to make manual lookup easy for you
+                const userEmail = this._currentUser?.email || 'Unknown Email';
+                const ifUsername = this._currentUser?.user_metadata?.if_username || 'Not Linked';
+                const userId = this._currentUser?.id || 'Unknown ID';
+
+                // Construct the email subject and body securely
+                const subject = encodeURIComponent("Cancellation Request - Pro Access");
+                const body = encodeURIComponent(
+                    `Hello Inflight Pro Support,\n\n` +
+                    `I would like to formally request a cancellation of my Pro Access subscription.\n\n` +
+                    `Account Details:\n` +
+                    `• Email: ${userEmail}\n` +
+                    `• IF Username: ${ifUsername}\n` +
+                    `• Account ID: ${userId}\n\n` +
+                    `I understand that my premium access will remain active until the end of my current billing cycle.\n\n` +
+                    `I also note that if my account is accidentally charged for the upcoming month because this manual request was not processed before the renewal date, a full refund for that subsequent charge will be issued.\n\n` +
+                    `Thank you.`
+                );
+
+                // Trigger the user's native email client using the support email found in your code
+                window.location.href = `mailto:inflightCustomer@gmail.com?subject=${subject}&body=${body}`;
+
+                // Provide clear visual feedback in the UI
+                this._showMessage(
+                    'pui-billing-msg', 
+                    'An email draft has been opened. Please send it to our support team to finalize your cancellation.', 
+                    'info'
+                );
             });
         }
 
