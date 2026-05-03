@@ -463,7 +463,7 @@ export const AuthUI = {
     async loadPayPalAndRender() {
         if (!window.paypal) {
             const script = document.createElement('script');
-            script.src = "https://www.paypal.com/sdk/js?client-id=AdTwNEAJlyx8dQ-NiJJdnCFL9cC8HuJ78Xe-ve9hqv0YxysE6eSbkHc2NuCSKoNd3DmLE-qxp9v2iRVM&currency=USD&vault=true&intent=subscription&enable-funding=applepay";
+            script.src = "https://www.paypal.com/sdk/js?client-id=AXjiYt3mjJBEkP4DnnXQLbx_YGlEoJgvtA_Yj-1MSIZFKT91tuFN9NL6HVmlThqqE7ZlazkquLkKleix&currency=USD&vault=true&intent=subscription&enable-funding=applepay";
             script.async = true;
             document.body.appendChild(script);
 
@@ -479,7 +479,7 @@ export const AuthUI = {
         window.paypal.Buttons({
             createSubscription: function(data, actions) {
                 return actions.subscription.create({
-                    'plan_id': 'P-7R42707536163664TNGWLCDA' 
+                    'plan_id': 'P-3S33604333332730HNGWPSWA' 
                 });
             },
             onApprove: async (paymentData, actions) => {

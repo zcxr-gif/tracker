@@ -10118,35 +10118,34 @@ renderCategory(catId) {
             });
         }
 
-        // Pro Upgrade CTA — fires a custom event so you can hook your
-        // checkout/billing flow, and falls back to opening the profile
-        // overlay (which already surfaces subscription info).
-        const upgradeBtn = document.getElementById('set-pro-upgrade-btn');
-        if (upgradeBtn) {
-            upgradeBtn.addEventListener('click', () => {
-                let handled = false;
-                try {
-                    const evt = new CustomEvent('pro-upgrade-requested', {
-                        bubbles: true,
-                        cancelable: true,
-                        detail: { source: 'visuals-settings' }
-                    });
-                    handled = !window.dispatchEvent(evt) || evt.defaultPrevented;
-                } catch (_) { /* CustomEvent unavailable, ignore */ }
+ // flight.js
+const upgradeBtn = document.getElementById('set-pro-upgrade-btn');
+if (upgradeBtn) {
+    upgradeBtn.addEventListener('click', () => {
+        const isSignedIn = !!(typeof ProfileUI !== 'undefined' && ProfileUI?._currentUser);
 
-                // Fallback: open the profile overlay so the user lands on a
-                // surface that already shows subscription / plan details.
-                if (!handled) {
-                    try {
-                        if (typeof ProfileUI !== 'undefined' && typeof ProfileUI.open === 'function') {
-                            ProfileUI.open(ProfileUI._currentUser);
-                        }
-                    } catch (err) {
-                        console.warn('Pro upgrade fallback failed:', err);
-                    }
-                }
-            });
+        // If not signed in, take them straight to signup
+        if (!isSignedIn) {
+            if (window.AuthUI && typeof window.AuthUI.open === 'function') {
+                window.AuthUI.open('signup');
+            }
+            return;
         }
+
+        // If already signed in, proceed with standard event or profile view
+        let handled = false;
+        try {
+            const evt = new CustomEvent('pro-upgrade-requested', { bubbles: true, cancelable: true, detail: { source: 'visuals-settings' } });
+            handled = !window.dispatchEvent(evt) || evt.defaultPrevented;
+        } catch (_) {}
+
+        if (!handled) {
+            if (typeof ProfileUI !== 'undefined' && typeof ProfileUI.open === 'function') {
+                ProfileUI.open(ProfileUI._currentUser);
+            }
+        }
+    });
+}
 
         // Flight Plan Mode Select
         const planModeSelect = document.getElementById('set-plan-mode');
@@ -14879,474 +14878,252 @@ async function initializeApp() {
 
     window.displayPilotStats = displayPilotStats;
 
+    // flight.js
+// Handle direct signup requests from the landing page
+const urlParams = new URLSearchParams(window.location.search);
+if (urlParams.get('auth') === 'signup') {
+    const { data: sessionData } = await supabase.auth.getSession();
+    const isSignedIn = !!sessionData?.session?.user;
+
+    // Only open if the user isn't already logged in
+    if (!isSignedIn && window.AuthUI && typeof window.AuthUI.open === 'function') {
+        window.AuthUI.open('signup');
+    }
+}
+
     initializeApp();
 });
 
 /**
  * ============================================================================
- * INFLIGHT PRO: PREMIUM FEATURE CAROUSEL (V3 - LUXURY REDESIGN)
- * Features an elevated UI, segmented progress, and direct Sign Up integration.
+ * INFLIGHT PRO: V3.2 - INSTANT DEPLOYMENT & HOME INTEGRATION
+ * Optimized for maximum execution speed and luxury secondary navigation.
  * ============================================================================
  */
-(async function setupInflightProSuggestion() {
+(function() {
     const styleId = 'inflight-pro-loader-styles';
-    if (document.getElementById(styleId)) return;
+    const overlayId = 'inflight-pro-loader-overlay';
 
-    // Check if the user is already signed in
-    const { data: sessionData } = await supabase.auth.getSession();
-    const isSignedIn = !!sessionData?.session?.user;
+    function initInflightPro() {
+        if (document.getElementById(styleId) || document.getElementById(overlayId)) return;
 
-    const style = document.createElement('style');
-    style.id = styleId;
-    style.innerHTML = `
-        /* Overlay and Backdrop */
-        #inflight-pro-loader-overlay {
-            position: fixed;
-            inset: 0;
-            background: rgba(15, 23, 42, 0.65);
-            backdrop-filter: blur(16px);
-            -webkit-backdrop-filter: blur(16px);
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            z-index: 100000;
-            font-family: 'Inter', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
-            padding: 20px;
-            box-sizing: border-box;
-            opacity: 0;
-            animation: proOverlayFadeIn 0.6s cubic-bezier(0.16, 1, 0.3, 1) forwards;
-        }
+        // Inject Styles immediately
+        const style = document.createElement('style');
+        style.id = styleId;
+        style.innerHTML = `
+            #inflight-pro-loader-overlay {
+                position: fixed;
+                inset: 0;
+                background: rgba(7, 9, 15, 0.8);
+                backdrop-filter: blur(24px);
+                -webkit-backdrop-filter: blur(24px);
+                display: flex;
+                align-items: center;
+                justify-content: center;
+                z-index: 2147483647; /* Maximum possible z-index */
+                font-family: 'Inter', -apple-system, sans-serif;
+                padding: 20px;
+                opacity: 0;
+                animation: proFadeIn 0.5s ease-out forwards;
+            }
 
-        #inflight-pro-loader-overlay.closing {
-            animation: proOverlayFadeOut 0.5s cubic-bezier(0.16, 1, 0.3, 1) forwards !important;
-        }
+            .pro-modal-card {
+                background: #ffffff;
+                width: 440px;
+                max-width: 100%;
+                border-radius: 32px;
+                position: relative;
+                box-shadow: 0 40px 100px -20px rgba(0,0,0,0.5);
+                overflow: hidden;
+                transform: translateY(20px);
+                animation: proSlideUp 0.6s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+                display: flex;
+                flex-direction: column;
+            }
 
-        /* The Premium Card */
-        .pro-modal-card {
-            background: #ffffff;
-            width: 440px;
-            max-width: 100%;
-            border-radius: 24px;
-            position: relative;
-            box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.03), 0 30px 60px -12px rgba(0, 0, 0, 0.25), 0 18px 36px -18px rgba(0, 0, 0, 0.15);
-            overflow: hidden;
-            transform: scale(0.95) translateY(20px);
-            animation: proModalScaleIn 0.6s cubic-bezier(0.16, 1, 0.3, 1) forwards;
-            display: flex;
-            flex-direction: column;
-        }
+            @keyframes proFadeIn { to { opacity: 1; } }
+            @keyframes proSlideUp { to { transform: translateY(0); } }
 
-        #inflight-pro-loader-overlay.closing .pro-modal-card {
-            animation: proModalScaleOut 0.5s cubic-bezier(0.16, 1, 0.3, 1) forwards !important;
-        }
+            .pro-premium-accent {
+                height: 5px;
+                width: 100%;
+                background: linear-gradient(90deg, #2563eb, #7c3aed, #2563eb);
+                background-size: 200% auto;
+                animation: proShine 3s linear infinite;
+            }
 
-        /* Logo Only Animation */
-        .logo-only-container {
-            animation: proModalScaleIn 0.6s cubic-bezier(0.16, 1, 0.3, 1) forwards;
-        }
-        
-        #inflight-pro-loader-overlay.closing .logo-only-container {
-            animation: proModalScaleOut 0.5s cubic-bezier(0.16, 1, 0.3, 1) forwards !important;
-        }
+            @keyframes proShine { to { background-position: 200% center; } }
 
-        /* Animations */
-        @keyframes proOverlayFadeIn { to { opacity: 1; } }
-        @keyframes proOverlayFadeOut { to { opacity: 0; } }
-        @keyframes proModalScaleIn { to { transform: scale(1) translateY(0); } }
-        @keyframes proModalScaleOut { to { transform: scale(0.95) translateY(15px); } }
+            .pro-header-section { padding: 40px 32px 10px; text-align: center; }
+            .pro-brand-logo { height: 50px; margin: 0 auto 16px; display: block; }
+            .pro-subtitle { color: #2563eb; font-size: 11px; font-weight: 900; text-transform: uppercase; letter-spacing: 2.5px; }
 
-        /* Subtle Inner Border Highlight */
-        .pro-modal-card::before {
-            content: '';
-            position: absolute;
-            inset: 0;
-            border-radius: 24px;
-            border: 1px solid rgba(255, 255, 255, 0.8);
-            pointer-events: none;
-            z-index: 20;
-        }
+            .pro-carousel-viewport { position: relative; height: 160px; margin-top: 15px; }
+            .pro-feature-slide {
+                position: absolute;
+                inset: 0;
+                padding: 0 40px;
+                opacity: 0;
+                transition: 0.5s ease;
+                display: flex;
+                flex-direction: column;
+                align-items: center;
+                text-align: center;
+            }
+            .pro-feature-slide.active { opacity: 1; }
 
-        /* Shared AuthUI Accent Line */
-        .pro-premium-accent {
-            height: 4px;
-            width: 100%;
-            background: linear-gradient(90deg, #2563eb, #38bdf8, #8b5cf6, #2563eb);
-            background-size: 300% auto;
-            animation: proShine 4s linear infinite;
-        }
+            .pro-icon-ring {
+                width: 55px; height: 55px; border-radius: 18px;
+                display: flex; align-items: center; justify-content: center;
+                margin-bottom: 15px; font-size: 1.5rem;
+            }
 
-        @keyframes proShine { to { background-position: 300% center; } }
+            .pro-feature-title { font-size: 1.25rem; font-weight: 800; color: #0f172a; margin-bottom: 6px; }
+            .pro-feature-desc { font-size: 0.95rem; color: #64748b; line-height: 1.5; }
 
-        /* Close Button */
-        .pro-close-btn {
-            position: absolute;
-            top: 20px;
-            right: 20px;
-            background: #f1f5f9;
-            border: none;
-            color: #64748b;
-            width: 32px;
-            height: 32px;
-            border-radius: 50%;
-            font-size: 1.2rem;
-            cursor: pointer;
-            transition: all 0.25s cubic-bezier(0.16, 1, 0.3, 1);
-            display: grid;
-            place-items: center;
-            line-height: 1;
-            z-index: 10;
-        }
+            /* Action Buttons */
+            .pro-action-footer { 
+                padding: 10px 40px 40px; 
+                display: flex; 
+                flex-direction: column; 
+                gap: 12px; 
+            }
 
-        .pro-close-btn:hover {
-            background: #e2e8f0;
-            color: #0f172a;
-            transform: scale(1.1) rotate(90deg);
-        }
+            .pro-cta-primary {
+                background: #2563eb;
+                color: white;
+                border: none;
+                border-radius: 16px;
+                padding: 18px;
+                font-weight: 700;
+                cursor: pointer;
+                transition: 0.3s;
+                display: flex; align-items: center; justify-content: center; gap: 10px;
+            }
+            .pro-cta-primary:hover { background: #1d4ed8; transform: translateY(-2px); }
 
-        /* Header Section */
-        .pro-header-section {
-            padding: 36px 32px 16px;
-            text-align: center;
-        }
+            .pro-cta-secondary {
+                background: #f1f5f9;
+                color: #475569;
+                border: 1px solid #e2e8f0;
+                border-radius: 16px;
+                padding: 14px;
+                font-weight: 600;
+                font-size: 0.9rem;
+                cursor: pointer;
+                transition: 0.3s;
+                display: flex; align-items: center; justify-content: center; gap: 8px;
+            }
+            .pro-cta-secondary:hover { background: #e2e8f0; color: #0f172a; }
 
-        .pro-brand-logo {
-            height: 46px;
-            width: auto;
-            margin: 0 auto 16px;
-            display: block;
-            object-fit: contain;
-        }
-
-        .pro-subtitle {
-            color: #2563eb;
-            font-size: 0.75rem;
-            font-weight: 800;
-            text-transform: uppercase;
-            letter-spacing: 1.5px;
-            margin: 0;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            gap: 6px;
-        }
-
-        /* Feature Carousel Viewport */
-        .pro-carousel-viewport {
-            position: relative;
-            height: 160px;
-            width: 100%;
-        }
-
-        /* Individual Feature Slide */
-        .pro-feature-slide {
-            position: absolute;
-            inset: 0;
-            padding: 10px 40px;
-            opacity: 0;
-            transform: translateX(20px);
-            transition: opacity 0.6s ease, transform 0.6s cubic-bezier(0.16, 1, 0.3, 1);
-            display: flex;
-            flex-direction: column;
-            align-items: center;
-            text-align: center;
-            pointer-events: none;
-        }
-
-        .pro-feature-slide.active {
-            opacity: 1;
-            transform: translateX(0);
-            pointer-events: auto;
-        }
-
-        .pro-icon-ring {
-            width: 56px;
-            height: 56px;
-            border-radius: 16px;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            margin-bottom: 16px;
-            position: relative;
-            box-shadow: inset 0 2px 4px rgba(255, 255, 255, 0.5);
-        }
-
-        .pro-icon-ring::after {
-            content: '';
-            position: absolute;
-            inset: -6px;
-            border-radius: 20px;
-            opacity: 0.3;
-            filter: blur(10px);
-            z-index: 0;
-            transition: opacity 0.3s ease;
-        }
-
-        .pro-icon-ring i {
-            font-size: 1.5rem;
-            z-index: 1;
-        }
-
-        .pro-feature-title {
-            font-size: 1.25rem;
-            font-weight: 800;
-            color: #0f172a;
-            margin-bottom: 8px;
-            letter-spacing: -0.4px;
-        }
-
-        .pro-feature-desc {
-            font-size: 0.95rem;
-            color: #64748b;
-            line-height: 1.5;
-            font-weight: 400;
-        }
-
-        /* Segmented Progress Indicators */
-        .pro-pagination {
-            display: flex;
-            justify-content: center;
-            gap: 6px;
-            margin: 16px 0;
-            padding: 0 32px;
-        }
-
-        .pro-segment {
-            height: 4px;
-            flex: 1;
-            background: #e2e8f0;
-            border-radius: 2px;
-            overflow: hidden;
-            position: relative;
-        }
-
-        .pro-segment-fill {
-            position: absolute;
-            top: 0;
-            left: 0;
-            height: 100%;
-            width: 0%;
-            background: #2563eb;
-            border-radius: 2px;
-        }
-
-        /* Action Footer */
-        .pro-action-footer {
-            padding: 20px 32px 32px;
-            background: linear-gradient(to bottom, transparent, #fafafa);
-        }
-
-        .pro-cta-btn {
-            width: 100%;
-            background: linear-gradient(135deg, #2563eb, #1d4ed8);
-            color: #ffffff;
-            border: none;
-            border-radius: 12px;
-            padding: 16px;
-            font-size: 1rem;
-            font-weight: 700;
-            cursor: pointer;
-            transition: all 0.3s cubic-bezier(0.16, 1, 0.3, 1);
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            gap: 10px;
-            box-shadow: 0 10px 20px -5px rgba(37, 99, 235, 0.3), 0 4px 6px -2px rgba(37, 99, 235, 0.1);
-        }
-
-        .pro-cta-btn:hover {
-            transform: translateY(-2px);
-            background: linear-gradient(135deg, #3b82f6, #2563eb);
-            box-shadow: 0 15px 25px -5px rgba(37, 99, 235, 0.4), 0 8px 10px -2px rgba(37, 99, 235, 0.15);
-        }
-
-        .pro-cta-btn:active {
-            transform: translateY(1px);
-            box-shadow: 0 5px 10px -5px rgba(37, 99, 235, 0.3);
-        }
-    `;
-    document.head.appendChild(style);
-
-    const overlay = document.createElement('div');
-    overlay.id = 'inflight-pro-loader-overlay';
-
-    // 1. Signed-In Scenario: Render Only Logo
-    if (isSignedIn) {
-        overlay.innerHTML = `
-            <div class="logo-only-container">
-                <img src="Images/InflightPro.png" alt="InFlight Pro Logo" style="height: 60px; object-fit: contain;" onerror="this.style.display='none'">
-            </div>
+            .pro-pagination { display: flex; justify-content: center; gap: 6px; margin: 20px 0; padding: 0 40px; }
+            .pro-segment { height: 4px; flex: 1; background: #f1f5f9; border-radius: 10px; overflow: hidden; }
+            .pro-segment-fill { height: 100%; width: 0%; background: #2563eb; }
         `;
-        document.body.appendChild(overlay);
+        document.head.appendChild(style);
 
-        // Teardown after 6 seconds
-        setTimeout(() => {
-            if (overlay.classList.contains('closing')) return;
-            overlay.classList.add('closing');
-            setTimeout(() => {
-                if (overlay.parentElement) overlay.parentElement.removeChild(overlay);
-            }, 500);
-        }, 6000);
+        const overlay = document.createElement('div');
+        overlay.id = overlayId;
 
-        return; // Abort the carousel logic if logged in
+        // Render the modal
+        renderModal(overlay);
     }
 
-    // 2. High-End Feature Definitions (Original functionality for logged-out users)
-    const features = [
-        {
-            icon: 'fa-gauge-high',
-            color: '#2563eb',
-            bg: 'rgba(37, 99, 235, 0.1)',
-            title: 'Live Operations Dashboard',
-            desc: 'Real-time telemetry tracking, Next Departure Dispatch, and Smart Pilot Greetings.'
-        },
-        {
-            icon: 'fa-id-badge',
-            color: '#8b5cf6',
-            bg: 'rgba(139, 92, 246, 0.1)',
-            title: 'Advanced Pilot Dossier',
-            desc: 'Unlock high-level career analytics and an automated Personal Records Engine.'
-        },
-        {
-            icon: 'fa-satellite-dish',
-            color: '#f59e0b',
-            bg: 'rgba(245, 158, 11, 0.1)',
-            title: 'Airspace Intelligence',
-            desc: 'Access 4-hour saturation heatmaps and dynamic multi-node live tracking.'
-        },
-        {
-            icon: 'fa-file-invoice',
-            color: '#10b981',
-            bg: 'rgba(16, 185, 129, 0.1)',
-            title: 'Premium Dispatch',
-            desc: 'Generate digital boarding passes and utilize comprehensive gate-to-gate filing.'
+    async function renderModal(overlay) {
+        // Fetch session - Note: This is the only async bottleneck
+        const { data } = await supabase.auth.getSession();
+        if (data?.session) {
+            // Minimal splash for pro users
+            overlay.innerHTML = `<img src="Images/InflightPro.png" style="height:60px; animation: proFadeIn 1s infinite alternate;">`;
+            document.body.appendChild(overlay);
+            setTimeout(() => overlay.remove(), 2500);
+            return;
         }
-    ];
 
-    // 3. Inject HTML Structure
-    let slidesHtml = '';
-    let segmentsHtml = '';
-    
-    features.forEach((feature, index) => {
-        const glowStyle = `box-shadow: 0 0 25px ${feature.color}, inset 0 0 15px ${feature.color};`;
-        
-        slidesHtml += `
-            <div class="pro-feature-slide ${index === 0 ? 'active' : ''}">
-                <div class="pro-icon-ring" style="background: ${feature.bg};">
-                    <style>.pro-feature-slide:nth-child(${index + 1}) .pro-icon-ring::after { ${glowStyle} }</style>
-                    <i class="fa-solid ${feature.icon}" style="color: ${feature.color};"></i>
+        const features = [
+            { icon: 'fa-gauge-high', color: '#2563eb', bg: '#eff6ff', title: 'Live Ops Dashboard', desc: 'Real-time telemetry and smart dispatching.' },
+            { icon: 'fa-satellite-dish', color: '#8b5cf6', bg: '#f5f3ff', title: 'Airspace Intel', desc: '4-hour saturation heatmaps and multi-node tracking.' },
+            { icon: 'fa-file-invoice', color: '#10b981', bg: '#ecfdf5', title: 'Premium Dispatch', desc: 'Digital boarding passes and gate filing.' }
+        ];
+
+        let slidesHtml = features.map((f, i) => `
+            <div class="pro-feature-slide ${i === 0 ? 'active' : ''}">
+                <div class="pro-icon-ring" style="background:${f.bg}; color:${f.color};">
+                    <i class="fa-solid ${f.icon}"></i>
                 </div>
-                <div class="pro-feature-title">${feature.title}</div>
-                <div class="pro-feature-desc">${feature.desc}</div>
+                <div class="pro-feature-title">${f.title}</div>
+                <div class="pro-feature-desc">${f.desc}</div>
+            </div>
+        `).join('');
+
+        overlay.innerHTML = `
+            <div class="pro-modal-card">
+                <div class="pro-premium-accent"></div>
+                <div class="pro-header-section">
+                    <img src="Images/InflightPro.png" alt="Logo" class="pro-brand-logo">
+                    <p class="pro-subtitle">Pro Experience</p>
+                </div>
+                <div class="pro-carousel-viewport">${slidesHtml}</div>
+                <div class="pro-pagination">
+                    ${features.map((_, i) => `<div class="pro-segment"><div class="pro-segment-fill" id="pro-fill-${i}"></div></div>`).join('')}
+                </div>
+                <div class="pro-action-footer">
+                    <button class="pro-cta-primary" id="pro-signup-trigger">
+                        Create Pro Account <i class="fa-solid fa-arrow-right"></i>
+                    </button>
+                    <button class="pro-cta-secondary" onclick="window.location.href='home.html'">
+                        <i class="fa-solid fa-house"></i> Home Page
+                    </button>
+                </div>
             </div>
         `;
 
-        segmentsHtml += `
-            <div class="pro-segment">
-                <div class="pro-segment-fill" id="pro-segment-${index}"></div>
-            </div>
-        `;
-    });
-
-    overlay.innerHTML = `
-        <div class="pro-modal-card">
-            <div class="pro-premium-accent"></div>
-            <button class="pro-close-btn" id="pro-close-carousel" aria-label="Close">&times;</button>
-            <div class="pro-header-section">
-                <img src="Images/InflightPro.png" alt="InFlight Pro Logo" class="pro-brand-logo" onerror="this.style.display='none'">
-                <p class="pro-subtitle"><i class="fa-solid fa-gem"></i> Premium Access</p>
-            </div>
-            <div class="pro-carousel-viewport">
-                ${slidesHtml}
-            </div>
-            <div class="pro-pagination">
-                ${segmentsHtml}
-            </div>
-            <div class="pro-action-footer">
-                <button class="pro-cta-btn" id="pro-signup-trigger">
-                    Create Pro Account <i class="fa-solid fa-arrow-right"></i>
-                </button>
-            </div>
-        </div>
-    `;
-
-    document.body.appendChild(overlay);
-
-    // 4. Carousel Animation Engine (Segmented Logic)
-    let currentIndex = 0;
-    const slides = overlay.querySelectorAll('.pro-feature-slide');
-    const SLIDE_DURATION_MS = 4000;
-    let startTime = Date.now();
-    let animationFrameId;
-    let isClosing = false;
-
-    // Reset all segment fills
-    function resetSegments() {
-        features.forEach((_, i) => {
-            const fill = document.getElementById(`pro-segment-${i}`);
-            if (fill) fill.style.width = i < currentIndex ? '100%' : '0%';
-        });
+        document.body.appendChild(overlay);
+        startLogic(overlay, features.length);
     }
 
-    function animateCarousel() {
-        if (isClosing) return;
+    function startLogic(overlay, count) {
+        let current = 0;
+        let start = Date.now();
+        const duration = 4000;
 
-        const elapsed = Date.now() - startTime;
-        const progress = Math.min((elapsed / SLIDE_DURATION_MS) * 100, 100);
+        function step() {
+            const progress = Math.min(((Date.now() - start) / duration) * 100, 100);
+            const fill = document.getElementById(`pro-fill-${current}`);
+            if (fill) fill.style.width = progress + '%';
 
-        // Update current segment
-        const currentFill = document.getElementById(`pro-segment-${currentIndex}`);
-        if (currentFill) currentFill.style.width = `${progress}%`;
-
-        if (progress >= 100) {
-            slides[currentIndex].classList.remove('active');
-            currentIndex = (currentIndex + 1) % features.length;
-            slides[currentIndex].classList.add('active');
-            
-            startTime = Date.now();
-            
-            if (currentIndex === 0) {
-                resetSegments();
+            if (progress >= 100) {
+                overlay.querySelectorAll('.pro-feature-slide')[current].classList.remove('active');
+                current = (current + 1) % count;
+                overlay.querySelectorAll('.pro-feature-slide')[current].classList.add('active');
+                start = Date.now();
+                // Reset all fills
+                for(let i=0; i<count; i++) {
+                    document.getElementById(`pro-fill-${i}`).style.width = i < current ? '100%' : '0%';
+                }
             }
+            requestAnimationFrame(step);
         }
+        requestAnimationFrame(step);
 
-        animationFrameId = requestAnimationFrame(animateCarousel);
-    }
-    
-    setTimeout(animateCarousel, 300);
-
-    // 5. Teardown Logic Helper
-    function destroyCarousel() {
-        if (isClosing) return;
-        isClosing = true;
-        cancelAnimationFrame(animationFrameId);
-        overlay.classList.add('closing');
-        
-        setTimeout(() => {
-            if (overlay.parentElement) overlay.parentElement.removeChild(overlay);
-        }, 500); 
+        document.getElementById('pro-signup-trigger').onclick = () => {
+            overlay.remove();
+            const btn = document.querySelector('.auth-toggle-btn[data-mode="signup"]');
+            if (btn) btn.click();
+            else if (window.AuthUI) window.AuthUI.open('signup');
+        };
     }
 
-    // Manual Close Hook
-    document.getElementById('pro-close-carousel').addEventListener('click', destroyCarousel);
-
-    // 6. Sign Up Trigger Integration
-    document.getElementById('pro-signup-trigger').addEventListener('click', () => {
-        destroyCarousel();
-        
-        // Slight delay to allow the carousel exit animation to play smoothly 
-        // before manipulating the underlying auth modal state
-        setTimeout(() => {
-            // Attempt to click the sign-up toggle if the modal is currently open
-            const signupToggle = document.querySelector('.auth-toggle-btn[data-mode="signup"]');
-            if (signupToggle) {
-                signupToggle.click();
-            } else if (window.AuthUI) {
-                // Fallback: If AuthUI is globally accessible and modal is closed, open it in signup mode
-                window.AuthUI.open('signup');
-            } else {
-                console.warn("Inflight Pro: Could not locate the AuthUI signup toggle.");
+    // --- CRITICAL SPEED INJECTION ---
+    if (document.body) {
+        initInflightPro();
+    } else {
+        const observer = new MutationObserver((mutations, obs) => {
+            if (document.body) {
+                initInflightPro();
+                obs.disconnect();
             }
-        }, 300);
-    });
-
+        });
+        observer.observe(document.documentElement, { childList: true });
+    }
 })();
