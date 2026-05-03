@@ -1437,6 +1437,127 @@ _tabCareer() {
         `;
     },
 
+    /**
+     * Premium Subscription Cancellation Portal
+     * Mirrors Desktop logic: Stripe/PayPal selection -> Edge Function -> Mailto Fallback
+     */
+    _showCancellationModal() {
+        const existing = document.getElementById('mdui-custom-confirm');
+        if (existing) existing.remove();
+
+        const overlay = document.createElement('div');
+        overlay.id = 'mdui-custom-confirm';
+        overlay.className = 'mdui-wrapper-layer mdui-open';
+        overlay.style.zIndex = '10005';
+
+        overlay.innerHTML = `
+            <div class="mdui-confirm-box mdui-fade-up" style="max-width: 440px; padding: 0; overflow: hidden; text-align: left;">
+                <div style="padding: 24px 20px 8px; text-align: center;">
+                    <div class="mdui-confirm-icon" style="margin-bottom: 12px;"><i class="fa-solid fa-ban"></i></div>
+                    <h3 style="margin: 0; font-size: 1.25rem;">Cancel Subscription</h3>
+                </div>
+                <div style="padding: 0 20px 20px;">
+                    <p style="margin-bottom: 20px; font-size: 0.88rem; color: var(--mdui-muted); line-height: 1.5; text-align: center;">
+                        Select the payment method used to upgrade. We will route you to the secure portal to manage your billing.
+                    </p>
+                    
+                    <div style="display: flex; flex-direction: column; gap: 12px;">
+                        <button class="mdui-btn-secondary" id="mdui-cancel-stripe-btn" style="padding: 12px; height: auto; justify-content: flex-start; border-color: var(--mdui-border-strong); text-align: left;">
+                            <i class="fa-brands fa-stripe" style="font-size: 1.8rem; color: #6366f1; width: 40px;"></i>
+                            <div style="display: flex; flex-direction: column; gap: 2px;">
+                                <span style="font-size: 0.9rem;">Apple Pay, Google Pay, or Card</span>
+                                <span style="font-size: 0.7rem; color: var(--mdui-tertiary); font-weight: 500;">Manage via Stripe Billing Portal</span>
+                            </div>
+                        </button>
+
+                        <button class="mdui-btn-secondary" id="mdui-cancel-paypal-btn" style="padding: 12px; height: auto; justify-content: flex-start; border-color: var(--mdui-border-strong); text-align: left;">
+                            <i class="fa-brands fa-paypal" style="font-size: 1.5rem; color: #00457C; width: 40px;"></i>
+                            <div style="display: flex; flex-direction: column; gap: 2px;">
+                                <span style="font-size: 0.9rem;">PayPal</span>
+                                <span style="font-size: 0.7rem; color: var(--mdui-tertiary); font-weight: 500;">Manage via PayPal AutoPay</span>
+                            </div>
+                        </button>
+                    </div>
+                </div>
+                <div style="padding: 16px 20px; background: var(--mdui-surface); border-top: 1px solid var(--mdui-border-light);">
+                    <button class="mdui-btn-ghost" id="mdui-confirm-close" style="width: 100%;">Keep Subscription</button>
+                </div>
+            </div>
+        `;
+
+        document.body.appendChild(overlay);
+
+        const cleanup = () => {
+            overlay.remove();
+            document.removeEventListener('keydown', escHandler);
+        };
+
+        const escHandler = (e) => { if (e.key === 'Escape') cleanup(); };
+        document.addEventListener('keydown', escHandler);
+        document.getElementById('mdui-confirm-close').addEventListener('click', cleanup);
+        overlay.addEventListener('click', (e) => { if (e.target === overlay) cleanup(); });
+
+        // --- PAYPAL ROUTE ---
+        document.getElementById('mdui-cancel-paypal-btn').addEventListener('click', () => {
+            window.open('https://www.paypal.com/myaccount/autopay/', '_blank');
+            cleanup();
+            this._showMessage('mdui-billing-msg', 'Opened PayPal. Please log in to manage your payments.', 'info');
+        });
+
+        // --- STRIPE ROUTE ---
+        document.getElementById('mdui-cancel-stripe-btn').addEventListener('click', async () => {
+            const btn = document.getElementById('mdui-cancel-stripe-btn');
+            const originalHtml = btn.innerHTML;
+            btn.innerHTML = '<i class="fa-solid fa-circle-notch fa-spin" style="width: 40px; font-size: 1.2rem;"></i> Loading Portal...';
+            btn.style.pointerEvents = 'none';
+
+            try {
+                const { data, error } = await this._supabase.functions.invoke('create-stripe-portal', {
+                    body: { return_url: window.location.href }
+                });
+
+                if (error || data?.error) throw new Error(error?.message || data?.error || "Failed to reach server.");
+                if (!data?.url) throw new Error("Portal URL missing.");
+
+                window.location.href = data.url;
+                cleanup();
+
+            } catch (err) {
+                console.warn("[MobileUI] Stripe failed:", err.message);
+                btn.innerHTML = originalHtml;
+                btn.style.pointerEvents = 'auto';
+                
+                this._showMessage('mdui-billing-msg', `Redirection failed. Opening email support fallback.`, 'error');
+                
+                const userEmail = this._currentUser?.email || 'Unknown';
+                const ifUsername = this._currentUser?.user_metadata?.if_username || 'Not Linked';
+                const subject = encodeURIComponent("Cancellation Request - Pro Access (Mobile)");
+                const body = encodeURIComponent(
+                    `Hello Inflight Pro Support,\n\n` +
+                    `I would like to cancel my Pro Access subscription.\n\n` +
+                    `Account Details:\n` +
+                    `• Email: ${userEmail}\n` +
+                    `• IF Username: ${ifUsername}\n` +
+                    `• Account ID: ${this._currentUser?.id}\n\n` +
+                    `Sent from Mobile Dashboard.`
+                );
+
+                window.location.href = `mailto:inflightCustomer@gmail.com?subject=${subject}&body=${body}`;
+                setTimeout(() => cleanup(), 1500);
+            }
+        });
+    },
+
+    /** Helper to show inline alerts inside cards (matching desktop flow) */
+    _showMessage(msgDivId, msg, type) {
+        const msgDiv = document.getElementById(msgDivId);
+        if (msgDiv) {
+            msgDiv.textContent = msg;
+            msgDiv.style.display = 'flex';
+            msgDiv.className = `mdui-alert mdui-alert-${type}`;
+        }
+    },
+
     _showDeleteConfirmation(flight) {
         return new Promise((resolve) => {
             const existing = document.getElementById('mdui-custom-confirm');
@@ -2410,26 +2531,9 @@ _attachListeners() {
                 }
             });
 
-            document.getElementById('mdui-billing-cancel')?.addEventListener('click', async () => {
-                if (!confirm('Cancel your Pro Access subscription? This cannot be undone.')) return;
-                const btn    = document.getElementById('mdui-billing-cancel');
-                const msgDiv = document.getElementById('mdui-billing-msg');
-                if (btn) { btn.disabled = true; btn.innerHTML = '<i class="fa-solid fa-circle-notch fa-spin"></i> Processing…'; }
-                try {
-                    const { error } = await this._supabase.from('subscriptions')
-                        .update({ status: 'canceled' }).eq('user_id', this._currentUser.id);
-                    if (error) throw error;
-                    this._subscription.status = 'Canceled';
-                    this._render();
-                    setTimeout(() => {
-                        const m = document.getElementById('mdui-billing-msg');
-                        if (m) { m.textContent = 'Subscription canceled.'; m.className = 'mdui-alert mdui-alert-success'; m.style.display = 'flex'; }
-                    }, 50);
-                } catch (err) {
-                    if (msgDiv) { msgDiv.textContent = 'Unable to cancel. Contact support.'; msgDiv.className = 'mdui-alert mdui-alert-error'; msgDiv.style.display = 'flex'; }
-                    if (btn) { btn.disabled = false; btn.innerHTML = '<i class="fa-solid fa-ban"></i> Cancel subscription'; }
-                }
-            });
+document.getElementById('mdui-billing-cancel')?.addEventListener('click', () => {
+    this._showCancellationModal();
+});
 
             document.getElementById('mdui-signout')?.addEventListener('click', async () => {
                 if (this._supabase) { await this._supabase.auth.signOut(); this.close(); }
