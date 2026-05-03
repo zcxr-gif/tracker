@@ -39,6 +39,7 @@ export const MobileDashboardUI = {
     _isOpen:            false,
     _injected:          false,
     _activeTab:         'dashboard',
+    _careerActiveTab:   'overview',
     _currentUser:       null,
     _theme:             'light',     
     _accent:            'caramel',   
@@ -96,7 +97,7 @@ export const MobileDashboardUI = {
 
     // ─── Public API ──────────────────────────────────────────────────────────
 
-    init(supabaseClient) {
+init(supabaseClient) {
         this._supabase = supabaseClient;
 
         this._supabase.auth.onAuthStateChange((event, session) => {
@@ -127,6 +128,14 @@ export const MobileDashboardUI = {
             this._socketUnsubscribe = socketDataHub.subscribe('all_flights_update', (payload) => {
                 if (!payload?.flights) return;
                 this._currentAllFlights = payload.flights;
+                
+                // --- 3D HUD Live Telemetry Feed ---
+                if (this._active3DFlightId && typeof AircraftViewer3D !== 'undefined') {
+                    const active3DFlight = payload.flights.find(f => String(f.flightId || f.properties?.flightId) === this._active3DFlightId);
+                    if (active3DFlight) {
+                        AircraftViewer3D.updateFlightData(this._extractPositionForViewer(active3DFlight));
+                    }
+                }
                 
                 const ifUsername = this._currentUser?.user_metadata?.if_username;
                 if (ifUsername) {
@@ -887,63 +896,29 @@ export const MobileDashboardUI = {
                 </div>
             </div>`;
     },
-
-    _tabCareer() {
+_tabCareer() {
         const user = this._currentUser;
         const ifUsername = user?.user_metadata?.if_username || '';
         const fullName = user?.user_metadata?.full_name || user?.user_metadata?.name || 'Captain';
-        let statCardsHTML = '';
 
-        if (!ifUsername) {
-            statCardsHTML = `
-                <div class="mdui-alert mdui-alert-info mdui-fade-up" style="grid-column: span 3;">
-                    <i class="fa-solid fa-circle-info"></i>
-                    Link your Infinite Flight account in Settings to view live career statistics.
-                </div>`;
-        } else if (this._ifData.loading) {
-            statCardsHTML = [
-                { label: 'Pilot Level',   w: 60  },
-                { label: 'Total XP',      w: 80  },
-                { label: 'Flights Flown', w: 50  },
-            ].map(s => `
-                <div class="mdui-mini-stat-card">
-                    <div class="mdui-mini-icon"><div class="mdui-skel" style="width:38px;height:38px;border-radius:10px;"></div></div>
-                    <div class="mdui-mini-value"><div class="mdui-skel" style="width:${s.w}px;height:16px;border-radius:4px;margin-top:4px;"></div></div>
-                    <div class="mdui-mini-label"><div class="mdui-skel" style="width:60px;height:10px;border-radius:4px;margin-top:4px;"></div></div>
-                </div>`).join('');
-        } else if (this._ifData.error) {
-            statCardsHTML = `
-                <div class="mdui-alert mdui-alert-error mdui-fade-up" style="grid-column: span 3;">
-                    <i class="fa-solid fa-circle-xmark"></i> ${this._ifData.error}
-                </div>`;
-        } else if (this._ifData.stats) {
-            const grade   = this._ifData.stats.gradeDetails?.gradeIndex || 'N/A';
-            const xp      = this._ifData.stats.totalXP?.toLocaleString() || '0';
-            const flights = this._ifData.logbookTotal?.toLocaleString() || '0';
+        // Internal Career Sub-Tabs
+        const subTabs = [
+            { id: 'overview', label: 'Overview', icon: 'fa-chart-pie' },
+            { id: 'logbook',  label: 'Logbook',  icon: 'fa-book' },
+            { id: 'records',  label: 'Records',  icon: 'fa-trophy' }
+        ];
 
-            statCardsHTML = `
-                <div class="mdui-mini-stat-card mdui-drillable-card" data-drill="grade" data-tone="indigo">
-                    <div class="mdui-mini-icon"><i class="fa-solid fa-award"></i></div>
-                    <div class="mdui-mini-data">
-                        <div class="mdui-mini-value">Grade ${grade}</div>
-                        <div class="mdui-mini-label">Pilot Level</div>
-                    </div>
-                </div>
-                <div class="mdui-mini-stat-card mdui-drillable-card" data-drill="xp" data-tone="violet">
-                    <div class="mdui-mini-icon"><i class="fa-solid fa-star"></i></div>
-                    <div class="mdui-mini-data">
-                        <div class="mdui-mini-value">${xp}</div>
-                        <div class="mdui-mini-label">Total XP</div>
-                    </div>
-                </div>
-                <div class="mdui-mini-stat-card mdui-drillable-card" data-drill="flights" data-tone="emerald">
-                    <div class="mdui-mini-icon"><i class="fa-solid fa-plane-arrival"></i></div>
-                    <div class="mdui-mini-data">
-                        <div class="mdui-mini-value">${flights}</div>
-                        <div class="mdui-mini-label">Flights</div>
-                    </div>
-                </div>`;
-        }
+        const subTabNav = `
+            <div class="mdui-sub-tab-bar mdui-fade-up">
+                ${subTabs.map(t => `
+                    <button class="mdui-career-tab-btn ${this._careerActiveTab === t.id ? 'active' : ''}" 
+                            data-tab="${t.id}" aria-label="${t.label}">
+                        <i class="fa-solid ${t.icon}"></i>
+                        <span>${t.label}</span>
+                    </button>
+                `).join('')}
+            </div>
+        `;
 
         const coverHTML = this._coverUrl ? `
             <div class="mdui-cover-banner mdui-fade-up" style="background-image:url('${this._coverUrl.replace(/'/g, "&apos;")}')">
@@ -952,28 +927,70 @@ export const MobileDashboardUI = {
                     ${this._bio ? `<div class="mdui-cover-bio">${this._bio}</div>` : ''}
                 </div>
             </div>
-        ` : (this._bio ? `
-            <div class="mdui-bio-strip mdui-fade-up">
-                <i class="fa-solid fa-quote-left"></i>
-                <span>${this._bio}</span>
-            </div>
-        ` : '');
+        ` : '';
+
+        // Content selection based on sub-tab
+        let activeContentHTML = '';
+        if (this._careerActiveTab === 'overview') {
+            activeContentHTML = `
+                <div class="mdui-mini-stat-grid mdui-fade-up" style="margin-bottom: 24px;">
+                    ${this._renderCareerMiniStats()}
+                </div>
+                ${this._getTrendsCardHTML()}
+            `;
+        } else if (this._careerActiveTab === 'logbook') {
+            activeContentHTML = `
+                <div class="mdui-fade-up" style="animation-delay:0.1s; margin-bottom: 24px;">
+                    ${CareerModule.getHTML(this._ifData, 'logbook')}
+                </div>
+            `;
+        } else {
+            activeContentHTML = this._ifData.logbook?.length > 0 ? this._getPersonalRecordsHTML() : '<div class="mdui-empty">No records found.</div>';
+        }
 
         return `
             ${coverHTML}
             <div class="mdui-tab-header mdui-fade-up">
                 <h2>Pilot Dossier</h2>
-                <p>Comprehensive career analytics and high-level flight statistics.</p>
+                <p>Comprehensive career analytics and flight history.</p>
             </div>
-            <div class="mdui-mini-stat-grid mdui-fade-up" style="margin-bottom: 24px;">
-                ${statCardsHTML}
+            
+            ${subTabNav}
+
+            <div id="mdui-career-content-host">
+                ${activeContentHTML}
             </div>
-            ${this._getTrendsCardHTML()}
-            <div class="mdui-fade-up" style="animation-delay:0.1s; margin-bottom: 24px;">
-                ${CareerModule.getHTML(this._ifData)}
-            </div>
-            ${this._ifData.logbook?.length > 0 ? this._getPersonalRecordsHTML() : ''}
+            
+            ${this._careerActiveTab === 'overview' ? `<div class="mdui-fade-up">${CareerModule.getHTML(this._ifData, 'overview')}</div>` : ''}
         `;
+    },
+
+    // Helper to keep _tabCareer clean
+    _renderCareerMiniStats() {
+        if (!this._ifData.stats) return `<div class="mdui-skel" style="height:80px; width:100%;"></div>`;
+        const stats = this._ifData.stats;
+        return `
+            <div class="mdui-mini-stat-card mdui-drillable-card" data-drill="grade" data-tone="indigo">
+                <div class="mdui-mini-icon"><i class="fa-solid fa-award"></i></div>
+                <div class="mdui-mini-data">
+                    <div class="mdui-mini-value">Grade ${stats.gradeDetails?.gradeIndex || 'N/A'}</div>
+                    <div class="mdui-mini-label">Pilot Level</div>
+                </div>
+            </div>
+            <div class="mdui-mini-stat-card mdui-drillable-card" data-drill="xp" data-tone="violet">
+                <div class="mdui-mini-icon"><i class="fa-solid fa-star"></i></div>
+                <div class="mdui-mini-data">
+                    <div class="mdui-mini-value">${stats.totalXP?.toLocaleString() || '0'}</div>
+                    <div class="mdui-mini-label">Total XP</div>
+                </div>
+            </div>
+            <div class="mdui-mini-stat-card mdui-drillable-card" data-drill="flights" data-tone="emerald">
+                <div class="mdui-mini-icon"><i class="fa-solid fa-plane-arrival"></i></div>
+                <div class="mdui-mini-data">
+                    <div class="mdui-mini-value">${this._ifData.logbookTotal?.toLocaleString() || '0'}</div>
+                    <div class="mdui-mini-label">Flights</div>
+                </div>
+            </div>`;
     },
 
     // ── Airspace Intel ────────────────────────────────────────────────────────
@@ -1650,21 +1667,14 @@ export const MobileDashboardUI = {
         `;
     },
 
-    // ─── Live Flight Banner ───────────────────────────────────────────────────
-
-// ─── Live Flight Banner ───────────────────────────────────────────────────
-    _updateLiveBanner() {
+_updateLiveBanner() {
         const banner = document.getElementById('mdui-live-banner');
         if (!banner) return;
 
         if (!this._liveFlights || this._liveFlights.length === 0) {
             banner.innerHTML = '';
             banner.style.display = 'none';
-            this._3dViewerHostKey = null;
-            this._active3DFlightId = null;
-            if (typeof AircraftViewer3D !== 'undefined' && typeof AircraftViewer3D.destroy === 'function') {
-                AircraftViewer3D.destroy();
-            }
+            this._close3DHUD(); 
             return;
         }
 
@@ -1673,7 +1683,7 @@ export const MobileDashboardUI = {
         const existingCarousel = banner.querySelector('.mdui-live-carousel');
         const currentScrollPos = existingCarousel ? existingCarousel.scrollLeft : 0;
 
-        const cardsHtmlArray = this._liveFlights.map((f, index) => {
+const cardsHtmlArray = this._liveFlights.map((f, index) => {
             const props = f.properties || f;
             const flightIdStr = String(f.flightId || props.flightId);
             const altRaw = props.altitude || f.position?.alt_ft || 0;
@@ -1694,33 +1704,36 @@ export const MobileDashboardUI = {
                 }
             }
 
-            const is3DActive = (this._active3DFlightId === flightIdStr);
             const canLaunch3D = altRaw > 3000;
+            
+            // Dual-layer image technique: Blurred background + contained sharp foreground
+            const bgHTML = imageUrl 
+                ? `<div class="mdui-live-bg-blur" style="background-image:url('${imageUrl}')"></div>
+                   <div class="mdui-live-bg" style="background-image:url('${imageUrl}')"></div>` 
+                : `<div class="mdui-live-bg mdui-live-bg-fallback"></div>`;
 
-            const bgHTML = is3DActive
-                ? `<div class="mdui-live-bg mdui-live-bg-3d" data-3d-host></div>`
-                : (imageUrl
-                    ? `<div class="mdui-live-bg" style="background-image:url('${imageUrl}')"></div>`
-                    : `<div class="mdui-live-bg mdui-live-bg-fallback"></div>`);
+            // Explicit mobile-friendly text swap instead of relying on hover tooltips
+            const actionButtonText = canLaunch3D 
+                ? `<i class="fa-solid fa-vr-cardboard"></i> 3D HUD` 
+                : `<i class="fa-solid fa-ban"></i> No 3D under 3K`;
 
-            const actionButtonHTML = is3DActive ? `
-                <button class="mdui-btn-ghost mdui-close-3d-btn" 
-                        style="background: rgba(220, 38, 38, 0.8); color: #fff; border: 1px solid rgba(255,255,255,0.2); backdrop-filter: blur(4px); padding: 6px 10px; height: 32px; font-size: 0.75rem; font-weight: 600;" data-flight-id="${flightIdStr}">
-                    <i class="fa-solid fa-xmark"></i> Close HUD
-                </button>
-            ` : `
-                <button class="mdui-btn-ghost mdui-launch-3d-btn" 
-                        style="background: rgba(0,0,0,0.6); color: #fff; border: 1px solid rgba(255,255,255,0.2); backdrop-filter: blur(4px); padding: 6px 10px; height: 32px; font-size: 0.75rem; font-weight: 600;" 
-                        data-flight-id="${flightIdStr}" 
-                        ${!canLaunch3D ? 'disabled title="Requires altitude over 3,000 ft"' : ''}>
-                    <i class="fa-solid fa-vr-cardboard"></i> 3D HUD
+            const actionButtonColor = canLaunch3D ? '#fff' : 'rgba(255, 255, 255, 0.45)';
+
+            const actionButtonHTML = `
+                <button class="mdui-btn-ghost mdui-launch-3d-btn" style="background: rgba(0,0,0,0.5); color: ${actionButtonColor}; border: 1px solid rgba(255,255,255,0.15); backdrop-filter: blur(6px); padding: 6px 10px; height: 32px; font-size: 0.75rem; font-weight: 600;" data-flight-id="${flightIdStr}" ${!canLaunch3D ? 'disabled' : ''}>
+                    ${actionButtonText}
                 </button>
             `;
 
             return `
                 <div class="mdui-live-card mdui-fade-up" style="animation-delay:${index * 0.08}s;">
-                    ${bgHTML}
-                    <div class="mdui-live-overlay"></div>
+                    <div class="mdui-live-visual">
+                        ${bgHTML}
+                        <div class="mdui-live-overlay"></div>
+                        <div class="mdui-3d-action-wrap">
+                            ${actionButtonHTML}
+                        </div>
+                    </div>
                     <div class="mdui-live-content">
                         <div class="mdui-live-top">
                             <div class="mdui-live-route-pill">
@@ -1728,16 +1741,11 @@ export const MobileDashboardUI = {
                                 <i class="fa-solid fa-plane mdui-live-route-icon"></i>
                                 <span class="mdui-live-icao">${arr}</span>
                             </div>
-                            <div style="display: flex; align-items: center; gap: 10px;">
-                                <div class="mdui-live-ident" style="text-align: right;">
-                                    <span class="mdui-live-acft">${acft}</span>
-                                    <span class="mdui-live-cs">${cs}</span>
-                                </div>
-                                ${actionButtonHTML}
+                            <div class="mdui-live-ident">
+                                <span class="mdui-live-acft">${acft}</span>
+                                <span class="mdui-live-cs">${cs}</span>
                             </div>
                         </div>
-                        <div class="mdui-live-spacer"></div>
-                        ${!is3DActive ? `
                         <div class="mdui-live-stats">
                             <div class="mdui-live-stat">
                                 <span class="label">ALT</span>
@@ -1752,60 +1760,41 @@ export const MobileDashboardUI = {
                                 <span class="value">${hdg}<em>°</em></span>
                             </div>
                         </div>
-                        ` : ''}
                     </div>
                 </div>
             `;
         });
 
-        banner.innerHTML = `<div class="mdui-live-carousel">${cardsHtmlArray.join('')}</div>`;
+        banner.innerHTML = `<div class="mdui-live-carousel" style="cursor: grab;">${cardsHtmlArray.join('')}</div>`;
 
         const newCarousel = banner.querySelector('.mdui-live-carousel');
-        if (newCarousel) newCarousel.scrollLeft = currentScrollPos;
+        if (newCarousel) {
+            newCarousel.scrollLeft = currentScrollPos;
+            
+            let isDown = false, startX, scrollLeft;
+            newCarousel.addEventListener('touchstart', (e) => {
+                if (e.target.closest('button')) return;
+                isDown = true;
+                startX = e.touches[0].pageX;
+                scrollLeft = newCarousel.scrollLeft;
+            }, { passive: true });
+            
+            newCarousel.addEventListener('touchend', () => isDown = false, { passive: true });
+            
+            newCarousel.addEventListener('touchmove', (e) => {
+                if (!isDown) return;
+                const walk = (e.touches[0].pageX - startX);
+                newCarousel.scrollLeft = scrollLeft - walk;
+            }, { passive: true });
+        }
 
         banner.querySelectorAll('.mdui-launch-3d-btn').forEach(btn => {
             btn.addEventListener('click', (e) => {
                 const targetId = e.currentTarget.dataset.flightId;
-                if (this._active3DFlightId && this._active3DFlightId !== targetId) {
-                    if (typeof AircraftViewer3D !== 'undefined' && typeof AircraftViewer3D.destroy === 'function') {
-                        AircraftViewer3D.destroy();
-                    }
-                    this._3dViewerHostKey = null;
-                }
-                this._active3DFlightId = targetId;
-                this._updateLiveBanner(); 
+                const targetFlight = this._liveFlights.find(f => String(f.flightId || f.properties?.flightId) === targetId);
+                this._open3DHUD(targetFlight);
             });
         });
-
-        banner.querySelectorAll('.mdui-close-3d-btn').forEach(btn => {
-            btn.addEventListener('click', () => {
-                if (typeof AircraftViewer3D !== 'undefined' && typeof AircraftViewer3D.destroy === 'function') {
-                    AircraftViewer3D.destroy();
-                }
-                this._active3DFlightId = null;
-                this._updateLiveBanner(); 
-            });
-        });
-
-        if (this._active3DFlightId) {
-            const targetFlight = this._liveFlights.find(f => String(f.flightId) === this._active3DFlightId);
-            const hostKey = targetFlight ? String(targetFlight.flightId) : null;
-            const newHost = banner.querySelector('[data-3d-host]');
-            
-            if (newHost && targetFlight) {
-                newHost.innerHTML = AircraftViewer3D.getHTML();
-                setTimeout(() => {
-                    if (document.contains(newHost)) {
-                        AircraftViewer3D
-                            .init(targetFlight.aircraft?.aircraftName || 'Unknown', this._extractPositionForViewer(targetFlight))
-                            .catch(err => console.warn('[MobileUI] AircraftViewer3D init failed:', err));
-                    }
-                }, 350);
-                this._3dViewerHostKey = hostKey;
-            } else {
-                this._3dViewerHostKey = null;
-            }
-        }
     },
 
     _extractPositionForViewer(flight) {
@@ -1834,6 +1823,77 @@ export const MobileDashboardUI = {
             roll_deg:    pos.roll_deg    ?? 0,
             heading_deg: pos.heading_deg ?? pos.track ?? flight.heading ?? 45,
         };
+    },
+
+    _open3DHUD(flight) {
+        if (!flight) return;
+        this._close3DHUD(); // Clean up existing if any
+
+        const overlay = document.createElement('div');
+        overlay.id = 'mdui-3d-modal';
+        overlay.style.position = 'fixed';
+        overlay.style.inset = '0';
+        overlay.style.zIndex = '10005';
+        overlay.style.background = '#0a1628';
+        
+        try {
+            if (document.documentElement.requestFullscreen) {
+                document.documentElement.requestFullscreen().catch(()=>{});
+            }
+        } catch(e) {}
+
+        try {
+            if (screen.orientation && screen.orientation.lock) {
+                screen.orientation.lock('landscape').catch(()=>{});
+            }
+        } catch(e) {}
+
+        overlay.innerHTML = `
+            <div class="mdui-3d-landscape-wrapper">
+                <button class="mdui-btn-ghost" id="mdui-3d-close" style="position:absolute; top: 20px; right: 20px; z-index: 9999; background: rgba(0,0,0,0.6); color: #fff; border: 1px solid rgba(255,255,255,0.2); backdrop-filter: blur(4px); box-shadow: 0 4px 12px rgba(0,0,0,0.5);">
+                    <i class="fa-solid fa-xmark"></i> Exit HUD
+                </button>
+                <div id="mdui-3d-host-container" style="width: 100%; height: 100%;">
+                    ${typeof AircraftViewer3D !== 'undefined' ? AircraftViewer3D.getHTML() : ''}
+                </div>
+            </div>
+        `;
+        
+        document.body.appendChild(overlay);
+        this._active3DFlightId = String(flight.flightId || flight.properties?.flightId);
+
+        setTimeout(() => {
+            if (typeof AircraftViewer3D !== 'undefined') {
+                AircraftViewer3D.init(flight.aircraft?.aircraftName || 'Unknown', this._extractPositionForViewer(flight))
+                    .catch(err => console.warn('[MobileUI] 3D init failed:', err));
+            }
+        }, 300);
+
+        document.getElementById('mdui-3d-close').addEventListener('click', () => {
+            this._close3DHUD();
+        });
+    },
+
+    _close3DHUD() {
+        const overlay = document.getElementById('mdui-3d-modal');
+        if (overlay) overlay.remove();
+        this._active3DFlightId = null;
+        
+        try {
+            if (typeof AircraftViewer3D !== 'undefined') {
+                if (typeof AircraftViewer3D.destroy === 'function') {
+                    AircraftViewer3D.destroy();
+                } else if (window.Cesium && window.viewer) {
+                    // Fallback cleanup if destroy() wasn't exposed
+                    window.viewer.destroy(); 
+                }
+            }
+        } catch (e) {}
+
+        try {
+            if (document.exitFullscreen) document.exitFullscreen().catch(()=>{});
+            if (screen.orientation && screen.orientation.unlock) screen.orientation.unlock();
+        } catch(e) {}
     },
 
     // ─── Drill-Down Modal ─────────────────────────────────────────────────────
@@ -1981,20 +2041,52 @@ export const MobileDashboardUI = {
 
     // ─── Listeners ────────────────────────────────────────────────────────────
 
-    _attachListeners() {
-        document.getElementById('mdui-close')?.addEventListener('click', () => this.close());
+_attachListeners() {
+    document.getElementById('mdui-close')?.addEventListener('click', () => this.close());
 
-        // Drill-down delegate
-        const contentRoot = document.getElementById('mdui-content-area');
-        if (contentRoot && !contentRoot.dataset.drillBound) {
-            contentRoot.dataset.drillBound = '1';
-            contentRoot.addEventListener('click', (e) => {
-                const target = e.target.closest('[data-drill]');
-                if (!target || !contentRoot.contains(target)) return;
-                e.stopPropagation();
-                this._showDrillDown(target.dataset.drill, { icao: target.dataset.icao, callsign: target.dataset.callsign });
+    // ─── Career Deep Dive (Dossier) Listeners ─────────────────────────
+    // Mirrors the desktop implementation to enable internal module 
+    // functionality (like logbook pagination or detailed stat toggles).
+    if (this._activeTab === 'career-deep-dive') {
+        if (typeof CareerModule !== 'undefined' && typeof CareerModule.attachListeners === 'function') {
+            CareerModule.attachListeners(this._ifData, this._backendUrl, () => {
+                // Callback to re-render the view if the module updates its data
+                this._render();
             });
         }
+    }
+
+    const contentRoot = document.getElementById('mdui-content-area');
+    if (contentRoot && !contentRoot.dataset.drillBound) {
+        contentRoot.dataset.drillBound = '1';
+        contentRoot.addEventListener('click', (e) => {
+            
+            // 1. Career Sub-Tab Switcher (Overview | Logbook | Records)
+            const subTabBtn = e.target.closest('.mdui-career-tab-btn');
+            if (subTabBtn) {
+                e.stopPropagation();
+                const targetTab = subTabBtn.dataset.tab;
+                
+                // Only re-render if the tab actually changed
+                if (this._careerActiveTab !== targetTab) {
+                    this._careerActiveTab = targetTab;
+                    this._render(); 
+                }
+                return;
+            }
+
+            // 2. Existing Drill-Down Logic
+            const target = e.target.closest('[data-drill]');
+            if (target && contentRoot.contains(target)) {
+                e.stopPropagation();
+                this._showDrillDown(target.dataset.drill, { 
+                    icao: target.dataset.icao, 
+                    callsign: target.dataset.callsign 
+                });
+                return;
+            }
+        });
+    }
 
         if (this._activeTab === 'onboarding') {
             document.querySelectorAll('input[name="onb-theme"]').forEach(r => {
@@ -2353,6 +2445,68 @@ export const MobileDashboardUI = {
         const css = `
             @import url('https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700;800&family=JetBrains+Mono:wght@500;700&display=swap');
 
+            /* ── DOSSIER SUB-TABS ── */
+            .mdui-sub-tab-bar {
+                display: flex;
+                background: var(--mdui-surface);
+                border: 1px solid var(--mdui-border);
+                padding: 4px;
+                border-radius: 12px;
+                margin-bottom: 24px;
+                gap: 4px;
+            }
+            .mdui-career-tab-btn {
+                flex: 1;
+                display: flex;
+                align-items: center;
+                justify-content: center;
+                gap: 8px;
+                padding: 8px 0;
+                border: none;
+                background: transparent;
+                color: var(--mdui-muted);
+                font-family: var(--mdui-font-sans);
+                font-size: 0.78rem;
+                font-weight: 600;
+                border-radius: 8px;
+                cursor: pointer;
+                transition: 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+            }
+            .mdui-career-tab-btn i { font-size: 0.85rem; }
+            .mdui-career-tab-btn.active {
+                background: var(--mdui-card);
+                color: var(--mdui-accent);
+                box-shadow: 0 2px 8px rgba(0,0,0,0.06);
+            }
+            #mdui-career-content-host {
+                min-height: 200px;
+            }
+
+            /* ── Full-Screen 3D Modal ── */
+        .mdui-3d-landscape-wrapper {
+            position: absolute;
+            width: 100%;
+            height: 100%;
+            top: 0; left: 0;
+            background: #0a1628;
+            overflow: hidden;
+        }
+        @media screen and (orientation: portrait) {
+            .mdui-3d-landscape-wrapper {
+                width: 100vh;
+                height: 100vw;
+                top: 50%;
+                left: 50%;
+                transform: translate(-50%, -50%) rotate(90deg);
+                transform-origin: center center;
+            }
+            #mdui-3d-close {
+                top: auto !important;
+                bottom: 20px !important;
+                right: 20px !important;
+            }
+        }
+
             /* ── Shell & Theme Variables ── */
             #mdui-shell {
                 --mdui-bg:        #f5f1ea;
@@ -2537,25 +2691,29 @@ export const MobileDashboardUI = {
             .mdui-flight-meta { display: flex; align-items: center; gap: 5px; font-size: 0.7rem; color: var(--mdui-muted); font-weight: 500; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
             .mdui-flight-time { font-size: 0.68rem; font-weight: 600; color: var(--mdui-tertiary); white-space: nowrap; flex-shrink: 0; }
 
-            .mdui-live-card { position: relative; height: 260px; border-radius: var(--mdui-radius); overflow: hidden; box-shadow: var(--mdui-shadow-pop); display: flex; flex-direction: column; margin-bottom: 24px; }
-            .mdui-live-bg { position: absolute; inset: 0; background-size: cover; background-position: center; z-index: 1; }
-            .mdui-live-bg-fallback { background: linear-gradient(135deg, #2a3445 0%, #1a2030 60%, #14181f 100%); }
-            .mdui-live-overlay { position: absolute; inset: 0; background: linear-gradient(to top, rgba(15, 12, 8, 0.92) 0%, rgba(15, 12, 8, 0.4) 35%, rgba(15, 12, 8, 0.1) 75%, transparent 100%); z-index: 2; pointer-events: none; }
-            .mdui-live-content { position: relative; z-index: 3; height: 100%; display: flex; flex-direction: column; padding: 20px; color: #fff; }
-            .mdui-live-top { display: flex; justify-content: space-between; align-items: flex-start; }
-            .mdui-live-route-pill { display: inline-flex; align-items: center; gap: 10px; padding: 6px 12px; background: rgba(0, 0, 0, 0.5); border: 1px solid rgba(255, 255, 255, 0.1); border-radius: 999px; }
-            .mdui-live-icao { font-family: var(--mdui-font-mono); font-size: 0.92rem; font-weight: 700; color: #fff; letter-spacing: 0.04em; }
-            .mdui-live-route-icon { color: #fff; font-size: 0.7rem; opacity: 0.7; }
+            .mdui-live-card { background: var(--mdui-card); border: 1px solid var(--mdui-border); border-radius: var(--mdui-radius); overflow: hidden; box-shadow: var(--mdui-shadow-pop); display: flex; flex-direction: column; margin-bottom: 24px; height: auto; }
+            .mdui-live-visual { position: relative; height: 170px; background: #0a0e14; overflow: hidden; display: flex; align-items: center; justify-content: center; }
+            .mdui-live-bg { position: absolute; inset: 0; background-size: contain; background-repeat: no-repeat; background-position: center; z-index: 2; }
+            .mdui-live-bg-blur { position: absolute; inset: -20px; background-size: cover; background-position: center; filter: blur(16px) brightness(0.6); z-index: 1; }
+            .mdui-live-bg-fallback { background: linear-gradient(135deg, #2a3445 0%, #1a2030 60%, #14181f 100%); z-index: 1; }
+            .mdui-live-overlay { position: absolute; inset: 0; background: linear-gradient(to bottom, rgba(0,0,0,0.5) 0%, transparent 40%); z-index: 3; pointer-events: none; }
+            .mdui-3d-action-wrap { position: absolute; top: 12px; right: 12px; z-index: 4; }
+            
+            .mdui-live-content { display: flex; flex-direction: column; padding: 16px 20px; background: var(--mdui-card); border-top: 1px solid var(--mdui-border-light); z-index: 5; }
+            .mdui-live-top { display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px; }
+            .mdui-live-route-pill { display: inline-flex; align-items: center; gap: 8px; padding: 6px 12px; background: var(--mdui-surface); border: 1px solid var(--mdui-border); border-radius: 999px; }
+            .mdui-live-icao { font-family: var(--mdui-font-mono); font-size: 0.92rem; font-weight: 700; color: var(--mdui-text); letter-spacing: 0.04em; }
+            .mdui-live-route-icon { color: var(--mdui-accent); font-size: 0.7rem; }
             .mdui-live-ident { display: flex; flex-direction: column; align-items: flex-end; text-align: right; }
-            .mdui-live-acft { font-size: 0.92rem; font-weight: 700; color: #fff; text-shadow: 0 1px 4px rgba(0, 0, 0, 0.6); }
-            .mdui-live-cs { font-family: var(--mdui-font-mono); font-size: 0.74rem; color: rgba(255, 255, 255, 0.85); font-weight: 600; margin-top: 2px; }
-            .mdui-live-spacer { flex-grow: 1; }
-            .mdui-live-stats { display: grid; grid-template-columns: repeat(3, 1fr); background: rgba(255, 255, 255, 0.04); border: 1px solid rgba(255, 255, 255, 0.08); border-radius: 12px; overflow: hidden; }
-            .mdui-live-stat { display: flex; flex-direction: column; gap: 2px; padding: 10px 14px; border-right: 1px solid rgba(255, 255, 255, 0.06); align-items: center; }
+            .mdui-live-acft { font-size: 0.92rem; font-weight: 700; color: var(--mdui-text); }
+            .mdui-live-cs { font-family: var(--mdui-font-mono); font-size: 0.74rem; color: var(--mdui-muted); font-weight: 600; margin-top: 2px; }
+            
+            .mdui-live-stats { display: grid; grid-template-columns: repeat(3, 1fr); background: var(--mdui-surface); border: 1px solid var(--mdui-border); border-radius: 12px; overflow: hidden; }
+            .mdui-live-stat { display: flex; flex-direction: column; gap: 2px; padding: 10px 14px; border-right: 1px solid var(--mdui-border); align-items: center; }
             .mdui-live-stat:last-child { border-right: none; }
-            .mdui-live-stat .label { font-size: 0.56rem; font-weight: 700; letter-spacing: 0.1em; text-transform: uppercase; color: rgba(255, 255, 255, 0.55); }
-            .mdui-live-stat .value { font-family: var(--mdui-font-mono); font-size: 1.05rem; font-weight: 700; color: #fff; display: flex; align-items: baseline; gap: 3px; line-height: 1; }
-            .mdui-live-stat .value em { font-style: normal; font-size: 0.62rem; color: rgba(255, 255, 255, 0.5); font-weight: 600; }
+            .mdui-live-stat .label { font-size: 0.56rem; font-weight: 700; letter-spacing: 0.1em; text-transform: uppercase; color: var(--mdui-tertiary); }
+            .mdui-live-stat .value { font-family: var(--mdui-font-mono); font-size: 1.05rem; font-weight: 700; color: var(--mdui-text); display: flex; align-items: baseline; gap: 3px; line-height: 1; }
+            .mdui-live-stat .value em { font-style: normal; font-size: 0.62rem; color: var(--mdui-muted); font-weight: 600; }
 
             /* ── CAREER / TRENDS ── */
             .mdui-cover-banner { width: 100%; height: 160px; margin-bottom: 24px; border-radius: var(--mdui-radius); background-size: cover; background-position: center; position: relative; overflow: hidden; border: 1px solid var(--mdui-border); }

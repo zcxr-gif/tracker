@@ -271,72 +271,99 @@ window.currentAirportTraffic = { in: [], out: [] }; // Stores IDs for the curren
     }
 
 window.pinFlight = function(flightId) {
-        // --- PRO GATE (defense-in-depth): bail if the user is not signed in ---
-        // toggleFlightPin already enforces this, but we re-check here so that any
-        // future direct callers of pinFlight cannot bypass the paywall.
-        const isSignedIn = !!(typeof ProfileUI !== 'undefined' && ProfileUI?._currentUser);
-        if (!isSignedIn) {
-            if (typeof showNotification === 'function') {
-                showNotification("Multi-Track is a Pro feature — sign in to pin flights.", "error");
-            }
-            if (window.AuthUI && typeof window.AuthUI.open === 'function') {
-                window.AuthUI.open('signup');
-            }
-            return;
+    const isSignedIn = !!(typeof ProfileUI !== 'undefined' && ProfileUI?._currentUser);
+    if (!isSignedIn) {
+        if (typeof showNotification === 'function') {
+            showNotification("Multi-Track is a Pro feature — sign in to pin flights.", "error");
+        }
+        if (window.AuthUI && typeof window.AuthUI.open === 'function') {
+            window.AuthUI.open('signup');
+        }
+        return;
+    }
+
+    window.pinnedFlights.add(flightId);
+    const container = createMiniWindowsContainer();
+    const flightProps = currentMapFeatures[flightId]?.properties;
+    if (!flightProps) return;
+    
+    let pos = flightProps.position;
+    if (typeof pos === 'string') pos = JSON.parse(pos);
+    
+    const imageUrl = flightProps.communityImageUrl || 'Images/default_ac.png';
+    
+    const card = document.createElement('div');
+    card.id = `pinned-flight-${flightId}`;
+    card.className = 'pinned-flight-card';
+    card.style.cursor = 'pointer'; 
+    
+    card.innerHTML = `
+        <div class="pinned-image-flush" style="width: fit-content; flex-shrink: 0; position: relative; display: flex;">
+            <img src="${imageUrl}" alt="Aircraft" style="height: 100%; width: auto; max-width: 160px; object-fit: cover;" onerror="this.src='Images/default_ac.png'" />
+            <div class="pinned-image-gradient"></div>
+        </div>
+        <div class="pinned-content">
+            <button class="pinned-close" onclick="window.unpinFlight('${flightId}')" title="Unpin Flight">
+                <i class="fa-solid fa-xmark"></i>
+            </button>
+            <div class="pinned-header">
+                <span class="pinned-callsign">${flightProps.callsign || 'N/A'}</span>
+            </div>
+            <div class="pinned-stats">
+                <div class="p-stat">
+                    <span class="p-label">ALT</span>
+                    <span class="p-val">${Math.round(pos.alt_ft || 0)} <small>FT</small></span>
+                </div>
+                <div class="p-stat">
+                    <span class="p-label">SPD</span>
+                    <span class="p-val">${Math.round(pos.gs_kt || 0)} <small>KTS</small></span>
+                </div>
+                <div class="p-stat">
+                    <span class="p-label">DEST</span>
+                    <span class="p-val dest-val">${flightProps.arrivalIcao || '---'}</span>
+                </div>
+            </div>
+        </div>
+    `;
+
+    card.addEventListener('click', function(e) {
+        if (e.target.closest('.pinned-close')) return;
+        
+        const feature = currentMapFeatures[flightId];
+        if (!feature || !feature.properties) return;
+        
+        const props = feature.properties;
+        const fp = {
+            ...props,
+            position: typeof props.position === 'string' ? JSON.parse(props.position) : props.position,
+            aircraft: typeof props.aircraft === 'string' ? JSON.parse(props.aircraft) : props.aircraft
+        };
+        
+        if (feature.geometry && feature.geometry.coordinates && typeof sectorOpsMap !== 'undefined') {
+            sectorOpsMap.flyTo({
+                center: feature.geometry.coordinates,
+                zoom: 9,
+                essential: true
+            });
         }
 
-        window.pinnedFlights.add(flightId);
-        const container = createMiniWindowsContainer();
-        const flightProps = currentMapFeatures[flightId]?.properties;
-        if (!flightProps) return;
-        
-        let pos = flightProps.position;
-        if (typeof pos === 'string') pos = JSON.parse(pos);
-        
-        // Grab the community image with a fallback placeholder
-        const imageUrl = flightProps.communityImageUrl || 'Images/default_ac.png';
-        
-        const card = document.createElement('div');
-        card.id = `pinned-flight-${flightId}`;
-        card.className = 'pinned-flight-card';
-        
-        card.innerHTML = `
-            <div class="pinned-image-flush">
-                <img src="${imageUrl}" alt="Aircraft" onerror="this.src='Images/default_ac.png'" />
-                <div class="pinned-image-gradient"></div>
-            </div>
-            <div class="pinned-content">
-                <button class="pinned-close" onclick="window.unpinFlight('${flightId}')" title="Unpin Flight">
-                    <i class="fa-solid fa-xmark"></i>
-                </button>
-                <div class="pinned-header">
-                    <span class="pinned-callsign">${flightProps.callsign || 'N/A'}</span>
-                </div>
-                <div class="pinned-stats">
-                    <div class="p-stat">
-                        <span class="p-label">ALT</span>
-                        <span class="p-val">${Math.round(pos.alt_ft || 0)} <small>FT</small></span>
-                    </div>
-                    <div class="p-stat">
-                        <span class="p-label">SPD</span>
-                        <span class="p-val">${Math.round(pos.gs_kt || 0)} <small>KTS</small></span>
-                    </div>
-                    <div class="p-stat">
-                        <span class="p-label">DEST</span>
-                        <span class="p-val dest-val">${flightProps.arrivalIcao || '---'}</span>
-                    </div>
-                </div>
-            </div>
-        `;
-        container.appendChild(card);
-        
-        const pinBtn = document.getElementById('pin-flight-btn');
-        if (pinBtn && currentFlightInWindow === flightId) {
-            pinBtn.classList.add('active-pin');
-            pinBtn.style.color = '#38bdf8';
+        if (typeof getValidSessionId === 'function') {
+            getValidSessionId().then(sessionId => {
+                handleAircraftClick(fp, sessionId);
+            });
+        } else {
+            handleAircraftClick(fp, 'default');
         }
-        if (typeof showNotification === 'function') showNotification("Multi-Track Active: Flight Pinned.", "success");
-    };
+    });
+
+    container.appendChild(card);
+    
+    const pinBtn = document.getElementById('pin-flight-btn');
+    if (pinBtn && currentFlightInWindow === flightId) {
+        pinBtn.classList.add('active-pin');
+        pinBtn.style.color = '#38bdf8';
+    }
+};
 
     window.unpinFlight = function(flightId) {
         window.pinnedFlights.delete(flightId);
@@ -430,7 +457,7 @@ let mapFilters = {
         showAircraftLabels: false,
         useFlatMap: false,
         useSimpleFlightWindow: false,
-        planeIconSize: 0.05,
+        planeIconSize: 0.15,
         themeStartColor: '#18181b',
         themeEndColor: '#18181b',
         themeOpacity: 90,
@@ -1181,16 +1208,6 @@ function injectCustomStyles() {
     box-shadow: 0 0 10px rgba(56, 189, 248, 0.5);
 }
 
-/* The little plane icon on the bar */
-.flight-progress-plane {
-    position: absolute;
-    right: -8px;
-    top: 50%;
-    transform: translateY(-50%);
-    color: #fff;
-    font-size: 0.85rem;
-    filter: drop-shadow(0 0 5px #38bdf8);
-}
 
     /* --- COMPACT REDESIGNED TRIP CARD --- */
 #trip-card-takeover {
@@ -5145,15 +5162,18 @@ function toggleTripCardMode(active) {
                         </div>
                     </div>
                 </div>
-                <div class="tc-route-row">
-                    <span class="tc-icao origin">---</span>
-                    <div class="tc-path-icon">
-                        <div class="tc-path-line"></div>
-                        <i class="fa-solid fa-plane"></i>
-                        <div class="tc-path-line" style="background: linear-gradient(90deg, #38bdf8 0%, rgba(56, 189, 248, 0) 100%);"></div>
-                    </div>
-                    <span class="tc-icao destination">---</span>
-                </div>
+// Locate the 'tc-route-row' within toggleTripCardMode (around line 1830 in flight.js)
+// Add the transform style to the plane icon
+
+<div class="tc-route-row">
+    <span class="tc-icao origin">---</span>
+    <div class="tc-path-icon">
+        <div class="tc-path-line"></div>
+        <i class="fa-solid fa-plane" style="transform: rotate(90deg);"></i>
+        <div class="tc-path-line" style="background: linear-gradient(90deg, #38bdf8 0%, rgba(56, 189, 248, 0) 100%);"></div>
+    </div>
+    <span class="tc-icao destination">---</span>
+</div>
                 <div class="tc-stats-grid">
                     <div class="tc-stat-box">
                         <span class="tc-label">Altitude</span>
@@ -9822,16 +9842,6 @@ renderCategory(catId) {
                                 <input type="range" id="set-plane-size" min="0.1" max="1.0" step="0.05" value="${mapFilters.planeIconSize}" style="width: 100%;">
                             </div>
                             
-                            <div class="settings-row">
-                                <div class="row-label">Icon Color Preset</div>
-                                <div class="input-wrapper select-wrapper">
-                                    <select id="set-icon-color" class="row-input-select">
-                                        <option value="default" ${mapFilters.iconColorMode === 'default' ? 'selected' : ''}>Default (White)</option>
-                                        <option value="blue" ${mapFilters.iconColorMode === 'blue' ? 'selected' : ''}>Blue</option>
-                                        <option value="orange" ${mapFilters.iconColorMode === 'orange' ? 'selected' : ''}>Orange</option>
-                                    </select>
-                                </div>
-                            </div>
                         </div>
 
                         <div class="settings-section">
@@ -11857,9 +11867,9 @@ let totalDistanceNM = 0;
             
             <div class="route-visual" style="flex: 1; max-width: 240px; display: flex; flex-direction: column; justify-content: center;">
                 <div class="flight-progress-track" style="height: 4px; background: rgba(255,255,255,0.1); border-radius: 4px; position: relative;">
-                    <div class="flight-progress-fill" id="ac-progress-bar" style="width: ${progress}%; background: #38bdf8; height: 100%; border-radius: 4px; position: relative; transition: width 0.5s ease;">
-                        <i class="fa-solid fa-plane flight-progress-plane" style="position: absolute; right: -6px; top: 50%; transform: translateY(-50%) rotate(45deg); color: #fff; font-size: 10px; filter: drop-shadow(0 0 4px #38bdf8);"></i>
-                    </div>
+<div class="flight-progress-fill" id="ac-progress-bar" style="width: ${progress}%; background: #38bdf8; height: 100%; border-radius: 4px; position: relative; transition: width 0.5s ease;">
+    <i class="fa-solid fa-plane flight-progress-plane" style="position: absolute; right: -6px; top: 50%; transform: translateY(-50%) rotate(0deg); color: #fff; font-size: 10px; filter: drop-shadow(0 0 4px #38bdf8);"></i>
+</div>
                 </div>
                 <div style="display: flex; justify-content: space-between; width: 100%; margin-top: 6px; font-size: 9px; color: #cbd5e1; font-weight: 700;">
                     <span>${Math.round(totalDistanceNM)} NM</span>

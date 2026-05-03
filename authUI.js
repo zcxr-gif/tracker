@@ -1,6 +1,6 @@
 // ─── Stripe configuration ─────────────────────────────────────────────────
 // Replace with your Stripe publishable key if needed for client-side redirection.
-const STRIPE_PUBLISHABLE_KEY = 'pk_test_51TRhge6y7GsJq8x03msaDldYeLpaQWEdZ26Pf32IwWcU1KGeSbu5MhhE5h1nWIcNtUMRzJOGgHuGy4cVJXY6fcFG00OoJDbppz';
+const STRIPE_PUBLISHABLE_KEY = 'pk_live_51TRhge6y7GsJq8x0sd1UDluQGEmHK1i32pEubTnbDMji6PvqKINhgK1CNkDj3drjUcHcu5fpfGw5MK24363yDmGL00OInUnl1t';
 // ──────────────────────────────────────────────────────────────────────────
 
 export const AuthUI = {
@@ -16,7 +16,7 @@ export const AuthUI = {
         this.checkPaymentStatus();
     },
 
-async checkPaymentStatus() {
+    async checkPaymentStatus() {
         const urlParams = new URLSearchParams(window.location.search);
         const paymentStatus = urlParams.get('payment');
         const sessionId = urlParams.get('session_id');
@@ -32,7 +32,7 @@ async checkPaymentStatus() {
                     try {
                         const userData = JSON.parse(pendingData);
                         
-                        // 1. Invoke the Stripe Edge Function to create the user securely via Admin API
+                        // 1. Invoke the Stripe Edge Function
                         const { data: result, error: functionError } = await this._supabase.functions.invoke('process-stripe-payment', {
                             body: { sessionId: sessionId }
                         });
@@ -41,46 +41,52 @@ async checkPaymentStatus() {
                             throw new Error(result?.error || functionError?.message || "Failed to verify Stripe payment on the server.");
                         }
 
-                        // 2. Log the user in since the Edge Function created and auto-confirmed them
-                        const { error: loginError } = await this._supabase.auth.signInWithPassword({
-                            email: userData.email,
-                            password: userData.password
-                        });
+                        // 2. If it's a renewal, the user is already logged in, skip signInWithPassword
+                        if (!userData.is_renew) {
+                            const { error: loginError } = await this._supabase.auth.signInWithPassword({
+                                email: userData.email,
+                                password: userData.password
+                            });
+
+                            if (loginError) {
+                                throw new Error("Account created, but auto-login failed: " + loginError.message);
+                            }
+                        }
 
                         localStorage.removeItem('inflight_pending_signup');
-
-                        if (!loginError) {
-                            this.open();
-                            return; 
-                        } else {
-                            throw new Error("Account created, but auto-login failed: " + loginError.message);
-                        }
+                        this.open();
+                        return; 
+                        
                     } catch (e) {
-                        console.error("Stripe auto-signup failed:", e);
+                        console.error("Stripe auto-processing failed:", e);
                         setTimeout(() => {
                             this.open('signin');
                             setTimeout(() => {
-                                this.showError(`Error finalizing account: ${e.message}. If you were charged, please contact support or try signing in.`);
+                                this.showError(`Error finalizing account: ${e.message}. If you were charged, please contact support.`);
                             }, 50);
                         }, 500);
                         return;
                     }
                 }
 
-                // Fallback if storage was lost or session_id is missing
+                // Fallback
                 setTimeout(() => {
-                    this.open('signin');
+                    this.open();
                     setTimeout(() => {
-                        this.showSuccess("Payment successful! If your account was created, please sign in.");
+                        this.showSuccess("Payment successful! Welcome to InFlight Pro.");
                     }, 50);
                 }, 500);
 
             } else if (paymentStatus === 'cancel') {
+                const pendingData = localStorage.getItem('inflight_pending_signup');
+                const parsedData = pendingData ? JSON.parse(pendingData) : null;
+                
                 localStorage.removeItem('inflight_pending_signup');
+                
                 setTimeout(() => {
-                    this.open('signup');
+                    this.open(parsedData?.is_renew ? 'renew' : 'signup');
                     setTimeout(() => {
-                        this.showError("Payment was cancelled. You can complete your registration when you're ready.");
+                        this.showError("Payment was cancelled. You can complete your transaction when you're ready.");
                     }, 50);
                 }, 500);
             }
@@ -88,14 +94,12 @@ async checkPaymentStatus() {
     },
 
     setupRecoveryListener() {
-        // Listen for Supabase's official password recovery event
         this._supabase.auth.onAuthStateChange((event, session) => {
             if (event === 'PASSWORD_RECOVERY') {
                 this.open('update_password');
             }
         });
 
-        // Failsafe: Check the URL hash directly on load just in case the event fires before init
         if (window.location.hash && window.location.hash.includes('type=recovery')) {
             window.history.replaceState(null, '', window.location.pathname);
             
@@ -114,18 +118,36 @@ async checkPaymentStatus() {
         const { data } = await this._supabase.auth.getSession();
         
         if (data?.session?.user && mode !== 'update_password') {
-            import('./profileUI.js').then(module => {
-                if (!module.ProfileUI._supabase) {
-                    module.ProfileUI.init(this._supabase);
-                }
-                module.ProfileUI.open(data.session.user);
-            }).catch(err => console.error("Failed to load ProfileUI:", err));
             
-            return; 
-        }
+            // Premium Access Gate: Verify subscription status from the database
+            const { data: profile, error: profileError } = await this._supabase
+                .from('profiles')
+                .select('is_pro')
+                .eq('id', data.session.user.id)
+                .single();
 
-        this._mode = mode;
-        this._tempSignUpData = null; 
+            if (profile && profile.is_pro === false) {
+                // Subscription is inactive, force them to the premium renewal flow
+                this._mode = 'renew';
+                this._tempSignUpData = { 
+                    email: data.session.user.email,
+                    is_renew: true 
+                };
+            } else {
+                // Active Pro User -> Launch App
+                import('./profileUI.js').then(module => {
+                    if (!module.ProfileUI._supabase) {
+                        module.ProfileUI.init(this._supabase);
+                    }
+                    module.ProfileUI.open(data.session.user);
+                }).catch(err => console.error("Failed to load ProfileUI:", err));
+                
+                return; 
+            }
+        } else {
+            this._mode = mode;
+            this._tempSignUpData = null; 
+        }
         
         if (!document.getElementById('auth-modal-overlay')) {
             this.renderContainer();
@@ -172,6 +194,9 @@ async checkPaymentStatus() {
         const isPayment = this._mode === 'payment';
         const isForgot = this._mode === 'forgot';
         const isUpdatePassword = this._mode === 'update_password';
+        const isRenew = this._mode === 'renew';
+
+        const showPaymentOptions = isPayment || isRenew;
 
         let html = `
             <div class="auth-premium-accent"></div>
@@ -180,7 +205,7 @@ async checkPaymentStatus() {
                 <img src="Images/InflightPro.png" alt="InFlight Pro Logo" class="auth-brand-logo" onerror="this.style.display='none'">
         `;
 
-        if (!isPayment && !isForgot && !isUpdatePassword) {
+        if (!showPaymentOptions && !isForgot && !isUpdatePassword) {
             html += `
                 <div class="auth-toggle-container">
                     <div class="auth-toggle-pill">
@@ -194,6 +219,14 @@ async checkPaymentStatus() {
                 <div class="auth-payment-header">
                     <h3 style="margin: 0; color: #0f172a; font-size: 1.25rem; font-weight: 700;">Finalize Your Pro Access</h3>
                     <p style="margin: 6px 0 0; color: #64748b; font-size: 0.9rem;">$1.99/mo subscription</p>
+                </div>
+            `;
+        } else if (isRenew) {
+            html += `
+                <div class="auth-payment-header">
+                    <div class="auth-status-badge">Access Expired</div>
+                    <h3 style="margin: 0; color: #0f172a; font-size: 1.25rem; font-weight: 700;">Reactivate InFlight Pro</h3>
+                    <p style="margin: 6px 0 0; color: #64748b; font-size: 0.9rem;">Resume your premium journey for $1.99/mo</p>
                 </div>
             `;
         } else if (isForgot) {
@@ -214,7 +247,7 @@ async checkPaymentStatus() {
 
         html += `</div><div class="auth-form-body">`;
 
-        if (isPayment) {
+        if (showPaymentOptions) {
             html += `
                 <div id="stripe-checkout-section" class="stripe-hosted-container">
                     <button class="auth-submit-btn auth-submit-pro" id="stripe-checkout-btn">
@@ -241,10 +274,17 @@ async checkPaymentStatus() {
                 <div id="auth-error-message" class="auth-error" style="display: none;"></div>
                 <div id="auth-loading-message" style="display: none; text-align: center; color: #64748b; margin-bottom: 20px;">
                     <i class="fa-solid fa-circle-notch fa-spin" style="font-size: 1.5rem; margin-bottom: 12px; color: #2563eb;"></i>
-                    <p style="margin: 0; font-size: 0.95rem; font-weight: 600;">Redirecting to Stripe...</p>
+                    <p style="margin: 0; font-size: 0.95rem; font-weight: 600;">Redirecting to Secure Payment...</p>
                 </div>
-                <button class="auth-back-btn" id="auth-back-to-signup">Back to Details</button>
+                
             `;
+
+            if (isRenew) {
+                html += `<button class="auth-back-btn" id="auth-signout-btn">Sign Out</button>`;
+            } else {
+                html += `<button class="auth-back-btn" id="auth-back-to-signup">Back to Details</button>`;
+            }
+
         } else if (isForgot) {
             html += `
                 <div class="auth-input-group" id="auth-forgot-input-group">
@@ -368,13 +408,13 @@ async checkPaymentStatus() {
         card.innerHTML = html;
         this.attachContentListeners(); 
 
-        if (isPayment) {
+        if (showPaymentOptions) {
             this.loadPayPalAndRender();
             this.loadStripeAndRender();
         }
     },
 
-showError(message) {
+    showError(message) {
         const errorDiv = document.getElementById('auth-error-message');
         if (errorDiv) {
             errorDiv.textContent = message;
@@ -448,7 +488,7 @@ showError(message) {
                 const loadingDiv = document.getElementById('auth-loading-message');
                 const checkoutSection = document.getElementById('stripe-checkout-section');
                 const btnContainer = document.getElementById('paypal-button-container');
-                const backBtn = document.getElementById('auth-back-to-signup');
+                const backBtn = document.getElementById('auth-back-to-signup') || document.getElementById('auth-signout-btn');
 
                 if (loadingDiv) loadingDiv.style.display = 'block';
                 if (checkoutSection) checkoutSection.style.display = 'none';
@@ -458,10 +498,14 @@ showError(message) {
                 try {
                     const payload = {
                         email: this._tempSignUpData.email,
-                        password: this._tempSignUpData.password,
-                        name: this._tempSignUpData.name,
-                        subscriptionID: paymentData.subscriptionID
+                        subscriptionID: paymentData.subscriptionID,
+                        is_renew: this._tempSignUpData.is_renew || false
                     };
+
+                    if (!payload.is_renew) {
+                        payload.password = this._tempSignUpData.password;
+                        payload.name = this._tempSignUpData.name;
+                    }
 
                     const { data: result, error: functionError } = await this._supabase.functions.invoke('process-payment', {
                         body: payload
@@ -471,13 +515,15 @@ showError(message) {
                         throw new Error(result?.error || functionError.message || "Payment verification failed.");
                     }
 
-                    const { error: loginError } = await this._supabase.auth.signInWithPassword({
-                        email: this._tempSignUpData.email,
-                        password: this._tempSignUpData.password,
-                    });
+                    if (!payload.is_renew) {
+                        const { error: loginError } = await this._supabase.auth.signInWithPassword({
+                            email: this._tempSignUpData.email,
+                            password: this._tempSignUpData.password,
+                        });
 
-                    if (loginError) {
-                        throw new Error("Account created, but automatic login failed: " + loginError.message);
+                        if (loginError) {
+                            throw new Error("Account created, but automatic login failed: " + loginError.message);
+                        }
                     }
 
                     const overlay = document.getElementById('auth-modal-overlay');
@@ -510,9 +556,9 @@ showError(message) {
         }
     },
 
-async handleStripeHostedCheckout() {
+    async handleStripeHostedCheckout() {
         if (!this._tempSignUpData) {
-            this.showError("Sign-up data missing. Please go back and try again.");
+            this.showError("Data missing. Please try again.");
             return;
         }
 
@@ -521,7 +567,7 @@ async handleStripeHostedCheckout() {
         const checkoutSection = document.getElementById('stripe-checkout-section');
         const orDivider = document.querySelector('.payment-or-divider');
         const paypalContainer = document.getElementById('paypal-button-container');
-        const backBtn = document.getElementById('auth-back-to-signup');
+        const backBtn = document.getElementById('auth-back-to-signup') || document.getElementById('auth-signout-btn');
 
         if (loadingDiv) loadingDiv.style.display = 'block';
         if (checkoutSection) checkoutSection.style.display = 'none';
@@ -530,30 +576,32 @@ async handleStripeHostedCheckout() {
         if (backBtn) backBtn.style.display = 'none';
 
         try {
-            // Save the data to localStorage so it survives the cross-domain Stripe redirect
+            // Save state for cross-domain redirect
             localStorage.setItem('inflight_pending_signup', JSON.stringify({
                 email: this._tempSignUpData.email,
                 name: this._tempSignUpData.name,
-                password: this._tempSignUpData.password
+                password: this._tempSignUpData.password,
+                is_renew: this._tempSignUpData.is_renew || false
             }));
 
-            // Invoke server function to create a Stripe Checkout Session
-            const { data, error } = await this._supabase.functions.invoke('create-stripe-checkout', {
-                body: {
-                    email: this._tempSignUpData.email,
-                    name: this._tempSignUpData.name,
-                    password: this._tempSignUpData.password,
-                    // Inject the session ID into the return URL so the frontend can retrieve it
-                    success_url: window.location.origin + '?payment=success&session_id={CHECKOUT_SESSION_ID}',
-                    cancel_url: window.location.origin + '?payment=cancel'
-                }
-            });
+            const payload = {
+                email: this._tempSignUpData.email,
+                success_url: window.location.origin + '?payment=success&session_id={CHECKOUT_SESSION_ID}',
+                cancel_url: window.location.origin + '?payment=cancel',
+                is_renew: this._tempSignUpData.is_renew || false
+            };
+
+            if (!payload.is_renew) {
+                payload.name = this._tempSignUpData.name;
+                payload.password = this._tempSignUpData.password;
+            }
+
+            const { data, error } = await this._supabase.functions.invoke('create-stripe-checkout', { body: payload });
 
             if (error || !data?.url) {
                 throw new Error(data?.error || error?.message || 'Could not initialize Stripe Checkout.');
             }
 
-            // Redirect to Stripe's Hosted Checkout Page
             window.location.href = data.url;
 
         } catch (err) {
@@ -608,7 +656,7 @@ async handleStripeHostedCheckout() {
                     return; 
                 }
                 
-                this._tempSignUpData = { email, password, name };
+                this._tempSignUpData = { email, password, name, is_renew: false };
                 this.switchMode('payment');
                 
             } else if (this._mode === 'signin') {
@@ -647,6 +695,14 @@ async handleStripeHostedCheckout() {
 
         document.getElementById('auth-back-to-signin')?.addEventListener('click', () => {
             this.switchMode('signin');
+        });
+
+        document.getElementById('auth-signout-btn')?.addEventListener('click', async () => {
+            this.setLoading('auth-signout-btn', true, 'Signing out...');
+            await this._supabase.auth.signOut();
+            this._mode = 'signin';
+            this._tempSignUpData = null;
+            this.renderContent();
         });
 
         document.getElementById('auth-submit-forgot-btn')?.addEventListener('click', async () => {
@@ -810,6 +866,21 @@ async handleStripeHostedCheckout() {
             .auth-header-section {
                 padding: 32px 28px 20px;
                 text-align: center;
+                position: relative;
+            }
+
+            .auth-status-badge {
+                display: inline-block;
+                background: #fee2e2;
+                color: #b91c1c;
+                font-size: 0.75rem;
+                font-weight: 700;
+                text-transform: uppercase;
+                letter-spacing: 0.05em;
+                padding: 4px 10px;
+                border-radius: 999px;
+                margin-bottom: 12px;
+                border: 1px solid #fca5a5;
             }
 
             .auth-brand-logo {

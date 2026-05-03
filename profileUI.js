@@ -86,7 +86,12 @@ export const ProfileUI = {
     _editingFlightId: null, // Tracks active flight plan being edited
     
     // Premium Caching
+    // Premium Caching
     _airportCache: null, 
+    _aircraftMap: new Map(),
+    _liveryMap: new Map(),
+
+    // Premium Telemetry Integration
 
     // Premium Telemetry Integration
     _airspaceNetwork: null,
@@ -472,13 +477,29 @@ export const ProfileUI = {
         },
     },
 
-    /** Translate a key. Falls back to English, then to the key itself. */
+/** Translate a key. Falls back to English, then to the key itself. */
     t(key, fallback) {
         const dict = this._i18n[this._locale];
         if (dict && dict[key] != null) return dict[key];
         const en = this._i18n.en;
         if (en && en[key] != null) return en[key];
         return fallback != null ? fallback : key;
+    },
+
+    /** Resolves a human-readable aircraft name from API UUIDs */
+    _resolveAircraftName(aircraftId, liveryId) {
+        if (!aircraftId) return 'Unknown Airframe';
+        const aId = String(aircraftId).toLowerCase();
+        const lId = liveryId ? String(liveryId).toLowerCase() : null;
+        
+        if (lId && this._liveryMap.has(lId)) {
+            const lData = this._liveryMap.get(lId);
+            if (lData.aircraftName) return lData.aircraftName;
+        }
+        if (this._aircraftMap.has(aId)) {
+            return this._aircraftMap.get(aId);
+        }
+        return 'Unknown Airframe';
     },
 
     // Map legacy theme names → new palette keys (so old saved values still work)
@@ -1141,13 +1162,17 @@ init(supabaseClient) {
             };
         }
 
-        if (type === 'flights') {
+if (type === 'flights') {
             const byAcft = {};
             for (const f of logbook) {
-                if (!f.aircraftId) continue;
-                if (!byAcft[f.aircraftId]) byAcft[f.aircraftId] = { count: 0, minutes: 0 };
-                byAcft[f.aircraftId].count   += 1;
-                byAcft[f.aircraftId].minutes += (f.totalTime || 0);
+                const aId = f.aircraftId || f.aircraftID;
+                const lId = f.liveryId || f.liveryID;
+                if (!aId) continue;
+                
+                const name = this._resolveAircraftName(aId, lId);
+                if (!byAcft[name]) byAcft[name] = { count: 0, minutes: 0 };
+                byAcft[name].count   += 1;
+                byAcft[name].minutes += (f.totalTime || 0);
             }
             const rows = Object.entries(byAcft)
                 .sort((a, b) => b[1].count - a[1].count)
@@ -1305,9 +1330,10 @@ init(supabaseClient) {
 
             this._ifData.userId = ifUserId;
 
-            const requests = [
+const requests = [
                 fetch(`${this._backendUrl}/api/users/${ifUserId}/stats`).then(res => res.json()),
-                fetch(`${this._backendUrl}/api/users/${ifUserId}/flights?page=1`).then(res => res.json())
+                fetch(`${this._backendUrl}/api/users/${ifUserId}/flights?page=1`).then(res => res.json()),
+                fetch(`${this._backendUrl}/api/metadata`).then(res => res.json()).catch(() => null)
             ];
 
             if (activeFlightId) {
@@ -1321,7 +1347,16 @@ init(supabaseClient) {
             const results = await Promise.all(requests);
             const statsData = results[0];
             const flightsData = results[1];
-            const historyData = results[2];
+            const metaJson = results[2];
+            const historyData = activeFlightId ? results[3] : null;
+
+            if (metaJson && metaJson.ok) {
+                this._aircraftMap = new Map((metaJson.aircraft || []).map(a => [String(a.id).toLowerCase(), a.name]));
+                this._liveryMap = new Map((metaJson.liveries || []).map(l => [
+                    String(l.id).toLowerCase(), 
+                    { liveryName: l.name, aircraftName: l.aircraftName }
+                ]));
+            }
 
             this._ifData.stats = statsData.ok ? statsData.stats : null;
             this._ifData.logbook = flightsData.ok ? flightsData.flights : [];
@@ -2232,7 +2267,7 @@ _generateAirspaceHTML() {
         }
     },
 
-    _getTabContentHTML() {
+_getTabContentHTML() {
         if (this._activeTab === 'onboarding') {
             return `
                 <div class="pui-onboarding-container pui-fade-in">
@@ -2309,76 +2344,174 @@ _generateAirspaceHTML() {
             const user = this._currentUser;
             const ifUsername = user?.user_metadata?.if_username || '';
             const fullName = user?.user_metadata?.full_name || user?.user_metadata?.name || 'Captain';
-            let statCardsHTML = '';
+            
+            // Extract Initials for Avatar
+            const initials = fullName.split(/\s+/).map(w => w[0]).join('').toUpperCase().slice(0, 2);
 
+            // 1. Missing Link State
             if (!ifUsername) {
-                statCardsHTML = `<div class="pui-alert pui-alert-info" style="grid-column: 1 / -1;"><i class="fa-solid fa-circle-info"></i> Link your Infinite Flight account in Settings to view your live career statistics.</div>`;
-            } else if (this._ifData.loading) {
-                statCardsHTML = `
-                    <div class="pui-stat-card"><div class="pui-skeleton" style="width:48px;height:48px;border-radius:14px;"></div><div class="pui-stat-data"><div class="pui-skeleton" style="width:60px;height:22px;margin-bottom:6px;"></div><div class="pui-skeleton" style="width:100px;height:10px;"></div></div></div>
-                    <div class="pui-stat-card"><div class="pui-skeleton" style="width:48px;height:48px;border-radius:14px;"></div><div class="pui-stat-data"><div class="pui-skeleton" style="width:80px;height:22px;margin-bottom:6px;"></div><div class="pui-skeleton" style="width:90px;height:10px;"></div></div></div>
-                    <div class="pui-stat-card"><div class="pui-skeleton" style="width:48px;height:48px;border-radius:14px;"></div><div class="pui-stat-data"><div class="pui-skeleton" style="width:50px;height:22px;margin-bottom:6px;"></div><div class="pui-skeleton" style="width:110px;height:10px;"></div></div></div>
-                `;
-            } else if (this._ifData.error) {
-                statCardsHTML = `<div class="pui-alert pui-alert-error" style="grid-column: 1 / -1;"><i class="fa-solid fa-circle-xmark"></i> ${this._ifData.error}</div>`;
-            } else if (this._ifData.stats) {
-                const grade = this._ifData.stats.gradeDetails?.gradeIndex || 'N/A';
-                const xp = this._ifData.stats.totalXP?.toLocaleString() || '0';
-                const totalFlights = this._ifData.logbookTotal?.toLocaleString() || '0';
+                return `
+                    <div class="pui-tab-header pui-fade-in">
+                        <div><h2>Pilot Dossier</h2><p>Comprehensive career analytics and high-level flight statistics.</p></div>
+                    </div>
+                    <div class="pui-alert pui-alert-info pui-fade-in" style="grid-column: 1 / -1; margin-top: 24px; padding: 24px; text-align: center; flex-direction: column; gap: 12px;">
+                        <i class="fa-solid fa-link-slash" style="font-size: 2rem; opacity: 0.5;"></i>
+                        <span style="font-size: 1.1rem; font-weight: 600;">Account Not Linked</span>
+                        <span>Link your Infinite Flight account in Settings to dynamically render your career dossier.</span>
+                    </div>`;
+            }
 
-                // Stat cards are drill-down targets — see _showDrillDown(). The
-                // delegated handler in _attachContentListeners reads data-drill.
-                statCardsHTML = `
-                    <button class="pui-stat-card pui-stat-card-clickable" data-drill="grade" type="button" title="${this.t('drill.title.grade')}">
-                        <div class="pui-stat-icon" data-tone="indigo"><i class="fa-solid fa-award"></i></div>
-                        <div class="pui-stat-data"><h3>Grade ${grade}</h3><p>${this.t('stat.grade')}</p></div>
-                        <span class="pui-stat-drill-hint"><i class="fa-solid fa-arrow-right"></i></span>
-                    </button>
-                    <button class="pui-stat-card pui-stat-card-clickable" data-drill="xp" type="button" title="${this.t('drill.title.xp')}">
-                        <div class="pui-stat-icon" data-tone="violet"><i class="fa-solid fa-star"></i></div>
-                        <div class="pui-stat-data"><h3>${xp}</h3><p>${this.t('stat.xp')}</p></div>
-                        <span class="pui-stat-drill-hint"><i class="fa-solid fa-arrow-right"></i></span>
-                    </button>
-                    <button class="pui-stat-card pui-stat-card-clickable" data-drill="flights" type="button" title="${this.t('drill.title.flights')}">
-                        <div class="pui-stat-icon" data-tone="emerald"><i class="fa-solid fa-plane-arrival"></i></div>
-                        <div class="pui-stat-data"><h3>${totalFlights}</h3><p>${this.t('stat.flights')}</p></div>
-                        <span class="pui-stat-drill-hint"><i class="fa-solid fa-arrow-right"></i></span>
-                    </button>
+            // 2. Loading State (Premium Skeleton)
+            if (this._ifData.loading) {
+                return `
+                    <div class="pui-dossier-hero pui-skeleton" style="height: 240px; border-radius: var(--pui-radius-xl); margin-bottom: var(--pui-gap-lg);"></div>
+                    <div class="pui-stats-grid" style="margin-bottom: var(--pui-gap-lg);">
+                        <div class="pui-stat-card pui-skeleton" style="height: 110px;"></div>
+                        <div class="pui-stat-card pui-skeleton" style="height: 110px;"></div>
+                        <div class="pui-stat-card pui-skeleton" style="height: 110px;"></div>
+                    </div>
+                    <div class="pui-skeleton" style="height: 200px; border-radius: var(--pui-radius-lg);"></div>
                 `;
             }
 
-            // Optional cover banner with the user's identity overlay
-            const coverHTML = this._coverUrl ? `
-                <div class="pui-cover-banner pui-fade-in" style="background-image:url('${this._coverUrl.replace(/'/g, "&apos;")}')">
-                    <div class="pui-cover-overlay">
-                        <div class="pui-cover-name">${fullName}</div>
-                        ${this._bio ? `<div class="pui-cover-bio">${this._bio}</div>` : ''}
+            // 3. Error State
+            if (this._ifData.error) {
+                return `
+                    <div class="pui-tab-header pui-fade-in"><h2>Pilot Dossier</h2></div>
+                    <div class="pui-alert pui-alert-error pui-fade-in"><i class="fa-solid fa-circle-xmark"></i> Data Retrieval Failed: ${this._ifData.error}</div>`;
+            }
+
+            // 4. Premium Data Extraction & Processing
+            const stats = this._ifData.stats || {};
+            const logbook = this._ifData.logbook || [];
+            
+            const grade = stats.gradeDetails?.gradeIndex || '—';
+            const xp = stats.totalXP || 0;
+            const totalFlights = this._ifData.logbookTotal || 0;
+            const landings = stats.landingCount || 0;
+            const violations = stats.violations || 0;
+            
+            // Accurately calculate total hours (API provides flightTime in minutes, fallback to logbook sum)
+            const flightTimeMins = stats.flightTime || logbook.reduce((sum, f) => sum + (f.totalTime || 0), 0);
+            const flightTimeHrs = (flightTimeMins / 60).toLocaleString(undefined, { minimumFractionDigits: 1, maximumFractionDigits: 1 });
+
+            // Advanced Analytics: Safety Index
+            const safetyRatio = landings > 0 ? Math.max(0, ((landings - violations) / landings) * 100) : 100;
+            const safetyColor = safetyRatio >= 98 ? 'var(--pui-pos)' : safetyRatio >= 90 ? 'var(--pui-warn)' : 'var(--pui-neg)';
+
+            // Advanced Analytics: Fleet Utilization (Top 3)
+            const fleetMap = {};
+            logbook.forEach(f => {
+                const aId = f.aircraftId || f.aircraftID;
+                const lId = f.liveryId || f.liveryID;
+                if (aId) {
+                    const resolvedName = this._resolveAircraftName(aId, lId);
+                    fleetMap[resolvedName] = (fleetMap[resolvedName] || 0) + 1;
+                }
+            });
+            const topFleet = Object.entries(fleetMap).sort((a, b) => b[1] - a[1]).slice(0, 3);
+            const maxFleetCount = topFleet.length > 0 ? topFleet[0][1] : 1;
+
+            const fleetHTML = topFleet.length > 0 ? topFleet.map((a, i) => `
+                <div class="pui-fleet-bar-wrapper">
+                    <div class="pui-fleet-bar-label">
+                        <span class="pui-mono-meta" style="color: var(--pui-text-primary);">${a[0]}</span> 
+                        <span class="pui-mono-meta-sm">${a[1]} flts</span>
+                    </div>
+                    <div class="pui-fleet-bar-bg">
+                        <div class="pui-fleet-bar-fill" style="width: ${Math.max(4, (a[1] / maxFleetCount) * 100)}%; background: ${i === 0 ? 'var(--pui-accent)' : 'var(--pui-text-tertiary)'};"></div>
                     </div>
                 </div>
-            ` : (this._bio ? `
-                <div class="pui-bio-strip pui-fade-in">
-                    <i class="fa-solid fa-quote-left"></i>
-                    <span>${this._bio}</span>
-                </div>
-            ` : '');
+            `).join('') : '<div class="pui-empty-inline">Insufficient logbook data for fleet analytics.</div>';
+
+            // Base Background for Hero
+            const bgStyle = this._coverUrl 
+                ? `background-image: url('${this._coverUrl.replace(/'/g, "&apos;")}'); background-size: cover; background-position: center;` 
+                : `background: linear-gradient(135deg, var(--pui-bg-surface) 0%, var(--pui-bg-base) 100%);`;
 
             return `
-                ${coverHTML}
-                <div class="pui-tab-header pui-fade-in">
-                    <div>
-                        <h2>${this.t('header.dossier.title')}</h2>
-                        <p>${this.t('header.dossier.sub')}</p>
+                <div class="pui-dossier-hero pui-fade-in" style="${bgStyle}">
+                    <div class="pui-dossier-hero-overlay">
+                        <div class="pui-dossier-hero-content">
+                            <div class="pui-dossier-profile-group">
+                                <div class="pui-dossier-avatar">${initials}</div>
+                                <div class="pui-dossier-identity">
+                                    <h2 class="pui-dossier-name">${fullName}</h2>
+                                    <div class="pui-dossier-username"><i class="fa-solid fa-plane" style="font-size: 0.75rem; opacity: 0.6;"></i> ${ifUsername}</div>
+                                    ${this._bio ? `<div class="pui-dossier-bio">${this._bio}</div>` : ''}
+                                </div>
+                            </div>
+                            <button class="pui-dossier-grade-badge pui-stat-card-clickable" data-drill="grade" title="View Grade Requirements">
+                                <span class="pui-grade-label">PILOT GRADE</span>
+                                <span class="pui-grade-value">${grade}</span>
+                                <i class="fa-solid fa-expand pui-grade-expand"></i>
+                            </button>
+                        </div>
+
+                        <div class="pui-dossier-telemetry-strip">
+                            <button class="pui-dossier-tele-item pui-stat-card-clickable" data-drill="xp" title="View XP Breakdown">
+                                <span class="label">Total XP</span>
+                                <span class="value">${xp.toLocaleString()}</span>
+                            </button>
+                            <div class="pui-dossier-tele-divider"></div>
+                            <button class="pui-dossier-tele-item pui-stat-card-clickable" data-drill="flights" title="View Flight History">
+                                <span class="label">Flights Flown</span>
+                                <span class="value">${totalFlights.toLocaleString()}</span>
+                            </button>
+                            <div class="pui-dossier-tele-divider"></div>
+                            <div class="pui-dossier-tele-item">
+                                <span class="label">Flight Time</span>
+                                <span class="value">${flightTimeHrs} <em style="font-size: 0.7rem; font-weight: 500; font-style: normal; color: var(--pui-text-secondary);">HRS</em></span>
+                            </div>
+                        </div>
                     </div>
                 </div>
-                <div class="pui-stats-grid pui-fade-in" style="margin-bottom: var(--pui-gap-lg);">
-                    ${statCardsHTML}
+
+                <div class="pui-dossier-analytics-grid pui-fade-in">
+                    <div class="pui-card pui-analytics-card">
+                        <div class="pui-card-header pui-card-header-row">
+                            <h3><i class="fa-solid fa-shield-check" style="color: var(--pui-accent); margin-right:8px;"></i>Safety Profile</h3>
+                        </div>
+                        <div class="pui-card-body pui-safety-body">
+                            <div class="pui-safety-metrics">
+                                <div class="pui-safety-stat">
+                                    <span class="label">Total Landings</span>
+                                    <span class="value">${landings.toLocaleString()}</span>
+                                </div>
+                                <div class="pui-safety-stat">
+                                    <span class="label">Violations</span>
+                                    <span class="value" style="${violations > 0 ? 'color: var(--pui-neg);' : 'color: var(--pui-pos);'}">${violations.toLocaleString()}</span>
+                                </div>
+                            </div>
+                            <div class="pui-safety-index">
+                                <div class="pui-safety-index-label">Safety Index</div>
+                                <div class="pui-safety-index-value" style="color: ${safetyColor};">${safetyRatio.toFixed(1)}%</div>
+                                <div class="pui-safety-bar-track">
+                                    <div class="pui-safety-bar-fill" style="width: ${safetyRatio}%; background: ${safetyColor};"></div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="pui-card pui-analytics-card">
+                        <div class="pui-card-header pui-card-header-row">
+                            <h3><i class="fa-solid fa-plane-tail" style="color: var(--pui-accent); margin-right:8px;"></i>Fleet Utilization</h3>
+                            <span class="pui-mono-meta-sm">Top 3 Types</span>
+                        </div>
+                        <div class="pui-card-body pui-fleet-body">
+                            ${fleetHTML}
+                        </div>
+                    </div>
                 </div>
+
                 <div class="pui-fade-in" style="margin-bottom: var(--pui-gap-lg);">
                     ${this._getTrendsCardHTML()}
                 </div>
-                <div class="pui-fade-in">
-                    ${CareerModule.getHTML(this._ifData)}
+
+                <div class="pui-fade-in" style="margin-bottom: var(--pui-gap-lg);">
+                    ${CareerModule && typeof CareerModule.getHTML === 'function' ? CareerModule.getHTML(this._ifData) : ''}
                 </div>
+
                 ${this._ifData.logbook?.length > 0 ? `
                 <div class="pui-fade-in" style="margin-top: var(--pui-gap-lg);">
                     ${this._getPersonalRecordsHTML()}
@@ -2439,12 +2572,13 @@ _generateAirspaceHTML() {
                     const dateObj = new Date(flight.created);
                     const isRecent = (Date.now() - dateObj.getTime()) < (86400000 * 2);
                     const timeStr  = isRecent ? 'Recently' : dateObj.toLocaleDateString(dateLocale, { month: 'short', day: 'numeric', timeZone: this._timezone });
-                    // ICAOs are drill-down targets: clicking opens the airport detail.
-                    // Callsigns are drill-down targets: clicking offers to add to watchlist.
                     const depAttr = dep !== 'N/A' ? `data-drill="icao" data-icao="${dep}"` : '';
                     const arrAttr = arr !== 'N/A' ? `data-drill="icao" data-icao="${arr}"` : '';
                     const cs = flight.callsign || 'N/A';
                     const csAttr = cs !== 'N/A' ? `data-drill="callsign" data-callsign="${cs}"` : '';
+                    
+                    const planAttr = (dep !== 'N/A' && arr !== 'N/A') ? `data-action="plan-route" data-dep="${dep}" data-arr="${arr}"` : '';
+                    
                     return `
                         <div class="pui-flight-row">
                             <div class="pui-flight-route">
@@ -2460,6 +2594,7 @@ _generateAirspaceHTML() {
                                 <span>${hrs}h</span>
                             </div>
                             <div class="pui-flight-time">${timeStr}</div>
+                            ${planAttr ? `<button class="pui-icon-btn pui-plan-quick-btn" ${planAttr} title="Plan this route"><i class="fa-solid fa-route"></i></button>` : ''}
                         </div>`;
                 }).join('');
             } else {
@@ -2598,6 +2733,18 @@ _generateAirspaceHTML() {
             ).join('');
 
             const addFlightFormHTML = `
+                <div class="pui-card" style="margin-bottom: var(--pui-gap-md); background: var(--pui-accent-soft); border-color: var(--pui-accent-soft);">
+                    <div class="pui-card-body" style="padding: 16px;">
+                        <h4 style="margin: 0 0 8px 0; font-size: 0.8rem; color: var(--pui-accent); text-transform: uppercase; letter-spacing: 0.05em;"><i class="fa-solid fa-map-location-dot"></i> Quick Guide: Filing a Plan</h4>
+                        <ol style="margin: 0; padding-left: 18px; font-size: 0.8rem; color: var(--pui-text-secondary); line-height: 1.5;">
+                            <li><strong>Identify:</strong> Set your Callsign and Aircraft Type.</li>
+                            <li><strong>Route:</strong> Enter Origin/Destination (4-letter ICAO). EET will auto-calculate!</li>
+                            <li><strong>Schedule:</strong> Pick a departure time and assign gates.</li>
+                            <li><strong>Load:</strong> Add passengers (Fuel calculations coming soon!).</li>
+                        </ol>
+                    </div>
+                </div>
+
                 <div class="pui-card pui-dispatch-form">
                     <div class="pui-card-header">
                         <h3 id="pui-dispatch-form-title"><i class="fa-solid fa-file-pen"></i> Generate dispatch</h3>
@@ -2678,11 +2825,12 @@ _generateAirspaceHTML() {
                                     </div>
                                 </div>
                                 <div class="pui-input-group">
-                                    <label>Block Fuel (lbs)</label>
+                                    <label>Block Fuel (lbs) <span style="font-weight:normal; color:var(--pui-text-tertiary);">(Future Update)</span></label>
                                     <div class="pui-input-wrapper">
                                         <i class="fa-solid fa-gas-pump pui-input-icon"></i>
                                         <input type="number" id="pui-new-fuel" class="pui-input has-icon" placeholder="85000">
                                     </div>
+                                    <p class="pui-help-text">Fuel telemetry will be fully integrated in an upcoming update.</p>
                                 </div>
                             </div>
                         </div>
@@ -2729,8 +2877,7 @@ _generateAirspaceHTML() {
                 return `<option value="${code}" ${sel}>${info.flag} ${info.label}</option>`;
             }).join('');
 
-            // Accent swatches — render the active variant for the current theme
-            // so the swatch you click matches what you'd see applied.
+            // Accent swatches
             const accentSwatchesHTML = Object.entries(this._ACCENT_PRESETS).map(([key, preset]) => {
                 const variant = this._theme === 'dark' ? preset.dark : preset.light;
                 const isActive = key === this._accent;
@@ -2744,7 +2891,7 @@ _generateAirspaceHTML() {
                     </button>`;
             }).join('');
 
-            // Dock order preview — small chips showing the current resolved order
+            // Dock order preview
             const dockPreviewHTML = this._resolveDockOrder().map(id => {
                 const labelKeys = {
                     'dashboard': 'tab.dashboard', 'career-deep-dive': 'tab.dossier',
@@ -2763,59 +2910,102 @@ _generateAirspaceHTML() {
                 </div>
 
                 <div class="pui-settings-grid pui-fade-in">
-                    <div class="pui-card">
-                        <div class="pui-card-header"><h3>${this.t('set.profile')}</h3></div>
-                        <div class="pui-card-body">
-                            <div class="pui-input-group">
-                                <label>${this.t('set.fullName')}</label>
-                                <div class="pui-input-wrapper">
-                                    <i class="fa-solid fa-user pui-input-icon"></i>
-                                    <input type="text" id="pui-edit-name" class="pui-input has-icon" value="${name}">
+                    <div class="pui-settings-main" style="display: flex; flex-direction: column; gap: var(--pui-gap-md);">
+                        <div class="pui-card">
+                            <div class="pui-card-header"><h3>${this.t('set.profile')}</h3></div>
+                            <div class="pui-card-body">
+                                <div class="pui-input-group">
+                                    <label>${this.t('set.fullName')}</label>
+                                    <div class="pui-input-wrapper">
+                                        <i class="fa-solid fa-user pui-input-icon"></i>
+                                        <input type="text" id="pui-edit-name" class="pui-input has-icon" value="${name}">
+                                    </div>
+                                </div>
+
+                                <div class="pui-input-group">
+                                    <label>${this.t('set.email')}</label>
+                                    <div class="pui-input-wrapper">
+                                        <i class="fa-solid fa-envelope pui-input-icon"></i>
+                                        <input type="email" class="pui-input has-icon" value="${email}" disabled>
+                                    </div>
+                                    <p class="pui-help-text">Email address cannot be changed directly.</p>
+                                </div>
+
+                                <div class="pui-input-group">
+                                    <label>${this.t('set.ifUsername')}</label>
+                                    <div class="pui-input-wrapper">
+                                        <i class="fa-solid fa-plane pui-input-icon"></i>
+                                        <input type="text" id="pui-edit-if-username" class="pui-input has-icon" value="${ifUsername}" placeholder="Infinite Flight Community Forum Name">
+                                    </div>
+                                    <p class="pui-help-text">Link your account to automatically log your flights and display your stats.</p>
+                                </div>
+
+                                <div class="pui-input-group">
+                                    <label>${this.t('set.timezone')}</label>
+                                    <div class="pui-input-wrapper">
+                                        <i class="fa-solid fa-earth-americas pui-input-icon"></i>
+                                        <select id="pui-edit-timezone" class="pui-input has-icon pui-select">
+                                            ${this._getTimezoneOptionsHTML(this._timezone)}
+                                        </select>
+                                        <i class="fa-solid fa-chevron-down pui-select-chevron"></i>
+                                    </div>
+                                    <p class="pui-help-text">Used to sync departure times and telemetry across your devices.</p>
+                                </div>
+
+                                <div class="pui-input-group">
+                                    <label>${this.t('set.password')}</label>
+                                    <div class="pui-input-wrapper">
+                                        <i class="fa-solid fa-lock pui-input-icon"></i>
+                                        <input type="password" id="pui-edit-password" class="pui-input has-icon" placeholder="Leave blank to keep current">
+                                    </div>
+                                </div>
+
+                                <div id="pui-settings-msg" class="pui-alert" style="display: none;"></div>
+
+                                <div class="pui-form-actions">
+                                    <button class="pui-btn-primary" id="pui-save-btn">${this.t('common.save')}</button>
                                 </div>
                             </div>
+                        </div>
 
-                            <div class="pui-input-group">
-                                <label>${this.t('set.email')}</label>
-                                <div class="pui-input-wrapper">
-                                    <i class="fa-solid fa-envelope pui-input-icon"></i>
-                                    <input type="email" class="pui-input has-icon" value="${email}" disabled>
+                        <div class="pui-card">
+                            <div class="pui-card-header"><h3>${this.t('set.personality')}</h3></div>
+                            <div class="pui-card-body">
+                                <div class="pui-input-group">
+                                    <label>${this.t('set.bio')}</label>
+                                    <div class="pui-input-wrapper">
+                                        <i class="fa-solid fa-quote-left pui-input-icon"></i>
+                                        <input type="text" id="pui-edit-bio" class="pui-input has-icon" maxlength="140"
+                                               value="${(this._bio || '').replace(/"/g, '&quot;')}"
+                                               placeholder="${this.t('set.bioPlaceholder')}">
+                                    </div>
+                                    <p class="pui-help-text">
+                                        <span id="pui-bio-counter">${(this._bio || '').length}</span>/140 — ${this.t('set.bioHelp')}
+                                    </p>
                                 </div>
-                                <p class="pui-help-text">Email address cannot be changed directly.</p>
-                            </div>
-
-                            <div class="pui-input-group">
-                                <label>${this.t('set.ifUsername')}</label>
-                                <div class="pui-input-wrapper">
-                                    <i class="fa-solid fa-plane pui-input-icon"></i>
-                                    <input type="text" id="pui-edit-if-username" class="pui-input has-icon" value="${ifUsername}" placeholder="Infinite Flight Community Forum Name">
-                                </div>
-                                <p class="pui-help-text">Link your account to automatically log your flights and display your stats.</p>
-                            </div>
-
-                            <div class="pui-input-group">
-                                <label>${this.t('set.timezone')}</label>
-                                <div class="pui-input-wrapper">
-                                    <i class="fa-solid fa-earth-americas pui-input-icon"></i>
-                                    <select id="pui-edit-timezone" class="pui-input has-icon pui-select">
-                                        ${this._getTimezoneOptionsHTML(this._timezone)}
-                                    </select>
-                                    <i class="fa-solid fa-chevron-down pui-select-chevron"></i>
-                                </div>
-                                <p class="pui-help-text">Used to sync departure times and telemetry across your devices.</p>
-                            </div>
-
-                            <div class="pui-input-group">
-                                <label>${this.t('set.password')}</label>
-                                <div class="pui-input-wrapper">
-                                    <i class="fa-solid fa-lock pui-input-icon"></i>
-                                    <input type="password" id="pui-edit-password" class="pui-input has-icon" placeholder="Leave blank to keep current">
+                                <div class="pui-input-group" style="margin-bottom:0;">
+                                    <label>${this.t('set.cover')}</label>
+                                    <div class="pui-input-wrapper">
+                                        <i class="fa-solid fa-image pui-input-icon"></i>
+                                        <input type="url" id="pui-edit-cover" class="pui-input has-icon"
+                                               value="${(this._coverUrl || '').replace(/"/g, '&quot;')}"
+                                               placeholder="${this.t('set.coverPlaceholder')}">
+                                    </div>
+                                    <p class="pui-help-text">${this.t('set.coverHelp')}</p>
                                 </div>
                             </div>
+                        </div>
 
-                            <div id="pui-settings-msg" class="pui-alert" style="display: none;"></div>
-
-                            <div class="pui-form-actions">
-                                <button class="pui-btn-primary" id="pui-save-btn">${this.t('common.save')}</button>
+                        <div class="pui-card">
+                            <div class="pui-card-header pui-card-header-row">
+                                <h3>${this.t('set.dockOrder')}</h3>
+                                <button class="pui-btn-ghost pui-btn-sm" id="pui-dock-reset-btn" type="button">
+                                    <i class="fa-solid fa-rotate-left"></i> ${this.t('common.reset')}
+                                </button>
+                            </div>
+                            <div class="pui-card-body">
+                                <div class="pui-dock-preview">${dockPreviewHTML}</div>
+                                <p class="pui-help-text">${this.t('set.dockOrderHelp')}</p>
                             </div>
                         </div>
                     </div>
@@ -2875,47 +3065,6 @@ _generateAirspaceHTML() {
                                     </div>
                                     <p class="pui-help-text">${this.t('set.languageHelp')}</p>
                                 </div>
-                            </div>
-                        </div>
-
-                        <div class="pui-card">
-                            <div class="pui-card-header"><h3>${this.t('set.personality')}</h3></div>
-                            <div class="pui-card-body">
-                                <div class="pui-input-group">
-                                    <label>${this.t('set.bio')}</label>
-                                    <div class="pui-input-wrapper">
-                                        <i class="fa-solid fa-quote-left pui-input-icon"></i>
-                                        <input type="text" id="pui-edit-bio" class="pui-input has-icon" maxlength="140"
-                                               value="${(this._bio || '').replace(/"/g, '&quot;')}"
-                                               placeholder="${this.t('set.bioPlaceholder')}">
-                                    </div>
-                                    <p class="pui-help-text">
-                                        <span id="pui-bio-counter">${(this._bio || '').length}</span>/140 — ${this.t('set.bioHelp')}
-                                    </p>
-                                </div>
-                                <div class="pui-input-group" style="margin-bottom:0;">
-                                    <label>${this.t('set.cover')}</label>
-                                    <div class="pui-input-wrapper">
-                                        <i class="fa-solid fa-image pui-input-icon"></i>
-                                        <input type="url" id="pui-edit-cover" class="pui-input has-icon"
-                                               value="${(this._coverUrl || '').replace(/"/g, '&quot;')}"
-                                               placeholder="${this.t('set.coverPlaceholder')}">
-                                    </div>
-                                    <p class="pui-help-text">${this.t('set.coverHelp')}</p>
-                                </div>
-                            </div>
-                        </div>
-
-                        <div class="pui-card">
-                            <div class="pui-card-header pui-card-header-row">
-                                <h3>${this.t('set.dockOrder')}</h3>
-                                <button class="pui-btn-ghost pui-btn-sm" id="pui-dock-reset-btn" type="button">
-                                    <i class="fa-solid fa-rotate-left"></i> ${this.t('common.reset')}
-                                </button>
-                            </div>
-                            <div class="pui-card-body">
-                                <div class="pui-dock-preview">${dockPreviewHTML}</div>
-                                <p class="pui-help-text">${this.t('set.dockOrderHelp')}</p>
                             </div>
                         </div>
 
@@ -3261,31 +3410,58 @@ _showCancellationModal() {
         }
     },
 
-    /**
-     * Wires up listeners that live inside the content area only. Called after
-     * a content-only render too, so dock/topstrip handlers are not duplicated.
-     */
-    _attachContentListeners() {
+_attachContentListeners() {
         // ─── Delegated drill-down handler ─────────────────────────────────
         // Any element with data-drill="<type>" inside the content area opens
         // the corresponding detail modal. payload reads from sibling data-*
         // attributes (data-icao, data-callsign). One handler covers all tabs.
-        const contentRoot = document.getElementById('pui-content');
+const contentRoot = document.getElementById('pui-content');
         if (contentRoot && !contentRoot.dataset.drillBound) {
             contentRoot.dataset.drillBound = '1';
             contentRoot.addEventListener('click', (e) => {
-                const target = e.target.closest('[data-drill]');
-                if (!target || !contentRoot.contains(target)) return;
-                // Stop the event from also triggering nested click handlers
-                // (e.g. flight-row clicks). The drill-down is the canonical action.
-                e.stopPropagation();
-                const type = target.dataset.drill;
-                const payload = {
-                    icao:     target.dataset.icao,
-                    callsign: target.dataset.callsign,
-                };
-                this._showDrillDown(type, payload);
+                // 1. Drill-down handler
+                const drillTarget = e.target.closest('[data-drill]');
+                if (drillTarget && contentRoot.contains(drillTarget)) {
+                    e.stopPropagation();
+                    const type = drillTarget.dataset.drill;
+                    const payload = {
+                        icao:     drillTarget.dataset.icao,
+                        callsign: drillTarget.dataset.callsign,
+                    };
+                    this._showDrillDown(type, payload);
+                    return;
+                }
+
+                // 2. Quick Plan Route handler
+                const planTarget = e.target.closest('[data-action="plan-route"]');
+                if (planTarget && contentRoot.contains(planTarget)) {
+                    e.stopPropagation();
+                    const dep = planTarget.dataset.dep;
+                    const arr = planTarget.dataset.arr;
+                    this.switchTab('flight-plan');
+                    
+                    // Wait for tab switch to render DOM, then populate
+                    setTimeout(() => {
+                        const depInput = document.getElementById('pui-new-dep');
+                        const arrInput = document.getElementById('pui-new-arr');
+                        if (depInput) depInput.value = dep;
+                        if (arrInput) arrInput.value = arr;
+                        
+                        // Manually dispatch a blur event to trigger the predictive EET calculator
+                        if (depInput) depInput.dispatchEvent(new Event('blur'));
+                    }, 150);
+                    return;
+                }
             });
+        }
+
+        // ─── Career Deep Dive (Dossier) Listeners ─────────────────────────
+        if (this._activeTab === 'career-deep-dive') {
+            if (typeof CareerModule !== 'undefined' && typeof CareerModule.attachListeners === 'function') {
+                CareerModule.attachListeners(this._ifData, this._backendUrl, () => {
+                    this._renderContentOnly();
+                });
+            }
         }
 
         if (this._activeTab === 'onboarding') {
@@ -4043,7 +4219,14 @@ _showCancellationModal() {
         const longestRoute = longest ? `${longest.originAirport || '?'} → ${longest.destinationAirport || '?'}` : '';
 
         const acftCount = {};
-        logbook.forEach(f => { if (f.aircraftId) acftCount[f.aircraftId] = (acftCount[f.aircraftId] || 0) + 1; });
+        logbook.forEach(f => { 
+            const aId = f.aircraftId || f.aircraftID;
+            const lId = f.liveryId || f.liveryID;
+            if (aId) {
+                const name = this._resolveAircraftName(aId, lId);
+                acftCount[name] = (acftCount[name] || 0) + 1; 
+            }
+        });
         const favAcft = Object.entries(acftCount).sort((a, b) => b[1] - a[1])[0];
 
         const routeCount = {};
@@ -5222,6 +5405,35 @@ _showCancellationModal() {
                 font-size: 0.82rem;
                 text-align: center;
                 padding: 24px 8px;
+            }
+
+            .pui-empty-inline {
+                color: var(--pui-text-tertiary);
+                font-size: 0.82rem;
+                text-align: center;
+                padding: 24px 8px;
+            }
+
+            .pui-plan-quick-btn {
+                margin-left: 8px;
+                width: 28px;
+                height: 28px;
+                font-size: 0.75rem;
+                color: var(--pui-accent);
+                border-color: transparent;
+                background: var(--pui-accent-soft);
+                opacity: 0;
+                transform: translateX(-4px);
+                transition: all var(--pui-d-fast) var(--pui-ease) !important;
+            }
+            .pui-flight-row:hover .pui-plan-quick-btn {
+                opacity: 1;
+                transform: translateX(0);
+            }
+            .pui-plan-quick-btn:hover {
+                background: var(--pui-accent);
+                color: var(--pui-text-on-accent);
+                transform: scale(1.05) !important;
             }
 
             /* ═══════════════════════════════════════════════════════════════
@@ -6856,6 +7068,276 @@ _showCancellationModal() {
                 .pui-shell {
                     transition: opacity 80ms linear;
                 }
+            }
+
+            /* ═══════════════════════════════════════════════════════════════
+               DOSSIER HERO & ADVANCED ANALYTICS (Premium Redesign)
+               ═══════════════════════════════════════════════════════════════ */
+
+            .pui-dossier-hero {
+                position: relative;
+                width: 100%;
+                border-radius: var(--pui-radius-xl);
+                border: 1px solid var(--pui-border);
+                overflow: hidden;
+                box-shadow: var(--pui-shadow-card);
+                margin-bottom: var(--pui-gap-lg);
+            }
+            .pui-dossier-hero-overlay {
+                background: linear-gradient(to bottom, rgba(15,12,8,0.7) 0%, rgba(15,12,8,0.95) 100%);
+                padding: 32px 32px 0 32px;
+                display: flex;
+                flex-direction: column;
+                justify-content: space-between;
+                min-height: 240px;
+            }
+            .pui-wrapper-layer[data-theme="light"] .pui-dossier-hero-overlay {
+                background: linear-gradient(to bottom, rgba(20,17,13,0.5) 0%, rgba(20,17,13,0.85) 100%);
+            }
+            .pui-dossier-hero-content {
+                display: flex;
+                justify-content: space-between;
+                align-items: flex-start;
+                gap: 24px;
+                flex: 1;
+            }
+            .pui-dossier-profile-group {
+                display: flex;
+                align-items: center;
+                gap: 20px;
+            }
+            .pui-dossier-avatar {
+                width: 72px;
+                height: 72px;
+                border-radius: 20px;
+                background: var(--pui-accent);
+                color: var(--pui-text-on-accent);
+                font-size: 1.8rem;
+                font-weight: 700;
+                display: grid;
+                place-items: center;
+                box-shadow: 0 8px 24px var(--pui-accent-glow);
+                border: 2px solid rgba(255,255,255,0.1);
+            }
+            .pui-dossier-identity {
+                display: flex;
+                flex-direction: column;
+                gap: 4px;
+            }
+            .pui-dossier-name {
+                margin: 0;
+                font-size: 1.8rem;
+                font-weight: 700;
+                color: #fff;
+                letter-spacing: -0.02em;
+                line-height: 1.1;
+                text-shadow: 0 2px 8px rgba(0,0,0,0.4);
+            }
+            .pui-dossier-username {
+                font-family: var(--pui-font-mono);
+                font-size: 0.9rem;
+                color: var(--pui-accent);
+                font-weight: 600;
+                letter-spacing: 0.04em;
+            }
+            .pui-dossier-bio {
+                margin-top: 6px;
+                font-size: 0.9rem;
+                color: rgba(255,255,255,0.8);
+                font-style: italic;
+                max-width: 400px;
+                line-height: 1.4;
+            }
+            
+            /* Interactive Grade Badge */
+            .pui-dossier-grade-badge {
+                display: flex;
+                flex-direction: column;
+                align-items: center;
+                justify-content: center;
+                background: rgba(255,255,255,0.05);
+                border: 1px solid rgba(255,255,255,0.1);
+                backdrop-filter: blur(8px);
+                border-radius: 16px;
+                padding: 16px 24px;
+                position: relative;
+            }
+            .pui-dossier-grade-badge:hover {
+                background: rgba(255,255,255,0.08);
+                border-color: var(--pui-accent);
+            }
+            .pui-grade-label {
+                font-size: 0.65rem;
+                font-weight: 800;
+                letter-spacing: 0.15em;
+                color: rgba(255,255,255,0.6);
+                text-transform: uppercase;
+                margin-bottom: 4px;
+            }
+            .pui-grade-value {
+                font-family: var(--pui-font-mono);
+                font-size: 2.8rem;
+                font-weight: 700;
+                color: #fff;
+                line-height: 1;
+                text-shadow: 0 4px 16px rgba(0,0,0,0.5);
+            }
+            .pui-grade-expand {
+                position: absolute;
+                top: 8px;
+                right: 8px;
+                font-size: 0.7rem;
+                color: rgba(255,255,255,0.3);
+                transition: color var(--pui-d-fast) var(--pui-ease);
+            }
+            .pui-dossier-grade-badge:hover .pui-grade-expand { color: var(--pui-accent); }
+
+            /* Telemetry Strip inside Hero */
+            .pui-dossier-telemetry-strip {
+                display: flex;
+                align-items: center;
+                justify-content: space-between;
+                background: rgba(0,0,0,0.4);
+                border-top: 1px solid rgba(255,255,255,0.08);
+                margin: 0 -32px;
+                padding: 16px 32px;
+            }
+            .pui-dossier-tele-item {
+                display: flex;
+                flex-direction: column;
+                align-items: flex-start;
+                gap: 4px;
+                background: transparent;
+                border: none;
+                padding: 4px 8px;
+                border-radius: 8px;
+                text-align: left;
+            }
+            button.pui-dossier-tele-item { cursor: pointer; }
+            button.pui-dossier-tele-item:hover { background: rgba(255,255,255,0.05); }
+            .pui-dossier-tele-item .label {
+                font-size: 0.7rem;
+                font-weight: 700;
+                text-transform: uppercase;
+                letter-spacing: 0.08em;
+                color: rgba(255,255,255,0.5);
+            }
+            .pui-dossier-tele-item .value {
+                font-family: var(--pui-font-mono);
+                font-size: 1.4rem;
+                font-weight: 700;
+                color: #fff;
+                line-height: 1;
+            }
+            .pui-dossier-tele-divider {
+                width: 1px;
+                height: 32px;
+                background: rgba(255,255,255,0.1);
+            }
+
+            /* Analytics Grid */
+            .pui-dossier-analytics-grid {
+                display: grid;
+                grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+                gap: var(--pui-gap-md);
+                margin-bottom: var(--pui-gap-lg);
+            }
+            .pui-analytics-card {
+                display: flex;
+                flex-direction: column;
+            }
+            
+            /* Safety Profile */
+            .pui-safety-body {
+                display: flex;
+                flex-direction: column;
+                gap: 20px;
+            }
+            .pui-safety-metrics {
+                display: flex;
+                justify-content: space-between;
+                background: var(--pui-bg-surface);
+                padding: 14px 16px;
+                border-radius: 12px;
+                border: 1px solid var(--pui-border-light);
+            }
+            .pui-safety-stat {
+                display: flex;
+                flex-direction: column;
+                gap: 4px;
+            }
+            .pui-safety-stat .label {
+                font-size: 0.65rem;
+                font-weight: 700;
+                text-transform: uppercase;
+                letter-spacing: 0.05em;
+                color: var(--pui-text-tertiary);
+            }
+            .pui-safety-stat .value {
+                font-family: var(--pui-font-mono);
+                font-size: 1.2rem;
+                font-weight: 700;
+                color: var(--pui-text-primary);
+            }
+            .pui-safety-index {
+                display: flex;
+                flex-direction: column;
+                gap: 8px;
+            }
+            .pui-safety-index-label {
+                font-size: 0.8rem;
+                font-weight: 600;
+                color: var(--pui-text-secondary);
+            }
+            .pui-safety-index-value {
+                font-family: var(--pui-font-mono);
+                font-size: 1.8rem;
+                font-weight: 700;
+                line-height: 1;
+            }
+            .pui-safety-bar-track {
+                width: 100%;
+                height: 8px;
+                background: var(--pui-bg-surface);
+                border-radius: 4px;
+                overflow: hidden;
+                margin-top: 4px;
+            }
+            .pui-safety-bar-fill {
+                height: 100%;
+                border-radius: 4px;
+                transition: width 1s cubic-bezier(0.16, 1, 0.3, 1);
+            }
+
+            /* Fleet Utilization */
+            .pui-fleet-body {
+                display: flex;
+                flex-direction: column;
+                gap: 16px;
+                justify-content: center;
+                flex: 1;
+            }
+            .pui-fleet-bar-wrapper {
+                display: flex;
+                flex-direction: column;
+                gap: 6px;
+            }
+            .pui-fleet-bar-label {
+                display: flex;
+                justify-content: space-between;
+                align-items: center;
+            }
+            .pui-fleet-bar-bg {
+                width: 100%;
+                height: 6px;
+                background: var(--pui-bg-surface);
+                border-radius: 3px;
+                overflow: hidden;
+            }
+            .pui-fleet-bar-fill {
+                height: 100%;
+                border-radius: 3px;
+                transition: width 1s cubic-bezier(0.16, 1, 0.3, 1);
             }
         `;
 
