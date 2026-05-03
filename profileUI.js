@@ -3047,6 +3047,139 @@ _generateAirspaceHTML() {
         });
     },
 
+    _showCancellationModal() {
+        const existing = document.getElementById('pui-custom-confirm');
+        if (existing) existing.remove();
+
+        const overlay = document.createElement('div');
+        overlay.id = 'pui-custom-confirm';
+        overlay.className = 'pui-wrapper-layer';
+        overlay.setAttribute('data-theme', this._theme);
+        overlay.setAttribute('data-density', this._density);
+        overlay.style.zIndex = '10000'; // Sit above the main shell
+
+        overlay.innerHTML = `
+            <div class="pui-confirm-box pui-fade-in" style="max-width: 440px;">
+                <div class="pui-confirm-header" style="padding-bottom: 8px;">
+                    <div class="pui-confirm-icon"><i class="fa-solid fa-ban"></i></div>
+                    <h3>Cancel Subscription</h3>
+                </div>
+                <div class="pui-confirm-body">
+                    <p style="margin-bottom: 24px;">Please select the payment method you used to upgrade to Pro Access. We will route you to the correct secure portal to manage your billing.</p>
+                    
+                    <div style="display: flex; flex-direction: column; gap: 12px;">
+                        <button class="pui-btn-secondary" id="pui-cancel-stripe-btn" style="padding: 14px; font-size: 0.95rem; justify-content: flex-start; border-color: var(--pui-border-strong);">
+                            <i class="fa-brands fa-stripe" style="font-size: 1.8rem; color: #6366f1; width: 40px;"></i>
+                            <div style="display: flex; flex-direction: column; align-items: flex-start; gap: 2px;">
+                                <span>Apple Pay, Google Pay, or Card</span>
+                                <span style="font-size: 0.7rem; color: var(--pui-text-tertiary); font-weight: 500;">Manage via Stripe Billing Portal</span>
+                            </div>
+                        </button>
+
+                        <button class="pui-btn-secondary" id="pui-cancel-paypal-btn" style="padding: 14px; font-size: 0.95rem; justify-content: flex-start; border-color: var(--pui-border-strong);">
+                            <i class="fa-brands fa-paypal" style="font-size: 1.5rem; color: #00457C; width: 40px;"></i>
+                            <div style="display: flex; flex-direction: column; align-items: flex-start; gap: 2px;">
+                                <span>PayPal</span>
+                                <span style="font-size: 0.7rem; color: var(--pui-text-tertiary); font-weight: 500;">Manage via PayPal AutoPay Settings</span>
+                            </div>
+                        </button>
+                    </div>
+                </div>
+                <div class="pui-confirm-actions" style="justify-content: center; border-top: none; padding-top: 0;">
+                    <button class="pui-btn-ghost" id="pui-confirm-cancel" style="width: 100%;">Keep Subscription</button>
+                </div>
+            </div>
+        `;
+
+        document.body.appendChild(overlay);
+
+        // Force reflow to trigger the CSS transition
+        requestAnimationFrame(() => {
+            requestAnimationFrame(() => {
+                overlay.classList.add('pui-open');
+            });
+        });
+
+        const cleanup = () => {
+            overlay.classList.remove('pui-open');
+            setTimeout(() => overlay.remove(), 240); // Match var(--pui-ease) timing
+            document.removeEventListener('keydown', escHandler);
+        };
+
+        // Event Listeners for the modal
+        document.getElementById('pui-confirm-cancel').addEventListener('click', cleanup);
+        
+        overlay.addEventListener('click', (e) => {
+            if (e.target === overlay) cleanup();
+        });
+
+        const escHandler = (e) => {
+            if (e.key === 'Escape') cleanup();
+        };
+        document.addEventListener('keydown', escHandler);
+
+        // --- PAYPAL ROUTE ---
+        document.getElementById('pui-cancel-paypal-btn').addEventListener('click', () => {
+            window.open('https://www.paypal.com/myaccount/autopay/', '_blank');
+            cleanup();
+            this._showMessage(
+                'pui-billing-msg', 
+                'Opened PayPal in a new tab. Please log in to manage your automatic payments.', 
+                'info'
+            );
+        });
+
+        // --- STRIPE ROUTE ---
+        document.getElementById('pui-cancel-stripe-btn').addEventListener('click', async () => {
+            const btn = document.getElementById('pui-cancel-stripe-btn');
+            btn.innerHTML = '<i class="fa-solid fa-circle-notch fa-spin" style="width: 40px; font-size: 1.2rem;"></i> Preparing Stripe Portal...';
+            btn.style.pointerEvents = 'none';
+
+            try {
+                // Future-proofing: Attempt to call a Stripe Portal Edge Function if you build it
+                const { data, error } = await this._supabase.functions.invoke('create-stripe-portal', {
+                    body: { return_url: window.location.href }
+                });
+
+                if (error || !data?.url) {
+                    throw new Error("Portal unavailable, falling back to manual email.");
+                }
+
+                window.location.href = data.url;
+                cleanup();
+
+            } catch (err) {
+                console.warn("[ProfileUI] Stripe automation not ready:", err.message);
+                
+                // Graceful fallback to the email system
+                const userEmail = this._currentUser?.email || 'Unknown Email';
+                const ifUsername = this._currentUser?.user_metadata?.if_username || 'Not Linked';
+                const userId = this._currentUser?.id || 'Unknown ID';
+
+                const subject = encodeURIComponent("Cancellation Request - Pro Access (Stripe)");
+                const body = encodeURIComponent(
+                    `Hello Inflight Pro Support,\n\n` +
+                    `I would like to formally request a cancellation of my Pro Access subscription.\n\n` +
+                    `Account Details:\n` +
+                    `• Email: ${userEmail}\n` +
+                    `• IF Username: ${ifUsername}\n` +
+                    `• Account ID: ${userId}\n\n` +
+                    `I understand that my premium access will remain active until the end of my current billing cycle.\n\n` +
+                    `Thank you.`
+                );
+
+                window.location.href = `mailto:inflightCustomer@gmail.com?subject=${subject}&body=${body}`;
+                cleanup();
+                
+                this._showMessage(
+                    'pui-billing-msg', 
+                    'An email draft has been opened. Please send it to our support team to finalize your cancellation.', 
+                    'info'
+                );
+            }
+        });
+    },
+
     _showMessage(msgDivId, msg, type) {
         const msgDiv = document.getElementById(msgDivId);
         if (msgDiv) {
@@ -3557,34 +3690,7 @@ _generateAirspaceHTML() {
             });
 
             document.getElementById('pui-billing-cancel-btn')?.addEventListener('click', () => {
-                // Gather the user's data to make manual lookup easy for you
-                const userEmail = this._currentUser?.email || 'Unknown Email';
-                const ifUsername = this._currentUser?.user_metadata?.if_username || 'Not Linked';
-                const userId = this._currentUser?.id || 'Unknown ID';
-
-                // Construct the email subject and body securely
-                const subject = encodeURIComponent("Cancellation Request - Pro Access");
-                const body = encodeURIComponent(
-                    `Hello Inflight Pro Support,\n\n` +
-                    `I would like to formally request a cancellation of my Pro Access subscription.\n\n` +
-                    `Account Details:\n` +
-                    `• Email: ${userEmail}\n` +
-                    `• IF Username: ${ifUsername}\n` +
-                    `• Account ID: ${userId}\n\n` +
-                    `I understand that my premium access will remain active until the end of my current billing cycle.\n\n` +
-                    `I also note that if my account is accidentally charged for the upcoming month because this manual request was not processed before the renewal date, a full refund for that subsequent charge will be issued.\n\n` +
-                    `Thank you.`
-                );
-
-                // Trigger the user's native email client using the support email found in your code
-                window.location.href = `mailto:inflightCustomer@gmail.com?subject=${subject}&body=${body}`;
-
-                // Provide clear visual feedback in the UI
-                this._showMessage(
-                    'pui-billing-msg', 
-                    'An email draft has been opened. Please send it to our support team to finalize your cancellation.', 
-                    'info'
-                );
+                this._showCancellationModal();
             });
         }
 
