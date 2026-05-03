@@ -3047,7 +3047,7 @@ _generateAirspaceHTML() {
         });
     },
 
-    _showCancellationModal() {
+_showCancellationModal() {
         const existing = document.getElementById('pui-custom-confirm');
         if (existing) existing.remove();
 
@@ -3132,24 +3132,46 @@ _generateAirspaceHTML() {
         // --- STRIPE ROUTE ---
         document.getElementById('pui-cancel-stripe-btn').addEventListener('click', async () => {
             const btn = document.getElementById('pui-cancel-stripe-btn');
+            const originalHtml = btn.innerHTML; // Store original state to revert on fail
             btn.innerHTML = '<i class="fa-solid fa-circle-notch fa-spin" style="width: 40px; font-size: 1.2rem;"></i> Preparing Stripe Portal...';
             btn.style.pointerEvents = 'none';
 
             try {
-                // Future-proofing: Attempt to call a Stripe Portal Edge Function if you build it
+                // Call the Stripe Portal Edge Function
                 const { data, error } = await this._supabase.functions.invoke('create-stripe-portal', {
                     body: { return_url: window.location.href }
                 });
 
-                if (error || !data?.url) {
-                    throw new Error("Portal unavailable, falling back to manual email.");
+                // Catch networking/Supabase function invocation errors
+                if (error) {
+                    throw new Error(error.message || "Failed to reach billing server.");
+                }
+
+                // Catch custom errors returned from the Deno script (e.g., no customer found)
+                if (data?.error) {
+                    throw new Error(data.error);
+                }
+
+                if (!data?.url) {
+                    throw new Error("Portal URL missing from response.");
                 }
 
                 window.location.href = data.url;
                 cleanup();
 
             } catch (err) {
-                console.warn("[ProfileUI] Stripe automation not ready:", err.message);
+                console.warn("[ProfileUI] Stripe automation failed:", err.message);
+                
+                // Revert button state so the user isn't stuck loading
+                btn.innerHTML = originalHtml;
+                btn.style.pointerEvents = 'auto';
+                
+                // Notify user of the failure and transition to email fallback
+                this._showMessage(
+                    'pui-billing-msg', 
+                    `Portal issue: ${err.message} Opening manual email cancellation draft.`, 
+                    'error'
+                );
                 
                 // Graceful fallback to the email system
                 const userEmail = this._currentUser?.email || 'Unknown Email';
@@ -3170,12 +3192,6 @@ _generateAirspaceHTML() {
 
                 window.location.href = `mailto:inflightCustomer@gmail.com?subject=${subject}&body=${body}`;
                 cleanup();
-                
-                this._showMessage(
-                    'pui-billing-msg', 
-                    'An email draft has been opened. Please send it to our support team to finalize your cancellation.', 
-                    'info'
-                );
             }
         });
     },
