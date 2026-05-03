@@ -14954,6 +14954,36 @@ if (urlParams.get('auth') === 'signup') {
 
             @keyframes proShine { to { background-position: 200% center; } }
 
+            /* Premium Close Button */
+            .pro-close-btn {
+                position: absolute;
+                top: 20px;
+                right: 20px;
+                width: 34px;
+                height: 34px;
+                border-radius: 50%;
+                background: #f8fafc;
+                border: 1px solid #e2e8f0;
+                color: #64748b;
+                display: flex;
+                align-items: center;
+                justify-content: center;
+                cursor: pointer;
+                z-index: 10;
+                opacity: 0;
+                pointer-events: none; /* Prevents clicking before it appears */
+                transition: all 0.4s cubic-bezier(0.4, 0, 0.2, 1);
+            }
+            .pro-close-btn.visible {
+                opacity: 1;
+                pointer-events: auto;
+            }
+            .pro-close-btn:hover {
+                background: #e2e8f0;
+                color: #0f172a;
+                transform: scale(1.08);
+            }
+
             .pro-header-section { padding: 40px 32px 10px; text-align: center; }
             .pro-brand-logo { height: 50px; margin: 0 auto 16px; display: block; }
             .pro-subtitle { color: #2563eb; font-size: 11px; font-weight: 900; text-transform: uppercase; letter-spacing: 2.5px; }
@@ -15059,6 +15089,9 @@ if (urlParams.get('auth') === 'signup') {
         overlay.innerHTML = `
             <div class="pro-modal-card">
                 <div class="pro-premium-accent"></div>
+                <button class="pro-close-btn" id="pro-close-trigger" aria-label="Close">
+                    <i class="fa-solid fa-xmark"></i>
+                </button>
                 <div class="pro-header-section">
                     <img src="Images/InflightPro.png" alt="Logo" class="pro-brand-logo">
                     <p class="pro-subtitle">Pro Experience</p>
@@ -15112,6 +15145,15 @@ if (urlParams.get('auth') === 'signup') {
             if (btn) btn.click();
             else if (window.AuthUI) window.AuthUI.open('signup');
         };
+
+        // 6-Second Delayed Close Button Reveal
+        setTimeout(() => {
+            const closeBtn = document.getElementById('pro-close-trigger');
+            if (closeBtn) {
+                closeBtn.classList.add('visible');
+                closeBtn.onclick = () => overlay.remove();
+            }
+        }, 6000);
     }
 
     // --- CRITICAL SPEED INJECTION ---

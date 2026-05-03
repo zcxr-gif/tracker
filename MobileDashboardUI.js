@@ -562,8 +562,7 @@ init(supabaseClient) {
         }
     },
 
-    // ── Onboarding ────────────────────────────────────────────────────────────
-    _tabOnboarding() {
+_tabOnboarding() {
         return `
             <div class="mdui-onboarding mdui-fade-up">
                 <div class="mdui-onb-icon"><i class="fa-solid fa-plane-departure"></i></div>
@@ -571,28 +570,36 @@ init(supabaseClient) {
                 <p class="mdui-onb-sub">Thank you for subscribing to Pro Access. Let's set up your flight deck.</p>
 
                 <div class="mdui-card" style="margin-top: 28px;">
-                    <div class="mdui-label">Choose Your Theme</div>
-                    <div class="mdui-pill-row">
-                        <label class="mdui-radio-pill">
-                            <input type="radio" name="onb-theme" value="light" ${this._theme === 'light' ? 'checked' : ''}>
-                            <i class="fa-solid fa-sun" style="margin-right: 6px;"></i>
-                            <span>Light</span>
-                        </label>
-                        <label class="mdui-radio-pill">
-                            <input type="radio" name="onb-theme" value="dark" ${this._theme === 'dark' ? 'checked' : ''}>
-                            <i class="fa-solid fa-moon" style="margin-right: 6px;"></i>
-                            <span>Dark</span>
-                        </label>
+                    <div class="mdui-card-body">
+                        <div class="mdui-input-group" style="margin-bottom: 0;">
+                            <label>Choose Your Theme</label>
+                            <div class="mdui-pill-row">
+                                <label class="mdui-radio-pill">
+                                    <input type="radio" name="onb-theme" value="light" ${this._theme === 'light' ? 'checked' : ''}>
+                                    <i class="fa-solid fa-sun" style="margin-right: 6px;"></i>
+                                    <span>Light</span>
+                                </label>
+                                <label class="mdui-radio-pill">
+                                    <input type="radio" name="onb-theme" value="dark" ${this._theme === 'dark' ? 'checked' : ''}>
+                                    <i class="fa-solid fa-moon" style="margin-right: 6px;"></i>
+                                    <span>Dark</span>
+                                </label>
+                            </div>
+                        </div>
                     </div>
                 </div>
 
                 <div class="mdui-card" style="margin-top: 14px;">
-                    <div class="mdui-label">Infinite Flight Username</div>
-                    <div class="mdui-input-wrap">
-                        <i class="fa-solid fa-plane mdui-input-icon"></i>
-                        <input type="text" id="mdui-onb-username" class="mdui-input" placeholder="Community Forum Name">
+                    <div class="mdui-card-body">
+                        <div class="mdui-input-group" style="margin-bottom: 0;">
+                            <label>Infinite Flight Username</label>
+                            <div class="mdui-input-wrap">
+                                <i class="fa-solid fa-plane mdui-input-icon"></i>
+                                <input type="text" id="mdui-onb-username" class="mdui-input" placeholder="Community Forum Name">
+                            </div>
+                            <p class="mdui-help">We use this to fetch your live flights and career stats.</p>
+                        </div>
                     </div>
-                    <p class="mdui-help">We use this to fetch your live flights and career stats.</p>
                 </div>
 
                 <button class="mdui-btn-primary" id="mdui-onb-complete" style="margin-top: 28px; width: 100%;">
@@ -2986,7 +2993,7 @@ document.getElementById('mdui-billing-cancel')?.addEventListener('click', () => 
             .mdui-billing-actions { display: flex; flex-direction: column; gap: 8px; margin-top: 16px; }
 
             /* ── ONBOARDING ── */
-            .mdui-onboarding { padding: 40px 20px; display: flex; flex-direction: column; justify-content: center; min-height: 100%; }
+            .mdui-onboarding { padding: 40px 20px; display: flex; flex-direction: column; justify-content: flex-start; min-height: 100%; }
             .mdui-onb-icon { width: 56px; height: 56px; margin: 0 auto 18px; border-radius: 16px; background: var(--mdui-accent-soft); color: var(--mdui-accent); font-size: 1.5rem; display: grid; place-items: center; }
             .mdui-onb-title { font-size: 1.7rem; font-weight: 700; text-align: center; margin: 0 0 8px; color: var(--mdui-text); letter-spacing: -0.02em; }
             .mdui-onb-sub { text-align: center; color: var(--mdui-muted); font-size: 0.92rem; line-height: 1.5; margin: 0; }

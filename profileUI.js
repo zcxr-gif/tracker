@@ -187,7 +187,7 @@ export const ProfileUI = {
             'header.dossier.title': 'Pilot Dossier',
             'header.dossier.sub': 'Comprehensive career analytics and high-level flight statistics.',
             'header.watchlist.title': 'Pilot Watchlist',
-            'header.watchlist.sub': 'Track specific pilots in real-time. Get notified the moment they go airborne.',
+            'header.watchlist.sub': 'Track specific pilots in real-time.',
             'header.settings.title': 'Settings',
             'header.settings.sub': 'Manage your profile, preferences, and security.',
             'header.dispatch.title': 'Flight Dispatch',
