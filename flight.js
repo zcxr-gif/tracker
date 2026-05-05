@@ -386,6 +386,14 @@ window.pinFlight = function(flightId) {
     const MAP_STYLE_DARK = 'mapbox://styles/mapbox/dark-v11';
     const MAP_STYLE_LIGHT = 'mapbox://styles/servernoob/cmg3wq7an002p01s17kbx7lqk';
     const MAP_STYLE_SATELLITE = 'mapbox://styles/mapbox/satellite-streets-v12';
+    
+    // --- PRO MAP STYLES ---
+    const MAP_STYLE_OUTDOORS = 'mapbox://styles/mapbox/outdoors-v12';
+    const MAP_STYLE_NAV_DARK = 'mapbox://styles/mapbox/navigation-night-v1';
+    const MAP_STYLE_NAV_LIGHT = 'mapbox://styles/mapbox/navigation-day-v1';
+    const MAP_STYLE_TRAFFIC_NIGHT = 'mapbox://styles/mapbox/traffic-night-v2';
+    const MAP_STYLE_TRAFFIC_DAY = 'mapbox://styles/mapbox/traffic-day-v2';
+
     let currentMapStyle = MAP_STYLE_DARK; // Set the default
 
     // --- Map-related State ---
@@ -643,30 +651,34 @@ window.refreshPilotRelations = refreshPilotRelations;
         }
     }
 
-    function loadFiltersFromLocalStorage() {
-    const savedFilters = localStorage.getItem('mapFilters');
-    if (savedFilters) {
-        try {
-            const parsedFilters = JSON.parse(savedFilters);
-            // Merge saved filters with defaults to ensure new properties are not lost
-            Object.assign(mapFilters, parsedFilters);
-            
-            // [FIXED] Explicitly set the global currentMapStyle based on the saved string
-            if (mapFilters.mapStyle) {
-                if (mapFilters.mapStyle === 'light') {
-                    currentMapStyle = MAP_STYLE_LIGHT;
-                } else if (mapFilters.mapStyle === 'satellite') {
-                    currentMapStyle = MAP_STYLE_SATELLITE;
-                } else {
-                    currentMapStyle = MAP_STYLE_DARK;
+function loadFiltersFromLocalStorage() {
+        const savedFilters = localStorage.getItem('mapFilters');
+        if (savedFilters) {
+            try {
+                const parsedFilters = JSON.parse(savedFilters);
+                // Merge saved filters with defaults to ensure new properties are not lost
+                Object.assign(mapFilters, parsedFilters);
+                
+                // Explicitly set the global currentMapStyle based on the saved string
+                if (mapFilters.mapStyle) {
+                    const stylesMap = {
+                        'light': MAP_STYLE_LIGHT,
+                        'satellite': MAP_STYLE_SATELLITE,
+                        'outdoors': MAP_STYLE_OUTDOORS,
+                        'nav-dark': MAP_STYLE_NAV_DARK,
+                        'nav-light': MAP_STYLE_NAV_LIGHT,
+                        'traffic-night': MAP_STYLE_TRAFFIC_NIGHT,
+                        'traffic-day': MAP_STYLE_TRAFFIC_DAY,
+                        'dark': MAP_STYLE_DARK
+                    };
+                    currentMapStyle = stylesMap[mapFilters.mapStyle] || MAP_STYLE_DARK;
                 }
+            } catch (e) {
+                console.warn("Could not parse saved filters from local storage.", e);
+                // On error, just use the defaults
             }
-        } catch (e) {
-            console.warn("Could not parse saved filters from local storage.", e);
-            // On error, just use the defaults
         }
     }
-}
 
     async function fetchAndRenderRosters(hubIcao) {
         // This feature is disabled
@@ -1100,6 +1112,176 @@ function injectCustomStyles() {
     color: #cbd5e1;
     text-shadow: 0 1px 2px rgba(0,0,0,0.8);
 }
+
+.ac-sub-identity .separator {
+    width: 4px;
+    height: 4px;
+    background: #64748b;
+    border-radius: 50%;
+}
+
+/* Phase Badge (Top Right) */
+.phase-badge-hero {
+    background: rgba(15, 23, 42, 0.6);
+    backdrop-filter: blur(8px);
+    border: 1px solid rgba(255,255,255,0.1);
+    padding: 6px 12px;
+    border-radius: 99px;
+    font-size: 0.75rem;
+    font-weight: 700;
+    color: #fff;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    box-shadow: 0 4px 15px rgba(0,0,0,0.3);
+}
+
+.phase-dot {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    background: #4ade80;
+    box-shadow: 0 0 8px #4ade80;
+    animation: pulse 2s infinite;
+}
+
+/* Bottom Strip: Route Info */
+.ac-header-route-strip {
+    position: relative;
+    z-index: 2;
+    padding: 0 24px 16px 24px;
+    display: grid;
+    grid-template-columns: 1fr auto 1fr;
+    gap: 20px;
+    align-items: end;
+}
+
+.route-node {
+    display: flex;
+    flex-direction: column;
+}
+
+.route-node.end {
+    text-align: right;
+    align-items: flex-end;
+}
+
+.city-name {
+    font-size: 0.75rem;
+    color: #94a3b8;
+    font-weight: 600;
+    text-transform: uppercase;
+    margin-bottom: 2px;
+    max-width: 120px;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.icao-large {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 1.8rem;
+    font-weight: 700;
+    color: #fff;
+    line-height: 1;
+}
+
+.time-small {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 0.85rem;
+    color: #38bdf8;
+    margin-top: 4px;
+    font-weight: 600;
+}
+
+/* Middle Progress Visual */
+.route-visual {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    width: 100%;
+    padding-bottom: 8px;
+}
+
+.flight-progress-track {
+    width: 100%;
+    height: 4px;
+    background: rgba(255,255,255,0.1);
+    border-radius: 2px;
+    position: relative;
+    overflow: visible;
+}
+
+.flight-progress-fill {
+    height: 100%;
+    background: #38bdf8;
+    border-radius: 2px;
+    position: relative;
+    box-shadow: 0 0 10px rgba(56, 189, 248, 0.5);
+}
+
+
+    /* --- COMPACT REDESIGNED TRIP CARD --- */
+#trip-card-takeover {
+    position: fixed;
+    bottom: 12px; /* Moved down from 30px for a smaller gap */
+    left: 50%;
+    transform: translateX(-50%) translateY(20px);
+    z-index: 9999;
+    pointer-events: none;
+    display: none;
+    width: 440px; /* Expanded from 380px */
+    max-width: 92vw;
+    font-family: 'Inter', sans-serif;
+    background: rgba(10, 10, 12, 0.9);
+    backdrop-filter: blur(25px) saturate(180%);
+    border: 1px solid rgba(255, 255, 255, 0.12);
+    border-radius: 20px;
+    padding: 0;
+    box-shadow: 0 20px 50px rgba(0, 0, 0, 0.9);
+    transition: all 0.4s cubic-bezier(0.16, 1, 0.3, 1);
+    opacity: 0;
+    overflow: hidden;
+}
+
+#trip-card-takeover.active { 
+    display: block; 
+    pointer-events: auto;
+    transform: translateX(-50%) translateY(0);
+    opacity: 1;
+}
+
+.tc-ac-image-container {
+    width: 100%;
+    height: 110px; /* Decreased height from 140px */
+    position: relative;
+    background: #000;
+}
+.tc-ac-image {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    opacity: 0.85;
+}
+.tc-image-overlay {
+    position: absolute;
+    inset: 0;
+    background: linear-gradient(to top, rgba(10,10,12,0.85) 0%, transparent 60%);
+}
+
+.tc-inner { 
+    padding: 12px; /* Tightened padding from 16px */
+    display: flex; 
+    flex-direction: column; 
+    gap: 10px; /* Tightened gap from 14px to reduce overall card height */
+}
+
+/* Compact Header */
+.tc-header { display: flex; justify-content: space-between; align-items: flex-start; }
+.tc-airline-info { display: flex; align-items: center; gap: 10px; }
+.tc-logo { height: 22px; width: auto; max-width: 70px; object-fit: contain; }
+.tc-callsign { font-family: 'JetBrains Mono', monospace; font-size: 1.1rem; font-weight: 800; color: #fff; }
+.tc-pilot { font-size: 0.65rem; color: #38bdf8; font-weight: 700; letter-spacing: 0.5px; }
 
 .ac-sub-identity .separator {
     width: 4px;
@@ -5162,8 +5344,6 @@ function toggleTripCardMode(active) {
                         </div>
                     </div>
                 </div>
-// Locate the 'tc-route-row' within toggleTripCardMode (around line 1830 in flight.js)
-// Add the transform style to the plane icon
 
 <div class="tc-route-row">
     <span class="tc-icao origin">---</span>
@@ -5659,19 +5839,25 @@ window.addEventListener('serverChange', (e) => {
 function updateMapFilters() {
     if (!sectorOpsMap) return;
 
-    // 1. Handle Map Projection (Globe vs Flat)
+    // 1. Handle Projection Changes
     const currentProjection = sectorOpsMap.getProjection().name;
     const targetProjection = mapFilters.useFlatMap ? 'mercator' : 'globe';
     if (currentProjection !== targetProjection) {
         sectorOpsMap.setProjection(targetProjection);
     }
 
-    // 2. Handle Map Style Changes (Dark/Light/Satellite)
+    // 2. Handle Map Style Changes (Dark/Light/Satellite/Pro)
     const styleUrls = {
-        'dark': 'mapbox://styles/mapbox/dark-v11',
-        'light': 'mapbox://styles/servernoob/cmg3wq7an002p01s17kbx7lqk',
-        'satellite': 'mapbox://styles/mapbox/satellite-streets-v12'
+        'dark': MAP_STYLE_DARK,
+        'light': MAP_STYLE_LIGHT,
+        'satellite': MAP_STYLE_SATELLITE,
+        'outdoors': MAP_STYLE_OUTDOORS,
+        'nav-dark': MAP_STYLE_NAV_DARK,
+        'nav-light': MAP_STYLE_NAV_LIGHT,
+        'traffic-night': MAP_STYLE_TRAFFIC_NIGHT,
+        'traffic-day': MAP_STYLE_TRAFFIC_DAY
     };
+    
     const targetStyle = styleUrls[mapFilters.mapStyle || 'dark'];
 
     if (currentFlightInWindow && liveTrailCache.has(currentFlightInWindow)) {
@@ -5679,7 +5865,7 @@ function updateMapFilters() {
             sectorOpsMap, 
             currentFlightInWindow, 
             liveTrailCache.get(currentFlightInWindow), 
-            mapFilters.show3DPath // Pass the current setting state
+            mapFilters.show3DPath 
         );
     }
 
@@ -6960,6 +7146,115 @@ function getNearestRunway(aircraftPos, airportIcao, maxDistanceNM = 2.0) {
             new Date(timestamp);
         if (isNaN(date.getTime())) return '----';
         return date.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit', timeZone: 'UTC' });
+    }
+
+    /**
+     * Returns a UTC HH:MM string for a Date, or null if the date is invalid.
+     */
+    function _formatUtcHHMM(d) {
+        if (!d || isNaN(d.getTime())) return null;
+        return d.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit', timeZone: 'UTC' });
+    }
+
+    /**
+     * Computes the best available departure time and tags it with its source.
+     * Source priority: SCHEDULED (filed plan) > ACTUAL (GPS history first point) > ESTIMATED (back-calc from current position).
+     * Always tries to produce a usable time — only falls through to '--:--' when truly nothing is available.
+     *
+     * @returns {{time: string, label: string, color: string, timestamp: Date|null}}
+     */
+    function computeDepartureTimeInfo(flightProps, sortedRoutePoints, filedPlanData, departureIcao) {
+        // 1) Filed flight plan = SCHEDULED (highest priority — pilot's own filed time)
+        if (filedPlanData && filedPlanData.dep_time) {
+            const d = new Date(filedPlanData.dep_time);
+            const t = _formatUtcHHMM(d);
+            if (t) return { time: t, label: 'SCHEDULED', color: '#fbbf24', timestamp: d };
+        }
+
+        // 2) Real GPS history first point = ACTUAL
+        if (sortedRoutePoints && sortedRoutePoints.length > 0 && sortedRoutePoints[0].date) {
+            const d = new Date(sortedRoutePoints[0].date);
+            const t = _formatUtcHHMM(d);
+            if (t) return { time: t, label: 'ACTUAL', color: '#38bdf8', timestamp: d };
+        }
+
+        // 3) Back-calculate from current position + speed = ESTIMATED
+        const dep = (typeof airportsData !== 'undefined' && airportsData) ? airportsData[departureIcao] : null;
+        const pos = flightProps && flightProps.position;
+        if (dep && typeof dep.lat === 'number' && typeof dep.lon === 'number' &&
+            pos && typeof pos.lat === 'number' && typeof pos.lon === 'number' &&
+            typeof getDistanceKm === 'function') {
+
+            const distNm = getDistanceKm(dep.lat, dep.lon, pos.lat, pos.lon) * 0.539957;
+            const gs = pos.gs_kt || 0;
+
+            // Practically still at the departure airport — treat departure as essentially "now"
+            if (distNm < 3) {
+                const d = new Date();
+                return { time: _formatUtcHHMM(d), label: 'ESTIMATED', color: '#94a3b8', timestamp: d };
+            }
+
+            // Use current GS if it looks like cruise speed; otherwise assume ~400 kt jet cruise as a reasonable average
+            const effectiveSpeed = gs > 150 ? gs : 400;
+            const flightSeconds = (distNm / effectiveSpeed) * 3600;
+
+            // Sanity-cap at 18 h backward (covers the longest commercial flights)
+            if (flightSeconds > 0 && flightSeconds < 18 * 3600) {
+                const d = new Date(Date.now() - flightSeconds * 1000);
+                const t = _formatUtcHHMM(d);
+                if (t) return { time: t, label: 'ESTIMATED', color: '#94a3b8', timestamp: d };
+            }
+        }
+
+        // 4) Truly nothing — fall through to blank
+        return { time: '--:--', label: '', color: '#64748b', timestamp: null };
+    }
+
+    /**
+     * Computes the best available arrival time and tags it with its source.
+     * Source priority: SCHEDULED (filed plan dep_time + duration) > ESTIMATED (now + ETE based on remaining distance).
+     *
+     * @returns {{time: string, label: string, color: string, timestamp: Date|null}}
+     */
+    function computeArrivalTimeInfo(flightProps, filedPlanData, distanceToDestNM) {
+        // 1) Filed plan with both dep_time and duration = SCHEDULED arrival
+        if (filedPlanData && filedPlanData.dep_time && filedPlanData.duration_minutes) {
+            const d = new Date(new Date(filedPlanData.dep_time).getTime() + filedPlanData.duration_minutes * 60000);
+            const t = _formatUtcHHMM(d);
+            if (t) return { time: t, label: 'SCHEDULED', color: '#fbbf24', timestamp: d };
+        }
+
+        // 2) Compute from current speed + distance remaining = ESTIMATED arrival
+        const pos = flightProps && flightProps.position;
+        if (pos && typeof distanceToDestNM === 'number' && distanceToDestNM > 0) {
+            const gs = pos.gs_kt || 0;
+            const effectiveSpeed = gs > 150 ? gs : 400;
+            const eteHours = distanceToDestNM / effectiveSpeed;
+            if (eteHours > 0 && eteHours < 48) {
+                const d = new Date(Date.now() + eteHours * 3600 * 1000);
+                const t = _formatUtcHHMM(d);
+                if (t) return { time: t, label: 'ESTIMATED', color: '#94a3b8', timestamp: d };
+            }
+        }
+
+        return { time: '--:--', label: '', color: '#64748b', timestamp: null };
+    }
+
+    /**
+     * Updates the time + source label DOM for either ATD or ETA.
+     * @param {string} suffix 'atd' or 'eta'
+     * @param {{time: string, label: string, color: string}} info
+     */
+    function applyRouteTimeInfoToDom(suffix, info) {
+        const timeText = info.time === '--:--' ? info.time : `${info.time} Z`;
+        document.querySelectorAll(`#ac-bar-${suffix}`).forEach(el => {
+            el.textContent = timeText;
+            el.style.color = info.color;
+        });
+        document.querySelectorAll(`#ac-bar-${suffix}-label`).forEach(el => {
+            el.textContent = info.label;
+            el.style.color = info.color;
+        });
     }
 
 
@@ -9690,6 +9985,11 @@ renderCategory(catId) {
             switch(catId) {
                 case 'airspace':
                     html = `
+                        
+
+            switch(catId) {
+                case 'airspace':
+                    html = `
                         <div class="settings-section">
                             <label class="config-header">Network Visibility</label>
                             <div class="settings-row">
@@ -9850,9 +10150,18 @@ renderCategory(catId) {
                                 <div class="row-label">Map Style</div>
                                 <div class="input-wrapper select-wrapper">
                                     <select id="set-map-style" class="row-input-select">
-                                        <option value="dark" ${mapFilters.mapStyle === 'dark' ? 'selected' : ''}>Dark (Default)</option>
-                                        <option value="light" ${mapFilters.mapStyle === 'light' ? 'selected' : ''}>Light</option>
-                                        <option value="satellite" ${mapFilters.mapStyle === 'satellite' ? 'selected' : ''}>Satellite</option>
+                                        <optgroup label="Standard Maps">
+                                            <option value="dark" ${mapFilters.mapStyle === 'dark' ? 'selected' : ''}>Dark (Default)</option>
+                                            <option value="light" ${mapFilters.mapStyle === 'light' ? 'selected' : ''}>Light</option>
+                                            <option value="satellite" ${mapFilters.mapStyle === 'satellite' ? 'selected' : ''}>Satellite</option>
+                                        </optgroup>
+                                        <optgroup label="Pro Series ✦" ${!isSignedIn ? 'disabled' : ''}>
+                                            <option value="outdoors" ${mapFilters.mapStyle === 'outdoors' ? 'selected' : ''}>Aviation Outdoors</option>
+                                            <option value="nav-dark" ${mapFilters.mapStyle === 'nav-dark' ? 'selected' : ''}>Navigation (Night)</option>
+                                            <option value="nav-light" ${mapFilters.mapStyle === 'nav-light' ? 'selected' : ''}>Navigation (Day)</option>
+                                            <option value="traffic-night" ${mapFilters.mapStyle === 'traffic-night' ? 'selected' : ''}>Traffic Flow (Night)</option>
+                                            <option value="traffic-day" ${mapFilters.mapStyle === 'traffic-day' ? 'selected' : ''}>Traffic Flow (Day)</option>
+                                        </optgroup>
                                     </select>
                                 </div>
                             </div>
@@ -9861,6 +10170,7 @@ renderCategory(catId) {
                                 <label class="toggle-switch"><input type="checkbox" id="set-flat-map" ${mapFilters.useFlatMap ? 'checked' : ''}><span class="toggle-slider"></span></label>
                             </div>
                         </div>
+
 
                         <div class="settings-section">
                             <label class="config-header">Routes & Tracks</label>
@@ -10328,26 +10638,48 @@ if (upgradeBtn) {
                             <span class="filter-section-title">Map Style</span>
                         </div>
                         <ul class="filter-toggle-list" style="padding-top: 8px;">
-                             <li class="filter-radio-item">
-                                <input type="radio" id="map-style-dark" name="map-style-mode" value="dark" checked>
-                                <label for="map-style-dark"><i class="fa-solid fa-moon"></i> Dark (Default)</label>
-                            </li>
-                            <li class="filter-toggle-item">
-    <span class="filter-toggle-label"><i class="fa-solid fa-map"></i> Flat Map Projection</span>
-    <label class="toggle-switch">
-        <input type="checkbox" id="filter-toggle-flat-map" ${mapFilters.useFlatMap ? 'checked' : ''}>
-        <span class="toggle-slider"></span>
-    </label>
-</li>
-                            <li class="filter-radio-item">
-                                <input type="radio" id="map-style-light" name="map-style-mode" value="light">
-                                <label for="map-style-light"><i class="fa-solid fa-sun"></i> Light</label>
-                            </li>
-                            <li class="filter-radio-item">
-                                <input type="radio" id="map-style-satellite" name="map-style-mode" value="satellite">
-                                <label for="map-style-satellite"><i class="fa-solid fa-satellite"></i> Satellite</label>
-                            </li>
-                        </ul>
+                        <li class="filter-radio-item">
+                            <input type="radio" id="map-style-dark" name="map-style-mode" value="dark" checked>
+                            <label for="map-style-dark"><i class="fa-solid fa-moon"></i> Dark (Default)</label>
+                        </li>
+                        <li class="filter-radio-item">
+                            <input type="radio" id="map-style-light" name="map-style-mode" value="light">
+                            <label for="map-style-light"><i class="fa-solid fa-sun"></i> Light</label>
+                        </li>
+                        <li class="filter-radio-item">
+                            <input type="radio" id="map-style-satellite" name="map-style-mode" value="satellite">
+                            <label for="map-style-satellite"><i class="fa-solid fa-satellite"></i> Satellite</label>
+                        </li>
+                        
+                        <li class="filter-radio-item">
+                            <input type="radio" id="map-style-outdoors" name="map-style-mode" value="outdoors">
+                            <label for="map-style-outdoors" style="color: #38bdf8;"><i class="fa-solid fa-mountain-sun"></i> Outdoors (Pro)</label>
+                        </li>
+                        <li class="filter-radio-item">
+                            <input type="radio" id="map-style-nav-dark" name="map-style-mode" value="nav-dark">
+                            <label for="map-style-nav-dark" style="color: #38bdf8;"><i class="fa-solid fa-compass"></i> Nav Night (Pro)</label>
+                        </li>
+                        <li class="filter-radio-item">
+                            <input type="radio" id="map-style-nav-light" name="map-style-mode" value="nav-light">
+                            <label for="map-style-nav-light" style="color: #38bdf8;"><i class="fa-regular fa-compass"></i> Nav Day (Pro)</label>
+                        </li>
+                        <li class="filter-radio-item">
+                            <input type="radio" id="map-style-traffic-night" name="map-style-mode" value="traffic-night">
+                            <label for="map-style-traffic-night" style="color: #38bdf8;"><i class="fa-solid fa-car-tunnel"></i> Traffic Night (Pro)</label>
+                        </li>
+                        <li class="filter-radio-item">
+                            <input type="radio" id="map-style-traffic-day" name="map-style-mode" value="traffic-day">
+                            <label for="map-style-traffic-day" style="color: #38bdf8;"><i class="fa-solid fa-car"></i> Traffic Day (Pro)</label>
+                        </li>
+
+                        <li class="filter-toggle-item" style="margin-top: 10px; border-top: 1px solid rgba(255,255,255,0.1); padding-top: 10px;">
+                            <span class="filter-toggle-label"><i class="fa-solid fa-map"></i> Flat Map Projection</span>
+                            <label class="toggle-switch">
+                                <input type="checkbox" id="filter-toggle-flat-map" ${mapFilters.useFlatMap ? 'checked' : ''}>
+                                <span class="toggle-slider"></span>
+                            </label>
+                        </li>
+                    </ul>
 
                         <div class="filter-section-divider">
                             <span class="filter-section-title">Interface Style</span>
@@ -10825,46 +11157,44 @@ if (flightProps) {
         renderAirportMarkers();
     }
 
-/**
- * --- [MODIFIED] Draws or updates the filed flight plan layers (direct or full)
- * based on the current filter settings. Now uses DENSIFICATION for 3D paths.
- */
 function updateFlightPlanLayer(flightId, plan, currentPosition) {
     if (!sectorOpsMap || !plan || !plan.flightPlanItems || plan.flightPlanItems.length < 2) {
         return; // Not enough data
     }
 
     const layerIdDirect = `plan-path-direct-${flightId}`;
+    const layerIdDirectGlow = `plan-path-direct-glow-${flightId}`;
     const layerIdFull = `plan-path-full-${flightId}`;
+    const layerIdFullGlow = `plan-path-full-glow-${flightId}`;
+    const layerIdFullDots = `plan-path-full-dots-${flightId}`;
     const layerIdFullLabels = layerIdFull + '-labels';
 
     if (!sectorOpsLiveFlightPathLayers[flightId]) {
         sectorOpsLiveFlightPathLayers[flightId] = {};
     }
+    
+    // Register all layers
     sectorOpsLiveFlightPathLayers[flightId].planDirect = layerIdDirect;
+    sectorOpsLiveFlightPathLayers[flightId].planDirectGlow = layerIdDirectGlow;
     sectorOpsLiveFlightPathLayers[flightId].planFull = layerIdFull;
+    sectorOpsLiveFlightPathLayers[flightId].planFullGlow = layerIdFullGlow;
+    sectorOpsLiveFlightPathLayers[flightId].planFullDots = layerIdFullDots;
     sectorOpsLiveFlightPathLayers[flightId].planFullLabels = layerIdFullLabels;
     
     // --- Get coords ---
     const allWaypointsForLine = flattenWaypointsFromPlan(plan.flightPlanItems);
     if (allWaypointsForLine.length < 2) return;
     
-    // Unwrap destination for direct line calculation
     const currentCoords = [currentPosition.lon, currentPosition.lat];
     const destinationCoords = unwrapLineCoordinates([currentCoords, allWaypointsForLine[allWaypointsForLine.length - 1]])[1];
 
     // --- 1. Handle "Direct to Destination" Line ---
     if (mapFilters.planDisplayMode === 'direct') {
-        
-        // [FIX] Densify the single long segment into a curve
-        const directPath = densifyRoute([currentCoords, destinationCoords], 100); // 100km segments
+        const directPath = densifyRoute([currentCoords, destinationCoords], 100);
 
         const directLineData = {
             type: 'Feature',
-            geometry: {
-                type: 'LineString',
-                coordinates: directPath
-            }
+            geometry: { type: 'LineString', coordinates: directPath }
         };
 
         const source = sectorOpsMap.getSource(layerIdDirect);
@@ -10872,19 +11202,33 @@ function updateFlightPlanLayer(flightId, plan, currentPosition) {
             source.setData(directLineData);
         } else {
             sectorOpsMap.addSource(layerIdDirect, { type: 'geojson', data: directLineData });
+            
+            sectorOpsMap.addLayer({
+                id: layerIdDirectGlow,
+                type: 'line',
+                source: layerIdDirect,
+                paint: {
+                    'line-color': '#06b6d4', 
+                    'line-width': 6,
+                    'line-opacity': 0.25,
+                    'line-blur': 4
+                }
+            }, 'sector-ops-live-flights-layer');
+
             sectorOpsMap.addLayer({
                 id: layerIdDirect,
                 type: 'line',
                 source: layerIdDirect,
                 paint: {
-                    'line-color': '#00a8ff',
+                    'line-color': '#67e8f9', 
                     'line-width': 2,
-                    'line-opacity': 0.8,
-                    'line-dasharray': [2, 2]
+                    'line-opacity': 0.9,
+                    'line-dasharray': [3, 4] 
                 }
             }, 'sector-ops-live-flights-layer');
         }
     } else {
+        if (sectorOpsMap.getLayer(layerIdDirectGlow)) sectorOpsMap.removeLayer(layerIdDirectGlow);
         if (sectorOpsMap.getLayer(layerIdDirect)) sectorOpsMap.removeLayer(layerIdDirect);
         if (sectorOpsMap.getSource(layerIdDirect)) sectorOpsMap.removeSource(layerIdDirect);
     }
@@ -10893,30 +11237,40 @@ function updateFlightPlanLayer(flightId, plan, currentPosition) {
     if (mapFilters.planDisplayMode === 'full') {
         const source = sectorOpsMap.getSource(layerIdFull);
         if (!source) {
-            // Get coordinates and unwrap them for date line safety
             let rawWaypoints = flattenWaypointsFromPlan(plan.flightPlanItems);
             let unwrappedWaypoints = unwrapLineCoordinates(rawWaypoints);
-
-            // [FIX] Densify the segments between waypoints (e.g. oceanic legs)
             const densifiedWaypoints = densifyRoute(unwrappedWaypoints, 100);
-
-            // Get points for labels (original waypoints only, don't label the densified dots)
             const waypointObjects = getFlatWaypointObjects(plan.flightPlanItems);
 
-            const features = [];
-
-            // 1. LineString (Densified Curve)
-            features.push({
-                type: 'Feature',
-                geometry: {
-                    type: 'LineString',
-                    coordinates: densifiedWaypoints
+            // --- SMART LOGIC: Determine passed waypoints ---
+            let activeWpIndex = 0;
+            let minDist = Infinity;
+            
+            // Find the closest waypoint to mark as the "active" one
+            waypointObjects.forEach((wp, idx) => {
+                if (!wp.location) return;
+                if (typeof getDistanceKm === 'function') {
+                    const d = getDistanceKm(currentPosition.lat, currentPosition.lon, wp.location.latitude, wp.location.longitude);
+                    if (d < minDist) {
+                        minDist = d;
+                        activeWpIndex = idx;
+                    }
                 }
             });
 
-            // 2. Points (Labels)
-            waypointObjects.forEach(wp => {
+            const features = [];
+
+            // Feature 1: The Core Flight Plan Curve
+            features.push({
+                type: 'Feature',
+                geometry: { type: 'LineString', coordinates: densifiedWaypoints }
+            });
+
+            // Feature 2: Points for Labels & Tactical Nav Dots
+            waypointObjects.forEach((wp, idx) => {
                 if (wp.location && wp.location.longitude != null && wp.location.latitude != null) {
+                    const isPassed = idx < activeWpIndex; // If the index is before the closest active point, it's passed
+                    
                     features.push({
                         type: 'Feature',
                         geometry: {
@@ -10924,50 +11278,90 @@ function updateFlightPlanLayer(flightId, plan, currentPosition) {
                             coordinates: [wp.location.longitude, wp.location.latitude]
                         },
                         properties: {
-                            name: wp.identifier || wp.name || '' 
+                            name: (wp.identifier || wp.name || '').toUpperCase(),
+                            isPassed: isPassed
                         }
                     });
                 }
             });
             
             const fullLineData = { type: 'FeatureCollection', features: features };
-            
             sectorOpsMap.addSource(layerIdFull, { type: 'geojson', data: fullLineData });
-            
-            // Add LINE Layer
+
+            // 1. Neon Magenta Glow
+            sectorOpsMap.addLayer({
+                id: layerIdFullGlow,
+                type: 'line',
+                source: layerIdFull,
+                'filter': ['==', '$type', 'LineString'],
+                paint: {
+                    'line-color': '#d946ef', 
+                    'line-width': 7,
+                    'line-opacity': 0.35,
+                    'line-blur': 4
+                }
+            }, 'sector-ops-live-flights-layer');
+
+            // 2. Solid Core Path
             sectorOpsMap.addLayer({
                 id: layerIdFull,
                 type: 'line',
                 source: layerIdFull,
-                tolerance: 0,      // <--- ADD THIS
-                buffer: 0,         // <--- ADD THIS
+                tolerance: 0,
+                buffer: 0,
                 'filter': ['==', '$type', 'LineString'], 
                 paint: {
-                    'line-color': '#aaaaaa',
-                    'line-width': 2,
-                    'line-opacity': 0.7,
-                    'line-dasharray': [3, 3]
+                    'line-color': '#fdf4ff',
+                    'line-width': 2.5,
+                    'line-opacity': 0.95,
+                    'line-dasharray': [1, 0] 
                 }
             }, 'sector-ops-live-flights-layer');
 
-            // Add LABEL Layer
+            // 3. Dynamic Waypoint Dots (Yellow if passed, hollow indigo if upcoming)
+            sectorOpsMap.addLayer({
+                id: layerIdFullDots,
+                type: 'circle',
+                source: layerIdFull,
+                'filter': ['==', '$type', 'Point'],
+                paint: {
+                    'circle-radius': 3.5,
+                    'circle-color': [
+                        'case',
+                        ['==', ['get', 'isPassed'], true],
+                        '#eab308', // Solid yellow if passed
+                        '#1e1b4b'  // Hollow indigo center if upcoming
+                    ],
+                    'circle-stroke-width': 2,
+                    'circle-stroke-color': [
+                        'case',
+                        ['==', ['get', 'isPassed'], true],
+                        '#ca8a04', // Darker yellow border if passed
+                        '#f0abfc'  // Light fuchsia rim if upcoming
+                    ]
+                }
+            }, 'sector-ops-live-flights-layer');
+
+            // 4. Advanced High-Contrast Typography Layer (Hidden if passed, smaller font)
             sectorOpsMap.addLayer({
                 id: layerIdFullLabels,
                 type: 'symbol',
                 source: layerIdFull,
-                'filter': ['==', '$type', 'Point'],
+                // Only show text if the waypoint is NOT passed
+                'filter': ['all', ['==', '$type', 'Point'], ['==', ['get', 'isPassed'], false]],
                 layout: {
                     'text-field': ['get', 'name'],
                     'text-font': ['Mapbox Txt Regular', 'Arial Unicode MS Regular'],
-                    'text-size': 10,
-                    'text-offset': [0, 0.8],
-                    'text-anchor': 'top',
+                    'text-size': 9, // Reduced size for cleaner zooming
+                    'text-offset': [0.6, -0.6], 
+                    'text-anchor': 'bottom-left',
                     'text-allow-overlap': false,
-                    'text-ignore-placement': false
+                    'text-ignore-placement': false,
+                    'text-letter-spacing': 0.1
                 },
                 paint: {
-                    'text-color': '#ffffff',
-                    'text-halo-color': 'rgba(10, 12, 26, 0.9)',
+                    'text-color': '#fdf4ff',
+                    'text-halo-color': 'rgba(15, 23, 42, 0.9)', 
                     'text-halo-width': 2,
                     'text-halo-blur': 1
                 }
@@ -10975,11 +11369,12 @@ function updateFlightPlanLayer(flightId, plan, currentPosition) {
         }
     } else {
         if (sectorOpsMap.getLayer(layerIdFullLabels)) sectorOpsMap.removeLayer(layerIdFullLabels);
+        if (sectorOpsMap.getLayer(layerIdFullDots)) sectorOpsMap.removeLayer(layerIdFullDots);
         if (sectorOpsMap.getLayer(layerIdFull)) sectorOpsMap.removeLayer(layerIdFull);
+        if (sectorOpsMap.getLayer(layerIdFullGlow)) sectorOpsMap.removeLayer(layerIdFullGlow);
         if (sectorOpsMap.getSource(layerIdFull)) sectorOpsMap.removeSource(layerIdFull);
     }
 }
-
 
     /**
  * Handles clicks on airport markers/tags. 
@@ -11486,31 +11881,31 @@ async function handleAircraftClick(flightProps, optionalSessionId = null, event 
         }
 
         if (currentFlightInWindow === flightProps.flightId) {
+            // Recompute time info now that route history (sortedRoutePoints) has arrived,
+            // so an initially-ESTIMATED time can upgrade to ACTUAL once GPS data is in.
+            // SCHEDULED still wins when filedPlanData exists.
+            let _distRemainingNM = 0;
+            try {
+                const wpObjs = (plan && plan.flightPlanItems && typeof getFlatWaypointObjects === 'function')
+                    ? getFlatWaypointObjects(plan.flightPlanItems) : [];
+                const lastWp = wpObjs[wpObjs.length - 1];
+                if (lastWp && lastWp.location && flightProps.position) {
+                    _distRemainingNM = getDistanceKm(
+                        flightProps.position.lat, flightProps.position.lon,
+                        lastWp.location.latitude, lastWp.location.longitude
+                    ) / 1.852;
+                }
+            } catch (_) { /* fall through with 0 */ }
+
+            const _depInfo = computeDepartureTimeInfo(flightProps, sortedRoutePoints, filedPlanData, depIcao);
+            const _arrInfo = computeArrivalTimeInfo(flightProps, filedPlanData, _distRemainingNM);
+            applyRouteTimeInfoToDom('atd', _depInfo);
+            applyRouteTimeInfoToDom('eta', _arrInfo);
+
             if (filedPlanData) {
-                const atdEl = document.querySelector('.ac-route-info-bar .route-node:not(.end) .time-small');
-                if (atdEl && filedPlanData.dep_time) {
-                    const depDate = new Date(filedPlanData.dep_time);
-                    atdEl.textContent = depDate.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit', timeZone: 'UTC' }) + ' Z';
-                }
-
-                if (filedPlanData.duration_minutes && filedPlanData.dep_time) {
-                    const arrDate = new Date(new Date(filedPlanData.dep_time).getTime() + filedPlanData.duration_minutes * 60000);
-                    const etaEl = document.querySelector('.ac-route-info-bar .route-node.end .time-small');
-                    if (etaEl) {
-                        etaEl.textContent = arrDate.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit', timeZone: 'UTC' }) + ' Z';
-                    }
-                }
-
                 injectFiledGateInfoUI(filedPlanData, flightProps, plan);
-            } else {
-                if (sortedRoutePoints.length > 0 && typeof formatTimeFromTimestamp === 'function') {
-                    const atdEl = document.querySelector('.ac-route-info-bar .route-node:not(.end) .time-small');
-                    if (atdEl) atdEl.textContent = formatTimeFromTimestamp(sortedRoutePoints[0].date);
-                }
-
-                if (depIcao && depIcao !== 'N/A' && typeof injectGateInfoUI === 'function') {
-                    injectGateInfoUI(depIcao, sortedRoutePoints);
-                }
+            } else if (depIcao && depIcao !== 'N/A' && typeof injectGateInfoUI === 'function') {
+                injectGateInfoUI(depIcao, sortedRoutePoints);
             }
         }
 
@@ -11720,6 +12115,44 @@ let totalDistanceNM = 0;
 
     const departureIcao = hasPlan ? originalFlatWaypointObjects[0]?.identifier || originalFlatWaypointObjects[0]?.name : 'N/A';
     const arrivalIcao = hasPlan ? originalFlatWaypointObjects[originalFlatWaypointObjects.length - 1]?.identifier || originalFlatWaypointObjects[originalFlatWaypointObjects.length - 1]?.name : 'N/A';
+
+    // --- Source-tagged time info (SCHEDULED / ACTUAL / ESTIMATED) ---
+    // Falls back to a back-calculated estimate so we never render '--:--' when we have any data at all.
+    const depTimeInfo = computeDepartureTimeInfo(baseProps, sortedRoutePoints, filedPlanData, departureIcao);
+    const arrTimeInfo = computeArrivalTimeInfo(baseProps, filedPlanData, distanceToDestNM);
+
+    // Cache filed-plan info on the window element so the live-update path (which doesn't receive
+    // filedPlanData as an arg) can still produce SCHEDULED-tagged times.
+    if (filedPlanData && filedPlanData.dep_time) {
+        windowEl.dataset.filedDepTime = filedPlanData.dep_time;
+    } else {
+        delete windowEl.dataset.filedDepTime;
+    }
+    if (filedPlanData && filedPlanData.duration_minutes) {
+        windowEl.dataset.filedDuration = String(filedPlanData.duration_minutes);
+    } else {
+        delete windowEl.dataset.filedDuration;
+    }
+    windowEl.dataset.depIcao = departureIcao || '';
+    windowEl.dataset.arrIcao = arrivalIcao || '';
+
+    // --- Derive a cruise altitude target from the highest waypoint altitude in the plan ---
+    // Used by the redesigned VSD card to show CRZ TGT and ALT Δ readouts.
+    let cruiseAltFt = null;
+    try {
+        const _wpAlts = (originalFlatWaypointObjects || [])
+            .map(wp => (typeof wp.altitude === 'number' ? wp.altitude : null))
+            .filter(a => a != null && a > 0);
+        if (_wpAlts.length > 0) cruiseAltFt = Math.max(..._wpAlts);
+    } catch (_) { /* leave as null */ }
+    const cruiseAltText = cruiseAltFt
+        ? (cruiseAltFt >= 18000 ? `FL${Math.round(cruiseAltFt / 100)}` : `${Math.round(cruiseAltFt).toLocaleString()} ft`)
+        : '---';
+    if (cruiseAltFt) {
+        windowEl.dataset.cruiseAltFt = String(cruiseAltFt);
+    } else {
+        delete windowEl.dataset.cruiseAltFt;
+    }
     
     // --- Plan Button ---
     const simbriefAircraftValue = (typeof findSimbriefAircraftValue === 'function') ? findSimbriefAircraftValue(aircraftName) : null;
@@ -11861,7 +12294,8 @@ let totalDistanceNM = 0;
             ${departureIcao}
             <img id="ac-bar-dep-flag" src="" style="height: 14px; border-radius: 2px; display: none; opacity: 0.8;" onerror="this.style.display='none'">
         </span>
-        <span class="time-small" id="ac-bar-atd" style="color: #38bdf8; font-size: 11px; font-weight: 600;">${atdTime}</span>
+        <span class="time-small" id="ac-bar-atd" style="color: ${depTimeInfo.color}; font-size: 11px; font-weight: 600;">${depTimeInfo.time === '--:--' ? '--:--' : depTimeInfo.time + ' Z'}</span>
+        <span class="time-source-label" id="ac-bar-atd-label" style="color: ${depTimeInfo.color}; opacity: 0.75; font-size: 8px; font-weight: 700; letter-spacing: 0.6px; margin-top: 1px; text-transform: uppercase;">${depTimeInfo.label}</span>
     </div>
             
             <div class="route-visual" style="flex: 1; max-width: 240px; display: flex; flex-direction: column; justify-content: center;">
@@ -11882,7 +12316,8 @@ let totalDistanceNM = 0;
                     ${arrivalIcao}
                     <img id="ac-bar-arr-flag" src="" style="height: 14px; border-radius: 2px; display: none; opacity: 0.8;" onerror="this.style.display='none'">
                 </span>
-                <span class="time-small" id="ac-bar-eta" style="color: #38bdf8; font-size: 11px; font-weight: 600;">${eta}</span>
+                <span class="time-small" id="ac-bar-eta" style="color: ${arrTimeInfo.color}; font-size: 11px; font-weight: 600;">${arrTimeInfo.time === '--:--' ? '--:--' : arrTimeInfo.time + ' Z'}</span>
+                <span class="time-source-label" id="ac-bar-eta-label" style="color: ${arrTimeInfo.color}; opacity: 0.75; font-size: 8px; font-weight: 700; letter-spacing: 0.6px; margin-top: 1px; text-transform: uppercase;">${arrTimeInfo.label}</span>
             </div>
         </div>
 
@@ -12130,189 +12565,183 @@ let totalDistanceNM = 0;
                     </div>
                 </div>
 
-                <div class="tech-module" id="location-data-panel" style="background: rgba(15, 23, 42, 0.4); border: 1px solid rgba(255,255,255,0.05); border-radius: 12px; overflow: hidden; backdrop-filter: blur(8px);">
-                    <div class="tech-module-header" style="padding: 14px 18px; background: rgba(255,255,255,0.03); display: flex; align-items: center; justify-content: space-between; border-bottom: 1px solid rgba(255,255,255,0.05);">
-                         <span class="tech-module-title" style="font-weight: 700; font-size: 11px; text-transform: uppercase; color: #fff; letter-spacing: 1px;"><i class="fa-solid fa-radar" style="margin-right: 8px; color: #38bdf8;"></i> Navigation Info</span>
-                         <div style="display: flex; align-items: center; gap: 8px;">
-                             <span style="font-size: 9px; color: #4ade80; font-weight: 700; letter-spacing: 0.5px;">SYNC ACTIVE</span>
-                             <div class="nav-status-indicator" style="width: 6px; height: 6px; background: #4ade80; border-radius: 50%; box-shadow: 0 0 8px #4ade80;"></div>
-                         </div>
+                <!-- Hidden legacy elements: FMS-view footer copies their innerHTML/textContent. Keep them so legacy code keeps working. -->
+                <span id="ac-dist" style="display:none;"></span>
+                <span id="ac-ete" style="display:none;"></span>
+
+                <!-- ════════════ NAVIGATION CARD (ac-bar style) ════════════ -->
+                <div class="ac-info-card-bar nav-card" style="background: #3a3a3a; backdrop-filter: blur(16px); border-radius: 12px; padding: 16px 20px; border: 1px solid rgba(255,255,255,0.1); box-shadow: 0 8px 32px rgba(0,0,0,0.4);">
+                    <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 14px;">
+                        <span style="font-size: 9px; color: #fff; text-transform: uppercase; font-weight: 800; letter-spacing: 1.2px; display: flex; align-items: center; gap: 8px;">
+                            <i class="fa-solid fa-location-crosshairs" style="color: #38bdf8;"></i> Navigation
+                        </span>
+                        <span style="font-size: 8px; color: #4ade80; font-weight: 700; letter-spacing: 0.6px; display: flex; align-items: center; gap: 6px;">
+                            <span class="nav-status-indicator" style="width: 6px; height: 6px; background: #4ade80; border-radius: 50%; box-shadow: 0 0 6px #4ade80;"></span> SYNC
+                        </span>
                     </div>
-                    <div class="tech-module-body" style="padding: 18px;">
-                         <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 24px; margin-bottom: 24px;">
-                             <div class="nav-block">
-                                <span style="font-size: 8px; color: #64748b; text-transform: uppercase; letter-spacing: 1px; display: block; margin-bottom: 6px;">Current Location</span>
-                                <span id="ac-location" style="font-size: 15px; color: #fff; font-weight: 600; font-family: 'Inter', sans-serif;">Scanning...</span>
-                             </div>
-                             <div class="nav-block">
-                                <span style="font-size: 8px; color: #64748b; text-transform: uppercase; letter-spacing: 1px; display: block; margin-bottom: 6px;">Next Sequence</span>
-                                <div style="display: flex; align-items: center; gap: 8px;">
-                                   <span id="ac-next-wp" style="font-size: 16px; color: #facc15; font-weight: 800; font-family: 'JetBrains Mono', monospace;">---</span>
-                                   <span style="font-size: 11px; color: #94a3b8; font-weight: 500;"><span id="ac-next-wp-dist">--.-</span> <small>NM</small></span>
-                                </div>
-                             </div>
-                        </div>
 
-                         <div style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; margin-bottom: 24px;">
-                            <div class="sub-block">
-                                <span style="font-size: 8px; color: #475569; text-transform: uppercase; display: block; margin-bottom: 4px;">Vertical Spd</span>
-                                <span id="ac-vs" style="font-size: 14px; color: #fff; font-weight: 600;">---</span>
-                            </div>
-                            <div class="sub-block">
-                                <span style="font-size: 8px; color: #475569; text-transform: uppercase; display: block; margin-bottom: 4px;">Wind Velocity</span>
-                                <span id="ac-env-wind" style="font-size: 14px; color: #fff; font-weight: 600; font-family: monospace;">---/--</span>
-                            </div>
-                            <div class="sub-block">
-                                <span style="font-size: 8px; color: #475569; text-transform: uppercase; display: block; margin-bottom: 4px;">Static Temp</span>
-                                <span id="ac-env-oat" style="font-size: 14px; color: #fff; font-weight: 600;">--°C</span>
-                            </div>
+                    <!-- Position grid: LAT / LON / HDG / G·S -->
+                    <div style="display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px;">
+                        <div style="display: flex; flex-direction: column;">
+                            <span style="color: #94a3b8; font-size: 8px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.6px; display: block; margin-bottom: 2px;">LAT</span>
+                            <span id="ac-lat" style="color: #fff; font-size: 14px; font-weight: 700; font-family: 'JetBrains Mono', monospace;">---</span>
                         </div>
+                        <div style="display: flex; flex-direction: column;">
+                            <span style="color: #94a3b8; font-size: 8px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.6px; display: block; margin-bottom: 2px;">LON</span>
+                            <span id="ac-lon" style="color: #fff; font-size: 14px; font-weight: 700; font-family: 'JetBrains Mono', monospace;">---</span>
+                        </div>
+                        <div style="display: flex; flex-direction: column;">
+                            <span style="color: #94a3b8; font-size: 8px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.6px; display: block; margin-bottom: 2px;">HDG</span>
+                            <span id="ac-heading" style="color: #fff; font-size: 14px; font-weight: 700; font-family: 'JetBrains Mono', monospace;">---°</span>
+                        </div>
+                        <div style="display: flex; flex-direction: column;">
+                            <span style="color: #94a3b8; font-size: 8px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.6px; display: block; margin-bottom: 2px;">G/S</span>
+                            <span id="ac-gs" style="color: #fff; font-size: 14px; font-weight: 700; font-family: 'JetBrains Mono', monospace;">--- <span style="font-size: 9px; color: #94a3b8; font-weight: 600;">kt</span></span>
+                        </div>
+                    </div>
 
-                        <div style="background: rgba(0,0,0,0.2); padding: 14px; border-radius: 12px; border: 1px solid rgba(255,255,255,0.03);">
-                             <div style="display: flex; justify-content: space-between; align-items: flex-end; margin-bottom: 12px;">
-                                 <div>
-                                    <span style="font-size: 8px; color: #64748b; text-transform: uppercase; display: block; margin-bottom: 2px;">Nearest Facility</span>
-                                    <span id="ac-nearest-apt" style="font-size: 14px; color: #38bdf8; font-weight: 700;">---</span>
-                                 </div>
-                                 <div style="text-align: right;">
-                                     <span style="font-size: 8px; color: #64748b; text-transform: uppercase; display: block; margin-bottom: 2px;">Separation</span>
-                                    <span style="font-size: 14px; color: #fff; font-weight: 600;"><span id="ac-nearest-apt-dist">--.-</span> NM</span>
-                                 </div>
-                             </div>
-                             <div style="height: 2px; background: rgba(255,255,255,0.05); width: 100%; border-radius: 2px; margin-bottom: 12px;">
-                                <div id="facility-proximity-bar" style="height: 100%; width: 0%; background: #38bdf8; border-radius: 2px; transition: width 0.5s ease;"></div>
-                             </div>
-                             <div style="display: flex; justify-content: space-between; font-family: 'JetBrains Mono', monospace; font-size: 10px; color: #475569;">
-                                 <span>LAT <span id="ac-lat" style="color: #94a3b8;">---</span></span>
-                                 <span>LON <span id="ac-lon" style="color: #94a3b8;">---</span></span>
-                              </div>
+                    <!-- Atmosphere row: WIND / SAT / TAS -->
+                    <div style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; margin-top: 12px; padding-top: 12px; border-top: 1px solid rgba(255,255,255,0.06);">
+                        <div style="display: flex; flex-direction: column;">
+                            <span style="color: #94a3b8; font-size: 8px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.6px; display: block; margin-bottom: 2px;">WIND</span>
+                            <span id="ac-env-wind" style="color: #fff; font-size: 14px; font-weight: 700; font-family: 'JetBrains Mono', monospace;">---/--</span>
                         </div>
+                        <div style="display: flex; flex-direction: column;">
+                            <span style="color: #94a3b8; font-size: 8px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.6px; display: block; margin-bottom: 2px;">SAT</span>
+                            <span id="ac-env-oat" style="color: #fff; font-size: 14px; font-weight: 700; font-family: 'JetBrains Mono', monospace;">--°C</span>
+                        </div>
+                        <div style="display: flex; flex-direction: column;">
+                            <span style="color: #94a3b8; font-size: 8px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.6px; display: block; margin-bottom: 2px;">TAS</span>
+                            <span id="ac-tas" style="color: #fff; font-size: 14px; font-weight: 700; font-family: 'JetBrains Mono', monospace;">--- <span style="font-size: 9px; color: #94a3b8; font-weight: 600;">kt</span></span>
+                        </div>
+                    </div>
 
-                        <div style="margin-top: 24px; padding-top: 18px; border-top: 1px solid rgba(255,255,255,0.05); display: flex; justify-content: space-between; align-items: center;">
-                            <div style="display: flex; gap: 12px; align-items: center;">
-                                <div style="width: 32px; height: 32px; border-radius: 50%; background: rgba(56, 189, 248, 0.1); display: flex; align-items: center; justify-content: center; color: #38bdf8;">
-                                    <i class="fa-solid fa-flag-checkered"></i>
-                                </div>
-                                 <div>
-                                    <span style="font-size: 8px; color: #64748b; text-transform: uppercase; display: block;">Distance to Goal</span>
-                                    <span id="ac-dist" style="font-size: 16px; color: #fff; font-weight: 700;">---</span>
-                                </div>
-                            </div>
-                            <div style="text-align: right;">
-                                  <span style="font-size: 8px; color: #64748b; text-transform: uppercase; display: block;">Arrival In</span>
-                                <span id="ac-ete" style="font-size: 16px; color: #38bdf8; font-weight: 700;">--:--</span>
-                            </div>
+                    <!-- Next waypoint pill -->
+                    <div style="margin-top: 14px; padding: 10px 14px; background: rgba(15, 23, 42, 0.5); border-radius: 10px; border: 1px solid rgba(255,255,255,0.04); display: flex; align-items: center; justify-content: space-between; gap: 10px;">
+                        <div style="display: flex; align-items: center; gap: 10px; min-width: 0;">
+                            <i class="fa-solid fa-diamond" style="color: #facc15; font-size: 7px;"></i>
+                            <span style="color: #94a3b8; font-size: 8px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.6px;">NEXT WP</span>
+                            <span id="ac-next-wp" style="color: #facc15; font-size: 14px; font-weight: 800; font-family: 'JetBrains Mono', monospace;">---</span>
                         </div>
+                        <div style="white-space: nowrap;">
+                            <span id="ac-next-wp-dist" style="color: #fff; font-size: 13px; font-weight: 700; font-family: 'JetBrains Mono', monospace;">--.-</span>
+                            <span style="color: #94a3b8; font-size: 9px; margin-left: 4px;">NM</span>
+                        </div>
+                    </div>
+
+                    <!-- Nearest facility pill -->
+                    <div style="margin-top: 8px; padding: 10px 14px; background: rgba(15, 23, 42, 0.5); border-radius: 10px; border: 1px solid rgba(255,255,255,0.04); display: flex; align-items: center; justify-content: space-between; gap: 10px;">
+                        <div style="display: flex; align-items: center; gap: 10px; min-width: 0;">
+                            <i class="fa-solid fa-tower-cell" style="color: #38bdf8; font-size: 10px;"></i>
+                            <span style="color: #94a3b8; font-size: 8px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.6px;">NEAREST</span>
+                            <span id="ac-nearest-apt" style="color: #38bdf8; font-size: 14px; font-weight: 800; font-family: 'JetBrains Mono', monospace;">---</span>
+                        </div>
+                        <div style="white-space: nowrap;">
+                            <span id="ac-nearest-apt-dist" style="color: #fff; font-size: 13px; font-weight: 700; font-family: 'JetBrains Mono', monospace;">--.-</span>
+                            <span style="color: #94a3b8; font-size: 9px; margin-left: 4px;">NM</span>
+                        </div>
+                    </div>
+
+                    <!-- Geocoded position text -->
+                    <div style="margin-top: 12px; padding-top: 10px; border-top: 1px solid rgba(255,255,255,0.05);">
+                        <span style="color: #94a3b8; font-size: 8px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.6px; display: block; margin-bottom: 3px;">CURRENT POSITION</span>
+                        <span id="ac-location" style="color: #fff; font-size: 12px; font-weight: 500;">Scanning...</span>
                     </div>
                 </div>
 
-               <div class="tech-card" style="background: rgba(15, 23, 42, 0.6); border: 1px solid rgba(255,255,255,0.1); border-radius: 16px; overflow: hidden; backdrop-filter: blur(12px); box-shadow: 0 10px 30px rgba(0,0,0,0.5);">
-                    <div class="tech-card-header" style="padding: 20px 20px 10px 20px; display: flex; justify-content: space-between; align-items: flex-start;">
-                         <div>
-                            <div style="display: flex; align-items: center; gap: 8px; margin-bottom: 8px;">
-                                <span style="background: rgba(74, 222, 128, 0.15); color: #4ade80; font-size: 9px; font-weight: 700; padding: 2px 8px; border-radius: 4px; text-transform: uppercase; letter-spacing: 0.5px;">Live Feed</span>
-                                <span style="font-size: 10px; font-weight: 600; color: #64748b; text-transform: uppercase; letter-spacing: 1px;">Flight Specifications</span>
-                            </div>
-                            <h1 style="font-size: 22px; font-weight: 800; color: #fff; margin: 0; line-height: 1.1;">${aircraftName}</h1>
-                            <p style="font-size: 12px; color: #94a3b8; margin: 4px 0 0 0; display: flex; align-items: center; gap: 6px;">
-                                <i class="fa-solid fa-plane" style="font-size: 10px; color: #38bdf8;"></i>
-                                <span>${airlineName}</span>
-                            </p>
-                        </div>
-                          <button style="width: 32px; height: 32px; border-radius: 8px; background: rgba(255,255,255,0.05); color: #94a3b8; border: none; cursor: pointer; display: flex; align-items: center; justify-content: center;">
-                            <i class="fa-solid fa-ellipsis-vertical"></i>
-                         </button>
+               <!-- ════════════ AIRCRAFT CARD (slimmed — no duplicate name/callsign/airline) ════════════ -->
+               <div class="ac-info-card-bar aircraft-card" style="background: #3a3a3a; backdrop-filter: blur(16px); border-radius: 12px; padding: 16px 20px; border: 1px solid rgba(255,255,255,0.1); box-shadow: 0 8px 32px rgba(0,0,0,0.4);">
+                    <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 14px;">
+                        <span style="font-size: 9px; color: #fff; text-transform: uppercase; font-weight: 800; letter-spacing: 1.2px; display: flex; align-items: center; gap: 8px;">
+                            <i class="fa-solid fa-plane" style="color: #38bdf8;"></i> Aircraft
+                        </span>
+                        <span style="font-size: 8px; color: #94a3b8; font-weight: 600; letter-spacing: 0.6px;">SPECIFICATIONS</span>
                     </div>
-                
-                    <div class="tech-content" style="padding: 15px 20px 20px 20px; display: flex; flex-direction: column; gap: 20px;">
-                        <div class="tech-image-container" style="position: relative; border-radius: 12px; overflow: hidden; height: 160px; background: #000;">
-                            <img src="${techCardImagePath}" onerror="this.src='/CommunityPlanes/default.png'" class="tech-image" style="width: 100%; height: 100%; object-fit: cover; opacity: 0.8;" alt="Aircraft">
-                            <div class="tech-image-overlay" style="position: absolute; inset: 0; background: linear-gradient(to top, rgba(15,23,42,1) 0%, rgba(15,23,42,0) 60%);"></div>
-                            <div class="tech-image-info" style="position: absolute; bottom: 12px; left: 12px; right: 12px; display: flex; justify-content: space-between; align-items: flex-end;">
-                                <div class="tech-photographer">
-                                    <span style="font-size: 8px; color: #64748b; text-transform: uppercase; display: block; margin-bottom: 2px;">Image Credit</span>
-                                    <div style="display: flex; align-items: center; gap: 6px;">
-                                        <i class="fa-solid fa-camera" style="color: #38bdf8; font-size: 10px;"></i>
-                                        <span style="font-size: 11px; color: #fff; font-weight: 500;">${photographerName}</span>
-                                    </div>
-                                </div>
-                                 <a href="#" style="width: 28px; height: 28px; background: rgba(56, 189, 248, 0.2); border-radius: 6px; color: #38bdf8; display: flex; align-items: center; justify-content: center; border: 1px solid rgba(56, 189, 248, 0.2);">
-                                    <i class="fa-solid fa-expand" style="font-size: 12px;"></i>
-                                </a>
-                             </div>
-                        </div>
-                        <div class="tech-grid" style="display: grid; grid-template-columns: repeat(2, 1fr); gap: 12px;">
-                            <div style="background: rgba(255,255,255,0.03); padding: 12px; border-radius: 10px; border: 1px solid rgba(255,255,255,0.05);">
-                                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px;">
-                                    <span style="font-size: 9px; color: #64748b; text-transform: uppercase; letter-spacing: 0.5px;">Registration</span>
-                                    <i class="fa-solid fa-hashtag" style="font-size: 9px; color: #475569;"></i>
-                                </div>
-                                <span style="font-size: 15px; font-weight: 700; color: #fff; font-family: 'JetBrains Mono', monospace;">${techCardTail}</span>
-                            </div>
-                            <div style="background: rgba(255,255,255,0.03); padding: 12px; border-radius: 10px; border: 1px solid rgba(255,255,255,0.05);">
-                                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px;">
-                                    <span style="font-size: 9px; color: #64748b; text-transform: uppercase; letter-spacing: 0.5px;">Callsign</span>
-                                    <i class="fa-solid fa-tower-broadcast" style="font-size: 9px; color: #475569;"></i>
-                                </div>
-                                <span style="font-size: 15px; font-weight: 700; color: #fff; font-family: 'JetBrains Mono', monospace;">${baseProps.callsign}</span>
-                            </div>
-                            
-                            ${filedPlanData ? `
-                            <div style="background: rgba(255,255,255,0.03); padding: 12px; border-radius: 10px; border: 1px solid rgba(255,255,255,0.05);">
-                                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px;">
-                                    <span style="font-size: 9px; color: #64748b; text-transform: uppercase; letter-spacing: 0.5px;">PAX</span>
-                                    <i class="fa-solid fa-users" style="font-size: 9px; color: #c084fc;"></i>
-                                </div>
-                                <span style="font-size: 15px; font-weight: 700; color: #fff; font-family: 'JetBrains Mono', monospace;">${filedPlanData.passengers || 'N/A'} <span style="font-size: 10px; color: #64748b;">OB</span></span>
-                            </div>
-                            <div style="background: rgba(255,255,255,0.03); padding: 12px; border-radius: 10px; border: 1px solid rgba(255,255,255,0.05);">
-                                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px;">
-                                    <span style="font-size: 9px; color: #64748b; text-transform: uppercase; letter-spacing: 0.5px;">Block Fuel</span>
-                                    <i class="fa-solid fa-gas-pump" style="font-size: 9px; color: #f87171;"></i>
-                                </div>
-                                <span style="font-size: 15px; font-weight: 700; color: #fff; font-family: 'JetBrains Mono', monospace;">${filedPlanData.fuel_used ? filedPlanData.fuel_used.toLocaleString() : 'N/A'} <span style="font-size: 10px; color: #64748b;">KG</span></span>
-                            </div>` : ''}
 
-                            <div style="grid-column: span 2; background: linear-gradient(90deg, rgba(30, 41, 59, 0.4) 0%, rgba(15, 23, 42, 0.4) 100%); padding: 12px; border-radius: 10px; border: 1px solid rgba(255,255,255,0.05); display: flex; justify-content: space-between; align-items: center;">
-                                <div style="display: flex; align-items: center; gap: 10px;">
-                                    <div style="width: 28px; height: 28px; background: rgba(56, 189, 248, 0.1); border-radius: 6px; display: flex; align-items: center; justify-content: center; color: #38bdf8;">
-                                        <i class="fa-solid fa-plane-up" style="font-size: 12px;"></i>
-                                    </div>
-                                     <div style="display: flex; flex-direction: column;">
-                                        <span style="font-size: 8px; color: #64748b; text-transform: uppercase;">Aircraft Class</span>
-                                        <span style="font-size: 13px; font-weight: 600; color: #fff; text-transform: capitalize;">${baseProps.category || 'Commercial'}</span>
-                                    </div>
-                                </div>
-                                 <div style="padding: 4px 10px; background: rgba(255,255,255,0.05); border-radius: 4px; border: 1px solid rgba(255, 255, 255, 0.05);">
-                                    <span style="font-family: monospace; font-size: 9px; color: #94a3b8; font-weight: 600;">CLASS-1</span>
-                                </div>
-                            </div>
+                    <div style="display: grid; grid-template-columns: ${filedPlanData ? 'repeat(4, 1fr)' : 'repeat(2, 1fr)'}; gap: 12px;">
+                        <div style="display: flex; flex-direction: column;">
+                            <span style="color: #94a3b8; font-size: 8px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.6px; display: block; margin-bottom: 2px;">Reg</span>
+                            <span style="color: #fff; font-size: 14px; font-weight: 700; font-family: 'JetBrains Mono', monospace;">${techCardTail}</span>
                         </div>
-                      </div>
-                </div>
-
-                <div class="tech-module vsd-module-container">
-                    <div class="tech-module-header">
-                        <span class="tech-module-title"><i class="fa-solid fa-chart-area"></i> VERTICAL SITUATION DISPLAY</span>
-                         <span class="fms-page-count">VSD</span>
+                        <div style="display: flex; flex-direction: column;">
+                            <span style="color: #94a3b8; font-size: 8px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.6px; display: block; margin-bottom: 2px;">Class</span>
+                            <span style="color: #fff; font-size: 14px; font-weight: 700; text-transform: capitalize;">${baseProps.category || 'Commercial'}</span>
+                        </div>
+                        ${filedPlanData ? `
+                        <div style="display: flex; flex-direction: column;">
+                            <span style="color: #94a3b8; font-size: 8px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.6px; display: block; margin-bottom: 2px;">PAX</span>
+                            <span style="color: #fff; font-size: 14px; font-weight: 700; font-family: 'JetBrains Mono', monospace;">${filedPlanData.passengers != null ? filedPlanData.passengers : '—'}</span>
+                        </div>
+                        <div style="display: flex; flex-direction: column;">
+                            <span style="color: #94a3b8; font-size: 8px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.6px; display: block; margin-bottom: 2px;">Block Fuel</span>
+                            <span style="color: #fff; font-size: 14px; font-weight: 700; font-family: 'JetBrains Mono', monospace;">${filedPlanData.fuel_used ? Math.round(filedPlanData.fuel_used / 1000) + 'k' : '—'} <span style="font-size: 9px; color: #94a3b8; font-weight: 600;">kg</span></span>
+                        </div>` : ''}
                     </div>
-                    <div id="vsd-panel" class="vsd-panel active" data-plan-id="" data-profile-built="false">
+
+                    ${photographerName && photographerName !== 'IF Community' ? `
+                    <div style="margin-top: 12px; padding-top: 10px; border-top: 1px solid rgba(255,255,255,0.05); display: flex; align-items: center; gap: 6px;">
+                        <i class="fa-solid fa-camera" style="color: #38bdf8; font-size: 9px;"></i>
+                        <span style="font-size: 9px; color: #94a3b8;">Photo · ${photographerName}</span>
+                    </div>` : ''}
+               </div>
+
+                <!-- ════════════ VERTICAL PROFILE CARD (enhanced VSD with live readouts) ════════════ -->
+                <div class="ac-info-card-bar tech-module vsd-module-container" style="background: #3a3a3a; backdrop-filter: blur(16px); border-radius: 12px; padding: 16px 20px; border: 1px solid rgba(255,255,255,0.1); box-shadow: 0 8px 32px rgba(0,0,0,0.4);">
+                    <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 14px;">
+                        <span class="tech-module-title" style="font-size: 9px; color: #fff; text-transform: uppercase; font-weight: 800; letter-spacing: 1.2px; display: flex; align-items: center; gap: 8px;">
+                            <i class="fa-solid fa-chart-area" style="color: #38bdf8;"></i> Vertical Profile
+                        </span>
+                        <span class="fms-page-count" style="font-size: 8px; color: #94a3b8; font-weight: 600; letter-spacing: 0.6px;">VSD</span>
+                    </div>
+
+                    <!-- Live readouts: ALT / V·S / CRZ TGT / ALT Δ -->
+                    <div style="display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; margin-bottom: 14px;">
+                        <div style="display: flex; flex-direction: column;">
+                            <span style="color: #94a3b8; font-size: 8px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.6px; display: block; margin-bottom: 2px;">ALT</span>
+                            <span id="ac-alt" style="color: #fff; font-size: 14px; font-weight: 700; font-family: 'JetBrains Mono', monospace;">--- <span style="font-size: 9px; color: #94a3b8; font-weight: 600;">ft</span></span>
+                        </div>
+                        <div style="display: flex; flex-direction: column;">
+                            <span style="color: #94a3b8; font-size: 8px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.6px; display: block; margin-bottom: 2px;">V/S</span>
+                            <span id="ac-vs" style="color: #fff; font-size: 14px; font-weight: 700; font-family: 'JetBrains Mono', monospace;">---</span>
+                        </div>
+                        <div style="display: flex; flex-direction: column;">
+                            <span style="color: #94a3b8; font-size: 8px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.6px; display: block; margin-bottom: 2px;">CRZ</span>
+                            <span id="ac-cruise-tgt" style="color: #38bdf8; font-size: 14px; font-weight: 700; font-family: 'JetBrains Mono', monospace;">${cruiseAltText}</span>
+                        </div>
+                        <div style="display: flex; flex-direction: column;">
+                            <span style="color: #94a3b8; font-size: 8px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.6px; display: block; margin-bottom: 2px;">Δ TGT</span>
+                            <span id="ac-alt-delta" style="color: #fff; font-size: 14px; font-weight: 700; font-family: 'JetBrains Mono', monospace;">---</span>
+                        </div>
+                    </div>
+
+                    <!-- The chart (kept identical so existing VSD render code keeps working) -->
+                    <div id="vsd-panel" class="vsd-panel active" data-plan-id="" data-profile-built="false" style="background: rgba(0,0,0,0.25); border-radius: 10px; padding: 8px; border: 1px solid rgba(255,255,255,0.04);">
                         <div id="vsd-graph-window" class="vsd-graph-window">
                             <div id="vsd-aircraft-icon"></div>
-                             <div id="vsd-graph-content">
+                            <div id="vsd-graph-content">
                                 <svg id="vsd-profile-svg" xmlns="http://www.w3.org/2000/svg">
                                      <path id="vsd-flown-path" d="" />
                                     <path id="vsd-profile-path" d="" />
                                 </svg>
-                                    <div id="vsd-waypoint-labels"></div>
-                             </div>
-                             ${planButtonHtml}
-                         </div>
+                                <div id="vsd-waypoint-labels"></div>
+                            </div>
+                            ${planButtonHtml}
+                        </div>
                     </div>
-                    <div class="vsd-footer">
-                        <div class="vsd-legend-item"><div class="dot-plan"></div> PLANNED</div>
-                         <div class="vsd-legend-item"><div class="dot-flown"></div> FLOWN</div>
-                        <div>ALTITUDE PROFILE</div>
+
+                    <!-- Footer: legend + live phase indicator -->
+                    <div class="vsd-footer" style="margin-top: 12px; padding-top: 12px; border-top: 1px solid rgba(255,255,255,0.06); display: flex; align-items: center; justify-content: space-between; gap: 10px;">
+                        <div style="display: flex; align-items: center; gap: 12px;">
+                            <div class="vsd-legend-item" style="display: flex; align-items: center; gap: 6px;">
+                                <div class="dot-plan" style="width: 10px; height: 3px; background: #38bdf8; border-radius: 1px;"></div>
+                                <span style="font-size: 8px; color: #94a3b8; font-weight: 700; letter-spacing: 0.6px;">PLANNED</span>
+                            </div>
+                            <div class="vsd-legend-item" style="display: flex; align-items: center; gap: 6px;">
+                                <div class="dot-flown" style="width: 10px; height: 3px; background: #4ade80; border-radius: 1px;"></div>
+                                <span style="font-size: 8px; color: #94a3b8; font-weight: 700; letter-spacing: 0.6px;">FLOWN</span>
+                            </div>
+                        </div>
+                        <span id="ac-vsd-phase" style="font-size: 10px; color: #fbbf24; font-weight: 800; letter-spacing: 0.8px;">${flightPhase}</span>
                     </div>
                 </div>
             </div>
@@ -12480,6 +12909,14 @@ function updateNavPanelData(lat, lon, heading, oat, windDir, windSpd) {
     if (latEl) latEl.textContent = lat.toFixed(3);
     if (lonEl) lonEl.textContent = lon.toFixed(3);
 
+    // 1b. Heading — previously this argument was passed in but never displayed.
+    if (heading != null && !isNaN(heading)) {
+        const hdgInt = Math.round(((heading % 360) + 360) % 360);
+        document.querySelectorAll('#ac-heading').forEach(el => {
+            el.textContent = `${String(hdgInt).padStart(3, '0')}°`;
+        });
+    }
+
     // 2. Update Environment
     const windEl = document.getElementById('ac-env-wind');
     const oatEl = document.getElementById('ac-env-oat');
@@ -12516,7 +12953,8 @@ function updateNavPanelData(lat, lon, heading, oat, windDir, windSpd) {
         if (nearestEl && minDist !== Infinity) {
             nearestEl.textContent = nearestICAO;
             const distNM = (minDist / 1.852).toFixed(1);
-            nearestDistEl.textContent = `${distNM} NM`;
+            // The "NM" unit is rendered as a sibling <span> in the markup, so write only the number.
+            nearestDistEl.textContent = distNM;
         }
     }
 }
@@ -12864,9 +13302,51 @@ function updateAircraftInfoWindow(baseProps, plan, sortedRoutePoints) {
     }
 
     updateAll('#ac-next-wp', nextWpName);
-    updateAll('#ac-next-wp-dist', `${nextWpDistNM === '---' ? '--.-' : nextWpDistNM}<span class="unit">NM</span>`, true);
+    updateAll('#ac-next-wp-dist', `${nextWpDistNM === '---' ? '--.-' : nextWpDistNM}`, false);
     updateAll('#ac-dist', `${Math.round(distanceToDestNM)}<span class="unit">NM</span>`, true);
     updateAll('#ac-ete', ete);
+
+    // --- New nav-card live readouts (heading / G·S / TAS / ALT / ALT Δ) ---
+    {
+        const _gs = baseProps.position.gs_kt || 0;
+        const _alt = baseProps.position.alt_ft || 0;
+        const _hdg = baseProps.position.heading_deg;
+        const _vs = baseProps.position.vs_fpm || 0;
+        const _oat_c = (typeof currentAircraftPositionForGeocode !== 'undefined' && currentAircraftPositionForGeocode)
+            ? (currentAircraftPositionForGeocode.oat_c ?? 15)
+            : 15;
+        const _tas = (typeof calculateTas === 'function') ? calculateTas(_alt, _oat_c, _gs) : Math.round(_gs);
+
+        if (_hdg != null && !isNaN(_hdg)) {
+            updateAll('#ac-heading', `${String(Math.round(((_hdg % 360) + 360) % 360)).padStart(3, '0')}°`);
+        }
+        updateAll('#ac-gs', `${Math.round(_gs)} <span style="font-size: 9px; color: #94a3b8; font-weight: 600;">kt</span>`, true);
+        updateAll('#ac-tas', `${Math.round(_tas)} <span style="font-size: 9px; color: #94a3b8; font-weight: 600;">kt</span>`, true);
+        updateAll('#ac-alt', `${Math.round(_alt).toLocaleString()} <span style="font-size: 9px; color: #94a3b8; font-weight: 600;">ft</span>`, true);
+
+        // V/S — always live, independent of whether a flight plan is loaded.
+        const _vsArrow = _vs > 100 ? '▲' : _vs < -100 ? '▼' : '·';
+        const _vsColor = _vs > 100 ? '#4ade80' : _vs < -100 ? '#fbbf24' : '#94a3b8';
+        const _vsSign = _vs > 0 ? '+' : '';
+        updateAll('#ac-vs',
+            `<span style="color: ${_vsColor};">${_vsArrow}</span> ${_vsSign}${Math.round(_vs).toLocaleString()} <span style="font-size: 9px; color: #94a3b8; font-weight: 600;">fpm</span>`,
+            true);
+
+        // ALT delta vs cached cruise target
+        const _windowEl2 = document.getElementById('aircraft-info-window');
+        const _cruiseAlt = (_windowEl2 && _windowEl2.dataset.cruiseAltFt)
+            ? parseFloat(_windowEl2.dataset.cruiseAltFt) : null;
+        if (_cruiseAlt && _cruiseAlt > 0) {
+            const _delta = Math.round(_alt - _cruiseAlt);
+            const _arrow = _delta > 50 ? '▲' : _delta < -50 ? '▼' : '·';
+            const _color = _delta > 50 ? '#fbbf24' : _delta < -50 ? '#fbbf24' : '#4ade80';
+            const _sign = _delta > 0 ? '+' : '';
+            const _txt = `<span style="color: ${_color};">${_arrow}</span> ${_sign}${Math.abs(_delta) >= 1000 ? (_delta / 1000).toFixed(1) + 'k' : _delta} <span style="font-size: 9px; color: #94a3b8; font-weight: 600;">ft</span>`;
+            updateAll('#ac-alt-delta', _txt, true);
+        } else {
+            updateAll('#ac-alt-delta', '---', false);
+        }
+    }
 
     let flightPhase = 'ENROUTE';
     let phaseClass = 'phase-enroute';
@@ -13304,10 +13784,9 @@ function updateAircraftInfoWindow(baseProps, plan, sortedRoutePoints) {
             vsdAircraftIcon.style.left = `75px`;
         }
 
-        const vsdSummaryVS = vsdPanel.closest('.ac-tab-pane').querySelector('#ac-vs');
-        if (vsdSummaryVS) {
-            vsdSummaryVS.innerHTML = `<i class="fa-solid ${vs > 100 ? 'fa-arrow-up' : vs < -100 ? 'fa-arrow-down' : 'fa-minus'}"></i> ${Math.round(vs)}<span class="unit">fpm</span>`;
-        }
+        // Note: #ac-vs is now updated centrally in the live readouts block above so the
+        // formatting stays consistent across the nav/VSD card. We keep this hook in case
+        // future code re-introduces a VSD-specific V/S display.
     });
 
     const flightDataTabContainer = document.getElementById('ac-tab-flight-data');
@@ -13351,27 +13830,36 @@ function updateAircraftInfoWindow(baseProps, plan, sortedRoutePoints) {
         el.style.boxShadow = `0 0 8px ${badgeStatusColor}`;
         el.style.animation = badgeStatusPulse === 'none' ? 'none' : `${badgeStatusPulse} 2s infinite`;
     });
+    // VSD card phase chip — color tracks the same palette as the route-bar phase badge
+    document.querySelectorAll('#ac-vsd-phase').forEach(el => {
+        el.textContent = flightPhase;
+        el.style.color = badgeStatusColor;
+    });
 
     const atdTimestamp = (sortedRoutePoints && sortedRoutePoints.length > 0) ? sortedRoutePoints[0].date : null;
     const atdTime = atdTimestamp ? formatTimeFromTimestamp(atdTimestamp) : '--:--';
-    let etaTime = '--:--';
 
-    if (baseProps.position.gs_kt > 50 && totalDistanceNM > 0) {
-        const eteHours = distanceToDestNM / baseProps.position.gs_kt;
-        if (eteHours > 0 && eteHours < 48) {
-            const eteMs = eteHours * 3600 * 1000;
-            const etaTimestamp = new Date(Date.now() + eteMs);
-            etaTime = formatTimeFromTimestamp(etaTimestamp);
-        }
-    }
+    // --- Source-aware time updates (SCHEDULED / ACTUAL / ESTIMATED) ---
+    // updateAircraftInfoWindow doesn't receive filedPlanData directly, so we read it from
+    // the cache that populateAircraftInfoWindow stashed on the window element.
+    const _windowEl = document.getElementById('aircraft-info-window');
+    const _cachedFiledPlan = (_windowEl && _windowEl.dataset.filedDepTime) ? {
+        dep_time: _windowEl.dataset.filedDepTime,
+        duration_minutes: _windowEl.dataset.filedDuration ? parseFloat(_windowEl.dataset.filedDuration) : null
+    } : null;
+    const _depIcaoLive = (_windowEl && _windowEl.dataset.depIcao) || departureIcao || '';
+    const _arrIcaoLive = (_windowEl && _windowEl.dataset.arrIcao) || arrivalIcao || '';
+
+    const _depInfoLive = computeDepartureTimeInfo(baseProps, sortedRoutePoints, _cachedFiledPlan, _depIcaoLive);
+    const _arrInfoLive = computeArrivalTimeInfo(baseProps, _cachedFiledPlan, distanceToDestNM);
 
     const depCountryCode = airportsData[departureIcao]?.country ? airportsData[departureIcao].country.toLowerCase() : '';
     const arrCountryCode = airportsData[arrivalIcao]?.country ? airportsData[arrivalIcao].country.toLowerCase() : '';
     const depFlagSrc = depCountryCode ? `https://flagcdn.com/w20/${depCountryCode}.png` : '';
     const arrFlagSrc = arrCountryCode ? `https://flagcdn.com/w20/${arrCountryCode}.png` : '';
 
-    updateAll('#ac-bar-atd', `${atdTime} Z`);
-    updateAll('#ac-bar-eta', `${etaTime} Z`);
+    applyRouteTimeInfoToDom('atd', _depInfoLive);
+    applyRouteTimeInfoToDom('eta', _arrInfoLive);
     
     document.querySelectorAll('#ac-bar-dep-flag').forEach(el => {
         el.src = depFlagSrc;
@@ -13722,7 +14210,7 @@ function setupFlightHoverPopups() {
         className: 'flight-hover-popup'
     });
 
-    let hoveredFlightId = null; // Tracks the currently highlighted flight
+    let hoveredFlightId = null;
 
     sectorOpsMap.on('mouseenter', 'sector-ops-live-flights-layer', (e) => {
         const isHoverDevice = window.matchMedia('(hover: hover)').matches;
@@ -13731,19 +14219,45 @@ function setupFlightHoverPopups() {
         }
 
         sectorOpsMap.getCanvas().style.cursor = 'pointer';
-        
         const feature = e.features[0];
         const props = feature.properties;
 
         // Data Parsing
         const acData = props.aircraft ? JSON.parse(props.aircraft) : {};
         const callsign = props.callsign || '---';
-        const acType = (acData.aircraftName || 'AC').split(' ')[0].substring(0, 4).toUpperCase();
+        const username = props.username || 'Unknown';
+        const depIcao = props.departureIcao || '---';
+        const arrIcao = props.arrivalIcao || '---';
+        
         const imgUrl = props.communityImageUrl || '/CommunityPlanes/default.png';
         const credit = props.contributorName || 'IF Community';
         const alt = Math.round(props.altitude || 0).toLocaleString();
         const gs = Math.round(props.speed || 0);
+
+        // --- Calculate Route Progress ---
+        let progressPercent = 0;
+        if (depIcao !== '---' && arrIcao !== '---') {
+            const depData = typeof airportsData !== 'undefined' ? airportsData[depIcao] : null;
+            const arrData = typeof airportsData !== 'undefined' ? airportsData[arrIcao] : null;
+            
+            if (depData && arrData && props.position) {
+                try {
+                    const pos = JSON.parse(props.position);
+                    const totalDist = getDistanceKm(depData.lat, depData.lon, arrData.lat, arrData.lon);
+                    const remainingDist = getDistanceKm(pos.lat, pos.lon, arrData.lat, arrData.lon);
+                    
+                    if (totalDist > 0) {
+                        progressPercent = Math.max(0, Math.min(100, (1 - (remainingDist / totalDist)) * 100));
+                    }
+                } catch(err) {
+                    console.warn("Failed to calculate hover progress");
+                }
+            }
+        }
         
+        // Clamp visually so the icon doesn't overflow the container edges completely
+        const displayPercent = Math.max(2, Math.min(98, progressPercent));
+
         // Logo Generation
         const livName = acData.liveryName || '';
         const words = livName.trim().split(/\s+/);
@@ -13757,16 +14271,35 @@ function setupFlightHoverPopups() {
                     <div class="fr24-image-overlay"></div>
                     <div class="fr24-copyright">© ${credit}</div>
                 </div>
+                
                 <div class="fr24-info-box">
-                    <div class="fr24-header-row">
+                    <div class="fr24-header-row" style="margin-bottom: 2px;">
                         <img src="${logoPath}" class="fr24-airline-logo" onerror="this.style.display='none'">
                         <div class="fr24-ident-group">
                             <span class="fr24-callsign">${callsign}</span>
-                            <span class="fr24-ac-badge">${acType}</span>
                         </div>
+                        <span style="margin-left: auto; font-size: 8.5px; color: #38bdf8; font-weight: 800; text-transform: uppercase; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 65px;" title="${username}">
+                            ${username}
+                        </span>
                     </div>
-                    <div class="fr24-stats-row">
-                        ${alt} FT · ${gs} KTS
+                    
+                    <div class="fr24-route-premium" style="display: flex; align-items: center; justify-content: space-between; gap: 10px; margin: 8px 0 6px 0;">
+                        <span style="font-family: 'JetBrains Mono', monospace; font-weight: 800; font-size: 10.5px; color: #f8fafc; letter-spacing: 0.5px;">${depIcao}</span>
+                        
+                        <div style="flex-grow: 1; height: 2px; background: rgba(255, 255, 255, 0.1); border-radius: 2px; position: relative; display: flex; align-items: center;">
+                            <div style="position: absolute; left: 0; top: 0; height: 100%; background: linear-gradient(90deg, rgba(56,189,248,0.1) 0%, #38bdf8 100%); width: ${displayPercent}%; border-radius: 2px; box-shadow: 0 0 6px rgba(56, 189, 248, 0.5);"></div>
+                            
+                            <svg style="position: absolute; left: ${displayPercent}%; transform: translateX(-50%); filter: drop-shadow(0 1px 3px rgba(0,0,0,0.8)); z-index: 2;" width="12" height="12" viewBox="0 0 24 24" fill="#ffffff" xmlns="http://www.w3.org/2000/svg">
+                                <path d="M2 2L22 12L2 22L6 12L2 2Z" fill="#ffffff"/>
+                            </svg>
+                        </div>
+                        
+                        <span style="font-family: 'JetBrains Mono', monospace; font-weight: 800; font-size: 10.5px; color: #94a3b8; letter-spacing: 0.5px;">${arrIcao}</span>
+                    </div>
+                    
+                    <div class="fr24-stats-row" style="display: flex; justify-content: space-between;">
+                        <span><i class="fa-solid fa-arrow-up-right-dots" style="font-size: 8px; margin-right: 3px;"></i>${alt} <span style="font-size:8px;">FT</span></span>
+                        <span><i class="fa-solid fa-gauge-high" style="font-size: 8px; margin-right: 3px;"></i>${gs} <span style="font-size:8px;">KTS</span></span>
                     </div>
                 </div>
             </div>
@@ -13793,12 +14326,6 @@ function setupFlightHoverPopups() {
     sectorOpsMap.on('mouseleave', 'sector-ops-live-flights-layer', () => {
         sectorOpsMap.getCanvas().style.cursor = '';
         hoverPopup.remove();
-
-        // --- FIX: Clear the filter to hide the highlight ---
-        if (hoveredFlightId !== null) {
-            hoveredFlightId = null;
-            sectorOpsMap.setFilter('sector-ops-live-flights-hover-layer', ['==', 'flightId', '']);
-        }
     });
 }
 
@@ -14316,15 +14843,36 @@ if (flatMapToggle) {
             saveFiltersToLocalStorage();
             updateMapFilters();
         }
-        // [MODIFIED] Handle Map Style Radios (Dark, Light, Satellite)
         else if (target.name === 'map-style-mode') {
             const mode = target.value;
+            
+            // Re-enforce Pro Auth for Legacy dropdown items
+            const proModes = ['outdoors', 'nav-dark', 'nav-light', 'traffic-night', 'traffic-day'];
+            const isSignedIn = !!(typeof ProfileUI !== 'undefined' && ProfileUI?._currentUser);
+            
+            if (proModes.includes(mode) && !isSignedIn) {
+                showNotification("This map style requires a Pro account.", "error");
+                // Revert the radio UI to current state
+                const currentRadio = document.querySelector(`input[name="map-style-mode"][value="${mapFilters.mapStyle || 'dark'}"]`);
+                if (currentRadio) currentRadio.checked = true;
+                
+                if (window.AuthUI && typeof window.AuthUI.open === 'function') {
+                    window.AuthUI.open('signup');
+                }
+                return;
+            }
+
             mapFilters.mapStyle = mode;
             saveFiltersToLocalStorage();
-
+            
             let newStyleUrl = MAP_STYLE_DARK;
             if (mode === 'light') newStyleUrl = MAP_STYLE_LIGHT;
-            if (mode === 'satellite') newStyleUrl = MAP_STYLE_SATELLITE;
+            else if (mode === 'satellite') newStyleUrl = MAP_STYLE_SATELLITE;
+            else if (mode === 'outdoors') newStyleUrl = MAP_STYLE_OUTDOORS;
+            else if (mode === 'nav-dark') newStyleUrl = MAP_STYLE_NAV_DARK;
+            else if (mode === 'nav-light') newStyleUrl = MAP_STYLE_NAV_LIGHT;
+            else if (mode === 'traffic-night') newStyleUrl = MAP_STYLE_TRAFFIC_NIGHT;
+            else if (mode === 'traffic-day') newStyleUrl = MAP_STYLE_TRAFFIC_DAY;
 
             if (currentMapStyle !== newStyleUrl) {
                 currentMapStyle = newStyleUrl;
@@ -14897,7 +15445,7 @@ if (urlParams.get('auth') === 'signup') {
 /**
  * ============================================================================
  * INFLIGHT PRO: V3.2 - INSTANT DEPLOYMENT & HOME INTEGRATION
- * Optimized for maximum execution speed and luxury secondary navigation.
+ * Optimized for maximum execution speed, luxury UX, and frictionless entry.
  * ============================================================================
  */
 (function() {
@@ -14954,7 +15502,7 @@ if (urlParams.get('auth') === 'signup') {
 
             @keyframes proShine { to { background-position: 200% center; } }
 
-            /* Premium Close Button */
+            /* Premium Close Button - Now immediately visible */
             .pro-close-btn {
                 position: absolute;
                 top: 20px;
@@ -14970,13 +15518,7 @@ if (urlParams.get('auth') === 'signup') {
                 justify-content: center;
                 cursor: pointer;
                 z-index: 10;
-                opacity: 0;
-                pointer-events: none; /* Prevents clicking before it appears */
-                transition: all 0.4s cubic-bezier(0.4, 0, 0.2, 1);
-            }
-            .pro-close-btn.visible {
-                opacity: 1;
-                pointer-events: auto;
+                transition: all 0.3s ease;
             }
             .pro-close-btn:hover {
                 background: #e2e8f0;
@@ -14986,7 +15528,7 @@ if (urlParams.get('auth') === 'signup') {
 
             .pro-header-section { padding: 40px 32px 10px; text-align: center; }
             .pro-brand-logo { height: 50px; margin: 0 auto 16px; display: block; }
-            .pro-subtitle { color: #2563eb; font-size: 11px; font-weight: 900; text-transform: uppercase; letter-spacing: 2.5px; }
+            .pro-subtitle { color: #64748b; font-size: 11px; font-weight: 800; text-transform: uppercase; letter-spacing: 2.5px; }
 
             .pro-carousel-viewport { position: relative; height: 160px; margin-top: 15px; }
             .pro-feature-slide {
@@ -14999,8 +15541,9 @@ if (urlParams.get('auth') === 'signup') {
                 flex-direction: column;
                 align-items: center;
                 text-align: center;
+                pointer-events: none;
             }
-            .pro-feature-slide.active { opacity: 1; }
+            .pro-feature-slide.active { opacity: 1; pointer-events: auto; }
 
             .pro-icon-ring {
                 width: 55px; height: 55px; border-radius: 18px;
@@ -15011,7 +15554,7 @@ if (urlParams.get('auth') === 'signup') {
             .pro-feature-title { font-size: 1.25rem; font-weight: 800; color: #0f172a; margin-bottom: 6px; }
             .pro-feature-desc { font-size: 0.95rem; color: #64748b; line-height: 1.5; }
 
-            /* Action Buttons */
+            /* Action Buttons - Redesigned Hierarchy */
             .pro-action-footer { 
                 padding: 10px 40px 40px; 
                 display: flex; 
@@ -15019,8 +15562,9 @@ if (urlParams.get('auth') === 'signup') {
                 gap: 12px; 
             }
 
+            /* Primary CTA is now focused on entering the app seamlessly */
             .pro-cta-primary {
-                background: #2563eb;
+                background: #0f172a;
                 color: white;
                 border: none;
                 border-radius: 16px;
@@ -15030,12 +15574,13 @@ if (urlParams.get('auth') === 'signup') {
                 transition: 0.3s;
                 display: flex; align-items: center; justify-content: center; gap: 10px;
             }
-            .pro-cta-primary:hover { background: #1d4ed8; transform: translateY(-2px); }
+            .pro-cta-primary:hover { background: #1e293b; transform: translateY(-2px); box-shadow: 0 10px 20px -10px rgba(15, 23, 42, 0.5); }
 
+            /* Secondary CTA is now the unobtrusive Pro upsell */
             .pro-cta-secondary {
-                background: #f1f5f9;
-                color: #475569;
-                border: 1px solid #e2e8f0;
+                background: #f8fafc;
+                color: #2563eb;
+                border: 1px solid #bfdbfe;
                 border-radius: 16px;
                 padding: 14px;
                 font-weight: 600;
@@ -15044,7 +15589,7 @@ if (urlParams.get('auth') === 'signup') {
                 transition: 0.3s;
                 display: flex; align-items: center; justify-content: center; gap: 8px;
             }
-            .pro-cta-secondary:hover { background: #e2e8f0; color: #0f172a; }
+            .pro-cta-secondary:hover { background: #eff6ff; border-color: #93c5fd; }
 
             .pro-pagination { display: flex; justify-content: center; gap: 6px; margin: 20px 0; padding: 0 40px; }
             .pro-segment { height: 4px; flex: 1; background: #f1f5f9; border-radius: 10px; overflow: hidden; }
@@ -15063,7 +15608,7 @@ if (urlParams.get('auth') === 'signup') {
         // Fetch session - Note: This is the only async bottleneck
         const { data } = await supabase.auth.getSession();
         if (data?.session) {
-            // Minimal splash for pro users
+            // Minimal splash for logged in / pro users
             overlay.innerHTML = `<img src="Images/InflightPro.png" style="height:60px; animation: proFadeIn 1s infinite alternate;">`;
             document.body.appendChild(overlay);
             setTimeout(() => overlay.remove(), 2500);
@@ -15094,18 +15639,18 @@ if (urlParams.get('auth') === 'signup') {
                 </button>
                 <div class="pro-header-section">
                     <img src="Images/InflightPro.png" alt="Logo" class="pro-brand-logo">
-                    <p class="pro-subtitle">Pro Experience</p>
+                    <p class="pro-subtitle">Workspace Initializing...</p>
                 </div>
                 <div class="pro-carousel-viewport">${slidesHtml}</div>
                 <div class="pro-pagination">
                     ${features.map((_, i) => `<div class="pro-segment"><div class="pro-segment-fill" id="pro-fill-${i}"></div></div>`).join('')}
                 </div>
                 <div class="pro-action-footer">
-                    <button class="pro-cta-primary" id="pro-signup-trigger">
-                        Create Pro Account <i class="fa-solid fa-arrow-right"></i>
+                    <button class="pro-cta-primary" id="pro-continue-trigger">
+                        Enter Tracker <i class="fa-solid fa-arrow-right"></i>
                     </button>
-                    <button class="pro-cta-secondary" onclick="window.location.href='home.html'">
-                        <i class="fa-solid fa-house"></i> Home Page
+                    <button class="pro-cta-secondary" id="pro-signup-trigger">
+                        <i class="fa-solid fa-bolt"></i> Unlock Pro Features
                     </button>
                 </div>
             </div>
@@ -15119,6 +15664,7 @@ if (urlParams.get('auth') === 'signup') {
         let current = 0;
         let start = Date.now();
         const duration = 4000;
+        let animationId;
 
         function step() {
             const progress = Math.min(((Date.now() - start) / duration) * 100, 100);
@@ -15126,34 +15672,49 @@ if (urlParams.get('auth') === 'signup') {
             if (fill) fill.style.width = progress + '%';
 
             if (progress >= 100) {
-                overlay.querySelectorAll('.pro-feature-slide')[current].classList.remove('active');
-                current = (current + 1) % count;
-                overlay.querySelectorAll('.pro-feature-slide')[current].classList.add('active');
-                start = Date.now();
-                // Reset all fills
-                for(let i=0; i<count; i++) {
-                    document.getElementById(`pro-fill-${i}`).style.width = i < current ? '100%' : '0%';
+                const slides = overlay.querySelectorAll('.pro-feature-slide');
+                if (slides.length > 0) {
+                    slides[current].classList.remove('active');
+                    current = (current + 1) % count;
+                    slides[current].classList.add('active');
+                    start = Date.now();
+                    // Reset all fills
+                    for(let i = 0; i < count; i++) {
+                        const segment = document.getElementById(`pro-fill-${i}`);
+                        if (segment) segment.style.width = i < current ? '100%' : '0%';
+                    }
                 }
             }
-            requestAnimationFrame(step);
+            animationId = requestAnimationFrame(step);
         }
-        requestAnimationFrame(step);
+        animationId = requestAnimationFrame(step);
 
-        document.getElementById('pro-signup-trigger').onclick = () => {
-            overlay.remove();
-            const btn = document.querySelector('.auth-toggle-btn[data-mode="signup"]');
-            if (btn) btn.click();
-            else if (window.AuthUI) window.AuthUI.open('signup');
+        // Utility to handle clean destruction of the modal
+        const cleanupAndClose = () => {
+            cancelAnimationFrame(animationId);
+            overlay.style.opacity = '0';
+            overlay.style.transition = 'opacity 0.3s ease';
+            setTimeout(() => overlay.remove(), 300);
         };
 
-        // 6-Second Delayed Close Button Reveal
-        setTimeout(() => {
-            const closeBtn = document.getElementById('pro-close-trigger');
-            if (closeBtn) {
-                closeBtn.classList.add('visible');
-                closeBtn.onclick = () => overlay.remove();
-            }
-        }, 6000);
+        // 1. Immediate Close Button Event
+        const closeBtn = document.getElementById('pro-close-trigger');
+        if (closeBtn) closeBtn.onclick = cleanupAndClose;
+
+        // 2. Primary Action: Enter App Seamlessly
+        const continueBtn = document.getElementById('pro-continue-trigger');
+        if (continueBtn) continueBtn.onclick = cleanupAndClose;
+
+        // 3. Secondary Action: Open Auth Modal
+        const signupBtn = document.getElementById('pro-signup-trigger');
+        if (signupBtn) {
+            signupBtn.onclick = () => {
+                cleanupAndClose();
+                const btn = document.querySelector('.auth-toggle-btn[data-mode="signup"]');
+                if (btn) btn.click();
+                else if (window.AuthUI) window.AuthUI.open('signup');
+            };
+        }
     }
 
     // --- CRITICAL SPEED INJECTION ---

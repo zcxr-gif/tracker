@@ -185,7 +185,7 @@ export const AuthUI = {
         document.body.insertAdjacentHTML('beforeend', html);
     },
 
-    renderContent() {
+renderContent() {
         const card = document.getElementById('auth-modal-card');
         if (!card) return;
 
@@ -217,8 +217,8 @@ export const AuthUI = {
         } else if (isPayment) {
             html += `
                 <div class="auth-payment-header">
-                    <h3 style="margin: 0; color: #0f172a; font-size: 1.25rem; font-weight: 700;">Finalize Your Pro Access</h3>
-                    <p style="margin: 6px 0 0; color: #64748b; font-size: 0.9rem;">$1.99/mo subscription</p>
+                    <h3 style="margin: 0; color: #0f172a; font-size: 1.25rem; font-weight: 700;">Start Your 7-Day Free Trial</h3>
+                    <p style="margin: 6px 0 0; color: #64748b; font-size: 0.9rem;">Then $1.99/mo. Cancel anytime.</p>
                 </div>
             `;
         } else if (isRenew) {
@@ -334,7 +334,7 @@ export const AuthUI = {
                     <div class="auth-premium-notice">
                         <i class="fa-solid fa-gem auth-premium-icon"></i>
                         <div class="auth-premium-text">
-                            <strong>InFlight Pro</strong> requires a $1.99/month subscription for full access.
+                            <strong>InFlight Pro</strong> is $1.99/month after your <strong>7-day free trial by using Stripe</strong>.
                         </div>
                     </div>
                     <div class="auth-input-group">
@@ -391,7 +391,7 @@ export const AuthUI = {
                 `;
             }
 
-            const submitText = isSignIn ? "Sign In" : "Continue to Payment ($1.99/mo)";
+            const submitText = isSignIn ? "Sign In" : "Start 7-Day Free Trial";
 
             html += `
                 ${formFields}
@@ -556,7 +556,7 @@ export const AuthUI = {
         }
     },
 
-    async handleStripeHostedCheckout() {
+async handleStripeHostedCheckout() {
         if (!this._tempSignUpData) {
             this.showError("Data missing. Please try again.");
             return;
@@ -588,7 +588,8 @@ export const AuthUI = {
                 email: this._tempSignUpData.email,
                 success_url: window.location.origin + '?payment=success&session_id={CHECKOUT_SESSION_ID}',
                 cancel_url: window.location.origin + '?payment=cancel',
-                is_renew: this._tempSignUpData.is_renew || false
+                is_renew: this._tempSignUpData.is_renew || false,
+                trial_days: 7 
             };
 
             if (!payload.is_renew) {
