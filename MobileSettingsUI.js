@@ -11,7 +11,7 @@ export const MobileSettingsUI = {
         this.attachMobileListeners();
     },
 
-renderMobileContainer() {
+    renderMobileContainer() {
         const existing = document.getElementById('mobile-settings-nexus');
         if (existing) existing.remove();
 
@@ -33,57 +33,6 @@ renderMobileContainer() {
                             <button class="m-setting-pill" data-setting="mapStyle" data-value="dark">Dark</button>
                             <button class="m-setting-pill" data-setting="mapStyle" data-value="light">Light</button>
                             <button class="m-setting-pill" data-setting="mapStyle" data-value="satellite">Satellite</button>
-                        </div>
-
-                        <div class="mobile-section-header pro-accent"><i class="fa-solid fa-star"></i> PRO Map Styles</div>
-                        <div class="settings-mobile-grid is-pro-feature">
-                            <button class="m-setting-pill" data-setting="mapStyle" data-value="outdoors" data-pro="true">Outdoors</button>
-                            <button class="m-setting-pill" data-setting="mapStyle" data-value="nav-dark" data-pro="true">Nav Night</button>
-                            <button class="m-setting-pill" data-setting="mapStyle" data-value="nav-light" data-pro="true">Nav Day</button>
-                            <button class="m-setting-pill" data-setting="mapStyle" data-value="traffic-night" data-pro="true">Trfc Night</button>
-                            <button class="m-setting-pill" data-setting="mapStyle" data-value="traffic-day" data-pro="true">Trfc Day</button>
-                        </div>
-
-                        <div class="mobile-section-header pro-accent"><i class="fa-solid fa-star"></i> PRO 3D Environment</div>
-                        <div class="m-settings-list">
-                            ${this.renderToggle('showTerrain', '3D Terrain (Elevation)', 'fa-mountain', true)}
-                            ${this.renderToggle('showBuildings', '3D Buildings', 'fa-city', true)}
-                            ${this.renderToggle('showDayNight', 'Day/Night Terminator', 'fa-moon', true)}
-                        </div>
-
-                        <div class="mobile-section-header pro-accent"><i class="fa-solid fa-star"></i> PRO Base Map Elements</div>
-                        <div class="m-settings-list">
-                            ${this.renderToggle('showBorders', 'Political Borders', 'fa-earth-americas', true)}
-                            ${this.renderToggle('showRoads', 'Roads & Highways', 'fa-road', true)}
-                            ${this.renderToggle('showLabels', 'City & Place Labels', 'fa-font', true)}
-                            ${this.renderToggle('showPois', 'Points of Interest', 'fa-map-pin', true)}
-                            ${this.renderToggle('showWaterLabels', 'Water Labels', 'fa-water', true)}
-                            ${this.renderToggle('showAirportLayout', 'Airport Layout', 'fa-plane-arrival', true)}
-                            ${this.renderToggle('showLandUse', 'Parks & Forests', 'fa-tree', true)}
-                        </div>
-
-                        <div class="mobile-section-header pro-accent"><i class="fa-solid fa-star"></i> Pro Aircraft Colors</div>
-                        <div class="m-settings-list">
-                            <div class="m-setting-row is-pro-feature">
-                                <div class="m-row-left">
-                                    <i class="fa-solid fa-plane" style="color: #fbbf24;"></i>
-                                    <span>Tracked Flight Color</span>
-                                </div>
-                                <div class="m-row-right">
-                                    <div class="pro-lock-badge"><i class="fa-solid fa-lock" style="font-size:0.6rem; margin-right:4px;"></i>PRO</div>
-                                    <input type="color" class="m-color-picker" data-setting="userFlightColor" value="#38bdf8" data-pro="true">
-                                </div>
-                            </div>
-                            <div class="m-setting-row is-pro-feature">
-                                <div class="m-row-left">
-                                    <i class="fa-solid fa-eye" style="color: #fbbf24;"></i>
-                                    <span>Watchlist Color</span>
-                                </div>
-                                <div class="m-row-right">
-                                    <div class="pro-lock-badge"><i class="fa-solid fa-lock" style="font-size:0.6rem; margin-right:4px;"></i>PRO</div>
-                                    <input type="color" class="m-color-picker" data-setting="watchlistColor" value="#f59e0b" data-pro="true">
-                                </div>
-                            </div>
                         </div>
 
                         <div class="mobile-section-header">Visibility</div>
@@ -127,7 +76,7 @@ renderMobileContainer() {
                             <input type="range" class="m-range-input" data-setting="planeIconSize" min="0.01" max="0.15" step="0.01">
                         </div>
 
-                        <div class="mobile-section-header">Global Icon Color Mode</div>
+                        <div class="mobile-section-header">Icon Color Mode</div>
                         <div class="settings-mobile-grid">
                             <button class="m-setting-pill" data-setting="iconColorMode" data-value="default">White</button>
                             <button class="m-setting-pill" data-setting="iconColorMode" data-value="blue">Blue</button>
@@ -145,52 +94,19 @@ renderMobileContainer() {
         document.body.insertAdjacentHTML('beforeend', html);
     },
 
-    renderToggle(id, label, icon, isPro = false) {
+    renderToggle(id, label, icon) {
         return `
-            <div class="m-setting-row ${isPro ? 'is-pro-feature' : ''}">
+            <div class="m-setting-row">
                 <div class="m-row-left">
-                    <i class="fa-solid ${icon}" ${isPro ? 'style="color: #fbbf24;"' : ''}></i>
+                    <i class="fa-solid ${icon}"></i>
                     <span>${label}</span>
                 </div>
-                <div class="m-row-right">
-                    ${isPro ? '<div class="pro-lock-badge"><i class="fa-solid fa-lock" style="font-size:0.6rem; margin-right:4px;"></i>PRO</div>' : ''}
-                    <label class="m-switch">
-                        <input type="checkbox" data-setting="${id}" ${isPro ? 'data-pro="true"' : ''}>
-                        <span class="m-slider"></span>
-                    </label>
-                </div>
+                <label class="m-switch">
+                    <input type="checkbox" data-setting="${id}">
+                    <span class="m-slider"></span>
+                </label>
             </div>
         `;
-    },
-
-refreshProLocks() {
-        let isSignedIn = false;
-        
-        // Comprehensive check for active session/auth state
-        if (window.currentUser || window.user || window.isLoggedIn || window.session) {
-            isSignedIn = true;
-        } else {
-            // Deep check for Supabase token in localStorage
-            for (let i = 0; i < localStorage.length; i++) {
-                const key = localStorage.key(i);
-                // Supports both legacy v1 and current v2 Supabase token formats
-                if (key && (key.includes('supabase.auth.token') || (key.startsWith('sb-') && key.endsWith('-auth-token')))) {
-                    isSignedIn = true;
-                    break;
-                }
-            }
-        }
-
-        const container = document.getElementById('mobile-settings-nexus');
-        if (!container) return;
-
-        container.querySelectorAll('.is-pro-feature').forEach(row => {
-            if (!isSignedIn) {
-                row.classList.add('locked');
-            } else {
-                row.classList.remove('locked');
-            }
-        });
     },
 
     attachMobileListeners() {
@@ -199,7 +115,6 @@ refreshProLocks() {
 
         window.addEventListener('openMobileSettings', () => {
             this._isOpen = true;
-            this.refreshProLocks(); 
             this.syncUIWithState();
             sheet.classList.add('open');
             overlay.classList.add('visible');
@@ -215,73 +130,24 @@ refreshProLocks() {
         overlay.addEventListener('click', closeUI);
         document.getElementById('mobile-settings-close').addEventListener('click', closeUI);
 
-        // --- Pro Feature Intercept Logic ---
-        sheet.querySelectorAll('.is-pro-feature').forEach(row => {
-            row.addEventListener('click', (e) => {
-                if (row.classList.contains('locked')) {
-                    e.preventDefault();
-                    e.stopPropagation();
-                    
-                    closeUI(); // Smoothly dismiss the settings sheet
-                    
-                    setTimeout(() => {
-                        if (window.initInflightPro) {
-                            window.initInflightPro();
-                        } else if (window.AuthUI) {
-                            window.AuthUI.open('signup');
-                        } else {
-                            const proTrigger = document.getElementById('pro-signup-trigger');
-                            if (proTrigger) proTrigger.click();
-                        }
-                    }, 350);
-                }
-            }, true); // Capture phase to prevent inner inputs from firing
-        });
-
-        // Checkbox Listener
         sheet.querySelectorAll('input[type="checkbox"]').forEach(input => {
             input.addEventListener('change', (e) => {
-                if (e.target.closest('.locked')) return; // Extra layer of protection
-
                 const setting = e.target.dataset.setting;
-                const isPro = e.target.dataset.pro === 'true';
-
-                if (isPro) {
-                    if (!window.mapFilters.proMapConfig) window.mapFilters.proMapConfig = {};
-                    window.mapFilters.proMapConfig[setting] = e.target.checked;
-                    
-                    if (window.updateBaseMapLayerVisibility) window.updateBaseMapLayerVisibility();
-                    if (window.updatePro3DLayers) window.updatePro3DLayers();
-                } else {
-                    window.mapFilters[setting] = e.target.checked;
-                }
-                
-                if (window.updateMapFilters) window.updateMapFilters();
+                window.mapFilters[setting] = e.target.checked;
+                window.updateMapFilters();
             });
         });
 
-        // Color Picker Listener
-        sheet.querySelectorAll('input[type="color"]').forEach(input => {
-            input.addEventListener('input', (e) => {
-                if (e.target.closest('.locked')) return;
-                const setting = e.target.dataset.setting;
-                window.mapFilters[setting] = e.target.value;
-                if (window.updateMapFilters) window.updateMapFilters();
-            });
-        });
-
-        // Range Slider Listener
         sheet.querySelectorAll('.m-range-input').forEach(input => {
             input.addEventListener('input', (e) => {
                 const setting = e.target.dataset.setting;
                 const val = e.target.value;
                 window.mapFilters[setting] = parseFloat(val);
                 document.getElementById(`m-val-${setting}`).textContent = val;
-                if (window.updateMapFilters) window.updateMapFilters();
+                window.updateMapFilters();
             });
         });
 
-        // Setting Pills Listener
         sheet.querySelectorAll('.m-setting-pill').forEach(btn => {
             btn.addEventListener('click', () => {
                 const setting = btn.dataset.setting;
@@ -289,7 +155,7 @@ refreshProLocks() {
                 window.mapFilters[setting] = value;
                 btn.parentElement.querySelectorAll('.m-setting-pill').forEach(b => b.classList.remove('active'));
                 btn.classList.add('active');
-                if (window.updateMapFilters) window.updateMapFilters();
+                window.updateMapFilters();
             });
         });
     },
@@ -300,17 +166,7 @@ refreshProLocks() {
         const container = document.getElementById('mobile-settings-nexus');
 
         container.querySelectorAll('input[type="checkbox"]').forEach(input => {
-            const isPro = input.dataset.pro === 'true';
-            if (isPro) {
-                input.checked = !!(filters.proMapConfig && filters.proMapConfig[input.dataset.setting]);
-            } else {
-                input.checked = !!filters[input.dataset.setting];
-            }
-        });
-
-        container.querySelectorAll('input[type="color"]').forEach(input => {
-            const val = filters[input.dataset.setting];
-            if (val) input.value = val;
+            input.checked = !!filters[input.dataset.setting];
         });
 
         container.querySelectorAll('.m-range-input').forEach(input => {
@@ -351,9 +207,7 @@ refreshProLocks() {
                 
                 .sheet-handle { width: 40px; height: 5px; background: rgba(255,255,255,0.2); border-radius: 10px; margin: 12px auto; }
                 .mobile-title { padding: 0 20px 15px; font-size: 1.2rem; font-weight: 800; display: flex; align-items: center; gap: 12px; }
-                
                 .mobile-section-header { padding: 15px 20px 8px; font-size: 0.7rem; font-weight: 900; color: #71717a; text-transform: uppercase; letter-spacing: 1px; }
-                .mobile-section-header.pro-accent { color: #fbbf24; display: flex; align-items: center; gap: 6px; }
                 
                 .settings-mobile-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; padding: 0 20px; }
                 .m-setting-pill { 
@@ -365,53 +219,10 @@ refreshProLocks() {
                 .m-settings-list { padding: 0 20px; display: flex; flex-direction: column; gap: 8px; }
                 .m-setting-row { 
                     display: flex; justify-content: space-between; align-items: center; 
-                    background: rgba(255,255,255,0.03); padding: 14px; border-radius: 14px; transition: 0.2s;
+                    background: rgba(255,255,255,0.03); padding: 14px; border-radius: 14px;
                 }
                 .m-row-left { display: flex; align-items: center; gap: 12px; font-size: 0.9rem; }
                 .m-row-left i { color: #38bdf8; width: 16px; text-align: center; }
-                
-                .m-row-right { display: flex; align-items: center; gap: 10px; }
-
-                /* Premium Pro Lock Styles */
-                .pro-lock-badge {
-                    display: none;
-                    background: linear-gradient(135deg, #fbbf24 0%, #d97706 100%);
-                    color: #000;
-                    font-size: 0.65rem;
-                    font-weight: 800;
-                    padding: 4px 8px;
-                    border-radius: 6px;
-                    letter-spacing: 0.5px;
-                    text-transform: uppercase;
-                    box-shadow: 0 2px 4px rgba(0,0,0,0.3);
-                }
-                .is-pro-feature.locked {
-                    opacity: 0.75;
-                    cursor: pointer;
-                }
-                .is-pro-feature.locked .pro-lock-badge {
-                    display: flex; align-items: center;
-                }
-                .is-pro-feature.locked .m-switch,
-                .is-pro-feature.locked .m-color-picker {
-                    opacity: 0.3;
-                    pointer-events: none;
-                    filter: grayscale(100%);
-                }
-
-                /* Custom Color Picker Styles */
-                .m-color-picker {
-                    -webkit-appearance: none;
-                    border: none;
-                    width: 36px;
-                    height: 36px;
-                    border-radius: 10px;
-                    cursor: pointer;
-                    padding: 0;
-                    background: transparent;
-                }
-                .m-color-picker::-webkit-color-swatch-wrapper { padding: 0; }
-                .m-color-picker::-webkit-color-swatch { border: 2px solid rgba(255,255,255,0.2); border-radius: 10px; }
 
                 .m-switch { position: relative; display: inline-block; width: 46px; height: 24px; }
                 .m-switch input { opacity: 0; width: 0; height: 0; }
