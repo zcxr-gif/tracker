@@ -4578,6 +4578,300 @@ function injectGateInfoUI(departureIcao, flownPath) {
 function createFlightMarker(flight) {
     if (!map) return null;
 
+async function determineGatesForFlight(departureIcao, flownPath) {
+    let departureGate = '---';
+    let arrivalGate = '---'; // Left blank for now
+
+    if (!departureIcao || !flownPath || flownPath.length === 0) {
+        return { departureGate, arrivalGate };
+    }
+
+    // 1. Get the starting point of the flight (first recorded point in the trail)
+    const startPoint = flownPath[0];
+    const startLat = startPoint.lat !== undefined ? startPoint.lat : startPoint.latitude;
+    const startLon = startPoint.lon !== undefined ? startPoint.lon : startPoint.longitude;
+
+    if (startLat === undefined || startLon === undefined) {
+        return { departureGate, arrivalGate };
+    }
+
+    try {
+        let gates;
+        // 2. Fetch the gates from the MongoDB-backed endpoint or Cache
+        if (gateCache.has(departureIcao)) {
+            gates = gateCache.get(departureIcao);
+        } else {
+            const response = await fetch(`https://site--indgo-backend--6dmjph8ltlhv.code.run/api/gates/${departureIcao}`);
+            if (!response.ok) {
+                return { departureGate, arrivalGate };
+            }
+            gates = await response.json();
+            gateCache.set(departureIcao, gates);
+        }
+        
+        if (!gates || gates.length === 0) {
+            return { departureGate, arrivalGate };
+        }
+
+        let nearestGate = null;
+        let minDistance = Infinity;
+
+        // 3. Iterate through all gates to find the closest one to the start point
+        gates.forEach(gate => {
+            const gateLat = gate.latitude || gate.lat || (gate.location && gate.location.lat) || (gate.location && gate.location.latitude);
+            const gateLon = gate.longitude || gate.lon || (gate.location && gate.location.lon) || (gate.location && gate.location.longitude);
+
+            if (gateLat != null && gateLon != null) {
+                // Utilizing the existing getDistanceKm helper function
+                const distance = getDistanceKm(startLat, startLon, gateLat, gateLon);
+                
+                if (distance < minDistance) {
+                    minDistance = distance;
+                    nearestGate = gate;
+                }
+            }
+        });
+
+        // 4. Set the departure gate to the nearest one found
+        if (nearestGate) {
+            departureGate = nearestGate.name || nearestGate.ident || nearestGate.gateName || nearestGate.id || 'GATE';
+        }
+
+    } catch (error) {
+        console.error(`Error calculating departure gate for ${departureIcao}:`, error);
+    }
+
+    return { departureGate, arrivalGate };
+}
+
+/**
+ * Injects explicit gate information retrieved directly from the FlightDispatchService.
+ * Replaces the loading/calculating placeholders immediately.
+ * Features a premium, aviation-grade status indicator.
+ */
+function injectFiledGateInfoUI(filedPlan, flightProps, plan) {
+    const routeBar = document.querySelector('.ac-route-info-bar');
+    if (!routeBar) return;
+
+    // Inject premium animations for the status dot if not already present
+    if (!document.getElementById('ac-premium-status-styles')) {
+        const style = document.createElement('style');
+        style.id = 'ac-premium-status-styles';
+        style.innerHTML = `
+            @keyframes ac-pulse-ring {
+                0% { box-shadow: 0 0 0 0 rgba(var(--status-rgb), 0.8); }
+                70% { box-shadow: 0 0 0 5px rgba(var(--status-rgb), 0); }
+                100% { box-shadow: 0 0 0 0 rgba(var(--status-rgb), 0); }
+            }
+            .ac-status-dot {
+                width: 6px;
+                height: 6px;
+                border-radius: 50%;
+                background-color: currentColor;
+                animation: ac-pulse-ring 2.5s infinite cubic-bezier(0.2, 0.8, 0.2, 1);
+            }
+        `;
+        document.head.appendChild(style);
+    }
+
+    // 1. Locate the nodes
+    const depNode = routeBar.querySelector('.route-node:not(.end)');
+    const arrNode = routeBar.querySelector('.route-node.end');
+    const routeVisualNode = routeBar.querySelector('.route-visual');
+
+    const premiumGateCss = 'color: #94a3b8; font-size: 0.65rem; font-weight: 600; letter-spacing: 0.05em; margin-top: 8px; background: rgba(255,255,255,0.02); border: 1px solid rgba(255,255,255,0.06); padding: 4px 8px; border-radius: 4px; width: fit-content; display: inline-flex; align-items: center; gap: 6px; box-shadow: 0 2px 8px rgba(0,0,0,0.2);';
+
+    // 2. Inject the Departure Gate HTML
+    if (depNode) {
+        depNode.style.display = 'flex';
+        depNode.style.flexDirection = 'column';
+        
+        let depGateEl = document.getElementById('ac-dep-gate');
+        if (!depGateEl) {
+            depGateEl = document.createElement('span');
+            depGateEl.id = 'ac-dep-gate';
+            depGateEl.style.cssText = premiumGateCss;
+            depNode.appendChild(depGateEl);
+        }
+        depGateEl.innerHTML = filedPlan.dep_gate ? `<i class="fa-solid fa-plane-departure" style="color: #64748b; font-size: 0.6rem;"></i> GATE ${filedPlan.dep_gate}` : `<i class="fa-solid fa-plane-departure" style="color: #64748b; font-size: 0.6rem;"></i> GATE ---`;
+    }
+
+    // 3. Inject the Arrival Gate HTML
+    if (arrNode) {
+        arrNode.style.display = 'flex';
+        arrNode.style.flexDirection = 'column';
+        arrNode.style.alignItems = 'flex-end';
+        
+        let arrGateEl = document.getElementById('ac-arr-gate');
+        if (!arrGateEl) {
+            arrGateEl = document.createElement('span');
+            arrGateEl.id = 'ac-arr-gate';
+            arrGateEl.style.cssText = premiumGateCss;
+            arrNode.appendChild(arrGateEl);
+        }
+        arrGateEl.innerHTML = filedPlan.arr_gate ? `<i class="fa-solid fa-plane-arrival" style="color: #64748b; font-size: 0.6rem;"></i> GATE ${filedPlan.arr_gate}` : `<i class="fa-solid fa-plane-arrival" style="color: #64748b; font-size: 0.6rem;"></i> GATE ---`;
+    }
+
+    // 4. Inject Premium Schedule Status Centered
+    if (routeVisualNode && flightProps && filedPlan.dep_time && filedPlan.duration_minutes) {
+        const oldStatusEl = document.getElementById('ac-arr-status');
+        if (oldStatusEl) oldStatusEl.remove();
+
+        const plannedArrDate = new Date(new Date(filedPlan.dep_time).getTime() + filedPlan.duration_minutes * 60000);
+        let etaTimestamp = null;
+
+        if (plan && plan.flightPlanItems && plan.flightPlanItems.length >= 2 && flightProps.position.gs_kt > 50) {
+            let destLat = null, destLon = null;
+            const extractDest = (items) => {
+                for (let i = items.length - 1; i >= 0; i--) {
+                    if (items[i].location && typeof items[i].location.latitude === 'number') {
+                        destLat = items[i].location.latitude;
+                        destLon = items[i].location.longitude;
+                        return true;
+                    }
+                    if (items[i].children && items[i].children.length > 0) {
+                        if (extractDest(items[i].children)) return true;
+                    }
+                }
+                return false;
+            };
+            extractDest(plan.flightPlanItems);
+
+            if (destLat != null && destLon != null) {
+                const distanceToDestKm = getDistanceKm(flightProps.position.lat, flightProps.position.lon, destLat, destLon);
+                const distanceToDestNM = distanceToDestKm / 1.852;
+                const eteHours = distanceToDestNM / flightProps.position.gs_kt;
+                
+                if (eteHours > 0 && eteHours < 48) {
+                    etaTimestamp = new Date(Date.now() + (eteHours * 3600 * 1000));
+                }
+            }
+        }
+
+        let statusText = "ON TIME";
+        let statusColor = "#10b981"; // Emerald Green
+        let statusRgb = "16, 185, 129";
+        
+        const isAtGate = (!flightProps.position.gs_kt || flightProps.position.gs_kt < 30) && (!flightProps.phase || flightProps.phase === 'Ground');
+
+        if (isAtGate) {
+            statusText = "SCHEDULED";
+            statusColor = "#32ade6"; // Aviation Cyan
+            statusRgb = "50, 173, 230";
+        } else if (etaTimestamp) {
+            const diffMs = etaTimestamp.getTime() - plannedArrDate.getTime();
+            if (diffMs > 10 * 60000) { 
+                statusText = "DELAYED";
+                statusColor = "#ff3b30"; // Alert Red
+                statusRgb = "255, 59, 48";
+            }
+        }
+
+        let statusEl = document.getElementById('ac-flight-status-badge');
+        if (!statusEl) {
+            statusEl = document.createElement('div');
+            statusEl.id = 'ac-flight-status-badge';
+            routeVisualNode.appendChild(statusEl);
+        }
+        
+        // Instrument Panel Telemetry Styling
+        statusEl.style.cssText = `
+            margin-top: 14px;
+            padding: 4px 10px 4px 8px;
+            background: rgba(15, 20, 25, 0.45);
+            border: 1px solid rgba(255, 255, 255, 0.05);
+            border-left: 3px solid ${statusColor};
+            border-radius: 4px;
+            color: ${statusColor};
+            font-family: 'Inter', system-ui, sans-serif;
+            font-size: 0.65rem;
+            font-weight: 700;
+            letter-spacing: 0.12em;
+            text-transform: uppercase;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 8px;
+            backdrop-filter: blur(12px);
+            -webkit-backdrop-filter: blur(12px);
+            box-shadow: 0 4px 16px rgba(0, 0, 0, 0.3);
+            position: relative;
+        `;
+        
+        statusEl.innerHTML = `
+            <div style="--status-rgb: ${statusRgb}; color: ${statusColor}; display: flex; align-items: center; justify-content: center; margin-left: 2px;">
+                <div class="ac-status-dot"></div>
+            </div>
+            <span style="padding-top: 1px; line-height: 1;">${statusText}</span>
+        `;
+    }
+}
+
+/**
+ * Dynamically injects the gate info into the existing flight info bar layout.
+ * Finds the HTML nodes and injects pills that show a "Loading" state until the math finishes.
+ * @param {string} departureIcao - The 4-letter ICAO of the origin.
+ * @param {Array} flownPath - The array of trail points.
+ */
+function injectGateInfoUI(departureIcao, flownPath) {
+    const routeBar = document.querySelector('.ac-route-info-bar');
+    if (!routeBar) return;
+
+    // 1. Locate the left (Departure) and right (Arrival) node containers
+    const depNode = routeBar.querySelector('.route-node:not(.end)');
+    const arrNode = routeBar.querySelector('.route-node.end');
+
+    // 2. Inject the Departure Gate HTML if it doesn't already exist
+    if (depNode) {
+        depNode.style.display = 'flex';
+        depNode.style.flexDirection = 'column';
+        
+        let depGateEl = document.getElementById('ac-dep-gate');
+        if (!depGateEl) {
+            depGateEl = document.createElement('span');
+            depGateEl.id = 'ac-dep-gate';
+            depGateEl.style.cssText = 'color: #cbd5e1; font-size: 10px; font-weight: 700; margin-top: 4px; background: rgba(0,0,0,0.2); padding: 2px 6px; border-radius: 4px; width: fit-content; display: inline-block;';
+            depGateEl.innerHTML = '<i class="fa-solid fa-door-open"></i> Calc...';
+            depNode.appendChild(depGateEl);
+        }
+    }
+
+    // 3. Inject the Arrival Gate HTML if it doesn't already exist
+    if (arrNode) {
+        arrNode.style.display = 'flex';
+        arrNode.style.flexDirection = 'column';
+        arrNode.style.alignItems = 'flex-end'; // Keep it aligned to the right side
+        
+        let arrGateEl = document.getElementById('ac-arr-gate');
+        if (!arrGateEl) {
+            arrGateEl = document.createElement('span');
+            arrGateEl.id = 'ac-arr-gate';
+            arrGateEl.style.cssText = 'color: #cbd5e1; font-size: 10px; font-weight: 700; margin-top: 4px; background: rgba(0,0,0,0.2); padding: 2px 6px; border-radius: 4px; width: fit-content; display: inline-block;';
+            arrGateEl.innerHTML = '<i class="fa-solid fa-door-closed"></i> ---';
+            arrNode.appendChild(arrGateEl);
+        }
+    }
+
+    // 4. Execute the logic and update the UI when the nearest gate is found
+    determineGatesForFlight(departureIcao, flownPath).then(gates => {
+        const depGateEl = document.getElementById('ac-dep-gate');
+        const arrGateEl = document.getElementById('ac-arr-gate');
+        
+        if (depGateEl) {
+            depGateEl.innerHTML = gates.departureGate !== '---' 
+                ? `<i class="fa-solid fa-door-open"></i> Gate ${gates.departureGate}` 
+                : `<i class="fa-solid fa-door-open"></i> Gate ---`;
+        }
+        
+        if (arrGateEl) {
+            arrGateEl.innerHTML = `<i class="fa-solid fa-door-closed"></i> Gate ${gates.arrivalGate}`;
+        }
+    });
+}
+
+function createFlightMarker(flight) {
+    if (!map) return null;
+
     const el = document.createElement('div');
     el.className = 'flight-icon';
 
@@ -6999,6 +7293,12 @@ function initializeSectorOpsSocket() {
                 updateActiveSectors(sectorOpsMap, 'fir-fills', centerControllers);
             }
         }
+
+        renderAirportMarkers();
+        
+        // Broadcasts to any new files
+        socketDataHub.publish('secondary_data_update', data); 
+    });
 
         renderAirportMarkers();
         
@@ -12640,6 +12940,16 @@ let totalDistanceNM = 0;
                             <span id="ac-nearest-apt-dist" style="color: #fff; font-size: 13px; font-weight: 700; font-family: 'JetBrains Mono', monospace;">--.-</span>
                             <span style="color: #94a3b8; font-size: 9px; margin-left: 4px;">NM</span>
                         </div>
+                        <div style="white-space: nowrap;">
+                            <span id="ac-nearest-apt-dist" style="color: #fff; font-size: 13px; font-weight: 700; font-family: 'JetBrains Mono', monospace;">--.-</span>
+                            <span style="color: #94a3b8; font-size: 9px; margin-left: 4px;">NM</span>
+                        </div>
+                    </div>
+
+                    <!-- Geocoded position text -->
+                    <div style="margin-top: 12px; padding-top: 10px; border-top: 1px solid rgba(255,255,255,0.05);">
+                        <span style="color: #94a3b8; font-size: 8px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.6px; display: block; margin-bottom: 3px;">CURRENT POSITION</span>
+                        <span id="ac-location" style="color: #fff; font-size: 12px; font-weight: 500;">Scanning...</span>
                     </div>
 
                     <!-- Geocoded position text -->
