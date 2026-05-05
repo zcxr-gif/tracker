@@ -1283,6 +1283,176 @@ function injectCustomStyles() {
 .tc-callsign { font-family: 'JetBrains Mono', monospace; font-size: 1.1rem; font-weight: 800; color: #fff; }
 .tc-pilot { font-size: 0.65rem; color: #38bdf8; font-weight: 700; letter-spacing: 0.5px; }
 
+.ac-sub-identity .separator {
+    width: 4px;
+    height: 4px;
+    background: #64748b;
+    border-radius: 50%;
+}
+
+/* Phase Badge (Top Right) */
+.phase-badge-hero {
+    background: rgba(15, 23, 42, 0.6);
+    backdrop-filter: blur(8px);
+    border: 1px solid rgba(255,255,255,0.1);
+    padding: 6px 12px;
+    border-radius: 99px;
+    font-size: 0.75rem;
+    font-weight: 700;
+    color: #fff;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    box-shadow: 0 4px 15px rgba(0,0,0,0.3);
+}
+
+.phase-dot {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    background: #4ade80;
+    box-shadow: 0 0 8px #4ade80;
+    animation: pulse 2s infinite;
+}
+
+/* Bottom Strip: Route Info */
+.ac-header-route-strip {
+    position: relative;
+    z-index: 2;
+    padding: 0 24px 16px 24px;
+    display: grid;
+    grid-template-columns: 1fr auto 1fr;
+    gap: 20px;
+    align-items: end;
+}
+
+.route-node {
+    display: flex;
+    flex-direction: column;
+}
+
+.route-node.end {
+    text-align: right;
+    align-items: flex-end;
+}
+
+.city-name {
+    font-size: 0.75rem;
+    color: #94a3b8;
+    font-weight: 600;
+    text-transform: uppercase;
+    margin-bottom: 2px;
+    max-width: 120px;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.icao-large {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 1.8rem;
+    font-weight: 700;
+    color: #fff;
+    line-height: 1;
+}
+
+.time-small {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 0.85rem;
+    color: #38bdf8;
+    margin-top: 4px;
+    font-weight: 600;
+}
+
+/* Middle Progress Visual */
+.route-visual {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    width: 100%;
+    padding-bottom: 8px;
+}
+
+.flight-progress-track {
+    width: 100%;
+    height: 4px;
+    background: rgba(255,255,255,0.1);
+    border-radius: 2px;
+    position: relative;
+    overflow: visible;
+}
+
+.flight-progress-fill {
+    height: 100%;
+    background: #38bdf8;
+    border-radius: 2px;
+    position: relative;
+    box-shadow: 0 0 10px rgba(56, 189, 248, 0.5);
+}
+
+
+    /* --- COMPACT REDESIGNED TRIP CARD --- */
+#trip-card-takeover {
+    position: fixed;
+    bottom: 12px; /* Moved down from 30px for a smaller gap */
+    left: 50%;
+    transform: translateX(-50%) translateY(20px);
+    z-index: 9999;
+    pointer-events: none;
+    display: none;
+    width: 440px; /* Expanded from 380px */
+    max-width: 92vw;
+    font-family: 'Inter', sans-serif;
+    background: rgba(10, 10, 12, 0.9);
+    backdrop-filter: blur(25px) saturate(180%);
+    border: 1px solid rgba(255, 255, 255, 0.12);
+    border-radius: 20px;
+    padding: 0;
+    box-shadow: 0 20px 50px rgba(0, 0, 0, 0.9);
+    transition: all 0.4s cubic-bezier(0.16, 1, 0.3, 1);
+    opacity: 0;
+    overflow: hidden;
+}
+
+#trip-card-takeover.active { 
+    display: block; 
+    pointer-events: auto;
+    transform: translateX(-50%) translateY(0);
+    opacity: 1;
+}
+
+.tc-ac-image-container {
+    width: 100%;
+    height: 110px; /* Decreased height from 140px */
+    position: relative;
+    background: #000;
+}
+.tc-ac-image {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    opacity: 0.85;
+}
+.tc-image-overlay {
+    position: absolute;
+    inset: 0;
+    background: linear-gradient(to top, rgba(10,10,12,0.85) 0%, transparent 60%);
+}
+
+.tc-inner { 
+    padding: 12px; /* Tightened padding from 16px */
+    display: flex; 
+    flex-direction: column; 
+    gap: 10px; /* Tightened gap from 14px to reduce overall card height */
+}
+
+/* Compact Header */
+.tc-header { display: flex; justify-content: space-between; align-items: flex-start; }
+.tc-airline-info { display: flex; align-items: center; gap: 10px; }
+.tc-logo { height: 22px; width: auto; max-width: 70px; object-fit: contain; }
+.tc-callsign { font-family: 'JetBrains Mono', monospace; font-size: 1.1rem; font-weight: 800; color: #fff; }
+.tc-pilot { font-size: 0.65rem; color: #38bdf8; font-weight: 700; letter-spacing: 0.5px; }
+
 /* Compact Route row */
 .tc-route-row { display: flex; align-items: center; justify-content: center; gap: 15px; padding: 5px 0; }
 .tc-icao { font-family: 'JetBrains Mono', monospace; font-size: 1.8rem; font-weight: 800; color: #fff; }
@@ -4408,6 +4578,300 @@ function injectGateInfoUI(departureIcao, flownPath) {
 function createFlightMarker(flight) {
     if (!map) return null;
 
+async function determineGatesForFlight(departureIcao, flownPath) {
+    let departureGate = '---';
+    let arrivalGate = '---'; // Left blank for now
+
+    if (!departureIcao || !flownPath || flownPath.length === 0) {
+        return { departureGate, arrivalGate };
+    }
+
+    // 1. Get the starting point of the flight (first recorded point in the trail)
+    const startPoint = flownPath[0];
+    const startLat = startPoint.lat !== undefined ? startPoint.lat : startPoint.latitude;
+    const startLon = startPoint.lon !== undefined ? startPoint.lon : startPoint.longitude;
+
+    if (startLat === undefined || startLon === undefined) {
+        return { departureGate, arrivalGate };
+    }
+
+    try {
+        let gates;
+        // 2. Fetch the gates from the MongoDB-backed endpoint or Cache
+        if (gateCache.has(departureIcao)) {
+            gates = gateCache.get(departureIcao);
+        } else {
+            const response = await fetch(`https://site--indgo-backend--6dmjph8ltlhv.code.run/api/gates/${departureIcao}`);
+            if (!response.ok) {
+                return { departureGate, arrivalGate };
+            }
+            gates = await response.json();
+            gateCache.set(departureIcao, gates);
+        }
+        
+        if (!gates || gates.length === 0) {
+            return { departureGate, arrivalGate };
+        }
+
+        let nearestGate = null;
+        let minDistance = Infinity;
+
+        // 3. Iterate through all gates to find the closest one to the start point
+        gates.forEach(gate => {
+            const gateLat = gate.latitude || gate.lat || (gate.location && gate.location.lat) || (gate.location && gate.location.latitude);
+            const gateLon = gate.longitude || gate.lon || (gate.location && gate.location.lon) || (gate.location && gate.location.longitude);
+
+            if (gateLat != null && gateLon != null) {
+                // Utilizing the existing getDistanceKm helper function
+                const distance = getDistanceKm(startLat, startLon, gateLat, gateLon);
+                
+                if (distance < minDistance) {
+                    minDistance = distance;
+                    nearestGate = gate;
+                }
+            }
+        });
+
+        // 4. Set the departure gate to the nearest one found
+        if (nearestGate) {
+            departureGate = nearestGate.name || nearestGate.ident || nearestGate.gateName || nearestGate.id || 'GATE';
+        }
+
+    } catch (error) {
+        console.error(`Error calculating departure gate for ${departureIcao}:`, error);
+    }
+
+    return { departureGate, arrivalGate };
+}
+
+/**
+ * Injects explicit gate information retrieved directly from the FlightDispatchService.
+ * Replaces the loading/calculating placeholders immediately.
+ * Features a premium, aviation-grade status indicator.
+ */
+function injectFiledGateInfoUI(filedPlan, flightProps, plan) {
+    const routeBar = document.querySelector('.ac-route-info-bar');
+    if (!routeBar) return;
+
+    // Inject premium animations for the status dot if not already present
+    if (!document.getElementById('ac-premium-status-styles')) {
+        const style = document.createElement('style');
+        style.id = 'ac-premium-status-styles';
+        style.innerHTML = `
+            @keyframes ac-pulse-ring {
+                0% { box-shadow: 0 0 0 0 rgba(var(--status-rgb), 0.8); }
+                70% { box-shadow: 0 0 0 5px rgba(var(--status-rgb), 0); }
+                100% { box-shadow: 0 0 0 0 rgba(var(--status-rgb), 0); }
+            }
+            .ac-status-dot {
+                width: 6px;
+                height: 6px;
+                border-radius: 50%;
+                background-color: currentColor;
+                animation: ac-pulse-ring 2.5s infinite cubic-bezier(0.2, 0.8, 0.2, 1);
+            }
+        `;
+        document.head.appendChild(style);
+    }
+
+    // 1. Locate the nodes
+    const depNode = routeBar.querySelector('.route-node:not(.end)');
+    const arrNode = routeBar.querySelector('.route-node.end');
+    const routeVisualNode = routeBar.querySelector('.route-visual');
+
+    const premiumGateCss = 'color: #94a3b8; font-size: 0.65rem; font-weight: 600; letter-spacing: 0.05em; margin-top: 8px; background: rgba(255,255,255,0.02); border: 1px solid rgba(255,255,255,0.06); padding: 4px 8px; border-radius: 4px; width: fit-content; display: inline-flex; align-items: center; gap: 6px; box-shadow: 0 2px 8px rgba(0,0,0,0.2);';
+
+    // 2. Inject the Departure Gate HTML
+    if (depNode) {
+        depNode.style.display = 'flex';
+        depNode.style.flexDirection = 'column';
+        
+        let depGateEl = document.getElementById('ac-dep-gate');
+        if (!depGateEl) {
+            depGateEl = document.createElement('span');
+            depGateEl.id = 'ac-dep-gate';
+            depGateEl.style.cssText = premiumGateCss;
+            depNode.appendChild(depGateEl);
+        }
+        depGateEl.innerHTML = filedPlan.dep_gate ? `<i class="fa-solid fa-plane-departure" style="color: #64748b; font-size: 0.6rem;"></i> GATE ${filedPlan.dep_gate}` : `<i class="fa-solid fa-plane-departure" style="color: #64748b; font-size: 0.6rem;"></i> GATE ---`;
+    }
+
+    // 3. Inject the Arrival Gate HTML
+    if (arrNode) {
+        arrNode.style.display = 'flex';
+        arrNode.style.flexDirection = 'column';
+        arrNode.style.alignItems = 'flex-end';
+        
+        let arrGateEl = document.getElementById('ac-arr-gate');
+        if (!arrGateEl) {
+            arrGateEl = document.createElement('span');
+            arrGateEl.id = 'ac-arr-gate';
+            arrGateEl.style.cssText = premiumGateCss;
+            arrNode.appendChild(arrGateEl);
+        }
+        arrGateEl.innerHTML = filedPlan.arr_gate ? `<i class="fa-solid fa-plane-arrival" style="color: #64748b; font-size: 0.6rem;"></i> GATE ${filedPlan.arr_gate}` : `<i class="fa-solid fa-plane-arrival" style="color: #64748b; font-size: 0.6rem;"></i> GATE ---`;
+    }
+
+    // 4. Inject Premium Schedule Status Centered
+    if (routeVisualNode && flightProps && filedPlan.dep_time && filedPlan.duration_minutes) {
+        const oldStatusEl = document.getElementById('ac-arr-status');
+        if (oldStatusEl) oldStatusEl.remove();
+
+        const plannedArrDate = new Date(new Date(filedPlan.dep_time).getTime() + filedPlan.duration_minutes * 60000);
+        let etaTimestamp = null;
+
+        if (plan && plan.flightPlanItems && plan.flightPlanItems.length >= 2 && flightProps.position.gs_kt > 50) {
+            let destLat = null, destLon = null;
+            const extractDest = (items) => {
+                for (let i = items.length - 1; i >= 0; i--) {
+                    if (items[i].location && typeof items[i].location.latitude === 'number') {
+                        destLat = items[i].location.latitude;
+                        destLon = items[i].location.longitude;
+                        return true;
+                    }
+                    if (items[i].children && items[i].children.length > 0) {
+                        if (extractDest(items[i].children)) return true;
+                    }
+                }
+                return false;
+            };
+            extractDest(plan.flightPlanItems);
+
+            if (destLat != null && destLon != null) {
+                const distanceToDestKm = getDistanceKm(flightProps.position.lat, flightProps.position.lon, destLat, destLon);
+                const distanceToDestNM = distanceToDestKm / 1.852;
+                const eteHours = distanceToDestNM / flightProps.position.gs_kt;
+                
+                if (eteHours > 0 && eteHours < 48) {
+                    etaTimestamp = new Date(Date.now() + (eteHours * 3600 * 1000));
+                }
+            }
+        }
+
+        let statusText = "ON TIME";
+        let statusColor = "#10b981"; // Emerald Green
+        let statusRgb = "16, 185, 129";
+        
+        const isAtGate = (!flightProps.position.gs_kt || flightProps.position.gs_kt < 30) && (!flightProps.phase || flightProps.phase === 'Ground');
+
+        if (isAtGate) {
+            statusText = "SCHEDULED";
+            statusColor = "#32ade6"; // Aviation Cyan
+            statusRgb = "50, 173, 230";
+        } else if (etaTimestamp) {
+            const diffMs = etaTimestamp.getTime() - plannedArrDate.getTime();
+            if (diffMs > 10 * 60000) { 
+                statusText = "DELAYED";
+                statusColor = "#ff3b30"; // Alert Red
+                statusRgb = "255, 59, 48";
+            }
+        }
+
+        let statusEl = document.getElementById('ac-flight-status-badge');
+        if (!statusEl) {
+            statusEl = document.createElement('div');
+            statusEl.id = 'ac-flight-status-badge';
+            routeVisualNode.appendChild(statusEl);
+        }
+        
+        // Instrument Panel Telemetry Styling
+        statusEl.style.cssText = `
+            margin-top: 14px;
+            padding: 4px 10px 4px 8px;
+            background: rgba(15, 20, 25, 0.45);
+            border: 1px solid rgba(255, 255, 255, 0.05);
+            border-left: 3px solid ${statusColor};
+            border-radius: 4px;
+            color: ${statusColor};
+            font-family: 'Inter', system-ui, sans-serif;
+            font-size: 0.65rem;
+            font-weight: 700;
+            letter-spacing: 0.12em;
+            text-transform: uppercase;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 8px;
+            backdrop-filter: blur(12px);
+            -webkit-backdrop-filter: blur(12px);
+            box-shadow: 0 4px 16px rgba(0, 0, 0, 0.3);
+            position: relative;
+        `;
+        
+        statusEl.innerHTML = `
+            <div style="--status-rgb: ${statusRgb}; color: ${statusColor}; display: flex; align-items: center; justify-content: center; margin-left: 2px;">
+                <div class="ac-status-dot"></div>
+            </div>
+            <span style="padding-top: 1px; line-height: 1;">${statusText}</span>
+        `;
+    }
+}
+
+/**
+ * Dynamically injects the gate info into the existing flight info bar layout.
+ * Finds the HTML nodes and injects pills that show a "Loading" state until the math finishes.
+ * @param {string} departureIcao - The 4-letter ICAO of the origin.
+ * @param {Array} flownPath - The array of trail points.
+ */
+function injectGateInfoUI(departureIcao, flownPath) {
+    const routeBar = document.querySelector('.ac-route-info-bar');
+    if (!routeBar) return;
+
+    // 1. Locate the left (Departure) and right (Arrival) node containers
+    const depNode = routeBar.querySelector('.route-node:not(.end)');
+    const arrNode = routeBar.querySelector('.route-node.end');
+
+    // 2. Inject the Departure Gate HTML if it doesn't already exist
+    if (depNode) {
+        depNode.style.display = 'flex';
+        depNode.style.flexDirection = 'column';
+        
+        let depGateEl = document.getElementById('ac-dep-gate');
+        if (!depGateEl) {
+            depGateEl = document.createElement('span');
+            depGateEl.id = 'ac-dep-gate';
+            depGateEl.style.cssText = 'color: #cbd5e1; font-size: 10px; font-weight: 700; margin-top: 4px; background: rgba(0,0,0,0.2); padding: 2px 6px; border-radius: 4px; width: fit-content; display: inline-block;';
+            depGateEl.innerHTML = '<i class="fa-solid fa-door-open"></i> Calc...';
+            depNode.appendChild(depGateEl);
+        }
+    }
+
+    // 3. Inject the Arrival Gate HTML if it doesn't already exist
+    if (arrNode) {
+        arrNode.style.display = 'flex';
+        arrNode.style.flexDirection = 'column';
+        arrNode.style.alignItems = 'flex-end'; // Keep it aligned to the right side
+        
+        let arrGateEl = document.getElementById('ac-arr-gate');
+        if (!arrGateEl) {
+            arrGateEl = document.createElement('span');
+            arrGateEl.id = 'ac-arr-gate';
+            arrGateEl.style.cssText = 'color: #cbd5e1; font-size: 10px; font-weight: 700; margin-top: 4px; background: rgba(0,0,0,0.2); padding: 2px 6px; border-radius: 4px; width: fit-content; display: inline-block;';
+            arrGateEl.innerHTML = '<i class="fa-solid fa-door-closed"></i> ---';
+            arrNode.appendChild(arrGateEl);
+        }
+    }
+
+    // 4. Execute the logic and update the UI when the nearest gate is found
+    determineGatesForFlight(departureIcao, flownPath).then(gates => {
+        const depGateEl = document.getElementById('ac-dep-gate');
+        const arrGateEl = document.getElementById('ac-arr-gate');
+        
+        if (depGateEl) {
+            depGateEl.innerHTML = gates.departureGate !== '---' 
+                ? `<i class="fa-solid fa-door-open"></i> Gate ${gates.departureGate}` 
+                : `<i class="fa-solid fa-door-open"></i> Gate ---`;
+        }
+        
+        if (arrGateEl) {
+            arrGateEl.innerHTML = `<i class="fa-solid fa-door-closed"></i> Gate ${gates.arrivalGate}`;
+        }
+    });
+}
+
+function createFlightMarker(flight) {
+    if (!map) return null;
+
     const el = document.createElement('div');
     el.className = 'flight-icon';
 
@@ -6829,6 +7293,12 @@ function initializeSectorOpsSocket() {
                 updateActiveSectors(sectorOpsMap, 'fir-fills', centerControllers);
             }
         }
+
+        renderAirportMarkers();
+        
+        // Broadcasts to any new files
+        socketDataHub.publish('secondary_data_update', data); 
+    });
 
         renderAirportMarkers();
         
@@ -9817,6 +10287,9 @@ renderCategory(catId) {
                     html = `
                         
 
+            switch(catId) {
+                case 'airspace':
+                    html = `
                         <div class="settings-section">
                             <label class="config-header">Network Visibility</label>
                             <div class="settings-row">
@@ -12467,6 +12940,16 @@ let totalDistanceNM = 0;
                             <span id="ac-nearest-apt-dist" style="color: #fff; font-size: 13px; font-weight: 700; font-family: 'JetBrains Mono', monospace;">--.-</span>
                             <span style="color: #94a3b8; font-size: 9px; margin-left: 4px;">NM</span>
                         </div>
+                        <div style="white-space: nowrap;">
+                            <span id="ac-nearest-apt-dist" style="color: #fff; font-size: 13px; font-weight: 700; font-family: 'JetBrains Mono', monospace;">--.-</span>
+                            <span style="color: #94a3b8; font-size: 9px; margin-left: 4px;">NM</span>
+                        </div>
+                    </div>
+
+                    <!-- Geocoded position text -->
+                    <div style="margin-top: 12px; padding-top: 10px; border-top: 1px solid rgba(255,255,255,0.05);">
+                        <span style="color: #94a3b8; font-size: 8px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.6px; display: block; margin-bottom: 3px;">CURRENT POSITION</span>
+                        <span id="ac-location" style="color: #fff; font-size: 12px; font-weight: 500;">Scanning...</span>
                     </div>
 
                     <!-- Geocoded position text -->
@@ -12547,7 +13030,7 @@ let totalDistanceNM = 0;
                             <div id="vsd-aircraft-icon"></div>
                             <div id="vsd-graph-content">
                                 <svg id="vsd-profile-svg" xmlns="http://www.w3.org/2000/svg">
-                                    <path id="vsd-flown-path" d="" />
+                                     <path id="vsd-flown-path" d="" />
                                     <path id="vsd-profile-path" d="" />
                                 </svg>
                                 <div id="vsd-waypoint-labels"></div>
@@ -14133,6 +14616,21 @@ function setupFlightHoverPopups() {
         `;
 
         hoverPopup.setLngLat(feature.geometry.coordinates).setHTML(html).addTo(sectorOpsMap);
+    });
+
+    sectorOpsMap.on('mousemove', 'sector-ops-live-flights-layer', (e) => {
+        if (window.matchMedia('(hover: hover)').matches) {
+            if (hoverPopup.isOpen()) hoverPopup.setLngLat(e.lngLat);
+
+            // --- FIX: Filter the phantom layer to show the highlight ---
+            if (e.features.length > 0) {
+                const flightId = e.features[0].properties.flightId;
+                if (hoveredFlightId !== flightId) {
+                    hoveredFlightId = flightId;
+                    sectorOpsMap.setFilter('sector-ops-live-flights-hover-layer', ['==', 'flightId', hoveredFlightId]);
+                }
+            }
+        }
     });
 
     sectorOpsMap.on('mouseleave', 'sector-ops-live-flights-layer', () => {
