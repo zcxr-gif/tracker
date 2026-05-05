@@ -1283,6 +1283,176 @@ function injectCustomStyles() {
 .tc-callsign { font-family: 'JetBrains Mono', monospace; font-size: 1.1rem; font-weight: 800; color: #fff; }
 .tc-pilot { font-size: 0.65rem; color: #38bdf8; font-weight: 700; letter-spacing: 0.5px; }
 
+.ac-sub-identity .separator {
+    width: 4px;
+    height: 4px;
+    background: #64748b;
+    border-radius: 50%;
+}
+
+/* Phase Badge (Top Right) */
+.phase-badge-hero {
+    background: rgba(15, 23, 42, 0.6);
+    backdrop-filter: blur(8px);
+    border: 1px solid rgba(255,255,255,0.1);
+    padding: 6px 12px;
+    border-radius: 99px;
+    font-size: 0.75rem;
+    font-weight: 700;
+    color: #fff;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    box-shadow: 0 4px 15px rgba(0,0,0,0.3);
+}
+
+.phase-dot {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    background: #4ade80;
+    box-shadow: 0 0 8px #4ade80;
+    animation: pulse 2s infinite;
+}
+
+/* Bottom Strip: Route Info */
+.ac-header-route-strip {
+    position: relative;
+    z-index: 2;
+    padding: 0 24px 16px 24px;
+    display: grid;
+    grid-template-columns: 1fr auto 1fr;
+    gap: 20px;
+    align-items: end;
+}
+
+.route-node {
+    display: flex;
+    flex-direction: column;
+}
+
+.route-node.end {
+    text-align: right;
+    align-items: flex-end;
+}
+
+.city-name {
+    font-size: 0.75rem;
+    color: #94a3b8;
+    font-weight: 600;
+    text-transform: uppercase;
+    margin-bottom: 2px;
+    max-width: 120px;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.icao-large {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 1.8rem;
+    font-weight: 700;
+    color: #fff;
+    line-height: 1;
+}
+
+.time-small {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 0.85rem;
+    color: #38bdf8;
+    margin-top: 4px;
+    font-weight: 600;
+}
+
+/* Middle Progress Visual */
+.route-visual {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    width: 100%;
+    padding-bottom: 8px;
+}
+
+.flight-progress-track {
+    width: 100%;
+    height: 4px;
+    background: rgba(255,255,255,0.1);
+    border-radius: 2px;
+    position: relative;
+    overflow: visible;
+}
+
+.flight-progress-fill {
+    height: 100%;
+    background: #38bdf8;
+    border-radius: 2px;
+    position: relative;
+    box-shadow: 0 0 10px rgba(56, 189, 248, 0.5);
+}
+
+
+    /* --- COMPACT REDESIGNED TRIP CARD --- */
+#trip-card-takeover {
+    position: fixed;
+    bottom: 12px; /* Moved down from 30px for a smaller gap */
+    left: 50%;
+    transform: translateX(-50%) translateY(20px);
+    z-index: 9999;
+    pointer-events: none;
+    display: none;
+    width: 440px; /* Expanded from 380px */
+    max-width: 92vw;
+    font-family: 'Inter', sans-serif;
+    background: rgba(10, 10, 12, 0.9);
+    backdrop-filter: blur(25px) saturate(180%);
+    border: 1px solid rgba(255, 255, 255, 0.12);
+    border-radius: 20px;
+    padding: 0;
+    box-shadow: 0 20px 50px rgba(0, 0, 0, 0.9);
+    transition: all 0.4s cubic-bezier(0.16, 1, 0.3, 1);
+    opacity: 0;
+    overflow: hidden;
+}
+
+#trip-card-takeover.active { 
+    display: block; 
+    pointer-events: auto;
+    transform: translateX(-50%) translateY(0);
+    opacity: 1;
+}
+
+.tc-ac-image-container {
+    width: 100%;
+    height: 110px; /* Decreased height from 140px */
+    position: relative;
+    background: #000;
+}
+.tc-ac-image {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    opacity: 0.85;
+}
+.tc-image-overlay {
+    position: absolute;
+    inset: 0;
+    background: linear-gradient(to top, rgba(10,10,12,0.85) 0%, transparent 60%);
+}
+
+.tc-inner { 
+    padding: 12px; /* Tightened padding from 16px */
+    display: flex; 
+    flex-direction: column; 
+    gap: 10px; /* Tightened gap from 14px to reduce overall card height */
+}
+
+/* Compact Header */
+.tc-header { display: flex; justify-content: space-between; align-items: flex-start; }
+.tc-airline-info { display: flex; align-items: center; gap: 10px; }
+.tc-logo { height: 22px; width: auto; max-width: 70px; object-fit: contain; }
+.tc-callsign { font-family: 'JetBrains Mono', monospace; font-size: 1.1rem; font-weight: 800; color: #fff; }
+.tc-pilot { font-size: 0.65rem; color: #38bdf8; font-weight: 700; letter-spacing: 0.5px; }
+
 /* Compact Route row */
 .tc-route-row { display: flex; align-items: center; justify-content: center; gap: 15px; padding: 5px 0; }
 .tc-icao { font-family: 'JetBrains Mono', monospace; font-size: 1.8rem; font-weight: 800; color: #fff; }
@@ -9817,6 +9987,9 @@ renderCategory(catId) {
                     html = `
                         
 
+            switch(catId) {
+                case 'airspace':
+                    html = `
                         <div class="settings-section">
                             <label class="config-header">Network Visibility</label>
                             <div class="settings-row">
@@ -12547,7 +12720,7 @@ let totalDistanceNM = 0;
                             <div id="vsd-aircraft-icon"></div>
                             <div id="vsd-graph-content">
                                 <svg id="vsd-profile-svg" xmlns="http://www.w3.org/2000/svg">
-                                    <path id="vsd-flown-path" d="" />
+                                     <path id="vsd-flown-path" d="" />
                                     <path id="vsd-profile-path" d="" />
                                 </svg>
                                 <div id="vsd-waypoint-labels"></div>
@@ -14133,6 +14306,21 @@ function setupFlightHoverPopups() {
         `;
 
         hoverPopup.setLngLat(feature.geometry.coordinates).setHTML(html).addTo(sectorOpsMap);
+    });
+
+    sectorOpsMap.on('mousemove', 'sector-ops-live-flights-layer', (e) => {
+        if (window.matchMedia('(hover: hover)').matches) {
+            if (hoverPopup.isOpen()) hoverPopup.setLngLat(e.lngLat);
+
+            // --- FIX: Filter the phantom layer to show the highlight ---
+            if (e.features.length > 0) {
+                const flightId = e.features[0].properties.flightId;
+                if (hoveredFlightId !== flightId) {
+                    hoveredFlightId = flightId;
+                    sectorOpsMap.setFilter('sector-ops-live-flights-hover-layer', ['==', 'flightId', hoveredFlightId]);
+                }
+            }
+        }
     });
 
     sectorOpsMap.on('mouseleave', 'sector-ops-live-flights-layer', () => {
