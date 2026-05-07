@@ -214,14 +214,15 @@ window.currentAirportTraffic = { in: [], out: [] }; // Stores IDs for the curren
 
     window.pinnedFlights = new Set();
 
-    // --- PRO GATE: Clear pinned flights when the user signs out ---
-    // Multi-Track is a signed-in-only feature, so any cards left over from a
-    // previous session must be torn down when the auth state flips to logged-out.
+// --- PRO GATE: Clear ALL Pro features when the user signs out ---
+    // Multi-Track, Custom Map Styles, 3D Layers, and Themes are signed-in-only features.
+    // This entirely wipes the Pro state and reverts the client to the free tier visually.
     try {
         supabase.auth.onAuthStateChange((event, session) => {
             if (event === 'SIGNED_OUT' || !session?.user) {
+                
+                // 1. Wipe Pinned Flights (Multi-Track)
                 if (window.pinnedFlights && window.pinnedFlights.size > 0) {
-                    // Copy the set to an array first because unpinFlight mutates it
                     const ids = Array.from(window.pinnedFlights);
                     ids.forEach(id => {
                         if (typeof window.unpinFlight === 'function') {
@@ -229,10 +230,77 @@ window.currentAirportTraffic = { in: [], out: [] }; // Stores IDs for the curren
                         }
                     });
                 }
+
+                // 2. Revert Pro Map Styles back to Default Dark
+                const proStyles = ['outdoors', 'nav-dark', 'nav-light', 'traffic-night', 'traffic-day', 'satellite'];
+                if (proStyles.includes(mapFilters.mapStyle)) {
+                    mapFilters.mapStyle = 'dark';
+                }
+
+                // 3. Revert Pro Theme Window Colors
+                mapFilters.themeStartColor = '#18181b';
+                mapFilters.themeEndColor = '#18181b';
+                mapFilters.themeOpacity = 90;
+
+                // 4. Wipe Pro Map Configurations (3D Buildings, Terminator, Labels)
+                mapFilters.proMapConfig = {
+                    showBorders: true,
+                    showRoads: true,
+                    showLabels: true,
+                    showPois: false,
+                    showWaterLabels: true,
+                    showTerrain: true,
+                    showAirportLayout: true,
+                    showLandUse: true
+                };
+                mapFilters.showBuildings = false;
+                mapFilters.showDayNight = false;
+
+                // 5. Save the downgraded filters to local storage
+                if (typeof saveFiltersToLocalStorage === 'function') {
+                    saveFiltersToLocalStorage();
+                }
+
+                // 6. Force an immediate visual Mapbox update
+                if (typeof updateMapFilters === 'function') {
+                    updateMapFilters();
+                }
+                
+                // 7. Strip out 3D layers and day/night cycle
+                if (typeof updatePro3DLayers === 'function') {
+                    updatePro3DLayers();
+                }
+
+                // 8. Re-apply UI Theme CSS variables instantly (No refresh required)
+                const root = document.documentElement;
+                if (root) {
+                    const hexToRgba = (hex, alpha) => {
+                        const r = parseInt(hex.slice(1, 3), 16) || 24;
+                        const g = parseInt(hex.slice(3, 5), 16) || 24;
+                        const b = parseInt(hex.slice(5, 7), 16) || 27;
+                        return `rgba(${r}, ${g}, ${b}, ${alpha})`;
+                    };
+                    root.style.setProperty('--iw-bg-start', hexToRgba('#18181b', 0.90));
+                    root.style.setProperty('--iw-bg-end', hexToRgba('#18181b', 0.90));
+                }
+
+                // 9. Re-evaluate Pilot Relations to remove Custom Friend/User Highlighting
+                if (typeof refreshPilotRelations === 'function') {
+                    refreshPilotRelations();
+                }
+
+                // 10. Revert UI toggles if the settings menu is open during the kick
+                const darkRadio = document.querySelector(`input[name="map-style-mode"][value="dark"]`);
+                if (darkRadio) darkRadio.checked = true;
+                
+                const startColorInput = document.getElementById('theme-color-start');
+                const endColorInput = document.getElementById('theme-color-end');
+                if (startColorInput) startColorInput.value = '#18181b';
+                if (endColorInput) endColorInput.value = '#18181b';
             }
         });
     } catch (err) {
-        console.warn('Multi-Track sign-out cleanup could not be registered:', err);
+        console.warn('Pro feature sign-out cleanup could not be registered:', err);
     }
     
     window.toggleFlightPin = function(flightId) {
@@ -640,43 +708,117 @@ function refreshPilotRelations() {
 // when the user logs in or edits their watchlist.
 window.refreshPilotRelations = refreshPilotRelations;
 
-    /**
-     * --- [NEW] Saves the current mapFilters state to local storage.
-     */
-    function saveFiltersToLocalStorage() {
+// --- PREMIUM CLOUD SYNC ENGINE ---
+    let cloudSyncTimeout = null;
+
+    async function saveFiltersToLocalStorage() {
         try {
-            localStorage.setItem('mapFilters', JSON.stringify(mapFilters));
+            // 1. Instant Local Commit (Zero Latency UI)
+            const filtersJson = JSON.stringify(mapFilters);
+            localStorage.setItem('mapFilters', filtersJson);
+
+            // 2. Debounced Cloud Sync for Pro Users
+            const { data: sessionData } = await supabase.auth.getSession();
+            if (sessionData?.session?.user) {
+                const userId = sessionData.session.user.id;
+                
+                // Clear existing timeout to prevent database hammering during rapid UI toggles
+                if (cloudSyncTimeout) clearTimeout(cloudSyncTimeout);
+                
+                cloudSyncTimeout = setTimeout(async () => {
+                    try {
+                        const { data: profile } = await supabase
+                            .from('profiles')
+                            .select('is_pro')
+                            .eq('id', userId)
+                            .single();
+
+                        if (profile && profile.is_pro) {
+                            const { error } = await supabase
+                                .from('profiles')
+                                .update({ map_filters: mapFilters })
+                                .eq('id', userId);
+                                
+                            if (!error) {
+                                console.log("☁️ Premium Settings Synced to Cloud.");
+                            } else {
+                                console.warn("Cloud sync failed. Ensure 'map_filters' JSONB column exists in 'profiles' table.");
+                            }
+                        }
+                    } catch (err) {
+                        console.warn("Cloud sync interrupted:", err);
+                    }
+                }, 1200); // 1.2s Debounce for silky smooth performance
+            }
         } catch (e) {
-            console.warn("Could not save filters to local storage.", e);
+            console.warn("Could not save filters locally.", e);
         }
     }
 
-function loadFiltersFromLocalStorage() {
+    async function loadFiltersFromLocalStorage() {
+        // 1. Instant Local Paint
         const savedFilters = localStorage.getItem('mapFilters');
         if (savedFilters) {
             try {
                 const parsedFilters = JSON.parse(savedFilters);
-                // Merge saved filters with defaults to ensure new properties are not lost
                 Object.assign(mapFilters, parsedFilters);
-                
-                // Explicitly set the global currentMapStyle based on the saved string
-                if (mapFilters.mapStyle) {
-                    const stylesMap = {
-                        'light': MAP_STYLE_LIGHT,
-                        'satellite': MAP_STYLE_SATELLITE,
-                        'outdoors': MAP_STYLE_OUTDOORS,
-                        'nav-dark': MAP_STYLE_NAV_DARK,
-                        'nav-light': MAP_STYLE_NAV_LIGHT,
-                        'traffic-night': MAP_STYLE_TRAFFIC_NIGHT,
-                        'traffic-day': MAP_STYLE_TRAFFIC_DAY,
-                        'dark': MAP_STYLE_DARK
-                    };
-                    currentMapStyle = stylesMap[mapFilters.mapStyle] || MAP_STYLE_DARK;
-                }
+                applyMapStyleMapping();
             } catch (e) {
-                console.warn("Could not parse saved filters from local storage.", e);
-                // On error, just use the defaults
+                console.warn("Local storage parse failed.", e);
             }
+        }
+
+        // 2. Seamless Background Cloud Reconciliation
+        try {
+            const { data: sessionData } = await supabase.auth.getSession();
+            if (sessionData?.session?.user) {
+                const userId = sessionData.session.user.id;
+                
+                const { data: profile } = await supabase
+                    .from('profiles')
+                    .select('is_pro, map_filters')
+                    .eq('id', userId)
+                    .single();
+
+                // Only overwrite if Pro is active AND cloud settings exist
+                if (profile && profile.is_pro && profile.map_filters) {
+                    const cloudJson = JSON.stringify(profile.map_filters);
+                    
+                    // Compare cloud state with local state to prevent unnecessary repaints
+                    if (cloudJson !== savedFilters) {
+                        Object.assign(mapFilters, profile.map_filters);
+                        
+                        // Re-sync local storage to match the authoritative cloud state
+                        localStorage.setItem('mapFilters', cloudJson);
+                        applyMapStyleMapping();
+                        
+                        // Force Mapbox and UI to visually update seamlessly
+                        if (typeof updateMapFilters === 'function') {
+                            updateMapFilters();
+                        }
+                        console.log("☁️ Settings restored from Cloud.");
+                    }
+                }
+            }
+        } catch (e) {
+            console.warn("Cloud settings retrieval failed.", e);
+        }
+    }
+
+    // Helper function to extract repetitive style mapping logic
+    function applyMapStyleMapping() {
+        if (mapFilters.mapStyle) {
+            const stylesMap = {
+                'light': MAP_STYLE_LIGHT,
+                'satellite': MAP_STYLE_SATELLITE,
+                'outdoors': MAP_STYLE_OUTDOORS,
+                'nav-dark': MAP_STYLE_NAV_DARK,
+                'nav-light': MAP_STYLE_NAV_LIGHT,
+                'traffic-night': MAP_STYLE_TRAFFIC_NIGHT,
+                'traffic-day': MAP_STYLE_TRAFFIC_DAY,
+                'dark': MAP_STYLE_DARK
+            };
+            currentMapStyle = stylesMap[mapFilters.mapStyle] || MAP_STYLE_DARK;
         }
     }
 
@@ -10949,13 +11091,18 @@ if (flightProps) {
     sectorOpsMap.addSource(`flown-path-${flightId}`, { 
         type: 'geojson', 
         data: routeFeature,
-        lineMetrics: true // CRITICAL for gradients
+        lineMetrics: true, // CRITICAL for gradients
+        tolerance: 0       // Don't simplify segments away at low zoom
     });
 
     sectorOpsMap.addLayer({
                 id: `flown-path-${flightId}`,
                 type: 'line',
                 source: `flown-path-${flightId}`,
+                layout: {
+                    'line-join': 'round',
+                    'line-cap': 'round'
+                },
                 paint: {
                     'line-width': 4,
                     'line-opacity': 1,
@@ -10999,7 +11146,7 @@ function updateFlightPlanLayer(flightId, plan, currentPosition) {
     if (!sectorOpsLiveFlightPathLayers[flightId]) {
         sectorOpsLiveFlightPathLayers[flightId] = {};
     }
-    
+
     // Register all layers
     sectorOpsLiveFlightPathLayers[flightId].planDirect = layerIdDirect;
     sectorOpsLiveFlightPathLayers[flightId].planDirectGlow = layerIdDirectGlow;
@@ -11007,11 +11154,11 @@ function updateFlightPlanLayer(flightId, plan, currentPosition) {
     sectorOpsLiveFlightPathLayers[flightId].planFullGlow = layerIdFullGlow;
     sectorOpsLiveFlightPathLayers[flightId].planFullDots = layerIdFullDots;
     sectorOpsLiveFlightPathLayers[flightId].planFullLabels = layerIdFullLabels;
-    
+
     // --- Get coords ---
     const allWaypointsForLine = flattenWaypointsFromPlan(plan.flightPlanItems);
     if (allWaypointsForLine.length < 2) return;
-    
+
     const currentCoords = [currentPosition.lon, currentPosition.lat];
     const destinationCoords = unwrapLineCoordinates([currentCoords, allWaypointsForLine[allWaypointsForLine.length - 1]])[1];
 
@@ -11029,13 +11176,13 @@ function updateFlightPlanLayer(flightId, plan, currentPosition) {
             source.setData(directLineData);
         } else {
             sectorOpsMap.addSource(layerIdDirect, { type: 'geojson', data: directLineData });
-            
+
             sectorOpsMap.addLayer({
                 id: layerIdDirectGlow,
                 type: 'line',
                 source: layerIdDirect,
                 paint: {
-                    'line-color': '#06b6d4', 
+                    'line-color': '#06b6d4',
                     'line-width': 6,
                     'line-opacity': 0.25,
                     'line-blur': 4
@@ -11047,10 +11194,10 @@ function updateFlightPlanLayer(flightId, plan, currentPosition) {
                 type: 'line',
                 source: layerIdDirect,
                 paint: {
-                    'line-color': '#67e8f9', 
+                    'line-color': '#67e8f9',
                     'line-width': 2,
                     'line-opacity': 0.9,
-                    'line-dasharray': [3, 4] 
+                    'line-dasharray': [3, 4]
                 }
             }, 'sector-ops-live-flights-layer');
         }
@@ -11072,7 +11219,7 @@ function updateFlightPlanLayer(flightId, plan, currentPosition) {
             // --- SMART LOGIC: Determine passed waypoints ---
             let activeWpIndex = 0;
             let minDist = Infinity;
-            
+
             // Find the closest waypoint to mark as the "active" one
             waypointObjects.forEach((wp, idx) => {
                 if (!wp.location) return;
@@ -11097,7 +11244,7 @@ function updateFlightPlanLayer(flightId, plan, currentPosition) {
             waypointObjects.forEach((wp, idx) => {
                 if (wp.location && wp.location.longitude != null && wp.location.latitude != null) {
                     const isPassed = idx < activeWpIndex; // If the index is before the closest active point, it's passed
-                    
+
                     features.push({
                         type: 'Feature',
                         geometry: {
@@ -11111,60 +11258,60 @@ function updateFlightPlanLayer(flightId, plan, currentPosition) {
                     });
                 }
             });
-            
+
             const fullLineData = { type: 'FeatureCollection', features: features };
             sectorOpsMap.addSource(layerIdFull, { type: 'geojson', data: fullLineData });
 
-            // 1. Neon Magenta Glow
+            // 1. Direct-Style Glow Layer
             sectorOpsMap.addLayer({
                 id: layerIdFullGlow,
                 type: 'line',
                 source: layerIdFull,
                 'filter': ['==', '$type', 'LineString'],
                 paint: {
-                    'line-color': '#d946ef', 
-                    'line-width': 7,
-                    'line-opacity': 0.35,
+                    'line-color': '#06b6d4',
+                    'line-width': 6,
+                    'line-opacity': 0.25,
                     'line-blur': 4
                 }
             }, 'sector-ops-live-flights-layer');
 
-            // 2. Solid Core Path
+            // 2. Direct-Style Core Path (Premium Dashed)
             sectorOpsMap.addLayer({
                 id: layerIdFull,
                 type: 'line',
                 source: layerIdFull,
                 tolerance: 0,
                 buffer: 0,
-                'filter': ['==', '$type', 'LineString'], 
+                'filter': ['==', '$type', 'LineString'],
                 paint: {
-                    'line-color': '#fdf4ff',
-                    'line-width': 2.5,
-                    'line-opacity': 0.95,
-                    'line-dasharray': [1, 0] 
+                    'line-color': '#67e8f9',
+                    'line-width': 2,
+                    'line-opacity': 0.9,
+                    'line-dasharray': [3, 4]
                 }
             }, 'sector-ops-live-flights-layer');
 
-            // 3. Dynamic Waypoint Dots (Yellow if passed, hollow indigo if upcoming)
+            // 3. Dynamic Waypoint Dots (Refined, Miniaturized Size)
             sectorOpsMap.addLayer({
                 id: layerIdFullDots,
                 type: 'circle',
                 source: layerIdFull,
                 'filter': ['==', '$type', 'Point'],
                 paint: {
-                    'circle-radius': 3.5,
+                    'circle-radius': 1.5,
                     'circle-color': [
                         'case',
                         ['==', ['get', 'isPassed'], true],
                         '#eab308', // Solid yellow if passed
                         '#1e1b4b'  // Hollow indigo center if upcoming
                     ],
-                    'circle-stroke-width': 2,
+                    'circle-stroke-width': 1,
                     'circle-stroke-color': [
                         'case',
                         ['==', ['get', 'isPassed'], true],
                         '#ca8a04', // Darker yellow border if passed
-                        '#f0abfc'  // Light fuchsia rim if upcoming
+                        '#67e8f9'  // Cyan rim if upcoming (color-matched to new path)
                     ]
                 }
             }, 'sector-ops-live-flights-layer');
@@ -11180,7 +11327,7 @@ function updateFlightPlanLayer(flightId, plan, currentPosition) {
                     'text-field': ['get', 'name'],
                     'text-font': ['Mapbox Txt Regular', 'Arial Unicode MS Regular'],
                     'text-size': 9, // Reduced size for cleaner zooming
-                    'text-offset': [0.6, -0.6], 
+                    'text-offset': [0.6, -0.6],
                     'text-anchor': 'bottom-left',
                     'text-allow-overlap': false,
                     'text-ignore-placement': false,
@@ -11188,7 +11335,7 @@ function updateFlightPlanLayer(flightId, plan, currentPosition) {
                 },
                 paint: {
                     'text-color': '#fdf4ff',
-                    'text-halo-color': 'rgba(15, 23, 42, 0.9)', 
+                    'text-halo-color': 'rgba(15, 23, 42, 0.9)',
                     'text-halo-width': 2,
                     'text-halo-blur': 1
                 }
@@ -11425,12 +11572,13 @@ function generateSmoothPath(points, tension = 0.5) {
         const p2 = points[i + 1];
         const p3 = points[i + 2 >= points.length ? i + 1 : i + 2];
 
-        // --- THE FIX: Optimize Resolution ---
-        // Calculate distance in degrees for scaling
+        // --- Resolution: dense enough that consecutive segment angles are imperceptible (~3°) ---
+        // For typical IF trail spacing (~0.01–0.05° between samples), the old formula
+        // collapsed to floor(d*2) = 0, clamped to a paltry 2 steps — so smooth curves
+        // were being sampled as 2-point chords. We now guarantee a minimum of 24 steps,
+        // and scale up generously for long inter-sample gaps (e.g. early-flight cold trails).
         const d = Math.sqrt(Math.pow(p2.unwrappedLon - p1.unwrappedLon, 2) + Math.pow(p2.lat - p1.lat, 2));
-
-        // Massively reduced steps to prevent UI freezing. Max 10 steps per segment instead of 2500+.
-        const steps = Math.max(2, Math.min(10, Math.floor(d * 2))); 
+        const steps = Math.max(24, Math.min(64, Math.ceil(d * 400))); 
         
         for (let t = 0; t < 1; t += 1 / steps) {
             result.push({
@@ -11461,13 +11609,15 @@ function generateAltitudeColoredRoute(trailPoints, currentPosition, plan) {
         return { type: 'FeatureCollection', features: [] };
     }
 
-    // Unwrap longitudes to prevent the line from stretching across the globe at the anti-meridian
+    // Unwrap longitudes to prevent the line from stretching across the globe at the anti-meridian.
+    // We carry the unwrapped longitude on each point (as `unwrappedLon`) so generateSmoothPath
+    // can interpolate without hopping the dateline.
     const unwrappedPoints = [];
     let prevLon = allPoints[0].longitude || allPoints[0].lon;
-    
+
     unwrappedPoints.push({
+        unwrappedLon: prevLon,
         lat: allPoints[0].latitude || allPoints[0].lat,
-        lon: prevLon,
         alt: allPoints[0].altitude || allPoints[0].alt || 0
     });
 
@@ -11479,26 +11629,34 @@ function generateAltitudeColoredRoute(trailPoints, currentPosition, plan) {
         while (lon - prevLon > 180) lon -= 360;
         while (prevLon - lon > 180) lon += 360;
 
-        unwrappedPoints.push({ lat, lon, alt });
+        unwrappedPoints.push({ unwrappedLon: lon, lat, alt });
         prevLon = lon;
     }
 
-    // Create a distinct LineString feature for EVERY segment
-    for (let i = 0; i < unwrappedPoints.length - 1; i++) {
-        const p1 = unwrappedPoints[i];
-        const p2 = unwrappedPoints[i + 1];
+    // --- Bend-it-like-Beckham: Catmull-Rom smoothing ---
+    // Subdivides each segment into an interpolated curve passing through every sample point.
+    // Altitude is linearly interpolated between samples, preserving the altitude→color relation.
+    // generateSmoothPath needs >= 4 points; with fewer (very early in a flight), draw raw.
+    const smoothedPoints = unwrappedPoints.length >= 4
+        ? generateSmoothPath(unwrappedPoints, 0.5)
+        : unwrappedPoints;
+
+    // Create a distinct LineString feature for EVERY segment so each can be colored
+    // by its own altitude property via the layer's interpolate expression.
+    for (let i = 0; i < smoothedPoints.length - 1; i++) {
+        const p1 = smoothedPoints[i];
+        const p2 = smoothedPoints[i + 1];
 
         features.push({
             type: 'Feature',
             geometry: {
                 type: 'LineString',
                 coordinates: [
-                    [p1.lon, p1.lat],
-                    [p2.lon, p2.lat]
+                    [p1.unwrappedLon, p1.lat],
+                    [p2.unwrappedLon, p2.lat]
                 ]
             },
             properties: {
-                // Assign the altitude so Mapbox can color it!
                 altitude: p1.alt
             }
         });
@@ -11744,7 +11902,8 @@ async function handleAircraftClick(flightProps, optionalSessionId = null, event 
         if (!sectorOpsMap.getSource(flownLayerId)) {
             sectorOpsMap.addSource(flownLayerId, {
                 type: 'geojson',
-                data: initialRouteData // Feed it the FeatureCollection segments
+                data: initialRouteData, // Feed it the FeatureCollection segments
+                tolerance: 0            // Don't simplify segments away at low zoom
             });
             
             sectorOpsMap.addLayer({

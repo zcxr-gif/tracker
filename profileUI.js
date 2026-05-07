@@ -26,6 +26,8 @@ import { MobileDashboardUI } from './MobileDashboardUI.js';
 import { FlightDispatchService } from './FlightDispatchService.js';
 import { TelemetryAnalyticsEngine } from './TelemetryAnalyticsEngine.js';
 import { AircraftViewer3D } from './AircraftViewer3D.js';
+import { AirportViewer3D } from './AirportViewer3D.js';
+import { FlightDispatchUI } from './FlightDispatchUI.js';
 
 const AIRCRAFT_SELECTION_LIST = [
     // Airbus
@@ -512,6 +514,7 @@ export const ProfileUI = {
 init(supabaseClient) {
         this._supabase = supabaseClient;
         FlightDispatchService.init(supabaseClient);
+        FlightDispatchUI.init();
 
         this._supabase.auth.onAuthStateChange((event, session) => {
             if (session?.user) {
@@ -2041,7 +2044,7 @@ _generateAirspaceHTML() {
                 plainEnglishSummary = 'Heavy demand. Throughput is high but flow remains controlled.';
             }
 
-            // Heatmap rendering (preserved)
+            // Heatmap rendering
             const buckets = data.arrivalQueue;
             const maxCount = Math.max(1, ...buckets.map(b => b.count || 0));
             
@@ -2166,7 +2169,10 @@ _generateAirspaceHTML() {
 
                         ${topOpsHTML ? `<div class="pui-top-ops"><span class="pui-eyebrow">Top Arrivals</span> ${topOpsHTML}</div>` : ''}
 
-                        <div class="pui-card-footer">
+                        <div class="pui-card-footer" style="justify-content: space-between; display: flex; align-items: center;">
+                            <button class="pui-btn-primary pui-intel-3d-btn" data-icao="${icao}" style="background: rgba(57, 255, 20, 0.15); color: #39ff14; border: 1px solid rgba(57, 255, 20, 0.3);">
+                                <i class="fa-solid fa-cube"></i> 3D Terminal Twin
+                            </button>
                             <button class="pui-btn-ghost pui-intel-remove-btn" data-icao="${icao}">
                                 <i class="fa-solid fa-link-slash"></i> Unlink Node
                             </button>
@@ -2184,12 +2190,43 @@ _generateAirspaceHTML() {
         if (container && this._airspaceNetwork) {
             container.innerHTML = this._generateAirspaceHTML();
 
+            // Handle Unlinking Nodes
             container.querySelectorAll('.pui-intel-remove-btn').forEach(btn => {
                 btn.addEventListener('click', (e) => {
                     const icao = e.currentTarget.dataset.icao;
                     const currentNodes = Array.from(this._airspaceNetwork._activeNodes).filter(n => n !== icao);
                     this._airspaceNetwork.setActiveNodes(currentNodes);
                     this._updateAirspaceDOM();
+                });
+            });
+
+            // Handle Premium 3D Terminal Twin Launch
+            container.querySelectorAll('.pui-intel-3d-btn').forEach(btn => {
+                btn.addEventListener('click', async (e) => {
+                    const icao = e.currentTarget.dataset.icao.toUpperCase();
+                    
+                    // Fetch the airport cache if it hasn't been loaded by the Dispatch tab yet
+                    if (!this._airportCache) {
+                        try {
+                            const res = await fetch('https://raw.githubusercontent.com/mwgg/Airports/master/airports.json');
+                            this._airportCache = await res.json();
+                        } catch (err) {
+                            console.error('[ProfileUI] Failed to load airport cache for 3D Viewer', err);
+                            return;
+                        }
+                    }
+
+                    const aptData = this._airportCache[icao];
+                    if (aptData) {
+                        // Dynamically import the new AirportViewer3D module
+                        import('./AirportViewer3D.js').then(module => {
+                            module.AirportViewer3D.init(icao, aptData.lat, aptData.lon);
+                        }).catch(err => {
+                            console.error('[ProfileUI] Could not load AirportViewer3D module', err);
+                        });
+                    } else {
+                        console.warn(`[ProfileUI] No coordinates found for ICAO: ${icao}`);
+                    }
                 });
             });
         }
@@ -2673,197 +2710,9 @@ _getTabContentHTML() {
             `;
         }
 
-        if (this._activeTab === 'flight-plan') {
-            let flightCardsHTML;
-            if (this._flightPlansData.length === 0) {
-                flightCardsHTML = `
-                    <div class="pui-empty-state">
-                        <i class="fa-solid fa-paper-plane"></i>
-                        <h4>No flights filed yet</h4>
-                        <p>File your first flight plan using the form on the right.</p>
-                    </div>`;
-            } else {
-                flightCardsHTML = this._flightPlansData.map((flight) => {
-                    const depTime = new Date(flight.dep_time);
-                    const day = depTime.toLocaleDateString('en-US', { weekday: 'short', timeZone: this._timezone });
-                    const date = depTime.toLocaleDateString('en-US', { month: 'short', day: 'numeric', timeZone: this._timezone });
-                    const time = depTime.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: false, timeZone: this._timezone });
-                    const hours = Math.floor(flight.duration_minutes / 60);
-                    const mins = flight.duration_minutes % 60;
-                    return `
-                        <div class="pui-ticket">
-                            <div class="pui-ticket-actions">
-                                <button class="pui-icon-btn pui-ticket-edit-btn" data-id="${flight.flight_id}" title="Edit Flight"><i class="fa-solid fa-pen"></i></button>
-                                <button class="pui-icon-btn pui-ticket-delete-btn" data-id="${flight.flight_id}" title="Delete Flight"><i class="fa-solid fa-trash"></i></button>
-                            </div>
-                            <div class="pui-ticket-stub">
-                                <span class="pui-ticket-day">${day}</span>
-                                <span class="pui-ticket-date">${date}</span>
-                                <span class="pui-ticket-time pui-mono">${time}</span>
-                                <span class="pui-ticket-cs">${flight.callsign}</span>
-                            </div>
-                            <div class="pui-ticket-body">
-                                <div class="pui-ticket-route">
-                                    <div class="pui-ticket-point">
-                                        <span class="pui-ticket-icao">${flight.dep_icao}</span>
-                                        ${flight.dep_gate ? `<span class="pui-ticket-gate">Gate ${flight.dep_gate}</span>` : ''}
-                                    </div>
-                                    <div class="pui-ticket-path">
-                                        <span class="pui-ticket-duration">${hours}h ${mins}m</span>
-                                        <div class="pui-ticket-line"><i class="fa-solid fa-plane"></i></div>
-                                        <span class="pui-ticket-acft">${flight.aircraft_type}</span>
-                                    </div>
-                                    <div class="pui-ticket-point pui-ticket-point-right">
-                                        <span class="pui-ticket-icao">${flight.arr_icao}</span>
-                                        ${flight.arr_gate ? `<span class="pui-ticket-gate">Gate ${flight.arr_gate}</span>` : ''}
-                                    </div>
-                                </div>
-                            </div>
-                            <div class="pui-ticket-aside">
-                                ${flight.passengers ? `<div class="pui-ticket-stat"><i class="fa-solid fa-users"></i> ${flight.passengers} pax</div>` : ''}
-                                ${flight.fuel_used ? `<div class="pui-ticket-stat"><i class="fa-solid fa-gas-pump"></i> ${flight.fuel_used.toLocaleString()} lbs</div>` : ''}
-                            </div>
-                        </div>
-                    `;
-                }).join('');
-            }
-
-            const aircraftOptions = AIRCRAFT_SELECTION_LIST.map(a => 
-                `<option value="${a.value}">${a.name} (${a.value})</option>`
-            ).join('');
-
-            const addFlightFormHTML = `
-                <div class="pui-card" style="margin-bottom: var(--pui-gap-md); background: var(--pui-accent-soft); border-color: var(--pui-accent-soft);">
-                    <div class="pui-card-body" style="padding: 16px;">
-                        <h4 style="margin: 0 0 8px 0; font-size: 0.8rem; color: var(--pui-accent); text-transform: uppercase; letter-spacing: 0.05em;"><i class="fa-solid fa-map-location-dot"></i> Quick Guide: Filing a Plan</h4>
-                        <ol style="margin: 0; padding-left: 18px; font-size: 0.8rem; color: var(--pui-text-secondary); line-height: 1.5;">
-                            <li><strong>Identify:</strong> Set your Callsign and Aircraft Type.</li>
-                            <li><strong>Route:</strong> Enter Origin/Destination (4-letter ICAO). EET will auto-calculate!</li>
-                            <li><strong>Schedule:</strong> Pick a departure time and assign gates.</li>
-                            <li><strong>Load:</strong> Add passengers (Fuel calculations coming soon!).</li>
-                        </ol>
-                    </div>
-                </div>
-
-                <div class="pui-card pui-dispatch-form">
-                    <div class="pui-card-header">
-                        <h3 id="pui-dispatch-form-title"><i class="fa-solid fa-file-pen"></i> Generate dispatch</h3>
-                    </div>
-                    <div class="pui-card-body">
-                        <div class="pui-form-section">
-                            <h4 class="pui-form-section-title">Flight Identification</h4>
-                            <div class="pui-form-row">
-                                <div class="pui-input-group">
-                                    <label>Callsign</label>
-                                    <div class="pui-input-wrapper">
-                                        <i class="fa-solid fa-tower-broadcast pui-input-icon"></i>
-                                        <input type="text" id="pui-new-callsign" class="pui-input has-icon" placeholder="DAL404">
-                                    </div>
-                                </div>
-                                <div class="pui-input-group">
-                                    <label>Aircraft Equipment</label>
-                                    <div class="pui-input-wrapper">
-                                        <i class="fa-solid fa-plane pui-input-icon"></i>
-                                        <select id="pui-new-aircraft" class="pui-input has-icon pui-select">
-                                            <option value="" disabled selected>Select equipment</option>
-                                            ${aircraftOptions}
-                                        </select>
-                                        <i class="fa-solid fa-chevron-down pui-select-chevron"></i>
-                                    </div>
-                                </div>
-                            </div>
-                        </div>
-
-                        <div class="pui-form-section">
-                            <h4 class="pui-form-section-title">Routing</h4>
-                            <div class="pui-form-row">
-                                <div class="pui-input-group">
-                                    <label>Origin</label>
-                                    <div class="pui-input-wrapper">
-                                        <i class="fa-solid fa-plane-departure pui-input-icon"></i>
-                                        <input type="text" id="pui-new-dep" class="pui-input has-icon pui-icao-input" placeholder="KJFK" maxlength="4">
-                                    </div>
-                                </div>
-                                <div class="pui-input-group">
-                                    <label>Destination</label>
-                                    <div class="pui-input-wrapper">
-                                        <i class="fa-solid fa-plane-arrival pui-input-icon"></i>
-                                        <input type="text" id="pui-new-arr" class="pui-input has-icon pui-icao-input" placeholder="EGLL" maxlength="4">
-                                    </div>
-                                </div>
-                            </div>
-                            <div class="pui-form-row">
-                                <div class="pui-input-group">
-                                    <label>Dep Gate</label>
-                                    <input type="text" id="pui-new-dep-gate" class="pui-input" placeholder="B24">
-                                </div>
-                                <div class="pui-input-group">
-                                    <label>Arr Gate</label>
-                                    <input type="text" id="pui-new-arr-gate" class="pui-input" placeholder="501">
-                                </div>
-                            </div>
-                        </div>
-
-                        <div class="pui-form-section">
-                            <h4 class="pui-form-section-title">Schedule &amp; Load</h4>
-                            <div class="pui-form-row">
-                                <div class="pui-input-group">
-                                    <label>Departure Time</label>
-                                    <input type="datetime-local" id="pui-new-time" class="pui-input">
-                                </div>
-                                <div class="pui-input-group">
-                                    <label>EET (minutes)</label>
-                                    <input type="number" id="pui-new-duration" class="pui-input" placeholder="Auto-calculated">
-                                </div>
-                            </div>
-                            <div class="pui-form-row">
-                                <div class="pui-input-group">
-                                    <label>POB (pax)</label>
-                                    <div class="pui-input-wrapper">
-                                        <i class="fa-solid fa-users pui-input-icon"></i>
-                                        <input type="number" id="pui-new-pax" class="pui-input has-icon" placeholder="212">
-                                    </div>
-                                </div>
-                                <div class="pui-input-group">
-                                    <label>Block Fuel (lbs) <span style="font-weight:normal; color:var(--pui-text-tertiary);">(Future Update)</span></label>
-                                    <div class="pui-input-wrapper">
-                                        <i class="fa-solid fa-gas-pump pui-input-icon"></i>
-                                        <input type="number" id="pui-new-fuel" class="pui-input has-icon" placeholder="85000">
-                                    </div>
-                                    <p class="pui-help-text">Fuel telemetry will be fully integrated in an upcoming update.</p>
-                                </div>
-                            </div>
-                        </div>
-
-                        <div id="pui-add-flight-msg" class="pui-alert" style="display: none;"></div>
-
-                        <div class="pui-form-actions-row" style="display: flex; gap: 10px; margin-top: 14px;">
-                            <button class="pui-btn-ghost" id="pui-cancel-edit-btn" style="display: none; flex: 1;">Cancel</button>
-                            <button class="pui-btn-primary" id="pui-submit-flight-btn" style="flex: 2; width: 100%;">
-                                <i class="fa-solid fa-paper-plane"></i> File flight plan
-                            </button>
-                        </div>
-                    </div>
-                </div>
-            `;
-
-            return `
-                <div class="pui-tab-header pui-fade-in">
-                    <div>
-                        <h2>Flight Dispatch</h2>
-                        <p>File upcoming flight plans and review your active schedule.</p>
-                    </div>
-                </div>
-                <div class="pui-dispatch-layout pui-fade-in">
-                    <div class="pui-dispatch-list">
-                        ${flightCardsHTML}
-                    </div>
-                    <div class="pui-dispatch-form-col">
-                        ${addFlightFormHTML}
-                    </div>
-                </div>
-            `;
-        }
+if (this._activeTab === 'flight-plan') {
+    return FlightDispatchUI.getTabHTML(this);
+}
 
         if (this._activeTab === 'settings') {
             const user = this._currentUser;
@@ -3538,223 +3387,74 @@ const contentRoot = document.getElementById('pui-content');
         }
 
         if (this._activeTab === 'flight-plan') {
-            
-            // Premium Predictive EET Integration
-            const depInput = document.getElementById('pui-new-dep');
-            const arrInput = document.getElementById('pui-new-arr');
-            const durationInput = document.getElementById('pui-new-duration');
+    FlightDispatchUI.attachListeners(this);
 
-            const triggerEETCalculation = async () => {
-                const dep = depInput?.value.trim().toUpperCase();
-                const arr = arrInput?.value.trim().toUpperCase();
+    // Submit / Edit Action — Supabase work stays in the host
+    document.getElementById('pui-submit-flight-btn')?.addEventListener('click', async () => {
+        const callsign = document.getElementById('pui-new-callsign').value.trim();
+        const aircraft = document.getElementById('pui-new-aircraft').value;
+        const depIcao  = document.getElementById('pui-new-dep').value.trim().toUpperCase();
+        const arrIcao  = document.getElementById('pui-new-arr').value.trim().toUpperCase();
+        const duration = parseInt(document.getElementById('pui-new-duration').value);
+        const depTime  = document.getElementById('pui-new-time').value;
+        const depGate  = document.getElementById('pui-new-dep-gate').value.trim();
+        const arrGate  = document.getElementById('pui-new-arr-gate').value.trim();
+        const pax      = parseInt(document.getElementById('pui-new-pax').value);
+        const fuel     = parseInt(document.getElementById('pui-new-fuel').value);
 
-                if (dep?.length === 4 && arr?.length === 4 && !durationInput.value) {
-                    durationInput.placeholder = "Calculating route...";
-                    durationInput.style.opacity = '0.5';
+        if (!callsign || !aircraft || !depIcao || !arrIcao || isNaN(duration) || !depTime) {
+            this._showMessage('pui-add-flight-msg', 'Please fill in all required routing & aircraft details.', 'error');
+            return;
+        }
 
-                    const calcMinutes = await this._autoCalculateRouteEET(dep, arr);
+        const loadingText = this._editingFlightId
+            ? '<i class="fa-solid fa-check"></i> Update flight plan'
+            : '<i class="fa-solid fa-paper-plane"></i> File flight plan';
+        this._setLoading('pui-submit-flight-btn', true, loadingText);
 
-                    durationInput.style.opacity = '1';
-                    if (calcMinutes) {
-                        durationInput.value = calcMinutes;
-                        // Premium visual feedback for success
-                        durationInput.style.transition = 'border-color 0.3s ease, box-shadow 0.3s ease';
-                        durationInput.style.borderColor = 'var(--pui-pos)';
-                        durationInput.style.boxShadow = '0 0 0 3px var(--pui-pos-soft)';
-                        setTimeout(() => {
-                            durationInput.style.borderColor = '';
-                            durationInput.style.boxShadow = '';
-                        }, 2000);
-                    } else {
-                        durationInput.placeholder = "Auto-calc failed, enter manually";
-                    }
-                }
+        try {
+            const newFlightPlan = {
+                user_id: this._currentUser.id,
+                if_username: this._currentUser.user_metadata?.if_username || null,
+                dep_time: new Date(depTime).toISOString(),
+                duration_minutes: duration,
+                aircraft_type: aircraft,
+                callsign: callsign,
+                dep_icao: depIcao,
+                arr_icao: arrIcao,
+                dep_gate: depGate || null,
+                arr_gate: arrGate || null,
+                passengers: isNaN(pax) ? null : pax,
+                fuel_used: isNaN(fuel) ? null : fuel,
             };
 
-            depInput?.addEventListener('blur', triggerEETCalculation);
-            arrInput?.addEventListener('blur', triggerEETCalculation);
-
-
-            // Premium Fix: Event Delegation replaces brittle forEach bindings.
-            const dispatchList = document.querySelector('.pui-dispatch-list');
-            if (dispatchList) {
-                dispatchList.addEventListener('click', async (e) => {
-                    const editBtn = e.target.closest('.pui-ticket-edit-btn');
-                    const deleteBtn = e.target.closest('.pui-ticket-delete-btn');
-
-                    // --- Edit Logic ---
-                    if (editBtn) {
-                        const flightId = editBtn.dataset.id;
-                        const flight = this._flightPlansData.find(f => f.flight_id == flightId);
-                        if (!flight) return;
-
-                        this._editingFlightId = flightId;
-                        
-                        // UI Transitions
-                        const formTitle = document.getElementById('pui-dispatch-form-title');
-                        if (formTitle) formTitle.innerHTML = `<i class="fa-solid fa-pen-to-square"></i> Edit dispatch`;
-                        
-                        const submitBtn = document.getElementById('pui-submit-flight-btn');
-                        if (submitBtn) submitBtn.innerHTML = `<i class="fa-solid fa-check"></i> Update flight plan`;
-                        
-                        const cancelBtn = document.getElementById('pui-cancel-edit-btn');
-                        if (cancelBtn) cancelBtn.style.display = 'block';
-
-                        // Populate form fields
-                        document.getElementById('pui-new-callsign').value = flight.callsign || '';
-                        
-                        // Select dropdown fix for Edit Mode
-                        const acftSelect = document.getElementById('pui-new-aircraft');
-                        if (acftSelect) {
-                            if (Array.from(acftSelect.options).some(opt => opt.value === flight.aircraft_type)) {
-                                acftSelect.value = flight.aircraft_type;
-                            } else {
-                                // Fallback if old data has a dashed string, gracefully default
-                                acftSelect.value = "";
-                            }
-                        }
-                        
-                        document.getElementById('pui-new-dep').value = flight.dep_icao || '';
-                        document.getElementById('pui-new-arr').value = flight.arr_icao || '';
-                        document.getElementById('pui-new-dep-gate').value = flight.dep_gate || '';
-                        document.getElementById('pui-new-arr-gate').value = flight.arr_gate || '';
-
-                        if (flight.dep_time) {
-                            const dt = new Date(flight.dep_time);
-                            // Format specifically for datetime-local (YYYY-MM-DDTHH:MM)
-                            const formatted = dt.getFullYear() + '-' +
-                                String(dt.getMonth() + 1).padStart(2, '0') + '-' +
-                                String(dt.getDate()).padStart(2, '0') + 'T' +
-                                String(dt.getHours()).padStart(2, '0') + ':' +
-                                String(dt.getMinutes()).padStart(2, '0');
-                            document.getElementById('pui-new-time').value = formatted;
-                        }
-
-                        document.getElementById('pui-new-duration').value = flight.duration_minutes || '';
-                        document.getElementById('pui-new-pax').value = flight.passengers || '';
-                        document.getElementById('pui-new-fuel').value = flight.fuel_used || '';
-
-                        // Smooth scroll to form
-                        document.querySelector('.pui-dispatch-form')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
-                    }
-
-                    // --- Delete Logic ---
-                    if (deleteBtn) {
-                        const flightId = deleteBtn.dataset.id;
-                        const flight = this._flightPlansData.find(f => f.flight_id == flightId);
-                        if (!flight) return;
-
-                        // Call the custom premium confirmation instead of window.confirm
-                        const isConfirmed = await this._showDeleteConfirmation(flight);
-                        if (!isConfirmed) return;
-
-                        const ticketEl = deleteBtn.closest('.pui-ticket');
-                        if (ticketEl) {
-                            ticketEl.style.opacity = '0.5';
-                            ticketEl.style.pointerEvents = 'none';
-                        }
-
-                        try {
-                            const { error } = await this._supabase
-                                .from('user_flights')
-                                .delete()
-                                .eq('flight_id', flightId);
-                            
-                            if (error) throw error;
-                            
-                            this._showMessage('pui-add-flight-msg', 'Flight plan deleted.', 'success');
-                            
-                            if (this._editingFlightId === flightId) {
-                                this._resetFlightForm();
-                            }
-                            
-                            this._fetchFlightPlans();
-                        } catch(err) {
-                            console.error("Error deleting flight plan:", err);
-                            this._showMessage('pui-add-flight-msg', err.message || 'Error deleting flight plan.', 'error');
-                            if (ticketEl) {
-                                ticketEl.style.opacity = '1';
-                                ticketEl.style.pointerEvents = 'auto';
-                            }
-                        }
-                    }
-                });
+            if (this._editingFlightId) {
+                const { error } = await this._supabase
+                    .from('user_flights')
+                    .update(newFlightPlan)
+                    .eq('flight_id', this._editingFlightId);
+                if (error) throw error;
+                this._showMessage('pui-add-flight-msg', 'Flight plan updated successfully!', 'success');
+            } else {
+                const { error } = await this._supabase
+                    .from('user_flights')
+                    .insert([newFlightPlan]);
+                if (error) throw error;
+                this._showMessage('pui-add-flight-msg', 'Flight plan saved successfully!', 'success');
             }
 
-            // Cancel Edit Action
-            document.getElementById('pui-cancel-edit-btn')?.addEventListener('click', () => {
-                this._resetFlightForm();
-            });
+            setTimeout(() => {
+                this._fetchFlightPlans();
+                FlightDispatchUI.resetForm();
+            }, 1000);
 
-            // Submit / Edit Action
-            document.getElementById('pui-submit-flight-btn')?.addEventListener('click', async () => {
-                const callsign = document.getElementById('pui-new-callsign').value.trim();
-                const aircraft = document.getElementById('pui-new-aircraft').value; // Grabs value (e.g. 'B738'), NO DASHES
-                const depIcao = document.getElementById('pui-new-dep').value.trim().toUpperCase();
-                const arrIcao = document.getElementById('pui-new-arr').value.trim().toUpperCase();
-                const duration = parseInt(document.getElementById('pui-new-duration').value);
-                const depTime = document.getElementById('pui-new-time').value;
-                const depGate = document.getElementById('pui-new-dep-gate').value.trim();
-                const arrGate = document.getElementById('pui-new-arr-gate').value.trim();
-                const pax = parseInt(document.getElementById('pui-new-pax').value);
-                const fuel = parseInt(document.getElementById('pui-new-fuel').value);
-
-                if (!callsign || !aircraft || !depIcao || !arrIcao || isNaN(duration) || !depTime) {
-                    this._showMessage('pui-add-flight-msg', 'Please fill in all required routing & aircraft details.', 'error');
-                    return;
-                }
-
-                const loadingText = this._editingFlightId 
-                    ? '<i class="fa-solid fa-check"></i> Update flight plan'
-                    : '<i class="fa-solid fa-paper-plane"></i> File flight plan';
-
-                this._setLoading('pui-submit-flight-btn', true, loadingText);
-
-                try {
-                    const newFlightPlan = {
-                        user_id: this._currentUser.id,
-                        if_username: this._currentUser.user_metadata?.if_username || null,
-                        dep_time: new Date(depTime).toISOString(),
-                        duration_minutes: duration,
-                        aircraft_type: aircraft, // Completely clean ICAO standard. E.g. 'B738'
-                        callsign: callsign,
-                        dep_icao: depIcao,
-                        arr_icao: arrIcao,
-                        dep_gate: depGate || null,
-                        arr_gate: arrGate || null,
-                        passengers: isNaN(pax) ? null : pax,
-                        fuel_used: isNaN(fuel) ? null : fuel
-                    };
-
-                    if (this._editingFlightId) {
-                        const { error } = await this._supabase
-                            .from('user_flights')
-                            .update(newFlightPlan)
-                            .eq('flight_id', this._editingFlightId);
-                        
-                        if (error) throw error;
-                        this._showMessage('pui-add-flight-msg', 'Flight plan updated successfully!', 'success');
-                    } else {
-                        const { error } = await this._supabase
-                            .from('user_flights')
-                            .insert([newFlightPlan]);
-
-                        if (error) throw error;
-                        this._showMessage('pui-add-flight-msg', 'Flight plan saved successfully!', 'success');
-                    }
-
-                    setTimeout(() => {
-                        this._fetchFlightPlans();
-                        this._resetFlightForm();
-                    }, 1000);
-
-                } catch (err) {
-                    console.error("Error saving flight plan:", err);
-                    this._showMessage('pui-add-flight-msg', err.message || 'Error saving flight plan.', 'error');
-                    this._setLoading('pui-submit-flight-btn', false, loadingText);
-                }
-            });
+        } catch (err) {
+            console.error('Error saving flight plan:', err);
+            this._showMessage('pui-add-flight-msg', err.message || 'Error saving flight plan.', 'error');
+            this._setLoading('pui-submit-flight-btn', false, loadingText);
         }
+    });
+}
 
         if (this._activeTab === 'settings') {
             const themeRadios = document.querySelectorAll('input[name="pui-theme"]');
