@@ -1022,9 +1022,9 @@ disableHudControls() {
                 transform: translateY(calc(100% - var(--legacy-peek-height)));
             }
 
-            /* "Expanded" State */
+/* "Expanded" State */
             .mobile-legacy-sheet.visible:not(.peek) {
-                transform: translateY(var(--hud-top-window-height));
+                transform: translateY(0) !important; 
             }
             
             /* --- [NEW] Drag Handle for Legacy Sheet --- */
@@ -1296,55 +1296,30 @@ disableHudControls() {
         });
     },
 
-    /**
-     * [MODIFIED] Wires up interactions for the "Legacy Sheet" mode.
-     * Now handles STANDARD, SIMPLE, and AIRPORT modes.
-     */
-    populateLegacySheet(sourceWindow) {
-        // --- 1. Check for Simple Mode (Iframe) or Airport Window ---
-        const simpleIframe = sourceWindow.querySelector('#simple-flight-window-frame');
-        const isAirport = sourceWindow.id === 'airport-info-window';
-        
+populateLegacySheet(sourceWindow) {
+        // ALWAYS inject a dedicated, absolute-positioned handle overlay.
         const handleWrapper = document.createElement('div');
-        handleWrapper.className = 'legacy-sheet-handle';
-
-        if (simpleIframe || isAirport) {
-            // --- SIMPLE / AIRPORT MODE LOGIC ---
-            // For Airports and Iframe windows, we do NOT want to try and "wrap" internal content
-            // because the structure varies too much. 
-            // We use the "Floating Handle" approach (Same as Simple Mode).
-            
-            handleWrapper.classList.add('simple-mode'); 
-            
-            // Insert handle at the top of the window
-            sourceWindow.prepend(handleWrapper);
-            
-            // Ensure source window is relative so absolute handle positions correctly
-            sourceWindow.style.position = 'relative'; 
-            
-        } else {
-            // --- STANDARD AIRCRAFT MODE LOGIC ---
-            // Only try to wrap if we find the specific Aircraft headers
-            const overviewPanel = sourceWindow.querySelector('.aircraft-overview-panel');
-            const routeSummaryBar = sourceWindow.querySelector('.route-summary-overlay');
-
-            if (overviewPanel && routeSummaryBar) {
-                // Wrap the existing header elements with the handle
-                sourceWindow.prepend(handleWrapper);
-                handleWrapper.appendChild(overviewPanel);
-                handleWrapper.appendChild(routeSummaryBar);
-            } else {
-                console.warn("Legacy Sheet UI: Could not find Standard Aircraft headers. Fallback to floating handle.");
-                
-                // Fallback: If we expected standard but didn't find it, use floating handle
-                // to prevent an invisible/unusable drag handle.
-                handleWrapper.classList.add('simple-mode'); 
-                sourceWindow.prepend(handleWrapper);
-                sourceWindow.style.position = 'relative';
-            }
-        }
+        handleWrapper.className = 'legacy-sheet-handle simple-mode universal-handle'; 
         
-        // Wire up interactions
+        // [THE FIX]: Override the 100% CSS width. Shrink the grab zone strictly to the middle 50%.
+        // This leaves a 25% gap on the left and right, completely uncovering the top-right 
+        // buttons so they can be clicked normally without the drag handle intercepting them.
+        handleWrapper.style.setProperty('width', '50%', 'important');
+        handleWrapper.style.setProperty('left', '25%', 'important');
+        handleWrapper.style.setProperty('height', '35px', 'important');
+        handleWrapper.style.setProperty('padding-bottom', '0', 'important');
+        handleWrapper.style.setProperty('background', 'transparent', 'important');
+        
+        sourceWindow.prepend(handleWrapper);
+        sourceWindow.style.position = 'relative'; 
+        
+        // Push the original content down just enough so the visual pill doesn't overlap text,
+        // but keeps the buttons nicely aligned.
+        const overviewPanel = sourceWindow.querySelector('.aircraft-overview-panel');
+        if (overviewPanel) {
+            overviewPanel.style.paddingTop = '25px';
+        }
+
         this.wireUpLegacySheetInteractions(sourceWindow, handleWrapper);
     },
 
@@ -1419,19 +1394,13 @@ disableHudControls() {
         this.wireUpHudInteractions();
     },
 
-    /**
-     * [NEW] Wires up all interactions for the "Legacy Sheet" mode.
-     */
-    wireUpLegacySheetInteractions(sheetElement, handleElement) {
-        
+wireUpLegacySheetInteractions(sheetElement, handleElement) {
         handleElement.addEventListener('touchstart', this.handleLegacyTouchStart.bind(this), { passive: false });
         
-        // [MODIFIED] Use document-level listeners for move and end
         document.addEventListener('touchmove', this.boundLegacyTouchMove, { passive: false });
         document.addEventListener('touchend', this.boundLegacyTouchEnd);
         document.addEventListener('touchcancel', this.boundLegacyTouchEnd);
         
-        // --- Close Handlers ---
         if (this.overlayEl) {
             this.overlayEl.addEventListener('click', () => {
                 if (this.legacySheetState.currentState === 'expanded') {
@@ -1442,30 +1411,27 @@ disableHudControls() {
             });
         }
         
-        // --- [NEW] Stop drag from starting on button tap (in Standard Mode) ---
-        const buttonContainer = sheetElement.querySelector('.overview-actions');
-        if (buttonContainer) {
-            buttonContainer.addEventListener('touchstart', (e) => {
-                e.stopPropagation();
-            }, { passive: true });
-        }
+        // --- Intercept Takeover Buttons to clear the sheet gracefully ---
+        const interceptTakeovers = (e) => {
+            const actionBtn = e.target.closest('.aircraft-window-share-btn, .aircraft-window-replay-btn');
+            if (actionBtn && this.activeWindow) {
+                this.closeActiveWindow(); // Move the UI out of the way natively
+            }
+        };
+        sheetElement.addEventListener('click', interceptTakeovers, { capture: true });
         
-        // Find desktop buttons (Standard Mode only usually)
-        // [FIX] broadened search to find ANY close button (Airports often differ)
         const closeBtn = sheetElement.querySelector('.aircraft-window-close-btn, .close-btn, button[class*="close"]');
         const hideBtn = sheetElement.querySelector('.aircraft-window-hide-btn');
         
         if(closeBtn) {
             closeBtn.addEventListener('click', (e) => {
-                e.preventDefault();
-                e.stopPropagation();
+                e.preventDefault(); e.stopPropagation();
                 this.closeActiveWindow();
             });
         }
         if(hideBtn) {
             hideBtn.addEventListener('click', (e) => {
-                e.preventDefault();
-                e.stopPropagation();
+                e.preventDefault(); e.stopPropagation();
                 this.closeActiveWindow(); 
                 
                 const recallBtn = document.getElementById('aircraft-recall-btn');
@@ -1516,12 +1482,40 @@ disableHudControls() {
         
         document.addEventListener('touchend', this.boundHudTouchEnd);
 
+        // --- [NEW] Proxy missing desktop buttons ---
+        // Since elements were moved from the activeWindow to the HUD DOM, their native click
+        // handlers attached via event delegation to activeWindow will no longer fire.
+        const handleDesktopProxyClick = (e) => {
+            const actionBtn = e.target.closest('.aircraft-window-pin-btn, .aircraft-window-share-btn, .aircraft-window-replay-btn, #plan-this-flight-btn, .profile-toggle-btn');
+            
+            if (actionBtn && this.activeWindow) {
+                e.preventDefault();
+                e.stopPropagation();
+                
+                // If opening Trip Card or Replay, temporarily hide HUD so it doesn't overlap
+                if (actionBtn.classList.contains('aircraft-window-share-btn') || actionBtn.classList.contains('aircraft-window-replay-btn')) {
+                    this.closeActiveWindow(); 
+                }
+
+                // Trigger the desktop event listener by cloning the button into the original window
+                const clone = actionBtn.cloneNode(true);
+                clone.style.display = 'none';
+                this.activeWindow.appendChild(clone);
+                clone.click();
+                clone.remove();
+            }
+        };
+
         // --- Re-wire desktop buttons ---
         this.topWindowEl.addEventListener('click', (e) => {
             const closeBtn = e.target.closest('.aircraft-window-close-btn');
             const hideBtn = e.target.closest('.aircraft-window-hide-btn');
 
-            if (closeBtn) this.closeActiveWindow();
+            if (closeBtn) {
+                this.closeActiveWindow();
+                return;
+            }
+            
             if (hideBtn) {
                 this.topWindowEl.classList.remove('visible');
                 this.setDrawerState(0);
@@ -1535,9 +1529,18 @@ disableHudControls() {
                     recallBtn.classList.add('visible', 'palpitate');
                     setTimeout(() => recallBtn.classList.remove('palpitate'), 1000);
                 }
+                return;
             }
+            
+            // If it wasn't a standard UI close/hide action, push the click to the proxy
+            handleDesktopProxyClick(e);
         });
         
+        // Also capture proxy clicks originating from deep inside the expanded HUD layout
+        this.expandedIslandEl.addEventListener('click', (e) => {
+            handleDesktopProxyClick(e);
+        });
+
         // --- Dedicated Tab Switching Logic ---
         tabsInSlot.addEventListener('click', async (e) => {
             const tabBtn = e.target.closest('.ac-info-tab-btn');
@@ -1642,9 +1645,15 @@ disableHudControls() {
         }
     },
 
-    // --- [HUD] Swipe Gesture Handlers ---
+// --- [HUD] Swipe Gesture Handlers ---
     handleHudTouchStart(e) {
         if (this.activeMode !== 'hud') return;
+        
+        // --- [CRITICAL FIX] Do not start dragging if the user is touching an action button ---
+        if (e.target.closest('button, a, .aircraft-window-pin-btn, .aircraft-window-share-btn, .aircraft-window-replay-btn, .close-btn, .overview-actions, [role="button"]')) {
+            return; // Let the click event fire naturally
+        }
+
         const handle = e.target.closest('.route-summary-wrapper-mobile');
         if (!handle) {
              this.swipeState.isDragging = false;
@@ -1680,50 +1689,63 @@ disableHudControls() {
         this.setDrawerState(newState);
     },
 
-    // --- [NEW] Legacy Sheet Swipe Handlers ---
+// --- [NEW] Legacy Sheet Swipe Handlers ---
     handleLegacyTouchStart(e) {
         if (this.activeMode !== 'legacy' || !this.activeWindow) return;
         
-        const handle = e.target.closest('.legacy-sheet-handle');
-        if (!handle) {
-             this.legacySheetState.isDragging = false;
-             return;
+        // Prevent drag if touching a button so clicks work perfectly
+        const interactiveSelectors = [
+            '.overview-actions', '.close-btn', 'button', 'a', '[role="button"]', 
+            '.aircraft-window-pin-btn', '.aircraft-window-share-btn', '.aircraft-window-replay-btn',
+            '.ac-info-tab-btn'
+        ];
+        if (e.target.closest(interactiveSelectors.join(', '))) {
+             return; 
         }
         
-        e.preventDefault();
+        const handle = e.target.closest('.legacy-sheet-handle');
+        if (!handle) return;
         
         this.legacySheetState.isDragging = true;
         this.legacySheetState.touchStartY = e.touches[0].clientY;
         
-        // Get the current computed Y position
+        // [THE NEW FIX]: WebKitCSSMatrix fails on mobile when reading `calc()` percentages.
+        // Instead, we mathematically calculate the exact starting pixel translation using the element's actual rendered height.
         const rect = this.activeWindow.getBoundingClientRect();
-        this.legacySheetState.currentSheetY = rect.top;
-        this.legacySheetState.startSheetY = rect.top;
+        if (this.legacySheetState.currentState === 'peek') {
+            // Translate Y is exactly the total height minus the visible peek area
+            this.legacySheetState.startTranslateY = rect.height - this.CONFIG.legacyPeekHeight;
+        } else {
+            // Expanded is always at 0 translation
+            this.legacySheetState.startTranslateY = 0;
+        }
         
-        this.activeWindow.style.transition = 'none'; // Allow live dragging
+        // Initialize current state to prevent NaN errors on pure taps
+        this.legacySheetState.currentTranslateY = this.legacySheetState.startTranslateY;
+        
+        // Stop CSS transitions so it follows your finger instantly without jumping
+        this.activeWindow.style.transition = 'none'; 
     },
 
     handleLegacyTouchMove(e) {
         if (this.activeMode !== 'legacy' || !this.legacySheetState.isDragging || !this.activeWindow) return;
         
-        e.preventDefault();
-        const touchCurrentY = e.touches[0].clientY;
-        let deltaY = touchCurrentY - this.legacySheetState.touchStartY;
-
-        // Calculate new Y, but don't let it be dragged higher than the top stop
-        const topStop = parseInt(getComputedStyle(document.documentElement)
-        .getPropertyValue('--hud-top-window-height')) || 50;
-
-        let newY = this.legacySheetState.startSheetY + deltaY;
+        e.preventDefault(); // Stop the whole page from scrolling
         
-        // Add resistance when dragging *above* the top stop
-        if (newY < topStop) {
-            const overdrag = topStop - newY;
-            newY = topStop - (overdrag * 0.3); // Resistance
+        const touchCurrentY = e.touches[0].clientY;
+        const deltaY = touchCurrentY - this.legacySheetState.touchStartY;
+
+        // Calculate live drag position
+        let newTranslateY = this.legacySheetState.startTranslateY + deltaY;
+        
+        // Add resistance if they try to drag it higher than fully expanded (translateY: 0)
+        if (newTranslateY < 0) {
+            newTranslateY = newTranslateY * 0.2; // Rubber band effect
         }
         
-        this.activeWindow.style.transform = `translateY(${newY}px)`;
-        this.legacySheetState.currentSheetY = newY; // Store last position
+        // Apply live tracking
+        this.activeWindow.style.transform = `translateY(${newTranslateY}px)`;
+        this.legacySheetState.currentTranslateY = newTranslateY; 
     },
 
     handleLegacyTouchEnd(e) {
@@ -1731,28 +1753,37 @@ disableHudControls() {
         
         this.legacySheetState.isDragging = false;
         
-        const deltaY = this.legacySheetState.currentSheetY - this.legacySheetState.startSheetY;
+        // Clear the live drag styles so CSS can handle the smooth snap animation
+        this.activeWindow.style.transition = '';
+        this.activeWindow.style.transform = ''; 
+        
+        // Determine how far the user physically dragged it
+        const deltaY = this.legacySheetState.currentTranslateY - this.legacySheetState.startTranslateY;
 
-        // Snap logic
+        // --- SNAPPING LOGIC ---
         if (this.legacySheetState.currentState === 'peek') {
-            if (deltaY < -100) { // Swiped up
+            if (deltaY < -40) { 
+                // Swiped UP more than 40px -> Expand to full page
                 this.setLegacySheetState('expanded');
-            } else if (deltaY > 100) { // Swiped down to close
+            } else if (deltaY > 80) { 
+                // Swiped DOWN more than 80px -> Close the window entirely
                 this.closeActiveWindow();
-            } else { // Snap back
+            } else { 
+                // Didn't swipe far enough -> Snap back to peek
                 this.setLegacySheetState('peek');
             }
-        } else { // Was 'expanded'
-            if (deltaY > 100) { // Swiped down
+        } else { // Was in 'expanded' state
+            if (deltaY > 150) { 
+                // [NEW] Large swipe DOWN more than 150px -> Close entirely ("close it nearly the same")
+                this.closeActiveWindow();
+            } else if (deltaY > 60) { 
+                // Moderate swipe DOWN -> Shrink back to peek
                 this.setLegacySheetState('peek');
-            } else { // Snap back
+            } else { 
+                // Didn't swipe far enough -> Snap back to expanded
                 this.setLegacySheetState('expanded');
             }
         }
-        
-        // Clear inline styles
-        this.activeWindow.style.transition = '';
-        this.activeWindow.style.transform = '';
     },
 
 
@@ -1786,10 +1817,7 @@ disableHudControls() {
         }
     },
 
-    /**
-     * [NEW] Teardown logic for Legacy Sheet mode.
-     */
-    teardownLegacySheetView(force, duration) {
+teardownLegacySheetView(force, duration) {
         const overlayToRemove = this.overlayEl;
         const sheetToClose = this.activeWindow;
         
@@ -1810,28 +1838,15 @@ disableHudControls() {
                 sheetToClose.style.display = 'none';
                 sheetToClose.classList.remove('mobile-legacy-sheet', 'visible', 'peek');
                 
-                // [CRITICAL FIX] Handle cleanup with safety checks
                 try {
-                    const handle = sheetToClose.querySelector('.legacy-sheet-handle');
-                    if (handle) {
-                        if (handle.classList.contains('simple-mode')) {
-                            // Simple Mode / Airport Mode: Just remove the bar
-                            handle.remove();
-                        } else {
-                            // Standard Mode: Un-wrap content SAFELY
-                            const overview = sheetToClose.querySelector('.aircraft-overview-panel');
-                            const routeBar = sheetToClose.querySelector('.route-summary-overlay');
-                            
-                            // [FIX] Use conditionals to prevent crash if elements are missing/null
-                            if (overview) {
-                                sheetToClose.prepend(overview);
-                                if (routeBar) sheetToClose.insertBefore(routeBar, overview.nextSibling);
-                            } else if (routeBar) {
-                                sheetToClose.prepend(routeBar);
-                            }
-                            
-                            handle.remove();
-                        }
+                    // 1. Remove the universal floating handle
+                    const universalHandle = sheetToClose.querySelector('.universal-handle');
+                    if (universalHandle) universalHandle.remove();
+                    
+                    // 2. Remove the padding we added to the overview panel
+                    const overviewPanel = sheetToClose.querySelector('.aircraft-overview-panel');
+                    if (overviewPanel) {
+                        overviewPanel.style.paddingTop = '';
                     }
                 } catch (e) {
                     console.warn("Mobile UI: Error cleaning up legacy sheet DOM", e);

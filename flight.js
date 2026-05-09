@@ -16,6 +16,7 @@ import { socketDataHub } from './SocketDataHub.js';
 import { FlightDispatchService } from './FlightDispatchService.js';
 import { MobileDashboardUI } from './MobileDashboardUI.js';
 import { trackManager } from './proTrackManager.js';
+import { FlightReplay } from './flightReplay.js';
 
 console.log(
     "%cInflight %cdesigned by and property of _Servernoob",
@@ -4238,6 +4239,67 @@ function injectCustomStyles() {
         .dest-val {
             color: #38bdf8;
         }
+
+        @media (max-width: 768px) {
+            #pin-flight-btn {
+                display: none !important;
+            }
+        }
+
+        /* --- DOCKING WINDOW & TOGGLE BUTTON STYLES --- */
+        @media (min-width: 993px) {
+            .info-window.dock-left {
+                right: auto !important;
+                left: 20px !important;
+                transform: translateX(-20px);
+            }
+
+            .info-window.dock-left.visible {
+                transform: translateX(0);
+            }
+        }
+
+        .ac-dock-toggle-btn {
+            background: rgba(255, 255, 255, 0.05);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            color: #94a3b8;
+            width: 44px;
+            height: 44px;
+            border-radius: 12px;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+            flex-shrink: 0;
+        }
+
+        .ac-dock-toggle-btn:hover {
+            background: rgba(255, 255, 255, 0.1);
+            color: #fff;
+            transform: scale(1.05);
+        }
+
+        .ac-dock-toggle-btn:active {
+            transform: scale(0.95);
+        }
+
+        .ac-dock-toggle-btn.docked-left {
+            color: #38bdf8;
+            background: rgba(56, 189, 248, 0.1);
+            border-color: rgba(56, 189, 248, 0.3);
+        }
+
+        .ac-dock-toggle-btn.docked-left i {
+            transform: rotate(180deg);
+            transition: transform 0.3s ease;
+        }
+
+        @media (max-width: 992px) {
+            .ac-dock-toggle-btn {
+                display: none !important;
+            }
+        }
     `;
 
     const style = document.createElement('style');
@@ -5297,65 +5359,78 @@ function toggleTripCardMode(active) {
 
     if (active && currentFlightInWindow) {
         takeoverUI.innerHTML = `
-            <div class="tc-ac-image-container">
-                <img class="tc-ac-image" src="" onerror="this.src='/CommunityPlanes/default.png'">
-                <div class="tc-image-overlay"></div>
-                <div style="position: absolute; top: 12px; right: 12px;">
-                    <button class="tc-exit-btn" onclick="toggleTripCardMode(false)" style="background: rgba(0,0,0,0.5); border: none; color: #fff; width: 28px; height: 28px; border-radius: 50%; cursor: pointer;">
-                        <i class="fa-solid fa-xmark"></i>
-                    </button>
-                </div>
-            </div>
-            <div class="tc-inner">
-                <div class="tc-header">
-                    <div class="tc-airline-info">
-                        <img class="tc-logo" src="" onerror="this.style.display='none'">
-                        <div class="tc-id-group">
-                            <span class="tc-callsign">---</span>
-                            <span class="tc-pilot">---</span>
-                        </div>
+            <div class="tc-bg-layer" style="position: relative; width: 100%; height: 180px; background-color: #0f172a; background-size: cover; background-position: center; transition: background-image 0.5s ease-in-out; display: flex; flex-direction: column;">
+                <div style="position: absolute; inset: 0; background: linear-gradient(to bottom, rgba(0,0,0,0.1) 0%, rgba(15,23,42,0.4) 40%, rgba(15,23,42,0.95) 100%); z-index: 0; pointer-events: none;"></div>
+                
+                <button class="tc-exit-btn" style="position: absolute; top: 12px; right: 12px; z-index: 10; background: rgba(0,0,0,0.4); backdrop-filter: blur(4px); border: 1px solid rgba(255,255,255,0.2); color: #fff; width: 28px; height: 28px; border-radius: 50%; cursor: pointer; display: flex; align-items: center; justify-content: center; transition: all 0.2s;">
+                    <i class="fa-solid fa-xmark"></i>
+                </button>
+
+                <div style="position: relative; z-index: 1; padding: 18px 20px; display: flex; flex-direction: column; align-items: flex-start;">
+                    <h1 style="font-size: 1.35rem; font-weight: 800; color: #fff; margin: 0; line-height: 1.1; text-shadow: 0 2px 4px rgba(0,0,0,0.8); display: flex; align-items: center; gap: 8px;">
+                        <img class="tc-logo" src="" style="height: 16px; width: auto; object-fit: contain; filter: drop-shadow(0 2px 4px rgba(0,0,0,0.6)); display: none;"> 
+                        <span class="tc-callsign">---</span>
+                    </h1>
+                    <div style="font-size: 0.65rem; font-weight: 500; color: #cbd5e1; margin-top: 6px; text-shadow: 0 1px 2px rgba(0,0,0,0.8); display: flex; gap: 6px; align-items: center;">
+                        <span class="tc-pilot">---</span>
+                        <span style="width: 3px; height: 3px; background: #94a3b8; border-radius: 50%;"></span>
+                        <span class="tc-ac">---</span>
                     </div>
                 </div>
 
-<div class="tc-route-row">
-    <span class="tc-icao origin">---</span>
-    <div class="tc-path-icon">
-        <div class="tc-path-line"></div>
-        <i class="fa-solid fa-plane" style="transform: rotate(90deg);"></i>
-        <div class="tc-path-line" style="background: linear-gradient(90deg, #38bdf8 0%, rgba(56, 189, 248, 0) 100%);"></div>
-    </div>
-    <span class="tc-icao destination">---</span>
-</div>
-                <div class="tc-stats-grid">
-                    <div class="tc-stat-box">
-                        <span class="tc-label">Altitude</span>
-                        <span class="tc-val tc-alt">---</span>
+                <div style="position: relative; z-index: 1; margin-top: auto; padding: 12px 20px 16px 20px; display: grid; grid-template-columns: auto 1fr auto; align-items: end; gap: 16px; width: 100%; box-sizing: border-box;">
+                    
+                    <div style="display: flex; flex-direction: column; text-align: left;">
+                        <span style="font-size: 0.55rem; color: #94a3b8; font-weight: 700; text-transform: uppercase; margin-bottom: 2px;">DEP</span>
+                        <span class="tc-icao origin" style="font-family: 'JetBrains Mono', monospace; font-size: 1.5rem; font-weight: 700; color: #fff; text-shadow: 0 1px 3px rgba(0,0,0,0.5); line-height: 1;">---</span>
                     </div>
-                    <div class="tc-stat-box">
-                        <span class="tc-label">Groundspeed</span>
-                        <span class="tc-val tc-spd">---</span>
+
+                    <div style="display: flex; flex-direction: column; align-items: center; width: 100%; padding-bottom: 2px;">
+                        <div style="width: 100%; height: 4px; background: rgba(255,255,255,0.15); border-radius: 2px; position: relative; display: flex; align-items: center;">
+                            <div class="tc-progress-bar" style="position: absolute; left: 0; height: 100%; width: 0%; background: #38bdf8; border-radius: 2px; box-shadow: 0 0 8px rgba(56,189,248,0.6);"></div>
+                            <i class="fa-solid fa-plane tc-plane-icon" style="position: absolute; left: 0%; transform: translateX(-50%); color: #fff; font-size: 12px; filter: drop-shadow(0 2px 4px rgba(0,0,0,0.8));"></i>
+                        </div>
+                        <div style="display: flex; justify-content: center; gap: 16px; width: 100%; margin-top: 8px;">
+                            <span style="font-size: 0.6rem; color: #cbd5e1; font-weight: 600; font-family: 'JetBrains Mono', monospace;"><span class="tc-alt" style="color: #38bdf8; font-weight: 700;">---</span> FT</span>
+                            <span style="font-size: 0.6rem; color: #cbd5e1; font-weight: 600; font-family: 'JetBrains Mono', monospace;"><span class="tc-spd" style="color: #fbbf24; font-weight: 700;">---</span> KT</span>
+                        </div>
                     </div>
-                    <div class="tc-stat-box">
-                        <span class="tc-label">Aircraft</span>
-                        <span class="tc-val tc-ac">---</span>
+
+                    <div style="display: flex; flex-direction: column; text-align: right;">
+                        <span style="font-size: 0.55rem; color: #94a3b8; font-weight: 700; text-transform: uppercase; margin-bottom: 2px;">ARR</span>
+                        <span class="tc-icao destination" style="font-family: 'JetBrains Mono', monospace; font-size: 1.5rem; font-weight: 700; color: #fff; text-shadow: 0 1px 3px rgba(0,0,0,0.5); line-height: 1;">---</span>
                     </div>
+
                 </div>
             </div>
         `;
 
         takeoverUI.querySelector('.tc-exit-btn')?.addEventListener('click', () => {
-    toggleTripCardMode(false);
+            toggleTripCardMode(false);
         });
 
+        const exitBtn = takeoverUI.querySelector('.tc-exit-btn');
+        if (exitBtn) {
+            exitBtn.addEventListener('mouseenter', () => {
+                exitBtn.style.background = 'rgba(239, 68, 68, 0.8)'; 
+                exitBtn.style.borderColor = 'rgba(239, 68, 68, 1)';
+            });
+            exitBtn.addEventListener('mouseleave', () => {
+                exitBtn.style.background = 'rgba(0,0,0,0.4)';
+                exitBtn.style.borderColor = 'rgba(255,255,255,0.2)';
+            });
+        }
+
         takeoverUI.classList.add('active');
-        
         
         if (sectorOpsMap && sectorOpsMap.getLayer('sector-ops-live-flights-layer')) {
             sectorOpsMap.setFilter('sector-ops-live-flights-layer', ['==', 'flightId', currentFlightInWindow]);
         }
 
         document.getElementById('sector-ops-floating-panel')?.classList.remove('visible');
-        aircraftInfoWindow?.classList.remove('visible');
+        if (typeof aircraftInfoWindow !== 'undefined' && aircraftInfoWindow) {
+            aircraftInfoWindow.classList.remove('visible');
+        }
         
         updateTripCardRealtime();
         
@@ -5366,9 +5441,13 @@ function toggleTripCardMode(active) {
     } else {
         takeoverUI.classList.remove('active');
         if (typeof updateAircraftLayerFilter === 'function') updateAircraftLayerFilter(); 
-        aircraftInfoWindow?.classList.add('visible');
+        if (typeof aircraftInfoWindow !== 'undefined' && aircraftInfoWindow) {
+            aircraftInfoWindow.classList.add('visible');
+            if (window.MobileUIHandler && window.MobileUIHandler.isMobile()) {
+                window.MobileUIHandler.openWindow(aircraftInfoWindow);
+            }
+        }
     }
-    
 }
 
 window.toggleTripCardMode = toggleTripCardMode;
@@ -5378,36 +5457,75 @@ function updateTripCardRealtime() {
 
     const feature = currentMapFeatures[currentFlightInWindow];
     const props = feature.properties;
-    const pos = JSON.parse(props.position || '{}');
+    const pos = typeof props.position === 'string' ? JSON.parse(props.position || '{}') : (props.position || {});
     const ui = document.getElementById('trip-card-takeover');
     if (!ui) return;
 
-    // Basic Info & Stats
-    ui.querySelector('.tc-callsign').textContent = props.callsign || 'N/A';
-    ui.querySelector('.tc-pilot').textContent = (props.username || 'Unknown').toUpperCase();
-    ui.querySelector('.tc-alt').textContent = Math.round(pos.alt_ft || 0).toLocaleString() + ' FT';
-    ui.querySelector('.tc-spd').textContent = Math.round(pos.gs_kt || 0) + ' KTS';
-    ui.querySelector('.tc-ac').textContent = (props.aircraftName || '---').split(' ')[0].toUpperCase();
-
-    // Route
-    ui.querySelector('.tc-icao.origin').textContent = props.departureIcao || '???';
-    ui.querySelector('.tc-icao.destination').textContent = props.arrivalIcao || '???';
-
-    // Aircraft Community Image
-    const acImg = ui.querySelector('.tc-ac-image');
-    if (acImg && props.communityImageUrl) {
-        acImg.src = props.communityImageUrl;
+    // Apply Background Image to the card layer directly
+    const bgLayer = ui.querySelector('.tc-bg-layer');
+    if (bgLayer) {
+        const fallbackImg = '/CommunityPlanes/default.png';
+        if (props.communityImageUrl) {
+            bgLayer.style.backgroundImage = `url('${props.communityImageUrl}'), url('${fallbackImg}')`;
+        } else {
+            bgLayer.style.backgroundImage = `url('${fallbackImg}')`;
+        }
     }
 
-    // Airline Logo
-    const livery = props.liveryName || '';
-    const words = livery.trim().split(/\s+/);
+    ui.querySelector('.tc-callsign').textContent = props.callsign || 'N/A';
+    ui.querySelector('.tc-pilot').textContent = (props.username || 'Unknown').toUpperCase();
+    ui.querySelector('.tc-alt').textContent = Math.round(pos.alt_ft || 0).toLocaleString();
+    ui.querySelector('.tc-spd').textContent = Math.round(pos.gs_kt || 0).toString();
+    
+    const acData = (typeof props.aircraft === 'string') ? JSON.parse(props.aircraft || '{}') : (props.aircraft || {});
+    const acName = acData.aircraftName || props.aircraftName || 'Unknown Type';
+    const livName = acData.liveryName || props.liveryName || '';
+    
+    ui.querySelector('.tc-ac').textContent = `${acName} • ${livName}`;
+
+    const dep = props.departureIcao || '???';
+    const arr = props.arrivalIcao || '???';
+    ui.querySelector('.tc-icao.origin').textContent = dep;
+    ui.querySelector('.tc-icao.destination').textContent = arr;
+
+    // Route Progress Bar Logic
+    let progressPercent = 0;
+    if (dep !== '???' && arr !== '???') {
+        const depData = typeof airportsData !== 'undefined' ? airportsData[dep] : null;
+        const arrData = typeof airportsData !== 'undefined' ? airportsData[arr] : null;
+        if (depData && arrData && pos.lat) {
+            try {
+                const totalDist = typeof getDistanceKm === 'function' ? getDistanceKm(depData.lat, depData.lon, arrData.lat, arrData.lon) : 0;
+                const remainingDist = typeof getDistanceKm === 'function' ? getDistanceKm(pos.lat, pos.lon, arrData.lat, arrData.lon) : 0;
+                if (totalDist > 0) {
+                    progressPercent = Math.max(0, Math.min(100, (1 - (remainingDist / totalDist)) * 100));
+                }
+            } catch(err) {}
+        }
+    }
+    
+    const displayPercent = Math.max(0, Math.min(100, progressPercent));
+    const progressBar = ui.querySelector('.tc-progress-bar');
+    const planeIcon = ui.querySelector('.tc-plane-icon');
+    
+    if (progressBar) progressBar.style.width = `${displayPercent}%`;
+    if (planeIcon) planeIcon.style.left = `${displayPercent}%`;
+
+    // Airline Logo Handling
+    const words = livName.trim().split(/\s+/);
     let logoName = words.length > 1 && /[^a-zA-Z0-9]/.test(words[1]) ? words[0] : (words[0] + (words[1] ? ' ' + words[1] : ''));
     const sanitizedLogoName = logoName.toLowerCase().replace(/[^a-z0-9\s]/g, '').replace(/\s+/g, '_');
     const logoImg = ui.querySelector('.tc-logo');
     if (logoImg) {
-        logoImg.src = `Images/airline_logos/${sanitizedLogoName}.png`;
-        logoImg.style.display = 'block';
+        const img = new Image();
+        img.onload = () => {
+            logoImg.src = img.src;
+            logoImg.style.display = 'block';
+        };
+        img.onerror = () => {
+            logoImg.style.display = 'none';
+        };
+        img.src = `Images/airline_logos/${sanitizedLogoName}.png`;
     }
 }
     
@@ -8942,6 +9060,7 @@ function setupAircraftWindowEvents() {
             const closeBtn = e.target.closest('.aircraft-window-close-btn');
             const pinBtn = e.target.closest('.aircraft-window-pin-btn');
             const shareBtn = e.target.closest('.aircraft-window-share-btn');
+            const replayBtn = e.target.closest('.aircraft-window-replay-btn');
             const tabBtn = e.target.closest('.ac-info-tab-btn');
             const planBtn = e.target.closest('#plan-this-flight-btn');
             const profileToggleBtn = e.target.closest('.profile-toggle-btn');
@@ -8949,6 +9068,133 @@ function setupAircraftWindowEvents() {
             if (shareBtn) {
                 e.preventDefault();
                 toggleTripCardMode(true);
+                return;
+            }
+
+            if (replayBtn) {
+                e.preventDefault();
+                if (!currentFlightInWindow) {
+                    showNotification?.('No flight selected to replay.', 'error');
+                    return;
+                }
+                const feature = currentMapFeatures[currentFlightInWindow];
+                const props = feature?.properties || {};
+                const preloaded = (typeof liveTrailCache !== 'undefined'
+                    && liveTrailCache.get(currentFlightInWindow)) || [];
+                const historyUrl = `${LIVE_FLIGHTS_API_URL.replace('/flights', '/api/flights')}/${currentFlightInWindow}/history`;
+
+                // ---- Stash + soft-hide overlapping UI for the replay session ----
+                // The replay panel docks at the bottom-center of the screen and the
+                // floating info / toolbar chrome competes with it visually, so we
+                // snapshot which pieces were on screen, hide them, and put them
+                // back exactly as we found them when the replay closes. We use a
+                // soft hide (toggling the `.visible` class) rather than the full
+                // closeAircraftWindow() flow so we don't blow away currentFlightInWindow,
+                // active intervals, or the populated DOM — that way restoring is
+                // just a class toggle away.
+                const uiToToggle = [];
+                const remember = (el) => {
+                    if (el && el.classList && el.classList.contains('visible')) {
+                        uiToToggle.push(el);
+                        el.classList.remove('visible');
+                    }
+                };
+                remember(aircraftInfoWindow);
+                remember(document.getElementById('airport-info-window'));
+                remember(document.getElementById('sector-ops-floating-panel'));
+                remember(document.getElementById('weather-settings-window'));
+                remember(document.getElementById('filter-settings-window'));
+
+                // The recall buttons live next to the panel-toggle button on
+                // the floating toolbar; hide the whole toolbar row so nothing
+                // peeks out from behind the replay UI. We track its previous
+                // inline display so we restore it (rather than forcing block).
+                const toolbarToggleBtnEl = document.getElementById('toolbar-toggle-panel-btn');
+                const toolbarRow = toolbarToggleBtnEl ? toolbarToggleBtnEl.parentElement : null;
+                let prevToolbarDisplay = null;
+                if (toolbarRow) {
+                    prevToolbarDisplay = toolbarRow.style.display;
+                    toolbarRow.style.display = 'none';
+                }
+
+                // The replay module manages the 2D live flown-path layer and
+                // the live aircraft icon itself. The 3D extruded flown path,
+                // however, is rendered through FlownPath3D — which lives in
+                // this module's import scope, not the replay's — so we have
+                // to pause it here and restart it in onClose. We snapshot
+                // both the trail and flightId at this moment so the restore
+                // step is unaffected by anything the user does meanwhile.
+                const replayedFlightIdSnapshot = currentFlightInWindow;
+                const had3DPath = (typeof FlownPath3D !== 'undefined')
+                    && !!mapFilters?.show3DPath;
+                if (had3DPath) {
+                    try {
+                        FlownPath3D.updatePath(sectorOpsMap, replayedFlightIdSnapshot, [], false);
+                    } catch (err) {
+                        console.warn('[Replay] Failed to clear 3D flown path:', err);
+                    }
+                }
+
+                FlightReplay.open({
+                    map: sectorOpsMap,
+                    flightId: currentFlightInWindow,
+                    points: preloaded,
+                    meta: {
+                        callsign: props.callsign,
+                        depIcao: props.departureIcao,
+                        arrIcao: props.arrivalIcao,
+                        category: props.category || 'B737',
+                        aircraftName: (typeof props.aircraft === 'string'
+                            ? (() => { try { return JSON.parse(props.aircraft).aircraftName; } catch { return ''; } })()
+                            : props.aircraft?.aircraftName) || ''
+                    },
+                    historyUrl,
+                    // Fires once the replay has fully torn itself down — whether
+                    // the user clicked the X, hit the panel close, or the open
+                    // call bailed early (e.g. not enough position data). We use
+                    // it to pop the flight info window back out and reveal any
+                    // chrome we hid going in.
+                    onClose: () => {
+                                    // --- CRITICAL FIX: Restore Mobile State correctly ---
+                                    if (window.MobileUIHandler && window.MobileUIHandler.isMobile()) {
+                                        window.MobileUIHandler.openWindow(aircraftInfoWindow);
+                                        uiToToggle.forEach(el => {
+                                            // Skip aircraftInfoWindow as openWindow handles it
+                                            if (el && el.classList && el.id !== 'aircraft-info-window') {
+                                                el.classList.add('visible');
+                                            }
+                                        });
+                                    } else {
+                                        uiToToggle.forEach(el => {
+                                            // Defensive: element may have been removed from the DOM
+                                            // by some unrelated code path while replay was open.
+                                            if (el && el.classList) el.classList.add('visible');
+                                        });
+                                    }
+
+                                    if (toolbarRow) {
+                                        toolbarRow.style.display = prevToolbarDisplay || '';
+                                    }
+
+                                    // Re-draw the 3D flown path if it was on when we
+                                    // started. We use the snapshot flightId so this still
+                                    // does the right thing even if the user has since
+                                    // selected a different flight in some other code path.
+                                    if (had3DPath && typeof FlownPath3D !== 'undefined') {
+                                        try {
+                                            const trail = (typeof liveTrailCache !== 'undefined' && liveTrailCache.get(replayedFlightIdSnapshot)) || [];
+                                            FlownPath3D.updatePath(
+                                                sectorOpsMap, 
+                                                replayedFlightIdSnapshot, 
+                                                trail, 
+                                                !!mapFilters?.show3DPath
+                                            );
+                                        } catch (err) {
+                                            console.warn('[Replay] Failed to restore 3D flown path:', err);
+                                        }
+                                    }
+                                }
+                });
                 return;
             }
 
@@ -9094,7 +9340,7 @@ function initializeAircraftLayer() {
             mapAnimator = new MapAnimator(sectorOpsMap, 'sector-ops-live-flights-source', currentMapFeatures);
         }
 
-        const initialIconSize = parseFloat(mapFilters.planeIconSize) || 0.05;
+        const initialIconSize = parseFloat(mapFilters.planeIconSize) || 0.15;
 
         if (!sectorOpsMap.getLayer('sector-ops-live-flights-layer')) {
             sectorOpsMap.addLayer({
@@ -12258,12 +12504,12 @@ let totalDistanceNM = 0;
         <i class="fa-solid fa-thumbtack"></i>
     </button>
 
-    <button class="hero-btn aircraft-window-share-btn" title="Trip Card">
-        <i class="fa-solid fa-camera"></i>
+    <button class="hero-btn aircraft-window-replay-btn" title="Replay Flight">
+        <i class="fa-solid fa-circle-play"></i>
     </button>
 
-    <button class="hero-btn aircraft-window-close-btn" title="Close Window">
-        <i class="fa-solid fa-xmark"></i>
+    <button class="hero-btn aircraft-window-share-btn" title="Trip Card">
+        <i class="fa-solid fa-camera"></i>
     </button>
 </div>
 
@@ -12317,7 +12563,9 @@ let totalDistanceNM = 0;
                  </button>
                  <div class="switcher-highlight" id="main-switcher-highlight" style="position: absolute; top: 4px; left: 4px; width: calc(50% - 4px); height: calc(100% - 8px); background: rgba(255,255,255,0.08); border: 1px solid rgba(255,255,255,0.1); border-radius: 8px; transition: transform 0.3s cubic-bezier(0.4, 0, 0.2, 1); transform: translateX(${highlightX});"></div>
             </div>
-            <img src="Images/inflight.png" alt="Inflight Logo" class="ac-info-tab-logo" style="height: 24px; width: auto; opacity: 0.8;">
+            <button id="ac-dock-toggle-btn" class="ac-dock-toggle-btn" title="Move Window">
+    <i class="fa-solid fa-arrows-left-right-to-line"></i>
+</button>
     </div>
 
     <div class="unified-display-main-content">
@@ -12881,6 +13129,32 @@ let totalDistanceNM = 0;
         `;
         actionsContainer.insertAdjacentHTML('afterbegin', pinBtnHTML);
     }
+
+    // --- DOCK TOGGLE LOGIC ---
+const dockBtn = windowEl.querySelector('#ac-dock-toggle-btn');
+if (dockBtn) {
+    // Check saved preference on load
+    const isDockedLeft = localStorage.getItem('acWindowDock') === 'left';
+    if (isDockedLeft) {
+        windowEl.classList.add('dock-left');
+        dockBtn.classList.add('docked-left');
+    } else {
+        windowEl.classList.remove('dock-left');
+        dockBtn.classList.remove('docked-left');
+    }
+    
+    // Attach listener
+    dockBtn.addEventListener('click', (e) => {
+        e.preventDefault();
+        e.stopPropagation(); // Prevent tab switching from intercepting
+        
+        const isLeft = windowEl.classList.toggle('dock-left');
+        dockBtn.classList.toggle('docked-left', isLeft);
+        
+        // Save preference to localStorage
+        localStorage.setItem('acWindowDock', isLeft ? 'left' : 'right');
+    });
+}
 } // <-- End of populateAircraftInfoWindow
 
 /**
