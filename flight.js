@@ -121,25 +121,11 @@ function applyTrafficHighlighting() {
         sectorOpsMap.setLayoutProperty(
             'sector-ops-live-flights-layer', 
             'icon-image', 
-            getIconImageExpression(mapFilters.iconColorMode)
+            getIconImageExpression()
         );
 
         // --- NEW PREMIUM COLORS ---
-        const activeColor = (mapFilters.iconColorMode === 'default') ? mapFilters.proCustomColor : '#ffffff';
-        const userColor = '#fbbf24'; // Premium Amber/Gold for User
-        const friendColor = '#c084fc'; // Premium Amethyst/Purple for Watchlist
-
-        const iconColorExpression = [
-            'case',
-            ['==', ['get', 'pilotRelation'], 'user'], userColor,
-            ['==', ['get', 'pilotRelation'], 'watchlist'], friendColor,
-            ['match',
-                ['get', 'trafficType'],
-                'inbound', '#38bdf8', 
-                'outbound', '#f59e0b', 
-                activeColor 
-            ]
-        ];
+        const iconColorExpression = getPremiumColorExpression();
 
         sectorOpsMap.setPaintProperty(
             'sector-ops-live-flights-layer', 
@@ -171,7 +157,7 @@ function getIconImageExpression() {
 }
 
 function getHoverIconImageExpression() {
-    return ['concat', 'icon-', ['coalesce', ['get', 'category'], 'B737']];
+    return ['concat', 'icon-', ['coalesce', ['get', 'category'], 'B737'], '_S'];
 }
 
 document.addEventListener('DOMContentLoaded', async () => {
@@ -645,9 +631,11 @@ function scheduleMapSourceUpdate() {
 //   3. Airport traffic highlighting (inbound/outbound) when active
 //   4. Default active color from mapFilters
 function getPremiumColorExpression() {
-    const activeColor = (mapFilters.iconColorMode === 'default')
-        ? (mapFilters.proCustomColor || '#38bdf8')
-        : '#ffffff';
+    let activeColor = '#ffffff';
+    if (mapFilters.iconColorMode === 'default') activeColor = mapFilters.proCustomColor || '#38bdf8';
+    else if (mapFilters.iconColorMode === 'blue') activeColor = '#00a8ff';
+    else if (mapFilters.iconColorMode === 'orange') activeColor = '#ff9900';
+
     // User-configurable user/friend colors (with sensible fallbacks). These
     // are independent of the global "Custom Plane Color" setting — that only
     // controls the fallback color for everyone else.
@@ -5981,7 +5969,7 @@ function updateMapFilters() {
         sectorOpsMap.setLayoutProperty(
             'sector-ops-live-flights-layer', 
             'icon-image', 
-            getIconImageExpression(mapFilters.iconColorMode)
+            getIconImageExpression()
         );
         sectorOpsMap.setPaintProperty(
             'sector-ops-live-flights-layer', 
@@ -8916,7 +8904,7 @@ function applyTrafficHighlighting() {
         sectorOpsMap.setLayoutProperty(
             'sector-ops-live-flights-layer', 
             'icon-image', 
-            getIconImageExpression(mapFilters.iconColorMode)
+            getIconImageExpression()
         );
 
         // DYNAMIC COLOR RESOLUTION
@@ -9348,7 +9336,7 @@ function initializeAircraftLayer() {
                 'type': 'symbol',
                 'source': 'sector-ops-live-flights-source',
                 'layout': {
-                    'icon-image': getIconImageExpression(mapFilters.iconColorMode),
+                    'icon-image': getIconImageExpression(),
                     'icon-size': initialIconSize,
                     'icon-allow-overlap': true,
                     'icon-ignore-placement': true,
@@ -9485,34 +9473,6 @@ function initializeAircraftLayer() {
         }
     }
 
-function getIconImageExpression() {
-    return [
-        'let',
-        'baseCategory', ['coalesce', ['get', 'category'], 'B737'],
-        'colorSuffix', [
-            'match', ['get', 'trafficType'],
-            'inbound', '-blue',
-            'outbound', '-orange',
-            '' 
-        ],
-        ['concat', 'icon-', ['var', 'baseCategory'], ['var', 'colorSuffix']]
-    ];
-}
-
-// --- NEW: Forces the _S suffix for the phantom hover layer ---
-function getHoverIconImageExpression() {
-    return [
-        'let',
-        'baseCategory', ['coalesce', ['get', 'category'], 'B737'],
-        'colorSuffix', [
-            'match', ['get', 'trafficType'],
-            'inbound', '-blue',
-            'outbound', '-orange',
-            ''
-        ],
-        ['concat', 'icon-', ['var', 'baseCategory'], '_S', ['var', 'colorSuffix']]
-    ];
-}
 
 function formatDataForSimpleWindow(flightProps, plan, routePoints, communityData) {
     if (!flightProps) return null;
@@ -15194,7 +15154,10 @@ if (flatMapToggle) {
             saveFiltersToLocalStorage();
             // Re-render aircraft icons by updating layer property
             if (sectorOpsMap && sectorOpsMap.getLayer('sector-ops-live-flights-layer')) {
-                sectorOpsMap.setLayoutProperty('sector-ops-live-flights-layer', 'icon-image', getIconImageExpression(mapFilters.iconColorMode));
+                sectorOpsMap.setPaintProperty('sector-ops-live-flights-layer', 'icon-color', getPremiumColorExpression());
+                if (sectorOpsMap.getLayer('sector-ops-live-flights-hover-layer')) {
+                    sectorOpsMap.setPaintProperty('sector-ops-live-flights-hover-layer', 'icon-color', getPremiumColorExpression());
+                }
             }
         } else if (target.name === 'plan-display-mode') {
             mapFilters.planDisplayMode = target.value;

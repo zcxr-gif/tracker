@@ -466,13 +466,19 @@ export const LandingUI = {
             else this._activeFilters[id] = '';
         }
         this.refreshUI();
+        this.dispatchFilterUpdate();
     },
 
-    removeFilter(id) { delete this._activeFilters[id]; this.refreshUI(); },
+    removeFilter(id) {
+        delete this._activeFilters[id];
+        this.refreshUI();
+        this.dispatchFilterUpdate();
+    },
 
     updateFilterValue(id, value, subKey = null) {
         if (subKey) this._activeFilters[id] = { ...this._activeFilters[id], [subKey]: value };
         else this._activeFilters[id] = value;
+        this.dispatchFilterUpdate();
     },
 
     refreshUI() {
