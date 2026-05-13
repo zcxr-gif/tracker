@@ -1,0 +1,43 @@
+#!/bin/bash
+cat << 'DIFF' > flight_patch_2.diff
+<<<<<<< SEARCH
+function getHoverIconImageExpression() {
+    return ['concat', 'icon-', ['coalesce', ['get', 'category'], 'B737']];
+}
+=======
+function getHoverIconImageExpression() {
+    return ['concat', 'icon-', ['coalesce', ['get', 'category'], 'B737'], '_S'];
+}
+>>>>>>> REPLACE
+<<<<<<< SEARCH
+function getIconImageExpression() {
+    return [
+        'let',
+        'baseCategory', ['coalesce', ['get', 'category'], 'B737'],
+        'colorSuffix', [
+            'match', ['get', 'trafficType'],
+            'inbound', '-blue',
+            'outbound', '-orange',
+            ''
+        ],
+        ['concat', 'icon-', ['var', 'baseCategory'], ['var', 'colorSuffix']]
+    ];
+}
+
+// --- NEW: Forces the _S suffix for the phantom hover layer ---
+function getHoverIconImageExpression() {
+    return [
+        'let',
+        'baseCategory', ['coalesce', ['get', 'category'], 'B737'],
+        'colorSuffix', [
+            'match', ['get', 'trafficType'],
+            'inbound', '-blue',
+            'outbound', '-orange',
+            ''
+        ],
+        ['concat', 'icon-', ['var', 'baseCategory'], '_S', ['var', 'colorSuffix']]
+    ];
+}
+=======
+>>>>>>> REPLACE
+DIFF
