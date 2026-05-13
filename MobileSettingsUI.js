@@ -66,12 +66,22 @@ renderMobileContainer() {
                         <div class="m-settings-list">
                             <div class="m-setting-row is-pro-feature">
                                 <div class="m-row-left">
+                                    <i class="fa-solid fa-wand-magic-sparkles" style="color: #38bdf8;"></i>
+                                    <span>Custom Plane Color</span>
+                                </div>
+                                <div class="m-row-right">
+                                    <div class="pro-lock-badge"><i class="fa-solid fa-lock" style="font-size:0.6rem; margin-right:4px;"></i>PRO</div>
+                                    <input type="color" class="m-color-picker" data-setting="proCustomColor" value="#38bdf8" data-pro="true">
+                                </div>
+                            </div>
+                            <div class="m-setting-row is-pro-feature">
+                                <div class="m-row-left">
                                     <i class="fa-solid fa-plane" style="color: #fbbf24;"></i>
                                     <span>Tracked Flight Color</span>
                                 </div>
                                 <div class="m-row-right">
                                     <div class="pro-lock-badge"><i class="fa-solid fa-lock" style="font-size:0.6rem; margin-right:4px;"></i>PRO</div>
-                                    <input type="color" class="m-color-picker" data-setting="userFlightColor" value="#38bdf8" data-pro="true">
+                                    <input type="color" class="m-color-picker" data-setting="userPlaneColor" value="#f97316" data-pro="true">
                                 </div>
                             </div>
                             <div class="m-setting-row is-pro-feature">
@@ -81,7 +91,7 @@ renderMobileContainer() {
                                 </div>
                                 <div class="m-row-right">
                                     <div class="pro-lock-badge"><i class="fa-solid fa-lock" style="font-size:0.6rem; margin-right:4px;"></i>PRO</div>
-                                    <input type="color" class="m-color-picker" data-setting="watchlistColor" value="#f59e0b" data-pro="true">
+                                    <input type="color" class="m-color-picker" data-setting="friendPlaneColor" value="#c084fc" data-pro="true">
                                 </div>
                             </div>
                         </div>
