@@ -11181,11 +11181,18 @@ function initializeSectorOpsMap(centerICAO) {
         minZoom: 0,
         interactive: true,
         projection: mapFilters.useFlatMap ? 'mercator' : 'globe',
-        // --- PERFORMANCE & CACHING CONFIG ---
-        fadeDuration: 0,           // Instant rendering
-        maxTileCacheSize: 500,     // Broad tile caching
+        // --- SMOOTH ZOOM/RENDER CONFIG ---
+        // fadeDuration intentionally omitted — Mapbox's default 300 ms crossfade
+        // is what makes tiles dissolve in/out instead of popping. The previous
+        // `fadeDuration: 0` was the root cause of the "inorganic load-in/load-out"
+        // feel during zoom.
+        maxTileCacheSize: 2000,    // Keep more tiles cached so zooming back in is instant
+        prefetchZoomDelta: 4,      // Stretch cached low-res tiles to hide the empty grid while high-res loads
         crossSourceCollisions: false,
-        localIdeographFontFamily: "'Inter', 'sans-serif'"
+        trackResize: true,
+        performanceMetrics: false,
+        localIdeographFontFamily: "'Inter', 'sans-serif'",
+        preserveDrawingBuffer: false
         // [PERF FIX] Removed `preserveDrawingBuffer: true` — it forces an
         // extra GPU framebuffer copy on every frame and degrades FPS noticeably.
         // Only re-enable temporarily if you need to capture a screenshot via
