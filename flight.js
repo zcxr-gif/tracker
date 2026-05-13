@@ -11157,13 +11157,42 @@ async function setupMapLayersAndFog() {
 }
 
 /**
+ * Map-loader gate: keeps a scoped overlay over the map container until
+ * Mapbox reports `idle` (all visible tiles at the current zoom loaded
+ * and no pending transitions). Industry-standard pattern — users never
+ * see a half-loaded globe. Subsequent zooms rely on the constructor's
+ * `prefetchZoomDelta` + default crossfade to mask tile transitions, so
+ * the loader is NOT re-shown on user-driven zoom.
+ */
+let _sectorOpsMapLoaderSafetyTimer = null;
+function showSectorOpsMapLoader() {
+    const el = document.getElementById('sector-ops-map-loader');
+    if (!el) return;
+    el.classList.remove('is-hidden');
+}
+function hideSectorOpsMapLoader() {
+    const el = document.getElementById('sector-ops-map-loader');
+    if (!el || el.classList.contains('is-hidden')) return;
+    el.classList.add('is-hidden');
+    if (_sectorOpsMapLoaderSafetyTimer) {
+        clearTimeout(_sectorOpsMapLoaderSafetyTimer);
+        _sectorOpsMapLoaderSafetyTimer = null;
+    }
+}
+
+/**
  * [UPDATED] Initializes the Sector Ops map with high-performance configurations.
  */
 function initializeSectorOpsMap(centerICAO) {
     if (!MAPBOX_ACCESS_TOKEN) {
+        hideSectorOpsMapLoader();
         document.getElementById('sector-ops-map-fullscreen').innerHTML = '<p class="map-error-msg">Map service not available.</p>';
         return;
     }
+
+    // Reveal the loader before the map starts initializing so the user never
+    // sees the empty container or a half-rendered globe.
+    showSectorOpsMapLoader();
 
     if (sectorOpsMap) {
         sectorOpsMap.remove();
@@ -11181,27 +11210,55 @@ function initializeSectorOpsMap(centerICAO) {
         minZoom: 0,
         interactive: true,
         projection: mapFilters.useFlatMap ? 'mercator' : 'globe',
-        // --- PERFORMANCE & CACHING CONFIG ---
-        fadeDuration: 0,           // Instant rendering
-        maxTileCacheSize: 500,     // Broad tile caching
+        // --- SMOOTH ZOOM/RENDER CONFIG ---
+        // fadeDuration intentionally omitted — Mapbox's default 300 ms crossfade
+        // is what makes tiles dissolve in/out instead of popping. The previous
+        // `fadeDuration: 0` was the root cause of the "inorganic load-in/load-out"
+        // feel during zoom.
+        maxTileCacheSize: 2000,    // Keep more tiles cached so zooming back in is instant
+        prefetchZoomDelta: 4,      // Stretch cached low-res tiles to hide the empty grid while high-res loads
         crossSourceCollisions: false,
-        localIdeographFontFamily: "'Inter', 'sans-serif'"
+        trackResize: true,
+        performanceMetrics: false,
+        localIdeographFontFamily: "'Inter', 'sans-serif'",
+        preserveDrawingBuffer: false
         // [PERF FIX] Removed `preserveDrawingBuffer: true` — it forces an
         // extra GPU framebuffer copy on every frame and degrades FPS noticeably.
         // Only re-enable temporarily if you need to capture a screenshot via
         // map.getCanvas().toDataURL().
     });
 
+    // --- Loader gate: hide the overlay only once the map is truly ready ---
+    // `idle` fires when every tile in the viewport is loaded, the style is
+    // applied, and there are no pending transitions. This is the canonical
+    // Mapbox readiness signal — used by FlightRadar24 and similar apps.
+    sectorOpsMap.once('idle', () => {
+        hideSectorOpsMapLoader();
+    });
+    // Safety net: if the network stalls or `idle` never fires, reveal the
+    // map anyway after 12s rather than leaving the user staring at a spinner.
+    if (_sectorOpsMapLoaderSafetyTimer) clearTimeout(_sectorOpsMapLoaderSafetyTimer);
+    _sectorOpsMapLoaderSafetyTimer = setTimeout(() => {
+        console.warn('Sector Ops map: idle event never fired within 12s — revealing map anyway.');
+        hideSectorOpsMapLoader();
+    }, 12000);
+
     sectorOpsMap.on('style.load', async () => {
     console.log("Map style reloading. Rebuilding layers...");
+    // Re-cover the map while layers rebuild after a style swap, then drop
+    // the loader on the next idle. Without this, switching between dark/
+    // satellite/etc. exposes a half-themed map for ~300 ms.
+    showSectorOpsMapLoader();
+    sectorOpsMap.once('idle', () => hideSectorOpsMapLoader());
+
     await setupMapLayersAndFog();
-    
+
     // --- NEW: Apply Pro Layer Filters on Style Load ---
     if (typeof updateBaseMapLayerVisibility === 'function') {
         // Small timeout ensures Mapbox has fully parsed the style layers
         setTimeout(updateBaseMapLayerVisibility, 500);
     }
-    
+
     if (typeof rebuildDynamicLayers !== 'undefined') rebuildDynamicLayers();
 });
 
