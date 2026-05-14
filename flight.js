@@ -5787,6 +5787,81 @@ function buildSyntheticFeature(flightLike, communityImageUrl) {
     };
 }
 
+// Visible "Opening shared flight…" overlay so the user gets immediate feedback
+// during the 5–10s window between page boot and the live socket populating.
+// Removed automatically once the flight info window opens, or replaced with a
+// friendlier failure message after the budget expires.
+function showShareLoadingOverlay() {
+    if (typeof document === 'undefined') return null;
+    if (document.getElementById('inflight-share-loading-overlay')) {
+        return document.getElementById('inflight-share-loading-overlay');
+    }
+    const overlay = document.createElement('div');
+    overlay.id = 'inflight-share-loading-overlay';
+    overlay.setAttribute('role', 'status');
+    overlay.setAttribute('aria-live', 'polite');
+    overlay.innerHTML = `
+        <style>
+            #inflight-share-loading-overlay {
+                position: fixed; inset: 0; z-index: 99999;
+                display: flex; align-items: center; justify-content: center;
+                background: radial-gradient(circle at center, rgba(10,15,31,0.92), rgba(10,15,31,0.97));
+                backdrop-filter: blur(6px); -webkit-backdrop-filter: blur(6px);
+                font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+                color: #e5e7eb;
+                animation: inflight-share-overlay-in 180ms ease-out;
+            }
+            #inflight-share-loading-overlay .panel {
+                max-width: 320px; padding: 28px 32px; text-align: center;
+                background: linear-gradient(180deg, rgba(56,189,248,0.08), rgba(15,23,42,0));
+                border: 1px solid rgba(255,255,255,0.08);
+                border-radius: 16px;
+                box-shadow: 0 12px 40px rgba(0,0,0,0.45);
+            }
+            #inflight-share-loading-overlay .spinner {
+                width: 44px; height: 44px; margin: 0 auto 16px;
+                border-radius: 50%;
+                border: 3px solid rgba(56,189,248,0.18);
+                border-top-color: #38bdf8;
+                animation: inflight-share-spin 0.9s linear infinite;
+            }
+            #inflight-share-loading-overlay h2 { margin: 0 0 6px; font-size: 1.05rem; font-weight: 700; letter-spacing: 0.2px; }
+            #inflight-share-loading-overlay p { margin: 0; color: #94a3b8; font-size: 0.85rem; line-height: 1.4; }
+            #inflight-share-loading-overlay.fade-out { animation: inflight-share-overlay-out 200ms ease-in forwards; }
+            @keyframes inflight-share-spin { to { transform: rotate(360deg); } }
+            @keyframes inflight-share-overlay-in { from { opacity: 0; } to { opacity: 1; } }
+            @keyframes inflight-share-overlay-out { from { opacity: 1; } to { opacity: 0; } }
+        </style>
+        <div class="panel">
+            <div class="spinner"></div>
+            <h2 data-share-overlay-title>Opening shared flight…</h2>
+            <p data-share-overlay-msg>Connecting to the live feed.</p>
+        </div>
+    `;
+    document.body.appendChild(overlay);
+    return overlay;
+}
+
+function updateShareLoadingOverlay(title, msg) {
+    const overlay = document.getElementById('inflight-share-loading-overlay');
+    if (!overlay) return;
+    if (title) {
+        const t = overlay.querySelector('[data-share-overlay-title]');
+        if (t) t.textContent = title;
+    }
+    if (msg) {
+        const m = overlay.querySelector('[data-share-overlay-msg]');
+        if (m) m.textContent = msg;
+    }
+}
+
+function dismissShareLoadingOverlay() {
+    const overlay = document.getElementById('inflight-share-loading-overlay');
+    if (!overlay) return;
+    overlay.classList.add('fade-out');
+    setTimeout(() => { try { overlay.remove(); } catch (_) {} }, 220);
+}
+
 async function consumeShareLinkParam() {
     if (typeof window === 'undefined' || !window.location) return;
     let params;
@@ -5832,6 +5907,15 @@ async function consumeShareLinkParam() {
         window.history.replaceState({}, '', newUrl);
     } catch (_) { /* non-fatal */ }
 
+    // A pending payload means the share function couldn't confirm the flight
+    // server-side. We still know the flightId — keep searching client-side.
+    const hasUsableSnapshot = !!(sharePayload && sharePayload.flight);
+
+    // Show the loading overlay immediately so the user knows the click worked.
+    // (Skipped if the snapshot is good enough to open instantly below — the
+    // flight info window itself is the feedback in that case.)
+    if (!hasUsableSnapshot) showShareLoadingOverlay();
+
     // If the share landed us on a different server than the flight is on,
     // hop over before we start listening. switchServer() resets state cleanly.
     if (sharedServer && typeof currentServerName !== 'undefined' && sharedServer !== currentServerName) {
@@ -5869,6 +5953,7 @@ async function consumeShareLinkParam() {
             if (typeof handleAircraftClick === 'function') {
                 await handleAircraftClick(flightProps, sessionId);
                 opened = true;
+                dismissShareLoadingOverlay();
                 return true;
             }
         } catch (err) {
@@ -5886,9 +5971,11 @@ async function consumeShareLinkParam() {
         }
     };
 
-    // 1) Open IMMEDIATELY from the share payload if we have one. This is the
-    //    "the instant the user jumps in" path — no waiting on the socket.
-    if (sharePayload) {
+    // 1) Open IMMEDIATELY from the share payload if we have one with real
+    //    position data. This is the "the instant the user jumps in" path —
+    //    no waiting on the socket. Pending payloads (no flight body) skip
+    //    this and rely on the polling/retry loop below.
+    if (hasUsableSnapshot) {
         const synthetic = buildSyntheticFeature(sharePayload.flight, sharePayload.communityImageUrl);
         if (synthetic) {
             await waitForUi();
@@ -5896,8 +5983,18 @@ async function consumeShareLinkParam() {
         }
     }
 
-    // 2) Direct ACARS API lookup across sessions, in parallel with the socket.
-    const fetchFlightDirect = async () => {
+    // Make sure the info-window element exists before we start trying to open
+    // from socket data, so the first hit lands cleanly.
+    if (!opened) await waitForUi();
+
+    // 2) Direct ACARS REST lookup across sessions, retried periodically. A
+    //    fresh flight can take a few seconds to surface in the REST endpoint
+    //    even when the socket already sees it, so one-shot isn't enough.
+    let directHit = null;
+    let directInFlight = false;
+    const tryDirectLookup = async () => {
+        if (directInFlight || directHit || opened) return null;
+        directInFlight = true;
         try {
             const sessionsRes = await fetch('https://site--acars-backend--6dmjph8ltlhv.code.run/if-sessions');
             if (!sessionsRes.ok) return null;
@@ -5905,7 +6002,7 @@ async function consumeShareLinkParam() {
             const sessions = Array.isArray(sessionsJson?.sessions) ? sessionsJson.sessions : [];
             if (!sessions.length) return null;
 
-            const target = (typeof currentServerName !== 'undefined') ? currentServerName.toLowerCase() : '';
+            const target = (typeof currentServerName !== 'undefined' && currentServerName) ? currentServerName.toLowerCase() : '';
             const ordered = [...sessions].sort((a, b) => {
                 const an = (a?.name || '').toLowerCase();
                 const bn = (b?.name || '').toLowerCase();
@@ -5916,6 +6013,7 @@ async function consumeShareLinkParam() {
 
             for (const session of ordered) {
                 if (!session?.id) continue;
+                if (opened || directHit) return null;
                 try {
                     const flightsRes = await fetch(`https://site--acars-backend--6dmjph8ltlhv.code.run/flights/${session.id}`);
                     if (!flightsRes.ok) continue;
@@ -5927,62 +6025,84 @@ async function consumeShareLinkParam() {
                     if (session.name && typeof switchServer === 'function' && session.name !== currentServerName) {
                         switchServer(session.name);
                     }
-                    return { feature: buildSyntheticFeature(match, sharePayload?.communityImageUrl), server: session.name || '' };
+                    directHit = { feature: buildSyntheticFeature(match, sharePayload?.communityImageUrl), server: session.name || '' };
+                    return directHit;
                 } catch (_) { /* try next session */ }
             }
         } catch (err) {
             console.warn('consumeShareLinkParam: direct fetch failed', err);
+        } finally {
+            directInFlight = false;
         }
         return null;
     };
 
-    const directPromise = fetchFlightDirect();
+    // Fire the first REST attempt right away so it runs in parallel with the
+    // socket boot. Subsequent attempts are scheduled inside the poll loop.
+    tryDirectLookup();
 
-    // 3) Poll the live socket cache. If we already opened from the payload,
-    //    just upgrade with the freshest socket data the moment it arrives.
-    //    Otherwise this is our primary open path.
+    // 3) Poll the live socket cache (primary path once the socket is up) AND
+    //    re-fire the REST lookup every few seconds to catch the case where
+    //    the socket and REST are both lagging.
     const POLL_INTERVAL_MS = 500;
-    const TOTAL_BUDGET_MS = 45000;
+    const REST_RETRY_INTERVAL_MS = 4000;
+    const TOTAL_BUDGET_MS = 60000;
     const startedAt = Date.now();
+    let lastRestAttemptAt = Date.now();
+    let progressed = false;
+
     while (Date.now() - startedAt < TOTAL_BUDGET_MS) {
+        if (opened && (typeof currentMapFeatures !== 'undefined') && currentMapFeatures[effectiveFlightId]) {
+            // Window is up and the socket is now driving updates — we're done.
+            dismissShareLoadingOverlay();
+            return;
+        }
+
         const feature = (typeof currentMapFeatures !== 'undefined') ? currentMapFeatures[effectiveFlightId] : null;
         if (feature && feature.properties && !opened) {
             await openFromFeature(feature, { seedCache: false });
             return;
         }
-        if (feature && feature.properties && opened) {
-            // Already opened from payload; the socket is now driving updates —
-            // handleAircraftClick subscribers / updateTripCardRealtime will
-            // pick up the rest. We're done.
+
+        if (directHit && directHit.feature && !opened) {
+            await openFromFeature(directHit.feature);
             return;
         }
-        const directNow = await Promise.race([directPromise, Promise.resolve(undefined)]);
-        if (directNow && directNow.feature && !opened) {
-            await openFromFeature(directNow.feature);
-            return;
+
+        // Re-try the REST lookup periodically while we wait.
+        if (!directHit && !directInFlight && Date.now() - lastRestAttemptAt >= REST_RETRY_INTERVAL_MS) {
+            lastRestAttemptAt = Date.now();
+            tryDirectLookup();
         }
-        if (opened) {
-            // Payload was good and the window is up. Just let the socket take
-            // over from here without spamming the poll.
-            return;
+
+        // Once the live feed starts producing features, update the overlay so
+        // the user knows we're actively searching the cache rather than stuck.
+        if (!progressed && typeof currentMapFeatures !== 'undefined' && Object.keys(currentMapFeatures).length > 0) {
+            progressed = true;
+            updateShareLoadingOverlay(null, 'Live feed online — locating flight…');
         }
+
         await new Promise(r => setTimeout(r, POLL_INTERVAL_MS));
     }
 
-    // 4) Last-ditch: wait for the direct lookup to fully settle.
-    try {
-        const finalDirect = await directPromise;
-        if (finalDirect && finalDirect.feature && !opened) {
-            await openFromFeature(finalDirect.feature);
-            return;
+    // 4) Budget exhausted. One last check before declaring defeat.
+    if (!opened) {
+        const lateFeature = (typeof currentMapFeatures !== 'undefined') ? currentMapFeatures[effectiveFlightId] : null;
+        if (lateFeature && lateFeature.properties) {
+            await openFromFeature(lateFeature, { seedCache: false });
+        } else if (directHit && directHit.feature) {
+            await openFromFeature(directHit.feature);
         }
-    } catch (_) { /* ignore */ }
+    }
 
-    // Only warn if we genuinely couldn't open anything. If the payload
+    // Only warn if we genuinely couldn't open anything. If the snapshot
     // already put the window up, the user is looking at the flight — don't
     // contradict that with a "flight ended" toast.
-    if (!opened && typeof showNotification === 'function') {
-        showNotification('Shared flight has ended or is no longer live.', 'warning');
+    if (!opened) {
+        dismissShareLoadingOverlay();
+        if (typeof showNotification === 'function') {
+            showNotification("Couldn't load this flight — the pilot may have signed off.", 'warning');
+        }
     }
 }
 
