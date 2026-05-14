@@ -125,6 +125,34 @@ function buildPage({ siteOrigin, flightId, flight, serverName, imageUrl, isCrawl
     const altitude = Math.round(flight?.position?.alt_ft || flight?.altitude || 0);
     const speed = Math.round(flight?.position?.gs_kt || flight?.groundSpeed || 0);
 
+    // Payload the main app reads from sessionStorage so it can open the flight
+    // info window the instant the page loads, without waiting on the websocket.
+    // We pass the live position we already fetched here as a starting point —
+    // the live socket overwrites it the moment its first packet arrives.
+    const handoffPayload = {
+        flightId,
+        serverName: serverName || '',
+        capturedAt: Date.now(),
+        flight: {
+            flightId: flight?.flightId || flightId,
+            callsign: flight?.callsign || null,
+            username: flight?.username || null,
+            virtualOrgName: flight?.virtualOrgName || null,
+            departureIcao: flight?.departureIcao || null,
+            arrivalIcao: flight?.arrivalIcao || null,
+            aircraftName: acData.aircraftName || flight?.aircraftName || null,
+            liveryName: acData.liveryName || flight?.liveryName || null,
+            registration: acData.registration || flight?.registration || null,
+            userId: flight?.userId || null,
+            isStaff: !!flight?.isStaff,
+            isVAMember: !!flight?.isVAMember,
+            pilotState: flight?.pilotState ?? null,
+            position: flight?.position || null,
+            aircraft: acData || null
+        },
+        communityImageUrl: imageUrl || null
+    };
+
     const title = `${callsign} · ${dep} → ${arr}`;
     const descBits = [`Flown by ${username}`, `${acName}${livName ? ' · ' + livName : ''}`];
     if (altitude > 0) descBits.push(`FL${String(Math.round(altitude / 100)).padStart(3, '0')}`);
@@ -208,7 +236,14 @@ ${metaRefresh}
       </div>
     </div>
   </div>
-  <script>window.location.replace(${JSON.stringify(appUrl)});</script>
+  <script>
+    // Hand off the flight payload to the main app via sessionStorage so the
+    // flight info window can open instantly — no waiting on the websocket.
+    try {
+      sessionStorage.setItem('inflight_share_payload', ${JSON.stringify(JSON.stringify(handoffPayload))});
+    } catch (_) { /* private mode etc — non-fatal */ }
+    window.location.replace(${JSON.stringify(appUrl)});
+  </script>
 </body>
 </html>`;
 }

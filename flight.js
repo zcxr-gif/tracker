@@ -5745,21 +5745,85 @@ async function shareCurrentFlight(triggerBtn = null) {
 window.shareCurrentFlight = shareCurrentFlight;
 
 // --- INCOMING SHARE LINK ---
-// If the user landed on the page via /?flight=<id>[&server=<name>] (set
-// either directly or by /share/<id> redirecting), make sure we're watching
-// the right server, then either pick up the flight from the live socket feed
-// or pull it straight from the ACARS API as a fallback. Once we have it,
-// auto-open the flight info window.
-async function consumeShareLinkParam() {
-    if (typeof window === 'undefined' || !window.location || !window.location.search) return;
-    let params;
-    try { params = new URLSearchParams(window.location.search); } catch (_) { return; }
-    const flightId = params.get('flight');
-    if (!flightId) return;
-    const sharedServer = params.get('server');
+// Goal: when the user follows /share/<id> the flight info window must appear
+// the *instant* the app loads — not "after the websocket reconnects, then
+// after currentServerName matches, then after the next push". The share
+// function writes a payload to sessionStorage before redirecting, so we can
+// open the window from that snapshot immediately and let the socket / direct
+// API refresh it in the background.
+function buildSyntheticFeature(flightLike, communityImageUrl) {
+    if (!flightLike) return null;
+    const pos = flightLike.position || {};
+    const lat = pos.lat ?? pos.latitude;
+    const lon = pos.lon ?? pos.longitude;
+    if (lat == null || lon == null) return null;
+    const ac = flightLike.aircraft || {};
+    return {
+        type: 'Feature',
+        geometry: { type: 'Point', coordinates: [lon, lat] },
+        properties: {
+            flightId: flightLike.flightId,
+            callsign: flightLike.callsign || null,
+            username: flightLike.username || null,
+            altitude: pos.alt_ft || 0,
+            speed: pos.gs_kt || 0,
+            verticalSpeed: pos.vs_fpm || 0,
+            position: pos,
+            aircraft: ac,
+            aircraftName: ac.aircraftName || flightLike.aircraftName || '',
+            liveryName: ac.liveryName || flightLike.liveryName || '',
+            registration: ac.registration || flightLike.registration || '',
+            arrivalIcao: flightLike.arrivalIcao || null,
+            departureIcao: flightLike.departureIcao || null,
+            userId: flightLike.userId || null,
+            heading: pos.heading_deg || 0,
+            isStaff: !!flightLike.isStaff,
+            isVAMember: !!flightLike.isVAMember,
+            pilotState: flightLike.pilotState ?? null,
+            communityImageUrl: communityImageUrl || null,
+            contributorName: null,
+            tailNumber: null
+        }
+    };
+}
 
-    // Strip the params so a refresh doesn't re-trigger and so the URL stays clean
-    // once the window is open. Keep history in sync without a navigation.
+async function consumeShareLinkParam() {
+    if (typeof window === 'undefined' || !window.location) return;
+    let params;
+    try { params = new URLSearchParams(window.location.search || ''); } catch (_) { params = new URLSearchParams(); }
+    const flightId = params.get('flight');
+    let sharedServer = params.get('server');
+
+    // Load any sessionStorage handoff the share function dropped for us.
+    let sharePayload = null;
+    try {
+        const raw = sessionStorage.getItem('inflight_share_payload');
+        if (raw) {
+            const parsed = JSON.parse(raw);
+            // Only honour payloads recent enough to plausibly still be live,
+            // and only for the flight we actually navigated to.
+            if (parsed && (!flightId || parsed.flightId === flightId) &&
+                (!parsed.capturedAt || Date.now() - parsed.capturedAt < 10 * 60 * 1000)) {
+                sharePayload = parsed;
+                if (!sharedServer && parsed.serverName) sharedServer = parsed.serverName;
+            }
+            sessionStorage.removeItem('inflight_share_payload');
+        }
+    } catch (_) { /* private mode etc */ }
+
+    const effectiveFlightId = flightId || sharePayload?.flightId;
+    if (!effectiveFlightId) return;
+
+    // Make sure the Inflight Pro upsell modal doesn't steal focus from the
+    // flight info window. Remove it if the IIFE managed to slip it in before
+    // our share check could fire.
+    try {
+        const proOverlay = document.getElementById('inflight-pro-loader-overlay');
+        if (proOverlay) proOverlay.remove();
+    } catch (_) { /* non-fatal */ }
+
+    // Strip the share params so a refresh doesn't re-trigger and so the URL
+    // stays clean once the window is open.
     try {
         params.delete('flight');
         params.delete('server');
@@ -5769,13 +5833,11 @@ async function consumeShareLinkParam() {
     } catch (_) { /* non-fatal */ }
 
     // If the share landed us on a different server than the flight is on,
-    // hop over. switchServer() resets currentMapFeatures, so it's safe to
-    // call before we start polling.
+    // hop over before we start listening. switchServer() resets state cleanly.
     if (sharedServer && typeof currentServerName !== 'undefined' && sharedServer !== currentServerName) {
         try {
-            if (typeof switchServer === 'function') {
-                switchServer(sharedServer);
-            } else {
+            if (typeof switchServer === 'function') switchServer(sharedServer);
+            else {
                 currentServerName = sharedServer;
                 try { localStorage.setItem('preferredServer', sharedServer); } catch (_) {}
             }
@@ -5784,28 +5846,57 @@ async function consumeShareLinkParam() {
         }
     }
 
-    const openFromFeature = async (feature) => {
+    let opened = false;
+    const openFromFeature = async (feature, { seedCache = true } = {}) => {
+        if (!feature || !feature.properties) return false;
         try {
-            const props = feature.properties || {};
+            // Seed currentMapFeatures so the rest of the UI (trip card, traffic
+            // counts, etc.) sees the flight even before the socket catches up.
+            if (seedCache && typeof currentMapFeatures !== 'undefined' &&
+                !currentMapFeatures[effectiveFlightId]) {
+                currentMapFeatures[effectiveFlightId] = feature;
+            }
+            const props = feature.properties;
             const flightProps = {
                 ...props,
                 position: typeof props.position === 'string' ? JSON.parse(props.position) : props.position,
                 aircraft: typeof props.aircraft === 'string' ? JSON.parse(props.aircraft) : props.aircraft
             };
             if (typeof sectorOpsMap !== 'undefined' && sectorOpsMap && feature.geometry?.coordinates) {
-                sectorOpsMap.flyTo({ center: feature.geometry.coordinates, zoom: 7, essential: true });
+                try { sectorOpsMap.flyTo({ center: feature.geometry.coordinates, zoom: 7, essential: true }); } catch (_) {}
             }
             const sessionId = (typeof getValidSessionId === 'function') ? await getValidSessionId() : 'default';
             if (typeof handleAircraftClick === 'function') {
-                handleAircraftClick(flightProps, sessionId);
+                await handleAircraftClick(flightProps, sessionId);
+                opened = true;
+                return true;
             }
         } catch (err) {
             console.warn('consumeShareLinkParam: failed to open flight', err);
         }
+        return false;
     };
 
-    // Fallback: hit the ACARS API directly so a slow/missed socket update
-    // doesn't strand the share. Returns a synthetic feature on success.
+    // Wait briefly for the DOM bits handleAircraftClick depends on. We don't
+    // want to fire it before #aircraft-info-window exists.
+    const waitForUi = async () => {
+        for (let i = 0; i < 50; i++) { // ~5s budget
+            if (document.getElementById('aircraft-info-window')) return;
+            await new Promise(r => setTimeout(r, 100));
+        }
+    };
+
+    // 1) Open IMMEDIATELY from the share payload if we have one. This is the
+    //    "the instant the user jumps in" path — no waiting on the socket.
+    if (sharePayload) {
+        const synthetic = buildSyntheticFeature(sharePayload.flight, sharePayload.communityImageUrl);
+        if (synthetic) {
+            await waitForUi();
+            await openFromFeature(synthetic);
+        }
+    }
+
+    // 2) Direct ACARS API lookup across sessions, in parallel with the socket.
     const fetchFlightDirect = async () => {
         try {
             const sessionsRes = await fetch('https://site--acars-backend--6dmjph8ltlhv.code.run/if-sessions');
@@ -5814,8 +5905,6 @@ async function consumeShareLinkParam() {
             const sessions = Array.isArray(sessionsJson?.sessions) ? sessionsJson.sessions : [];
             if (!sessions.length) return null;
 
-            // Prefer the session that matches our (possibly just-switched) server,
-            // then try the rest so a stale/mis-tagged share still resolves.
             const target = (typeof currentServerName !== 'undefined') ? currentServerName.toLowerCase() : '';
             const ordered = [...sessions].sort((a, b) => {
                 const an = (a?.name || '').toLowerCase();
@@ -5832,44 +5921,14 @@ async function consumeShareLinkParam() {
                     if (!flightsRes.ok) continue;
                     const flightsJson = await flightsRes.json();
                     const flights = flightsJson?.flights || flightsJson?.data || (Array.isArray(flightsJson) ? flightsJson : []);
-                    const match = flights.find(f => f && f.flightId === flightId);
+                    const match = flights.find(f => f && f.flightId === effectiveFlightId);
                     if (!match || !match.position || match.position.lat == null || match.position.lon == null) continue;
 
-                    // If the flight lives on a different session than we're on,
-                    // hop servers so the rest of the UI lines up.
                     if (session.name && typeof switchServer === 'function' && session.name !== currentServerName) {
                         switchServer(session.name);
                     }
-
-                    const ac = match.aircraft || {};
-                    return {
-                        type: 'Feature',
-                        geometry: {
-                            type: 'Point',
-                            coordinates: [match.position.lon, match.position.lat]
-                        },
-                        properties: {
-                            flightId: match.flightId,
-                            callsign: match.callsign,
-                            username: match.username,
-                            altitude: match.position.alt_ft,
-                            speed: match.position.gs_kt || 0,
-                            verticalSpeed: match.position.vs_fpm || 0,
-                            position: match.position,
-                            aircraft: ac,
-                            aircraftName: ac.aircraftName || match.aircraftName || '',
-                            liveryName: ac.liveryName || match.liveryName || '',
-                            registration: ac.registration || '',
-                            arrivalIcao: match.arrivalIcao || null,
-                            departureIcao: match.departureIcao || null,
-                            userId: match.userId,
-                            heading: match.position.heading_deg,
-                            isStaff: match.isStaff,
-                            isVAMember: match.isVAMember,
-                            pilotState: match.pilotState
-                        }
-                    };
-                } catch (err) { /* try next session */ }
+                    return { feature: buildSyntheticFeature(match, sharePayload?.communityImageUrl), server: session.name || '' };
+                } catch (_) { /* try next session */ }
             }
         } catch (err) {
             console.warn('consumeShareLinkParam: direct fetch failed', err);
@@ -5877,37 +5936,52 @@ async function consumeShareLinkParam() {
         return null;
     };
 
-    // Poll the live cache (filled by the socket) for ~30s. Also fire a direct
-    // API lookup in parallel so we don't have to wait the full window if the
-    // socket is slow to catch up.
-    const MAX_ATTEMPTS = 30;
-    let directPromise = fetchFlightDirect();
-    let directResult = null;
-    directPromise.then(r => { directResult = r; }).catch(() => {});
+    const directPromise = fetchFlightDirect();
 
-    for (let attempt = 0; attempt < MAX_ATTEMPTS; attempt++) {
-        const feature = (typeof currentMapFeatures !== 'undefined') ? currentMapFeatures[flightId] : null;
-        if (feature && feature.properties) {
-            await openFromFeature(feature);
+    // 3) Poll the live socket cache. If we already opened from the payload,
+    //    just upgrade with the freshest socket data the moment it arrives.
+    //    Otherwise this is our primary open path.
+    const POLL_INTERVAL_MS = 500;
+    const TOTAL_BUDGET_MS = 45000;
+    const startedAt = Date.now();
+    while (Date.now() - startedAt < TOTAL_BUDGET_MS) {
+        const feature = (typeof currentMapFeatures !== 'undefined') ? currentMapFeatures[effectiveFlightId] : null;
+        if (feature && feature.properties && !opened) {
+            await openFromFeature(feature, { seedCache: false });
             return;
         }
-        if (directResult) {
-            await openFromFeature(directResult);
+        if (feature && feature.properties && opened) {
+            // Already opened from payload; the socket is now driving updates —
+            // handleAircraftClick subscribers / updateTripCardRealtime will
+            // pick up the rest. We're done.
             return;
         }
-        await new Promise(r => setTimeout(r, 1000));
+        const directNow = await Promise.race([directPromise, Promise.resolve(undefined)]);
+        if (directNow && directNow.feature && !opened) {
+            await openFromFeature(directNow.feature);
+            return;
+        }
+        if (opened) {
+            // Payload was good and the window is up. Just let the socket take
+            // over from here without spamming the poll.
+            return;
+        }
+        await new Promise(r => setTimeout(r, POLL_INTERVAL_MS));
     }
 
-    // Final chance: wait on the direct lookup if it's still pending.
+    // 4) Last-ditch: wait for the direct lookup to fully settle.
     try {
         const finalDirect = await directPromise;
-        if (finalDirect) {
-            await openFromFeature(finalDirect);
+        if (finalDirect && finalDirect.feature && !opened) {
+            await openFromFeature(finalDirect.feature);
             return;
         }
     } catch (_) { /* ignore */ }
 
-    if (typeof showNotification === 'function') {
+    // Only warn if we genuinely couldn't open anything. If the payload
+    // already put the window up, the user is looking at the flight — don't
+    // contradict that with a "flight ended" toast.
+    if (!opened && typeof showNotification === 'function') {
         showNotification('Shared flight has ended or is no longer live.', 'warning');
     }
 }
@@ -16180,7 +16254,24 @@ if (urlParams.get('auth') === 'signup') {
     const styleId = 'inflight-pro-loader-styles';
     const overlayId = 'inflight-pro-loader-overlay';
 
+    // Skip the Pro upsell when arriving from a share link — those users came
+    // to look at one specific flight, so dump them straight into it.
+    function arrivedFromShare() {
+        try {
+            if (typeof window === 'undefined') return false;
+            if (window.location && window.location.search) {
+                const params = new URLSearchParams(window.location.search);
+                if (params.get('flight')) return true;
+            }
+            if (typeof sessionStorage !== 'undefined' && sessionStorage.getItem('inflight_share_payload')) {
+                return true;
+            }
+        } catch (_) { /* non-fatal */ }
+        return false;
+    }
+
     function initInflightPro() {
+        if (arrivedFromShare()) return;
         if (document.getElementById(styleId) || document.getElementById(overlayId)) return;
 
         // Inject Styles immediately
