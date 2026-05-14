@@ -5390,8 +5390,19 @@ function toggleTripCardMode(active) {
                     </div>
 
                 </div>
+
+                <div style="position: relative; z-index: 1; padding: 0 20px 16px 20px; display: flex; gap: 10px; align-items: center; justify-content: flex-end;">
+                    <button class="tc-share-btn" type="button" style="display: inline-flex; align-items: center; gap: 8px; padding: 9px 14px; background: linear-gradient(135deg, #38bdf8, #a855f7); color: #fff; border: none; border-radius: 8px; cursor: pointer; font-size: 0.78rem; font-weight: 700; letter-spacing: 0.3px; box-shadow: 0 4px 14px rgba(56,189,248,0.35); transition: transform 0.15s ease, box-shadow 0.15s ease;" title="Share this flight">
+                        <i class="fa-solid fa-share-nodes"></i>
+                        <span class="tc-share-btn-label">Share Flight</span>
+                    </button>
+                </div>
             </div>
         `;
+
+        takeoverUI.querySelector('.tc-share-btn')?.addEventListener('click', () => {
+            shareCurrentFlight(takeoverUI.querySelector('.tc-share-btn'));
+        });
 
         takeoverUI.querySelector('.tc-exit-btn')?.addEventListener('click', () => {
             toggleTripCardMode(false);
@@ -5439,6 +5450,141 @@ function toggleTripCardMode(active) {
 }
 
 window.toggleTripCardMode = toggleTripCardMode;
+
+function buildFlightShareUrl(flightId) {
+    if (!flightId) return null;
+    const origin = (typeof window !== 'undefined' && window.location && window.location.origin) || '';
+    return `${origin}/share/${encodeURIComponent(flightId)}`;
+}
+
+async function shareCurrentFlight(triggerBtn = null) {
+    const flightId = currentFlightInWindow;
+    if (!flightId) {
+        if (typeof showNotification === 'function') showNotification('Open a flight first to share it.', 'error');
+        return;
+    }
+
+    const shareUrl = buildFlightShareUrl(flightId);
+    if (!shareUrl) return;
+
+    const feature = currentMapFeatures[flightId];
+    const props = feature?.properties || {};
+    const callsign = props.callsign || 'Live Flight';
+    const dep = props.departureIcao || '???';
+    const arr = props.arrivalIcao || '???';
+    const title = `${callsign} · ${dep} → ${arr}`;
+    const text = `Watch ${callsign} live on Indgo`;
+
+    const flashSuccess = (label) => {
+        if (!triggerBtn) return;
+        const lbl = triggerBtn.querySelector('.tc-share-btn-label');
+        const original = lbl ? lbl.textContent : null;
+        if (lbl) lbl.textContent = label;
+        triggerBtn.style.background = 'linear-gradient(135deg, #22c55e, #16a34a)';
+        setTimeout(() => {
+            if (lbl && original !== null) lbl.textContent = original;
+            triggerBtn.style.background = '';
+        }, 1600);
+    };
+
+    // Native share sheet on mobile / supported browsers.
+    if (typeof navigator !== 'undefined' && typeof navigator.share === 'function') {
+        try {
+            await navigator.share({ title, text, url: shareUrl });
+            flashSuccess('Shared!');
+            return;
+        } catch (err) {
+            // AbortError = user cancelled the sheet; treat as no-op without falling back.
+            if (err && err.name === 'AbortError') return;
+            // Otherwise fall through to clipboard.
+        }
+    }
+
+    // Clipboard fallback.
+    try {
+        if (navigator.clipboard && navigator.clipboard.writeText) {
+            await navigator.clipboard.writeText(shareUrl);
+        } else {
+            const tmp = document.createElement('textarea');
+            tmp.value = shareUrl;
+            tmp.setAttribute('readonly', '');
+            tmp.style.position = 'absolute';
+            tmp.style.left = '-9999px';
+            document.body.appendChild(tmp);
+            tmp.select();
+            document.execCommand('copy');
+            document.body.removeChild(tmp);
+        }
+        flashSuccess('Link copied!');
+        if (typeof showNotification === 'function') showNotification('Share link copied to clipboard.', 'success');
+    } catch (err) {
+        console.warn('shareCurrentFlight: clipboard failed', err);
+        if (typeof showNotification === 'function') showNotification('Could not copy link — try again.', 'error');
+    }
+}
+
+window.shareCurrentFlight = shareCurrentFlight;
+
+// --- INCOMING SHARE LINK ---
+// If the user landed on the page via /?flight=<id> (set either directly
+// or via a meta-refresh from /share/<id>), wait for live data to populate
+// and then auto-open that flight's info window. Polls a few times because
+// updateLiveFlights() runs on a 3s loop.
+async function consumeShareLinkParam() {
+    if (typeof window === 'undefined' || !window.location || !window.location.search) return;
+    let params;
+    try { params = new URLSearchParams(window.location.search); } catch (_) { return; }
+    const flightId = params.get('flight');
+    if (!flightId) return;
+
+    // Strip the param so a refresh doesn't re-trigger and so the URL stays clean
+    // once the window is open. Keep history in sync without a navigation.
+    try {
+        params.delete('flight');
+        const newQuery = params.toString();
+        const newUrl = window.location.pathname + (newQuery ? `?${newQuery}` : '') + window.location.hash;
+        window.history.replaceState({}, '', newUrl);
+    } catch (_) { /* non-fatal */ }
+
+    const MAX_ATTEMPTS = 20; // ~20s @ 1s polling
+    for (let attempt = 0; attempt < MAX_ATTEMPTS; attempt++) {
+        const feature = (typeof currentMapFeatures !== 'undefined') ? currentMapFeatures[flightId] : null;
+        if (feature && feature.properties) {
+            try {
+                const props = feature.properties;
+                const flightProps = {
+                    ...props,
+                    position: typeof props.position === 'string' ? JSON.parse(props.position) : props.position,
+                    aircraft: typeof props.aircraft === 'string' ? JSON.parse(props.aircraft) : props.aircraft
+                };
+                if (typeof sectorOpsMap !== 'undefined' && sectorOpsMap && feature.geometry?.coordinates) {
+                    sectorOpsMap.flyTo({ center: feature.geometry.coordinates, zoom: 7, essential: true });
+                }
+                const sessionId = (typeof getValidSessionId === 'function') ? await getValidSessionId() : 'default';
+                if (typeof handleAircraftClick === 'function') {
+                    handleAircraftClick(flightProps, sessionId);
+                }
+            } catch (err) {
+                console.warn('consumeShareLinkParam: failed to open flight', err);
+            }
+            return;
+        }
+        await new Promise(r => setTimeout(r, 1000));
+    }
+
+    if (typeof showNotification === 'function') {
+        showNotification('Shared flight has ended or is no longer live.', 'warning');
+    }
+}
+
+if (typeof window !== 'undefined') {
+    if (document.readyState === 'complete' || document.readyState === 'interactive') {
+        // Defer one tick so the rest of the bootstrap finishes wiring.
+        setTimeout(consumeShareLinkParam, 0);
+    } else {
+        window.addEventListener('load', () => setTimeout(consumeShareLinkParam, 0), { once: true });
+    }
+}
 
 function updateTripCardRealtime() {
     if (!currentFlightInWindow || !currentMapFeatures[currentFlightInWindow]) return;
