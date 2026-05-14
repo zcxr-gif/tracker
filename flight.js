@@ -10583,6 +10583,11 @@ renderCategory(catId) {
         const proColorInput = document.getElementById('set-pro-color');
         if (proColorInput) {
             proColorInput.addEventListener('input', (e) => {
+                // Force 'default' so a previously-selected Blue/Orange preset
+                // doesn't keep overriding the user's freshly picked color.
+                mapFilters.iconColorMode = 'default';
+                const radio = document.querySelector('input[name="icon-color-mode"][value="default"]');
+                if (radio) radio.checked = true;
                 update('proCustomColor', e.target.value);
             });
         }

@@ -276,6 +276,12 @@ refreshProLocks() {
                 if (e.target.closest('.locked')) return;
                 const setting = e.target.dataset.setting;
                 window.mapFilters[setting] = e.target.value;
+                // Picking a custom global color implies Default mode — otherwise
+                // a stale Blue/Orange preset would silently override it.
+                if (setting === 'proCustomColor') {
+                    window.mapFilters.iconColorMode = 'default';
+                }
+                if (window.saveFiltersToLocalStorage) window.saveFiltersToLocalStorage();
                 if (window.updateMapFilters) window.updateMapFilters();
             });
         });
