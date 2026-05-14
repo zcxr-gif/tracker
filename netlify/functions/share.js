@@ -21,11 +21,6 @@ const BRAND_TAGLINE = 'Inflight Live Flight Tracker';
 const BRAND_LOGO_PATH = '/Images/inflight.png';
 const PLANE_FALLBACK_PATH = '/CommunityPlanes/default.png';
 
-// IndiGo VA — every flight in the system is filtered server-side by the
-// callsign suffix "GO". The share lookup has to honor the same filter
-// or the flight won't appear in the response.
-const CALLSIGN_FILTER = 'GO';
-
 const fetchFn = (typeof fetch === 'function')
     ? fetch
     : (...args) => import('node-fetch').then(({ default: f }) => f(...args));
@@ -54,7 +49,7 @@ async function findFlight(flightId) {
         if (!expertSession || !expertSession.id) return null;
 
         const flightsRes = await fetchFn(
-            `${ACARS_FLIGHTS_BASE}/${expertSession.id}?callsignEndsWith=${CALLSIGN_FILTER}`,
+            `${ACARS_FLIGHTS_BASE}/${expertSession.id}`,
             { headers: { 'accept': 'application/json' } }
         );
         if (!flightsRes.ok) return null;
