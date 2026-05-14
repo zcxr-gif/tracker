@@ -89,6 +89,19 @@ async function findFlight(flightId) {
     return null;
 }
 
+// The ACARS REST endpoint lags the live socket by a few seconds, so a freshly
+// shared flight can be present on the socket but not yet listed via HTTP. Retry
+// a couple of times before giving up — this is the difference between a
+// link that "works" and one that dead-ends on a "Flight ended" page.
+async function findFlightWithRetry(flightId, { attempts = 3, delayMs = 1200 } = {}) {
+    for (let i = 0; i < attempts; i++) {
+        const hit = await findFlight(flightId);
+        if (hit) return hit;
+        if (i < attempts - 1) await new Promise(r => setTimeout(r, delayMs));
+    }
+    return null;
+}
+
 async function fetchAircraftImage(type, livery) {
     if (!type || !livery) return null;
     const url = `${COMMUNITY_LOOKUP_URL}?type=${encodeURIComponent(type)}&livery=${encodeURIComponent(livery)}`;
@@ -248,53 +261,96 @@ ${metaRefresh}
 </html>`;
 }
 
-function buildNotFoundPage({ siteOrigin, flightId, isCrawler }) {
-    const appUrl = `${siteOrigin}/`;
+// Handoff page used when the REST lookup missed (the flight may still be live
+// on the socket — REST just hasn't caught up yet). Crucially, this page always
+// preserves ?flight=<id> in the redirect so the client can keep polling for it,
+// and stashes a minimal payload in sessionStorage so consumeShareLinkParam
+// knows what to look for.
+//
+// For crawlers we serve brand-neutral OG tags ("Live flight on Inflight") so
+// Discord's link unfurl doesn't get cached with a misleading "Flight ended"
+// preview the next time someone shares the same link.
+function buildPendingHandoffPage({ siteOrigin, flightId, isCrawler }) {
     const brandLogo = absoluteUrl(siteOrigin, BRAND_LOGO_PATH);
     const fallbackImage = absoluteUrl(siteOrigin, PLANE_FALLBACK_PATH);
     const heroImage = fallbackImage || brandLogo;
     const heroType = guessImageType(heroImage);
-    const metaRefresh = isCrawler ? '' : `<meta http-equiv="refresh" content="3; url=${escapeAttr(appUrl)}">`;
+
+    const handoffPayload = flightId ? {
+        flightId,
+        serverName: '',
+        capturedAt: Date.now(),
+        flight: null,
+        communityImageUrl: null,
+        pending: true
+    } : null;
+
+    const appParams = new URLSearchParams();
+    if (flightId) appParams.set('flight', flightId);
+    const appUrl = `${siteOrigin}/${appParams.toString() ? '?' + appParams.toString() : ''}`;
+    const shareUrl = flightId
+        ? `${siteOrigin}/share/${encodeURIComponent(flightId)}`
+        : `${siteOrigin}/`;
+
+    // Crawlers must not follow the redirect — they need to parse OG tags only.
+    const metaRefresh = isCrawler
+        ? ''
+        : `<meta http-equiv="refresh" content="0; url=${escapeAttr(appUrl)}">`;
+
+    const ogTitle = `Live flight on ${BRAND_NAME}`;
+    const ogDescription = `Watch this live flight on ${BRAND_TAGLINE}.`;
+
     return `<!doctype html>
 <html lang="en">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Flight ended · ${escapeHtml(BRAND_NAME)}</title>
-<meta name="description" content="This live flight has ended or is no longer being tracked.">
+<title>Opening flight · ${escapeHtml(BRAND_NAME)}</title>
+<meta name="description" content="${escapeAttr(ogDescription)}">
 <meta name="theme-color" content="#38bdf8">
 
 <meta property="og:type" content="website">
 <meta property="og:site_name" content="${escapeAttr(BRAND_TAGLINE)}">
-<meta property="og:title" content="Flight ended">
-<meta property="og:description" content="This live flight has ended or is no longer being tracked. Open ${escapeAttr(BRAND_NAME)} to find another.">
+<meta property="og:title" content="${escapeAttr(ogTitle)}">
+<meta property="og:description" content="${escapeAttr(ogDescription)}">
+<meta property="og:url" content="${escapeAttr(shareUrl)}">
 <meta property="og:image" content="${escapeAttr(heroImage)}">
 <meta property="og:image:secure_url" content="${escapeAttr(heroImage)}">
 <meta property="og:image:width" content="1200">
 <meta property="og:image:height" content="630">
 ${heroType ? `<meta property="og:image:type" content="${escapeAttr(heroType)}">` : ''}
 <meta name="twitter:card" content="summary_large_image">
-<meta name="twitter:title" content="Flight ended">
-<meta name="twitter:description" content="This live flight has ended or is no longer being tracked.">
+<meta name="twitter:title" content="${escapeAttr(ogTitle)}">
+<meta name="twitter:description" content="${escapeAttr(ogDescription)}">
 <meta name="twitter:image" content="${escapeAttr(heroImage)}">
 
 <link rel="icon" href="${escapeAttr(brandLogo)}">
 ${metaRefresh}
 
 <style>
-  body { margin: 0; min-height: 100vh; display: flex; align-items: center; justify-content: center; background: #0a0f1f; color: #e5e7eb; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; padding: 24px; }
-  .card { max-width: 420px; text-align: center; }
-  h1 { margin: 0 0 8px; font-size: 1.4rem; }
-  p { color: #94a3b8; }
-  a { color: #38bdf8; text-decoration: none; font-weight: 700; }
+  html, body { margin: 0; padding: 0; background: #0a0f1f; color: #e5e7eb; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; min-height: 100vh; }
+  .wrap { display: flex; align-items: center; justify-content: center; min-height: 100vh; padding: 24px; box-sizing: border-box; }
+  .card { max-width: 360px; text-align: center; }
+  .spinner { width: 48px; height: 48px; margin: 0 auto 18px; border-radius: 50%; border: 3px solid rgba(56,189,248,0.18); border-top-color: #38bdf8; animation: spin 0.9s linear infinite; }
+  h1 { margin: 0 0 6px; font-size: 1.15rem; font-weight: 700; }
+  p { margin: 0; color: #94a3b8; font-size: 0.9rem; }
+  @keyframes spin { to { transform: rotate(360deg); } }
 </style>
 </head>
 <body>
-  <div class="card">
-    <h1>This flight has ended</h1>
-    <p>The flight <code>${escapeHtml(flightId || '')}</code> isn't live anymore.</p>
-    <p><a href="${escapeAttr(appUrl)}">Open ${escapeHtml(BRAND_NAME)} →</a></p>
+  <div class="wrap">
+    <div class="card">
+      <div class="spinner"></div>
+      <h1>Opening flight…</h1>
+      <p>Connecting to ${escapeHtml(BRAND_NAME)}.</p>
+    </div>
   </div>
+  <script>
+    try {
+      ${handoffPayload ? `sessionStorage.setItem('inflight_share_payload', ${JSON.stringify(JSON.stringify(handoffPayload))});` : ''}
+    } catch (_) { /* private mode etc — non-fatal */ }
+    window.location.replace(${JSON.stringify(appUrl)});
+  </script>
 </body>
 </html>`;
 }
@@ -311,22 +367,28 @@ exports.handler = async (event) => {
     if (!flightId) {
         return {
             statusCode: 400,
-            headers: { 'content-type': 'text/html; charset=utf-8' },
-            body: buildNotFoundPage({ siteOrigin, flightId: '', isCrawler })
+            headers: {
+                'content-type': 'text/html; charset=utf-8',
+                'cache-control': 'no-store'
+            },
+            body: buildPendingHandoffPage({ siteOrigin, flightId: '', isCrawler })
         };
     }
 
-    const result = await findFlight(flightId);
+    const result = await findFlightWithRetry(flightId);
     if (!result) {
+        // The REST endpoint sometimes lags the live socket. Do NOT return a
+        // "Flight ended" page here — the flight may still be live. Hand the
+        // user off to the app with ?flight=<id> preserved so the client can
+        // poll the socket. Never cache misses, otherwise the CDN poisons
+        // future clicks within the same window.
         return {
-            statusCode: 404,
+            statusCode: 200,
             headers: {
                 'content-type': 'text/html; charset=utf-8',
-                // Short cache so a flight that came back online isn't stuck
-                // on a "flight ended" embed in Discord for hours.
-                'cache-control': 'public, max-age=30, s-maxage=30'
+                'cache-control': 'no-store, no-cache, must-revalidate'
             },
-            body: buildNotFoundPage({ siteOrigin, flightId, isCrawler })
+            body: buildPendingHandoffPage({ siteOrigin, flightId, isCrawler })
         };
     }
 
