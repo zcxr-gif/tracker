@@ -5745,51 +5745,167 @@ async function shareCurrentFlight(triggerBtn = null) {
 window.shareCurrentFlight = shareCurrentFlight;
 
 // --- INCOMING SHARE LINK ---
-// If the user landed on the page via /?flight=<id> (set either directly
-// or via a meta-refresh from /share/<id>), wait for live data to populate
-// and then auto-open that flight's info window. Polls a few times because
-// updateLiveFlights() runs on a 3s loop.
+// If the user landed on the page via /?flight=<id>[&server=<name>] (set
+// either directly or by /share/<id> redirecting), make sure we're watching
+// the right server, then either pick up the flight from the live socket feed
+// or pull it straight from the ACARS API as a fallback. Once we have it,
+// auto-open the flight info window.
 async function consumeShareLinkParam() {
     if (typeof window === 'undefined' || !window.location || !window.location.search) return;
     let params;
     try { params = new URLSearchParams(window.location.search); } catch (_) { return; }
     const flightId = params.get('flight');
     if (!flightId) return;
+    const sharedServer = params.get('server');
 
-    // Strip the param so a refresh doesn't re-trigger and so the URL stays clean
+    // Strip the params so a refresh doesn't re-trigger and so the URL stays clean
     // once the window is open. Keep history in sync without a navigation.
     try {
         params.delete('flight');
+        params.delete('server');
         const newQuery = params.toString();
         const newUrl = window.location.pathname + (newQuery ? `?${newQuery}` : '') + window.location.hash;
         window.history.replaceState({}, '', newUrl);
     } catch (_) { /* non-fatal */ }
 
-    const MAX_ATTEMPTS = 20; // ~20s @ 1s polling
+    // If the share landed us on a different server than the flight is on,
+    // hop over. switchServer() resets currentMapFeatures, so it's safe to
+    // call before we start polling.
+    if (sharedServer && typeof currentServerName !== 'undefined' && sharedServer !== currentServerName) {
+        try {
+            if (typeof switchServer === 'function') {
+                switchServer(sharedServer);
+            } else {
+                currentServerName = sharedServer;
+                try { localStorage.setItem('preferredServer', sharedServer); } catch (_) {}
+            }
+        } catch (err) {
+            console.warn('consumeShareLinkParam: server switch failed', err);
+        }
+    }
+
+    const openFromFeature = async (feature) => {
+        try {
+            const props = feature.properties || {};
+            const flightProps = {
+                ...props,
+                position: typeof props.position === 'string' ? JSON.parse(props.position) : props.position,
+                aircraft: typeof props.aircraft === 'string' ? JSON.parse(props.aircraft) : props.aircraft
+            };
+            if (typeof sectorOpsMap !== 'undefined' && sectorOpsMap && feature.geometry?.coordinates) {
+                sectorOpsMap.flyTo({ center: feature.geometry.coordinates, zoom: 7, essential: true });
+            }
+            const sessionId = (typeof getValidSessionId === 'function') ? await getValidSessionId() : 'default';
+            if (typeof handleAircraftClick === 'function') {
+                handleAircraftClick(flightProps, sessionId);
+            }
+        } catch (err) {
+            console.warn('consumeShareLinkParam: failed to open flight', err);
+        }
+    };
+
+    // Fallback: hit the ACARS API directly so a slow/missed socket update
+    // doesn't strand the share. Returns a synthetic feature on success.
+    const fetchFlightDirect = async () => {
+        try {
+            const sessionsRes = await fetch('https://site--acars-backend--6dmjph8ltlhv.code.run/if-sessions');
+            if (!sessionsRes.ok) return null;
+            const sessionsJson = await sessionsRes.json();
+            const sessions = Array.isArray(sessionsJson?.sessions) ? sessionsJson.sessions : [];
+            if (!sessions.length) return null;
+
+            // Prefer the session that matches our (possibly just-switched) server,
+            // then try the rest so a stale/mis-tagged share still resolves.
+            const target = (typeof currentServerName !== 'undefined') ? currentServerName.toLowerCase() : '';
+            const ordered = [...sessions].sort((a, b) => {
+                const an = (a?.name || '').toLowerCase();
+                const bn = (b?.name || '').toLowerCase();
+                const aHit = target && an.includes(target.split(' ')[0]) ? -1 : 0;
+                const bHit = target && bn.includes(target.split(' ')[0]) ? -1 : 0;
+                return aHit - bHit;
+            });
+
+            for (const session of ordered) {
+                if (!session?.id) continue;
+                try {
+                    const flightsRes = await fetch(`https://site--acars-backend--6dmjph8ltlhv.code.run/flights/${session.id}`);
+                    if (!flightsRes.ok) continue;
+                    const flightsJson = await flightsRes.json();
+                    const flights = flightsJson?.flights || flightsJson?.data || (Array.isArray(flightsJson) ? flightsJson : []);
+                    const match = flights.find(f => f && f.flightId === flightId);
+                    if (!match || !match.position || match.position.lat == null || match.position.lon == null) continue;
+
+                    // If the flight lives on a different session than we're on,
+                    // hop servers so the rest of the UI lines up.
+                    if (session.name && typeof switchServer === 'function' && session.name !== currentServerName) {
+                        switchServer(session.name);
+                    }
+
+                    const ac = match.aircraft || {};
+                    return {
+                        type: 'Feature',
+                        geometry: {
+                            type: 'Point',
+                            coordinates: [match.position.lon, match.position.lat]
+                        },
+                        properties: {
+                            flightId: match.flightId,
+                            callsign: match.callsign,
+                            username: match.username,
+                            altitude: match.position.alt_ft,
+                            speed: match.position.gs_kt || 0,
+                            verticalSpeed: match.position.vs_fpm || 0,
+                            position: match.position,
+                            aircraft: ac,
+                            aircraftName: ac.aircraftName || match.aircraftName || '',
+                            liveryName: ac.liveryName || match.liveryName || '',
+                            registration: ac.registration || '',
+                            arrivalIcao: match.arrivalIcao || null,
+                            departureIcao: match.departureIcao || null,
+                            userId: match.userId,
+                            heading: match.position.heading_deg,
+                            isStaff: match.isStaff,
+                            isVAMember: match.isVAMember,
+                            pilotState: match.pilotState
+                        }
+                    };
+                } catch (err) { /* try next session */ }
+            }
+        } catch (err) {
+            console.warn('consumeShareLinkParam: direct fetch failed', err);
+        }
+        return null;
+    };
+
+    // Poll the live cache (filled by the socket) for ~30s. Also fire a direct
+    // API lookup in parallel so we don't have to wait the full window if the
+    // socket is slow to catch up.
+    const MAX_ATTEMPTS = 30;
+    let directPromise = fetchFlightDirect();
+    let directResult = null;
+    directPromise.then(r => { directResult = r; }).catch(() => {});
+
     for (let attempt = 0; attempt < MAX_ATTEMPTS; attempt++) {
         const feature = (typeof currentMapFeatures !== 'undefined') ? currentMapFeatures[flightId] : null;
         if (feature && feature.properties) {
-            try {
-                const props = feature.properties;
-                const flightProps = {
-                    ...props,
-                    position: typeof props.position === 'string' ? JSON.parse(props.position) : props.position,
-                    aircraft: typeof props.aircraft === 'string' ? JSON.parse(props.aircraft) : props.aircraft
-                };
-                if (typeof sectorOpsMap !== 'undefined' && sectorOpsMap && feature.geometry?.coordinates) {
-                    sectorOpsMap.flyTo({ center: feature.geometry.coordinates, zoom: 7, essential: true });
-                }
-                const sessionId = (typeof getValidSessionId === 'function') ? await getValidSessionId() : 'default';
-                if (typeof handleAircraftClick === 'function') {
-                    handleAircraftClick(flightProps, sessionId);
-                }
-            } catch (err) {
-                console.warn('consumeShareLinkParam: failed to open flight', err);
-            }
+            await openFromFeature(feature);
+            return;
+        }
+        if (directResult) {
+            await openFromFeature(directResult);
             return;
         }
         await new Promise(r => setTimeout(r, 1000));
     }
+
+    // Final chance: wait on the direct lookup if it's still pending.
+    try {
+        const finalDirect = await directPromise;
+        if (finalDirect) {
+            await openFromFeature(finalDirect);
+            return;
+        }
+    } catch (_) { /* ignore */ }
 
     if (typeof showNotification === 'function') {
         showNotification('Shared flight has ended or is no longer live.', 'warning');

@@ -3,23 +3,37 @@
 // Flow:
 //   /share/<flightId>  -> (via _redirects) /.netlify/functions/share?flight=<flightId>
 //
-// The function looks up the flight on the live ACARS feed, grabs its
-// community aircraft photo, and returns an HTML page packed with Open Graph
-// + Twitter Card meta tags so chat apps render a rich preview. The page also
-// redirects the human visitor to /?flight=<flightId> so the main app loads
-// and auto-opens that flight on landing.
+// The function looks up the flight on the live ACARS feed across all sessions
+// (Expert / Training / Casual), grabs its community aircraft photo, and returns
+// an HTML page packed with Open Graph + Twitter Card meta tags so chat apps
+// render a rich preview. The page also redirects the human visitor to
+// /?flight=<flightId>&server=<name> so the main app loads, switches to the
+// correct server, and auto-opens that flight on landing.
+//
+// IMPORTANT: Discord's link unfurl bot *follows* <meta http-equiv="refresh">
+// tags, which previously caused it to land on the SPA (which has no per-flight
+// OG tags) and embed nothing. We now detect known crawler user agents and
+// serve them HTML with NO meta refresh — they get pure OG tags. Humans get
+// the meta refresh + JS redirect as a fallback.
 
 const ACARS_SESSIONS_URL = 'https://site--acars-backend--6dmjph8ltlhv.code.run/if-sessions';
 const ACARS_FLIGHTS_BASE = 'https://site--acars-backend--6dmjph8ltlhv.code.run/flights';
 const COMMUNITY_LOOKUP_URL = 'https://site--indgo-backend--6dmjph8ltlhv.code.run/api/aircraft/lookup';
 
 const SITE_HOST_FALLBACK = 'indgo-va.netlify.app';
-// Brand-consistent fallback so the unfurl never shows a broken image. Inflight
-// is the user-facing brand; the netlify subdomain is incidental.
 const BRAND_NAME = 'Inflight';
 const BRAND_TAGLINE = 'Inflight Live Flight Tracker';
 const BRAND_LOGO_PATH = '/Images/inflight.png';
-const PLANE_FALLBACK_PATH = '/CommunityPlanes/default.png';
+// Branded 1200x630-ish hero used when there is no community aircraft photo.
+// tracker.webp ships in the repo and looks better in an unfurl than the small
+// default plane PNG.
+const PLANE_FALLBACK_PATH = '/Images/tracker.webp';
+const PLANE_FALLBACK_TYPE = 'image/webp';
+
+// User agents we recognise as link-preview crawlers. For these we suppress the
+// meta-refresh so they actually parse our OG tags instead of following the
+// redirect to the SPA.
+const CRAWLER_UA_RE = /discord|slack|twitter|telegram|whatsapp|facebookexternalhit|facebot|linkedin|skype|pinterest|redditbot|embedly|googlebot|bingbot|duckduckbot|applebot|yandex|baiduspider|snapchat|tumblr|vkshare|iframely|tiktok|preview|unfurl|bot\b|crawler|spider/i;
 
 const fetchFn = (typeof fetch === 'function')
     ? fetch
@@ -39,42 +53,48 @@ function escapeAttr(value) {
     return escapeHtml(value);
 }
 
-async function findFlight(flightId) {
+async function fetchJson(url) {
     try {
-        const sessionsRes = await fetchFn(ACARS_SESSIONS_URL, { headers: { 'accept': 'application/json' } });
-        if (!sessionsRes.ok) return null;
-        const sessionsJson = await sessionsRes.json();
-        const sessions = sessionsJson?.sessions || [];
-        const expertSession = sessions.find(s => s && s.name && s.name.toLowerCase().includes('expert'));
-        if (!expertSession || !expertSession.id) return null;
-
-        const flightsRes = await fetchFn(
-            `${ACARS_FLIGHTS_BASE}/${expertSession.id}`,
-            { headers: { 'accept': 'application/json' } }
-        );
-        if (!flightsRes.ok) return null;
-        const flightsJson = await flightsRes.json();
-        const flights = flightsJson?.flights || flightsJson?.data || (Array.isArray(flightsJson) ? flightsJson : []);
-        return flights.find(f => f && f.flightId === flightId) || null;
+        const res = await fetchFn(url, { headers: { 'accept': 'application/json' } });
+        if (!res.ok) return null;
+        return await res.json();
     } catch (err) {
-        console.warn('share: live flight fetch failed', err && err.message);
+        console.warn('share: fetch failed', url, err && err.message);
         return null;
     }
 }
 
+// Walk every available IF session looking for the flight. Returns
+// { flight, serverName } or null. We don't short-circuit to "Expert" because
+// shares often come from Training/Casual users too.
+async function findFlight(flightId) {
+    const sessionsJson = await fetchJson(ACARS_SESSIONS_URL);
+    const sessions = (sessionsJson && Array.isArray(sessionsJson.sessions)) ? sessionsJson.sessions : [];
+    if (!sessions.length) return null;
+
+    const results = await Promise.allSettled(
+        sessions.map(async (session) => {
+            if (!session || !session.id) return null;
+            const flightsJson = await fetchJson(`${ACARS_FLIGHTS_BASE}/${session.id}`);
+            if (!flightsJson) return null;
+            const flights = flightsJson.flights || flightsJson.data || (Array.isArray(flightsJson) ? flightsJson : []);
+            const match = flights.find(f => f && f.flightId === flightId);
+            return match ? { flight: match, serverName: session.name || '' } : null;
+        })
+    );
+
+    for (const r of results) {
+        if (r.status === 'fulfilled' && r.value) return r.value;
+    }
+    return null;
+}
+
 async function fetchAircraftImage(type, livery) {
     if (!type || !livery) return null;
-    try {
-        const url = `${COMMUNITY_LOOKUP_URL}?type=${encodeURIComponent(type)}&livery=${encodeURIComponent(livery)}`;
-        const res = await fetchFn(url, { headers: { 'accept': 'application/json' } });
-        if (!res.ok) return null;
-        let data = await res.json();
-        if (Array.isArray(data)) data = data.length ? data[0] : null;
-        return data?.imageUrl || null;
-    } catch (err) {
-        console.warn('share: image lookup failed', err && err.message);
-        return null;
-    }
+    const url = `${COMMUNITY_LOOKUP_URL}?type=${encodeURIComponent(type)}&livery=${encodeURIComponent(livery)}`;
+    let data = await fetchJson(url);
+    if (Array.isArray(data)) data = data.length ? data[0] : null;
+    return data?.imageUrl || null;
 }
 
 function absoluteUrl(siteOrigin, path) {
@@ -84,7 +104,17 @@ function absoluteUrl(siteOrigin, path) {
     return `${siteOrigin}/${path}`;
 }
 
-function buildPage({ siteOrigin, flightId, flight, imageUrl }) {
+function guessImageType(url) {
+    if (!url) return null;
+    const u = String(url).split('?')[0].toLowerCase();
+    if (u.endsWith('.png')) return 'image/png';
+    if (u.endsWith('.jpg') || u.endsWith('.jpeg')) return 'image/jpeg';
+    if (u.endsWith('.webp')) return 'image/webp';
+    if (u.endsWith('.gif')) return 'image/gif';
+    return null;
+}
+
+function buildPage({ siteOrigin, flightId, flight, serverName, imageUrl, isCrawler }) {
     const callsign = flight?.callsign || flight?.flightNumber || 'Live Flight';
     const username = flight?.username || flight?.virtualOrgName || 'Unknown Pilot';
     const dep = flight?.departureIcao || flight?.origin || '???';
@@ -104,8 +134,20 @@ function buildPage({ siteOrigin, flightId, flight, imageUrl }) {
     const fallbackImage = absoluteUrl(siteOrigin, PLANE_FALLBACK_PATH);
     const brandLogo = absoluteUrl(siteOrigin, BRAND_LOGO_PATH);
     const image = imageUrl || fallbackImage || brandLogo;
-    const appUrl = `${siteOrigin}/?flight=${encodeURIComponent(flightId)}`;
+    const imageType = guessImageType(image) || (image === fallbackImage ? PLANE_FALLBACK_TYPE : null);
+
+    const appParams = new URLSearchParams();
+    appParams.set('flight', flightId);
+    if (serverName) appParams.set('server', serverName);
+    const appUrl = `${siteOrigin}/?${appParams.toString()}`;
     const shareUrl = `${siteOrigin}/share/${encodeURIComponent(flightId)}`;
+
+    // Crawlers must NOT see a meta refresh — Discord follows it and ends up on
+    // the SPA, where it can't find any OG tags. Humans get the refresh as a
+    // belt-and-braces backup to the JS redirect.
+    const metaRefresh = isCrawler
+        ? ''
+        : `<meta http-equiv="refresh" content="0; url=${escapeAttr(appUrl)}">`;
 
     return `<!doctype html>
 <html lang="en">
@@ -121,10 +163,13 @@ function buildPage({ siteOrigin, flightId, flight, imageUrl }) {
 <meta property="og:site_name" content="${escapeAttr(BRAND_TAGLINE)}">
 <meta property="og:title" content="${escapeAttr(title)}">
 <meta property="og:description" content="${escapeAttr(description)}">
+<meta property="og:url" content="${escapeAttr(shareUrl)}">
 <meta property="og:image" content="${escapeAttr(image)}">
 <meta property="og:image:secure_url" content="${escapeAttr(image)}">
 <meta property="og:image:alt" content="${escapeAttr(acName + (livName ? ' (' + livName + ')' : ''))}">
-<meta property="og:url" content="${escapeAttr(shareUrl)}">
+<meta property="og:image:width" content="1200">
+<meta property="og:image:height" content="630">
+${imageType ? `<meta property="og:image:type" content="${escapeAttr(imageType)}">` : ''}
 
 <!-- Twitter Card -->
 <meta name="twitter:card" content="summary_large_image">
@@ -133,7 +178,7 @@ function buildPage({ siteOrigin, flightId, flight, imageUrl }) {
 <meta name="twitter:image" content="${escapeAttr(image)}">
 
 <link rel="icon" href="${escapeAttr(brandLogo)}">
-<meta http-equiv="refresh" content="0; url=${escapeAttr(appUrl)}">
+${metaRefresh}
 
 <style>
   html, body { margin: 0; padding: 0; background: #0a0f1f; color: #e5e7eb; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; min-height: 100vh; }
@@ -168,10 +213,13 @@ function buildPage({ siteOrigin, flightId, flight, imageUrl }) {
 </html>`;
 }
 
-function buildNotFoundPage({ siteOrigin, flightId }) {
+function buildNotFoundPage({ siteOrigin, flightId, isCrawler }) {
     const appUrl = `${siteOrigin}/`;
     const brandLogo = absoluteUrl(siteOrigin, BRAND_LOGO_PATH);
     const fallbackImage = absoluteUrl(siteOrigin, PLANE_FALLBACK_PATH);
+    const heroImage = fallbackImage || brandLogo;
+    const heroType = guessImageType(heroImage);
+    const metaRefresh = isCrawler ? '' : `<meta http-equiv="refresh" content="3; url=${escapeAttr(appUrl)}">`;
     return `<!doctype html>
 <html lang="en">
 <head>
@@ -185,15 +233,18 @@ function buildNotFoundPage({ siteOrigin, flightId }) {
 <meta property="og:site_name" content="${escapeAttr(BRAND_TAGLINE)}">
 <meta property="og:title" content="Flight ended">
 <meta property="og:description" content="This live flight has ended or is no longer being tracked. Open ${escapeAttr(BRAND_NAME)} to find another.">
-<meta property="og:image" content="${escapeAttr(fallbackImage || brandLogo)}">
-<meta property="og:image:secure_url" content="${escapeAttr(fallbackImage || brandLogo)}">
+<meta property="og:image" content="${escapeAttr(heroImage)}">
+<meta property="og:image:secure_url" content="${escapeAttr(heroImage)}">
+<meta property="og:image:width" content="1200">
+<meta property="og:image:height" content="630">
+${heroType ? `<meta property="og:image:type" content="${escapeAttr(heroType)}">` : ''}
 <meta name="twitter:card" content="summary_large_image">
 <meta name="twitter:title" content="Flight ended">
 <meta name="twitter:description" content="This live flight has ended or is no longer being tracked.">
-<meta name="twitter:image" content="${escapeAttr(fallbackImage || brandLogo)}">
+<meta name="twitter:image" content="${escapeAttr(heroImage)}">
 
 <link rel="icon" href="${escapeAttr(brandLogo)}">
-<meta http-equiv="refresh" content="3; url=${escapeAttr(appUrl)}">
+${metaRefresh}
 
 <style>
   body { margin: 0; min-height: 100vh; display: flex; align-items: center; justify-content: center; background: #0a0f1f; color: #e5e7eb; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; padding: 24px; }
@@ -215,27 +266,36 @@ function buildNotFoundPage({ siteOrigin, flightId }) {
 
 exports.handler = async (event) => {
     const flightId = (event.queryStringParameters && event.queryStringParameters.flight) || '';
-    const proto = (event.headers && (event.headers['x-forwarded-proto'] || event.headers['X-Forwarded-Proto'])) || 'https';
-    const host = (event.headers && (event.headers['x-forwarded-host'] || event.headers['host'] || event.headers['Host'])) || SITE_HOST_FALLBACK;
+    const headers = event.headers || {};
+    const proto = headers['x-forwarded-proto'] || headers['X-Forwarded-Proto'] || 'https';
+    const host = headers['x-forwarded-host'] || headers['host'] || headers['Host'] || SITE_HOST_FALLBACK;
     const siteOrigin = `${proto}://${host}`;
+    const ua = String(headers['user-agent'] || headers['User-Agent'] || '');
+    const isCrawler = CRAWLER_UA_RE.test(ua);
 
     if (!flightId) {
         return {
             statusCode: 400,
             headers: { 'content-type': 'text/html; charset=utf-8' },
-            body: buildNotFoundPage({ siteOrigin, flightId: '' })
+            body: buildNotFoundPage({ siteOrigin, flightId: '', isCrawler })
         };
     }
 
-    const flight = await findFlight(flightId);
-    if (!flight) {
+    const result = await findFlight(flightId);
+    if (!result) {
         return {
             statusCode: 404,
-            headers: { 'content-type': 'text/html; charset=utf-8', 'cache-control': 'public, max-age=60' },
-            body: buildNotFoundPage({ siteOrigin, flightId })
+            headers: {
+                'content-type': 'text/html; charset=utf-8',
+                // Short cache so a flight that came back online isn't stuck
+                // on a "flight ended" embed in Discord for hours.
+                'cache-control': 'public, max-age=30, s-maxage=30'
+            },
+            body: buildNotFoundPage({ siteOrigin, flightId, isCrawler })
         };
     }
 
+    const { flight, serverName } = result;
     const acData = flight.aircraft || {};
     const acType = acData.aircraftName || flight.aircraftName;
     const acLivery = acData.liveryName || flight.liveryName;
@@ -249,6 +309,6 @@ exports.handler = async (event) => {
             // (altitude/speed) refreshes for crawlers polling later.
             'cache-control': 'public, max-age=30, s-maxage=30'
         },
-        body: buildPage({ siteOrigin, flightId, flight, imageUrl })
+        body: buildPage({ siteOrigin, flightId, flight, serverName, imageUrl, isCrawler })
     };
 };
