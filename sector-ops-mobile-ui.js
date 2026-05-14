@@ -366,7 +366,11 @@ disableHudControls() {
 
                 /* --- [NEW] Legacy Sheet Config --- */
                 --legacy-peek-height: ${this.CONFIG.legacyPeekHeight}px;
-                --legacy-top-offset: env(safe-area-inset-top, 15px);
+                /* Give the drag handle clearance below the device status bar / notch
+                   even on devices that report no safe-area-inset (most Android),
+                   so the handle never ends up jammed under the URL bar when the
+                   sheet is fully expanded. */
+                --legacy-top-offset: calc(env(safe-area-inset-top, 0px) + 40px);
             }
             
             /* --- [FIX] Target the map container instead of 'view-rosters' --- */
@@ -1005,7 +1009,12 @@ disableHudControls() {
                 right: 0 !important;
                 width: 100% !important;
                 max-width: 100% !important;
+                /* Use dynamic viewport height so the sheet doesn't extend
+                   behind iOS Safari's URL bar when expanded — that was
+                   pushing the drag handle off-screen. vh fallback first
+                   for browsers without dvh support. */
                 max-height: calc(100vh - var(--legacy-top-offset)) !important;
+                max-height: calc(100dvh - var(--legacy-top-offset)) !important;
                 z-index: 1045 !important;
                 border-radius: 16px 16px 0 0 !important;
                 box-shadow: 0 -5px 30px rgba(0,0,0,0.4) !important;
@@ -1090,6 +1099,18 @@ disableHudControls() {
                 overflow-y: auto !important;
                 /* Add padding for the bottom safe area */
                 padding-bottom: env(safe-area-inset-bottom, 20px);
+            }
+
+            /* --- Visual density: render the inner flight-info content at the
+                   equivalent of ~90% browser zoom on mobile. The 111.12% width
+                   (1 / 0.9) compensates so that, after zoom, each child still
+                   fills the sheet horizontally — matching the look the user
+                   gets when zooming the whole browser to 90%. The drag handle
+                   is excluded so it stays full-size and easy to grab. --- */
+            .mobile-legacy-sheet > :not(.legacy-sheet-handle) {
+                zoom: 0.9;
+                width: 111.12%;
+                max-width: 111.12%;
             }
 
             /* --- Header / Image / Route Bar Overrides --- */
@@ -1306,7 +1327,9 @@ populateLegacySheet(sourceWindow) {
         // buttons so they can be clicked normally without the drag handle intercepting them.
         handleWrapper.style.setProperty('width', '50%', 'important');
         handleWrapper.style.setProperty('left', '25%', 'important');
-        handleWrapper.style.setProperty('height', '35px', 'important');
+        // Bigger grab zone so the handle stays draggable even when the sheet
+        // is fully expanded and the very top of the sheet hugs the device chrome.
+        handleWrapper.style.setProperty('height', '55px', 'important');
         handleWrapper.style.setProperty('padding-bottom', '0', 'important');
         handleWrapper.style.setProperty('background', 'transparent', 'important');
         
@@ -1314,10 +1337,11 @@ populateLegacySheet(sourceWindow) {
         sourceWindow.style.position = 'relative'; 
         
         // Push the original content down just enough so the visual pill doesn't overlap text,
-        // but keeps the buttons nicely aligned.
+        // but keeps the buttons nicely aligned. Matches the 55px handle height
+        // (and accounts for the 0.9× zoom applied to content children).
         const overviewPanel = sourceWindow.querySelector('.aircraft-overview-panel');
         if (overviewPanel) {
-            overviewPanel.style.paddingTop = '25px';
+            overviewPanel.style.paddingTop = '40px';
         }
 
         this.wireUpLegacySheetInteractions(sourceWindow, handleWrapper);
