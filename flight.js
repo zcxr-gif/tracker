@@ -1352,79 +1352,311 @@ function injectCustomStyles() {
 }
 
 
-    /* --- COMPACT REDESIGNED TRIP CARD --- */
+    /* --- TRIP CARD (REDESIGNED) ---
+       Desktop: floating bottom-center card, fixed width.
+       Mobile:  full-width sheet anchored to the bottom edge with safe-area
+                padding so nothing is hidden under iOS gesture areas. */
 #trip-card-takeover {
     position: fixed;
-    bottom: 12px; /* Moved down from 30px for a smaller gap */
-    left: 50%;
-    transform: translateX(-50%) translateY(20px);
     z-index: 9999;
     pointer-events: none;
     display: none;
-    width: 440px; /* Expanded from 380px */
-    max-width: 92vw;
     font-family: 'Inter', sans-serif;
-    background: rgba(10, 10, 12, 0.9);
-    backdrop-filter: blur(25px) saturate(180%);
-    border: 1px solid rgba(255, 255, 255, 0.12);
-    border-radius: 20px;
-    padding: 0;
-    box-shadow: 0 20px 50px rgba(0, 0, 0, 0.9);
-    transition: all 0.4s cubic-bezier(0.16, 1, 0.3, 1);
+    transition: opacity 0.35s ease, transform 0.4s cubic-bezier(0.16, 1, 0.3, 1);
     opacity: 0;
-    overflow: hidden;
 }
 
-#trip-card-takeover.active { 
-    display: block; 
+/* Desktop layout */
+#trip-card-takeover {
+    bottom: 24px;
+    left: 50%;
+    transform: translateX(-50%) translateY(24px);
+    width: 380px;
+    max-width: calc(100vw - 24px);
+}
+#trip-card-takeover.active {
+    display: block;
     pointer-events: auto;
     transform: translateX(-50%) translateY(0);
     opacity: 1;
 }
 
-.tc-ac-image-container {
-    width: 100%;
-    height: 110px; /* Decreased height from 140px */
+/* Mobile layout — full-width drawer */
+@media (max-width: 640px) {
+    #trip-card-takeover {
+        bottom: 0;
+        left: 0;
+        right: 0;
+        width: 100%;
+        max-width: 100%;
+        transform: translateY(120%);
+        padding: 0 10px;
+        padding-bottom: calc(env(safe-area-inset-bottom, 0px) + 12px);
+        box-sizing: border-box;
+    }
+    #trip-card-takeover.active {
+        transform: translateY(0);
+    }
+}
+
+.tc-card {
+    background: linear-gradient(180deg, #11141f 0%, #0a0b10 100%);
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    border-radius: 18px;
+    overflow: hidden;
+    box-shadow: 0 20px 60px rgba(0, 0, 0, 0.55), 0 0 0 1px rgba(56, 189, 248, 0.04);
+}
+
+.tc-hero {
     position: relative;
-    background: #000;
-}
-.tc-ac-image {
     width: 100%;
-    height: 100%;
-    object-fit: cover;
-    opacity: 0.85;
+    height: 150px;
+    background: #0f172a;
+    overflow: hidden;
 }
-.tc-image-overlay {
+@media (max-width: 640px) {
+    .tc-hero { height: 130px; }
+}
+
+.tc-bg-layer {
     position: absolute;
     inset: 0;
-    background: linear-gradient(to top, rgba(10,10,12,0.85) 0%, transparent 60%);
+    background-color: #0f172a;
+    background-size: cover;
+    background-position: center;
+    transition: background-image 0.5s ease-in-out;
+}
+.tc-hero-gradient {
+    position: absolute;
+    inset: 0;
+    background: linear-gradient(to bottom, rgba(15,23,42,0.05) 0%, rgba(17,20,31,0.55) 70%, rgba(17,20,31,1) 100%);
+    pointer-events: none;
 }
 
-.tc-inner { 
-    padding: 12px; /* Tightened padding from 16px */
-    display: flex; 
-    flex-direction: column; 
-    gap: 10px; /* Tightened gap from 14px to reduce overall card height */
+.tc-exit-btn {
+    position: absolute;
+    top: 12px;
+    right: 12px;
+    z-index: 10;
+    background: rgba(0,0,0,0.5);
+    backdrop-filter: blur(6px);
+    -webkit-backdrop-filter: blur(6px);
+    border: 1px solid rgba(255,255,255,0.15);
+    color: #fff;
+    width: 32px;
+    height: 32px;
+    border-radius: 50%;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 0.85rem;
+    transition: background 0.2s ease, border-color 0.2s ease, transform 0.15s ease;
+}
+.tc-exit-btn:hover {
+    background: rgba(239, 68, 68, 0.85);
+    border-color: rgba(239, 68, 68, 1);
+}
+.tc-exit-btn:active { transform: scale(0.92); }
+
+.tc-hero-badge {
+    position: absolute;
+    top: 12px;
+    left: 12px;
+    z-index: 10;
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 5px 10px;
+    background: rgba(0,0,0,0.55);
+    backdrop-filter: blur(6px);
+    -webkit-backdrop-filter: blur(6px);
+    border-radius: 999px;
+    border: 1px solid rgba(255,255,255,0.12);
+    font-size: 0.58rem;
+    font-weight: 800;
+    letter-spacing: 1px;
+    color: #fff;
+    text-transform: uppercase;
+}
+.tc-hero-badge .tc-live-dot {
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    background: #22c55e;
+    box-shadow: 0 0 6px rgba(34,197,94,0.7);
+    animation: tc-pulse 1.5s ease-in-out infinite;
+}
+@keyframes tc-pulse {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.35; }
 }
 
-/* Compact Header */
-.tc-header { display: flex; justify-content: space-between; align-items: flex-start; }
-.tc-airline-info { display: flex; align-items: center; gap: 10px; }
-.tc-logo { height: 22px; width: auto; max-width: 70px; object-fit: contain; }
-.tc-callsign { font-family: 'JetBrains Mono', monospace; font-size: 1.1rem; font-weight: 800; color: #fff; }
-.tc-pilot { font-size: 0.65rem; color: #38bdf8; font-weight: 700; letter-spacing: 0.5px; }
+.tc-body {
+    padding: 16px 18px 18px;
+    display: flex;
+    flex-direction: column;
+    gap: 14px;
+}
 
-/* Compact Route row */
-.tc-route-row { display: flex; align-items: center; justify-content: center; gap: 15px; padding: 5px 0; }
-.tc-icao { font-family: 'JetBrains Mono', monospace; font-size: 1.8rem; font-weight: 800; color: #fff; }
-.tc-path-icon { color: #38bdf8; font-size: 0.9rem; }
-.tc-path-line { height: 2px; width: 30px; background: rgba(56, 189, 248, 0.4); }
+.tc-title-row {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    min-width: 0;
+}
+.tc-callsign {
+    font-family: 'JetBrains Mono', ui-monospace, monospace;
+    font-size: 1.35rem;
+    font-weight: 800;
+    color: #fff;
+    margin: 0;
+    line-height: 1.1;
+    letter-spacing: -0.4px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+.tc-subtitle {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 0.72rem;
+    color: #94a3b8;
+    font-weight: 500;
+    overflow: hidden;
+}
+.tc-pilot {
+    color: #38bdf8;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    white-space: nowrap;
+}
+.tc-divider { color: #475569; flex-shrink: 0; }
+.tc-ac {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    min-width: 0;
+}
 
-/* Compact Stats */
-.tc-stats-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
-.tc-stat-box { background: rgba(255, 255, 255, 0.04); border-radius: 12px; padding: 8px; text-align: center; }
-.tc-label { display: block; font-size: 0.55rem; font-weight: 800; color: #71717a; text-transform: uppercase; margin-bottom: 2px; }
-.tc-val { color: #fff; font-size: 0.9rem; font-weight: 700; font-family: 'JetBrains Mono', monospace; }
+.tc-route {
+    display: grid;
+    grid-template-columns: auto 1fr auto;
+    align-items: center;
+    gap: 12px;
+}
+.tc-route-airport {
+    display: flex;
+    flex-direction: column;
+    gap: 3px;
+    min-width: 0;
+}
+.tc-route-airport-right {
+    align-items: flex-end;
+    text-align: right;
+}
+.tc-route-label {
+    font-size: 0.55rem;
+    color: #64748b;
+    font-weight: 800;
+    text-transform: uppercase;
+    letter-spacing: 1px;
+}
+.tc-icao {
+    font-family: 'JetBrains Mono', ui-monospace, monospace;
+    font-size: 1.5rem;
+    font-weight: 800;
+    color: #fff;
+    line-height: 1;
+}
+.tc-route-progress { padding: 0 4px; min-width: 60px; }
+.tc-progress-track {
+    position: relative;
+    width: 100%;
+    height: 4px;
+    background: rgba(255,255,255,0.08);
+    border-radius: 2px;
+    display: flex;
+    align-items: center;
+}
+.tc-progress-bar {
+    position: absolute;
+    left: 0;
+    height: 100%;
+    width: 0%;
+    background: linear-gradient(90deg, #38bdf8, #a855f7);
+    border-radius: 2px;
+    box-shadow: 0 0 8px rgba(56,189,248,0.5);
+    transition: width 0.6s ease;
+}
+.tc-plane-icon {
+    position: absolute;
+    left: 0%;
+    transform: translateX(-50%);
+    color: #fff;
+    font-size: 12px;
+    filter: drop-shadow(0 1px 3px rgba(0,0,0,0.8));
+    transition: left 0.6s ease;
+}
+
+.tc-stats {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 10px;
+}
+.tc-stat {
+    display: flex;
+    flex-direction: column;
+    gap: 3px;
+    padding: 10px 12px;
+    background: rgba(255,255,255,0.03);
+    border: 1px solid rgba(255,255,255,0.05);
+    border-radius: 10px;
+}
+.tc-stat-label {
+    font-size: 0.55rem;
+    color: #64748b;
+    font-weight: 800;
+    text-transform: uppercase;
+    letter-spacing: 1px;
+}
+.tc-stat-value {
+    font-family: 'JetBrains Mono', ui-monospace, monospace;
+    font-size: 1rem;
+    color: #fff;
+    font-weight: 700;
+}
+.tc-stat-value .tc-alt { color: #38bdf8; }
+.tc-stat-value .tc-spd { color: #fbbf24; }
+.tc-unit { color: #64748b; font-size: 0.7rem; margin-left: 3px; font-weight: 600; }
+
+.tc-share-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    width: 100%;
+    padding: 12px 20px;
+    background: linear-gradient(135deg, #38bdf8, #a855f7);
+    color: #fff;
+    border: none;
+    border-radius: 12px;
+    cursor: pointer;
+    font-family: 'Inter', sans-serif;
+    font-size: 0.85rem;
+    font-weight: 700;
+    letter-spacing: 0.3px;
+    box-shadow: 0 8px 24px rgba(56,189,248,0.3), inset 0 1px 0 rgba(255,255,255,0.15);
+    transition: transform 0.15s ease, box-shadow 0.15s ease, background 0.25s ease;
+}
+.tc-share-btn:hover {
+    transform: translateY(-1px);
+    box-shadow: 0 12px 28px rgba(56,189,248,0.45), inset 0 1px 0 rgba(255,255,255,0.2);
+}
+.tc-share-btn:active { transform: translateY(0); }
+.tc-share-btn i { font-size: 0.95rem; }
 
     .settings-section { display: flex; flex-direction: column; gap: 16px; }
 .settings-row { 
@@ -5347,52 +5579,51 @@ function toggleTripCardMode(active) {
 
     if (active && currentFlightInWindow) {
         takeoverUI.innerHTML = `
-            <div class="tc-bg-layer" style="position: relative; width: 100%; height: 180px; background-color: #0f172a; background-size: cover; background-position: center; transition: background-image 0.5s ease-in-out; display: flex; flex-direction: column;">
-                <div style="position: absolute; inset: 0; background: linear-gradient(to bottom, rgba(0,0,0,0.1) 0%, rgba(15,23,42,0.4) 40%, rgba(15,23,42,0.95) 100%); z-index: 0; pointer-events: none;"></div>
-                
-                <button class="tc-exit-btn" style="position: absolute; top: 12px; right: 12px; z-index: 10; background: rgba(0,0,0,0.4); backdrop-filter: blur(4px); border: 1px solid rgba(255,255,255,0.2); color: #fff; width: 28px; height: 28px; border-radius: 50%; cursor: pointer; display: flex; align-items: center; justify-content: center; transition: all 0.2s;">
-                    <i class="fa-solid fa-xmark"></i>
-                </button>
-
-                <div style="position: relative; z-index: 1; padding: 18px 20px; display: flex; flex-direction: column; align-items: flex-start;">
-                    <h1 style="font-size: 1.35rem; font-weight: 800; color: #fff; margin: 0; line-height: 1.1; text-shadow: 0 2px 4px rgba(0,0,0,0.8); display: flex; align-items: center; gap: 8px;">
-                        <img class="tc-logo" src="" style="height: 16px; width: auto; object-fit: contain; filter: drop-shadow(0 2px 4px rgba(0,0,0,0.6)); display: none;"> 
-                        <span class="tc-callsign">---</span>
-                    </h1>
-                    <div style="font-size: 0.65rem; font-weight: 500; color: #cbd5e1; margin-top: 6px; text-shadow: 0 1px 2px rgba(0,0,0,0.8); display: flex; gap: 6px; align-items: center;">
-                        <span class="tc-pilot">---</span>
-                        <span style="width: 3px; height: 3px; background: #94a3b8; border-radius: 50%;"></span>
-                        <span class="tc-ac">---</span>
-                    </div>
+            <div class="tc-card">
+                <div class="tc-hero">
+                    <div class="tc-bg-layer"></div>
+                    <div class="tc-hero-gradient"></div>
+                    <div class="tc-hero-badge"><span class="tc-live-dot"></span> Live</div>
+                    <button class="tc-exit-btn" type="button" aria-label="Close trip card">
+                        <i class="fa-solid fa-xmark"></i>
+                    </button>
                 </div>
-
-                <div style="position: relative; z-index: 1; margin-top: auto; padding: 12px 20px 16px 20px; display: grid; grid-template-columns: auto 1fr auto; align-items: end; gap: 16px; width: 100%; box-sizing: border-box;">
-                    
-                    <div style="display: flex; flex-direction: column; text-align: left;">
-                        <span style="font-size: 0.55rem; color: #94a3b8; font-weight: 700; text-transform: uppercase; margin-bottom: 2px;">DEP</span>
-                        <span class="tc-icao origin" style="font-family: 'JetBrains Mono', monospace; font-size: 1.5rem; font-weight: 700; color: #fff; text-shadow: 0 1px 3px rgba(0,0,0,0.5); line-height: 1;">---</span>
-                    </div>
-
-                    <div style="display: flex; flex-direction: column; align-items: center; width: 100%; padding-bottom: 2px;">
-                        <div style="width: 100%; height: 4px; background: rgba(255,255,255,0.15); border-radius: 2px; position: relative; display: flex; align-items: center;">
-                            <div class="tc-progress-bar" style="position: absolute; left: 0; height: 100%; width: 0%; background: #38bdf8; border-radius: 2px; box-shadow: 0 0 8px rgba(56,189,248,0.6);"></div>
-                            <i class="fa-solid fa-plane tc-plane-icon" style="position: absolute; left: 0%; transform: translateX(-50%); color: #fff; font-size: 12px; filter: drop-shadow(0 2px 4px rgba(0,0,0,0.8));"></i>
-                        </div>
-                        <div style="display: flex; justify-content: center; gap: 16px; width: 100%; margin-top: 8px;">
-                            <span style="font-size: 0.6rem; color: #cbd5e1; font-weight: 600; font-family: 'JetBrains Mono', monospace;"><span class="tc-alt" style="color: #38bdf8; font-weight: 700;">---</span> FT</span>
-                            <span style="font-size: 0.6rem; color: #cbd5e1; font-weight: 600; font-family: 'JetBrains Mono', monospace;"><span class="tc-spd" style="color: #fbbf24; font-weight: 700;">---</span> KT</span>
+                <div class="tc-body">
+                    <div class="tc-title-row">
+                        <h2 class="tc-callsign">---</h2>
+                        <div class="tc-subtitle">
+                            <span class="tc-pilot">---</span>
+                            <span class="tc-divider">·</span>
+                            <span class="tc-ac">---</span>
                         </div>
                     </div>
-
-                    <div style="display: flex; flex-direction: column; text-align: right;">
-                        <span style="font-size: 0.55rem; color: #94a3b8; font-weight: 700; text-transform: uppercase; margin-bottom: 2px;">ARR</span>
-                        <span class="tc-icao destination" style="font-family: 'JetBrains Mono', monospace; font-size: 1.5rem; font-weight: 700; color: #fff; text-shadow: 0 1px 3px rgba(0,0,0,0.5); line-height: 1;">---</span>
+                    <div class="tc-route">
+                        <div class="tc-route-airport">
+                            <span class="tc-route-label">From</span>
+                            <span class="tc-icao origin">---</span>
+                        </div>
+                        <div class="tc-route-progress">
+                            <div class="tc-progress-track">
+                                <div class="tc-progress-bar"></div>
+                                <i class="fa-solid fa-plane tc-plane-icon"></i>
+                            </div>
+                        </div>
+                        <div class="tc-route-airport tc-route-airport-right">
+                            <span class="tc-route-label">To</span>
+                            <span class="tc-icao destination">---</span>
+                        </div>
                     </div>
-
-                </div>
-
-                <div style="position: relative; z-index: 1; padding: 0 20px 16px 20px; display: flex; gap: 10px; align-items: center; justify-content: flex-end;">
-                    <button class="tc-share-btn" type="button" style="display: inline-flex; align-items: center; gap: 8px; padding: 9px 14px; background: linear-gradient(135deg, #38bdf8, #a855f7); color: #fff; border: none; border-radius: 8px; cursor: pointer; font-size: 0.78rem; font-weight: 700; letter-spacing: 0.3px; box-shadow: 0 4px 14px rgba(56,189,248,0.35); transition: transform 0.15s ease, box-shadow 0.15s ease;" title="Share this flight">
+                    <div class="tc-stats">
+                        <div class="tc-stat">
+                            <span class="tc-stat-label">Altitude</span>
+                            <span class="tc-stat-value"><span class="tc-alt">---</span><span class="tc-unit">ft</span></span>
+                        </div>
+                        <div class="tc-stat">
+                            <span class="tc-stat-label">Speed</span>
+                            <span class="tc-stat-value"><span class="tc-spd">---</span><span class="tc-unit">kt</span></span>
+                        </div>
+                    </div>
+                    <button class="tc-share-btn" type="button" title="Share this flight">
                         <i class="fa-solid fa-share-nodes"></i>
                         <span class="tc-share-btn-label">Share Flight</span>
                     </button>
@@ -5407,18 +5638,6 @@ function toggleTripCardMode(active) {
         takeoverUI.querySelector('.tc-exit-btn')?.addEventListener('click', () => {
             toggleTripCardMode(false);
         });
-
-        const exitBtn = takeoverUI.querySelector('.tc-exit-btn');
-        if (exitBtn) {
-            exitBtn.addEventListener('mouseenter', () => {
-                exitBtn.style.background = 'rgba(239, 68, 68, 0.8)'; 
-                exitBtn.style.borderColor = 'rgba(239, 68, 68, 1)';
-            });
-            exitBtn.addEventListener('mouseleave', () => {
-                exitBtn.style.background = 'rgba(0,0,0,0.4)';
-                exitBtn.style.borderColor = 'rgba(255,255,255,0.2)';
-            });
-        }
 
         takeoverUI.classList.add('active');
         
@@ -5473,7 +5692,7 @@ async function shareCurrentFlight(triggerBtn = null) {
     const dep = props.departureIcao || '???';
     const arr = props.arrivalIcao || '???';
     const title = `${callsign} · ${dep} → ${arr}`;
-    const text = `Watch ${callsign} live on Indgo`;
+    const text = `Watch ${callsign} live on Inflight`;
 
     const flashSuccess = (label) => {
         if (!triggerBtn) return;
@@ -11099,33 +11318,10 @@ if (upgradeBtn) {
             mapContainer.insertAdjacentHTML('beforeend', windowHtml);
         }
 
-        // Inject into initializeSectorOpsView
+        // Inject the trip-card container. Contents are rendered/replaced by
+        // toggleTripCardMode(true), so we just need the host element here.
 if (!document.getElementById('trip-card-takeover')) {
-const takeoverHtml = `
-    <div id="trip-card-takeover">
-        <div class="tc-modal-header">
-            <span class="tc-callsign">---</span>
-            <button class="takeover-exit-btn" onclick="toggleTripCardMode(false)">
-                <i class="fa-solid fa-xmark"></i>
-            </button>
-        </div>
-        <div class="tc-data-row">
-            <div class="tc-stat-box">
-                <span class="tc-label">Altitude</span>
-                <div><span class="tc-alt tc-value">0</span><span class="tc-unit">FT</span></div>
-            </div>
-            <div class="tc-stat-box">
-                <span class="tc-label">Ground Speed</span>
-                <div><span class="tc-spd tc-value">0</span><span class="tc-unit">KTS</span></div>
-            </div>
-        </div>
-        <div class="tc-modal-footer">
-            <div class="tc-route">---</div>
-            <div class="tc-pilot">---</div>
-        </div>
-    </div>
-`;
-    mapContainer.insertAdjacentHTML('beforeend', takeoverHtml);
+    mapContainer.insertAdjacentHTML('beforeend', '<div id="trip-card-takeover"></div>');
 }
         
         // --- 9. Inject Toolbar Buttons (if missing) ---

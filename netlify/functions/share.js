@@ -6,13 +6,25 @@
 // The function looks up the flight on the live ACARS feed, grabs its
 // community aircraft photo, and returns an HTML page packed with Open Graph
 // + Twitter Card meta tags so chat apps render a rich preview. The page also
-// meta-refreshes / scripts to /?flight=<flightId> so when a human clicks
-// the link, the main app loads and auto-opens that flight.
+// redirects the human visitor to /?flight=<flightId> so the main app loads
+// and auto-opens that flight on landing.
 
-const ACARS_FLIGHTS_URL = 'https://site--acars-backend--6dmjph8ltlhv.code.run/flights';
+const ACARS_SESSIONS_URL = 'https://site--acars-backend--6dmjph8ltlhv.code.run/if-sessions';
+const ACARS_FLIGHTS_BASE = 'https://site--acars-backend--6dmjph8ltlhv.code.run/flights';
 const COMMUNITY_LOOKUP_URL = 'https://site--indgo-backend--6dmjph8ltlhv.code.run/api/aircraft/lookup';
-const FALLBACK_IMAGE = 'https://indgo-va.netlify.app/CommunityPlanes/default.png';
-const SITE_LOGO = 'https://indgo-va.netlify.app/logo.webp';
+
+const SITE_HOST_FALLBACK = 'indgo-va.netlify.app';
+// Brand-consistent fallback so the unfurl never shows a broken image. Inflight
+// is the user-facing brand; the netlify subdomain is incidental.
+const BRAND_NAME = 'Inflight';
+const BRAND_TAGLINE = 'Inflight Live Flight Tracker';
+const BRAND_LOGO_PATH = '/Images/inflight.png';
+const PLANE_FALLBACK_PATH = '/CommunityPlanes/default.png';
+
+// IndiGo VA — every flight in the system is filtered server-side by the
+// callsign suffix "GO". The share lookup has to honor the same filter
+// or the flight won't appear in the response.
+const CALLSIGN_FILTER = 'GO';
 
 const fetchFn = (typeof fetch === 'function')
     ? fetch
@@ -34,10 +46,20 @@ function escapeAttr(value) {
 
 async function findFlight(flightId) {
     try {
-        const res = await fetchFn(ACARS_FLIGHTS_URL, { headers: { 'accept': 'application/json' } });
-        if (!res.ok) return null;
-        const payload = await res.json();
-        const flights = Array.isArray(payload) ? payload : (payload?.flights || payload?.data || []);
+        const sessionsRes = await fetchFn(ACARS_SESSIONS_URL, { headers: { 'accept': 'application/json' } });
+        if (!sessionsRes.ok) return null;
+        const sessionsJson = await sessionsRes.json();
+        const sessions = sessionsJson?.sessions || [];
+        const expertSession = sessions.find(s => s && s.name && s.name.toLowerCase().includes('expert'));
+        if (!expertSession || !expertSession.id) return null;
+
+        const flightsRes = await fetchFn(
+            `${ACARS_FLIGHTS_BASE}/${expertSession.id}?callsignEndsWith=${CALLSIGN_FILTER}`,
+            { headers: { 'accept': 'application/json' } }
+        );
+        if (!flightsRes.ok) return null;
+        const flightsJson = await flightsRes.json();
+        const flights = flightsJson?.flights || flightsJson?.data || (Array.isArray(flightsJson) ? flightsJson : []);
         return flights.find(f => f && f.flightId === flightId) || null;
     } catch (err) {
         console.warn('share: live flight fetch failed', err && err.message);
@@ -60,6 +82,13 @@ async function fetchAircraftImage(type, livery) {
     }
 }
 
+function absoluteUrl(siteOrigin, path) {
+    if (!path) return null;
+    if (/^https?:\/\//i.test(path)) return path;
+    if (path.startsWith('/')) return siteOrigin + path;
+    return `${siteOrigin}/${path}`;
+}
+
 function buildPage({ siteOrigin, flightId, flight, imageUrl }) {
     const callsign = flight?.callsign || flight?.flightNumber || 'Live Flight';
     const username = flight?.username || flight?.virtualOrgName || 'Unknown Pilot';
@@ -77,7 +106,9 @@ function buildPage({ siteOrigin, flightId, flight, imageUrl }) {
     if (speed > 0) descBits.push(`${speed} kt`);
     const description = descBits.join(' · ');
 
-    const image = imageUrl || FALLBACK_IMAGE;
+    const fallbackImage = absoluteUrl(siteOrigin, PLANE_FALLBACK_PATH);
+    const brandLogo = absoluteUrl(siteOrigin, BRAND_LOGO_PATH);
+    const image = imageUrl || fallbackImage || brandLogo;
     const appUrl = `${siteOrigin}/?flight=${encodeURIComponent(flightId)}`;
     const shareUrl = `${siteOrigin}/share/${encodeURIComponent(flightId)}`;
 
@@ -86,17 +117,18 @@ function buildPage({ siteOrigin, flightId, flight, imageUrl }) {
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>${escapeHtml(title)} · Indgo</title>
+<title>${escapeHtml(title)} · ${escapeHtml(BRAND_NAME)}</title>
 <meta name="description" content="${escapeAttr(description)}">
+<meta name="theme-color" content="#38bdf8">
 
 <!-- Open Graph -->
 <meta property="og:type" content="website">
-<meta property="og:site_name" content="Indgo Live Flight Tracker">
+<meta property="og:site_name" content="${escapeAttr(BRAND_TAGLINE)}">
 <meta property="og:title" content="${escapeAttr(title)}">
 <meta property="og:description" content="${escapeAttr(description)}">
 <meta property="og:image" content="${escapeAttr(image)}">
-<meta property="og:image:width" content="1200">
-<meta property="og:image:height" content="630">
+<meta property="og:image:secure_url" content="${escapeAttr(image)}">
+<meta property="og:image:alt" content="${escapeAttr(acName + (livName ? ' (' + livName + ')' : ''))}">
 <meta property="og:url" content="${escapeAttr(shareUrl)}">
 
 <!-- Twitter Card -->
@@ -105,7 +137,7 @@ function buildPage({ siteOrigin, flightId, flight, imageUrl }) {
 <meta name="twitter:description" content="${escapeAttr(description)}">
 <meta name="twitter:image" content="${escapeAttr(image)}">
 
-<link rel="icon" href="${escapeAttr(SITE_LOGO)}">
+<link rel="icon" href="${escapeAttr(brandLogo)}">
 <meta http-equiv="refresh" content="0; url=${escapeAttr(appUrl)}">
 
 <style>
@@ -126,12 +158,12 @@ function buildPage({ siteOrigin, flightId, flight, imageUrl }) {
 <body>
   <div class="wrap">
     <div class="card">
-      <div class="hero" style="background-image: url('${escapeAttr(image)}'), url('${escapeAttr(FALLBACK_IMAGE)}');"></div>
+      <div class="hero" style="background-image: url('${escapeAttr(image)}'), url('${escapeAttr(fallbackImage)}');"></div>
       <div class="body">
         <h1>${escapeHtml(callsign)}</h1>
         <p class="meta">${escapeHtml(description)}</p>
         <div class="route"><span>${escapeHtml(dep)}</span><span class="arr-icon">→</span><span>${escapeHtml(arr)}</span></div>
-        <a class="cta" href="${escapeAttr(appUrl)}">Open in Indgo →</a>
+        <a class="cta" href="${escapeAttr(appUrl)}">Open in ${escapeHtml(BRAND_NAME)} →</a>
         <div class="foot">Live Infinite Flight tracking</div>
       </div>
     </div>
@@ -143,21 +175,29 @@ function buildPage({ siteOrigin, flightId, flight, imageUrl }) {
 
 function buildNotFoundPage({ siteOrigin, flightId }) {
     const appUrl = `${siteOrigin}/`;
+    const brandLogo = absoluteUrl(siteOrigin, BRAND_LOGO_PATH);
+    const fallbackImage = absoluteUrl(siteOrigin, PLANE_FALLBACK_PATH);
     return `<!doctype html>
 <html lang="en">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Flight ended · Indgo</title>
+<title>Flight ended · ${escapeHtml(BRAND_NAME)}</title>
 <meta name="description" content="This live flight has ended or is no longer being tracked.">
+<meta name="theme-color" content="#38bdf8">
 
-<meta property="og:title" content="Flight ended">
-<meta property="og:description" content="This live flight has ended or is no longer being tracked. Open Indgo to find another.">
-<meta property="og:image" content="${escapeAttr(SITE_LOGO)}">
 <meta property="og:type" content="website">
-<meta name="twitter:card" content="summary">
+<meta property="og:site_name" content="${escapeAttr(BRAND_TAGLINE)}">
+<meta property="og:title" content="Flight ended">
+<meta property="og:description" content="This live flight has ended or is no longer being tracked. Open ${escapeAttr(BRAND_NAME)} to find another.">
+<meta property="og:image" content="${escapeAttr(fallbackImage || brandLogo)}">
+<meta property="og:image:secure_url" content="${escapeAttr(fallbackImage || brandLogo)}">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:title" content="Flight ended">
+<meta name="twitter:description" content="This live flight has ended or is no longer being tracked.">
+<meta name="twitter:image" content="${escapeAttr(fallbackImage || brandLogo)}">
 
-<link rel="icon" href="${escapeAttr(SITE_LOGO)}">
+<link rel="icon" href="${escapeAttr(brandLogo)}">
 <meta http-equiv="refresh" content="3; url=${escapeAttr(appUrl)}">
 
 <style>
@@ -172,7 +212,7 @@ function buildNotFoundPage({ siteOrigin, flightId }) {
   <div class="card">
     <h1>This flight has ended</h1>
     <p>The flight <code>${escapeHtml(flightId || '')}</code> isn't live anymore.</p>
-    <p><a href="${escapeAttr(appUrl)}">Open Indgo →</a></p>
+    <p><a href="${escapeAttr(appUrl)}">Open ${escapeHtml(BRAND_NAME)} →</a></p>
   </div>
 </body>
 </html>`;
@@ -181,7 +221,7 @@ function buildNotFoundPage({ siteOrigin, flightId }) {
 exports.handler = async (event) => {
     const flightId = (event.queryStringParameters && event.queryStringParameters.flight) || '';
     const proto = (event.headers && (event.headers['x-forwarded-proto'] || event.headers['X-Forwarded-Proto'])) || 'https';
-    const host = (event.headers && (event.headers['x-forwarded-host'] || event.headers['host'] || event.headers['Host'])) || 'indgo-va.netlify.app';
+    const host = (event.headers && (event.headers['x-forwarded-host'] || event.headers['host'] || event.headers['Host'])) || SITE_HOST_FALLBACK;
     const siteOrigin = `${proto}://${host}`;
 
     if (!flightId) {
