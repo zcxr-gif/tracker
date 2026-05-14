@@ -1101,18 +1101,6 @@ disableHudControls() {
                 padding-bottom: env(safe-area-inset-bottom, 20px);
             }
 
-            /* --- Visual density: render the inner flight-info content at the
-                   equivalent of ~90% browser zoom on mobile. The 111.12% width
-                   (1 / 0.9) compensates so that, after zoom, each child still
-                   fills the sheet horizontally — matching the look the user
-                   gets when zooming the whole browser to 90%. The drag handle
-                   is excluded so it stays full-size and easy to grab. --- */
-            .mobile-legacy-sheet > :not(.legacy-sheet-handle) {
-                zoom: 0.9;
-                width: 111.12%;
-                max-width: 111.12%;
-            }
-
             /* --- Header / Image / Route Bar Overrides --- */
             .mobile-legacy-sheet .aircraft-overview-panel {
                 /* The handle will wrap this */
@@ -1337,11 +1325,10 @@ populateLegacySheet(sourceWindow) {
         sourceWindow.style.position = 'relative'; 
         
         // Push the original content down just enough so the visual pill doesn't overlap text,
-        // but keeps the buttons nicely aligned. Matches the 55px handle height
-        // (and accounts for the 0.9× zoom applied to content children).
+        // but keeps the buttons nicely aligned.
         const overviewPanel = sourceWindow.querySelector('.aircraft-overview-panel');
         if (overviewPanel) {
-            overviewPanel.style.paddingTop = '40px';
+            overviewPanel.style.paddingTop = '25px';
         }
 
         this.wireUpLegacySheetInteractions(sourceWindow, handleWrapper);
