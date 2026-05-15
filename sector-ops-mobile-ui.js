@@ -599,6 +599,23 @@ disableHudControls() {
                     transform: translateY(0);
                 }
 
+                /* Full-screen backdrop while mobile search is open */
+                #sector-ops-map-fullscreen.mobile-search-open::before {
+                    content: '';
+                    position: absolute;
+                    inset: 0;
+                    background: rgba(5, 8, 18, 0.78);
+                    backdrop-filter: blur(8px);
+                    -webkit-backdrop-filter: blur(8px);
+                    z-index: 1025;
+                    pointer-events: none;
+                    animation: searchBackdropIn 0.25s ease forwards;
+                }
+                @keyframes searchBackdropIn {
+                    from { opacity: 0; }
+                    to   { opacity: 1; }
+                }
+
                 #sector-ops-search-container .search-bar-container {
                     display: flex !important;
                     align-items: center !important;
@@ -663,17 +680,27 @@ disableHudControls() {
                 
                 /* Results Dropdown - Floating Card Style */
                 #search-results-dropdown {
-                    margin-top: 8px !important; 
+                    margin-top: 10px !important;
                     width: 100% !important;
                     background: rgba(15, 20, 35, 0.95) !important;
                     backdrop-filter: blur(25px) !important;
                     -webkit-backdrop-filter: blur(25px) !important;
                     border: 1px solid rgba(255, 255, 255, 0.08) !important;
                     border-radius: 12px !important;
-                    overflow: hidden !important;
-                    box-shadow: 0 15px 50px rgba(0, 0, 0, 0.6) !important;
-                    max-height: 60vh !important;
                     overflow-y: auto !important;
+                    box-shadow: 0 15px 50px rgba(0, 0, 0, 0.6) !important;
+                    max-height: calc(100vh - 140px) !important;
+                    -webkit-overflow-scrolling: touch;
+                }
+
+                /* Category headers on mobile */
+                #sector-ops-map-fullscreen.mobile-search-open .search-results-header {
+                    color: var(--hud-accent) !important;
+                    font-size: 0.72rem !important;
+                    padding: 12px 18px 6px !important;
+                }
+                #sector-ops-map-fullscreen.mobile-search-open .search-results-section + .search-results-section {
+                    border-top: 1px solid rgba(255, 255, 255, 0.08) !important;
                 }
                 
                 /* Result Items */
