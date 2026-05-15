@@ -573,162 +573,165 @@ disableHudControls() {
             --- [UPDATED] Search Bar Mobile Positioning (Hidden by default) ---
             ==================================================================== */
             @media (max-width: ${this.CONFIG.breakpoint}px) {
+                /* Hidden by default — the search button on the HUD reveals it. */
                 #sector-ops-search-container {
-                    /* Hide by default on mobile */
-                    display: none !important; 
-                    
-                    position: absolute !important;
-                    top: calc(env(safe-area-inset-top, 20px) + 15px) !important; 
-                    left: 15px !important;
-                    right: 15px !important;
-                    width: auto !important; /* Full width minus margins */
-                    max-width: none !important;
-                    z-index: 1030 !important;
-                    pointer-events: auto !important;
-                    
-                    /* Animation */
-                    opacity: 0;
-                    transform: translateY(-20px);
-                    transition: all 0.3s cubic-bezier(0.16, 1, 0.3, 1) !important;
+                    display: none !important;
                 }
 
-                /* Show when parent map has 'mobile-search-open' class */
+                /* Full-screen overlay when mobile-search-open is set.
+                   position:fixed lets us escape any ancestor overflow:hidden
+                   that was clipping the dropdown. Flex column: bar at top,
+                   results stretch to fill the rest of the visible viewport. */
                 #sector-ops-map-fullscreen.mobile-search-open #sector-ops-search-container {
                     display: flex !important;
-                    opacity: 1;
-                    transform: translateY(0);
+                    flex-direction: column !important;
+                    position: fixed !important;
+                    top: 0 !important;
+                    left: 0 !important;
+                    right: 0 !important;
+                    bottom: 0 !important;
+                    width: auto !important;
+                    max-width: none !important;
+                    z-index: 1060 !important;
+                    pointer-events: auto !important;
+                    background: rgba(5, 8, 18, 0.92);
+                    backdrop-filter: blur(18px);
+                    -webkit-backdrop-filter: blur(18px);
+                    padding: calc(env(safe-area-inset-top, 0px) + 10px) 12px
+                             calc(env(safe-area-inset-bottom, 0px) + 10px) 12px !important;
+                    box-sizing: border-box !important;
+                    animation: searchOverlayIn 0.22s cubic-bezier(0.16, 1, 0.3, 1) both;
+                }
+                @keyframes searchOverlayIn {
+                    from { opacity: 0; transform: translateY(-8px); }
+                    to   { opacity: 1; transform: translateY(0); }
                 }
 
-                /* Full-screen backdrop while mobile search is open */
-                #sector-ops-map-fullscreen.mobile-search-open::before {
-                    content: '';
-                    position: absolute;
-                    inset: 0;
-                    background: rgba(5, 8, 18, 0.78);
-                    backdrop-filter: blur(8px);
-                    -webkit-backdrop-filter: blur(8px);
-                    z-index: 1025;
-                    pointer-events: none;
-                    animation: searchBackdropIn 0.25s ease forwards;
-                }
-                @keyframes searchBackdropIn {
-                    from { opacity: 0; }
-                    to   { opacity: 1; }
-                }
-
-                #sector-ops-search-container .search-bar-container {
+                /* Search bar row (top of overlay) */
+                #sector-ops-map-fullscreen.mobile-search-open #sector-ops-search-container .search-bar-container {
                     display: flex !important;
                     align-items: center !important;
-                    background: rgba(15, 20, 35, 0.95) !important;
+                    flex: 0 0 auto !important;
+                    width: 100% !important;
+                    background: rgba(15, 20, 35, 0.92) !important;
                     backdrop-filter: blur(25px) !important;
                     -webkit-backdrop-filter: blur(25px) !important;
-                    border: 1px solid var(--hud-accent) !important; /* Blue border when active */
-                    border-radius: 12px !important; /* Rectangle vs Pill */
-                    box-shadow: 0 8px 32px rgba(0, 0, 0, 0.6) !important;
-                    padding: 0 6px !important;
-                    height: 50px !important; /* Slightly taller */
-                    transition: all 0.3s ease !important;
+                    border: 1px solid rgba(56, 189, 248, 0.45) !important;
+                    border-radius: 14px !important;
+                    box-shadow: 0 8px 32px rgba(0, 0, 0, 0.5) !important;
+                    padding: 0 4px !important;
+                    height: 52px !important;
+                    transition: none !important;
                 }
-                
-                /* Search Icon */
-                #sector-ops-search-container .search-icon-label {
+
+                /* Back arrow (mobile only) */
+                #sector-ops-map-fullscreen.mobile-search-open #sector-ops-mobile-back {
                     display: flex !important;
                     align-items: center !important;
                     justify-content: center !important;
                     width: 40px !important;
                     height: 100% !important;
-                    margin: 0 !important;
-                    color: var(--hud-accent) !important;
-                    opacity: 1;
+                    color: #fff !important;
+                    font-size: 1.05rem !important;
+                    flex-shrink: 0 !important;
                 }
 
-                /* Input Field */
-                #sector-ops-search-input {
-                    flex-grow: 1 !important;
+                /* The magnifying-glass label is decorative on mobile — hide it
+                   so the bar reads as: [back] [input] [clear] */
+                #sector-ops-map-fullscreen.mobile-search-open #sector-ops-search-container .search-icon-label {
+                    display: none !important;
+                }
+
+                /* Input */
+                #sector-ops-map-fullscreen.mobile-search-open #sector-ops-search-input {
+                    flex: 1 1 auto !important;
+                    width: auto !important;
                     height: 100% !important;
                     background: transparent !important;
                     border: none !important;
                     color: #fff !important;
-                    font-family: 'Segoe UI', sans-serif !important;
                     font-weight: 500 !important;
-                    font-size: 16px !important; /* Prevents iOS zoom */
+                    font-size: 16px !important; /* iOS no-zoom */
                     padding: 0 8px !important;
                     outline: none !important;
                     border-radius: 0 !important;
                     -webkit-appearance: none !important;
                 }
-                
-                #sector-ops-search-input::placeholder {
-                    color: rgba(255, 255, 255, 0.4) !important;
+                #sector-ops-map-fullscreen.mobile-search-open #sector-ops-search-input::placeholder {
+                    color: rgba(255, 255, 255, 0.45) !important;
                 }
 
-                /* Clear Button */
-                #sector-ops-search-clear {
-                    background: rgba(255, 255, 255, 0.1) !important;
+                /* Clear (X) button — only shows when the input has text */
+                #sector-ops-map-fullscreen.mobile-search-open #sector-ops-search-clear {
+                    background: rgba(255, 255, 255, 0.08) !important;
                     color: #fff !important;
                     border: none !important;
                     border-radius: 50% !important;
                     width: 32px !important;
                     height: 32px !important;
-                    display: flex !important;
                     align-items: center !important;
                     justify-content: center !important;
-                    margin-right: 6px !important;
+                    margin: 0 6px 0 0 !important;
                     cursor: pointer !important;
-                    font-size: 1rem !important;
+                    font-size: 0.95rem !important;
+                    flex-shrink: 0 !important;
                 }
-                
-                /* Results Dropdown - Floating Card Style */
-                #search-results-dropdown {
-                    margin-top: 10px !important;
-                    width: 100% !important;
-                    background: rgba(15, 20, 35, 0.95) !important;
-                    backdrop-filter: blur(25px) !important;
-                    -webkit-backdrop-filter: blur(25px) !important;
-                    border: 1px solid rgba(255, 255, 255, 0.08) !important;
-                    border-radius: 12px !important;
-                    overflow-y: auto !important;
-                    box-shadow: 0 15px 50px rgba(0, 0, 0, 0.6) !important;
-                    max-height: calc(100vh - 140px) !important;
-                    -webkit-overflow-scrolling: touch;
+                #sector-ops-map-fullscreen.mobile-search-open #sector-ops-search-input:not(:placeholder-shown) + #sector-ops-search-clear {
+                    display: flex !important;
+                }
+                #sector-ops-map-fullscreen.mobile-search-open #sector-ops-search-input:placeholder-shown + #sector-ops-search-clear {
+                    display: none !important;
                 }
 
-                /* Category headers on mobile */
+                /* Results — stretches to fill remaining height of the overlay
+                   and scrolls internally. No fragile vh math. JS controls
+                   block-vs-none visibility based on whether results exist. */
+                #sector-ops-map-fullscreen.mobile-search-open #search-results-dropdown {
+                    flex: 1 1 auto !important;
+                    min-height: 0 !important;
+                    margin-top: 10px !important;
+                    width: 100% !important;
+                    background: rgba(15, 20, 35, 0.92) !important;
+                    border: 1px solid rgba(255, 255, 255, 0.06) !important;
+                    border-radius: 14px !important;
+                    box-shadow: 0 15px 50px rgba(0, 0, 0, 0.55) !important;
+                    overflow-y: auto !important;
+                    -webkit-overflow-scrolling: touch;
+                    max-height: none !important;
+                }
+
+                /* Category headers */
                 #sector-ops-map-fullscreen.mobile-search-open .search-results-header {
                     color: var(--hud-accent) !important;
                     font-size: 0.72rem !important;
-                    padding: 12px 18px 6px !important;
+                    letter-spacing: 0.08em !important;
+                    padding: 14px 18px 6px !important;
+                    background: rgba(15, 20, 35, 0.6);
+                    position: sticky;
+                    top: 0;
+                    z-index: 1;
                 }
                 #sector-ops-map-fullscreen.mobile-search-open .search-results-section + .search-results-section {
-                    border-top: 1px solid rgba(255, 255, 255, 0.08) !important;
+                    border-top: 1px solid rgba(255, 255, 255, 0.06) !important;
                 }
-                
-                /* Result Items */
-                .search-result-item {
-                    padding: 14px 20px !important;
-                    border-bottom: 1px solid rgba(255, 255, 255, 0.05) !important;
+
+                /* Result rows */
+                #sector-ops-map-fullscreen.mobile-search-open .search-result-item {
+                    padding: 14px 18px !important;
+                    border-bottom: 1px solid rgba(255, 255, 255, 0.04) !important;
                     display: flex !important;
                     align-items: center !important;
-                    gap: 15px !important;
+                    gap: 14px !important;
                 }
-                
-                .search-result-item i {
-                    color: var(--hud-accent) !important;
-                    font-size: 1.1rem !important;
-                    opacity: 0.8;
-                }
-                
-                .search-result-info strong {
+                #sector-ops-map-fullscreen.mobile-search-open .search-result-info strong {
                     font-size: 1rem !important;
                     color: #fff !important;
                 }
-                
-                .search-result-info small {
-                    font-size: 0.85rem !important;
+                #sector-ops-map-fullscreen.mobile-search-open .search-result-info small {
+                    font-size: 0.82rem !important;
                     color: #9fa8da !important;
                 }
-                
-                .search-result-item:active {
+                #sector-ops-map-fullscreen.mobile-search-open .search-result-item:active {
                     background: rgba(0, 168, 255, 0.15) !important;
                 }
             }

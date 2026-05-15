@@ -1613,6 +1613,16 @@
         .search-clear-btn:hover {
             color: #fff;
         }
+        .search-mobile-back {
+            display: none;
+            background: none;
+            border: none;
+            color: #9fa8da;
+            cursor: pointer;
+            font-size: 1rem;
+            padding: 10px 14px;
+            line-height: 1;
+        }
         
         .sector-ops-search:focus-within #sector-ops-search-input:not(:placeholder-shown) + #sector-ops-search-clear {
             display: block;
@@ -2051,6 +2061,10 @@
 
             <div id="sector-ops-search-container" class="sector-ops-search">
                 <div class="search-bar-container">
+                    <button id="sector-ops-mobile-back" class="search-mobile-back" type="button" aria-label="Close search"
+                            onclick="if(window.MobileUIHandler){const i=document.getElementById('sector-ops-search-input');if(i){i.value='';if(window.handleSearchInput)window.handleSearchInput('');}window.MobileUIHandler.toggleMobileSearch(false);}">
+                        <i class="fa-solid fa-arrow-left"></i>
+                    </button>
                     <label for="sector-ops-search-input" class="search-icon-label">
                         <i class="fa-solid fa-magnifying-glass search-icon"></i>
                     </label>
