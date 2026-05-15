@@ -1471,6 +1471,7 @@ export const LandingUI = {
                 /* ---- Reset desktop absolute positioning on children ---- */
                 .top-branding.dropdown,
                 .top-right-actions {
+                    position: static !important;
                     top: auto !important;
                     left: auto !important;
                     right: auto !important;
@@ -1480,25 +1481,19 @@ export const LandingUI = {
                     pointer-events: auto;
                 }
 
-                /* ---- Server pill (left) ----
-                   position:relative (not static) so the absolutely-positioned
-                   .server-menu inside it still anchors to the pill, not the
-                   header. flex:0 0 auto: takes intrinsic width, never grows. */
+                /* ---- Server pill (left) ---- */
                 .top-branding.dropdown {
-                    position: relative !important;
-                    flex: 0 0 auto !important;
+                    flex: 0 0 auto;
                     display: inline-flex !important;
                     align-items: center !important;
                     gap: 8px !important;
                     height: 38px !important;
                     padding: 0 14px !important;
-                    max-width: 45vw !important;
                     background: var(--lui-bg-card) !important;
                     border: 1px solid var(--lui-border-base) !important;
                     border-radius: 100px !important;
                     box-shadow: 0 2px 8px rgba(0, 0, 0, 0.25) !important;
                     white-space: nowrap;
-                    overflow: hidden;
                     line-height: 1;
                     transition: background 0.2s, transform 0.15s;
                 }
@@ -1539,42 +1534,34 @@ export const LandingUI = {
                     min-width: 160px;
                 }
 
-                /* ---- Right side: search bar wrapper ----
-                   flex:0 0 auto so the wrapper never grows into the server
-                   pill's row. justify-content: space-between on the parent
-                   handles spacing — no risk of one element drawing on top
-                   of the other regardless of viewport width. */
+                /* ---- Right side: search bar wrapper ---- */
                 .top-right-actions {
-                    position: static !important;
-                    flex: 0 0 auto !important;
-                    width: auto !important;
+                    flex: 1 1 auto;
+                    min-width: 0;
                     max-width: none !important;
-                    min-width: 0 !important;
                     display: flex !important;
                     justify-content: flex-end !important;
                 }
 
-                /* ---- Search blade (right) ----
-                   Explicit pixel width prevents any flex-grow math from
-                   eating into the server pill's space. Expands a controlled
-                   amount on focus instead of trying to fill remaining width. */
+                /* ---- Search blade (right) ---- */
                 .search-blade {
-                    flex: 0 0 auto !important;
-                    width: 160px !important;
-                    max-width: 55vw !important;
+                    flex: 1 1 auto;
+                    width: auto !important;
+                    max-width: 240px !important;
                     height: 38px !important;
                     padding: 0 14px !important;
                     background: var(--lui-bg-card) !important;
                     border: 1px solid var(--lui-border-base) !important;
                     border-radius: 100px !important;
                     box-shadow: 0 2px 8px rgba(0, 0, 0, 0.25) !important;
-                    transition: width 0.28s cubic-bezier(0.4, 0, 0.2, 1),
+                    transition: max-width 0.28s cubic-bezier(0.4, 0, 0.2, 1),
                                 border-color 0.2s,
                                 background 0.2s !important;
                     position: relative !important;
                 }
+                /* Expand to fill on focus; relies on flex so the server pill stays put */
                 .search-blade:focus-within {
-                    width: 220px !important;
+                    max-width: none !important;
                     border-color: var(--lui-accent) !important;
                     z-index: 100;
                 }
