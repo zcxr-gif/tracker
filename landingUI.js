@@ -4,8 +4,9 @@ export const LandingUI = {
     _weatherMenuOpen: false,
     _activeFilters: {}, 
     _currentServer: 'Expert', 
-    _searchCursorIndex: -1, 
+    _searchCursorIndex: -1,
     _currentMatches: [],
+    _currentResults: { flights: [], airports: [], airlines: [] },
     _theme: localStorage.getItem('pui-theme') || 'dark',
 
     filterGroups: {
@@ -91,6 +92,7 @@ export const LandingUI = {
 
         if (!query || query.length < 2) {
             this._currentMatches = [];
+            this._currentResults = { flights: [], airports: [], airlines: [] };
             this._searchCursorIndex = -1;
             if (resultsContainer) {
                 resultsContainer.innerHTML = '';
@@ -100,19 +102,17 @@ export const LandingUI = {
             return;
         }
 
-        const flights = window.getLiveFlightData ? window.getLiveFlightData() : [];
-        const upperQuery = query.toUpperCase();
+        const results = (typeof window.runGlobalSearch === 'function')
+            ? window.runGlobalSearch(query)
+            : { flights: [], airports: [], airlines: [] };
 
-        this._currentMatches = flights.filter(f => {
-            const p = f.properties;
-            return p.callsign?.toUpperCase().includes(upperQuery) || 
-                   p.username?.toUpperCase().includes(upperQuery) || 
-                   p.aircraftName?.toUpperCase().includes(upperQuery);
-        }).slice(0, 15);
-
+        this._currentResults = results;
+        // Keep flight matches around for keyboard nav (arrows + Enter).
+        this._currentMatches = (results.flights || []).map(r => r.feature);
         this._searchCursorIndex = -1;
 
-        if (this._currentMatches.length > 0 && searchBlade) {
+        const total = (results.flights?.length || 0) + (results.airports?.length || 0) + (results.airlines?.length || 0);
+        if (total > 0 && searchBlade) {
             searchBlade.classList.add('has-results');
         } else if (searchBlade) {
             searchBlade.classList.remove('has-results');
@@ -123,58 +123,138 @@ export const LandingUI = {
 
     highlightText(text, query) {
         if (!query || !text) return text;
-        const regex = new RegExp(`(${query})`, 'gi');
+        const regex = new RegExp(`(${query.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')})`, 'gi');
         return text.replace(regex, '<span class="premium-highlight">$1</span>');
+    },
+
+    _renderFlightRow(entry, idx, query) {
+        const f = entry.feature;
+        const p = f.properties || {};
+        const acData = (typeof p.aircraft === 'string') ? (() => { try { return JSON.parse(p.aircraft); } catch { return {}; } })() : (p.aircraft || {});
+        const acName = acData.aircraftName || p.aircraftName || '---';
+        const lat = f.geometry?.coordinates?.[1];
+        const lon = f.geometry?.coordinates?.[0];
+        return `
+            <div class="premium-result-item ${this._searchCursorIndex === idx ? 'selected' : ''}"
+                 data-index="${idx}"
+                 onclick="LandingUI.executeSearchClick('${p.flightId}', ${lat}, ${lon})">
+                <div class="res-meta-icon"><i class="fa-solid fa-circle"></i></div>
+                <div class="res-info-main">
+                    <div class="res-primary-row">
+                        <span class="res-callsign">${this.highlightText(p.callsign || 'N/A', query)}</span>
+                        <span class="res-pill">${this.highlightText(acName, query)}</span>
+                    </div>
+                    <div class="res-secondary-row">
+                        <span class="res-pilot">${this.highlightText(p.username || 'Anonymous', query)}</span>
+                    </div>
+                </div>
+                <div class="res-stats">
+                    <span class="res-altitude">${Math.round(p.altitude || 0).toLocaleString()}<span>ft</span></span>
+                </div>
+            </div>
+        `;
+    },
+
+    _renderAirportRow(entry, query) {
+        const a = entry.airport;
+        return `
+            <div class="premium-result-item"
+                 onclick="LandingUI.executeAirportClick('${a.icao}', ${a.lat}, ${a.lon})">
+                <div class="res-meta-icon" style="color: var(--lui-accent);"><i class="fa-solid fa-tower-control" style="font-size: 14px;"></i></div>
+                <div class="res-info-main">
+                    <div class="res-primary-row">
+                        <span class="res-callsign">${this.highlightText(a.icao, query)}</span>
+                        <span class="res-pill">${this.highlightText(a.country || '', query)}</span>
+                    </div>
+                    <div class="res-secondary-row">
+                        <span class="res-pilot">${this.highlightText(a.name || '', query)}</span>
+                    </div>
+                </div>
+            </div>
+        `;
+    },
+
+    _renderAirlineRow(entry, query) {
+        const safeName = (entry.name || '').replace(/'/g, "\\'");
+        return `
+            <div class="premium-result-item"
+                 onclick="LandingUI.executeAirlineClick('${safeName}')">
+                <div class="res-meta-icon" style="color: #c084fc;"><i class="fa-solid fa-plane-departure" style="font-size: 14px;"></i></div>
+                <div class="res-info-main">
+                    <div class="res-primary-row">
+                        <span class="res-callsign">${this.highlightText(entry.name, query)}</span>
+                    </div>
+                    <div class="res-secondary-row">
+                        <span class="res-pilot">${entry.count} active flight${entry.count === 1 ? '' : 's'}</span>
+                    </div>
+                </div>
+            </div>
+        `;
+    },
+
+    _renderSection(title, rows) {
+        if (!rows.length) return '';
+        return `
+            <div class="blade-results-section">
+                <div class="blade-results-header">${title}<span class="blade-results-count">${rows.length}</span></div>
+                ${rows.join('')}
+            </div>
+        `;
     },
 
     renderSearchResults(query) {
         const container = document.getElementById('blade-search-results');
         if (!container) return;
-        
-        if (this._currentMatches.length === 0) {
+
+        const r = this._currentResults || { flights: [], airports: [], airlines: [] };
+        const total = (r.flights?.length || 0) + (r.airports?.length || 0) + (r.airlines?.length || 0);
+
+        if (total === 0) {
             container.innerHTML = `<div class="premium-empty-state"><p>No matches found</p></div>`;
         } else {
-            container.innerHTML = this._currentMatches.map((f, idx) => `
-                <div class="premium-result-item ${this._searchCursorIndex === idx ? 'selected' : ''}" 
-                     data-index="${idx}"
-                     onclick="LandingUI.executeSearchClick('${f.properties.flightId}', ${f.geometry.coordinates[1]}, ${f.geometry.coordinates[0]})">
-                    <div class="res-meta-icon"><i class="fa-solid fa-circle"></i></div>
-                    <div class="res-info-main">
-                        <div class="res-primary-row">
-                            <span class="res-callsign">${this.highlightText(f.properties.callsign || 'N/A', query)}</span>
-                            <span class="res-pill">${this.highlightText(f.properties.aircraftName || '---', query)}</span>
-                        </div>
-                        <div class="res-secondary-row">
-                            <span class="res-pilot">${this.highlightText(f.properties.username || 'Anonymous', query)}</span>
-                        </div>
-                    </div>
-                    <div class="res-stats">
-                        <span class="res-altitude">${Math.round(f.properties.altitude || 0).toLocaleString()}<span>ft</span></span>
-                    </div>
-                </div>
-            `).join('');
+            container.innerHTML = [
+                this._renderSection('Live flights', (r.flights || []).map((e, i) => this._renderFlightRow(e, i, query))),
+                this._renderSection('Airports', (r.airports || []).map(e => this._renderAirportRow(e, query))),
+                this._renderSection('Airlines', (r.airlines || []).map(e => this._renderAirlineRow(e, query))),
+            ].join('');
         }
         container.classList.add('visible');
+    },
+
+    _closeBladeSearch() {
+        const searchInput = document.getElementById('blade-search-input');
+        const resultsDropdown = document.getElementById('blade-search-results');
+        const searchBlade = document.querySelector('.search-blade');
+        if (searchInput) {
+            searchInput.value = '';
+            searchInput.blur();
+        }
+        if (resultsDropdown) resultsDropdown.classList.remove('visible');
+        if (searchBlade) searchBlade.classList.remove('has-results');
+        this._currentMatches = [];
+        this._currentResults = { flights: [], airports: [], airlines: [] };
+        this._searchCursorIndex = -1;
     },
 
     executeSearchClick(id, lat, lon) {
         if (typeof window.onSearchResultClick === 'function') {
             window.onSearchResultClick(id, lat, lon);
         }
+        this._closeBladeSearch();
+    },
 
-        const searchInput = document.getElementById('blade-search-input');
-        const resultsDropdown = document.getElementById('blade-search-results');
-        const searchBlade = document.querySelector('.search-blade');
-
-        if (searchInput) {
-            searchInput.value = ''; 
-            searchInput.blur();
+    executeAirportClick(icao, lat, lon) {
+        this._closeBladeSearch();
+        if (typeof window.onAirportSearchResultClick === 'function') {
+            window.onAirportSearchResultClick({ icao, lat, lon });
         }
-        if (resultsDropdown) resultsDropdown.classList.remove('visible');
-        if (searchBlade) searchBlade.classList.remove('has-results');
+    },
 
-        this._currentMatches = [];
-        this._searchCursorIndex = -1;
+    executeAirlineClick(livery) {
+        this._closeBladeSearch();
+        if (typeof window.onAirlineSearchResultClick === 'function') {
+            window.onAirlineSearchResultClick(livery);
+        }
     },
 
     render() {
@@ -935,6 +1015,31 @@ export const LandingUI = {
                 font-size: 13px;
             }
 
+            .blade-results-section + .blade-results-section {
+                border-top: 1px solid var(--lui-border-base);
+                margin-top: 4px;
+                padding-top: 4px;
+            }
+            .blade-results-header {
+                font-size: 0.65rem;
+                font-weight: 700;
+                letter-spacing: 0.1em;
+                text-transform: uppercase;
+                color: var(--lui-text-muted);
+                padding: 8px 12px 4px;
+                display: flex;
+                align-items: center;
+                justify-content: space-between;
+            }
+            .blade-results-count {
+                color: var(--lui-text-dim);
+                font-weight: 600;
+            }
+            .premium-highlight {
+                color: var(--lui-accent);
+                font-weight: 700;
+            }
+
             .auth-nexus {
                 position: absolute;
                 bottom: 40px;
@@ -1420,9 +1525,25 @@ export const LandingUI = {
                     top: 60px !important;
                     left: 0 !important;
                     width: 100vw !important;
+                    /* dvh accounts for mobile browser chrome (URL bar / safe area)
+                       so the bottom of the dropdown is never clipped. vh stays as
+                       a fallback for browsers without dvh support. */
                     height: calc(100vh - 60px) !important;
+                    height: calc(100dvh - 60px) !important;
                     max-height: none !important;
                     border-radius: 0 !important;
+                    padding-bottom: env(safe-area-inset-bottom, 0px) !important;
+                }
+                .blade-results-section + .blade-results-section {
+                    margin-top: 0 !important;
+                    padding-top: 0 !important;
+                }
+                .blade-results-header {
+                    position: sticky;
+                    top: 0;
+                    background: var(--lui-bg-main);
+                    z-index: 1;
+                    padding: 12px 16px 6px !important;
                 }
 
                 .top-branding.dropdown {

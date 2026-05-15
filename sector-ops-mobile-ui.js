@@ -195,21 +195,26 @@ disableHudControls() {
     },
 
     /**
-     * [NEW] Toggles the visibility of the search bar on mobile
+     * [NEW] Focuses the canonical blade-search input. The search overlay
+     * itself lives in the tactical header (landingUI.js) — this method
+     * just acts as a programmatic shortcut from the HUD button.
      */
     toggleMobileSearch(show) {
-        const mapContainer = document.getElementById('sector-ops-map-fullscreen');
-        const searchInput = document.getElementById('sector-ops-search-input');
-        
-        if (!mapContainer) return;
-
+        const bladeInput = document.getElementById('blade-search-input');
         if (show) {
-            mapContainer.classList.add('mobile-search-open');
-            // Focus the input automatically
-            if (searchInput) setTimeout(() => searchInput.focus(), 100);
+            if (bladeInput) {
+                bladeInput.focus();
+                // iOS: scroll the input into view above the keyboard.
+                try { bladeInput.scrollIntoView({ block: 'center', behavior: 'smooth' }); } catch (_) {}
+            }
         } else {
-            mapContainer.classList.remove('mobile-search-open');
-            if (searchInput) searchInput.blur();
+            if (bladeInput) {
+                bladeInput.value = '';
+                bladeInput.blur();
+            }
+            if (window.LandingUI && typeof window.LandingUI._closeBladeSearch === 'function') {
+                window.LandingUI._closeBladeSearch();
+            }
         }
     },
 
@@ -569,145 +574,9 @@ disableHudControls() {
             .s-name { font-weight: 600; font-size: 1rem; }
             .s-desc { font-size: 0.8rem; color: #94a3b8; }
 
-            /* ====================================================================
-            --- [UPDATED] Search Bar Mobile Positioning (Hidden by default) ---
-            ==================================================================== */
-            @media (max-width: ${this.CONFIG.breakpoint}px) {
-                #sector-ops-search-container {
-                    /* Hide by default on mobile */
-                    display: none !important; 
-                    
-                    position: absolute !important;
-                    top: calc(env(safe-area-inset-top, 20px) + 15px) !important; 
-                    left: 15px !important;
-                    right: 15px !important;
-                    width: auto !important; /* Full width minus margins */
-                    max-width: none !important;
-                    z-index: 1030 !important;
-                    pointer-events: auto !important;
-                    
-                    /* Animation */
-                    opacity: 0;
-                    transform: translateY(-20px);
-                    transition: all 0.3s cubic-bezier(0.16, 1, 0.3, 1) !important;
-                }
-
-                /* Show when parent map has 'mobile-search-open' class */
-                #sector-ops-map-fullscreen.mobile-search-open #sector-ops-search-container {
-                    display: flex !important;
-                    opacity: 1;
-                    transform: translateY(0);
-                }
-
-                #sector-ops-search-container .search-bar-container {
-                    display: flex !important;
-                    align-items: center !important;
-                    background: rgba(15, 20, 35, 0.95) !important;
-                    backdrop-filter: blur(25px) !important;
-                    -webkit-backdrop-filter: blur(25px) !important;
-                    border: 1px solid var(--hud-accent) !important; /* Blue border when active */
-                    border-radius: 12px !important; /* Rectangle vs Pill */
-                    box-shadow: 0 8px 32px rgba(0, 0, 0, 0.6) !important;
-                    padding: 0 6px !important;
-                    height: 50px !important; /* Slightly taller */
-                    transition: all 0.3s ease !important;
-                }
-                
-                /* Search Icon */
-                #sector-ops-search-container .search-icon-label {
-                    display: flex !important;
-                    align-items: center !important;
-                    justify-content: center !important;
-                    width: 40px !important;
-                    height: 100% !important;
-                    margin: 0 !important;
-                    color: var(--hud-accent) !important;
-                    opacity: 1;
-                }
-
-                /* Input Field */
-                #sector-ops-search-input {
-                    flex-grow: 1 !important;
-                    height: 100% !important;
-                    background: transparent !important;
-                    border: none !important;
-                    color: #fff !important;
-                    font-family: 'Segoe UI', sans-serif !important;
-                    font-weight: 500 !important;
-                    font-size: 16px !important; /* Prevents iOS zoom */
-                    padding: 0 8px !important;
-                    outline: none !important;
-                    border-radius: 0 !important;
-                    -webkit-appearance: none !important;
-                }
-                
-                #sector-ops-search-input::placeholder {
-                    color: rgba(255, 255, 255, 0.4) !important;
-                }
-
-                /* Clear Button */
-                #sector-ops-search-clear {
-                    background: rgba(255, 255, 255, 0.1) !important;
-                    color: #fff !important;
-                    border: none !important;
-                    border-radius: 50% !important;
-                    width: 32px !important;
-                    height: 32px !important;
-                    display: flex !important;
-                    align-items: center !important;
-                    justify-content: center !important;
-                    margin-right: 6px !important;
-                    cursor: pointer !important;
-                    font-size: 1rem !important;
-                }
-                
-                /* Results Dropdown - Floating Card Style */
-                #search-results-dropdown {
-                    margin-top: 8px !important; 
-                    width: 100% !important;
-                    background: rgba(15, 20, 35, 0.95) !important;
-                    backdrop-filter: blur(25px) !important;
-                    -webkit-backdrop-filter: blur(25px) !important;
-                    border: 1px solid rgba(255, 255, 255, 0.08) !important;
-                    border-radius: 12px !important;
-                    overflow: hidden !important;
-                    box-shadow: 0 15px 50px rgba(0, 0, 0, 0.6) !important;
-                    max-height: 60vh !important;
-                    overflow-y: auto !important;
-                }
-                
-                /* Result Items */
-                .search-result-item {
-                    padding: 14px 20px !important;
-                    border-bottom: 1px solid rgba(255, 255, 255, 0.05) !important;
-                    display: flex !important;
-                    align-items: center !important;
-                    gap: 15px !important;
-                }
-                
-                .search-result-item i {
-                    color: var(--hud-accent) !important;
-                    font-size: 1.1rem !important;
-                    opacity: 0.8;
-                }
-                
-                .search-result-info strong {
-                    font-size: 1rem !important;
-                    color: #fff !important;
-                }
-                
-                .search-result-info small {
-                    font-size: 0.85rem !important;
-                    color: #9fa8da !important;
-                }
-                
-                .search-result-item:active {
-                    background: rgba(0, 168, 255, 0.15) !important;
-                }
-            }
-            /* ====================================================================
-            --- [END] Search Bar Mobile Positioning ---
-            ==================================================================== */
+            /* The canonical mobile search bar lives in the tactical header
+               (landingUI.js .search-blade). The HUD search button just
+               focuses it programmatically — no separate overlay needed. */
 
             /* --- [MODIFIED] Overlay (now shared) --- */
             #mobile-window-overlay {

@@ -6193,147 +6193,179 @@ function updateTripCardRealtime() {
 }
     
 /**
- * Fixes the search input handler to correctly show the results list
+ * Categorized search input handler.
+ * Delegates ranking to window.GlobalSearchEngine and renders three sections:
+ * Live flights, Airports, Airlines.
  */
 function handleSearchInput(searchText) {
-    // FIX: Define the dropdown reference at the start of the function
-    const dropdown = document.getElementById('search-results-dropdown'); 
+    const dropdown = document.getElementById('search-results-dropdown');
     if (!dropdown) return;
 
-    // Require at least 2 characters to start searching
     if (!searchText || searchText.length < 2) {
         dropdown.innerHTML = '';
         dropdown.style.display = 'none';
-        
-        // Also ensure the search bar container loses its "active" class
         const searchBar = document.querySelector('#sector-ops-search-container .search-bar-container');
         if (searchBar) searchBar.classList.remove('has-results');
         return;
     }
 
-    const upperSearchText = searchText.toUpperCase();
-    const matches = [];
-
-    // Search through the live flight data cache
-    for (const flightId in currentMapFeatures) {
-        const feature = currentMapFeatures[flightId];
-        const props = feature.properties;
-        
-        const callsign = (props.callsign || '').toUpperCase();
-        const username = (props.username || '').toUpperCase();
-        const acName = (props.aircraftName || '').toUpperCase();
-        const livName = (props.liveryName || '').toUpperCase();
-
-        if (callsign.includes(upperSearchText) || 
-            username.includes(upperSearchText) || 
-            acName.includes(upperSearchText) || 
-            livName.includes(upperSearchText)) {
-            matches.push(feature);
-        }
-    }
-    
-    // Render the list
-    renderSearchResultsDropdown(matches);
+    const results = runGlobalSearch(searchText);
+    renderSearchResultsDropdown(results);
 }
 
- /**
- * --- [RE-DONE] Renders detailed search results.
- * Manages the visibility and styling of the dropdown container.
+/**
+ * Public helper: runs the categorized search using the live in-page state
+ * (airportsData + currentMapFeatures). Other UI modules (e.g. landingUI's
+ * blade search) call this so they don't need their own copy of the data.
  */
-function renderSearchResultsDropdown(matches) {
+function runGlobalSearch(query) {
+    const engine = window.GlobalSearchEngine;
+    if (!engine) return { flights: [], airports: [], airlines: [], query: query || '' };
+    return engine.runSearch(query, {
+        airportsData: airportsData,
+        flights: Object.values(currentMapFeatures),
+    });
+}
+window.runGlobalSearch = runGlobalSearch;
+
+function escapeHtml(s) {
+    return String(s == null ? '' : s)
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#39;');
+}
+
+function shortenAircraftType(acName) {
+    if (!acName) return '';
+    let s = acName.split(' ')[0].substring(0, 4).toUpperCase();
+    if (acName.includes('777')) s = 'B77W';
+    else if (acName.includes('737')) s = 'B737';
+    else if (acName.includes('320')) s = 'A320';
+    else if (acName.includes('321')) s = 'A321';
+    else if (acName.includes('350')) s = 'A350';
+    else if (acName.includes('380')) s = 'A380';
+    else if (acName.includes('787')) s = 'B787';
+    else if (acName.includes('747')) s = 'B747';
+    else if (acName.includes('CRJ')) s = 'CRJ';
+    else if (acName.includes('Dash')) s = 'DH8D';
+    return s;
+}
+
+function renderFlightRow(entry) {
+    const feature = entry.feature;
+    const props = feature.properties || {};
+    const coords = feature.geometry && feature.geometry.coordinates;
+    const acData = (typeof props.aircraft === 'string') ? (() => { try { return JSON.parse(props.aircraft); } catch { return {}; } })() : (props.aircraft || {});
+    const acName = acData.aircraftName || props.aircraftName || 'Unknown';
+    const livName = acData.liveryName || props.liveryName || 'Generic';
+    const shortType = shortenAircraftType(acName);
+    const altDisplay = props.altitude ? Math.round(props.altitude).toLocaleString() : '0';
+
+    const propsString = JSON.stringify(props).replace(/'/g, '&apos;').replace(/"/g, '&quot;');
+    const coordsString = JSON.stringify(coords || []);
+
+    return `
+        <div class="search-result-item"
+             onclick="onSearchResultClick(this)"
+             data-flight-id="${escapeHtml(props.flightId)}"
+             data-coordinates='${coordsString}'
+             data-properties='${propsString}'>
+            <div class="search-result-icon-box">
+                <i class="fa-solid fa-plane"></i>
+            </div>
+            <div class="search-result-info">
+                <strong>${escapeHtml(props.callsign || '—')}${shortType ? ` <span style="font-size:0.7rem;color:#9fa8da;font-weight:500;">${escapeHtml(shortType)}</span>` : ''}</strong>
+                <small>${escapeHtml(props.username || '')}${livName ? ` • ${escapeHtml(livName)}` : ''}</small>
+            </div>
+            <div class="search-result-meta">${altDisplay} ft</div>
+        </div>
+    `;
+}
+
+function renderAirportRow(entry) {
+    const a = entry.airport;
+    return `
+        <div class="search-result-item"
+             onclick="onAirportSearchResultClick(this)"
+             data-icao="${escapeHtml(a.icao)}"
+             data-lat="${a.lat}"
+             data-lon="${a.lon}">
+            <div class="search-result-icon-box airport-box">
+                <i class="fa-solid fa-tower-control"></i>
+            </div>
+            <div class="search-result-info">
+                <strong>${escapeHtml(a.icao)} <span style="font-size:0.75rem;color:#9fa8da;font-weight:500;">${escapeHtml(a.country || '')}</span></strong>
+                <small>${escapeHtml(a.name || '')}</small>
+            </div>
+        </div>
+    `;
+}
+
+function renderAirlineRow(entry) {
+    return `
+        <div class="search-result-item"
+             onclick="onAirlineSearchResultClick(this)"
+             data-livery="${escapeHtml(entry.name)}">
+            <div class="search-result-icon-box airline-box">
+                <i class="fa-solid fa-plane-departure"></i>
+            </div>
+            <div class="search-result-info">
+                <strong>${escapeHtml(entry.name)}</strong>
+                <small>${entry.count} active flight${entry.count === 1 ? '' : 's'}</small>
+            </div>
+        </div>
+    `;
+}
+
+function renderSection(title, rows, emptyHidden = true) {
+    if (!rows.length && emptyHidden) return '';
+    const body = rows.length
+        ? rows.join('')
+        : `<div class="search-results-empty">No matches</div>`;
+    return `
+        <div class="search-results-section">
+            <div class="search-results-header"><span>${title}</span><span class="count">${rows.length || ''}</span></div>
+            ${body}
+        </div>
+    `;
+}
+
+/**
+ * Renders categorized search results: flights / airports / airlines.
+ * Accepts the engine output: { flights, airports, airlines }.
+ */
+function renderSearchResultsDropdown(results) {
     const dropdown = document.getElementById('search-results-dropdown');
     const searchBar = document.querySelector('#sector-ops-search-container .search-bar-container');
-    
     if (!dropdown || !searchBar) return;
 
-    // Clear previous content
     dropdown.innerHTML = '';
 
-    if (matches.length === 0) {
+    const flights = (results && results.flights) || [];
+    const airports = (results && results.airports) || [];
+    const airlines = (results && results.airlines) || [];
+
+    if (!flights.length && !airports.length && !airlines.length) {
         dropdown.innerHTML = `
             <div style="padding: 24px 16px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 8px; color: #94a3b8; opacity: 0.8;">
-                <i class="fa-solid fa-plane-slash" style="font-size: 1.2rem;"></i>
-                <span style="font-size: 0.85rem; font-weight: 500;">No active flights found</span>
+                <i class="fa-solid fa-magnifying-glass" style="font-size: 1.2rem;"></i>
+                <span style="font-size: 0.85rem; font-weight: 500;">No matches found</span>
             </div>
         `;
         dropdown.style.display = 'block';
-        searchBar.classList.add('has-results'); // Keep the merged look
+        searchBar.classList.add('has-results');
         return;
     }
 
-    // Render HTML
-    dropdown.innerHTML = matches.slice(0, 15).map(feature => {
-        const props = feature.properties;
-        const coords = feature.geometry.coordinates;
+    const html = [
+        renderSection('Live flights', flights.map(renderFlightRow)),
+        renderSection('Airports', airports.map(renderAirportRow)),
+        renderSection('Airlines', airlines.map(renderAirlineRow)),
+    ].join('');
 
-        // Safe Data Parsing
-        const acData = (typeof props.aircraft === 'string') ? JSON.parse(props.aircraft) : (props.aircraft || {});
-        const acName = acData.aircraftName || 'Unknown';
-        const livName = acData.liveryName || 'Generic';
-        
-        // Format Display Values
-        const altDisplay = props.altitude ? Math.round(props.altitude).toLocaleString() : '0';
-        const gsDisplay = props.speed ? Math.round(props.speed) : '0';
-        
-        // Shorten Aircraft Name
-        let shortType = acName.split(' ')[0].substring(0,4).toUpperCase();
-        if(acName.includes("777")) shortType = "B77W";
-        else if(acName.includes("737")) shortType = "B737";
-        else if(acName.includes("320")) shortType = "A320";
-        else if(acName.includes("321")) shortType = "A321";
-        else if(acName.includes("350")) shortType = "A350";
-        else if(acName.includes("380")) shortType = "A380";
-        else if(acName.includes("787")) shortType = "B787";
-        else if(acName.includes("747")) shortType = "B747";
-        else if(acName.includes("CRJ")) shortType = "CRJ";
-        else if(acName.includes("Dash")) shortType = "DH8D";
-
-        // Airline Logo Logic
-        const words = livName.trim().split(/\s+/);
-        let logoName = words.length > 1 && /[^a-zA-Z0-9]/.test(words[1]) ? words[0] : (words[0] + (words[1] ? ' ' + words[1] : ''));
-        const sanitizedLogoName = logoName.toLowerCase().replace(/[^a-z0-9\s]/g, '').replace(/\s+/g, '_');
-        const logoPath = `Images/airline_logos/${sanitizedLogoName}.png`;
-
-        // Escape quotes for data attributes
-        const propsString = JSON.stringify(props).replace(/'/g, "&apos;").replace(/"/g, "&quot;");
-    const coordsString = JSON.stringify(coords);
-
-    return `
-    <div class="search-result-item" 
-         onclick="onSearchResultClick(this)" 
-         data-flight-id="${props.flightId}"
-         data-coordinates='${coordsString}'
-         data-properties='${propsString}'>
-        
-        <div class="search-result-img-box">
-            <img src="${logoPath}" class="search-result-logo" onerror="this.style.display='none';this.parentElement.innerHTML='<i class=\'fa-solid fa-plane\' style=\'color:#52525b;\'></i>'">
-        </div>
-
-        <div class="search-result-info">
-            <div class="search-main-text">
-                <span class="callsign-text">${props.callsign}</span>
-                <span class="search-badge-ac">${shortType}</span>
-            </div>
-            <div class="search-sub-text">
-                <span class="username-text">${props.username}</span>
-                <span class="separator">•</span>
-                <span class="livery-text">${livName}</span>
-            </div>
-        </div>
-
-        <div class="search-result-stats">
-            <div class="stat-row">
-                <span class="stat-val alt">${altDisplay}</span> <span class="stat-unit">ft</span>
-            </div>
-            <div class="stat-row">
-                <span class="stat-val gs">${gsDisplay}</span> <span class="stat-unit">kts</span>
-            </div>
-        </div>
-    </div>
-    `;
-}).join('');
-    
-    // Show Dropdown & Merge Corners
+    dropdown.innerHTML = html;
     dropdown.style.display = 'block';
     searchBar.classList.add('has-results');
 }
@@ -6368,13 +6400,17 @@ function onSearchResultClick(arg1, arg2, arg3) {
 
         const dropdown = document.getElementById('search-results-dropdown');
         const searchInput = document.getElementById('sector-ops-search-input');
-        
+
         if (dropdown) dropdown.innerHTML = '';
         if (searchInput) {
             searchInput.value = '';
             searchInput.blur();
         }
-        
+        const _mapWrap = document.getElementById('sector-ops-map-fullscreen');
+        if (_mapWrap && _mapWrap.classList.contains('mobile-search-open')) {
+            _mapWrap.classList.remove('mobile-search-open');
+        }
+
         sectorOpsMap.flyTo({
             center: coordinates,
             zoom: 9,
@@ -6402,6 +6438,121 @@ function onSearchResultClick(arg1, arg2, arg3) {
 
     // CRITICAL: Make function globally available to landingUI.js
     window.onSearchResultClick = onSearchResultClick;
+
+function _closeSearchAfterPick() {
+    const dropdown = document.getElementById('search-results-dropdown');
+    const searchInput = document.getElementById('sector-ops-search-input');
+    const searchBar = document.querySelector('#sector-ops-search-container .search-bar-container');
+    if (dropdown) {
+        dropdown.innerHTML = '';
+        dropdown.style.display = 'none';
+    }
+    if (searchInput) {
+        searchInput.value = '';
+        searchInput.blur();
+    }
+    if (searchBar) searchBar.classList.remove('has-results');
+    // Close mobile overlay if open
+    const mapContainer = document.getElementById('sector-ops-map-fullscreen');
+    if (mapContainer && mapContainer.classList.contains('mobile-search-open')) {
+        mapContainer.classList.remove('mobile-search-open');
+    }
+}
+
+function onAirportSearchResultClick(arg) {
+    // Accept either a clicked DOM element (with data-icao/lat/lon) or a plain
+    // {icao, lat, lon} object so other UI modules can call this without
+    // synthesizing a fake element. handleAirportClick lives inside this IIFE,
+    // so external callers can't reach it directly.
+    let icao, lat, lon;
+    if (arg && arg instanceof HTMLElement) {
+        icao = arg.dataset.icao;
+        lat = parseFloat(arg.dataset.lat);
+        lon = parseFloat(arg.dataset.lon);
+    } else if (arg && typeof arg === 'object') {
+        icao = arg.icao;
+        lat = parseFloat(arg.lat);
+        lon = parseFloat(arg.lon);
+    } else {
+        return;
+    }
+    if (!icao) return;
+
+    _closeSearchAfterPick();
+
+    if (Number.isFinite(lat) && Number.isFinite(lon) && sectorOpsMap) {
+        sectorOpsMap.flyTo({ center: [lon, lat], zoom: 11, essential: true });
+    }
+    if (typeof handleAirportClick === 'function') {
+        handleAirportClick(icao);
+    }
+}
+window.onAirportSearchResultClick = onAirportSearchResultClick;
+
+function onAirlineSearchResultClick(arg) {
+    // Accept either a clicked DOM element (with data-livery) or a raw livery string,
+    // so other UI modules can call this without synthesizing a fake element.
+    let livery;
+    if (typeof arg === 'string') {
+        livery = arg;
+    } else if (arg instanceof HTMLElement) {
+        livery = arg.dataset.livery;
+    } else {
+        return;
+    }
+    if (!livery) return;
+
+    _closeSearchAfterPick();
+
+    // Collect every live flight matching this airline, then fit the map to them.
+    const matches = [];
+    const target = livery.toLowerCase();
+    for (const id in currentMapFeatures) {
+        const f = currentMapFeatures[id];
+        const p = f && f.properties;
+        if (!p) continue;
+        let acData = p.aircraft;
+        if (typeof acData === 'string') {
+            try { acData = JSON.parse(acData); } catch { acData = {}; }
+        }
+        const liv = ((acData && acData.liveryName) || p.liveryName || '').toLowerCase();
+        if (liv === target) matches.push(f);
+    }
+
+    if (!matches.length || !sectorOpsMap) return;
+
+    if (matches.length === 1) {
+        const c = matches[0].geometry && matches[0].geometry.coordinates;
+        if (c) sectorOpsMap.flyTo({ center: c, zoom: 7, essential: true });
+        return;
+    }
+
+    // Compute bounding box of matching flights.
+    let minLon = Infinity, minLat = Infinity, maxLon = -Infinity, maxLat = -Infinity;
+    for (const f of matches) {
+        const c = f.geometry && f.geometry.coordinates;
+        if (!c) continue;
+        const [lon, lat] = c;
+        if (lon < minLon) minLon = lon;
+        if (lat < minLat) minLat = lat;
+        if (lon > maxLon) maxLon = lon;
+        if (lat > maxLat) maxLat = lat;
+    }
+    if (Number.isFinite(minLon)) {
+        try {
+            sectorOpsMap.fitBounds([[minLon, minLat], [maxLon, maxLat]], {
+                padding: 80,
+                maxZoom: 6,
+                duration: 1200,
+            });
+        } catch (_) {}
+    }
+
+    if (typeof showNotification === 'function') {
+        showNotification(`Showing ${matches.length} live ${livery} flight${matches.length === 1 ? '' : 's'}.`, 'info');
+    }
+}
+window.onAirlineSearchResultClick = onAirlineSearchResultClick;
 
 function updateAircraftLabelVisibility() {
     if (!sectorOpsMap || !sectorOpsMap.getLayer('sector-ops-live-flights-labels')) {
