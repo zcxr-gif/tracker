@@ -1446,97 +1446,169 @@ export const LandingUI = {
             .slide-in { animation: slideIn 0.35s forwards; }
 
             @media (max-width: 768px) {
+                /* ---- Top bar shell ---- */
                 .tactical-header {
                     position: fixed;
                     top: 0;
-                    height: 60px;
-                    background: var(--lui-bg-main);
-                    backdrop-filter: blur(20px);
+                    left: 0;
+                    right: 0;
+                    width: auto !important;
+                    /* Reserve room for the notch / status bar */
+                    height: calc(56px + env(safe-area-inset-top, 0px));
+                    padding: env(safe-area-inset-top, 0px) 12px 0 12px !important;
+                    background: var(--lui-glass-bg);
+                    backdrop-filter: blur(24px) saturate(140%);
+                    -webkit-backdrop-filter: blur(24px) saturate(140%);
                     border-bottom: 1px solid var(--lui-border-base);
                     display: flex !important;
                     align-items: center !important;
                     justify-content: space-between !important;
-                    padding: 0 15px !important;
-                    pointer-events: none !important;
+                    gap: 10px !important;
+                    pointer-events: auto !important;
+                    z-index: 2001;
                 }
 
-                .top-branding.dropdown, 
+                /* ---- Reset desktop absolute positioning on children ---- */
+                .top-branding.dropdown,
                 .top-right-actions {
                     position: static !important;
+                    top: auto !important;
+                    left: auto !important;
+                    right: auto !important;
                     transform: none !important;
-                    box-shadow: none !important;
-                    padding: 0 !important;
                     margin: 0 !important;
-                    background: transparent !important;
-                    border: none !important;
                     backdrop-filter: none !important;
+                    pointer-events: auto;
                 }
 
+                /* ---- Server pill (left) ---- */
                 .top-branding.dropdown {
-                    flex-shrink: 0;
-                    margin-right: 15px !important;
+                    flex: 0 0 auto;
+                    display: inline-flex !important;
+                    align-items: center !important;
+                    gap: 8px !important;
+                    height: 38px !important;
+                    padding: 0 14px !important;
+                    background: var(--lui-bg-card) !important;
+                    border: 1px solid var(--lui-border-base) !important;
+                    border-radius: 100px !important;
+                    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.25) !important;
+                    white-space: nowrap;
+                    line-height: 1;
+                    transition: background 0.2s, transform 0.15s;
                 }
+                .top-branding.dropdown:active { transform: scale(0.97) !important; }
+                .top-branding.dropdown.open { background: var(--lui-hover-bg) !important; }
+
+                .top-branding.dropdown .branding-content {
+                    display: inline-flex !important;
+                    align-items: center !important;
+                    gap: 6px !important;
+                    line-height: 1;
+                }
+                .top-branding.dropdown .dropdown-arrow {
+                    font-size: 0.6rem !important;
+                    opacity: 0.55;
+                    transition: transform 0.2s, opacity 0.2s;
+                }
+                .top-branding.dropdown.open .dropdown-arrow { opacity: 1; }
 
                 #landing-server-name {
-                    font-size: 0.7rem !important;
-                    font-weight: 800;
+                    font-size: 0.72rem !important;
+                    font-weight: 800 !important;
+                    letter-spacing: 0.06em;
+                    line-height: 1;
+                    color: var(--lui-text-main);
+                }
+                .status-dot {
+                    width: 7px !important;
+                    height: 7px !important;
+                    flex-shrink: 0;
                 }
 
+                /* ---- Server menu dropdown (anchored to pill) ---- */
+                .server-menu {
+                    top: calc(100% + 8px) !important;
+                    left: 0 !important;
+                    right: auto !important;
+                    min-width: 160px;
+                }
+
+                /* ---- Right side: search bar wrapper ---- */
                 .top-right-actions {
-                    flex: 1;
-                    max-width: 200px; 
-                    display: flex;
-                    justify-content: flex-end;
-                }
-
-                .search-blade {
-                    width: 100% !important;
-                    height: 36px !important;
-                    padding: 0 12px !important;
-                    background: var(--lui-border-base) !important;
-                    border-radius: 8px !important;
-                }
-
-                .search-blade:focus-within {
-                    position: absolute !important;
-                    left: 10px !important;
-                    right: 10px !important;
-                    top: 10px !important;
-                    width: calc(100% - 20px) !important;
-                    height: 40px !important;
-                    z-index: 100 !important;
+                    flex: 1 1 auto;
+                    min-width: 0;
                     max-width: none !important;
-                    background: var(--lui-bg-card) !important;
+                    display: flex !important;
+                    justify-content: flex-end !important;
                 }
 
+                /* ---- Search blade (right) ---- */
+                .search-blade {
+                    flex: 1 1 auto;
+                    width: auto !important;
+                    max-width: 240px !important;
+                    height: 38px !important;
+                    padding: 0 14px !important;
+                    background: var(--lui-bg-card) !important;
+                    border: 1px solid var(--lui-border-base) !important;
+                    border-radius: 100px !important;
+                    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.25) !important;
+                    transition: max-width 0.28s cubic-bezier(0.4, 0, 0.2, 1),
+                                border-color 0.2s,
+                                background 0.2s !important;
+                    position: relative !important;
+                }
+                /* Expand to fill on focus; relies on flex so the server pill stays put */
+                .search-blade:focus-within {
+                    max-width: none !important;
+                    border-color: var(--lui-accent) !important;
+                    z-index: 100;
+                }
+                /* When dropdown is open below, square off the bottom of the pill */
+                .search-blade.has-results {
+                    border-bottom-left-radius: 0 !important;
+                    border-bottom-right-radius: 0 !important;
+                }
+
+                .search-icon {
+                    font-size: 13px !important;
+                    color: var(--lui-text-muted);
+                    flex-shrink: 0;
+                }
+                #blade-search-input {
+                    /* 16px prevents iOS Safari from zooming the viewport on focus */
+                    font-size: 16px !important;
+                    font-weight: 500;
+                    color: var(--lui-text-main);
+                    min-width: 0;
+                }
+                #blade-search-input::placeholder {
+                    color: var(--lui-text-muted);
+                }
                 .search-shortcut { display: none !important; }
 
-                .utility-nexus { bottom: 20px !important; right: 20px !important; }
-                
-                .auth-nexus {
-                    bottom: 20px !important;
-                    left: 20px !important;
-                }
-
-                .orb-btn { width: 44px !important; height: 44px !important; }
-                
+                /* ---- Full-screen results dropdown ---- */
                 .search-results-dropdown {
                     position: fixed !important;
-                    top: 60px !important;
+                    top: calc(56px + env(safe-area-inset-top, 0px)) !important;
                     left: 0 !important;
                     width: 100vw !important;
-                    /* dvh accounts for mobile browser chrome (URL bar / safe area)
-                       so the bottom of the dropdown is never clipped. vh stays as
-                       a fallback for browsers without dvh support. */
-                    height: calc(100vh - 60px) !important;
-                    height: calc(100dvh - 60px) !important;
+                    /* dvh accounts for mobile browser chrome; vh is fallback */
+                    height: calc(100vh - 56px - env(safe-area-inset-top, 0px)) !important;
+                    height: calc(100dvh - 56px - env(safe-area-inset-top, 0px)) !important;
                     max-height: none !important;
+                    border: none !important;
+                    border-top: 1px solid var(--lui-border-base) !important;
                     border-radius: 0 !important;
+                    box-shadow: none !important;
+                    background: var(--lui-bg-main) !important;
                     padding-bottom: env(safe-area-inset-bottom, 0px) !important;
                 }
                 .blade-results-section + .blade-results-section {
                     margin-top: 0 !important;
                     padding-top: 0 !important;
+                    border-top: 1px solid var(--lui-border-base);
                 }
                 .blade-results-header {
                     position: sticky;
@@ -1546,65 +1618,17 @@ export const LandingUI = {
                     padding: 12px 16px 6px !important;
                 }
 
-                .top-branding.dropdown {
-                    top: 15px !important;
-                    left: 15px !important;
-                    padding: 8px 14px !important;
-                    gap: 8px !important;
-                }
-                #landing-server-name {
-                    font-size: 0.7rem !important; 
-                }
-                .status-dot {
-                    width: 6px !important;
-                    height: 6px !important;
-                }
-
-                .top-right-actions {
-                    position: static !important;
-                    flex: 1;
-                    display: flex;
-                    justify-content: flex-end; 
-                    pointer-events: auto;
-                }
-
-                .search-blade {
-                    width: 150px !important; 
-                    height: 38px !important;
-                    transition: width 0.3s cubic-bezier(0.4, 0, 0.2, 1); 
-                    position: relative !important; 
-                }
-
-                .search-blade:focus-within {
-                    width: calc(100vw - 120px) !important; 
-                    z-index: 100 !important;
-                }
-                #blade-search-input {
-                    font-size: 13px !important;
-                }
-                .search-shortcut {
-                    display: none; 
-                }
-
-                .utility-nexus {
-                    bottom: 20px !important;
-                    right: 20px !important;
-                }
-                .orb-row {
-                    gap: 10px !important;
-                }
+                /* ---- Floating utility / auth nexus (unchanged) ---- */
+                .utility-nexus { bottom: 20px !important; right: 20px !important; }
+                .auth-nexus    { bottom: 20px !important; left: 20px !important; }
+                .orb-row { gap: 10px !important; }
                 .orb-btn {
-                    width: 42px !important;
-                    height: 42px !important;
-                    font-size: 0.9rem !important; 
+                    width: 44px !important;
+                    height: 44px !important;
+                    font-size: 0.9rem !important;
                 }
-
-                .spread-opt {
-                    padding: 8px 15px !important;
-                }
-                .spread-opt i {
-                    font-size: 0.8rem !important;
-                }
+                .spread-opt { padding: 8px 15px !important; }
+                .spread-opt i { font-size: 0.8rem !important; }
             }
         `;
         
