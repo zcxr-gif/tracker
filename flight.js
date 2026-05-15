@@ -6209,19 +6209,24 @@ function handleSearchInput(searchText) {
         return;
     }
 
-    const engine = window.GlobalSearchEngine;
-    if (!engine) {
-        // Engine not loaded yet — fail silent, dropdown stays hidden.
-        return;
-    }
+    const results = runGlobalSearch(searchText);
+    renderSearchResultsDropdown(results);
+}
 
-    const results = engine.runSearch(searchText, {
+/**
+ * Public helper: runs the categorized search using the live in-page state
+ * (airportsData + currentMapFeatures). Other UI modules (e.g. landingUI's
+ * blade search) call this so they don't need their own copy of the data.
+ */
+function runGlobalSearch(query) {
+    const engine = window.GlobalSearchEngine;
+    if (!engine) return { flights: [], airports: [], airlines: [], query: query || '' };
+    return engine.runSearch(query, {
         airportsData: airportsData,
         flights: Object.values(currentMapFeatures),
     });
-
-    renderSearchResultsDropdown(results);
 }
+window.runGlobalSearch = runGlobalSearch;
 
 function escapeHtml(s) {
     return String(s == null ? '' : s)
@@ -6472,9 +6477,17 @@ function onAirportSearchResultClick(el) {
 }
 window.onAirportSearchResultClick = onAirportSearchResultClick;
 
-function onAirlineSearchResultClick(el) {
-    if (!(el instanceof HTMLElement)) return;
-    const livery = el.dataset.livery;
+function onAirlineSearchResultClick(arg) {
+    // Accept either a clicked DOM element (with data-livery) or a raw livery string,
+    // so other UI modules can call this without synthesizing a fake element.
+    let livery;
+    if (typeof arg === 'string') {
+        livery = arg;
+    } else if (arg instanceof HTMLElement) {
+        livery = arg.dataset.livery;
+    } else {
+        return;
+    }
     if (!livery) return;
 
     _closeSearchAfterPick();

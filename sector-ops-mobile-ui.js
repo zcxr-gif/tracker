@@ -195,21 +195,26 @@ disableHudControls() {
     },
 
     /**
-     * [NEW] Toggles the visibility of the search bar on mobile
+     * [NEW] Focuses the canonical blade-search input. The search overlay
+     * itself lives in the tactical header (landingUI.js) — this method
+     * just acts as a programmatic shortcut from the HUD button.
      */
     toggleMobileSearch(show) {
-        const mapContainer = document.getElementById('sector-ops-map-fullscreen');
-        const searchInput = document.getElementById('sector-ops-search-input');
-        
-        if (!mapContainer) return;
-
+        const bladeInput = document.getElementById('blade-search-input');
         if (show) {
-            mapContainer.classList.add('mobile-search-open');
-            // Focus the input automatically
-            if (searchInput) setTimeout(() => searchInput.focus(), 100);
+            if (bladeInput) {
+                bladeInput.focus();
+                // iOS: scroll the input into view above the keyboard.
+                try { bladeInput.scrollIntoView({ block: 'center', behavior: 'smooth' }); } catch (_) {}
+            }
         } else {
-            mapContainer.classList.remove('mobile-search-open');
-            if (searchInput) searchInput.blur();
+            if (bladeInput) {
+                bladeInput.value = '';
+                bladeInput.blur();
+            }
+            if (window.LandingUI && typeof window.LandingUI._closeBladeSearch === 'function') {
+                window.LandingUI._closeBladeSearch();
+            }
         }
     },
 
@@ -569,175 +574,9 @@ disableHudControls() {
             .s-name { font-weight: 600; font-size: 1rem; }
             .s-desc { font-size: 0.8rem; color: #94a3b8; }
 
-            /* ====================================================================
-            --- [UPDATED] Search Bar Mobile Positioning (Hidden by default) ---
-            ==================================================================== */
-            @media (max-width: ${this.CONFIG.breakpoint}px) {
-                /* Hidden by default — the search button on the HUD reveals it. */
-                #sector-ops-search-container {
-                    display: none !important;
-                }
-
-                /* Full-screen overlay when mobile-search-open is set.
-                   position:fixed lets us escape any ancestor overflow:hidden
-                   that was clipping the dropdown. Flex column: bar at top,
-                   results stretch to fill the rest of the visible viewport. */
-                #sector-ops-map-fullscreen.mobile-search-open #sector-ops-search-container {
-                    display: flex !important;
-                    flex-direction: column !important;
-                    position: fixed !important;
-                    top: 0 !important;
-                    left: 0 !important;
-                    right: 0 !important;
-                    bottom: 0 !important;
-                    width: auto !important;
-                    max-width: none !important;
-                    z-index: 1060 !important;
-                    pointer-events: auto !important;
-                    background: rgba(5, 8, 18, 0.92);
-                    backdrop-filter: blur(18px);
-                    -webkit-backdrop-filter: blur(18px);
-                    padding: calc(env(safe-area-inset-top, 0px) + 10px) 12px
-                             calc(env(safe-area-inset-bottom, 0px) + 10px) 12px !important;
-                    box-sizing: border-box !important;
-                    animation: searchOverlayIn 0.22s cubic-bezier(0.16, 1, 0.3, 1) both;
-                }
-                @keyframes searchOverlayIn {
-                    from { opacity: 0; transform: translateY(-8px); }
-                    to   { opacity: 1; transform: translateY(0); }
-                }
-
-                /* Search bar row (top of overlay) */
-                #sector-ops-map-fullscreen.mobile-search-open #sector-ops-search-container .search-bar-container {
-                    display: flex !important;
-                    align-items: center !important;
-                    flex: 0 0 auto !important;
-                    width: 100% !important;
-                    background: rgba(15, 20, 35, 0.92) !important;
-                    backdrop-filter: blur(25px) !important;
-                    -webkit-backdrop-filter: blur(25px) !important;
-                    border: 1px solid rgba(56, 189, 248, 0.45) !important;
-                    border-radius: 14px !important;
-                    box-shadow: 0 8px 32px rgba(0, 0, 0, 0.5) !important;
-                    padding: 0 4px !important;
-                    height: 52px !important;
-                    transition: none !important;
-                }
-
-                /* Back arrow (mobile only) */
-                #sector-ops-map-fullscreen.mobile-search-open #sector-ops-mobile-back {
-                    display: flex !important;
-                    align-items: center !important;
-                    justify-content: center !important;
-                    width: 40px !important;
-                    height: 100% !important;
-                    color: #fff !important;
-                    font-size: 1.05rem !important;
-                    flex-shrink: 0 !important;
-                }
-
-                /* The magnifying-glass label is decorative on mobile — hide it
-                   so the bar reads as: [back] [input] [clear] */
-                #sector-ops-map-fullscreen.mobile-search-open #sector-ops-search-container .search-icon-label {
-                    display: none !important;
-                }
-
-                /* Input */
-                #sector-ops-map-fullscreen.mobile-search-open #sector-ops-search-input {
-                    flex: 1 1 auto !important;
-                    width: auto !important;
-                    height: 100% !important;
-                    background: transparent !important;
-                    border: none !important;
-                    color: #fff !important;
-                    font-weight: 500 !important;
-                    font-size: 16px !important; /* iOS no-zoom */
-                    padding: 0 8px !important;
-                    outline: none !important;
-                    border-radius: 0 !important;
-                    -webkit-appearance: none !important;
-                }
-                #sector-ops-map-fullscreen.mobile-search-open #sector-ops-search-input::placeholder {
-                    color: rgba(255, 255, 255, 0.45) !important;
-                }
-
-                /* Clear (X) button — only shows when the input has text */
-                #sector-ops-map-fullscreen.mobile-search-open #sector-ops-search-clear {
-                    background: rgba(255, 255, 255, 0.08) !important;
-                    color: #fff !important;
-                    border: none !important;
-                    border-radius: 50% !important;
-                    width: 32px !important;
-                    height: 32px !important;
-                    align-items: center !important;
-                    justify-content: center !important;
-                    margin: 0 6px 0 0 !important;
-                    cursor: pointer !important;
-                    font-size: 0.95rem !important;
-                    flex-shrink: 0 !important;
-                }
-                #sector-ops-map-fullscreen.mobile-search-open #sector-ops-search-input:not(:placeholder-shown) + #sector-ops-search-clear {
-                    display: flex !important;
-                }
-                #sector-ops-map-fullscreen.mobile-search-open #sector-ops-search-input:placeholder-shown + #sector-ops-search-clear {
-                    display: none !important;
-                }
-
-                /* Results — stretches to fill remaining height of the overlay
-                   and scrolls internally. No fragile vh math. JS controls
-                   block-vs-none visibility based on whether results exist. */
-                #sector-ops-map-fullscreen.mobile-search-open #search-results-dropdown {
-                    flex: 1 1 auto !important;
-                    min-height: 0 !important;
-                    margin-top: 10px !important;
-                    width: 100% !important;
-                    background: rgba(15, 20, 35, 0.92) !important;
-                    border: 1px solid rgba(255, 255, 255, 0.06) !important;
-                    border-radius: 14px !important;
-                    box-shadow: 0 15px 50px rgba(0, 0, 0, 0.55) !important;
-                    overflow-y: auto !important;
-                    -webkit-overflow-scrolling: touch;
-                    max-height: none !important;
-                }
-
-                /* Category headers */
-                #sector-ops-map-fullscreen.mobile-search-open .search-results-header {
-                    color: var(--hud-accent) !important;
-                    font-size: 0.72rem !important;
-                    letter-spacing: 0.08em !important;
-                    padding: 14px 18px 6px !important;
-                    background: rgba(15, 20, 35, 0.6);
-                    position: sticky;
-                    top: 0;
-                    z-index: 1;
-                }
-                #sector-ops-map-fullscreen.mobile-search-open .search-results-section + .search-results-section {
-                    border-top: 1px solid rgba(255, 255, 255, 0.06) !important;
-                }
-
-                /* Result rows */
-                #sector-ops-map-fullscreen.mobile-search-open .search-result-item {
-                    padding: 14px 18px !important;
-                    border-bottom: 1px solid rgba(255, 255, 255, 0.04) !important;
-                    display: flex !important;
-                    align-items: center !important;
-                    gap: 14px !important;
-                }
-                #sector-ops-map-fullscreen.mobile-search-open .search-result-info strong {
-                    font-size: 1rem !important;
-                    color: #fff !important;
-                }
-                #sector-ops-map-fullscreen.mobile-search-open .search-result-info small {
-                    font-size: 0.82rem !important;
-                    color: #9fa8da !important;
-                }
-                #sector-ops-map-fullscreen.mobile-search-open .search-result-item:active {
-                    background: rgba(0, 168, 255, 0.15) !important;
-                }
-            }
-            /* ====================================================================
-            --- [END] Search Bar Mobile Positioning ---
-            ==================================================================== */
+            /* The canonical mobile search bar lives in the tactical header
+               (landingUI.js .search-blade). The HUD search button just
+               focuses it programmatically — no separate overlay needed. */
 
             /* --- [MODIFIED] Overlay (now shared) --- */
             #mobile-window-overlay {
