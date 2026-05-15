@@ -6459,11 +6459,23 @@ function _closeSearchAfterPick() {
     }
 }
 
-function onAirportSearchResultClick(el) {
-    if (!(el instanceof HTMLElement)) return;
-    const icao = el.dataset.icao;
-    const lat = parseFloat(el.dataset.lat);
-    const lon = parseFloat(el.dataset.lon);
+function onAirportSearchResultClick(arg) {
+    // Accept either a clicked DOM element (with data-icao/lat/lon) or a plain
+    // {icao, lat, lon} object so other UI modules can call this without
+    // synthesizing a fake element. handleAirportClick lives inside this IIFE,
+    // so external callers can't reach it directly.
+    let icao, lat, lon;
+    if (arg && arg instanceof HTMLElement) {
+        icao = arg.dataset.icao;
+        lat = parseFloat(arg.dataset.lat);
+        lon = parseFloat(arg.dataset.lon);
+    } else if (arg && typeof arg === 'object') {
+        icao = arg.icao;
+        lat = parseFloat(arg.lat);
+        lon = parseFloat(arg.lon);
+    } else {
+        return;
+    }
     if (!icao) return;
 
     _closeSearchAfterPick();

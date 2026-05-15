@@ -245,11 +245,8 @@ export const LandingUI = {
 
     executeAirportClick(icao, lat, lon) {
         this._closeBladeSearch();
-        if (window.sectorOpsMap && Number.isFinite(lat) && Number.isFinite(lon)) {
-            try { window.sectorOpsMap.flyTo({ center: [lon, lat], zoom: 11, essential: true }); } catch (_) {}
-        }
-        if (typeof window.handleAirportClick === 'function') {
-            window.handleAirportClick(icao);
+        if (typeof window.onAirportSearchResultClick === 'function') {
+            window.onAirportSearchResultClick({ icao, lat, lon });
         }
     },
 
