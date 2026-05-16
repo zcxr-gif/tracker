@@ -50,7 +50,8 @@
     <main class="max-w-7xl mx-auto px-6 py-8">
         <div id="auth-gate" class="hidden card text-center">
             <h2 class="text-xl font-bold mb-2">Staff access only</h2>
-            <p class="text-slate-400 text-sm">You need to be signed in as a staff member to use this console.</p>
+            <p class="text-slate-400 text-sm mb-4">You need to be signed in as a staff member to use this console.</p>
+            <button id="btn-signin" class="btn btn-approve inline-flex items-center gap-2"><i class="fa-solid fa-right-to-bracket"></i> Sign in</button>
         </div>
 
         <div id="console" class="hidden">
@@ -85,6 +86,9 @@
             approveApplication, rejectApplication, slugify,
             listPendingEvents, approveEvent, rejectEvent
         } from './vaService.js';
+        import { openAuthModal } from './vaAuth.js';
+
+        document.getElementById('btn-signin').addEventListener('click', () => openAuthModal('signin'));
 
         const authGate = document.getElementById('auth-gate');
         const consoleEl = document.getElementById('console');

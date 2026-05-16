@@ -60,7 +60,7 @@
         <div id="auth-gate" class="hidden card text-center">
             <h2 class="text-xl font-bold mb-2">Sign in required</h2>
             <p class="text-slate-400 text-sm mb-4">You need to be signed in as the CEO of an approved VA.</p>
-            <a href="index.html?auth=signin" class="btn btn-primary inline-flex items-center gap-2"><i class="fa-solid fa-right-to-bracket"></i> Sign in</a>
+            <button id="btn-signin" class="btn btn-primary inline-flex items-center gap-2"><i class="fa-solid fa-right-to-bracket"></i> Sign in</button>
         </div>
 
         <div id="no-va" class="hidden card">
@@ -173,6 +173,9 @@
             listEventsForVa, createEvent, updateEvent, deleteEvent,
             formatEventTime
         } from './vaService.js';
+        import { openAuthModal } from './vaAuth.js';
+
+        document.getElementById('btn-signin').addEventListener('click', () => openAuthModal('signin'));
 
         let currentVa = null;
 
