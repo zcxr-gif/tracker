@@ -18,7 +18,8 @@
     </script>
     <style>
         body { background:#020617; color:#f8fafc; font-family:Inter,sans-serif; }
-        .tab-btn { padding:8px 16px; border-radius:10px; font-weight:600; font-size:0.9rem; color:#94a3b8; }
+        .tab-btn { padding:8px 16px; border-radius:10px; font-weight:600; font-size:0.9rem; color:#94a3b8; transition:all 140ms ease; cursor:pointer; }
+        .tab-btn:hover { color:#cbd5e1; }
         .tab-btn.active { background:rgba(56,189,248,0.12); color:#38bdf8; }
         .card { background:rgba(15,23,42,0.6); border:1px solid rgba(255,255,255,0.08); border-radius:14px; padding:18px; }
         .input { background:rgba(15,23,42,0.7); border:1px solid rgba(255,255,255,0.1); color:#f8fafc;
@@ -30,6 +31,75 @@
         .btn-reject:hover { background:rgba(248,113,113,0.25); }
         details summary { cursor:pointer; }
         details summary::-webkit-details-marker { display:none; }
+
+        /* Premium staff auth gate */
+        .gate-wrap {
+            min-height: calc(100vh - 200px);
+            display: flex; align-items: center; justify-content: center;
+            padding: 40px 20px;
+        }
+        .gate-card {
+            position: relative;
+            width: 100%; max-width: 460px;
+            background:
+                radial-gradient(120% 60% at 50% -10%, rgba(56,189,248,0.10), transparent 60%),
+                linear-gradient(180deg, #0b1426 0%, #070b18 100%);
+            border: 1px solid rgba(255,255,255,0.08);
+            border-radius: 22px;
+            padding: 40px 36px 32px;
+            box-shadow: 0 40px 100px -20px rgba(0,0,0,0.7);
+            text-align: center;
+            overflow: hidden;
+        }
+        .gate-card::before {
+            content: "";
+            position: absolute;
+            top: -120px; left: 50%;
+            width: 360px; height: 240px;
+            transform: translateX(-50%);
+            background: radial-gradient(closest-side, rgba(56,189,248,0.30), transparent 70%);
+            filter: blur(40px);
+            pointer-events: none;
+        }
+        .gate-icon {
+            position: relative;
+            display: inline-flex; align-items: center; justify-content: center;
+            width: 56px; height: 56px;
+            border-radius: 16px;
+            background: linear-gradient(135deg, rgba(56,189,248,0.20), rgba(99,102,241,0.20));
+            border: 1px solid rgba(56,189,248,0.3);
+            color: #38bdf8; font-size: 1.4rem;
+            margin-bottom: 18px;
+            box-shadow: 0 10px 30px -10px rgba(56,189,248,0.4);
+        }
+        .gate-title {
+            position: relative;
+            font-size: 1.6rem; font-weight: 800; color: #f8fafc;
+            letter-spacing: -0.02em; margin-bottom: 8px;
+        }
+        .gate-sub {
+            position: relative;
+            color: #94a3b8; font-size: 0.95rem; line-height: 1.5;
+            margin-bottom: 24px;
+        }
+        .gate-btn {
+            position: relative;
+            display: inline-flex; align-items: center; gap: 10px;
+            padding: 12px 22px;
+            border-radius: 12px;
+            background: linear-gradient(180deg, #ffffff 0%, #e2e8f0 100%);
+            color: #020617;
+            font-weight: 700; font-size: 0.95rem;
+            border: 0; cursor: pointer;
+            transition: transform 120ms ease, filter 120ms ease;
+            box-shadow: 0 12px 30px -10px rgba(255,255,255,0.2);
+        }
+        .gate-btn:hover { transform: translateY(-1px); filter: brightness(1.04); }
+        .gate-foot {
+            position: relative;
+            margin-top: 22px; font-size: 0.78rem; color: #475569;
+            display: flex; align-items: center; justify-content: center; gap: 6px;
+        }
     </style>
 </head>
 <body class="min-h-screen">
@@ -48,10 +118,19 @@
     </header>
 
     <main class="max-w-7xl mx-auto px-6 py-8">
-        <div id="auth-gate" class="hidden card text-center">
-            <h2 class="text-xl font-bold mb-2">Staff access only</h2>
-            <p class="text-slate-400 text-sm mb-4">You need to be signed in as a staff member to use this console.</p>
-            <button id="btn-signin" class="btn btn-approve inline-flex items-center gap-2"><i class="fa-solid fa-right-to-bracket"></i> Sign in</button>
+        <div id="auth-gate" class="hidden gate-wrap">
+            <div class="gate-card">
+                <div class="gate-icon"><i class="fa-solid fa-shield-halved"></i></div>
+                <h2 class="gate-title">Staff console</h2>
+                <p class="gate-sub">This area is reserved for InFlight staff. Sign in with your authorized account to review VA applications and event submissions.</p>
+                <button id="btn-signin" class="gate-btn">
+                    <i class="fa-solid fa-right-to-bracket"></i>
+                    Sign in to continue
+                </button>
+                <div class="gate-foot">
+                    <i class="fa-solid fa-lock"></i> Restricted access
+                </div>
+            </div>
         </div>
 
         <div id="console" class="hidden">

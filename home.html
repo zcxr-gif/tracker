@@ -209,12 +209,102 @@
             opacity: 0.12;
             filter: grayscale(0.8);
         }
+
+        /* Mobile menu */
+        .mobile-nav-link {
+            display: block;
+            padding: 14px 4px;
+            color: #f8fafc;
+            font-weight: 600;
+            border-bottom: 1px solid rgba(255,255,255,0.06);
+            transition: color 120ms ease, padding 200ms ease;
+        }
+        .mobile-nav-link:hover { color: #38bdf8; padding-left: 10px; }
+
+        /* Aurora hero glow */
+        .hero-aurora {
+            position: absolute;
+            top: 20%; left: 50%;
+            width: 800px; height: 400px;
+            transform: translateX(-50%);
+            background: radial-gradient(closest-side, rgba(99,102,241,0.18), transparent 70%);
+            filter: blur(60px);
+            z-index: -1;
+            pointer-events: none;
+        }
+
+        /* Rotating text — prevent layout jank */
+        #rotating-text {
+            display: inline-block;
+            min-width: 280px;
+            text-align: left;
+        }
+        @media (max-width: 640px) {
+            #rotating-text { min-width: 200px; }
+        }
+
+        /* Contributor / community media tiles */
+        .contrib-tile {
+            position: relative;
+            display: block;
+            overflow: hidden;
+        }
+        .contrib-tile .contrib-media {
+            position: relative;
+            border-radius: 0.75rem;
+            aspect-ratio: 16/10;
+            background-size: cover;
+            background-position: center;
+            background-color: #0f172a;
+            transition: transform 600ms cubic-bezier(0.16, 1, 0.3, 1);
+        }
+        .contrib-tile:hover .contrib-media { transform: scale(1.04); }
+        .contrib-tile .contrib-media::after {
+            content: "";
+            position: absolute; inset: 0;
+            background: linear-gradient(180deg, transparent 50%, rgba(2,6,23,0.7) 100%);
+        }
+        .contrib-tile .contrib-tag {
+            position: absolute;
+            top: 10px; left: 10px;
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 0.7rem;
+            font-weight: 600;
+            color: #fff;
+            padding: 3px 8px;
+            border-radius: 6px;
+            background: rgba(2,6,23,0.6);
+            backdrop-filter: blur(6px);
+            border: 1px solid rgba(255,255,255,0.1);
+        }
     </style>
 </head>
 <body class="antialiased selection:bg-primary/30">
 
     <canvas id="bg-canvas"></canvas>
     <div class="hero-bg-overlay"></div>
+    <div class="hero-aurora"></div>
+
+    <!-- Mobile menu drawer -->
+    <div id="mobile-menu" class="fixed inset-0 z-[60] hidden">
+        <div id="mobile-menu-backdrop" class="absolute inset-0 bg-background/90 backdrop-blur-xl"></div>
+        <div class="relative h-full flex flex-col px-6 pt-24 pb-10 max-w-md mx-auto">
+            <button id="mobile-menu-close" class="absolute top-6 right-6 p-2 rounded-lg text-slate-300 hover:text-white hover:bg-white/10 transition">
+                <i data-lucide="x" class="size-5"></i>
+            </button>
+            <nav class="flex flex-col gap-2 text-lg">
+                <a href="#features" class="mobile-nav-link">Capabilities</a>
+                <a href="#pro" class="mobile-nav-link text-pro">InFlight Pro</a>
+                <a href="events.html" class="mobile-nav-link">Events</a>
+                <a href="va-apply.html" class="mobile-nav-link">VA Partners</a>
+                <a href="gallery.html" class="mobile-nav-link">Gallery</a>
+                <a href="https://discord.gg/cNSkZtdJ" class="mobile-nav-link">Discord</a>
+            </nav>
+            <a href="index.html" class="mt-auto px-6 py-4 rounded-2xl bg-white text-background font-bold text-center hover:bg-slate-200 transition">
+                Launch Tracker
+            </a>
+        </div>
+    </div>
 
     <!-- Navigation -->
     <nav class="fixed top-0 w-full z-50 nav-blur">
@@ -231,6 +321,7 @@
                     Pro
                 </a>
                 <a href="events.html" class="text-sm font-medium text-slate-400 hover:text-white transition-colors">Events</a>
+                <a href="va-apply.html" class="text-sm font-medium text-slate-400 hover:text-white transition-colors">VA Partners</a>
                 <a href="gallery.html" class="text-sm font-medium text-slate-400 hover:text-white transition-colors">Gallery</a>
                 <a href="https://discord.gg/cNSkZtdJ" class="text-sm font-medium text-slate-400 hover:text-white transition-colors">Discord</a>
                 <a href="index.html" class="btn-premium">
@@ -239,6 +330,9 @@
                     </div>
                 </a>
             </div>
+            <button id="mobile-menu-btn" class="md:hidden p-2 rounded-lg text-slate-300 hover:text-white hover:bg-white/5 transition-colors">
+                <i data-lucide="menu" class="size-5"></i>
+            </button>
         </div>
     </nav>
 
@@ -433,6 +527,63 @@
         </div>
     </section>
 
+    <!-- VA Partnership Section -->
+    <section id="va-partner" class="py-32 relative">
+        <div class="max-w-7xl mx-auto px-6">
+            <div class="relative overflow-hidden rounded-[2rem] p-10 md:p-16 border border-white/10 section-animate"
+                 style="background: radial-gradient(120% 80% at 100% 0%, rgba(56,189,248,0.10), transparent 60%), radial-gradient(80% 60% at 0% 100%, rgba(99,102,241,0.08), transparent 60%), linear-gradient(180deg, rgba(15,23,42,0.6), rgba(15,23,42,0.3));">
+                <div class="absolute -top-32 -right-32 w-80 h-80 rounded-full" style="background:radial-gradient(closest-side, rgba(56,189,248,0.25), transparent 70%); filter: blur(40px);"></div>
+
+                <div class="relative grid lg:grid-cols-2 gap-12 items-center">
+                    <div class="space-y-6">
+                        <div class="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-accent/10 border border-accent/20">
+                            <i data-lucide="shield-check" class="size-3 text-accent"></i>
+                            <span class="text-[10px] font-bold text-accent uppercase tracking-widest">Partnership Program · Free</span>
+                        </div>
+                        <h2 class="text-3xl md:text-5xl font-bold tracking-tight">
+                            Bring your <br class="hidden sm:inline">Virtual Airline aboard.
+                        </h2>
+                        <p class="text-slate-400 text-lg leading-relaxed max-w-lg">
+                            Showcase your VA inside InFlight: a public profile, a roster page, and an events board that surfaces your group flights to the entire community.
+                        </p>
+                        <div class="flex flex-wrap gap-3 pt-2">
+                            <a href="va-apply.html" class="inline-flex items-center gap-2 px-7 py-3.5 rounded-xl bg-white text-background font-bold hover:bg-slate-200 transition-all hover:scale-[1.02]">
+                                Apply for partnership
+                                <i data-lucide="arrow-right" class="size-4"></i>
+                            </a>
+                            <a href="events.html" class="inline-flex items-center gap-2 px-7 py-3.5 rounded-xl bg-white/5 border border-white/10 text-white font-medium hover:bg-white/10 transition">
+                                Browse events
+                            </a>
+                        </div>
+                    </div>
+
+                    <div class="grid grid-cols-2 gap-3 text-sm">
+                        <div class="glow-card rounded-2xl p-5">
+                            <div class="text-accent mb-2"><i data-lucide="users" class="size-5"></i></div>
+                            <div class="font-bold text-white">Public roster</div>
+                            <p class="text-slate-400 text-xs mt-1 leading-relaxed">A polished page for your pilots and callsign.</p>
+                        </div>
+                        <div class="glow-card rounded-2xl p-5">
+                            <div class="text-accent mb-2"><i data-lucide="calendar" class="size-5"></i></div>
+                            <div class="font-bold text-white">Events board</div>
+                            <p class="text-slate-400 text-xs mt-1 leading-relaxed">Surface group flights to the whole community.</p>
+                        </div>
+                        <div class="glow-card rounded-2xl p-5">
+                            <div class="text-accent mb-2"><i data-lucide="zap" class="size-5"></i></div>
+                            <div class="font-bold text-white">Live banner</div>
+                            <p class="text-slate-400 text-xs mt-1 leading-relaxed">"Happening now" while your event is running.</p>
+                        </div>
+                        <div class="glow-card rounded-2xl p-5">
+                            <div class="text-accent mb-2"><i data-lucide="badge-check" class="size-5"></i></div>
+                            <div class="font-bold text-white">Trusted status</div>
+                            <p class="text-slate-400 text-xs mt-1 leading-relaxed">Earn auto-publishing after 5 quality events.</p>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </section>
+
     <!-- Community Hub -->
     <section id="community" class="py-40 relative bg-white/[0.02] border-y border-white/5">
         <div class="max-w-7xl mx-auto px-6">
@@ -451,34 +602,40 @@
                 </div>
 
                 <div class="relative grid grid-cols-2 gap-4 section-animate" id="community-grid">
-                    <div class="glow-card p-3 rounded-2xl rotate-[-3deg] hover:rotate-0 transition-transform">
-                        <div class="rounded-xl aspect-video bg-slate-800 flex items-center justify-center"><i data-lucide="image" class="text-slate-600"></i></div>
+                    <div class="glow-card p-3 rounded-2xl rotate-[-3deg] hover:rotate-0 transition-transform contrib-tile">
+                        <div class="contrib-media" style="background-image:url('https://images.unsplash.com/photo-1474302770737-173ee21bab63?auto=format&fit=crop&q=80&w=800');">
+                            <span class="contrib-tag">B787-9</span>
+                        </div>
                         <div class="mt-3 flex justify-between text-[10px] font-bold text-slate-500">
-                            <span>B787-9</span>
+                            <span>Approach · KJFK</span>
                             <span class="text-white">@Contributor1</span>
                         </div>
                     </div>
-                    <div class="glow-card p-3 rounded-2xl rotate-[2deg] translate-y-8 hover:rotate-0 transition-transform">
-                         <div class="rounded-xl aspect-video bg-slate-800 flex items-center justify-center"><i data-lucide="image" class="text-slate-600"></i></div>
+                    <div class="glow-card p-3 rounded-2xl rotate-[2deg] translate-y-8 hover:rotate-0 transition-transform contrib-tile">
+                        <div class="contrib-media" style="background-image:url('https://images.unsplash.com/photo-1583416750470-965b2707b355?auto=format&fit=crop&q=80&w=800');">
+                            <span class="contrib-tag">A350-1000</span>
+                        </div>
                         <div class="mt-3 flex justify-between text-[10px] font-bold text-slate-500">
-                            <span>A350-1000</span>
+                            <span>Cruise · FL380</span>
                             <span class="text-white">@SkyPhotos</span>
                         </div>
                     </div>
-                    <div class="glow-card p-3 rounded-2xl rotate-[-1deg] hover:rotate-0 transition-transform">
-                         <div class="rounded-xl aspect-video bg-slate-800 flex items-center justify-center"><i data-lucide="image" class="text-slate-600"></i></div>
+                    <div class="glow-card p-3 rounded-2xl rotate-[-1deg] hover:rotate-0 transition-transform contrib-tile">
+                        <div class="contrib-media" style="background-image:url('https://images.unsplash.com/photo-1542296332-2e4473faf563?auto=format&fit=crop&q=80&w=800');">
+                            <span class="contrib-tag">B747-8i</span>
+                        </div>
                         <div class="mt-3 flex justify-between text-[10px] font-bold text-slate-500">
-                            <span>B747-8i</span>
+                            <span>Departure · EGLL</span>
                             <span class="text-white">@HeavyMetal</span>
                         </div>
                     </div>
-                    <div class="glow-card p-3 rounded-2xl rotate-[3deg] translate-y-8 flex flex-col items-center justify-center text-center bg-indigo-500/10 border-indigo-500/30">
-                        <div class="size-12 rounded-full bg-indigo-500 text-white flex items-center justify-center mb-3">
+                    <a href="https://discord.gg/cNSkZtdJ" class="glow-card p-3 rounded-2xl rotate-[3deg] translate-y-8 hover:rotate-0 hover:-translate-y-1 flex flex-col items-center justify-center text-center bg-indigo-500/10 border-indigo-500/30 transition-all duration-300">
+                        <div class="size-12 rounded-full bg-indigo-500 text-white flex items-center justify-center mb-3 shadow-lg shadow-indigo-500/30">
                             <i data-lucide="plus" class="size-6"></i>
                         </div>
                         <h4 class="font-bold text-white text-sm">Contribute</h4>
                         <p class="text-[10px] text-slate-500 mt-1">Join Discord</p>
-                    </div>
+                    </a>
                 </div>
             </div>
         </div>
@@ -653,6 +810,25 @@
         }, { threshold: 0.1 });
 
         document.querySelectorAll('.section-animate').forEach(el => observer.observe(el));
+
+        // 6. Mobile menu
+        const mobileMenu = document.getElementById('mobile-menu');
+        const mobileBtn = document.getElementById('mobile-menu-btn');
+        const mobileClose = document.getElementById('mobile-menu-close');
+        const mobileBackdrop = document.getElementById('mobile-menu-backdrop');
+
+        function openMobileMenu() {
+            mobileMenu.classList.remove('hidden');
+            document.body.style.overflow = 'hidden';
+        }
+        function closeMobileMenu() {
+            mobileMenu.classList.add('hidden');
+            document.body.style.overflow = '';
+        }
+        mobileBtn?.addEventListener('click', openMobileMenu);
+        mobileClose?.addEventListener('click', closeMobileMenu);
+        mobileBackdrop?.addEventListener('click', closeMobileMenu);
+        mobileMenu?.querySelectorAll('a').forEach(a => a.addEventListener('click', closeMobileMenu));
     </script>
 </body>
 </html>

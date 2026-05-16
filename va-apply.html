@@ -51,6 +51,59 @@
         .status-pending { background: rgba(251, 191, 36, 0.15); color: #fbbf24; }
         .status-approved { background: rgba(74, 222, 128, 0.15); color: #4ade80; }
         .status-rejected { background: rgba(248, 113, 113, 0.15); color: #f87171; }
+
+        /* Premium auth gate */
+        .gate-card {
+            position: relative;
+            border-radius: 22px;
+            padding: 32px 28px;
+            background:
+                radial-gradient(120% 60% at 50% -20%, rgba(251,191,36,0.10), transparent 60%),
+                linear-gradient(180deg, #0b1426 0%, #070b18 100%);
+            border: 1px solid rgba(255,255,255,0.08);
+            box-shadow: 0 30px 80px -30px rgba(0,0,0,0.7);
+            overflow: hidden;
+        }
+        .gate-card::before {
+            content: "";
+            position: absolute;
+            top: -100px; left: 50%;
+            width: 320px; height: 200px;
+            transform: translateX(-50%);
+            background: radial-gradient(closest-side, rgba(251,191,36,0.22), transparent 70%);
+            filter: blur(40px);
+            pointer-events: none;
+        }
+        .gate-icon {
+            position: relative;
+            display: inline-flex; align-items: center; justify-content: center;
+            width: 50px; height: 50px;
+            border-radius: 14px;
+            background: linear-gradient(135deg, rgba(251,191,36,0.20), rgba(245,158,11,0.20));
+            border: 1px solid rgba(251,191,36,0.3);
+            color: #fbbf24; font-size: 1.25rem;
+            margin-bottom: 14px;
+            box-shadow: 0 10px 25px -10px rgba(251,191,36,0.4);
+        }
+        .gate-btn {
+            display: inline-flex; align-items: center; gap: 10px;
+            padding: 11px 20px;
+            border-radius: 11px;
+            font-weight: 700; font-size: 0.92rem;
+            border: 0; cursor: pointer;
+            transition: transform 120ms ease, filter 120ms ease;
+        }
+        .gate-btn-primary {
+            background: linear-gradient(180deg, #fbbf24, #f59e0b);
+            color: #020617;
+            box-shadow: 0 12px 30px -10px rgba(251,191,36,0.4);
+        }
+        .gate-btn-ghost {
+            background: rgba(255,255,255,0.04);
+            color: #f8fafc;
+            border: 1px solid rgba(255,255,255,0.1);
+        }
+        .gate-btn:hover { transform: translateY(-1px); filter: brightness(1.05); }
     </style>
 </head>
 <body class="min-h-screen">
@@ -79,16 +132,22 @@
             </p>
         </div>
 
-        <div id="auth-gate" class="hidden p-6 rounded-2xl bg-slate-900/60 border border-white/10 mb-8">
-            <h2 class="text-xl font-bold mb-2">Sign in to apply</h2>
-            <p class="text-slate-400 text-sm mb-4">Applications are tied to your InFlight account so we can give you the CEO dashboard once approved. Accounts are free — no card required.</p>
-            <div class="flex flex-wrap gap-3">
-                <button id="btn-signup" class="inline-flex items-center gap-2 px-5 py-2.5 rounded-xl bg-pro text-background font-bold hover:brightness-110 transition">
-                    <i class="fa-solid fa-user-plus"></i> Create account
-                </button>
-                <button id="btn-signin" class="inline-flex items-center gap-2 px-5 py-2.5 rounded-xl bg-white/5 border border-white/10 text-white font-medium hover:bg-white/10 transition">
-                    <i class="fa-solid fa-right-to-bracket"></i> Sign in
-                </button>
+        <div id="auth-gate" class="hidden gate-card mb-8">
+            <div class="relative">
+                <div class="gate-icon"><i class="fa-solid fa-id-badge"></i></div>
+                <h2 class="text-2xl font-bold mb-2 tracking-tight">Sign in to apply</h2>
+                <p class="text-slate-400 text-sm mb-5 leading-relaxed max-w-xl">
+                    Applications are tied to your InFlight account so we can give you the CEO dashboard once approved.
+                    Accounts are free — no card required.
+                </p>
+                <div class="flex flex-wrap gap-3">
+                    <button id="btn-signup" class="gate-btn gate-btn-primary">
+                        <i class="fa-solid fa-user-plus"></i> Create account
+                    </button>
+                    <button id="btn-signin" class="gate-btn gate-btn-ghost">
+                        <i class="fa-solid fa-right-to-bracket"></i> Sign in
+                    </button>
+                </div>
             </div>
         </div>
 
