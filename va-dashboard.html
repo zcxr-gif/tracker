@@ -1,0 +1,387 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>CEO Dashboard · InFlight Partnership</title>
+    <link rel="icon" type="image/x-icon" href="Images/inflightIcon.ico">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script>
+        tailwind.config = {
+            theme: { extend: { fontFamily: { sans: ['Inter', 'sans-serif'] },
+                colors: { background:'#020617', surface:'#0f172a', pro:'#fbbf24', accent:'#38bdf8' } } }
+        }
+    </script>
+    <style>
+        body { background:#020617; color:#f8fafc; font-family:Inter,sans-serif; }
+        .tab-btn { padding:8px 16px; border-radius:10px; font-weight:600; font-size:0.9rem; color:#94a3b8; }
+        .tab-btn.active { background:rgba(56,189,248,0.12); color:#38bdf8; }
+        .card { background:rgba(15,23,42,0.6); border:1px solid rgba(255,255,255,0.08); border-radius:14px; padding:18px; }
+        .input, .textarea, select.input {
+            background:rgba(15,23,42,0.7); border:1px solid rgba(255,255,255,0.1); color:#f8fafc;
+            border-radius:8px; padding:8px 10px; font-size:0.9rem; width:100%; outline:none;
+        }
+        .input:focus, .textarea:focus, select.input:focus { border-color:#38bdf8; }
+        .textarea { min-height:100px; resize:vertical; }
+        .btn { padding:8px 14px; border-radius:9px; font-weight:600; font-size:0.85rem; cursor:pointer; transition:all 120ms; }
+        .btn-primary { background:#fbbf24; color:#020617; }
+        .btn-primary:hover { filter:brightness(1.1); }
+        .btn-ghost { background:transparent; color:#94a3b8; border:1px solid rgba(255,255,255,0.1); }
+        .btn-danger { background:rgba(248,113,113,0.15); color:#f87171; border:1px solid rgba(248,113,113,0.3); }
+        .field { display:flex; flex-direction:column; gap:6px; }
+        .field label { font-size:0.78rem; font-weight:600; letter-spacing:0.04em; color:#94a3b8; text-transform:uppercase; }
+        .badge { display:inline-flex; align-items:center; gap:6px; padding:3px 9px; border-radius:999px; font-size:0.72rem; font-weight:600; }
+        .badge-pending { background:rgba(251,191,36,0.15); color:#fbbf24; }
+        .badge-approved { background:rgba(74,222,128,0.15); color:#4ade80; }
+        .badge-rejected { background:rgba(248,113,113,0.15); color:#f87171; }
+        .badge-trusted { background:rgba(56,189,248,0.15); color:#38bdf8; }
+    </style>
+</head>
+<body class="min-h-screen">
+    <header class="border-b border-white/5 bg-slate-950/70 backdrop-blur sticky top-0 z-30">
+        <div class="max-w-7xl mx-auto px-6 py-4 flex items-center justify-between">
+            <a href="home.html" class="flex items-center gap-3">
+                <img src="Images/inflight.png" alt="InFlight" class="h-8 w-8 rounded-md">
+                <span class="font-extrabold tracking-tight">InFlight <span class="text-slate-400 font-medium">· CEO</span></span>
+            </a>
+            <nav class="flex items-center gap-4 text-sm">
+                <a id="public-link" href="#" class="text-slate-400 hover:text-white hidden"><i class="fa-solid fa-arrow-up-right-from-square"></i> Public page</a>
+                <a href="events.html" class="text-slate-400 hover:text-white">Events</a>
+                <a href="home.html" class="text-slate-400 hover:text-white">Home</a>
+            </nav>
+        </div>
+    </header>
+
+    <main class="max-w-6xl mx-auto px-6 py-8">
+        <div id="auth-gate" class="hidden card text-center">
+            <h2 class="text-xl font-bold mb-2">Sign in required</h2>
+            <p class="text-slate-400 text-sm mb-4">You need to be signed in as the CEO of an approved VA.</p>
+            <a href="index.html?auth=signin" class="btn btn-primary inline-flex items-center gap-2"><i class="fa-solid fa-right-to-bracket"></i> Sign in</a>
+        </div>
+
+        <div id="no-va" class="hidden card">
+            <h2 class="text-xl font-bold mb-2">You don't have an approved VA yet</h2>
+            <p class="text-slate-400 text-sm mb-4">Submit an application and our staff will review it.</p>
+            <a href="va-apply.html" class="btn btn-primary inline-flex items-center gap-2"><i class="fa-solid fa-pen"></i> Apply now</a>
+        </div>
+
+        <div id="dashboard" class="hidden">
+            <div class="flex items-center justify-between mb-6 flex-wrap gap-4">
+                <div class="flex items-center gap-4">
+                    <img id="va-logo" src="" class="h-14 w-14 rounded-xl object-cover border border-white/10 bg-slate-800">
+                    <div>
+                        <div class="flex items-center gap-2 flex-wrap">
+                            <h1 id="va-name" class="text-3xl font-extrabold tracking-tight"></h1>
+                            <span id="va-trust" class="badge badge-trusted hidden"><i class="fa-solid fa-shield-check"></i> Trusted</span>
+                        </div>
+                        <div class="text-slate-400 text-sm mt-1"><span id="va-callsign" class="font-mono"></span> · <span id="va-hub"></span></div>
+                    </div>
+                </div>
+                <div class="flex gap-2">
+                    <button class="tab-btn active" data-tab="profile">Profile</button>
+                    <button class="tab-btn" data-tab="roster">Roster</button>
+                    <button class="tab-btn" data-tab="events">Events</button>
+                </div>
+            </div>
+
+            <section id="tab-profile" class="card">
+                <h2 class="text-lg font-bold mb-4">VA profile</h2>
+                <form id="profile-form" class="grid sm:grid-cols-2 gap-5">
+                    <div class="field sm:col-span-2"><label>Name</label><input class="input" name="name" required></div>
+                    <div class="field"><label>Callsign</label><input class="input" name="callsign" required maxlength="8"></div>
+                    <div class="field"><label>Hub (ICAO)</label><input class="input" name="hub" maxlength="4"></div>
+                    <div class="field"><label>Region</label>
+                        <select class="input" name="region">
+                            <option value="">— select —</option>
+                            <option>North America</option><option>South America</option><option>Europe</option>
+                            <option>Africa</option><option>Middle East</option><option>Asia</option>
+                            <option>Oceania</option><option>Worldwide</option>
+                        </select>
+                    </div>
+                    <div class="field"><label>Fleet</label><input class="input" name="fleet"></div>
+                    <div class="field"><label>Website</label><input class="input" name="website" type="url"></div>
+                    <div class="field"><label>Discord invite</label><input class="input" name="discord"></div>
+                    <div class="field sm:col-span-2"><label>Logo URL</label><input class="input" name="logo_url" type="url"></div>
+                    <div class="field sm:col-span-2"><label>Description</label><textarea class="textarea" name="description" maxlength="1200"></textarea></div>
+                    <div class="sm:col-span-2 flex justify-end gap-2">
+                        <span id="profile-msg" class="text-sm self-center"></span>
+                        <button class="btn btn-primary" type="submit">Save changes</button>
+                    </div>
+                </form>
+            </section>
+
+            <section id="tab-roster" class="hidden">
+                <div class="card">
+                    <h2 class="text-lg font-bold mb-1">Roster</h2>
+                    <p class="text-sm text-slate-400 mb-4">Add your pilots by IFC handle. Roster is public on your VA page.</p>
+                    <form id="pilot-form" class="grid sm:grid-cols-[1fr_1fr_auto] gap-3 items-end">
+                        <div class="field"><label>IFC handle</label><input class="input" name="ifc_handle" required></div>
+                        <div class="field"><label>Rank</label><input class="input" name="rank" placeholder="e.g. Senior FO"></div>
+                        <button class="btn btn-primary" type="submit"><i class="fa-solid fa-plus"></i> Add</button>
+                    </form>
+                </div>
+                <div id="roster-list" class="mt-4 space-y-2"></div>
+            </section>
+
+            <section id="tab-events" class="hidden">
+                <div class="card">
+                    <div class="flex items-start justify-between mb-3 flex-wrap gap-2">
+                        <div>
+                            <h2 class="text-lg font-bold">Events</h2>
+                            <p class="text-sm text-slate-400" id="events-blurb">New events go to a staff review queue. Once you reach 5 approved events, your VA becomes Trusted and new events publish instantly.</p>
+                        </div>
+                        <button id="new-event-btn" class="btn btn-primary"><i class="fa-solid fa-plus"></i> New event</button>
+                    </div>
+                    <form id="event-form" class="hidden mt-4 grid sm:grid-cols-2 gap-4 border-t border-white/10 pt-4">
+                        <div class="field sm:col-span-2"><label>Event name</label><input class="input" name="name" required maxlength="120"></div>
+                        <div class="field"><label>Start</label><input class="input" name="start_at" type="datetime-local" required></div>
+                        <div class="field"><label>End (optional)</label><input class="input" name="end_at" type="datetime-local"></div>
+                        <div class="field"><label>Server</label>
+                            <select class="input" name="server" required>
+                                <option value="expert">Expert</option>
+                                <option value="training">Training</option>
+                                <option value="casual">Casual</option>
+                            </select>
+                        </div>
+                        <div class="field"><label>Aircraft</label><input class="input" name="aircraft" placeholder="A321"></div>
+                        <div class="field"><label>Origin ICAO</label><input class="input" name="origin_icao" maxlength="4" required></div>
+                        <div class="field"><label>Destination ICAO</label><input class="input" name="destination_icao" maxlength="4" required></div>
+                        <div class="field sm:col-span-2"><label>Route</label><input class="input" name="route" placeholder="DCT TUSKY DCT ..."></div>
+                        <div class="field sm:col-span-2"><label>Livery suggestion</label><input class="input" name="livery"></div>
+                        <div class="field sm:col-span-2"><label>Briefing</label><textarea class="textarea" name="briefing" required maxlength="2000" placeholder="Time, gate, pushback procedure, expected ATC, anything pilots should know."></textarea></div>
+                        <div class="field sm:col-span-2"><label>Sign-up URL (your Discord / form)</label><input class="input" name="signup_url" type="url"></div>
+                        <div class="sm:col-span-2 flex justify-end gap-2">
+                            <span id="event-msg" class="text-sm self-center"></span>
+                            <button type="button" id="event-cancel" class="btn btn-ghost">Cancel</button>
+                            <button class="btn btn-primary" type="submit">Submit event</button>
+                        </div>
+                    </form>
+                </div>
+                <div id="events-list" class="mt-4 space-y-3"></div>
+            </section>
+        </div>
+    </main>
+
+    <script type="module">
+        import {
+            supabase, getSession, getVaByCeo, updateVa,
+            listPilots, addPilot, removePilot,
+            listEventsForVa, createEvent, updateEvent, deleteEvent,
+            formatEventTime
+        } from './vaService.js';
+
+        let currentVa = null;
+
+        function escapeHtml(s) {
+            return String(s ?? '').replace(/[&<>"']/g, c => ({
+                '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'
+            }[c]));
+        }
+
+        const authGate = document.getElementById('auth-gate');
+        const noVa = document.getElementById('no-va');
+        const dash = document.getElementById('dashboard');
+
+        function setTab(name) {
+            document.querySelectorAll('.tab-btn').forEach(b => b.classList.toggle('active', b.dataset.tab === name));
+            document.getElementById('tab-profile').classList.toggle('hidden', name !== 'profile');
+            document.getElementById('tab-roster').classList.toggle('hidden', name !== 'roster');
+            document.getElementById('tab-events').classList.toggle('hidden', name !== 'events');
+        }
+        document.querySelectorAll('.tab-btn').forEach(b => b.addEventListener('click', () => setTab(b.dataset.tab)));
+
+        function fillProfileForm(va) {
+            const f = document.getElementById('profile-form');
+            for (const key of ['name','callsign','hub','region','fleet','website','discord','logo_url','description']) {
+                if (f[key]) f[key].value = va[key] || '';
+            }
+        }
+
+        function renderHeader(va) {
+            document.getElementById('va-name').textContent = va.name;
+            document.getElementById('va-callsign').textContent = va.callsign;
+            document.getElementById('va-hub').textContent = va.hub || '—';
+            const logo = document.getElementById('va-logo');
+            logo.src = va.logo_url || 'Images/inflight.png';
+            document.getElementById('va-trust').classList.toggle('hidden', !va.trusted);
+            const publicLink = document.getElementById('public-link');
+            publicLink.href = `va.html?slug=${encodeURIComponent(va.slug)}`;
+            publicLink.classList.remove('hidden');
+            const blurb = document.getElementById('events-blurb');
+            blurb.textContent = va.trusted
+                ? 'Your VA is Trusted — new events publish instantly without review. Staff can still pull events that don\'t meet quality.'
+                : 'New events go to a staff review queue. Once you reach 5 approved events, your VA becomes Trusted and new events publish instantly.';
+        }
+
+        async function loadRoster() {
+            const list = document.getElementById('roster-list');
+            const pilots = await listPilots(currentVa.id);
+            if (!pilots.length) {
+                list.innerHTML = `<div class="card text-sm text-slate-400">No pilots yet. Add some above.</div>`;
+                return;
+            }
+            list.innerHTML = pilots.map(p => `
+                <div class="card flex items-center justify-between gap-3 py-3" data-id="${p.id}">
+                    <div class="flex items-center gap-3 min-w-0">
+                        <div class="h-9 w-9 rounded-full bg-slate-800 border border-white/10 flex items-center justify-center text-slate-400"><i class="fa-solid fa-user"></i></div>
+                        <div class="min-w-0">
+                            <div class="font-semibold truncate">@${escapeHtml(p.ifc_handle)}</div>
+                            ${p.rank ? `<div class="text-xs text-slate-500">${escapeHtml(p.rank)}</div>` : ''}
+                        </div>
+                    </div>
+                    <button class="btn btn-danger" data-pilot-del="${p.id}"><i class="fa-solid fa-trash"></i></button>
+                </div>
+            `).join('');
+        }
+
+        async function loadEvents() {
+            const list = document.getElementById('events-list');
+            const events = await listEventsForVa(currentVa.id);
+            if (!events.length) {
+                list.innerHTML = `<div class="card text-sm text-slate-400">No events yet. Create one above.</div>`;
+                return;
+            }
+            list.innerHTML = events.map(ev => `
+                <div class="card" data-id="${ev.id}">
+                    <div class="flex items-start justify-between gap-3 flex-wrap">
+                        <div class="min-w-0">
+                            <div class="flex items-center gap-2 flex-wrap">
+                                <h3 class="font-bold truncate">${escapeHtml(ev.name)}</h3>
+                                <span class="badge badge-${ev.status}">${ev.status}</span>
+                                <span class="text-xs px-2 py-0.5 rounded-md bg-slate-800 text-slate-300 font-mono uppercase">${escapeHtml(ev.server)}</span>
+                            </div>
+                            <div class="text-sm text-slate-400 mt-1">${escapeHtml(ev.origin_icao || '')} → ${escapeHtml(ev.destination_icao || '')} · ${formatEventTime(ev.start_at)}</div>
+                            ${ev.status === 'rejected' && ev.reject_reason ? `<div class="text-xs text-rose-300 mt-1">Reason: ${escapeHtml(ev.reject_reason)}</div>` : ''}
+                        </div>
+                        <button class="btn btn-danger" data-event-del="${ev.id}"><i class="fa-solid fa-trash"></i></button>
+                    </div>
+                </div>
+            `).join('');
+        }
+
+        document.getElementById('profile-form').addEventListener('submit', async (e) => {
+            e.preventDefault();
+            const data = Object.fromEntries(new FormData(e.currentTarget).entries());
+            const msg = document.getElementById('profile-msg');
+            try {
+                const updated = await updateVa(currentVa.id, {
+                    name: data.name,
+                    callsign: (data.callsign || '').toUpperCase(),
+                    hub: (data.hub || '').toUpperCase() || null,
+                    region: data.region || null,
+                    fleet: data.fleet || null,
+                    website: data.website || null,
+                    discord: data.discord || null,
+                    logo_url: data.logo_url || null,
+                    description: data.description || null
+                });
+                currentVa = updated;
+                renderHeader(updated);
+                msg.textContent = 'Saved.';
+                msg.className = 'text-sm self-center text-emerald-400';
+            } catch (err) {
+                msg.textContent = err.message || 'Failed.';
+                msg.className = 'text-sm self-center text-rose-400';
+            }
+        });
+
+        document.getElementById('pilot-form').addEventListener('submit', async (e) => {
+            e.preventDefault();
+            const data = Object.fromEntries(new FormData(e.currentTarget).entries());
+            try {
+                const existing = await listPilots(currentVa.id);
+                await addPilot(currentVa.id, data.ifc_handle, data.rank, existing.length);
+                e.currentTarget.reset();
+                loadRoster();
+            } catch (err) {
+                alert(err.message || 'Failed.');
+            }
+        });
+
+        document.addEventListener('click', async (e) => {
+            const delPilot = e.target.closest('[data-pilot-del]');
+            if (delPilot) {
+                if (!confirm('Remove this pilot?')) return;
+                await removePilot(delPilot.dataset.pilotDel);
+                loadRoster();
+                return;
+            }
+            const delEvent = e.target.closest('[data-event-del]');
+            if (delEvent) {
+                if (!confirm('Delete this event?')) return;
+                await deleteEvent(delEvent.dataset.eventDel);
+                loadEvents();
+            }
+        });
+
+        const eventForm = document.getElementById('event-form');
+        document.getElementById('new-event-btn').addEventListener('click', () => {
+            eventForm.classList.toggle('hidden');
+        });
+        document.getElementById('event-cancel').addEventListener('click', () => {
+            eventForm.reset();
+            eventForm.classList.add('hidden');
+            document.getElementById('event-msg').textContent = '';
+        });
+
+        eventForm.addEventListener('submit', async (e) => {
+            e.preventDefault();
+            const data = Object.fromEntries(new FormData(e.currentTarget).entries());
+            const msg = document.getElementById('event-msg');
+            try {
+                await createEvent(currentVa.id, {
+                    name: data.name,
+                    start_at: data.start_at ? new Date(data.start_at).toISOString() : null,
+                    end_at: data.end_at ? new Date(data.end_at).toISOString() : null,
+                    server: data.server,
+                    origin_icao: data.origin_icao,
+                    destination_icao: data.destination_icao,
+                    route: data.route,
+                    aircraft: data.aircraft,
+                    livery: data.livery,
+                    briefing: data.briefing,
+                    signup_url: data.signup_url
+                });
+                msg.textContent = currentVa.trusted ? 'Published.' : 'Submitted for review.';
+                msg.className = 'text-sm self-center text-emerald-400';
+                eventForm.reset();
+                eventForm.classList.add('hidden');
+                loadEvents();
+            } catch (err) {
+                msg.textContent = err.message || 'Failed.';
+                msg.className = 'text-sm self-center text-rose-400';
+            }
+        });
+
+        async function boot() {
+            const session = await getSession();
+            if (!session) {
+                authGate.classList.remove('hidden');
+                noVa.classList.add('hidden');
+                dash.classList.add('hidden');
+                return;
+            }
+            authGate.classList.add('hidden');
+            const va = await getVaByCeo();
+            if (!va) {
+                noVa.classList.remove('hidden');
+                dash.classList.add('hidden');
+                return;
+            }
+            noVa.classList.add('hidden');
+            dash.classList.remove('hidden');
+            currentVa = va;
+            renderHeader(va);
+            fillProfileForm(va);
+            await Promise.all([loadRoster(), loadEvents()]);
+        }
+
+        supabase.auth.onAuthStateChange(() => boot());
+        boot();
+    </script>
+</body>
+</html>
