@@ -115,38 +115,62 @@ export const AuthUI = {
             return;
         }
 
-        const { data } = await this._supabase.auth.getSession();
-        
-        if (data?.session?.user && mode !== 'update_password') {
-            
-            // Premium Access Gate: Verify subscription status from the database
-            const { data: profile, error: profileError } = await this._supabase
-                .from('profiles')
-                .select('is_pro')
-                .eq('id', data.session.user.id)
-                .single();
+        let session = null;
+        try {
+            const { data } = await this._withTimeout(
+                this._supabase.auth.getSession(),
+                10000,
+                'Session lookup timed out'
+            );
+            session = data?.session || null;
+        } catch (err) {
+            console.warn('AuthUI.open: getSession failed, falling back to anonymous flow.', err);
+        }
+
+        if (session?.user && mode !== 'update_password') {
+            // Premium Access Gate: Verify subscription status from the database.
+            // maybeSingle() returns null (rather than erroring) when no profile
+            // row exists yet — important for users mid-signup.
+            let profile = null;
+            try {
+                const { data: profileData } = await this._withTimeout(
+                    this._supabase
+                        .from('profiles')
+                        .select('is_pro')
+                        .eq('id', session.user.id)
+                        .maybeSingle(),
+                    10000,
+                    'Profile lookup timed out'
+                );
+                profile = profileData;
+            } catch (err) {
+                console.warn('AuthUI.open: profile lookup failed; assuming active access.', err);
+            }
 
             if (profile && profile.is_pro === false) {
                 // Subscription is inactive, force them to the premium renewal flow
                 this._mode = 'renew';
-                this._tempSignUpData = { 
-                    email: data.session.user.email,
-                    is_renew: true 
+                this._tempSignUpData = {
+                    email: session.user.email,
+                    is_renew: true
                 };
             } else {
-                // Active Pro User -> Launch App
-                import('./profileUI.js').then(module => {
+                // Active Pro User (or unknown profile state) -> Launch App
+                try {
+                    const module = await import('./profileUI.js');
                     if (!module.ProfileUI._supabase) {
                         module.ProfileUI.init(this._supabase);
                     }
-                    module.ProfileUI.open(data.session.user);
-                }).catch(err => console.error("Failed to load ProfileUI:", err));
-                
-                return; 
+                    module.ProfileUI.open(session.user);
+                } catch (err) {
+                    console.error('Failed to load ProfileUI:', err);
+                }
+
+                return;
             }
         } else {
             this._mode = mode;
-            this._tempSignUpData = null; 
+            this._tempSignUpData = null;
         }
         
         if (!document.getElementById('auth-modal-overlay')) {
@@ -445,6 +469,16 @@ export const AuthUI = {
         }
     },
 
+    _withTimeout(promise, ms, message) {
+        let timeoutId;
+        const timeout = new Promise((_, reject) => {
+            timeoutId = setTimeout(() => {
+                reject(new Error(message || 'Request timed out. Please check your connection and try again.'));
+            }, ms);
+        });
+        return Promise.race([promise, timeout]).finally(() => clearTimeout(timeoutId));
+    },
+
     setLoading(buttonId, isLoading, originalText) {
         const btn = document.getElementById(buttonId);
         if (!btn) return;
@@ -662,30 +696,48 @@ export const AuthUI = {
                 
             } else if (this._mode === 'signin') {
                 this.setLoading('auth-submit-btn', true, 'Sign In');
-                
-                const { data, error } = await this._supabase.auth.signInWithPassword({
-                    email: email,
-                    password: password,
-                });
 
-                this.setLoading('auth-submit-btn', false, 'Sign In');
+                let signInError = null;
+                let signedIn = false;
 
-                if (error) {
-                    this.showError(error.message);
-                } else {
-                    const rememberCheckbox = document.getElementById('auth-remember');
-                    if (rememberCheckbox) {
-                        localStorage.setItem('inflight_remember_preference', rememberCheckbox.checked);
-                        if (rememberCheckbox.checked) {
-                            localStorage.setItem('inflight_remembered_email', email);
-                        } else {
-                            localStorage.removeItem('inflight_remembered_email');
-                        }
-                    }
-
-                    this.close();
-                    this.open();
+                try {
+                    const { error } = await this._withTimeout(
+                        this._supabase.auth.signInWithPassword({
+                            email: email,
+                            password: password,
+                        }),
+                        20000,
+                        "Sign-in is taking too long. Please check your connection and try again."
+                    );
+                    signInError = error;
+                    signedIn = !error;
+                } catch (err) {
+                    // signInWithPassword rejected (network error, SDK lock contention,
+                    // timeout, etc.). Surface a helpful message instead of leaving the
+                    // button spinning forever.
+                    console.error('Sign-in failed:', err);
+                    signInError = err;
+                } finally {
+                    this.setLoading('auth-submit-btn', false, 'Sign In');
                 }
+
+                if (!signedIn) {
+                    this.showError(signInError?.message || "Sign-in failed. Please try again.");
+                    return;
+                }
+
+                const rememberCheckbox = document.getElementById('auth-remember');
+                if (rememberCheckbox) {
+                    localStorage.setItem('inflight_remember_preference', rememberCheckbox.checked);
+                    if (rememberCheckbox.checked) {
+                        localStorage.setItem('inflight_remembered_email', email);
+                    } else {
+                        localStorage.removeItem('inflight_remembered_email');
+                    }
+                }
+
+                this.close();
+                this.open();
             }
         });
 
