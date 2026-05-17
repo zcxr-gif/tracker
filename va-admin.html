@@ -145,8 +145,21 @@
     </header>
 
     <main class="va-main">
-        <!-- Signed-out gate -->
-        <div id="auth-gate" class="va-hidden va-gate-wrap">
+        <noscript>
+            <div class="va-gate-wrap">
+                <div class="va-gate-card">
+                    <div class="va-gate-icon"><i class="fa-solid fa-triangle-exclamation"></i></div>
+                    <h2 class="va-gate-title">JavaScript required</h2>
+                    <p class="va-gate-sub">The staff console needs JavaScript enabled to load. Please enable it in your browser settings and reload this page.</p>
+                </div>
+            </div>
+        </noscript>
+
+        <!-- Signed-out gate.
+             Shown by default so the page is never blank, even if the JS
+             module fails to load. boot() hides it once the session is
+             known. -->
+        <div id="auth-gate" class="va-gate-wrap">
             <div class="va-gate-card">
                 <div class="va-gate-icon"><i class="fa-solid fa-shield-halved"></i></div>
                 <h2 class="va-gate-title">Staff console</h2>
@@ -165,6 +178,21 @@
             <div style="text-align:center; color: var(--va-text-2);">
                 <div class="va-spinner va-spinner-light" style="display:inline-block; width:24px; height:24px;"></div>
                 <div style="margin-top: 12px; font-size: 0.9rem;">Loading console…</div>
+            </div>
+        </div>
+
+        <!-- Boot error fallback. Surfaced if boot() throws so the user
+             gets a useful message instead of a blank page. -->
+        <div id="boot-error" class="va-hidden va-gate-wrap">
+            <div class="va-gate-card">
+                <div class="va-gate-icon" style="background: rgba(248,113,113,0.12); color:#fda4a4; border-color: rgba(248,113,113,0.25);"><i class="fa-solid fa-circle-exclamation"></i></div>
+                <h2 class="va-gate-title">Couldn't load the console</h2>
+                <p class="va-gate-sub" id="boot-error-msg">Something went wrong while connecting to InFlight. Check your connection and try again.</p>
+                <div class="va-gate-actions">
+                    <button id="btn-retry" class="va-btn va-btn-primary">
+                        <i class="fa-solid fa-rotate"></i> Retry
+                    </button>
+                </div>
             </div>
         </div>
 
@@ -246,6 +274,8 @@
         const authGate   = document.getElementById('auth-gate');
         const loading    = document.getElementById('loading-state');
         const consoleEl  = document.getElementById('console');
+        const bootError  = document.getElementById('boot-error');
+        const bootErrorMsg = document.getElementById('boot-error-msg');
         const tabApps    = document.getElementById('tab-applications');
         const tabEvents  = document.getElementById('tab-events');
         const tabStaff   = document.getElementById('tab-staff');
@@ -255,9 +285,10 @@
         const statEvents = document.getElementById('stat-events');
 
         document.getElementById('btn-signin').addEventListener('click', () => openAuthModal('signin'));
+        document.getElementById('btn-retry').addEventListener('click', () => boot());
 
         function show(...els) {
-            const all = [authGate, loading, consoleEl];
+            const all = [authGate, loading, consoleEl, bootError];
             all.forEach(el => el.classList.add('va-hidden'));
             els.forEach(el => el.classList.remove('va-hidden'));
         }
@@ -472,16 +503,21 @@
 
         async function boot() {
             show(loading);
-            let session;
-            try { session = await getSession(); }
-            catch (_) { session = null; }
-            if (!session) { show(authGate); return; }
-            let staff = false;
-            try { staff = await isStaff(); }
-            catch (_) { staff = false; }
-            if (!staff) { show(authGate); return; }
-            show(consoleEl);
-            try { await Promise.all([loadApplications(), loadEvents()]); } catch (_) {}
+            try {
+                const session = await getSession();
+                if (!session) { show(authGate); return; }
+                let staff = false;
+                try { staff = await isStaff(); }
+                catch (_) { staff = false; }
+                if (!staff) { show(authGate); return; }
+                show(consoleEl);
+                try { await Promise.all([loadApplications(), loadEvents()]); } catch (_) {}
+            } catch (err) {
+                bootErrorMsg.textContent = err?.message
+                    ? `${err.message}. Check your connection and try again.`
+                    : "Something went wrong while connecting to InFlight. Check your connection and try again.";
+                show(bootError);
+            }
         }
 
         supabase.auth.onAuthStateChange(() => boot());
